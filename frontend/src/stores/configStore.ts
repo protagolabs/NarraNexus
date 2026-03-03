@@ -15,6 +15,7 @@ export interface AgentInfo {
   created_at?: string;
   is_public?: boolean;
   created_by?: string;
+  bootstrap_active?: boolean;
 }
 
 interface ConfigState {
@@ -26,12 +27,17 @@ interface ConfigState {
   agentId: string;
   agents: AgentInfo[];
 
+  // Awareness update tracking (red dot notification)
+  awarenessUpdatedAgents: string[];
+
   // Actions
   login: (userId: string) => void;
   logout: () => void;
   setAgentId: (id: string) => void;
   setAgents: (agents: AgentInfo[]) => void;
   refreshAgents: () => Promise<void>;
+  checkAwarenessUpdate: (agentId: string) => Promise<void>;
+  clearAwarenessUpdate: (agentId: string) => void;
 }
 
 export const useConfigStore = create<ConfigState>()(
@@ -42,6 +48,7 @@ export const useConfigStore = create<ConfigState>()(
       userId: '',
       agentId: '',
       agents: [],
+      awarenessUpdatedAgents: [],
 
       // Actions
       login: (userId) => set({ isLoggedIn: true, userId }),
@@ -51,6 +58,7 @@ export const useConfigStore = create<ConfigState>()(
         userId: '',
         agentId: '',
         agents: [],
+        awarenessUpdatedAgents: [],
       }),
 
       setAgentId: (id) => set({ agentId: id }),
@@ -68,6 +76,31 @@ export const useConfigStore = create<ConfigState>()(
         } catch (err) {
           console.error('Failed to refresh agents:', err);
         }
+      },
+
+      checkAwarenessUpdate: async (agentId: string) => {
+        try {
+          const res = await api.getAwareness(agentId);
+          if (res.success && res.update_time) {
+            const lastSeen = localStorage.getItem(`lastSeenAwarenessTime:${agentId}`);
+            if (!lastSeen || res.update_time > lastSeen) {
+              const current = get().awarenessUpdatedAgents;
+              if (!current.includes(agentId)) {
+                set({ awarenessUpdatedAgents: [...current, agentId] });
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Failed to check awareness update:', err);
+        }
+      },
+
+      clearAwarenessUpdate: (agentId: string) => {
+        // Store current time as last seen
+        localStorage.setItem(`lastSeenAwarenessTime:${agentId}`, new Date().toISOString());
+        set({
+          awarenessUpdatedAgents: get().awarenessUpdatedAgents.filter((id) => id !== agentId),
+        });
       },
     }),
     {

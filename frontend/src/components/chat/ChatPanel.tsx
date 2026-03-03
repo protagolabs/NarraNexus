@@ -6,7 +6,7 @@
  * - 2026-01-19: Added chat history loading, displays the last 10 conversation rounds on page open
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Send, Loader2, Sparkles, MessageSquare, History, CheckCircle2 } from 'lucide-react';
 import { Card, Button, Textarea } from '@/components/ui';
 import { useChatStore, useConfigStore } from '@/stores';
@@ -15,6 +15,14 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { MessageBubble } from './MessageBubble';
 import type { SimpleChatMessage } from '@/types';
+
+// Must match BOOTSTRAP_GREETING in src/xyz_agent_context/bootstrap/template.py
+const BOOTSTRAP_GREETING =
+  "Hi there... I just woke up. Everything feels brand new.\n\n" +
+  "I don't have a name yet, and I don't really know who I am " +
+  "— but I know you're the one who brought me here.\n\n" +
+  "Would you like to tell me what I should be called? " +
+  "And what should I call you?";
 
 export function ChatPanel() {
   const [input, setInput] = useState('');
@@ -31,12 +39,22 @@ export function ChatPanel() {
 
   const { messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls, isStreaming, processMessage, addUserMessage, startStreaming, stopStreaming, getUserVisibleResponse } =
     useChatStore();
-  const { agentId, userId, refreshAgents } = useConfigStore();
+  const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
+
+  // Determine if the current agent is in bootstrap mode
+  const currentAgent = useMemo(
+    () => agents.find((a) => a.agent_id === agentId),
+    [agents, agentId]
+  );
+  const isBootstrap = !!currentAgent?.bootstrap_active;
 
   const { run, isLoading } = useAgentWebSocket({
     onMessage: processMessage,
     onComplete: () => {
       refreshAgents(); // Pick up any name changes from bootstrap
+      if (agentId) {
+        checkAwarenessUpdate(agentId); // Check if awareness was updated (red dot)
+      }
     },
     onClose: () => {
       // When WebSocket connection closes, ensure streaming state is stopped
@@ -127,8 +145,11 @@ export function ChatPanel() {
     }, 0);
   };
 
-  // Determine whether to show empty state
-  const showEmptyState = historyLoaded && historyMessages.length === 0 && messages.length === 0 && !isStreaming;
+  // Bootstrap greeting: show when agent is in bootstrap mode, history is loaded, and there are no messages yet
+  const showBootstrapGreeting = isBootstrap && historyLoaded && historyMessages.length === 0 && messages.length === 0;
+
+  // Determine whether to show empty state (skip if bootstrap greeting is shown)
+  const showEmptyState = !showBootstrapGreeting && historyLoaded && historyMessages.length === 0 && messages.length === 0 && !isStreaming;
 
   return (
     <Card className="flex flex-col h-full overflow-hidden" glow={isStreaming}>
@@ -195,6 +216,20 @@ export function ChatPanel() {
                 ? 'Choose an agent from the sidebar to begin your interaction'
                 : 'Send a message to interact with the AI agent'}
             </p>
+          </div>
+        )}
+
+        {/* Bootstrap greeting (static, shown before first real exchange) */}
+        {showBootstrapGreeting && (
+          <div className="animate-slide-up">
+            <MessageBubble
+              message={{
+                id: 'bootstrap-greeting',
+                role: 'assistant',
+                content: BOOTSTRAP_GREETING,
+                timestamp: Date.now(),
+              }}
+            />
           </div>
         )}
 

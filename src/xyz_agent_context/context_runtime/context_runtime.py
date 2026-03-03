@@ -421,13 +421,9 @@ class ContextRuntime:
                     "Bootstrap.md"
                 )
                 if os.path.isfile(bootstrap_path):
-                    with open(bootstrap_path, "r", encoding="utf-8") as f:
-                        bootstrap_content = f.read()
-                    bootstrap_section = BOOTSTRAP_INJECTION_PROMPT.format(
-                        bootstrap_content=bootstrap_content
-                    )
-                    prompt_parts.append(bootstrap_section)
-                    logger.debug(f"        Added Bootstrap injection: {len(bootstrap_section)} chars")
+                    prompt_parts.append(BOOTSTRAP_INJECTION_PROMPT)
+                    ctx_data.bootstrap_active = True
+                    logger.debug("        Added Bootstrap injection (file-read approach)")
         except Exception as e:
             logger.warning(f"        Failed to inject Bootstrap: {e}")
 

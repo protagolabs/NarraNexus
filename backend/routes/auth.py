@@ -37,6 +37,7 @@ from xyz_agent_context.schema import (
     UpdateTimezoneResponse,
 )
 from xyz_agent_context.utils import is_valid_timezone
+from xyz_agent_context.settings import settings as app_settings
 
 
 router = APIRouter()
@@ -115,6 +116,16 @@ async def get_agents(
         agents = []
         for row in rows:
             description = row.get('agent_description')
+            # Check if Bootstrap.md exists for this agent (first-run setup pending)
+            bootstrap_active = False
+            created_by = row.get('created_by')
+            if created_by:
+                bootstrap_path = os.path.join(
+                    app_settings.base_working_path,
+                    f"{row['agent_id']}_{created_by}",
+                    "Bootstrap.md"
+                )
+                bootstrap_active = os.path.isfile(bootstrap_path)
             agent_info = AgentInfo(
                 agent_id=row['agent_id'],
                 name=row.get('agent_name') or row['agent_id'],
@@ -122,7 +133,8 @@ async def get_agents(
                 status='active',
                 created_at=format_for_api(row.get('agent_create_time')),
                 is_public=bool(row.get('is_public', 0)),
-                created_by=row.get('created_by'),
+                created_by=created_by,
+                bootstrap_active=bootstrap_active,
             )
             agents.append(agent_info)
 
@@ -208,6 +220,7 @@ async def create_agent(request: CreateAgentRequest):
             name=agent_name,
             description=agent_description,
             status='active',
+            bootstrap_active=True,
         )
 
         return CreateAgentResponse(

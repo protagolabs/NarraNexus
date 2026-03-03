@@ -55,6 +55,7 @@ export interface AgentInfo {
   created_at?: string;
   is_public?: boolean;
   created_by?: string;
+  bootstrap_active?: boolean;
 }
 
 export interface AgentListResponse {

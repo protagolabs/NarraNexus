@@ -4,7 +4,7 @@
  * Enhanced with Control Center Dashboard design
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { RefreshCw, Brain, User, Tag, Clock, Users, ChevronDown, ChevronRight, Mail, Phone, Building, Sparkles, Activity, Edit3, Save, X, MessageSquare, Network, TrendingUp, Briefcase, Search, UserCircle, Star, Loader2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input } from '@/components/ui';
 import { usePreloadStore, useConfigStore } from '@/stores';
@@ -311,7 +311,15 @@ export function AwarenessPanel() {
     refreshSocialNetwork,
   } = usePreloadStore();
 
-  const { agentId, userId } = useConfigStore();
+  const { agentId, userId, clearAwarenessUpdate } = useConfigStore();
+
+  // Clear the red dot notification when the awareness tab is opened (component mounts)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (agentId) {
+      clearAwarenessUpdate(agentId);
+    }
+  }, [agentId]);
 
   const handleRefresh = async () => {
     await Promise.all([

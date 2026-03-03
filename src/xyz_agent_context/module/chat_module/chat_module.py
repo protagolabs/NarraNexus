@@ -50,6 +50,7 @@ from xyz_agent_context.schema.agent_message_schema import MessageSourceType
 
 # Prompts
 from xyz_agent_context.module.chat_module.prompts import CHAT_MODULE_INSTRUCTIONS
+from xyz_agent_context.bootstrap.template import BOOTSTRAP_GREETING
 
 
 class ChatModule(XYZBaseModule):
@@ -786,6 +787,21 @@ class ChatModule(XYZBaseModule):
         # Get existing history (using instance_id)
         existing_memory = await self.event_memory_module.search_instance_json_format_memory(module_name, instance_id)
         messages = existing_memory.get("messages", []) if existing_memory else []
+
+        # Bootstrap greeting injection: if this is the first turn and bootstrap is active,
+        # prepend the static greeting as the first assistant message so DB history starts with it.
+        if len(messages) == 0 and getattr(params.ctx_data, 'bootstrap_active', False):
+            messages.append({
+                "role": "assistant",
+                "content": BOOTSTRAP_GREETING,
+                "meta_data": {
+                    "event_id": params.event_id,
+                    "timestamp": utc_now().isoformat(),
+                    "instance_id": instance_id,
+                    "bootstrap": True,
+                }
+            })
+            logger.debug("ChatModule: Prepended bootstrap greeting as first assistant message")
 
         # Append this conversation
         # Get working_source (execution source: chat/job/a2a)
