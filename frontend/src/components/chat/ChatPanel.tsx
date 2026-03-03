@@ -103,6 +103,23 @@ export function ChatPanel() {
 
     const content = input.trim();
     setInput('');
+
+    // If bootstrap greeting is showing, inject it into the message stream
+    // so it persists visually after the user sends their first message
+    if (showBootstrapGreeting) {
+      useChatStore.setState((state) => ({
+        messages: [
+          {
+            id: 'bootstrap-greeting',
+            role: 'assistant' as const,
+            content: BOOTSTRAP_GREETING,
+            timestamp: Date.now() - 1,
+          },
+          ...state.messages,
+        ],
+      }));
+    }
+
     addUserMessage(content);
     startStreaming();
 
