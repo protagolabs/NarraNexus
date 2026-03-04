@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # ============================================================================
-# NarraNexus 桌面应用一键打包脚本
+# NarraNexus Desktop App Build Script
 #
-# 用法：
-#   bash build-desktop.sh          # 自动检测平台打包
-#   bash build-desktop.sh mac      # 打包 macOS DMG
-#   bash build-desktop.sh linux    # 打包 Linux AppImage/deb
-#   bash build-desktop.sh all      # 打包所有平台（需在 Mac 上执行）
+# Usage:
+#   bash build-desktop.sh          # Auto-detect platform
+#   bash build-desktop.sh mac      # Build macOS DMG
+#   bash build-desktop.sh linux    # Build Linux AppImage/deb
+#   bash build-desktop.sh all      # Build all platforms (must run on Mac)
 #
-# 产物位置：desktop/dist/
+# Output: desktop/dist/
 # ============================================================================
 
 set -euo pipefail
@@ -16,7 +16,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 DESKTOP_DIR="${PROJECT_ROOT}/desktop"
 
-# 颜色
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -28,45 +28,45 @@ ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $1"; exit 1; }
 
-# ─── 前置检查 ───────────────────────────────────────
+# ─── Prerequisites ─────────────────────────────────
 
 check_prerequisites() {
-  info "检查前置依赖..."
+  info "Checking prerequisites..."
 
   if ! command -v node &>/dev/null; then
-    fail "未找到 Node.js，请先安装 Node.js >= 20"
+    fail "Node.js not found. Please install Node.js >= 20"
   fi
 
   NODE_MAJOR=$(node -v | sed 's/v//' | cut -d. -f1)
   if [ "$NODE_MAJOR" -lt 20 ]; then
-    fail "Node.js 版本过低 ($(node -v))，需要 >= 20"
+    fail "Node.js version too old ($(node -v)), requires >= 20"
   fi
 
   if ! command -v npm &>/dev/null; then
-    fail "未找到 npm"
+    fail "npm not found"
   fi
 
   ok "Node.js $(node -v) / npm $(npm -v)"
 }
 
-# ─── 安装依赖 ───────────────────────────────────────
+# ─── Install Dependencies ──────────────────────────
 
 install_deps() {
-  info "安装 desktop 依赖..."
+  info "Installing desktop dependencies..."
   cd "$DESKTOP_DIR"
 
   if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules/.package-lock.json" ]; then
     npm install --no-audit --no-fund
-    ok "依赖安装完成"
+    ok "Dependencies installed"
   else
-    ok "依赖已是最新"
+    ok "Dependencies up to date"
   fi
 }
 
-# ─── 构建前端 ───────────────────────────────────────
+# ─── Build Frontend ────────────────────────────────
 
 build_frontend() {
-  info "构建项目前端 (frontend/)..."
+  info "Building project frontend (frontend/)..."
   cd "$PROJECT_ROOT/frontend"
 
   if [ ! -d "node_modules" ]; then
@@ -74,19 +74,19 @@ build_frontend() {
   fi
 
   npm run build
-  ok "前端构建完成 → frontend/dist/"
+  ok "Frontend built -> frontend/dist/"
 }
 
-# ─── 编译 Electron ──────────────────────────────────
+# ─── Compile Electron ──────────────────────────────
 
 compile_electron() {
-  info "编译 Electron 源码..."
+  info "Compiling Electron source..."
   cd "$DESKTOP_DIR"
   npx electron-vite build
-  ok "Electron 编译完成 → desktop/out/"
+  ok "Electron compiled -> desktop/out/"
 }
 
-# ─── 打包 ───────────────────────────────────────────
+# ─── Package ───────────────────────────────────────
 
 package_app() {
   local target="$1"
@@ -94,62 +94,61 @@ package_app() {
 
   case "$target" in
     mac)
-      info "打包 macOS DMG..."
+      info "Packaging macOS DMG..."
       npx electron-builder --mac
       ;;
     linux)
-      info "打包 Linux AppImage/deb..."
+      info "Packaging Linux AppImage/deb..."
       npx electron-builder --linux
       ;;
     all)
-      info "打包所有平台..."
+      info "Packaging all platforms..."
       npx electron-builder --mac --linux
       ;;
     *)
-      fail "未知的打包目标: $target"
+      fail "Unknown build target: $target"
       ;;
   esac
 
-  ok "打包完成！"
+  ok "Packaging complete!"
   echo ""
-  info "产物位置："
+  info "Output:"
   ls -lh "$DESKTOP_DIR/dist/"*.{dmg,AppImage,deb,snap} 2>/dev/null || true
   echo ""
 }
 
-# ─── 清理旧产物 ─────────────────────────────────────
+# ─── Clean ─────────────────────────────────────────
 
 clean() {
-  info "清理旧的打包产物..."
+  info "Cleaning old build artifacts..."
   rm -rf "$DESKTOP_DIR/dist" "$DESKTOP_DIR/out"
-  ok "清理完成"
+  ok "Clean complete"
 }
 
-# ─── 自动检测平台 ───────────────────────────────────
+# ─── Detect Platform ──────────────────────────────
 
 detect_platform() {
   case "$(uname -s)" in
     Darwin) echo "mac" ;;
     Linux)  echo "linux" ;;
-    *)      fail "不支持的操作系统: $(uname -s)" ;;
+    *)      fail "Unsupported OS: $(uname -s)" ;;
   esac
 }
 
-# ─── 主流程 ─────────────────────────────────────────
+# ─── Main ──────────────────────────────────────────
 
 main() {
   local target="${1:-}"
 
   echo ""
   echo "============================================"
-  echo "  NarraNexus 桌面应用打包"
+  echo "  NarraNexus Desktop App Build"
   echo "============================================"
   echo ""
 
-  # 确定打包目标
   if [ -z "$target" ]; then
     target=$(detect_platform)
-    info "自动检测平台: $target"
+    info "Auto-detected platform: $target"
   fi
 
   check_prerequisites
@@ -160,7 +159,7 @@ main() {
   package_app "$target"
 
   echo "============================================"
-  ok "全部完成！将 dist/ 中的安装包发给用户即可。"
+  ok "All done! Distribute the installer from dist/"
   echo "============================================"
 }
 
