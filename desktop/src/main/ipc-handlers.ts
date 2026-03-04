@@ -17,6 +17,7 @@ import * as dockerManager from './docker-manager'
 import { ProcessManager } from './process-manager'
 import { HealthMonitor } from './health-monitor'
 import { runPreflight } from './preflight-runner'
+import { isEverMemOSAvailable } from './docker-manager'
 import { InstallerRegistry } from './installer-registry'
 import { ServiceLauncher } from './service-launcher'
 import { execFile } from 'child_process'
@@ -161,6 +162,16 @@ export function registerIpcHandlers(
   // Push launch step updates in real-time
   serviceLauncher.on('launch-step', (step) => {
     mainWindow.webContents.send(IPC.ON_LAUNCH_STEP, step)
+  })
+
+  // ─── EverMemOS Lifecycle ─────────────────────────────────────
+
+  ipcMain.handle(IPC.LAUNCH_EVERMEMOS, async () => {
+    return serviceLauncher.launchEverMemOS()
+  })
+
+  ipcMain.handle(IPC.IS_EVERMEMOS_INSTALLED, () => {
+    return isEverMemOSAvailable()
   })
 
   // ─── Claude Code Authentication ─────────────────────────────

@@ -470,4 +470,54 @@ export class ServiceLauncher extends EventEmitter {
       return { success: false, error: message }
     }
   }
+
+  /**
+   * Launch EverMemOS independently (called from config/done phase after user fills API keys).
+   * 1. Start EverMemOS docker containers
+   * 2. Wait for infrastructure ports (MongoDB/ES/Milvus/Redis)
+   * 3. Restart services with skipEverMemOS=false
+   */
+  async launchEverMemOS(): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log('[launcher] ========== LAUNCH EVERMEMOS ==========')
+
+      // 1. Start EverMemOS docker containers
+      if (!isEverMemOSAvailable()) {
+        return { success: false, error: 'EverMemOS is not installed' }
+      }
+      const emResult = await startEverMemOS()
+      if (!emResult.success) {
+        console.error('[launcher] EverMemOS containers failed:', emResult.output)
+        return { success: false, error: emResult.output }
+      }
+      console.log('[launcher] EverMemOS containers started')
+
+      // 2. Wait for infrastructure ports
+      for (const { port, name } of EM_INFRA_PORTS) {
+        let ready = false
+        for (let i = 0; i < 180; i++) {
+          if (await isPortReachable(port)) { ready = true; break }
+          if (i % 10 === 9) {
+            console.log(`[launcher] Waiting for ${name}:${port}... (${i + 1}s)`)
+          }
+          await delay(1000)
+        }
+        if (!ready) {
+          console.error(`[launcher] ${name}:${port} timeout after 180s`)
+          return { success: false, error: `${name}:${port} timeout after 180s` }
+        }
+        console.log(`[launcher] ${name}:${port} ready`)
+      }
+
+      // 3. Restart services to load EverMemOS
+      console.log('[launcher] Restarting services with EverMemOS enabled...')
+      await this.processManager.startAll({ skipEverMemOS: false })
+      console.log('[launcher] ========== EVERMEMOS LAUNCH COMPLETED ==========')
+      return { success: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[launcher] EverMemOS launch failed: ${message}`)
+      return { success: false, error: message }
+    }
+  }
 }

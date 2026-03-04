@@ -49,6 +49,10 @@ export interface NexusAPI {
   onInstallerUpdate: (callback: (state: unknown) => void) => () => void
   onLaunchStep: (callback: (step: unknown) => void) => () => void
 
+  // EverMemOS lifecycle
+  launchEverMemOS: () => Promise<{ success: boolean; error?: string }>
+  isEverMemOSInstalled: () => Promise<boolean>
+
   // Claude Code authentication
   getClaudeAuthInfo: () => Promise<unknown>
   startClaudeLogin: () => Promise<unknown>
@@ -117,6 +121,10 @@ const nexusAPI: NexusAPI = {
     ipcRenderer.on(IPC.ON_LAUNCH_STEP, handler)
     return () => ipcRenderer.removeListener(IPC.ON_LAUNCH_STEP, handler)
   },
+
+  // ─── EverMemOS Lifecycle ─────────────────────────────────────
+  launchEverMemOS: () => ipcRenderer.invoke(IPC.LAUNCH_EVERMEMOS),
+  isEverMemOSInstalled: () => ipcRenderer.invoke(IPC.IS_EVERMEMOS_INSTALLED),
 
   // ─── Claude Code Authentication ─────────────────────────────
   getClaudeAuthInfo: () => ipcRenderer.invoke(IPC.CLAUDE_AUTH_INFO),

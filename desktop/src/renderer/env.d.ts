@@ -90,6 +90,10 @@ interface NexusAPI {
   onInstallerUpdate: (callback: (state: InstallerState) => void) => () => void
   onLaunchStep: (callback: (step: LaunchStep) => void) => () => void
 
+  // EverMemOS lifecycle
+  launchEverMemOS: () => Promise<{ success: boolean; error?: string }>
+  isEverMemOSInstalled: () => Promise<boolean>
+
   // Claude Code authentication
   getClaudeAuthInfo: () => Promise<ClaudeAuthInfo>
   startClaudeLogin: () => Promise<LoginProcessStatus>

@@ -1,11 +1,14 @@
 /**
  * @file SetupWizard.tsx
- * @description Three-phase setup wizard: Config → Preflight → Install → Launch
+ * @description Four-phase setup wizard: Preflight → Install → Launch → Config
  *
  * Phase flow:
- *   config → [click "Start"] → preflight → [allReady] → launch
- *                                         → [missing]  → install → [done] → launch
- *                                                                 → launch → [success] → done
+ *   preflight → [allReady] → launch (if no EverMemOS install needed)
+ *              → [missing]  → install → [done] → launch
+ *   launch → [success] → config → [finish] → done
+ *
+ * Config is the last step — user fills API Keys and EverMemOS config after
+ * the core environment is already running.
  */
 
 import React, { useEffect, useState, useCallback } from 'react'
@@ -18,7 +21,7 @@ interface SetupWizardProps {
   onComplete: () => void
 }
 
-type SetupPhase = 'config' | 'preflight' | 'install' | 'launch'
+type SetupPhase = 'preflight' | 'install' | 'launch' | 'config'
 
 /** External link mapping */
 const KEY_LINKS: Record<string, { label: string; url: string }> = {
@@ -52,22 +55,26 @@ const EM_GROUP_LABELS: Record<string, string> = {
 
 /** Phase labels for the step indicator */
 const PHASE_LABELS: { phase: SetupPhase; label: string }[] = [
-  { phase: 'config', label: 'Configure' },
   { phase: 'preflight', label: 'Check' },
   { phase: 'install', label: 'Install' },
-  { phase: 'launch', label: 'Launch' }
+  { phase: 'launch', label: 'Launch' },
+  { phase: 'config', label: 'Configure' }
 ]
 
 const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
-  const [phase, setPhase] = useState<SetupPhase>('config')
+  const [phase, setPhase] = useState<SetupPhase>('preflight')
 
-  // Config state
+  // EverMemOS install toggle (set during preflight)
+  const [installEverMemOS, setInstallEverMemOS] = useState(true)
+
+  // Config state (loaded early, used in config phase)
   const [fields, setFields] = useState<EnvField[]>([])
   const [values, setValues] = useState<Record<string, string>>({})
   const [emFields, setEmFields] = useState<EverMemOSEnvField[]>([])
   const [emValues, setEmValues] = useState<Record<string, string>>({})
   const [emAdvancedOpen, setEmAdvancedOpen] = useState(false)
   const [emMode, setEmMode] = useState<'netmind' | 'custom'>('netmind')
+  const [everMemOSInstalled, setEverMemOSInstalled] = useState(false)
 
   // Claude Code authentication state
   const [claudeAuth, setClaudeAuth] = useState<ClaudeAuthInfo | null>(null)
@@ -82,7 +89,10 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   // Install state
   const [missingIds, setMissingIds] = useState<string[]>([])
 
-  // Load .env and EverMemOS config
+  // Config finishing state
+  const [finishing, setFinishing] = useState(false)
+
+  // Load .env, EverMemOS config, and Claude auth on mount (needed later for config phase)
   useEffect(() => {
     window.nexus.getEnv().then(({ config, fields: f }) => {
       setFields(f)
@@ -92,10 +102,6 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
       setEmFields(f)
       setEmValues(config)
     })
-  }, [])
-
-  // Load Claude Code auth status
-  useEffect(() => {
     window.nexus.getClaudeAuthInfo().then(setClaudeAuth)
   }, [])
 
@@ -110,11 +116,13 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
     return unsub
   }, [])
 
+  // Auto-start preflight on mount
+  useEffect(() => {
+    runPreflight()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Compute derived state
   const PLACEHOLDER_VALUES = ['sk-or-v1-xxxx', 'xxxxx']
-  const requiredFilled = fields
-    .filter((f) => f.required)
-    .every((f) => values[f.key]?.trim())
 
   const emConfigured = emMode === 'netmind'
     ? !!values['NETMIND_API_KEY']?.trim()
@@ -122,12 +130,12 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
         const v = emValues[f.key]?.trim()
         return v && !PLACEHOLDER_VALUES.includes(v)
       })
+
   // Docker gets ~50% of system RAM (same formula as Colima allocation, capped 2-12GB)
   const dockerMemoryGb = preflightResult
     ? Math.max(2, Math.min(12, Math.floor(preflightResult.systemInfo.totalMemoryGb / 2)))
     : 0
   const lowMemory = preflightResult ? dockerMemoryGb < 6 : false
-  const skipEverMemOS = !emConfigured || lowMemory
 
   const buildFinalEmValues = (): Record<string, string> => {
     if (emMode === 'netmind') {
@@ -142,20 +150,14 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   }
 
   // Phase transitions
-  const handleStartSetup = async () => {
-    // Save config first
-    await window.nexus.setEnv(values)
-    await window.nexus.setEverMemOSEnv(buildFinalEmValues())
-    // Move to preflight
-    setPhase('preflight')
-    runPreflight()
-  }
-
   const runPreflight = useCallback(async () => {
     setChecking(true)
     try {
       const result = await window.nexus.runPreflight() as PreflightResult
       setPreflightResult(result)
+      // Auto-disable EverMemOS toggle if low memory
+      const mem = Math.max(2, Math.min(12, Math.floor(result.systemInfo.totalMemoryGb / 2)))
+      if (mem < 6) setInstallEverMemOS(false)
     } catch (err) {
       console.error('Preflight failed:', err)
     }
@@ -163,28 +165,29 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   }, [])
 
   const handleProceedToInstall = (ids: string[]) => {
-    // Map preflight item IDs to installer IDs
-    // Preflight items: docker, uv, node, claude, python
-    // Installer items: docker, uv, claude, python-deps, evermemos-clone, evermemos-deps, frontend-build
     const installerIds: string[] = []
     if (ids.includes('docker')) installerIds.push('docker')
     if (ids.includes('uv')) installerIds.push('uv')
     if (ids.includes('claude')) installerIds.push('claude')
-    // Always include python-deps and frontend-build if uv is needed or python is missing
     if (ids.includes('uv') || ids.includes('python')) installerIds.push('python-deps')
-    // Always try to build frontend and install python-deps
     installerIds.push('python-deps', 'frontend-build')
-    if (!skipEverMemOS) {
+    if (installEverMemOS) {
       installerIds.push('evermemos-clone', 'evermemos-deps')
     }
-    // Deduplicate
     const unique = [...new Set(installerIds)]
     setMissingIds(unique)
     setPhase('install')
   }
 
   const handleProceedToLaunch = () => {
-    setPhase('launch')
+    // If allReady but user wants EverMemOS, go through install for EverMemOS components
+    if (installEverMemOS) {
+      const installerIds = ['python-deps', 'frontend-build', 'evermemos-clone', 'evermemos-deps']
+      setMissingIds(installerIds)
+      setPhase('install')
+    } else {
+      setPhase('launch')
+    }
   }
 
   const handleInstallComplete = () => {
@@ -192,8 +195,32 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   }
 
   const handleLaunchComplete = async () => {
-    await window.nexus.setSetupComplete()
-    onComplete()
+    // Check if EverMemOS was installed (for showing config section)
+    const installed = await window.nexus.isEverMemOSInstalled()
+    setEverMemOSInstalled(installed)
+    // Refresh Claude auth (CLI might have been installed during install phase)
+    window.nexus.getClaudeAuthInfo().then(setClaudeAuth)
+    setPhase('config')
+  }
+
+  const handleConfigComplete = async () => {
+    setFinishing(true)
+    try {
+      // Save .env
+      await window.nexus.setEnv(values)
+      // Save EverMemOS env
+      await window.nexus.setEverMemOSEnv(buildFinalEmValues())
+      // If EverMemOS is installed AND configured, launch it now
+      if (everMemOSInstalled && emConfigured && !lowMemory) {
+        await window.nexus.launchEverMemOS()
+      }
+      // Mark setup as complete
+      await window.nexus.setSetupComplete()
+      onComplete()
+    } catch (err) {
+      console.error('Config complete failed:', err)
+    }
+    setFinishing(false)
   }
 
   // Field groups
@@ -236,6 +263,48 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
 
       {/* Content area */}
       <div className="flex-1 overflow-y-auto px-8 pb-6">
+        {/* ─── Phase: Preflight ─────────────────────────── */}
+        {phase === 'preflight' && (
+          <>
+            {preflightResult ? (
+              <PreflightView
+                result={preflightResult}
+                onProceedToInstall={handleProceedToInstall}
+                onProceedToLaunch={handleProceedToLaunch}
+                onRecheck={runPreflight}
+                checking={checking}
+                installEverMemOS={installEverMemOS}
+                onToggleEverMemOS={setInstallEverMemOS}
+                lowMemory={lowMemory}
+                dockerMemoryGb={dockerMemoryGb}
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-3 py-12">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm text-gray-500">Checking environment...</p>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ─── Phase: Install ─────────────────────────── */}
+        {phase === 'install' && (
+          <GuidedInstallView
+            missingIds={missingIds}
+            onComplete={handleInstallComplete}
+            onBack={() => setPhase('preflight')}
+          />
+        )}
+
+        {/* ─── Phase: Launch ─────────────────────────── */}
+        {phase === 'launch' && (
+          <ServiceLaunchView
+            skipEverMemOS={true}
+            onComplete={handleLaunchComplete}
+            onRetry={() => {}}
+          />
+        )}
+
         {/* ─── Phase: Config ─────────────────────────── */}
         {phase === 'config' && (
           <>
@@ -445,227 +514,182 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
               </div>
             </div>
 
-            {/* EverMemOS configuration */}
-            <>
-              <div className="my-5 border-t border-gray-200" />
-              <div>
-                <h2 className="text-sm font-semibold text-gray-700 mb-3">
-                  EverMemOS Memory System
-                </h2>
+            {/* EverMemOS configuration — only show if installed */}
+            {everMemOSInstalled && (
+              <>
+                <div className="my-5 border-t border-gray-200" />
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-700 mb-3">
+                    EverMemOS Memory System
+                  </h2>
 
-                {lowMemory && (
-                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <p className="text-xs text-red-700 font-medium">
-                      Docker memory too low: {dockerMemoryGb}GB allocated (system {preflightResult?.systemInfo.totalMemoryGb ?? '?'}GB), EverMemOS requires at least 6GB.
-                      EverMemOS will be disabled. The core Agent will still work without memory features.
-                    </p>
+                  {lowMemory && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-xs text-red-700 font-medium">
+                        Docker memory too low: {dockerMemoryGb}GB allocated (system {preflightResult?.systemInfo.totalMemoryGb ?? '?'}GB), EverMemOS requires at least 6GB.
+                        EverMemOS will be disabled. The core Agent will still work without memory features.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-4 mb-4">
+                    <label className="titlebar-no-drag flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="emMode"
+                        checked={emMode === 'netmind'}
+                        onChange={() => setEmMode('netmind')}
+                        className="accent-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">NetMind.AI Power</span>
+                    </label>
+                    <label className="titlebar-no-drag flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="emMode"
+                        checked={emMode === 'custom'}
+                        onChange={() => setEmMode('custom')}
+                        className="accent-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Custom Configuration</span>
+                    </label>
                   </div>
-                )}
 
-                <div className="flex gap-4 mb-4">
-                  <label className="titlebar-no-drag flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="emMode"
-                      checked={emMode === 'netmind'}
-                      onChange={() => setEmMode('netmind')}
-                      className="accent-blue-500"
-                    />
-                    <span className="text-sm font-medium text-gray-700">NetMind.AI Power</span>
-                  </label>
-                  <label className="titlebar-no-drag flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="emMode"
-                      checked={emMode === 'custom'}
-                      onChange={() => setEmMode('custom')}
-                      className="accent-blue-500"
-                    />
-                    <span className="text-sm font-medium text-gray-700">Custom Configuration</span>
-                  </label>
-                </div>
-
-                {emMode === 'netmind' && (
-                  <>
-                    {skipEverMemOS ? (
-                      <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                        <p className="text-xs text-amber-700">
-                          NetMind API Key is not configured above. Fill it in to enable EverMemOS memory features.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                        <p className="text-xs text-green-700">
-                          Will use the NetMind API Key above to power: LLM (DeepSeek-V3.2), Embedding (bge-m3). Rerank disabled. No extra configuration needed.
-                        </p>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {emMode === 'custom' && (
-                  <>
-                    {skipEverMemOS && (
-                      <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                        <p className="text-xs text-amber-700">
-                          LLM API Key is not configured. EverMemOS will not be cloned, its dependencies will not be installed, and the memory system will not start.
-                          To enable memory features, fill in the LLM API Key below.
-                        </p>
-                      </div>
-                    )}
-
-                    {(['llm', 'vectorize', 'rerank', 'other'] as const).map((group) => {
-                      const groupFields = emFields
-                        .filter((f) => f.group === group)
-                        .sort((a, b) => a.order - b.order)
-                      if (groupFields.length === 0) return null
-
-                      return (
-                        <div key={group} className="mb-4">
-                          <p className="text-xs font-medium text-gray-500 mb-2">
-                            {EM_GROUP_LABELS[group]}
+                  {emMode === 'netmind' && (
+                    <>
+                      {!emConfigured ? (
+                        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="text-xs text-amber-700">
+                            NetMind API Key is not configured above. Fill it in to enable EverMemOS memory features.
                           </p>
-                          <div className="space-y-2">
-                            {groupFields.map((field) => (
-                              <div key={field.key}>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">
-                                  {field.label}
-                                  {field.required && <span className="text-red-500 ml-0.5">*</span>}
-                                </label>
-                                <div className="flex gap-2">
-                                  {field.inputType === 'select' ? (
-                                    <select
-                                      value={emValues[field.key] || ''}
-                                      onChange={(e) => setEmValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                                      className="titlebar-no-drag flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white"
-                                    >
-                                      <option value="">{field.placeholder}</option>
-                                      {field.options?.map((opt) => (
-                                        <option key={opt} value={opt}>{opt}</option>
-                                      ))}
-                                    </select>
-                                  ) : (
+                        </div>
+                      ) : (
+                        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                          <p className="text-xs text-green-700">
+                            Will use the NetMind API Key above to power: LLM (DeepSeek-V3.2), Embedding (bge-m3). Rerank disabled. No extra configuration needed.
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {emMode === 'custom' && (
+                    <>
+                      {(['llm', 'vectorize', 'rerank', 'other'] as const).map((group) => {
+                        const groupFields = emFields
+                          .filter((f) => f.group === group)
+                          .sort((a, b) => a.order - b.order)
+                        if (groupFields.length === 0) return null
+
+                        return (
+                          <div key={group} className="mb-4">
+                            <p className="text-xs font-medium text-gray-500 mb-2">
+                              {EM_GROUP_LABELS[group]}
+                            </p>
+                            <div className="space-y-2">
+                              {groupFields.map((field) => (
+                                <div key={field.key}>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                                    {field.label}
+                                    {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                                  </label>
+                                  <div className="flex gap-2">
+                                    {field.inputType === 'select' ? (
+                                      <select
+                                        value={emValues[field.key] || ''}
+                                        onChange={(e) => setEmValues((v) => ({ ...v, [field.key]: e.target.value }))}
+                                        className="titlebar-no-drag flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white"
+                                      >
+                                        <option value="">{field.placeholder}</option>
+                                        {field.options?.map((opt) => (
+                                          <option key={opt} value={opt}>{opt}</option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <input
+                                        type={field.inputType}
+                                        value={emValues[field.key] || ''}
+                                        onChange={(e) => setEmValues((v) => ({ ...v, [field.key]: e.target.value }))}
+                                        placeholder={field.placeholder}
+                                        className="titlebar-no-drag flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                                      />
+                                    )}
+                                    {KEY_LINKS[field.key] && (
+                                      <button
+                                        onClick={() => window.nexus.openExternal(KEY_LINKS[field.key].url)}
+                                        className="titlebar-no-drag px-3 py-1.5 text-xs text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 whitespace-nowrap transition-colors"
+                                      >
+                                        {KEY_LINKS[field.key].label}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      {(() => {
+                        const infraFields = emFields
+                          .filter((f) => f.group === 'infrastructure')
+                          .sort((a, b) => a.order - b.order)
+                        if (infraFields.length === 0) return null
+
+                        return (
+                          <div className="mb-4">
+                            <button
+                              onClick={() => setEmAdvancedOpen((v) => !v)}
+                              className="titlebar-no-drag flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors mb-2"
+                            >
+                              <span className={`inline-block transition-transform ${emAdvancedOpen ? 'rotate-90' : ''}`}>
+                                &#9654;
+                              </span>
+                              {EM_GROUP_LABELS.infrastructure}
+                            </button>
+                            {emAdvancedOpen && (
+                              <div className="grid grid-cols-2 gap-2">
+                                {infraFields.map((field) => (
+                                  <div key={field.key}>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                                      {field.label}
+                                    </label>
                                     <input
                                       type={field.inputType}
                                       value={emValues[field.key] || ''}
                                       onChange={(e) => setEmValues((v) => ({ ...v, [field.key]: e.target.value }))}
                                       placeholder={field.placeholder}
-                                      className="titlebar-no-drag flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                                      className="titlebar-no-drag w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                                     />
-                                  )}
-                                  {KEY_LINKS[field.key] && (
-                                    <button
-                                      onClick={() => window.nexus.openExternal(KEY_LINKS[field.key].url)}
-                                      className="titlebar-no-drag px-3 py-1.5 text-xs text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 whitespace-nowrap transition-colors"
-                                    >
-                                      {KEY_LINKS[field.key].label}
-                                    </button>
-                                  )}
-                                </div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            )}
                           </div>
-                        </div>
-                      )
-                    })}
+                        )
+                      })()}
+                    </>
+                  )}
+                </div>
+              </>
+            )}
 
-                    {(() => {
-                      const infraFields = emFields
-                        .filter((f) => f.group === 'infrastructure')
-                        .sort((a, b) => a.order - b.order)
-                      if (infraFields.length === 0) return null
-
-                      return (
-                        <div className="mb-4">
-                          <button
-                            onClick={() => setEmAdvancedOpen((v) => !v)}
-                            className="titlebar-no-drag flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors mb-2"
-                          >
-                            <span className={`inline-block transition-transform ${emAdvancedOpen ? 'rotate-90' : ''}`}>
-                              &#9654;
-                            </span>
-                            {EM_GROUP_LABELS.infrastructure}
-                          </button>
-                          {emAdvancedOpen && (
-                            <div className="grid grid-cols-2 gap-2">
-                              {infraFields.map((field) => (
-                                <div key={field.key}>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">
-                                    {field.label}
-                                  </label>
-                                  <input
-                                    type={field.inputType}
-                                    value={emValues[field.key] || ''}
-                                    onChange={(e) => setEmValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                                    placeholder={field.placeholder}
-                                    className="titlebar-no-drag w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })()}
-                  </>
-                )}
-              </div>
-            </>
-
-            {/* Start button */}
+            {/* Finish button */}
             <div className="mt-6">
               <button
-                onClick={handleStartSetup}
-                disabled={!requiredFilled}
+                onClick={handleConfigComplete}
+                disabled={finishing}
                 className="titlebar-no-drag w-full py-2.5 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Start Setup
+                {finishing ? 'Finishing...' : 'Finish Setup'}
               </button>
-              {!requiredFilled && (
-                <p className="text-xs text-red-400 mt-1.5 text-center">
-                  Please fill in required fields (marked with *)
+              {everMemOSInstalled && emConfigured && !lowMemory && (
+                <p className="text-xs text-green-600 mt-1.5 text-center">
+                  EverMemOS will be started automatically on finish
                 </p>
               )}
             </div>
           </>
-        )}
-
-        {/* ─── Phase: Preflight ─────────────────────────── */}
-        {phase === 'preflight' && (
-          <>
-            {preflightResult ? (
-              <PreflightView
-                result={preflightResult}
-                onProceedToInstall={handleProceedToInstall}
-                onProceedToLaunch={handleProceedToLaunch}
-                onRecheck={runPreflight}
-                checking={checking}
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-3 py-12">
-                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <p className="text-sm text-gray-500">Checking environment...</p>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* ─── Phase: Install ─────────────────────────── */}
-        {phase === 'install' && (
-          <GuidedInstallView
-            missingIds={missingIds}
-            onComplete={handleInstallComplete}
-            onBack={() => setPhase('preflight')}
-          />
-        )}
-
-        {/* ─── Phase: Launch ─────────────────────────── */}
-        {phase === 'launch' && (
-          <ServiceLaunchView
-            skipEverMemOS={skipEverMemOS}
-            onComplete={handleLaunchComplete}
-            onRetry={() => {}}
-          />
         )}
       </div>
     </div>

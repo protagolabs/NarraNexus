@@ -136,7 +136,7 @@ const ServiceLaunchView: React.FC<ServiceLaunchViewProps> = ({
 
       {result?.success && (
         <div className="text-center">
-          <p className="text-sm text-green-600 font-medium">All services started successfully!</p>
+          <p className="text-sm text-green-600 font-medium">Core services started! Proceeding to configuration...</p>
         </div>
       )}
     </div>

@@ -52,6 +52,10 @@ export const IPC = {
   CLAUDE_SAVE_SETUP_TOKEN: 'claude-save-setup-token',
   ON_CLAUDE_LOGIN_STATUS: 'on-claude-login-status',
 
+  // EverMemOS lifecycle
+  LAUNCH_EVERMEMOS: 'launch-evermemos',
+  IS_EVERMEMOS_INSTALLED: 'is-evermemos-installed',
+
   // Miscellaneous
   OPEN_EXTERNAL: 'open-external',
   GET_SETUP_STATE: 'get-setup-state',

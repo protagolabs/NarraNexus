@@ -3,7 +3,7 @@
  * @description Phase 1 UI — displays preflight dependency check results
  *
  * Shows a list of dependencies with status icons, system info summary,
- * and action buttons to proceed or start installation.
+ * an optional EverMemOS install toggle, and action buttons to proceed.
  */
 
 import React from 'react'
@@ -14,6 +14,10 @@ interface PreflightViewProps {
   onProceedToLaunch: () => void
   onRecheck: () => void
   checking: boolean
+  installEverMemOS: boolean
+  onToggleEverMemOS: (v: boolean) => void
+  lowMemory: boolean
+  dockerMemoryGb: number
 }
 
 const StatusIcon: React.FC<{ status: 'ok' | 'missing' | 'warning' }> = ({ status }) => {
@@ -27,7 +31,11 @@ const PreflightView: React.FC<PreflightViewProps> = ({
   onProceedToInstall,
   onProceedToLaunch,
   onRecheck,
-  checking
+  checking,
+  installEverMemOS,
+  onToggleEverMemOS,
+  lowMemory,
+  dockerMemoryGb
 }) => {
   const missingItems = result.items.filter((item) => item.status !== 'ok')
   const missingIds = missingItems.map((item) => item.id)
@@ -78,15 +86,9 @@ const PreflightView: React.FC<PreflightViewProps> = ({
       {/* System info summary */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
         <span>{result.systemInfo.platform} / {result.systemInfo.arch}</span>
-        {(() => {
-          const dockerMem = Math.max(2, Math.min(12, Math.floor(result.systemInfo.totalMemoryGb / 2)))
-          const low = dockerMem < 6
-          return (
-            <span className={low ? 'text-red-500' : ''}>
-              RAM: {result.systemInfo.totalMemoryGb}GB (Docker: {dockerMem}GB){low ? ' — EverMemOS disabled' : ''}
-            </span>
-          )
-        })()}
+        <span className={lowMemory ? 'text-red-500' : ''}>
+          RAM: {result.systemInfo.totalMemoryGb}GB (Docker: {dockerMemoryGb}GB){lowMemory ? ' — EverMemOS disabled' : ''}
+        </span>
         {result.systemInfo.freeDiskGb >= 0 && (
           <span>Free disk: {result.systemInfo.freeDiskGb} GB</span>
         )}
@@ -97,6 +99,29 @@ const PreflightView: React.FC<PreflightViewProps> = ({
             <span className="text-red-500">Offline</span>
           )}
         </span>
+      </div>
+
+      {/* Optional Components */}
+      <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+        <p className="text-xs font-medium text-gray-500 mb-2">Optional Components</p>
+        <label className={`titlebar-no-drag flex items-start gap-2.5 ${lowMemory ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+          <input
+            type="checkbox"
+            checked={installEverMemOS}
+            onChange={(e) => onToggleEverMemOS(e.target.checked)}
+            disabled={lowMemory}
+            className="accent-blue-500 mt-0.5"
+          />
+          <div>
+            <span className="text-sm font-medium text-gray-700">Install EverMemOS (memory system)</span>
+            <p className="text-xs text-gray-400 mt-0.5">Requires 6GB Docker memory</p>
+          </div>
+        </label>
+        {lowMemory && (
+          <p className="text-xs text-red-500 mt-2">
+            Docker memory too low ({dockerMemoryGb}GB). EverMemOS requires at least 6GB. Increase system memory or Docker allocation to enable.
+          </p>
+        )}
       </div>
 
       {/* Action buttons */}
@@ -113,7 +138,9 @@ const PreflightView: React.FC<PreflightViewProps> = ({
             onClick={onProceedToLaunch}
             className="titlebar-no-drag flex-1 py-2 text-sm font-medium text-white bg-green-500 rounded-lg hover:bg-green-600 transition-colors"
           >
-            Environment Ready — Start Services
+            {installEverMemOS
+              ? 'Install EverMemOS & Start Services'
+              : 'Environment Ready — Start Services'}
           </button>
         ) : (
           <button
