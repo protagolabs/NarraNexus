@@ -299,6 +299,10 @@ async function startColima(
 ): Promise<void> {
   const { cpu, memory } = getColimaResources()
   const colimaArgs = ['start', '--cpu', String(cpu), '--memory', String(memory)]
+  // Apple Silicon 使用 Virtualization.framework，无需安装 QEMU
+  if (process.arch === 'arm64') {
+    colimaArgs.push('--vm-type', 'vz')
+  }
 
   console.log(`[installer] ${tag} Attempting colima start as regular user: ${colimaCmd} ${colimaArgs.join(' ')}`)
   onOutput(`${tag} Starting Colima (${cpu} CPUs, ${memory}GB RAM)...`)
@@ -398,7 +402,10 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
     } else {
       onOutput('[Strategy 3/5] Installing Docker via Homebrew (colima + docker CLI)...')
       try {
-        await spawnWithOutput('brew', ['install', 'colima', 'docker', 'docker-compose', 'qemu'], {
+        // Apple Silicon 用 Virtualization.framework，Intel 需要 QEMU
+        const brewPackages = ['colima', 'docker', 'docker-compose']
+        if (process.arch !== 'arm64') brewPackages.push('qemu')
+        await spawnWithOutput('brew', ['install', ...brewPackages], {
           timeout: 600000, onOutput
         })
       } catch (brewErr) {
@@ -471,9 +478,11 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
     }
 
     // Step 4: Install colima + docker CLI
-    console.log('[installer] [Strategy 4/5] Step 4: brew install colima docker docker-compose')
+    const s4Packages = ['colima', 'docker', 'docker-compose']
+    if (process.arch !== 'arm64') s4Packages.push('qemu')
+    console.log(`[installer] [Strategy 4/5] Step 4: brew install ${s4Packages.join(' ')}`)
     onOutput('[Strategy 4/5] Installing colima + docker via Homebrew...')
-    await spawnWithOutput(brewPath, ['install', 'colima', 'docker', 'docker-compose', 'qemu'], {
+    await spawnWithOutput(brewPath, ['install', ...s4Packages], {
       timeout: 600000, onOutput
     })
     console.log('[installer] [Strategy 4/5] Step 4: brew install done')
