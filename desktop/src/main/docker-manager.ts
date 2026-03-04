@@ -8,7 +8,9 @@
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
 import { DOCKER_COMPOSE_PATH, EVERMEMOS_COMPOSE_PATH, PORTS } from './constants'
 import { getShellEnv } from './shell-env'
 
@@ -30,6 +32,83 @@ export interface DockerGroupStatus {
   available: boolean
 }
 
+// ─── Docker Credential Store Fix ─────────────────────────────
+
+/**
+ * 缓存的 DOCKER_CONFIG 覆盖路径
+ * null = 尚未检测, undefined = 不需要覆盖, string = 临时配置目录路径
+ */
+let dockerConfigOverride: string | undefined | null = null
+
+/**
+ * 检测 Docker 凭证助手是否可用。
+ *
+ * 常见场景：用户之前安装过 Docker Desktop，~/.docker/config.json 中配置了
+ * "credsStore": "desktop"，但现在改用 Colima/Homebrew Docker，
+ * docker-credential-desktop 不在 PATH 中，导致连拉取公共镜像都会失败。
+ *
+ * 修复方式：创建一个不含 credsStore 的临时 Docker 配置目录，
+ * 通过 DOCKER_CONFIG 环境变量让 Docker 使用它。
+ */
+async function getDockerConfigOverride(env: Record<string, string>): Promise<string | undefined> {
+  if (dockerConfigOverride !== null) return dockerConfigOverride
+
+  const home = env.HOME || process.env.HOME || ''
+  const configPath = join(home, '.docker', 'config.json')
+
+  try {
+    if (!existsSync(configPath)) {
+      dockerConfigOverride = undefined
+      return undefined
+    }
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'))
+    const credsStore = config.credsStore
+
+    if (!credsStore) {
+      dockerConfigOverride = undefined
+      return undefined
+    }
+
+    // 检查凭证助手二进制文件是否存在
+    const helperName = `docker-credential-${credsStore}`
+    const execEnv = { ...env }
+    const result = await execFileAsync('which', [helperName], { timeout: 5000, env: execEnv })
+      .then(() => true)
+      .catch(() => false)
+
+    if (result) {
+      dockerConfigOverride = undefined
+      return undefined
+    }
+
+    // 凭证助手不存在 — 创建一个去掉 credsStore 的临时配置
+    console.log(`[docker-manager] Credential helper "${helperName}" not found in PATH, creating sanitized Docker config`)
+    const tempConfigDir = join(tmpdir(), 'narranexus-docker-config')
+    mkdirSync(tempConfigDir, { recursive: true })
+
+    const sanitizedConfig = { ...config }
+    delete sanitizedConfig.credsStore
+    delete sanitizedConfig.credHelpers
+    writeFileSync(join(tempConfigDir, 'config.json'), JSON.stringify(sanitizedConfig, null, 2))
+
+    dockerConfigOverride = tempConfigDir
+    return tempConfigDir
+  } catch (err) {
+    console.warn('[docker-manager] Failed to check Docker credential config:', err)
+    dockerConfigOverride = undefined
+    return undefined
+  }
+}
+
+/** 同步获取缓存的 DOCKER_CONFIG 覆盖路径（需要先调用过 getDockerConfigOverride） */
+export function getCachedDockerConfigDir(): string | undefined {
+  return dockerConfigOverride ?? undefined
+}
+
+/** 导出给 service-launcher 使用 */
+export { getDockerConfigOverride }
+
 // ─── Utility Functions ───────────────────────────────────────
 
 /** Safe command execution (uses login shell env + common extra paths to ensure docker/colima are found) */
@@ -49,6 +128,11 @@ async function execSafe(
     const missingPaths = extraPaths.filter(p => !currentPath.includes(p))
     if (missingPaths.length > 0) {
       env.PATH = [...missingPaths, currentPath].join(':')
+    }
+    // 如果凭证助手不可用，使用临时配置目录
+    const configOverride = await getDockerConfigOverride(env)
+    if (configOverride) {
+      env.DOCKER_CONFIG = configOverride
     }
     const result = await execFileAsync(cmd, args, {
       timeout: options.timeout ?? 30000,
@@ -266,6 +350,8 @@ export async function ensureDockerDaemon(): Promise<boolean> {
 /** Start MySQL containers */
 export async function startMySQL(): Promise<{ success: boolean; output: string }> {
   const { cmd, baseArgs } = await composeCmd(DOCKER_COMPOSE_PATH)
+  // 先清理可能残留的旧容器，避免容器名冲突
+  await execSafe(cmd, [...baseArgs, 'down', '--remove-orphans'], { timeout: 30000 })
   // First pull may take a while, allow generous timeout (10 min)
   const result = await execSafe(cmd, [...baseArgs, 'up', '-d'], { timeout: 600000 })
   return {
@@ -307,6 +393,8 @@ export async function startEverMemOS(): Promise<{ success: boolean; output: stri
     return { success: false, output: 'EverMemOS config file not found' }
   }
   const { cmd, baseArgs } = await composeCmd(EVERMEMOS_COMPOSE_PATH)
+  // 先清理可能残留的旧容器，避免容器名冲突
+  await execSafe(cmd, [...baseArgs, 'down', '--remove-orphans'], { timeout: 30000 })
   // EverMemOS includes MongoDB/ES/Milvus/Redis images, first pull needs generous timeout
   const result = await execSafe(cmd, [...baseArgs, 'up', '-d'], { timeout: 600000 })
   return {

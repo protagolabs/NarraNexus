@@ -25,7 +25,9 @@ import {
   waitForDockerReady,
   ensureDockerDaemon,
   isEverMemOSAvailable,
-  startEverMemOS
+  startEverMemOS,
+  getDockerConfigOverride,
+  getCachedDockerConfigDir
 } from './docker-manager'
 import { getShellEnv } from './shell-env'
 import { readEnv } from './env-manager'
@@ -58,6 +60,12 @@ function getExecEnv(): Record<string, string> {
     }
   }
 
+  // 如果凭证助手不可用，使用临时配置目录
+  const dockerConfigDir = getCachedDockerConfigDir()
+  if (dockerConfigDir) {
+    merged.DOCKER_CONFIG = dockerConfigDir
+  }
+
   return merged
 }
 
@@ -87,7 +95,11 @@ async function execWithPrivileges(
     ].join(':')
     // Set HOME so root shell can find user's ~/.docker/cli-plugins/
     const home = process.env.HOME || ''
-    const fullScript = `export PATH="${extraPaths}:$PATH" && export HOME="${home}" && ${script}`
+    // 如果凭证助手不可用，在特权脚本中也设置 DOCKER_CONFIG
+    const env = getShellEnv()
+    const configOverride = await getDockerConfigOverride(env)
+    const dockerConfigExport = configOverride ? `export DOCKER_CONFIG="${configOverride}" && ` : ''
+    const fullScript = `export PATH="${extraPaths}:$PATH" && export HOME="${home}" && ${dockerConfigExport}${script}`
     const escaped = fullScript.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     const osascriptCmd = `do shell script "${escaped}" with administrator privileges`
     console.log(`[launcher] execWithPrivileges: PATH order = ${extraPaths}`)
@@ -264,6 +276,20 @@ export class ServiceLauncher extends EventEmitter {
         console.log(`[launcher] Step 2: docker compose version FAILED: ${e instanceof Error ? e.message : e}`)
       }
 
+      // 预先检测 Docker 凭证助手是否可用（结果会缓存，供后续所有 Docker 命令使用）
+      await getDockerConfigOverride(env)
+
+      // 先清理可能残留的旧容器，避免容器名冲突
+      console.log('[launcher] compose-up: cleaning up stale containers...')
+      updateStep('compose-up', { status: 'running', message: 'Cleaning up stale containers...' })
+      try {
+        await spawnWithOutput('docker', ['compose', 'down', '--remove-orphans'], { timeout: 30000 })
+      } catch {
+        try {
+          await spawnWithOutput('docker-compose', ['down', '--remove-orphans'], { timeout: 30000 })
+        } catch { /* 清理失败不阻塞启动 */ }
+      }
+
       let composeSuccess = false
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -299,7 +325,7 @@ export class ServiceLauncher extends EventEmitter {
             console.log('[launcher] compose-up: trying with elevated privileges...')
             updateStep('compose-up', { status: 'running', message: 'Retrying with elevated privileges...' })
             await execWithPrivileges(
-              `cd "${PROJECT_ROOT}" && (docker compose up -d || docker-compose up -d)`,
+              `cd "${PROJECT_ROOT}" && (docker compose down --remove-orphans 2>/dev/null; docker-compose down --remove-orphans 2>/dev/null; docker compose up -d || docker-compose up -d)`,
               { timeout: COMPOSE_TIMEOUT }
             )
             console.log('[launcher] compose-up: privileged compose succeeded')
