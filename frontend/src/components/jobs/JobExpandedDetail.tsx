@@ -17,7 +17,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { Button, Badge } from '@/components/ui';
-import { cn, formatRelativeTime } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils';
 import type { Job } from '@/types/api';
 
 interface JobExpandedDetailProps {

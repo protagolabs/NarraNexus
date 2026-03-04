@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
-import { cn, formatRelativeTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { JobDependencyGraph } from './JobDependencyGraph';
 import { JobExecutionTimeline } from './JobExecutionTimeline';
