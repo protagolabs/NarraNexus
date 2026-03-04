@@ -197,6 +197,12 @@ export async function ensureDockerDaemon(): Promise<boolean> {
       const result = await execSafe(colima, ['start'], { timeout: 300000 })
       if (!result.success) {
         console.log(`[docker-manager] Strategy 2: colima start failed: ${result.stderr.substring(0, 200)}`)
+
+        // Rosetta / arch mismatch — skip privileges retry (won't help)
+        if (result.stderr.includes('rosetta') || result.stderr.includes('native arch') || result.stderr.includes('lima compatibility')) {
+          console.log('[docker-manager] Strategy 2: Rosetta/arch mismatch detected, skipping this colima path')
+          continue
+        }
       }
       if (await isDockerReady()) {
         console.log('[docker-manager] Strategy 2: docker ready after colima start')

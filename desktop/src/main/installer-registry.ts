@@ -218,6 +218,7 @@ function createDockerInstaller(): Installer {
 /**
  * Start Colima: try as regular user first, then retry with admin privileges.
  * Colima needs sudo on macOS for VM networking setup.
+ * If Rosetta compatibility error is detected, fail immediately (privileges won't help).
  */
 async function startColima(
   colimaCmd: string,
@@ -233,6 +234,14 @@ async function startColima(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.log(`[installer] ${tag} Colima start failed as regular user: ${msg}`)
+
+    // Rosetta / arch mismatch — privileges won't help, fail fast
+    if (msg.includes('rosetta') || msg.includes('native arch') || msg.includes('lima compatibility')) {
+      console.error(`[installer] ${tag} Colima has architecture mismatch (Rosetta), cannot fix with privileges`)
+      onOutput(`${tag} Colima incompatible (Rosetta/arch mismatch), skipping`)
+      throw new Error('Colima Rosetta incompatibility')
+    }
+
     onOutput(`${tag} Colima needs admin privileges, retrying with password dialog...`)
   }
   console.log(`[installer] ${tag} Retrying colima start with admin privileges (osascript)`)
@@ -293,22 +302,31 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
     onOutput('[Strategy 2/4] Colima not available, trying next strategy...')
   }
 
-  // Strategy 3: brew install colima + docker
+  // Strategy 3: brew install colima + docker (skip if Intel brew on Apple Silicon)
   try {
     const brewVersion = await execInProject('brew', ['--version'], { timeout: 10000 })
-    console.log(`[installer] [Strategy 3/4] Homebrew found: ${brewVersion.stdout.trim().split('\n')[0]}`)
-    onOutput('[Strategy 3/4] Installing Docker via Homebrew (colima + docker CLI)...')
-    await spawnWithOutput('brew', ['install', 'colima', 'docker', 'docker-compose'], {
-      timeout: 600000, onOutput
-    })
-    console.log('[installer] [Strategy 3/4] brew install done, starting Colima...')
-    onOutput('[Strategy 3/4] Starting Colima VM...')
-    await startColima('colima', onOutput, '[Strategy 3/4]')
-    await execInProject('docker', ['info'], { timeout: 10000 })
-    console.log('[installer] [Strategy 3/4] Success — docker info OK')
-    onOutput('Docker installed via Homebrew + Colima')
-    resetComposeDetection()
-    return
+    const brewBin = await execInProject('which', ['brew'], { timeout: 5000 })
+    const brewPath = brewBin.stdout.trim()
+    const isIntelBrewOnArm = process.arch === 'arm64' && brewPath.startsWith('/usr/local')
+    console.log(`[installer] [Strategy 3/4] Homebrew found: ${brewVersion.stdout.trim().split('\n')[0]}, path: ${brewPath}, intelOnArm: ${isIntelBrewOnArm}`)
+
+    if (isIntelBrewOnArm) {
+      console.log('[installer] [Strategy 3/4] Skipping — Intel Homebrew on Apple Silicon will install x86 binaries (Rosetta incompatible)')
+      onOutput('[Strategy 3/4] Skipping Intel Homebrew on Apple Silicon (would cause Rosetta errors)')
+    } else {
+      onOutput('[Strategy 3/4] Installing Docker via Homebrew (colima + docker CLI)...')
+      await spawnWithOutput('brew', ['install', 'colima', 'docker', 'docker-compose'], {
+        timeout: 600000, onOutput
+      })
+      console.log('[installer] [Strategy 3/4] brew install done, starting Colima...')
+      onOutput('[Strategy 3/4] Starting Colima VM...')
+      await startColima('colima', onOutput, '[Strategy 3/4]')
+      await execInProject('docker', ['info'], { timeout: 10000 })
+      console.log('[installer] [Strategy 3/4] Success — docker info OK')
+      onOutput('Docker installed via Homebrew + Colima')
+      resetComposeDetection()
+      return
+    }
   } catch (err) {
     console.error(`[installer] [Strategy 3/4] Failed: ${err}`)
     onOutput('[Strategy 3/4] Homebrew install failed, trying next strategy...')
@@ -317,56 +335,63 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
   // Strategy 4: Install Homebrew (as regular user) + colima + docker
   // Homebrew refuses to run as root, so we CANNOT use execWithPrivileges for it.
   // Instead: prepare /opt/homebrew with privileges, then install Homebrew as regular user.
-  console.log('[installer] [Strategy 4/4] Starting — install Homebrew + Docker from scratch')
-  onOutput('[Strategy 4/4] Installing Homebrew + Docker (admin privileges for directory setup only)...')
+  // Strategy 4: Install native ARM Homebrew + colima + docker
+  // Uses git clone instead of official install script (avoids sudo requirement)
+  console.log('[installer] [Strategy 4/4] Starting — install native Homebrew + Docker')
+  onOutput('[Strategy 4/4] Installing native Homebrew + Docker...')
   try {
-    const brewPrefix = process.arch === 'arm64' ? '/opt/homebrew' : '/usr/local'
+    const brewPrefix = process.arch === 'arm64' ? '/opt/homebrew' : '/usr/local/Homebrew'
     const brewPath = `${brewPrefix}/bin/brew`
     const currentUser = process.env.USER || process.env.LOGNAME || 'nobody'
-    console.log(`[installer] [Strategy 4/4] brewPrefix=${brewPrefix}, user=${currentUser}`)
+    console.log(`[installer] [Strategy 4/4] brewPrefix=${brewPrefix}, user=${currentUser}, arch=${process.arch}`)
 
-    // Step 1: Create Homebrew prefix directory with correct ownership (needs root)
     if (!existsSync(brewPath)) {
-      console.log(`[installer] [Strategy 4/4] Step 1: Creating ${brewPrefix} with privileges`)
-      onOutput('[Strategy 4/4] Preparing Homebrew directory (admin privileges required)...')
+      // Step 1: Create directory with correct ownership (needs admin privileges)
+      console.log(`[installer] [Strategy 4/4] Step 1: Creating ${brewPrefix} with admin privileges`)
+      onOutput('[Strategy 4/4] Creating Homebrew directory (admin privileges required)...')
       await execWithPrivileges(
         `mkdir -p "${brewPrefix}" && chown -R ${currentUser}:admin "${brewPrefix}"`,
         { timeout: 30000 }
       )
 
-      // Step 2: Install Homebrew as regular user (NO root — Homebrew requires this)
-      console.log('[installer] [Strategy 4/4] Step 2: Installing Homebrew as regular user')
-      onOutput('[Strategy 4/4] Installing Homebrew (as regular user)...')
-      await spawnWithOutput('bash', ['-c',
-        'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-      ], { timeout: 600000, onOutput })
-      console.log('[installer] [Strategy 4/4] Step 2: Homebrew installation done')
+      // Step 2: Git clone Homebrew (as regular user — no sudo needed)
+      console.log('[installer] [Strategy 4/4] Step 2: git clone Homebrew')
+      onOutput('[Strategy 4/4] Downloading Homebrew via git...')
+      await spawnWithOutput('git', ['clone', '--depth=1', 'https://github.com/Homebrew/brew', brewPrefix], {
+        timeout: 300000, onOutput
+      })
+
+      // Step 3: Initial brew update
+      console.log('[installer] [Strategy 4/4] Step 3: brew update')
+      onOutput('[Strategy 4/4] Updating Homebrew...')
+      await execInProject(brewPath, ['update', '--force', '--quiet'], { timeout: 300000 })
+      console.log('[installer] [Strategy 4/4] Step 3: Homebrew ready')
     } else {
-      console.log(`[installer] [Strategy 4/4] Homebrew already exists at ${brewPath}, skipping`)
-      onOutput('[Strategy 4/4] Homebrew already installed, skipping Homebrew installation')
+      console.log(`[installer] [Strategy 4/4] Native Homebrew already exists at ${brewPath}`)
+      onOutput('[Strategy 4/4] Native Homebrew already installed')
     }
 
-    // Step 3: Install colima + docker CLI
-    console.log('[installer] [Strategy 4/4] Step 3: brew install colima docker docker-compose')
-    onOutput('[Strategy 4/4] Installing colima + docker CLI via Homebrew...')
+    // Step 4: Install colima + docker CLI
+    console.log('[installer] [Strategy 4/4] Step 4: brew install colima docker docker-compose')
+    onOutput('[Strategy 4/4] Installing colima + docker via Homebrew...')
     await spawnWithOutput(brewPath, ['install', 'colima', 'docker', 'docker-compose'], {
       timeout: 600000, onOutput
     })
-    console.log('[installer] [Strategy 4/4] Step 3: brew install done')
+    console.log('[installer] [Strategy 4/4] Step 4: brew install done')
 
-    // Step 4: Start Colima
+    // Step 5: Start Colima
     const colimaPath = `${brewPrefix}/bin/colima`
-    console.log(`[installer] [Strategy 4/4] Step 4: Starting Colima at ${colimaPath}`)
+    console.log(`[installer] [Strategy 4/4] Step 5: Starting Colima at ${colimaPath}`)
     onOutput('[Strategy 4/4] Starting Colima VM...')
     await startColima(colimaPath, onOutput, '[Strategy 4/4]')
     await execInProject('docker', ['info'], { timeout: 10000 })
     console.log('[installer] [Strategy 4/4] Success — docker info OK')
-    onOutput('Docker installed via Homebrew + Colima')
+    onOutput('Docker installed via native Homebrew + Colima')
     resetComposeDetection()
     return
   } catch (err) {
     console.error(`[installer] [Strategy 4/4] Failed: ${err}`)
-    onOutput('[Strategy 4/4] Homebrew + Docker install failed')
+    onOutput('[Strategy 4/4] Native Homebrew + Docker install failed')
   }
 }
 
