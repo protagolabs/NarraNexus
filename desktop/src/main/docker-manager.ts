@@ -32,16 +32,25 @@ export interface DockerGroupStatus {
 
 // ─── Utility Functions ───────────────────────────────────────
 
-/** Safe command execution (uses login shell env to ensure docker is found) */
+/** Safe command execution (uses login shell env + common extra paths to ensure docker/colima are found) */
 async function execSafe(
   cmd: string,
   args: string[],
   options: { timeout?: number } = {}
 ): Promise<{ stdout: string; stderr: string; success: boolean }> {
   try {
+    const env = getShellEnv()
+    // Ensure common tool paths are included (Homebrew, Docker Desktop)
+    // These may not be in the cached shell env if tools were installed during this session
+    const extraPaths = ['/opt/homebrew/bin', '/usr/local/bin', '/Applications/Docker.app/Contents/Resources/bin']
+    const currentPath = env.PATH || ''
+    const missingPaths = extraPaths.filter(p => !currentPath.includes(p))
+    if (missingPaths.length > 0) {
+      env.PATH = [...missingPaths, currentPath].join(':')
+    }
     const result = await execFileAsync(cmd, args, {
       timeout: options.timeout ?? 30000,
-      env: getShellEnv()
+      env
     })
     return { ...result, success: true }
   } catch (err: unknown) {
@@ -150,18 +159,32 @@ export async function ensureDockerDaemon(): Promise<boolean> {
   if (await isDockerReady()) return true
 
   if (process.platform === 'darwin') {
-    // Strategy 1: Launch Docker Desktop
-    try {
-      await execSafe('open', ['-a', 'Docker'], { timeout: 10000 })
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 2000))
-        if (await isDockerReady()) return true
-      }
-    } catch { /* Docker Desktop not installed */ }
+    // Strategy 1: Launch Docker Desktop (only if Docker.app exists)
+    if (existsSync('/Applications/Docker.app')) {
+      try {
+        await execSafe('open', ['-a', 'Docker'], { timeout: 10000 })
+        for (let i = 0; i < 30; i++) {
+          await new Promise((r) => setTimeout(r, 2000))
+          if (await isDockerReady()) return true
+        }
+      } catch { /* Docker Desktop failed to launch */ }
+    }
 
     // Strategy 2: Start Colima
-    const result = await execSafe('colima', ['start'], { timeout: 300000 })
-    if (result.success && await isDockerReady()) return true
+    // Try colima in common paths (might not be in cached shell PATH if just installed)
+    const colimaPaths = ['colima']
+    if (process.arch === 'arm64') {
+      colimaPaths.push('/opt/homebrew/bin/colima')
+    } else {
+      colimaPaths.push('/usr/local/bin/colima')
+    }
+
+    for (const colima of colimaPaths) {
+      await execSafe(colima, ['start'], { timeout: 300000 })
+      // Always check docker after colima start — even if "start" fails
+      // (e.g. Colima is already running, exit code != 0 but docker works)
+      if (await isDockerReady()) return true
+    }
   } else {
     // Linux strategy 1: direct systemctl (may already be in docker group)
     await execSafe('systemctl', ['start', 'docker'], { timeout: 30000 })
