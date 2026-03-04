@@ -81,6 +81,7 @@ function buildFallbackEnv(): Record<string, string> {
   const extraPaths = [
     '/usr/local/bin',
     '/opt/homebrew/bin',
+    '/Applications/Docker.app/Contents/Resources/bin', // Docker Desktop 内置工具（docker-credential-desktop 等）
     join(home, '.local', 'bin'),            // Claude Code CLI default install path (~/.local/bin/claude)
     join(home, '.cargo', 'bin'),
     join(home, '.nvm', 'versions', 'node'),  // nvm common path

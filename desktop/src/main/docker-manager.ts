@@ -134,7 +134,8 @@ export async function ensureDockerDaemon(): Promise<boolean> {
 /** Start MySQL containers */
 export async function startMySQL(): Promise<{ success: boolean; output: string }> {
   const { cmd, baseArgs } = await composeCmd(DOCKER_COMPOSE_PATH)
-  const result = await execSafe(cmd, [...baseArgs, 'up', '-d'], { timeout: 60000 })
+  // 首次拉取镜像可能耗时较长，给充足超时（10 分钟）
+  const result = await execSafe(cmd, [...baseArgs, 'up', '-d'], { timeout: 600000 })
   return {
     success: result.success,
     output: result.success ? result.stdout : result.stderr
@@ -174,7 +175,8 @@ export async function startEverMemOS(): Promise<{ success: boolean; output: stri
     return { success: false, output: 'EverMemOS config file not found' }
   }
   const { cmd, baseArgs } = await composeCmd(EVERMEMOS_COMPOSE_PATH)
-  const result = await execSafe(cmd, [...baseArgs, 'up', '-d'], { timeout: 120000 })
+  // EverMemOS 含 MongoDB/ES/Milvus/Redis 四个镜像，首次拉取需要充足超时
+  const result = await execSafe(cmd, [...baseArgs, 'up', '-d'], { timeout: 600000 })
   return {
     success: result.success,
     output: result.success ? result.stdout : result.stderr
