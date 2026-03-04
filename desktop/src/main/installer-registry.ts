@@ -216,6 +216,22 @@ function createDockerInstaller(): Installer {
 }
 
 /**
+ * Get recommended Colima resource allocation based on system specs.
+ * Allocates ~50% of system resources, with min/max bounds.
+ */
+function getColimaResources(): { cpu: number; memory: number } {
+  const os = require('os')
+  const totalMemGB = Math.floor(os.totalmem() / (1024 * 1024 * 1024))
+  const totalCPU = os.cpus().length
+
+  const memory = Math.max(2, Math.min(12, Math.floor(totalMemGB / 2)))
+  const cpu = Math.max(2, Math.min(8, Math.floor(totalCPU / 2)))
+
+  console.log(`[installer] System: ${totalMemGB}GB RAM, ${totalCPU} CPUs → Colima: ${memory}GB RAM, ${cpu} CPUs`)
+  return { cpu, memory }
+}
+
+/**
  * Start Colima: try as regular user first, then retry with admin privileges.
  * Colima needs sudo on macOS for VM networking setup.
  * If Rosetta compatibility error is detected, fail immediately (privileges won't help).
@@ -225,9 +241,13 @@ async function startColima(
   onOutput: (line: string) => void,
   tag: string
 ): Promise<void> {
-  console.log(`[installer] ${tag} Attempting colima start as regular user: ${colimaCmd}`)
+  const { cpu, memory } = getColimaResources()
+  const colimaArgs = ['start', '--cpu', String(cpu), '--memory', String(memory)]
+
+  console.log(`[installer] ${tag} Attempting colima start as regular user: ${colimaCmd} ${colimaArgs.join(' ')}`)
+  onOutput(`${tag} Starting Colima (${cpu} CPUs, ${memory}GB RAM)...`)
   try {
-    await execInProject(colimaCmd, ['start'], { timeout: 300000 })
+    await execInProject(colimaCmd, colimaArgs, { timeout: 300000 })
     console.log(`[installer] ${tag} Colima started successfully as regular user`)
     onOutput(`${tag} Colima started`)
     return
@@ -246,7 +266,7 @@ async function startColima(
   }
   console.log(`[installer] ${tag} Retrying colima start with admin privileges (osascript)`)
   try {
-    await execWithPrivileges(`${colimaCmd} start`, { timeout: 300000 })
+    await execWithPrivileges(`${colimaCmd} ${colimaArgs.join(' ')}`, { timeout: 300000 })
     console.log(`[installer] ${tag} Colima started successfully with admin privileges`)
     onOutput(`${tag} Colima started with admin privileges`)
   } catch (err) {

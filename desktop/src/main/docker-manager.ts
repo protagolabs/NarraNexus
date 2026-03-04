@@ -183,7 +183,15 @@ export async function ensureDockerDaemon(): Promise<boolean> {
       console.log('[docker-manager] Strategy 1: /Applications/Docker.app not found, skipping')
     }
 
-    // Strategy 2: Start Colima
+    // Strategy 2: Start Colima (with auto-detected resource allocation)
+    const os = require('os')
+    const totalMemGB = Math.floor(os.totalmem() / (1024 * 1024 * 1024))
+    const totalCPU = os.cpus().length
+    const colimaMemory = Math.max(2, Math.min(12, Math.floor(totalMemGB / 2)))
+    const colimaCPU = Math.max(2, Math.min(8, Math.floor(totalCPU / 2)))
+    const colimaArgs = ['start', '--cpu', String(colimaCPU), '--memory', String(colimaMemory)]
+    console.log(`[docker-manager] System: ${totalMemGB}GB RAM, ${totalCPU} CPUs → Colima: ${colimaMemory}GB, ${colimaCPU} CPUs`)
+
     const colimaPaths = ['colima']
     if (process.arch === 'arm64') {
       colimaPaths.push('/opt/homebrew/bin/colima')
@@ -193,8 +201,8 @@ export async function ensureDockerDaemon(): Promise<boolean> {
 
     for (const colima of colimaPaths) {
       // Try as regular user first
-      console.log(`[docker-manager] Strategy 2: Trying colima start (${colima}) as regular user`)
-      const result = await execSafe(colima, ['start'], { timeout: 300000 })
+      console.log(`[docker-manager] Strategy 2: Trying ${colima} ${colimaArgs.join(' ')}`)
+      const result = await execSafe(colima, colimaArgs, { timeout: 300000 })
       if (!result.success) {
         console.log(`[docker-manager] Strategy 2: colima start failed: ${result.stderr.substring(0, 200)}`)
 
@@ -215,7 +223,7 @@ export async function ensureDockerDaemon(): Promise<boolean> {
         const { execFile: ef } = require('child_process')
         const { promisify: p } = require('util')
         const execAsync = p(ef)
-        const script = `${colima} start`
+        const script = `${colima} ${colimaArgs.join(' ')}`
         const escaped = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
         await execAsync('osascript', ['-e',
           `do shell script "${escaped}" with administrator privileges`
