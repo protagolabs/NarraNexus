@@ -16,7 +16,12 @@ import { api } from '@/lib/api';
 import { MessageBubble } from './MessageBubble';
 import type { SimpleChatMessage } from '@/types';
 
-export function ChatPanel() {
+interface ChatPanelProps {
+  /** Called after agent execution completes, used to trigger full data refresh */
+  onAgentComplete?: () => void;
+}
+
+export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // Use ref to track IME composition state, avoiding React async state update delay issues
@@ -37,6 +42,7 @@ export function ChatPanel() {
     onMessage: processMessage,
     onComplete: () => {
       refreshAgents(); // Pick up any name changes from bootstrap
+      onAgentComplete?.(); // Trigger full data refresh
     },
     onClose: () => {
       // When WebSocket connection closes, ensure streaming state is stopped
