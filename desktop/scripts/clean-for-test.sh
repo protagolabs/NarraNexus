@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
-# clean-for-test.sh — 清理所有安装产物，模拟全新环境以测试三阶段安装流程
+# clean-for-test.sh — Remove all installation artifacts to simulate a fresh environment
+#                      for testing the three-phase setup flow
 #
-# 用法: bash desktop/scripts/clean-for-test.sh [--all]
+# Usage: bash desktop/scripts/clean-for-test.sh [--all]
 #
-#   默认:  清理项目内产物（.venv, node_modules, dist, .evermemos, Docker 容器, setupComplete）
-#   --all: 额外卸载 uv、claude CLI、Docker（真正模拟什么都没装的状态）
+#   Default: Clean project artifacts (.venv, node_modules, dist, .evermemos, Docker containers, setupComplete)
+#   --all:   Also uninstall uv, claude CLI, Docker (simulate a completely clean system)
 #
 
 set -euo pipefail
@@ -27,16 +28,16 @@ fi
 
 echo ""
 echo "=========================================="
-echo "  NarraNexus 安装产物清理脚本"
-echo "  项目根目录: $PROJECT_ROOT"
+echo "  NarraNexus Installation Artifact Cleaner"
+echo "  Project root: $PROJECT_ROOT"
 echo "=========================================="
 echo ""
 
-# ─── 1. 停止并删除 Docker 容器 ──────────────────────
+# ─── 1. Stop and remove Docker containers ──────────────────────
 
-echo "── Docker 容器 ──"
+echo "── Docker Containers ──"
 
-# MySQL (项目根目录的 docker-compose.yaml)
+# MySQL (docker-compose.yaml in project root)
 if [ -f "$PROJECT_ROOT/docker-compose.yaml" ]; then
   echo "Stopping MySQL containers..."
   (cd "$PROJECT_ROOT" && docker compose down -v 2>/dev/null || docker-compose down -v 2>/dev/null || true)
@@ -56,9 +57,9 @@ fi
 
 echo ""
 
-# ─── 2. 删除 Python 虚拟环境 ──────────────────────
+# ─── 2. Remove Python virtual environments ──────────────────────
 
-echo "── Python 虚拟环境 ──"
+echo "── Python Virtual Environments ──"
 
 if [ -d "$PROJECT_ROOT/.venv" ]; then
   rm -rf "$PROJECT_ROOT/.venv"
@@ -76,7 +77,7 @@ fi
 
 echo ""
 
-# ─── 3. 删除 EverMemOS 克隆 ──────────────────────
+# ─── 3. Remove EverMemOS clone ──────────────────────
 
 echo "── EverMemOS ──"
 
@@ -89,9 +90,9 @@ fi
 
 echo ""
 
-# ─── 4. 删除前端构建产物 ──────────────────────────
+# ─── 4. Remove frontend build artifacts ──────────────────────────
 
-echo "── 前端 ──"
+echo "── Frontend ──"
 
 if [ -d "$PROJECT_ROOT/frontend/node_modules" ]; then
   rm -rf "$PROJECT_ROOT/frontend/node_modules"
@@ -109,9 +110,9 @@ fi
 
 echo ""
 
-# ─── 5. 重置 Electron setupComplete 标记 ──────────
+# ─── 5. Reset Electron setupComplete flag ──────────
 
-echo "── Electron 状态 ──"
+echo "── Electron State ──"
 
 # macOS
 CONFIG_MAC="$HOME/Library/Application Support/NarraNexus/config.json"
@@ -129,7 +130,7 @@ reset_config() {
 reset_config "$CONFIG_MAC"
 reset_config "$CONFIG_LINUX"
 
-# 也清理打包模式下的 project 副本（如果存在）
+# Also clean the packaged project copy (if exists)
 PACKAGED_PROJECT_MAC="$HOME/Library/Application Support/NarraNexus/project"
 PACKAGED_PROJECT_LINUX="$HOME/.config/NarraNexus/project"
 
@@ -144,10 +145,10 @@ fi
 
 echo ""
 
-# ─── 6. 可选：卸载 uv 和 claude CLI ─────────────
+# ─── 6. Optional: Uninstall uv and claude CLI ─────────────
 
 if $CLEAN_ALL; then
-  echo "── 系统工具（--all 模式）──"
+  echo "── System Tools (--all mode) ──"
 
   # uv
   if command -v uv &>/dev/null; then
@@ -172,25 +173,25 @@ if $CLEAN_ALL; then
 
   # Docker
   echo ""
-  echo "── Docker（--all 模式）──"
+  echo "── Docker (--all mode) ──"
 
   if [[ "$(uname)" == "Darwin" ]]; then
     # ── macOS ──
 
-    # 1) 停止 Colima（如果在跑）
+    # 1) Stop Colima (if running)
     if command -v colima &>/dev/null; then
       colima stop 2>/dev/null || true
       info "Stopped Colima"
     fi
 
-    # 2) 关闭 Docker Desktop（如果在跑）
+    # 2) Quit Docker Desktop (if running)
     if pgrep -x "Docker" &>/dev/null || pgrep -f "Docker Desktop" &>/dev/null; then
       osascript -e 'quit app "Docker"' 2>/dev/null || true
       sleep 2
       info "Quit Docker Desktop"
     fi
 
-    # 3) 卸载 Colima + Docker CLI（brew）
+    # 3) Uninstall Colima + Docker CLI (via brew)
     if command -v brew &>/dev/null; then
       for pkg in colima docker docker-compose docker-credential-helper; do
         if brew list "$pkg" &>/dev/null; then
@@ -200,19 +201,19 @@ if $CLEAN_ALL; then
       done
     fi
 
-    # 4) 删除 Docker Desktop.app
+    # 4) Remove Docker Desktop.app
     if [ -d "/Applications/Docker.app" ]; then
       rm -rf "/Applications/Docker.app" 2>/dev/null || sudo rm -rf "/Applications/Docker.app" 2>/dev/null || true
       info "Removed /Applications/Docker.app"
     fi
 
-    # 5) 清理 Docker Desktop 数据
+    # 5) Clean Docker Desktop data
     rm -rf "$HOME/Library/Group Containers/group.com.docker" 2>/dev/null || true
     rm -rf "$HOME/Library/Containers/com.docker.docker" 2>/dev/null || true
     rm -rf "$HOME/Library/Application Support/Docker Desktop" 2>/dev/null || true
     rm -rf "$HOME/.docker" 2>/dev/null || true
 
-    # 6) 清理 Colima 数据
+    # 6) Clean Colima data
     rm -rf "$HOME/.colima" 2>/dev/null || true
 
     info "Docker cleaned (macOS)"
@@ -220,10 +221,10 @@ if $CLEAN_ALL; then
   else
     # ── Linux ──
 
-    # 1) 停止 Docker daemon
+    # 1) Stop Docker daemon
     sudo systemctl stop docker.socket docker.service 2>/dev/null || true
 
-    # 2) 卸载 Docker 包
+    # 2) Uninstall Docker packages
     if command -v apt-get &>/dev/null; then
       sudo apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null || true
       sudo apt-get autoremove -y 2>/dev/null || true
@@ -238,11 +239,11 @@ if $CLEAN_ALL; then
       warn "Unknown package manager, please uninstall Docker manually"
     fi
 
-    # 3) 清理 Docker 数据
+    # 3) Clean Docker data
     sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
     rm -rf "$HOME/.docker" 2>/dev/null || true
 
-    # 4) 删除独立 docker-compose（如果存在）
+    # 4) Remove standalone docker-compose (if exists)
     if [ -f /usr/local/bin/docker-compose ]; then
       sudo rm -f /usr/local/bin/docker-compose
       info "Removed /usr/local/bin/docker-compose"
@@ -254,9 +255,9 @@ if $CLEAN_ALL; then
   echo ""
 fi
 
-# ─── 7. 清理占用端口的残留进程 ──────────────────
+# ─── 7. Kill stale processes on service ports ──────────────────
 
-echo "── 残留进程 ──"
+echo "── Stale Processes ──"
 
 PORTS=(8000 7801 7802 7803 7804 7805 1995 3306)
 killed=false
@@ -278,13 +279,13 @@ fi
 
 echo ""
 echo "=========================================="
-echo -e "  ${GREEN}清理完成！${NC}"
+echo -e "  ${GREEN}Cleanup complete!${NC}"
 echo ""
-echo "  现在可以启动 Desktop App 测试安装流程："
+echo "  You can now start the Desktop App to test the setup flow:"
 echo "    cd desktop && npm run dev"
 echo ""
 if ! $CLEAN_ALL; then
-  echo "  提示: 加 --all 参数可以额外卸载 uv、claude CLI、Docker"
+  echo "  Tip: Add --all to also uninstall uv, claude CLI, and Docker"
   echo "    bash desktop/scripts/clean-for-test.sh --all"
   echo ""
 fi

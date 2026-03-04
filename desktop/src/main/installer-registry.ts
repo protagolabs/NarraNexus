@@ -213,44 +213,59 @@ function createDockerInstaller(): Installer {
 }
 
 async function installDockerMacOS(onOutput: (line: string) => void): Promise<void> {
-  // Strategy 1: Launch Docker Desktop
-  onOutput('Trying to launch Docker Desktop...')
-  try {
-    await execInProject('open', ['-a', 'Docker'], { timeout: 10000 })
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 2000))
-      try {
-        await execInProject('docker', ['info'], { timeout: 5000 })
-        return
-      } catch { /* not ready yet */ }
-      if (i % 5 === 4) onOutput(`Waiting for Docker Desktop... (${(i + 1) * 2}s)`)
+  // Strategy 1: Launch Docker Desktop (only if Docker.app exists)
+  if (existsSync('/Applications/Docker.app')) {
+    onOutput('[Strategy 1/4] Launching Docker Desktop...')
+    try {
+      await execInProject('open', ['-a', 'Docker'], { timeout: 10000 })
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2000))
+        try {
+          await execInProject('docker', ['info'], { timeout: 5000 })
+          onOutput('Docker Desktop is ready')
+          return
+        } catch { /* not ready yet */ }
+        if (i % 5 === 4) onOutput(`Waiting for Docker Desktop to start... (${(i + 1) * 2}s)`)
+      }
+      onOutput('Docker Desktop launch timed out, trying next strategy...')
+    } catch {
+      onOutput('Docker Desktop failed to launch, trying next strategy...')
     }
-  } catch { /* Docker Desktop not installed */ }
+  } else {
+    onOutput('[Strategy 1/4] Docker Desktop not found at /Applications/Docker.app, skipping')
+  }
 
-  // Strategy 2: Start Colima
-  onOutput('Trying colima start...')
+  // Strategy 2: Start Colima (only if installed)
   try {
+    await execInProject('colima', ['version'], { timeout: 5000 })
+    onOutput('[Strategy 2/4] Starting Colima...')
     await execInProject('colima', ['start'], { timeout: 300000 })
     await execInProject('docker', ['info'], { timeout: 10000 })
+    onOutput('Colima started successfully')
     return
-  } catch { /* Colima not installed */ }
+  } catch {
+    onOutput('[Strategy 2/4] Colima not available, trying next strategy...')
+  }
 
   // Strategy 3: brew install colima + docker
   try {
     await execInProject('brew', ['--version'], { timeout: 10000 })
-    onOutput('Installing Docker via Homebrew (colima + docker CLI)...')
+    onOutput('[Strategy 3/4] Installing Docker via Homebrew (colima + docker CLI)...')
     await spawnWithOutput('brew', ['install', 'colima', 'docker', 'docker-compose'], {
       timeout: 600000, onOutput
     })
-    onOutput('Starting Colima VM...')
+    onOutput('[Strategy 3/4] Starting Colima VM...')
     await execInProject('colima', ['start'], { timeout: 300000 })
     await execInProject('docker', ['info'], { timeout: 10000 })
+    onOutput('Docker installed via Homebrew + Colima')
     resetComposeDetection()
     return
-  } catch { /* brew not found or install failed */ }
+  } catch {
+    onOutput('[Strategy 3/4] Homebrew install failed, trying next strategy...')
+  }
 
   // Strategy 4: Privileged Homebrew install
-  onOutput('Installing Homebrew + Docker (admin privileges required)...')
+  onOutput('[Strategy 4/4] Installing Homebrew + Docker (admin privileges required)...')
   try {
     await execWithPrivileges(
       'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
@@ -259,40 +274,49 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
     const brewPath = process.arch === 'arm64'
       ? '/opt/homebrew/bin/brew'
       : '/usr/local/bin/brew'
-    onOutput(`Installing colima + docker CLI... (brew: ${brewPath})`)
+    onOutput(`[Strategy 4/4] Installing colima + docker CLI... (brew: ${brewPath})`)
     await execInProject('sh', ['-c',
       `${brewPath} install colima docker docker-compose`
     ], { timeout: 600000 })
     const colimaPath = brewPath.replace('/brew', '/colima')
-    onOutput('Starting Colima VM...')
+    onOutput('[Strategy 4/4] Starting Colima VM...')
     await execInProject('sh', ['-c', `${colimaPath} start`], { timeout: 300000 })
     await execInProject('docker', ['info'], { timeout: 10000 })
+    onOutput('Docker installed via privileged Homebrew + Colima')
     resetComposeDetection()
     return
-  } catch { /* User cancelled or install failed */ }
+  } catch {
+    onOutput('[Strategy 4/4] Privileged install failed or cancelled by user')
+  }
 
   throw new Error('Docker installation failed. Please install Docker Desktop manually.')
 }
 
 async function installDockerLinux(onOutput: (line: string) => void): Promise<void> {
-  // Strategy 1: systemctl start
-  onOutput('Trying to start Docker daemon...')
+  // Strategy 1: systemctl start (unprivileged)
+  onOutput('[Strategy 1/3] Trying to start Docker daemon...')
   try {
     await execInProject('systemctl', ['start', 'docker'], { timeout: 30000 })
     await execInProject('docker', ['info'], { timeout: 10000 })
+    onOutput('Docker daemon started')
     return
-  } catch { /* No permissions or not installed */ }
+  } catch {
+    onOutput('[Strategy 1/3] Cannot start Docker without privileges, trying next strategy...')
+  }
 
   // Strategy 2: Privileged systemctl
-  onOutput('Starting Docker daemon (admin privileges required)...')
+  onOutput('[Strategy 2/3] Starting Docker daemon (admin privileges required)...')
   try {
     await execWithPrivileges('systemctl start docker', { timeout: 30000 })
     await execInProject('docker', ['info'], { timeout: 10000 })
+    onOutput('Docker daemon started with admin privileges')
     return
-  } catch { /* Docker not installed */ }
+  } catch {
+    onOutput('[Strategy 2/3] Docker not installed or start failed, trying next strategy...')
+  }
 
   // Strategy 3: Install via get.docker.com
-  onOutput('Installing Docker Engine (admin privileges required)...')
+  onOutput('[Strategy 3/3] Installing Docker Engine via get.docker.com (admin privileges required)...')
   try {
     const user = process.env.USER || 'root'
     await execWithPrivileges(
@@ -310,8 +334,11 @@ async function installDockerLinux(onOutput: (line: string) => void): Promise<voi
     } catch {
       await execWithPrivileges('docker info', { timeout: 10000 })
     }
+    onOutput('Docker Engine installed and started')
     return
-  } catch { /* User cancelled or install failed */ }
+  } catch {
+    onOutput('[Strategy 3/3] Docker installation failed or cancelled by user')
+  }
 
   throw new Error('Docker installation failed. Please install Docker manually.')
 }

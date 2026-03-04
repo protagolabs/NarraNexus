@@ -79,9 +79,9 @@ function createMainWindow(): BrowserWindow {
     console.error('[main] Renderer failed to load:', errorCode, errorDescription)
   })
 
-  // Open DevTools in dev mode
+  // Open DevTools in dev mode (docked at bottom for easy debugging)
   if (process.env.ELECTRON_RENDERER_URL) {
-    win.webContents.openDevTools({ mode: 'detach' })
+    win.webContents.openDevTools({ mode: 'bottom' })
   }
 
   return win
