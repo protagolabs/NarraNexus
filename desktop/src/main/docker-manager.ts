@@ -156,22 +156,34 @@ export async function isDockerReady(): Promise<boolean> {
  * Linux: systemctl → pkexec systemctl
  */
 export async function ensureDockerDaemon(): Promise<boolean> {
-  if (await isDockerReady()) return true
+  console.log('[docker-manager] ensureDockerDaemon: checking if docker is already ready...')
+  if (await isDockerReady()) {
+    console.log('[docker-manager] ensureDockerDaemon: docker already ready')
+    return true
+  }
 
   if (process.platform === 'darwin') {
     // Strategy 1: Launch Docker Desktop (only if Docker.app exists)
     if (existsSync('/Applications/Docker.app')) {
+      console.log('[docker-manager] Strategy 1: Launching Docker Desktop')
       try {
         await execSafe('open', ['-a', 'Docker'], { timeout: 10000 })
         for (let i = 0; i < 30; i++) {
           await new Promise((r) => setTimeout(r, 2000))
-          if (await isDockerReady()) return true
+          if (await isDockerReady()) {
+            console.log(`[docker-manager] Strategy 1: Docker Desktop ready after ${(i + 1) * 2}s`)
+            return true
+          }
         }
-      } catch { /* Docker Desktop failed to launch */ }
+        console.log('[docker-manager] Strategy 1: Docker Desktop timed out after 60s')
+      } catch (err) {
+        console.log(`[docker-manager] Strategy 1: Docker Desktop launch error: ${err}`)
+      }
+    } else {
+      console.log('[docker-manager] Strategy 1: /Applications/Docker.app not found, skipping')
     }
 
     // Strategy 2: Start Colima
-    // Try colima in common paths (might not be in cached shell PATH if just installed)
     const colimaPaths = ['colima']
     if (process.arch === 'arm64') {
       colimaPaths.push('/opt/homebrew/bin/colima')
@@ -181,34 +193,49 @@ export async function ensureDockerDaemon(): Promise<boolean> {
 
     for (const colima of colimaPaths) {
       // Try as regular user first
-      await execSafe(colima, ['start'], { timeout: 300000 })
-      if (await isDockerReady()) return true
+      console.log(`[docker-manager] Strategy 2: Trying colima start (${colima}) as regular user`)
+      const result = await execSafe(colima, ['start'], { timeout: 300000 })
+      if (!result.success) {
+        console.log(`[docker-manager] Strategy 2: colima start failed: ${result.stderr.substring(0, 200)}`)
+      }
+      if (await isDockerReady()) {
+        console.log('[docker-manager] Strategy 2: docker ready after colima start')
+        return true
+      }
 
       // Colima may need sudo for VM networking — retry with privileges
+      console.log(`[docker-manager] Strategy 2: Retrying colima start with admin privileges`)
       try {
         const { execFile: ef } = require('child_process')
         const { promisify: p } = require('util')
         const execAsync = p(ef)
-        if (process.platform === 'darwin') {
-          const script = `${colima} start`
-          const escaped = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-          await execAsync('osascript', ['-e',
-            `do shell script "${escaped}" with administrator privileges`
-          ], { timeout: 300000, env: getShellEnv() })
-        }
-      } catch { /* privileges denied or failed */ }
-      if (await isDockerReady()) return true
+        const script = `${colima} start`
+        const escaped = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+        await execAsync('osascript', ['-e',
+          `do shell script "${escaped}" with administrator privileges`
+        ], { timeout: 300000, env: getShellEnv() })
+        console.log('[docker-manager] Strategy 2: colima started with admin privileges')
+      } catch (err) {
+        console.log(`[docker-manager] Strategy 2: privileged colima start failed: ${err}`)
+      }
+      if (await isDockerReady()) {
+        console.log('[docker-manager] Strategy 2: docker ready after privileged colima start')
+        return true
+      }
     }
   } else {
-    // Linux strategy 1: direct systemctl (may already be in docker group)
+    // Linux strategy 1: direct systemctl
+    console.log('[docker-manager] Linux Strategy 1: systemctl start docker')
     await execSafe('systemctl', ['start', 'docker'], { timeout: 30000 })
     if (await isDockerReady()) return true
 
-    // Linux strategy 2: privileged systemctl (pkexec password prompt)
+    // Linux strategy 2: privileged systemctl
+    console.log('[docker-manager] Linux Strategy 2: pkexec systemctl start docker')
     await execSafe('pkexec', ['systemctl', 'start', 'docker'], { timeout: 30000 })
     if (await isDockerReady()) return true
   }
 
+  console.error('[docker-manager] ensureDockerDaemon: all strategies failed')
   return false
 }
 
