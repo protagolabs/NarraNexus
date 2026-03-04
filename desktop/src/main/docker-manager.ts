@@ -180,9 +180,23 @@ export async function ensureDockerDaemon(): Promise<boolean> {
     }
 
     for (const colima of colimaPaths) {
+      // Try as regular user first
       await execSafe(colima, ['start'], { timeout: 300000 })
-      // Always check docker after colima start — even if "start" fails
-      // (e.g. Colima is already running, exit code != 0 but docker works)
+      if (await isDockerReady()) return true
+
+      // Colima may need sudo for VM networking — retry with privileges
+      try {
+        const { execFile: ef } = require('child_process')
+        const { promisify: p } = require('util')
+        const execAsync = p(ef)
+        if (process.platform === 'darwin') {
+          const script = `${colima} start`
+          const escaped = script.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+          await execAsync('osascript', ['-e',
+            `do shell script "${escaped}" with administrator privileges`
+          ], { timeout: 300000, env: getShellEnv() })
+        }
+      } catch { /* privileges denied or failed */ }
       if (await isDockerReady()) return true
     }
   } else {

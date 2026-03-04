@@ -215,6 +215,24 @@ function createDockerInstaller(): Installer {
   }
 }
 
+/**
+ * Start Colima: try as regular user first, then retry with admin privileges.
+ * Colima needs sudo on macOS for VM networking setup.
+ */
+async function startColima(
+  colimaCmd: string,
+  onOutput: (line: string) => void,
+  tag: string
+): Promise<void> {
+  try {
+    await execInProject(colimaCmd, ['start'], { timeout: 300000 })
+    return
+  } catch {
+    onOutput(`${tag} Colima needs admin privileges, retrying...`)
+  }
+  await execWithPrivileges(`${colimaCmd} start`, { timeout: 300000 })
+}
+
 async function installDockerMacOS(onOutput: (line: string) => void): Promise<void> {
   // Strategy 1: Launch Docker Desktop (only if Docker.app exists)
   if (existsSync('/Applications/Docker.app')) {
@@ -258,7 +276,7 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
       timeout: 600000, onOutput
     })
     onOutput('[Strategy 3/4] Starting Colima VM...')
-    await execInProject('colima', ['start'], { timeout: 300000 })
+    await startColima('colima', onOutput, '[Strategy 3/4]')
     await execInProject('docker', ['info'], { timeout: 10000 })
     onOutput('Docker installed via Homebrew + Colima')
     resetComposeDetection()
@@ -302,7 +320,7 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
     // Step 4: Start Colima
     const colimaPath = `${brewPrefix}/bin/colima`
     onOutput('[Strategy 4/4] Starting Colima VM...')
-    await execInProject(colimaPath, ['start'], { timeout: 300000 })
+    await startColima(colimaPath, onOutput, '[Strategy 4/4]')
     await execInProject('docker', ['info'], { timeout: 10000 })
     onOutput('Docker installed via Homebrew + Colima')
     resetComposeDetection()
