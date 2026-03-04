@@ -1,249 +1,252 @@
-# NarraNexus Electron 桌面应用 -- 从零到打包的完全指南
+# NarraNexus Electron Desktop App -- A Complete Guide from Zero to Packaging
 
-> **目标读者**：完全没有 Electron 经验的前端/后端开发者。
-> **阅读收益**：看完本文，你将能独立从零搭建一个 Electron + React + TypeScript 桌面应用，并打包成 macOS `.dmg` 或 Linux `.AppImage`。
-> **项目参考**：本文全部示例代码均取自 NarraNexus Desktop 真实源码。
-
----
-
-## 目录
-
-- [第 1 章 Electron 是什么](#第-1-章-electron-是什么)
-- [第 2 章 三进程模型详解](#第-2-章-三进程模型详解)
-- [第 3 章 IPC 通信机制](#第-3-章-ipc-通信机制)
-- [第 4 章 项目目录结构设计](#第-4-章-项目目录结构设计)
-- [第 5 章 electron-vite 编译系统](#第-5-章-electron-vite-编译系统)
-- [第 6 章 TypeScript 配置策略](#第-6-章-typescript-配置策略)
-- [第 7 章 Renderer 的类型安全](#第-7-章-renderer-的类型安全)
-- [第 8 章 开发模式 vs 生产模式](#第-8-章-开发模式-vs-生产模式)
-- [第 9 章 electron-builder 打包配置详解](#第-9-章-electron-builder-打包配置详解)
-- [第 10 章 完整打包流水线](#第-10-章-完整打包流水线)
-- [第 11 章 生产环境的特殊处理](#第-11-章-生产环境的特殊处理)
-- [第 12 章 如何从零创建一个类似项目](#第-12-章-如何从零创建一个类似项目)
-- [第 13 章 常见坑与排错](#第-13-章-常见坑与排错)
+> **Target Audience**: Frontend/backend developers with no prior Electron experience.
+> **What You Will Learn**: After reading this guide, you will be able to independently build an Electron + React + TypeScript desktop application from scratch, and package it as a macOS `.dmg` or Linux `.AppImage`.
+> **Project Reference**: All example code in this guide is taken from the actual NarraNexus Desktop source code.
 
 ---
 
-## 第 1 章 Electron 是什么
+## Table of Contents
 
-### 1.1 一句话解释
-
-Electron 就是 **"把一个 Chrome 浏览器和一个 Node.js 运行时打包成一个桌面应用"**。
-
-你写的 HTML/CSS/JS 页面跑在内置的 Chrome（Chromium）里显示界面，你写的 Node.js 代码在后台跑，负责操作文件系统、启动子进程、调用系统 API 这些"浏览器做不到的事"。
-
-### 1.2 为什么能做桌面应用
-
-普通网页跑在浏览器的沙盒里，不能碰文件系统，不能启动子进程。但 Electron 做了一件事：它把 Chromium 和 Node.js **编译到了同一个进程空间里**。这意味着：
-
-```
-┌─────────────────────────────────────────────────┐
-│              Electron 应用                       │
-│                                                 │
-│   ┌──────────────┐     ┌──────────────────────┐ │
-│   │  Chromium     │     │  Node.js             │ │
-│   │  (渲染 UI)    │ ←→  │  (文件/进程/网络)     │ │
-│   │  HTML/CSS/JS  │     │  fs/child_process    │ │
-│   └──────────────┘     └──────────────────────┘ │
-│                                                 │
-│   这两个东西被焊在了一起！                         │
-└─────────────────────────────────────────────────┘
-```
-
-- **界面部分**：就是一个网页，用 React、Vue、甚至纯 HTML 都行
-- **后台部分**：就是一个 Node.js 程序，能做任何 Node.js 能做的事
-- 它们之间通过一套叫 **IPC（进程间通信）** 的机制互相说话
-
-### 1.3 在 NarraNexus 中的角色
-
-NarraNexus 是一个 AI Agent 平台，本身有 Python 后端 + React 前端 + Docker 数据库。桌面应用的职责是：
-
-1. **一键安装**：检测/安装 uv、Docker、Claude CLI 等依赖
-2. **进程管理**：启动/停止/监控 4 个后台 Python 服务
-3. **Docker 管理**：启动/停止 MySQL 容器
-4. **环境配置**：管理 `.env` 文件中的 API Key
-5. **健康监控**：定期检查各服务是否正常运行
-
-所有这些"操作系统级别"的操作（启动子进程、检测端口、管理 Docker），都由 Electron 的 Main Process（Node.js 侧）完成。用户看到的漂亮界面，由 Renderer Process（Chromium 侧）的 React 页面渲染。
+- [Chapter 1: What is Electron](#chapter-1-what-is-electron)
+- [Chapter 2: The Three-Process Model in Detail](#chapter-2-the-three-process-model-in-detail)
+- [Chapter 3: IPC Communication Mechanism](#chapter-3-ipc-communication-mechanism)
+- [Chapter 4: Project Directory Structure Design](#chapter-4-project-directory-structure-design)
+- [Chapter 5: electron-vite Build System](#chapter-5-electron-vite-build-system)
+- [Chapter 6: TypeScript Configuration Strategy](#chapter-6-typescript-configuration-strategy)
+- [Chapter 7: Type Safety in the Renderer](#chapter-7-type-safety-in-the-renderer)
+- [Chapter 8: Development Mode vs Production Mode](#chapter-8-development-mode-vs-production-mode)
+- [Chapter 9: electron-builder Packaging Configuration in Detail](#chapter-9-electron-builder-packaging-configuration-in-detail)
+- [Chapter 10: Complete Packaging Pipeline](#chapter-10-complete-packaging-pipeline)
+- [Chapter 11: Special Handling for the Production Environment](#chapter-11-special-handling-for-the-production-environment)
+- [Chapter 12: How to Create a Similar Project from Scratch](#chapter-12-how-to-create-a-similar-project-from-scratch)
+- [Chapter 13: Common Pitfalls and Troubleshooting](#chapter-13-common-pitfalls-and-troubleshooting)
 
 ---
 
-## 第 2 章 三进程模型详解
+## Chapter 1: What is Electron
 
-这是理解 Electron 最重要的一章。很多 Electron 新手的困惑都来自于搞不清"我这段代码到底跑在哪里"。
+### 1.1 One-Sentence Explanation
 
-### 2.1 三个进程分别是什么
+Electron is essentially **"packaging a Chrome browser and a Node.js runtime into a single desktop application"**.
+
+The HTML/CSS/JS pages you write run inside the built-in Chrome (Chromium) to display the UI, while the Node.js code you write runs in the background, handling tasks like file system operations, spawning child processes, and calling system APIs -- things that a browser cannot do.
+
+### 1.2 Why It Can Build Desktop Applications
+
+Regular web pages run inside the browser's sandbox and cannot access the file system or spawn child processes. But Electron does something special: it **compiles Chromium and Node.js into the same process space**. This means:
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                     Electron 应用                         │
-│                                                          │
-│  ┌───────────────────────────────────────────────────┐   │
-│  │                 Main Process                       │   │
-│  │          （src/main/index.ts）                      │   │
-│  │                                                   │   │
-│  │  - 运行环境：Node.js                               │   │
-│  │  - 能力：文件读写、启动子进程、管理窗口              │   │
-│  │  - 数量：只有 1 个                                  │   │
-│  │  - 类比：后端服务器                                 │   │
-│  └────────────────────┬──────────────────────────────┘   │
-│                       │                                  │
-│              Preload 脚本在这里执行                        │
-│                       │                                  │
-│  ┌────────────────────▼──────────────────────────────┐   │
-│  │               Preload Script                       │   │
-│  │          （src/preload/index.ts）                    │   │
-│  │                                                   │   │
-│  │  - 运行环境：特殊的 Node.js 沙盒                    │   │
-│  │  - 能力：有限的 Node.js API + contextBridge         │   │
-│  │  - 职责：做安全中间人，暴露白名单 API                │   │
-│  │  - 类比：API 网关                                   │   │
-│  └────────────────────┬──────────────────────────────┘   │
-│                       │                                  │
-│              通过 contextBridge 暴露 API                   │
-│                       │                                  │
-│  ┌────────────────────▼──────────────────────────────┐   │
-│  │              Renderer Process                      │   │
-│  │          （src/renderer/App.tsx）                    │   │
-│  │                                                   │   │
-│  │  - 运行环境：Chromium（就是个浏览器）               │   │
-│  │  - 能力：HTML/CSS/JS，React 渲染                    │   │
-│  │  - 限制：不能直接访问 Node.js API                   │   │
-│  │  - 类比：前端网页                                   │   │
-│  └───────────────────────────────────────────────────┘   │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
++-------------------------------------------------+
+|              Electron Application                |
+|                                                  |
+|   +--------------+     +----------------------+  |
+|   |  Chromium     |     |  Node.js             |  |
+|   |  (Render UI)  | <-> |  (Files/Processes/   |  |
+|   |  HTML/CSS/JS  |     |   Network)           |  |
+|   +--------------+     |  fs/child_process     |  |
+|                         +----------------------+  |
+|                                                  |
+|   These two are welded together!                 |
++-------------------------------------------------+
 ```
 
-### 2.2 为什么需要三个进程
+- **UI portion**: Just a web page -- you can use React, Vue, or even plain HTML
+- **Backend portion**: Just a Node.js program that can do anything Node.js can do
+- They communicate with each other through a mechanism called **IPC (Inter-Process Communication)**
 
-你可能会问：两个不就够了吗？Main 负责后台，Renderer 负责界面，为什么要多一个 Preload？
+### 1.3 Its Role in NarraNexus
 
-答案是**安全**。
+NarraNexus is an AI Agent platform that includes a Python backend + React frontend + Docker database. The desktop application is responsible for:
 
-想象一下：如果 Renderer（网页）能直接调用 Node.js 的 `fs.rmSync('/')` 或者 `child_process.exec('rm -rf /')`，那任何 XSS 漏洞都会变成系统级灾难。早期的 Electron 应用（比如老版 VS Code）确实允许 Renderer 直接访问 Node.js，这带来了巨大的安全风险。
+1. **One-click installation**: Detecting/installing dependencies like uv, Docker, Claude CLI, etc.
+2. **Process management**: Starting/stopping/monitoring 4 background Python services
+3. **Docker management**: Starting/stopping MySQL containers
+4. **Environment configuration**: Managing API Keys in the `.env` file
+5. **Health monitoring**: Periodically checking whether each service is running normally
 
-现代 Electron 的安全模型：
+All of these "OS-level" operations (spawning child processes, checking ports, managing Docker) are handled by Electron's Main Process (Node.js side). The beautiful UI that the user sees is rendered by the Renderer Process (Chromium side) using React.
 
-| 设置 | 值 | 含义 |
-|------|---|------|
-| `contextIsolation` | `true` | Preload 和 Renderer 的 JS 上下文完全隔离 |
-| `nodeIntegration` | `false` | Renderer 里不能用 `require('fs')` |
-| `sandbox` | `false`/`true` | 控制 Preload 能否使用 Node.js API |
+---
 
-在 NarraNexus 的 `main/index.ts` 中：
+## Chapter 2: The Three-Process Model in Detail
+
+This is the most important chapter for understanding Electron. Much of the confusion Electron newcomers face comes from not being clear about "where exactly is my code running?"
+
+### 2.1 What Are the Three Processes
+
+```
++----------------------------------------------------------+
+|                     Electron Application                   |
+|                                                            |
+|  +-----------------------------------------------------+  |
+|  |                 Main Process                          |  |
+|  |          (src/main/index.ts)                          |  |
+|  |                                                       |  |
+|  |  - Runtime environment: Node.js                       |  |
+|  |  - Capabilities: File I/O, spawn child processes,     |  |
+|  |    manage windows                                     |  |
+|  |  - Quantity: Only 1                                   |  |
+|  |  - Analogy: Backend server                            |  |
+|  +------------------------+------------------------------+  |
+|                           |                                 |
+|              Preload script executes here                   |
+|                           |                                 |
+|  +------------------------v------------------------------+  |
+|  |               Preload Script                           |  |
+|  |          (src/preload/index.ts)                         |  |
+|  |                                                        |  |
+|  |  - Runtime environment: Special Node.js sandbox        |  |
+|  |  - Capabilities: Limited Node.js API + contextBridge   |  |
+|  |  - Responsibility: Act as a secure middleman,          |  |
+|  |    exposing a whitelisted API                          |  |
+|  |  - Analogy: API Gateway                                |  |
+|  +------------------------+------------------------------+  |
+|                           |                                 |
+|              Exposes API via contextBridge                  |
+|                           |                                 |
+|  +------------------------v------------------------------+  |
+|  |              Renderer Process                          |  |
+|  |          (src/renderer/App.tsx)                         |  |
+|  |                                                        |  |
+|  |  - Runtime environment: Chromium (just a browser)      |  |
+|  |  - Capabilities: HTML/CSS/JS, React rendering          |  |
+|  |  - Limitation: Cannot directly access Node.js API      |  |
+|  |  - Analogy: Frontend web page                          |  |
+|  +--------------------------------------------------------+  |
+|                                                            |
++------------------------------------------------------------+
+```
+
+### 2.2 Why Three Processes Are Needed
+
+You might ask: wouldn't two be enough? Main handles the backend, Renderer handles the UI -- why add a Preload?
+
+The answer is **security**.
+
+Imagine this: if the Renderer (web page) could directly call Node.js's `fs.rmSync('/')` or `child_process.exec('rm -rf /')`, any XSS vulnerability would become a system-level disaster. Early Electron applications (like older versions of VS Code) did allow the Renderer to access Node.js directly, which introduced enormous security risks.
+
+Modern Electron's security model:
+
+| Setting | Value | Meaning |
+|---------|-------|---------|
+| `contextIsolation` | `true` | Preload and Renderer JS contexts are completely isolated |
+| `nodeIntegration` | `false` | Cannot use `require('fs')` in the Renderer |
+| `sandbox` | `false`/`true` | Controls whether Preload can use Node.js APIs |
+
+In NarraNexus's `main/index.ts`:
 
 ```typescript
 // desktop/src/main/index.ts
 const win = new BrowserWindow({
   webPreferences: {
     preload: join(__dirname, '../preload/index.js'),
-    sandbox: false,         // Preload 可以用 Node.js API
-    contextIsolation: true, // Preload 和 Renderer 的 JS 上下文隔离
-    nodeIntegration: false  // Renderer 里不能用 Node.js
+    sandbox: false,         // Preload can use Node.js APIs
+    contextIsolation: true, // Preload and Renderer JS contexts are isolated
+    nodeIntegration: false  // Cannot use Node.js in the Renderer
   }
 })
 ```
 
-这三个设置的组合效果：
+The combined effect of these three settings:
 
-- Renderer（React 页面）只能用 `window.nexus.xxx()` 调用 Preload 暴露的白名单 API
-- Preload 可以用 `ipcRenderer` 和 `contextBridge`，但不直接做业务逻辑
-- Main Process 才是真正干活的地方
+- The Renderer (React page) can only use `window.nexus.xxx()` to call whitelisted APIs exposed by Preload
+- Preload can use `ipcRenderer` and `contextBridge`, but does not handle business logic directly
+- The Main Process is where the actual work happens
 
-**类比**：
+**Analogy**:
 
 ```
-Renderer  =  手机 App（只能看到界面，点按钮）
-Preload   =  API 网关（只暴露安全的接口，做转发）
-Main      =  后端服务器（真正执行操作，文件读写、启动进程）
+Renderer  =  Mobile App (can only see the UI, tap buttons)
+Preload   =  API Gateway (only exposes safe interfaces, does forwarding)
+Main      =  Backend Server (actually executes operations: file I/O, process spawning)
 ```
 
-### 2.3 每个进程在 NarraNexus 中的职责
+### 2.3 Responsibilities of Each Process in NarraNexus
 
-**Main Process（`src/main/`）**：
-- `index.ts` -- 创建窗口、管理应用生命周期
-- `process-manager.ts` -- 用 `child_process.spawn` 启动 Python 后台服务
-- `docker-manager.ts` -- 调用 `docker compose` 管理容器
-- `dependency-checker.ts` -- 检测 uv、Node.js、Docker 是否安装
-- `health-monitor.ts` -- 定期检查端口和 HTTP 健康状态
-- `env-manager.ts` -- 读写 `.env` 配置文件
-- `shell-env.ts` -- 解析 macOS 登录 Shell 的环境变量
-- `store.ts` -- JSON 文件持久化存储
-- `tray-manager.ts` -- 系统托盘图标和菜单
-- `ipc-handlers.ts` -- IPC 请求处理注册中心
+**Main Process (`src/main/`)**:
+- `index.ts` -- Creates windows, manages application lifecycle
+- `process-manager.ts` -- Uses `child_process.spawn` to start Python backend services
+- `docker-manager.ts` -- Calls `docker compose` to manage containers
+- `dependency-checker.ts` -- Detects whether uv, Node.js, Docker are installed
+- `health-monitor.ts` -- Periodically checks port and HTTP health status
+- `env-manager.ts` -- Reads and writes the `.env` configuration file
+- `shell-env.ts` -- Parses macOS login shell environment variables
+- `store.ts` -- JSON file persistent storage
+- `tray-manager.ts` -- System tray icon and menu
+- `ipc-handlers.ts` -- IPC request handler registration center
 
-**Preload Script（`src/preload/`）**：
-- `index.ts` -- 把 Main Process 的能力以安全 API 的形式暴露给 Renderer
+**Preload Script (`src/preload/`)**:
+- `index.ts` -- Exposes Main Process capabilities to the Renderer as a secure API
 
-**Renderer Process（`src/renderer/`）**：
-- `App.tsx` -- React 根组件
-- `pages/SetupWizard.tsx` -- 初始安装向导页面
-- `pages/Dashboard.tsx` -- 主控制面板页面
-- `components/` -- UI 组件（ServiceCard、LogViewer 等）
+**Renderer Process (`src/renderer/`)**:
+- `App.tsx` -- React root component
+- `pages/SetupWizard.tsx` -- Initial setup wizard page
+- `pages/Dashboard.tsx` -- Main control panel page
+- `components/` -- UI components (ServiceCard, LogViewer, etc.)
 
 ---
 
-## 第 3 章 IPC 通信机制
+## Chapter 3: IPC Communication Mechanism
 
-### 3.1 什么是 IPC
+### 3.1 What is IPC
 
-IPC = Inter-Process Communication（进程间通信）。因为 Main 和 Renderer 是两个不同的进程，它们不能直接调用对方的函数，必须通过 Electron 提供的 IPC 通道来"传消息"。
+IPC = Inter-Process Communication. Because Main and Renderer are two separate processes, they cannot directly call each other's functions -- they must communicate through IPC channels provided by Electron.
 
-这就像两个人隔着一堵墙说话，必须通过对讲机。
+It is like two people talking through a wall -- they must use a walkie-talkie.
 
-### 3.2 两种通信模式
+### 3.2 Two Communication Patterns
 
 ```
-模式 1: invoke / handle（请求-响应，类似 HTTP）
-═══════════════════════════════════════════════
+Pattern 1: invoke / handle (Request-Response, similar to HTTP)
+=============================================
 
   Renderer                    Main
-  ┌──────┐    invoke          ┌──────┐
-  │      │ ──────────────→    │      │
-  │      │    "请启动服务"     │      │  处理请求...
-  │      │                    │      │
-  │      │    返回 Promise    │      │
-  │      │ ←──────────────    │      │
-  └──────┘  { success: true } └──────┘
+  +------+    invoke          +------+
+  |      | --------------->   |      |
+  |      |    "Start service" |      |  Processing...
+  |      |                    |      |
+  |      |    Returns Promise |      |
+  |      | <---------------   |      |
+  +------+  { success: true } +------+
 
 
-模式 2: send / on（单向推送，类似 WebSocket）
-═══════════════════════════════════════════════
+Pattern 2: send / on (One-way push, similar to WebSocket)
+=============================================
 
   Main                        Renderer
-  ┌──────┐    send            ┌──────┐
-  │      │ ──────────────→    │      │
-  │      │  "有新日志来了"     │      │  更新 UI...
-  │      │                    │      │
-  │      │    send            │      │
-  │      │ ──────────────→    │      │
-  │      │  "又有新日志了"     │      │  更新 UI...
-  └──────┘                    └──────┘
+  +------+    send            +------+
+  |      | --------------->   |      |
+  |      |  "New log arrived" |      |  Update UI...
+  |      |                    |      |
+  |      |    send            |      |
+  |      | --------------->   |      |
+  |      |  "Another new log" |      |  Update UI...
+  +------+                    +------+
 ```
 
-### 3.3 完整链路详解：`window.nexus.startAllServices()`
+### 3.3 Complete Chain Walkthrough: `window.nexus.startAllServices()`
 
-下面我们用 NarraNexus 真实的"启动所有服务"功能，从头到尾走一遍完整的 IPC 链路。
+Below we walk through the complete IPC chain using NarraNexus's real "start all services" feature, from beginning to end.
 
-#### 第 1 步：定义通道名（`shared/ipc-channels.ts`）
+#### Step 1: Define channel names (`shared/ipc-channels.ts`)
 
-首先，Main 和 Preload 需要约定一个"频道名"。就像对讲机要调到同一个频率。
+First, Main and Preload need to agree on a "channel name". Just like walkie-talkies need to be tuned to the same frequency.
 
 ```typescript
 // desktop/src/shared/ipc-channels.ts
 export const IPC = {
-  SERVICE_START_ALL: 'service-start-all',  // ← 这就是频道名
+  SERVICE_START_ALL: 'service-start-all',  // <-- This is the channel name
   ON_LOG: 'on-log',
-  // ... 其他频道
+  // ... other channels
 } as const
 ```
 
-这个文件放在 `shared/` 目录下，Main 和 Preload 都可以导入。之所以用常量而不是写死字符串，是为了避免拼写错误（一个地方写成 `'service-start-al'` 少了个 l，你可能调半天 Bug）。
+This file is placed in the `shared/` directory so both Main and Preload can import it. The reason for using constants instead of hardcoded strings is to avoid typos (if you write `'service-start-al'` with a missing "l" somewhere, you might spend hours debugging).
 
-#### 第 2 步：Main 侧注册 handler（`main/ipc-handlers.ts`）
+#### Step 2: Register handler on the Main side (`main/ipc-handlers.ts`)
 
-Main Process 需要"监听"这个频道，收到消息时执行对应的操作：
+The Main Process needs to "listen" on this channel and execute the corresponding action when a message is received:
 
 ```typescript
 // desktop/src/main/ipc-handlers.ts
@@ -251,25 +254,25 @@ import { ipcMain } from 'electron'
 import { IPC } from './constants'
 
 export function registerIpcHandlers(processManager, healthMonitor, mainWindow) {
-  // 注册 handler：当 Renderer 调用 invoke('service-start-all') 时，
-  // 执行 processManager.startAll() 并返回结果
+  // Register handler: when Renderer calls invoke('service-start-all'),
+  // execute processManager.startAll() and return the result
   ipcMain.handle(IPC.SERVICE_START_ALL, async () => {
     await processManager.startAll()
     return { success: true }
   })
 
-  // 注册事件转发：Main → Renderer 的单向推送
+  // Register event forwarding: one-way push from Main to Renderer
   processManager.on('log', (entry) => {
     mainWindow.webContents.send(IPC.ON_LOG, entry)
   })
 }
 ```
 
-`ipcMain.handle()` 就像 Express 里的 `app.get('/api/start', handler)` -- 注册一个请求处理器。
+`ipcMain.handle()` is like `app.get('/api/start', handler)` in Express -- it registers a request handler.
 
-#### 第 3 步：Preload 做桥接（`preload/index.ts`）
+#### Step 3: Preload bridges the gap (`preload/index.ts`)
 
-Preload 把 `ipcRenderer.invoke()` 包装成一个"看起来像普通函数"的 API，通过 `contextBridge` 暴露给 Renderer：
+Preload wraps `ipcRenderer.invoke()` into what looks like a regular function and exposes it to the Renderer via `contextBridge`:
 
 ```typescript
 // desktop/src/preload/index.ts
@@ -277,164 +280,164 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc-channels'
 
 const nexusAPI = {
-  // 请求-响应模式：调用后等待 Main 返回结果
+  // Request-response pattern: call and wait for Main to return a result
   startAllServices: () => ipcRenderer.invoke(IPC.SERVICE_START_ALL),
 
-  // 事件监听模式：注册回调，收到 Main 的推送时执行
+  // Event listener pattern: register a callback that fires when Main pushes data
   onLog: (callback) => {
     const handler = (_event, entry) => callback(entry)
     ipcRenderer.on(IPC.ON_LOG, handler)
-    // 返回取消订阅函数（防止内存泄漏）
+    // Return an unsubscribe function (to prevent memory leaks)
     return () => ipcRenderer.removeListener(IPC.ON_LOG, handler)
   }
 }
 
-// 关键！把 nexusAPI 对象挂到 Renderer 的 window.nexus 上
+// Key! Mount the nexusAPI object onto window.nexus in the Renderer
 contextBridge.exposeInMainWorld('nexus', nexusAPI)
 ```
 
-`contextBridge.exposeInMainWorld('nexus', nexusAPI)` 做了一件很巧妙的事：它在 Renderer 的 `window` 对象上挂了一个 `nexus` 属性，但 Renderer 只能调用这些函数，不能访问 `ipcRenderer` 对象本身。这就是"白名单 API"的含义。
+`contextBridge.exposeInMainWorld('nexus', nexusAPI)` does something clever: it attaches a `nexus` property to the Renderer's `window` object, but the Renderer can only call these functions -- it cannot access the `ipcRenderer` object itself. This is what "whitelisted API" means.
 
-#### 第 4 步：Renderer 调用 API（React 组件中）
+#### Step 4: Renderer calls the API (in React components)
 
-现在 Renderer 里的 React 组件可以像调用普通函数一样使用了：
+Now React components in the Renderer can use it just like calling a regular function:
 
 ```typescript
 // desktop/src/renderer/pages/Dashboard.tsx
 const handleStartAll = async () => {
-  // 就像调用一个普通的异步函数！
+  // Just like calling a regular async function!
   const result = await window.nexus.startAllServices()
-  console.log('启动结果:', result)  // { success: true }
+  console.log('Start result:', result)  // { success: true }
 }
 
-// 监听日志推送
+// Listen for log pushes
 useEffect(() => {
   const unsubscribe = window.nexus.onLog((entry) => {
-    console.log('新日志:', entry.message)
+    console.log('New log:', entry.message)
   })
-  return () => unsubscribe()  // 组件卸载时取消监听
+  return () => unsubscribe()  // Unsubscribe when the component unmounts
 }, [])
 ```
 
-#### 完整链路图
+#### Complete Chain Diagram
 
 ```
   Renderer (React)            Preload                Main (Node.js)
-  ═══════════════          ═══════════════         ═══════════════════
-        │                        │                        │
-        │  window.nexus          │                        │
-        │  .startAllServices()   │                        │
-        │ ─────────────────→     │                        │
-        │                        │  ipcRenderer.invoke    │
-        │                        │  ('service-start-all') │
-        │                        │ ─────────────────→     │
-        │                        │                        │
-        │                        │              ipcMain.handle(...)
-        │                        │              processManager.startAll()
-        │                        │              spawn('uv', ['run', ...])
-        │                        │                        │
-        │                        │    返回 Promise        │
-        │                        │ ←─────────────────     │
-        │  { success: true }     │                        │
-        │ ←─────────────────     │                        │
-        │                        │                        │
-        │                        │                   (日志产生...)
-        │                        │                   mainWindow.webContents
-        │                        │   ipcRenderer.on      .send('on-log', entry)
-        │                        │ ←─────────────────     │
-        │  onLog callback(entry) │                        │
-        │ ←─────────────────     │                        │
-        │                        │                        │
+  ===============          ===============         ===================
+        |                        |                        |
+        |  window.nexus          |                        |
+        |  .startAllServices()   |                        |
+        | --------------------->  |                        |
+        |                        |  ipcRenderer.invoke    |
+        |                        |  ('service-start-all') |
+        |                        | --------------------->  |
+        |                        |                        |
+        |                        |              ipcMain.handle(...)
+        |                        |              processManager.startAll()
+        |                        |              spawn('uv', ['run', ...])
+        |                        |                        |
+        |                        |    Returns Promise     |
+        |                        | <---------------------  |
+        |  { success: true }     |                        |
+        | <---------------------  |                        |
+        |                        |                        |
+        |                        |                   (Log produced...)
+        |                        |                   mainWindow.webContents
+        |                        |   ipcRenderer.on      .send('on-log', entry)
+        |                        | <---------------------  |
+        |  onLog callback(entry) |                        |
+        | <---------------------  |                        |
+        |                        |                        |
 ```
 
-### 3.4 通信模式对照表
+### 3.4 Communication Pattern Reference Table
 
-| 方向 | API | Preload 侧 | Main 侧 | 用途 |
-|------|-----|------------|---------|------|
-| Renderer -> Main（请求-响应） | `ipcRenderer.invoke(channel, ...args)` | 包装成 `nexusAPI.xxx()` | `ipcMain.handle(channel, handler)` | 启动服务、检查依赖、读写配置 |
-| Main -> Renderer（单向推送） | `ipcRenderer.on(channel, handler)` | 包装成 `nexusAPI.onXxx(callback)` | `mainWindow.webContents.send(channel, data)` | 日志推送、健康状态更新、安装进度 |
+| Direction | API | Preload Side | Main Side | Use Case |
+|-----------|-----|-------------|-----------|----------|
+| Renderer -> Main (Request-Response) | `ipcRenderer.invoke(channel, ...args)` | Wrapped as `nexusAPI.xxx()` | `ipcMain.handle(channel, handler)` | Start services, check dependencies, read/write configuration |
+| Main -> Renderer (One-way push) | `ipcRenderer.on(channel, handler)` | Wrapped as `nexusAPI.onXxx(callback)` | `mainWindow.webContents.send(channel, data)` | Log pushes, health status updates, installation progress |
 
 ---
 
-## 第 4 章 项目目录结构设计
+## Chapter 4: Project Directory Structure Design
 
-### 4.1 完整目录结构
+### 4.1 Complete Directory Structure
 
 ```
 desktop/
 ├── src/
-│   ├── main/                    # Main Process（Node.js 侧）
-│   │   ├── index.ts             # 应用入口、窗口创建、生命周期
-│   │   ├── constants.ts         # 路径常量、端口常量、服务定义
-│   │   ├── ipc-handlers.ts      # IPC 请求处理注册中心
-│   │   ├── process-manager.ts   # 后台服务进程管理（spawn/kill）
-│   │   ├── docker-manager.ts    # Docker 容器管理
-│   │   ├── dependency-checker.ts# 系统依赖检测（uv/Node/Docker）
-│   │   ├── health-monitor.ts    # 服务健康状态轮询
-│   │   ├── env-manager.ts       # .env 文件读写
-│   │   ├── shell-env.ts         # macOS Shell 环境变量解析
-│   │   ├── store.ts             # JSON 持久化存储
-│   │   └── tray-manager.ts      # 系统托盘图标 + 菜单
+│   ├── main/                    # Main Process (Node.js side)
+│   │   ├── index.ts             # App entry, window creation, lifecycle
+│   │   ├── constants.ts         # Path constants, port constants, service definitions
+│   │   ├── ipc-handlers.ts      # IPC request handler registration center
+│   │   ├── process-manager.ts   # Background service process management (spawn/kill)
+│   │   ├── docker-manager.ts    # Docker container management
+│   │   ├── dependency-checker.ts# System dependency detection (uv/Node/Docker)
+│   │   ├── health-monitor.ts    # Service health status polling
+│   │   ├── env-manager.ts       # .env file read/write
+│   │   ├── shell-env.ts         # macOS shell environment variable parsing
+│   │   ├── store.ts             # JSON persistent storage
+│   │   └── tray-manager.ts      # System tray icon + menu
 │   │
-│   ├── preload/                 # Preload Script（安全桥梁）
-│   │   └── index.ts             # contextBridge 暴露 API
+│   ├── preload/                 # Preload Script (security bridge)
+│   │   └── index.ts             # contextBridge API exposure
 │   │
-│   ├── shared/                  # Main 和 Preload 共享的代码
-│   │   └── ipc-channels.ts      # IPC 通道名常量
+│   ├── shared/                  # Code shared between Main and Preload
+│   │   └── ipc-channels.ts      # IPC channel name constants
 │   │
-│   └── renderer/                # Renderer Process（React 界面）
-│       ├── index.html           # HTML 入口
-│       ├── main.tsx             # React 挂载点
-│       ├── App.tsx              # 根组件（路由/状态判断）
-│       ├── env.d.ts             # 全局类型声明（window.nexus）
-│       ├── pages/               # 页面组件
-│       │   ├── SetupWizard.tsx  # 初始安装向导
-│       │   └── Dashboard.tsx    # 主控面板
-│       ├── components/          # UI 组件
+│   └── renderer/                # Renderer Process (React UI)
+│       ├── index.html           # HTML entry point
+│       ├── main.tsx             # React mount point
+│       ├── App.tsx              # Root component (routing/state logic)
+│       ├── env.d.ts             # Global type declarations (window.nexus)
+│       ├── pages/               # Page components
+│       │   ├── SetupWizard.tsx  # Initial setup wizard
+│       │   └── Dashboard.tsx    # Main control panel
+│       ├── components/          # UI components
 │       │   ├── StepIndicator.tsx
 │       │   ├── ServiceCard.tsx
 │       │   └── LogViewer.tsx
 │       └── styles/
-│           └── index.css        # Tailwind CSS 入口
+│           └── index.css        # Tailwind CSS entry point
 │
-├── resources/                   # 构建资源（图标等）
-│   ├── icon.icns                # macOS 图标
-│   └── icon.png                 # 通用图标
+├── resources/                   # Build resources (icons, etc.)
+│   ├── icon.icns                # macOS icon
+│   └── icon.png                 # Universal icon
 │
-├── electron.vite.config.ts      # electron-vite 编译配置
-├── electron-builder.yml         # electron-builder 打包配置
-├── package.json                 # 依赖和脚本
-├── tsconfig.json                # TypeScript 根配置（引用）
-├── tsconfig.node.json           # Main + Preload 的 TS 配置
-├── tsconfig.web.json            # Renderer 的 TS 配置
-├── tailwind.config.js           # Tailwind CSS 配置
-└── postcss.config.js            # PostCSS 配置
+├── electron.vite.config.ts      # electron-vite build configuration
+├── electron-builder.yml         # electron-builder packaging configuration
+├── package.json                 # Dependencies and scripts
+├── tsconfig.json                # TypeScript root config (references)
+├── tsconfig.node.json           # TS config for Main + Preload
+├── tsconfig.web.json            # TS config for Renderer
+├── tailwind.config.js           # Tailwind CSS configuration
+└── postcss.config.js            # PostCSS configuration
 ```
 
-### 4.2 为什么这样组织
+### 4.2 Why This Organization
 
-核心原则：**按进程边界划分目录**。
+Core principle: **Organize directories by process boundaries**.
 
 ```
 src/
-├── main/      ← 跑在 Node.js 里，能用 fs、child_process 等
-├── preload/   ← 跑在特殊沙盒里，能用 ipcRenderer、contextBridge
-├── shared/    ← Main 和 Preload 共用，不能依赖任何特定进程的 API
-└── renderer/  ← 跑在 Chromium 里，只能用浏览器 API + window.nexus
+├── main/      <-- Runs in Node.js, can use fs, child_process, etc.
+├── preload/   <-- Runs in a special sandbox, can use ipcRenderer, contextBridge
+├── shared/    <-- Shared by Main and Preload, must not depend on any process-specific API
+└── renderer/  <-- Runs in Chromium, can only use browser APIs + window.nexus
 ```
 
-**为什么不把所有代码放在一起？**
+**Why not put all code together?**
 
-因为这三个目录的代码跑在**完全不同的运行环境**中：
-- `main/` 里能写 `import { app } from 'electron'`，但写不了 `document.getElementById`
-- `renderer/` 里能写 `document.getElementById`，但写不了 `import fs from 'fs'`
-- `shared/` 里两边都不能写，只能放纯粹的数据定义（常量、类型）
+Because the code in these three directories runs in **completely different runtime environments**:
+- In `main/` you can write `import { app } from 'electron'`, but you cannot write `document.getElementById`
+- In `renderer/` you can write `document.getElementById`, but you cannot write `import fs from 'fs'`
+- In `shared/` you cannot use either -- it can only contain pure data definitions (constants, types)
 
-如果你搞混了，TypeScript 编译器会报错，electron-vite 构建会失败。目录结构本身就是一种"编译期强制隔离"。
+If you mix them up, the TypeScript compiler will throw errors and the electron-vite build will fail. The directory structure itself serves as a form of "compile-time enforced isolation".
 
-### 4.3 `shared/` 的妙用
+### 4.3 The Power of `shared/`
 
-`shared/ipc-channels.ts` 只导出纯数据常量，不依赖任何 Electron API：
+`shared/ipc-channels.ts` only exports pure data constants and does not depend on any Electron API:
 
 ```typescript
 // desktop/src/shared/ipc-channels.ts
@@ -446,36 +449,36 @@ export const IPC = {
 } as const
 ```
 
-它被两个地方导入：
-- `main/ipc-handlers.ts` 用它注册 `ipcMain.handle(IPC.SERVICE_START_ALL, ...)`
-- `preload/index.ts` 用它发送 `ipcRenderer.invoke(IPC.SERVICE_START_ALL)`
+It is imported in two places:
+- `main/ipc-handlers.ts` uses it to register `ipcMain.handle(IPC.SERVICE_START_ALL, ...)`
+- `preload/index.ts` uses it to send `ipcRenderer.invoke(IPC.SERVICE_START_ALL)`
 
-这样保证了两边用的是**完全相同的字符串常量**，改一处两边自动同步。
+This ensures that both sides use the **exact same string constants** -- change one place and both sides automatically stay in sync.
 
-> 注意：`shared/` 里的代码**不能**被 `renderer/` 直接导入。因为 Renderer 是纯浏览器环境，由单独的 Vite 编译配置处理。如果 Renderer 需要 IPC 通道名，它根本不需要知道 -- Preload 已经把 IPC 细节封装好了，Renderer 只需要调用 `window.nexus.xxx()`。
+> Note: Code in `shared/` **cannot** be imported directly by `renderer/`. Because the Renderer is a pure browser environment handled by a separate Vite build configuration. If the Renderer needs IPC channel names, it doesn't need to know them at all -- Preload has already encapsulated the IPC details, and the Renderer only needs to call `window.nexus.xxx()`.
 
 ---
 
-## 第 5 章 electron-vite 编译系统
+## Chapter 5: electron-vite Build System
 
-### 5.1 为什么需要 electron-vite
+### 5.1 Why electron-vite is Needed
 
-原生的 Electron 开发体验很差：
+The native Electron development experience is poor:
 
-- Main Process 的 TypeScript 需要你手动用 `tsc` 编译
-- Renderer 需要你自己配 Webpack 或 Vite
-- 开发时改了 Main 的代码要手动重启
-- 三个"进程"的编译配置完全独立，维护成本高
+- Main Process TypeScript needs manual compilation with `tsc`
+- The Renderer requires you to configure Webpack or Vite yourself
+- Changing Main code during development requires a manual restart
+- Build configurations for the three "processes" are completely independent, with high maintenance costs
 
-**electron-vite** 把这三件事统一了：
+**electron-vite** unifies all three:
 
 ```
 electron-vite = Vite(Main) + Vite(Preload) + Vite(Renderer)
 ```
 
-一个配置文件，三段编译配置，一个命令搞定开发和构建。
+One configuration file, three build segments, one command handles both development and builds.
 
-### 5.2 配置详解
+### 5.2 Configuration in Detail
 
 ```typescript
 // desktop/electron.vite.config.ts
@@ -487,9 +490,9 @@ import tailwindcss from 'tailwindcss'
 import autoprefixer from 'autoprefixer'
 
 export default defineConfig({
-  // ════════════════════════════════════════════
-  // 第一段：Main Process 编译配置
-  // ════════════════════════════════════════════
+  // ============================================
+  // Segment 1: Main Process build configuration
+  // ============================================
   main: {
     plugins: [externalizeDepsPlugin()],
     build: {
@@ -501,9 +504,9 @@ export default defineConfig({
     }
   },
 
-  // ════════════════════════════════════════════
-  // 第二段：Preload Script 编译配置
-  // ════════════════════════════════════════════
+  // ============================================
+  // Segment 2: Preload Script build configuration
+  // ============================================
   preload: {
     plugins: [externalizeDepsPlugin()],
     build: {
@@ -515,9 +518,9 @@ export default defineConfig({
     }
   },
 
-  // ════════════════════════════════════════════
-  // 第三段：Renderer Process 编译配置
-  // ════════════════════════════════════════════
+  // ============================================
+  // Segment 3: Renderer Process build configuration
+  // ============================================
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
     build: {
@@ -540,105 +543,105 @@ export default defineConfig({
 })
 ```
 
-### 5.3 每一段在干什么
+### 5.3 What Each Segment Does
 
-| 段 | 输入 | 输出 | 运行环境 | 特殊处理 |
-|----|------|------|---------|---------|
+| Segment | Input | Output | Runtime Environment | Special Handling |
+|---------|-------|--------|--------------------| ----------------|
 | `main` | `src/main/index.ts` | `out/main/index.js` | Node.js | `externalizeDepsPlugin` |
-| `preload` | `src/preload/index.ts` | `out/preload/index.js` | Node.js (沙盒) | `externalizeDepsPlugin` |
-| `renderer` | `src/renderer/index.html` | `out/renderer/index.html` + JS | Chromium | React 插件 + Tailwind |
+| `preload` | `src/preload/index.ts` | `out/preload/index.js` | Node.js (sandbox) | `externalizeDepsPlugin` |
+| `renderer` | `src/renderer/index.html` | `out/renderer/index.html` + JS | Chromium | React plugin + Tailwind |
 
-编译后的产物结构：
+Compiled output structure:
 
 ```
 out/
 ├── main/
-│   └── index.js          # Main Process 编译产物
+│   └── index.js          # Main Process compiled output
 ├── preload/
-│   └── index.js          # Preload 编译产物
+│   └── index.js          # Preload compiled output
 └── renderer/
     ├── index.html         # Renderer HTML
     ├── assets/
-    │   ├── index-xxxxx.js # Renderer JS（React 打包后）
-    │   └── index-xxxxx.css# 样式
+    │   ├── index-xxxxx.js # Renderer JS (React bundled)
+    │   └── index-xxxxx.css# Styles
     └── ...
 ```
 
-### 5.4 `externalizeDepsPlugin` 是什么
+### 5.4 What is `externalizeDepsPlugin`
 
-这个插件做了一件非常重要的事：**告诉 Vite 不要把 Node.js 原生模块和 electron 打包进 bundle**。
+This plugin does something very important: **it tells Vite not to bundle Node.js native modules and electron into the output bundle**.
 
-为什么需要它？Vite 默认会把所有 `import` 的东西打包成一个大 JS 文件。但有些模块不能被打包：
+Why is this needed? Vite by default bundles everything that is `import`-ed into a single large JS file. But some modules cannot be bundled:
 
-- `electron` -- 运行时由 Electron 框架提供，不在 `node_modules` 里
-- `fs`、`path`、`child_process` -- Node.js 内置模块，不能被打包
-- 原生 C++ 模块（`.node` 文件）-- 不是 JS，Vite 处理不了
+- `electron` -- Provided at runtime by the Electron framework, not in `node_modules`
+- `fs`, `path`, `child_process` -- Node.js built-in modules that cannot be bundled
+- Native C++ modules (`.node` files) -- Not JS, Vite cannot process them
 
-`externalizeDepsPlugin` 会自动识别这些模块，把它们标记为"外部依赖"：
+`externalizeDepsPlugin` automatically identifies these modules and marks them as "external dependencies":
 
 ```javascript
-// 编译前（你的源码）
+// Before compilation (your source code)
 import { app } from 'electron'
 import { spawn } from 'child_process'
 
-// 编译后（externalize 处理后）
-const { app } = require('electron')      // 保持 require，运行时解析
+// After compilation (after externalize processing)
+const { app } = require('electron')      // Kept as require, resolved at runtime
 const { spawn } = require('child_process')
 ```
 
-**只有 Main 和 Preload 需要这个插件**，因为只有它们跑在 Node.js 环境中。Renderer 跑在浏览器里，不会也不应该 import 这些模块。
+**Only Main and Preload need this plugin**, because only they run in a Node.js environment. The Renderer runs in a browser and should never import these modules.
 
-### 5.5 Renderer 段的特殊配置
+### 5.5 Special Configuration for the Renderer Segment
 
-Renderer 段和普通的 Vite 项目配置几乎一样：
+The Renderer segment is nearly identical to a regular Vite project configuration:
 
-- `root: resolve(__dirname, 'src/renderer')` -- 告诉 Vite "你的根目录在这，HTML 入口在这"
-- `plugins: [react()]` -- 支持 JSX/TSX
-- `css.postcss.plugins` -- Tailwind CSS 处理
+- `root: resolve(__dirname, 'src/renderer')` -- Tells Vite "your root directory is here, the HTML entry is here"
+- `plugins: [react()]` -- Enables JSX/TSX support
+- `css.postcss.plugins` -- Tailwind CSS processing
 
-这就是为什么在 Renderer 里写 React 的体验和普通 Vite + React 项目完全一样。
+This is why writing React in the Renderer feels exactly like a regular Vite + React project.
 
-### 5.6 开发模式下的魔法
+### 5.6 The Magic of Development Mode
 
-运行 `npm run dev`（即 `electron-vite dev`）时：
+When running `npm run dev` (i.e., `electron-vite dev`):
 
-1. Vite 为 Renderer 启动一个 dev server（比如 `http://localhost:5173`）
-2. electron-vite 把这个 URL 注入到环境变量 `ELECTRON_RENDERER_URL`
-3. Main Process 读取这个变量，用 `win.loadURL(process.env.ELECTRON_RENDERER_URL)` 加载
+1. Vite starts a dev server for the Renderer (e.g., `http://localhost:5173`)
+2. electron-vite injects this URL into the environment variable `ELECTRON_RENDERER_URL`
+3. The Main Process reads this variable and uses `win.loadURL(process.env.ELECTRON_RENDERER_URL)` to load the page
 
 ```typescript
-// desktop/src/main/index.ts -- 加载页面的逻辑
+// desktop/src/main/index.ts -- Page loading logic
 if (process.env.ELECTRON_RENDERER_URL) {
-  win.loadURL(process.env.ELECTRON_RENDERER_URL)  // 开发模式：加载 dev server
+  win.loadURL(process.env.ELECTRON_RENDERER_URL)  // Dev mode: load from dev server
 } else {
-  win.loadFile(join(__dirname, '../renderer/index.html'))  // 生产模式：加载本地文件
+  win.loadFile(join(__dirname, '../renderer/index.html'))  // Production mode: load local file
 }
 ```
 
-这样在开发时，你修改 React 代码能享受 Vite 的 HMR（热模块替换），不用重启整个 Electron。
+This way, during development, modifying React code gives you Vite's HMR (Hot Module Replacement) without restarting the entire Electron app.
 
 ---
 
-## 第 6 章 TypeScript 配置策略
+## Chapter 6: TypeScript Configuration Strategy
 
-### 6.1 为什么需要 3 个 tsconfig
+### 6.1 Why 3 tsconfig Files Are Needed
 
-一句话：**因为 Main 和 Renderer 跑在完全不同的运行环境中，TypeScript 需要知道"这段代码能用什么 API"**。
+In one sentence: **Because Main and Renderer run in completely different runtime environments, TypeScript needs to know "what APIs can this code use"**.
 
-- Main Process 跑在 Node.js 里，能用 `fs.readFileSync()`，但用不了 `document.getElementById()`
-- Renderer Process 跑在浏览器里，能用 `document.getElementById()`，但用不了 `fs.readFileSync()`
+- The Main Process runs in Node.js, so it can use `fs.readFileSync()`, but it cannot use `document.getElementById()`
+- The Renderer Process runs in a browser, so it can use `document.getElementById()`, but it cannot use `fs.readFileSync()`
 
-如果只用一个 tsconfig，TypeScript 不知道该提示哪些 API，要么全部提示（不安全），要么全部不提示（不好用）。
+With just one tsconfig, TypeScript would not know which APIs to suggest -- either everything is suggested (unsafe) or nothing is suggested (unhelpful).
 
-### 6.2 三个配置文件的关系
+### 6.2 Relationship Between the Three Configuration Files
 
 ```
-tsconfig.json                    # 根配置（仅做引用，不编译）
-├── tsconfig.node.json           # Main + Preload（Node.js 环境）
-└── tsconfig.web.json            # Renderer（浏览器环境）
+tsconfig.json                    # Root config (references only, no compilation)
+├── tsconfig.node.json           # Main + Preload (Node.js environment)
+└── tsconfig.web.json            # Renderer (browser environment)
 ```
 
-根配置文件非常简单，只是把另外两个"链接"起来：
+The root configuration file is very simple -- it just "links" the other two:
 
 ```json
 // desktop/tsconfig.json
@@ -651,7 +654,7 @@ tsconfig.json                    # 根配置（仅做引用，不编译）
 }
 ```
 
-`"files": []` 表示根配置自己不编译任何文件，只是一个"总指挥"。
+`"files": []` means the root config itself does not compile any files -- it is just a "conductor".
 
 ### 6.3 `tsconfig.node.json` -- Main + Preload
 
@@ -663,7 +666,7 @@ tsconfig.json                    # 根配置（仅做引用，不编译）
     "module": "ESNext",
     "moduleResolution": "bundler",
     "target": "ESNext",
-    "lib": ["ESNext"],              // ← 只有 ESNext，没有 DOM！
+    "lib": ["ESNext"],              // <-- Only ESNext, no DOM!
     "outDir": "./out",
     "strict": true,
     "esModuleInterop": true,
@@ -671,21 +674,21 @@ tsconfig.json                    # 根配置（仅做引用，不编译）
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "types": ["node"]               // ← 加载 Node.js 类型定义
+    "types": ["node"]               // <-- Loads Node.js type definitions
   },
   "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*"]
 }
 ```
 
-关键配置解释：
+Key configuration explained:
 
-| 配置 | 值 | 含义 |
-|------|---|------|
-| `lib: ["ESNext"]` | 只包含 ECMAScript 标准 API | 写不了 `document.getElementById()`，因为没加载 DOM 类型 |
-| `types: ["node"]` | 加载 `@types/node` | 能写 `process.env`、`Buffer`、`require()` 等 Node.js API |
-| `include` | `src/main/**/*`, `src/preload/**/*`, `src/shared/**/*` | 只管这三个目录 |
+| Setting | Value | Meaning |
+|---------|-------|---------|
+| `lib: ["ESNext"]` | Only includes ECMAScript standard APIs | Cannot write `document.getElementById()` because DOM types are not loaded |
+| `types: ["node"]` | Loads `@types/node` | Can write `process.env`, `Buffer`, `require()`, and other Node.js APIs |
+| `include` | `src/main/**/*`, `src/preload/**/*`, `src/shared/**/*` | Only manages these three directories |
 
-**效果**：在 `src/main/` 里写 `fs.readFileSync()` 有类型提示且不报错；写 `document.getElementById()` 会报错（因为没有 DOM 类型）。
+**Effect**: Writing `fs.readFileSync()` in `src/main/` gives type hints and no errors; writing `document.getElementById()` will produce an error (because there are no DOM types).
 
 ### 6.4 `tsconfig.web.json` -- Renderer
 
@@ -697,7 +700,7 @@ tsconfig.json                    # 根配置（仅做引用，不编译）
     "module": "ESNext",
     "moduleResolution": "bundler",
     "target": "ESNext",
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],  // ← 多了 DOM！
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],  // <-- DOM added!
     "outDir": "./out",
     "strict": true,
     "esModuleInterop": true,
@@ -705,78 +708,78 @@ tsconfig.json                    # 根配置（仅做引用，不编译）
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "react-jsx",                         // ← 支持 JSX
-    "types": []                                  // ← 空！不加载 Node 类型
+    "jsx": "react-jsx",                         // <-- Supports JSX
+    "types": []                                  // <-- Empty! Does not load Node types
   },
   "include": ["src/renderer/**/*"]
 }
 ```
 
-关键配置解释：
+Key configuration explained:
 
-| 配置 | 值 | 含义 |
-|------|---|------|
-| `lib: ["ESNext", "DOM", "DOM.Iterable"]` | 加载了 DOM 类型 | 能写 `document`、`window`、`HTMLElement` 等 |
-| `types: []` | 空数组，不加载任何 `@types/*` | 写 `process.env` 会报错（好！Renderer 不应该碰 Node API） |
-| `jsx: "react-jsx"` | React 17+ 的 JSX 转换 | 支持 TSX 文件中写 JSX |
-| `include` | `src/renderer/**/*` | 只管 Renderer 目录 |
+| Setting | Value | Meaning |
+|---------|-------|---------|
+| `lib: ["ESNext", "DOM", "DOM.Iterable"]` | DOM types loaded | Can write `document`, `window`, `HTMLElement`, etc. |
+| `types: []` | Empty array, does not load any `@types/*` | Writing `process.env` will produce an error (good! Renderer should not touch Node APIs) |
+| `jsx: "react-jsx"` | React 17+ JSX transform | Supports writing JSX in TSX files |
+| `include` | `src/renderer/**/*` | Only manages the Renderer directory |
 
-**效果**：在 `src/renderer/` 里写 `document.getElementById()` 有类型提示；写 `import fs from 'fs'` 会报错。
+**Effect**: Writing `document.getElementById()` in `src/renderer/` gives type hints; writing `import fs from 'fs'` will produce an error.
 
-### 6.5 `lib` 和 `types` 的区别
+### 6.5 Difference Between `lib` and `types`
 
-这两个经常让人搞混：
+These two are often confused:
 
-- **`lib`** -- 控制 TypeScript 内置类型库。`"DOM"` 是 TypeScript 自带的浏览器 API 类型定义，`"ESNext"` 是 ECMAScript 标准 API。不需要安装任何包。
-- **`types`** -- 控制从 `node_modules/@types/` 加载哪些第三方类型定义。`"node"` 指的是 `@types/node` 包。设为 `[]` 表示不自动加载任何 `@types/*`。
+- **`lib`** -- Controls TypeScript's built-in type libraries. `"DOM"` is TypeScript's built-in browser API type definitions, and `"ESNext"` is the ECMAScript standard API. No packages need to be installed.
+- **`types`** -- Controls which third-party type definitions are loaded from `node_modules/@types/`. `"node"` refers to the `@types/node` package. Setting it to `[]` means no `@types/*` are loaded automatically.
 
 ```
-lib: ["ESNext"]           → Promise, Map, Set, Array 等 JS 标准 API
-lib: ["DOM"]              → document, window, HTMLElement 等浏览器 API
-types: ["node"]           → fs, path, process, Buffer 等 Node.js API
-types: []                 → 不加载任何 @types/*
+lib: ["ESNext"]           -> Promise, Map, Set, Array, and other JS standard APIs
+lib: ["DOM"]              -> document, window, HTMLElement, and other browser APIs
+types: ["node"]           -> fs, path, process, Buffer, and other Node.js APIs
+types: []                 -> Do not load any @types/*
 ```
 
-### 6.6 `composite: true` 的作用
+### 6.6 The Role of `composite: true`
 
-这个配置启用了 TypeScript 的**项目引用**（Project References）功能。它的好处是：
+This setting enables TypeScript's **Project References** feature. Its benefits are:
 
-1. **增量编译**：只重新编译修改过的项目部分
-2. **边界强制**：`tsconfig.node.json` 管的代码不能 import `tsconfig.web.json` 管的代码，反之亦然
-3. **IDE 支持**：VS Code 能正确理解多项目结构
+1. **Incremental compilation**: Only recompiles the modified project parts
+2. **Boundary enforcement**: Code managed by `tsconfig.node.json` cannot import code managed by `tsconfig.web.json`, and vice versa
+3. **IDE support**: VS Code can correctly understand the multi-project structure
 
 ---
 
-## 第 7 章 Renderer 的类型安全
+## Chapter 7: Type Safety in the Renderer
 
-### 7.1 问题：`window.nexus` 是哪来的？
+### 7.1 The Problem: Where does `window.nexus` come from?
 
-在 Renderer 的 React 代码里，你可以写：
+In the Renderer's React code, you can write:
 
 ```typescript
 const result = await window.nexus.startAllServices()
 ```
 
-但 TypeScript 默认不知道 `window` 上有个 `nexus` 属性。如果你直接写，IDE 会画红线报错：
+But TypeScript does not know by default that there is a `nexus` property on `window`. If you write it directly, the IDE will show a red underline error:
 
 ```
 Property 'nexus' does not exist on type 'Window & typeof globalThis'
 ```
 
-### 7.2 解决方案：`env.d.ts`
+### 7.2 Solution: `env.d.ts`
 
-NarraNexus 在 `src/renderer/env.d.ts` 中做了全局类型声明：
+NarraNexus declares global types in `src/renderer/env.d.ts`:
 
 ```typescript
 // desktop/src/renderer/env.d.ts
 
-/** Preload 暴露的 Nexus API 类型 */
+/** Types for the Nexus API exposed by Preload */
 interface NexusAPI {
   checkDependencies: () => Promise<DependencyStatus[]>
   startAllServices: () => Promise<{ success: boolean }>
   stopAllServices: () => Promise<{ success: boolean }>
   onLog: (callback: (entry: LogEntry) => void) => () => void
-  // ... 等等
+  // ... etc.
 }
 
 interface LogEntry {
@@ -786,64 +789,64 @@ interface LogEntry {
   message: string
 }
 
-// 扩展 Window 接口
+// Extend the Window interface
 interface Window {
   nexus: NexusAPI
 }
 ```
 
-### 7.3 这是怎么工作的？
+### 7.3 How Does This Work?
 
-TypeScript 有一个"声明合并"（Declaration Merging）机制。`Window` 是 TypeScript 内置类型（来自 `lib: ["DOM"]`），你可以在任何 `.d.ts` 文件中"追加"属性：
+TypeScript has a "Declaration Merging" mechanism. `Window` is a built-in TypeScript type (from `lib: ["DOM"]`), and you can "append" properties to it in any `.d.ts` file:
 
 ```
-TypeScript 内置的 Window:
+TypeScript's built-in Window:
   - document
   - location
   - localStorage
   - ...
 
-你的 env.d.ts 追加的:
-  + nexus: NexusAPI         ← 合并进去！
+Your env.d.ts appends:
+  + nexus: NexusAPI         <-- Merged in!
 ```
 
-合并后，TypeScript 就知道 `window.nexus` 存在，而且有完整的类型提示：
+After merging, TypeScript knows that `window.nexus` exists, with complete type hints:
 
 ```typescript
-// 现在这样写有完整的 IDE 提示！
-window.nexus.startAllServices()  // 返回 Promise<{ success: boolean }>
+// Now this has full IDE support!
+window.nexus.startAllServices()  // Returns Promise<{ success: boolean }>
 window.nexus.onLog((entry) => {
-  // entry 自动推断为 LogEntry 类型
+  // entry is automatically inferred as LogEntry type
   console.log(entry.serviceId)  // string
   console.log(entry.message)    // string
 })
 ```
 
-### 7.4 为什么是 `.d.ts` 而不是 `.ts`
+### 7.4 Why `.d.ts` Instead of `.ts`
 
-- `.d.ts` 文件是纯类型声明文件，不包含运行时代码，不会被编译成 JS
-- `.ts` 文件包含运行时代码，会被编译
-- 全局类型扩展（如 `interface Window { ... }`）应该放在 `.d.ts` 中
+- `.d.ts` files are pure type declaration files that do not contain runtime code and are not compiled to JS
+- `.ts` files contain runtime code and are compiled
+- Global type extensions (like `interface Window { ... }`) should be placed in `.d.ts` files
 
-### 7.5 类型如何保持同步
+### 7.5 How to Keep Types in Sync
 
-注意一个问题：`env.d.ts` 中的 `NexusAPI` 接口是**手动维护**的，它需要和 `preload/index.ts` 中实际暴露的 API 保持同步。如果 Preload 增加了一个新 API 但忘了更新 `env.d.ts`，Renderer 代码中调用这个 API 时 TypeScript 会报错。
+Note an important point: the `NexusAPI` interface in `env.d.ts` is **maintained manually**, and it needs to stay in sync with the API actually exposed in `preload/index.ts`. If Preload adds a new API but you forget to update `env.d.ts`, TypeScript will report an error when you try to call that API in Renderer code.
 
-这实际上是一个**优点** -- 它强迫你在增加 API 时同时更新类型声明，相当于一种"合同"。
+This is actually a **benefit** -- it forces you to update the type declaration whenever you add an API, acting as a kind of "contract".
 
-在 NarraNexus 中，Preload 侧也定义了 `NexusAPI` 接口（用于约束实际实现），和 `env.d.ts` 中的声明形成双重保障：
+In NarraNexus, the Preload side also defines a `NexusAPI` interface (to constrain the actual implementation), forming a double guarantee with the declaration in `env.d.ts`:
 
 ```typescript
-// preload/index.ts -- 实现侧的接口
+// preload/index.ts -- Interface on the implementation side
 export interface NexusAPI {
   startAllServices: () => Promise<{ success: boolean }>
   // ...
 }
-const nexusAPI: NexusAPI = { ... }  // ← TypeScript 检查实现是否匹配
+const nexusAPI: NexusAPI = { ... }  // <-- TypeScript checks if the implementation matches
 ```
 
 ```typescript
-// renderer/env.d.ts -- 使用侧的接口
+// renderer/env.d.ts -- Interface on the consumer side
 interface NexusAPI {
   startAllServices: () => Promise<{ success: boolean }>
   // ...
@@ -852,187 +855,187 @@ interface NexusAPI {
 
 ---
 
-## 第 8 章 开发模式 vs 生产模式
+## Chapter 8: Development Mode vs Production Mode
 
-### 8.1 总览对比
+### 8.1 Overview Comparison
 
-| 方面 | 开发模式 (`npm run dev`) | 生产模式（打包后的 .app） |
-|------|------------------------|-------------------------|
-| Renderer 加载方式 | `win.loadURL('http://localhost:5173')` | `win.loadFile('out/renderer/index.html')` |
-| 项目根目录 | 仓库根目录（直接可写） | `~/Library/Application Support/NarraNexus/project/` |
-| 代码热更新 | Vite HMR，改了立刻生效 | 无，需重新打包 |
-| DevTools | 自动打开 | 不打开 |
-| 环境变量 | 继承终端的完整 `$PATH` | 只有 launchd 的极简环境（macOS） |
-| 判断方式 | `app.isPackaged === false` | `app.isPackaged === true` |
+| Aspect | Development Mode (`npm run dev`) | Production Mode (packaged .app) |
+|--------|----------------------------------|--------------------------------|
+| Renderer loading method | `win.loadURL('http://localhost:5173')` | `win.loadFile('out/renderer/index.html')` |
+| Project root directory | Repository root (directly writable) | `~/Library/Application Support/NarraNexus/project/` |
+| Hot reloading | Vite HMR, changes take effect immediately | None, requires repackaging |
+| DevTools | Opens automatically | Does not open |
+| Environment variables | Inherits the full `$PATH` from the terminal | Only the minimal launchd environment (macOS) |
+| Detection method | `app.isPackaged === false` | `app.isPackaged === true` |
 
-### 8.2 路径差异详解
+### 8.2 Path Differences in Detail
 
-这是最容易踩坑的地方。
+This is the area most prone to mistakes.
 
 ```typescript
 // desktop/src/main/constants.ts
 
-// 打包后 .app 内的只读项目目录
+// Read-only project directory inside the packaged .app
 export const BUNDLED_PROJECT_ROOT = app.isPackaged
   ? join(process.resourcesPath, 'project')  // /path/to/NarraNexus.app/Contents/Resources/project
-  : null                                     // 开发模式不存在
+  : null                                     // Does not exist in dev mode
 
-// 实际使用的可写项目目录
+// Actual writable project directory used at runtime
 export const PROJECT_ROOT = app.isPackaged
   ? join(app.getPath('userData'), 'project') // ~/Library/Application Support/NarraNexus/project
-  : join(__dirname, '..', '..', '..')        // 开发模式：仓库根目录
+  : join(__dirname, '..', '..', '..')        // Dev mode: repository root
 ```
 
-**为什么有两个路径？**
+**Why are there two paths?**
 
-打包后，项目源码被 `extraResources` 复制到了 `.app/Contents/Resources/project/` 里。但这个位置是**只读的**（macOS 对 `.app` 包的安全限制）。而我们的应用需要写入 `.env` 文件、创建 `.venv` 虚拟环境等。
+After packaging, the project source code is copied to `.app/Contents/Resources/project/` by `extraResources`. But this location is **read-only** (macOS security restrictions on `.app` bundles). However, our application needs to write `.env` files, create `.venv` virtual environments, and so on.
 
-解决方案：首次启动时，把只读的 `Resources/project` 复制到可写的 `userData/project`。
+Solution: On first launch, copy the read-only `Resources/project` to the writable `userData/project`.
 
 ```typescript
 // desktop/src/main/constants.ts
 export function ensureWritableProject(): void {
-  if (!app.isPackaged || !BUNDLED_PROJECT_ROOT) return  // 开发模式跳过
-  if (existsSync(join(PROJECT_ROOT, 'pyproject.toml'))) return  // 已复制过
+  if (!app.isPackaged || !BUNDLED_PROJECT_ROOT) return  // Skip in dev mode
+  if (existsSync(join(PROJECT_ROOT, 'pyproject.toml'))) return  // Already copied
 
   cpSync(BUNDLED_PROJECT_ROOT, PROJECT_ROOT, { recursive: true })
 }
 ```
 
-### 8.3 Renderer 加载方式差异
+### 8.3 Renderer Loading Differences
 
 ```typescript
 // desktop/src/main/index.ts
 
 if (process.env.ELECTRON_RENDERER_URL) {
-  // 开发模式：electron-vite 自动注入这个环境变量
-  // 值类似 http://localhost:5173
+  // Dev mode: electron-vite automatically injects this environment variable
+  // Value is something like http://localhost:5173
   win.loadURL(process.env.ELECTRON_RENDERER_URL)
 } else {
-  // 生产模式：加载编译好的本地 HTML 文件
+  // Production mode: load the compiled local HTML file
   win.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
-// 开发模式下打开 DevTools
+// Open DevTools in dev mode
 if (process.env.ELECTRON_RENDERER_URL) {
   win.webContents.openDevTools({ mode: 'detach' })
 }
 ```
 
-### 8.4 环境变量差异（macOS 特有问题）
+### 8.4 Environment Variable Differences (macOS-specific Issue)
 
-在 macOS 上，双击 `.app` 启动的应用**不会继承**你在 `~/.zshrc` 中设置的环境变量（`$PATH`、API Key 等）。这是因为 `.app` 由 `launchd` 启动，只有极简的环境变量。
+On macOS, applications launched by double-clicking a `.app` **do not inherit** the environment variables you set in `~/.zshrc` (such as `$PATH`, API Keys, etc.). This is because `.app` is launched by `launchd`, which only provides a minimal set of environment variables.
 
-但 NarraNexus 需要调用 `uv`、`docker`、`node` 等命令，这些通常在 `/usr/local/bin` 或 `~/.local/bin` 里，不在 launchd 的默认 `$PATH` 中。
+But NarraNexus needs to call commands like `uv`, `docker`, `node`, etc., which are typically located in `/usr/local/bin` or `~/.local/bin` -- paths not in launchd's default `$PATH`.
 
-详细解释见第 11 章。
+See Chapter 11 for a detailed explanation.
 
 ---
 
-## 第 9 章 electron-builder 打包配置详解
+## Chapter 9: electron-builder Packaging Configuration in Detail
 
-### 9.1 完整配置逐行讲解
+### 9.1 Complete Configuration Line-by-Line
 
 ```yaml
 # desktop/electron-builder.yml
 
-# ═══════════════════════════════════════════════
-# 基础信息
-# ═══════════════════════════════════════════════
+# ===============================================
+# Basic Information
+# ===============================================
 
 appId: com.narranexus.desktop
-# 应用的唯一标识符（反向域名格式）
-# macOS 用它来区分不同应用的数据存储
-# 影响 app.getPath('userData') 的路径
+# The application's unique identifier (reverse domain format)
+# macOS uses it to distinguish data storage for different applications
+# Affects the path returned by app.getPath('userData')
 
 productName: NarraNexus
-# 应用显示名称
-# 出现在：macOS 菜单栏、Dock、安装包名等
+# Application display name
+# Appears in: macOS menu bar, Dock, installer name, etc.
 
 directories:
   buildResources: resources
-  # 构建资源目录，放图标等文件
-  # 相对于 desktop/ 目录
+  # Build resources directory, contains icons and other files
+  # Relative to the desktop/ directory
   output: dist
-  # 打包产物输出目录
-  # 最终的 .dmg / .AppImage 文件会出现在 desktop/dist/
+  # Packaging output directory
+  # The final .dmg / .AppImage files will appear in desktop/dist/
 
-# ═══════════════════════════════════════════════
-# macOS 配置
-# ═══════════════════════════════════════════════
+# ===============================================
+# macOS Configuration
+# ===============================================
 
 mac:
   category: public.app-category.developer-tools
-  # macOS 应用分类，出现在 Finder "获取信息" 中
-  # 常用值：
-  #   public.app-category.developer-tools  开发工具
-  #   public.app-category.productivity     效率工具
-  #   public.app-category.utilities        实用工具
+  # macOS application category, shown in Finder "Get Info"
+  # Common values:
+  #   public.app-category.developer-tools  Developer Tools
+  #   public.app-category.productivity     Productivity
+  #   public.app-category.utilities        Utilities
 
   target:
     - target: dmg
       arch:
         - universal
-  # 打包格式：DMG（磁盘映像）
-  # universal = 同时包含 Intel (x64) 和 Apple Silicon (arm64)
-  # 一个安装包兼容所有 Mac
+  # Package format: DMG (Disk Image)
+  # universal = includes both Intel (x64) and Apple Silicon (arm64)
+  # A single installer works on all Macs
 
   icon: resources/icon.icns
-  # macOS 图标文件（.icns 格式，包含多种尺寸）
+  # macOS icon file (.icns format, contains multiple sizes)
 
   entitlementsInherit: null
-  # 应用权限继承设置，null = 不使用沙盒权限
-  # 如果要上 App Store 需要配置这个
+  # Application entitlements inheritance setting, null = no sandbox entitlements
+  # Needs to be configured if publishing to the App Store
 
-# ═══════════════════════════════════════════════
-# DMG 安装界面配置
-# ═══════════════════════════════════════════════
+# ===============================================
+# DMG Installation Interface Configuration
+# ===============================================
 
 dmg:
   title: "NarraNexus"
-  # DMG 打开后窗口标题栏显示的文字
+  # Text displayed in the DMG window title bar when opened
 
   contents:
     - x: 130
       y: 220
-    # 应用图标在 DMG 窗口中的位置
-    # (130, 220) = 左侧
+    # Position of the application icon in the DMG window
+    # (130, 220) = left side
     - x: 410
       y: 220
       type: link
       path: /Applications
-    # Applications 快捷方式的位置
-    # (410, 220) = 右侧
-    # type: link + path: /Applications = 创建指向 /Applications 的符号链接
+    # Position of the Applications shortcut
+    # (410, 220) = right side
+    # type: link + path: /Applications = creates a symbolic link to /Applications
 
-# 用户打开 DMG 后看到的界面：
+# What the user sees when opening the DMG:
 #
-# ┌─────────────────────────────────────┐
-# │        NarraNexus                   │
-# │                                     │
-# │   [NarraNexus]  →  [Applications]  │
-# │                                     │
-# │   把左边拖到右边就完成安装！          │
-# └─────────────────────────────────────┘
+# +-------------------------------------+
+# |        NarraNexus                   |
+# |                                     |
+# |   [NarraNexus]  ->  [Applications] |
+# |                                     |
+# |   Drag left to right to install!    |
+# +-------------------------------------+
 
-# ═══════════════════════════════════════════════
-# Linux 配置
-# ═══════════════════════════════════════════════
+# ===============================================
+# Linux Configuration
+# ===============================================
 
 linux:
   target:
     - target: AppImage
-    # AppImage = 免安装的单文件可执行程序
-    # 双击就能运行，不需要 sudo
+    # AppImage = single-file executable that runs without installation
+    # Double-click to run, no sudo needed
     - target: deb
-    # deb = Debian/Ubuntu 安装包
-    # 可以用 dpkg -i 安装
+    # deb = Debian/Ubuntu installation package
+    # Can be installed with dpkg -i
   category: Development
-  # Linux 桌面分类
+  # Linux desktop category
 
-# ═══════════════════════════════════════════════
-# 额外资源（关键！）
-# ═══════════════════════════════════════════════
+# ===============================================
+# Extra Resources (Critical!)
+# ===============================================
 
 extraResources:
   - from: "../"
@@ -1047,66 +1050,66 @@ extraResources:
       - "!**/*.pyc"
 ```
 
-### 9.2 `extraResources` -- 把项目源码打进应用
+### 9.2 `extraResources` -- Bundling Project Source Code into the App
 
-这是最关键也最容易困惑的部分。
+This is the most critical and often most confusing part.
 
-**是什么**：`extraResources` 告诉 electron-builder "除了 Electron 应用本身，还要把这些额外的文件打包进去"。
+**What it is**: `extraResources` tells electron-builder "in addition to the Electron application itself, also package these extra files".
 
-**为什么需要**：NarraNexus Desktop 不只是一个界面，它需要启动 Python 后台服务。这意味着打包后的 `.app` 里必须包含完整的 Python 项目源码（`src/`、`backend/`、`frontend/`、`pyproject.toml` 等）。
+**Why it is needed**: NarraNexus Desktop is not just a UI -- it needs to start Python backend services. This means the packaged `.app` must contain the complete Python project source code (`src/`, `backend/`, `frontend/`, `pyproject.toml`, etc.).
 
-**怎么工作的**：
+**How it works**:
 
 ```
-打包前的仓库结构：              打包后 .app 内部结构：
-NexusAgent/                     NarraNexus.app/Contents/
-├── src/            ──→          ├── Resources/
-├── backend/        ──→          │   ├── project/        ← extraResources 复制到这里！
-├── frontend/       ──→          │   │   ├── src/
-├── pyproject.toml  ──→          │   │   ├── backend/
-├── desktop/        ✗排除        │   │   ├── frontend/
-├── .git/           ✗排除        │   │   └── pyproject.toml
-├── .venv/          ✗排除        │   ├── app.asar        ← Electron 应用本体
-└── node_modules/   ✗排除        │   └── icon.icns
-                                 └── MacOS/
-                                     └── NarraNexus      ← 可执行文件
+Repository structure before packaging:     Internal structure of packaged .app:
+NexusAgent/                                NarraNexus.app/Contents/
+├── src/            -->                    ├── Resources/
+├── backend/        -->                    │   ├── project/        <-- extraResources copies here!
+├── frontend/       -->                    │   │   ├── src/
+├── pyproject.toml  -->                    │   │   ├── backend/
+├── desktop/        X excluded             │   │   ├── frontend/
+├── .git/           X excluded             │   │   └── pyproject.toml
+├── .venv/          X excluded             │   ├── app.asar        <-- Electron app itself
+└── node_modules/   X excluded             │   └── icon.icns
+                                           └── MacOS/
+                                               └── NarraNexus      <-- Executable file
 ```
 
-配置解读：
+Configuration breakdown:
 
 ```yaml
 extraResources:
-  - from: "../"           # 从 desktop/ 的上一级（仓库根目录）开始
-    to: "project"         # 复制到 Resources/project/
+  - from: "../"           # Start from one level above desktop/ (repository root)
+    to: "project"         # Copy to Resources/project/
     filter:
-      - "**/*"            # 默认包含所有文件
-      - "!**/node_modules/**"   # 排除 node_modules（太大了，运行时 npm install）
-      - "!**/.venv/**"         # 排除 Python 虚拟环境
-      - "!**/.git/**"         # 排除 git 历史
-      - "!**/desktop/**"      # 排除 desktop 目录本身（不需要嵌套）
-      - "!**/__pycache__/**"  # 排除 Python 缓存
-      - "!**/*.pyc"           # 排除编译的 Python 文件
+      - "**/*"            # Include all files by default
+      - "!**/node_modules/**"   # Exclude node_modules (too large, npm install at runtime)
+      - "!**/.venv/**"         # Exclude Python virtual environment
+      - "!**/.git/**"         # Exclude git history
+      - "!**/desktop/**"      # Exclude the desktop directory itself (no nesting)
+      - "!**/__pycache__/**"  # Exclude Python cache
+      - "!**/*.pyc"           # Exclude compiled Python files
 ```
 
-### 9.3 macOS `.app` 包的内部结构
+### 9.3 Internal Structure of a macOS `.app` Bundle
 
-macOS 的 `.app` 实际上是一个**文件夹**（在 Finder 中右键 -> 显示包内容）。electron-builder 生成的结构如下：
+A macOS `.app` is actually a **folder** (right-click in Finder -> Show Package Contents). The structure generated by electron-builder is as follows:
 
 ```
 NarraNexus.app/
 └── Contents/
-    ├── Info.plist              # 应用元信息（名称、版本、图标等）
-    ├── PkgInfo                 # 包类型标识
+    ├── Info.plist              # Application metadata (name, version, icon, etc.)
+    ├── PkgInfo                 # Package type identifier
     ├── MacOS/
-    │   └── NarraNexus          # 可执行文件（Electron 主程序）
+    │   └── NarraNexus          # Executable file (Electron main program)
     ├── Frameworks/
     │   ├── Electron Framework.framework/   # Chromium + Node.js
     │   └── ...
     └── Resources/
-        ├── app.asar            # 你的 Electron 代码（main + preload + renderer）
-        │                       # 被压缩成 asar 归档格式（类似 zip）
-        ├── icon.icns           # 应用图标
-        └── project/            # ← extraResources 复制进来的！
+        ├── app.asar            # Your Electron code (main + preload + renderer)
+        │                       # Compressed into asar archive format (similar to zip)
+        ├── icon.icns           # Application icon
+        └── project/            # <-- Copied in by extraResources!
             ├── src/
             ├── backend/
             ├── frontend/
@@ -1114,206 +1117,207 @@ NarraNexus.app/
             └── ...
 ```
 
-**asar 格式**：electron-builder 默认把你的 `out/` 产物压缩成 `app.asar`。这是 Electron 自创的归档格式，类似 zip 但不需要解压就能读取。好处是：
-- 文件数量少，安装更快
-- 避免 Windows 上路径过长的问题
-- 一定程度上保护源码
+**asar format**: electron-builder by default compresses your `out/` output into `app.asar`. This is an archive format created by Electron, similar to zip but readable without extraction. Benefits include:
+- Fewer files, faster installation
+- Avoids path-too-long issues on Windows
+- Provides a degree of source code protection
 
 ---
 
-## 第 10 章 完整打包流水线
+## Chapter 10: Complete Packaging Pipeline
 
-### 10.1 从源码到 .dmg 的每一步
+### 10.1 Every Step from Source Code to .dmg
 
-NarraNexus 提供了一个打包脚本 `build-desktop.sh`，它自动化了整个流程：
+NarraNexus provides a packaging script `build-desktop.sh` that automates the entire process:
 
 ```
 bash build-desktop.sh
 ```
 
-完整流水线如下：
+The complete pipeline is as follows:
 
 ```
-┌──────────────────────────────────────────────────────┐
-│ Step 1: check_prerequisites                           │
-│ 检查 Node.js >= 20 是否已安装                          │
-└──────────────┬───────────────────────────────────────┘
-               │
-┌──────────────▼───────────────────────────────────────┐
-│ Step 2: clean                                         │
-│ 删除旧的编译产物：rm -rf dist/ out/                    │
-└──────────────┬───────────────────────────────────────┘
-               │
-┌──────────────▼───────────────────────────────────────┐
-│ Step 3: install_deps                                  │
-│ cd desktop && npm install                             │
-│ 安装 Electron、electron-vite、React 等依赖             │
-└──────────────┬───────────────────────────────────────┘
-               │
-┌──────────────▼───────────────────────────────────────┐
-│ Step 4: build_frontend                                │
-│ cd frontend && npm run build                          │
-│ 构建 NarraNexus 的 React 前端（注意：是项目前端，       │
-│ 不是 desktop 的 Renderer！）                           │
-│ 产物：frontend/dist/                                  │
-└──────────────┬───────────────────────────────────────┘
-               │
-┌──────────────▼───────────────────────────────────────┐
-│ Step 5: compile_electron                              │
-│ cd desktop && npx electron-vite build                 │
-│ 编译 Electron 的三部分代码：                            │
-│   src/main/     → out/main/index.js                   │
-│   src/preload/  → out/preload/index.js                │
-│   src/renderer/ → out/renderer/index.html + assets    │
-└──────────────┬───────────────────────────────────────┘
-               │
-┌──────────────▼───────────────────────────────────────┐
-│ Step 6: package_app                                   │
-│ cd desktop && npx electron-builder --mac              │
-│                                                       │
-│ electron-builder 做的事情：                             │
-│ 1. 下载对应平台的 Electron 预编译二进制文件              │
-│ 2. 把 out/ 编译产物打包成 app.asar                      │
-│ 3. 把 app.asar 放入 .app/Contents/Resources/           │
-│ 4. 把 extraResources 指定的文件复制进                    │
-│    .app/Contents/Resources/project/                    │
-│ 5. 生成 .dmg 磁盘映像                                   │
-│                                                       │
-│ 产物：desktop/dist/NarraNexus-1.0.0-universal.dmg     │
-└──────────────────────────────────────────────────────┘
++------------------------------------------------------+
+| Step 1: check_prerequisites                            |
+| Check that Node.js >= 20 is installed                  |
++---------------+--------------------------------------+
+                |
++---------------v--------------------------------------+
+| Step 2: clean                                          |
+| Remove old build artifacts: rm -rf dist/ out/          |
++---------------+--------------------------------------+
+                |
++---------------v--------------------------------------+
+| Step 3: install_deps                                   |
+| cd desktop && npm install                              |
+| Install Electron, electron-vite, React, etc.           |
++---------------+--------------------------------------+
+                |
++---------------v--------------------------------------+
+| Step 4: build_frontend                                 |
+| cd frontend && npm run build                           |
+| Build NarraNexus's React frontend (note: this is the  |
+| project frontend, NOT the desktop Renderer!)           |
+| Output: frontend/dist/                                 |
++---------------+--------------------------------------+
+                |
++---------------v--------------------------------------+
+| Step 5: compile_electron                               |
+| cd desktop && npx electron-vite build                  |
+| Compile the three parts of Electron code:              |
+|   src/main/     -> out/main/index.js                   |
+|   src/preload/  -> out/preload/index.js                |
+|   src/renderer/ -> out/renderer/index.html + assets    |
++---------------+--------------------------------------+
+                |
++---------------v--------------------------------------+
+| Step 6: package_app                                    |
+| cd desktop && npx electron-builder --mac               |
+|                                                        |
+| What electron-builder does:                            |
+| 1. Downloads prebuilt Electron binaries for the target |
+|    platform                                            |
+| 2. Packages out/ build output into app.asar            |
+| 3. Places app.asar into .app/Contents/Resources/       |
+| 4. Copies files specified by extraResources into       |
+|    .app/Contents/Resources/project/                    |
+| 5. Generates the .dmg disk image                       |
+|                                                        |
+| Output: desktop/dist/NarraNexus-1.0.0-universal.dmg   |
++------------------------------------------------------+
 ```
 
-### 10.2 build-desktop.sh 关键代码
+### 10.2 Key Code from build-desktop.sh
 
 ```bash
-# build-desktop.sh 主流程
+# build-desktop.sh main flow
 
 main() {
   local target="${1:-}"
 
-  # 如果没指定平台，自动检测
+  # If no platform specified, auto-detect
   if [ -z "$target" ]; then
-    target=$(detect_platform)   # Darwin → mac, Linux → linux
+    target=$(detect_platform)   # Darwin -> mac, Linux -> linux
   fi
 
-  check_prerequisites   # 确保 Node.js >= 20
+  check_prerequisites   # Ensure Node.js >= 20
   clean                 # rm -rf desktop/dist desktop/out
   install_deps          # cd desktop && npm install
-  build_frontend        # cd frontend && npm run build（项目前端）
+  build_frontend        # cd frontend && npm run build (project frontend)
   compile_electron      # cd desktop && npx electron-vite build
   package_app "$target" # cd desktop && npx electron-builder --mac/--linux
 }
 ```
 
-### 10.3 两个"前端"不要搞混
+### 10.3 Do Not Confuse the Two "Frontends"
 
-NarraNexus 有**两个前端**：
+NarraNexus has **two frontends**:
 
-| 前端 | 目录 | 用途 | 什么时候构建 |
-|------|------|------|------------|
-| 项目前端 | `frontend/` | NarraNexus AI Agent 的 Web UI（React） | Step 4: `build_frontend` |
-| 桌面前端 | `desktop/src/renderer/` | Electron 桌面应用的管理界面（React） | Step 5: `compile_electron` |
+| Frontend | Directory | Purpose | When to Build |
+|----------|-----------|---------|--------------|
+| Project frontend | `frontend/` | NarraNexus AI Agent's Web UI (React) | Step 4: `build_frontend` |
+| Desktop frontend | `desktop/src/renderer/` | Electron desktop app's management interface (React) | Step 5: `compile_electron` |
 
-项目前端是给**最终用户**用的（Agent 管理页面），它被打包进 `.app` 的 `Resources/project/frontend/dist/` 里，由 Python 后端 serve。
+The project frontend is for **end users** (Agent management page). It is packaged into `.app`'s `Resources/project/frontend/dist/` and served by the Python backend.
 
-桌面前端是给**运维/开发者**用的（服务管理面板），它是 Electron Renderer 的一部分，被编译到 `out/renderer/` 并打包到 `app.asar` 里。
+The desktop frontend is for **ops/developers** (service management panel). It is part of the Electron Renderer, compiled to `out/renderer/` and packaged into `app.asar`.
 
-### 10.4 产物清单
+### 10.4 Build Artifacts
 
-打包完成后，`desktop/dist/` 里会有：
+After packaging, `desktop/dist/` will contain:
 
 macOS:
 ```
 desktop/dist/
-├── NarraNexus-1.0.0-universal.dmg     # 安装包（发给用户的）
-├── NarraNexus-1.0.0-universal-mac.zip # ZIP 格式（用于自动更新）
+├── NarraNexus-1.0.0-universal.dmg     # Installer (distributed to users)
+├── NarraNexus-1.0.0-universal-mac.zip # ZIP format (for auto-updates)
 ├── mac-universal/
-│   └── NarraNexus.app/                 # 解压后的应用（调试用）
-└── builder-effective-config.yaml       # 实际使用的完整配置（调试用）
+│   └── NarraNexus.app/                 # Unpacked application (for debugging)
+└── builder-effective-config.yaml       # Actual complete configuration used (for debugging)
 ```
 
 Linux:
 ```
 desktop/dist/
-├── NarraNexus-1.0.0.AppImage          # 免安装单文件
-└── narranexus-desktop_1.0.0_amd64.deb # Debian 安装包
+├── NarraNexus-1.0.0.AppImage          # No-install single file
+└── narranexus-desktop_1.0.0_amd64.deb # Debian package
 ```
 
 ---
 
-## 第 11 章 生产环境的特殊处理
+## Chapter 11: Special Handling for the Production Environment
 
-### 11.1 只读文件系统问题
+### 11.1 Read-Only File System Issue
 
-**问题**：macOS 对 `.app` 包内的文件有只读保护。打包后你的项目源码在 `.app/Contents/Resources/project/` 里，这个目录是只读的。但 NarraNexus 需要：
-- 写入 `.env` 文件（存储 API Key）
-- 创建 `.venv` 虚拟环境（`uv sync` 会创建）
-- 生成 `node_modules`（`npm install` 会创建）
+**Problem**: macOS enforces read-only protection on files inside `.app` bundles. After packaging, your project source code is at `.app/Contents/Resources/project/`, which is a read-only directory. But NarraNexus needs to:
+- Write to the `.env` file (to store API Keys)
+- Create a `.venv` virtual environment (`uv sync` creates this)
+- Generate `node_modules` (`npm install` creates this)
 
-**解决方案**：`ensureWritableProject()`
+**Solution**: `ensureWritableProject()`
 
 ```typescript
 // desktop/src/main/constants.ts
 
-// 只读的打包位置
+// Read-only packaged location
 export const BUNDLED_PROJECT_ROOT = app.isPackaged
   ? join(process.resourcesPath, 'project')
   : null
 
-// 可写的工作位置
+// Writable working location
 export const PROJECT_ROOT = app.isPackaged
   ? join(app.getPath('userData'), 'project')
   : join(__dirname, '..', '..', '..')
 
 export function ensureWritableProject(): void {
   if (!app.isPackaged || !BUNDLED_PROJECT_ROOT) return
-  if (existsSync(join(PROJECT_ROOT, 'pyproject.toml'))) return  // 已复制过
+  if (existsSync(join(PROJECT_ROOT, 'pyproject.toml'))) return  // Already copied
 
   console.log(`Copying bundled project to writable location: ${PROJECT_ROOT}`)
   cpSync(BUNDLED_PROJECT_ROOT, PROJECT_ROOT, { recursive: true })
 }
 ```
 
-工作流程：
+Workflow:
 
 ```
-首次启动 .app：
-1. 检测到 app.isPackaged === true
-2. 检测到 ~/Library/Application Support/NarraNexus/project/ 不存在
-3. 把 .app/Contents/Resources/project/ 整个复制到上面的路径
-4. 之后所有操作（写 .env、创建 .venv）都在可写目录进行
+First launch of the .app:
+1. Detects app.isPackaged === true
+2. Detects ~/Library/Application Support/NarraNexus/project/ does not exist
+3. Copies .app/Contents/Resources/project/ entirely to the above path
+4. All subsequent operations (writing .env, creating .venv) happen in the writable directory
 
-后续启动：
-1. 检测到 pyproject.toml 已存在
-2. 跳过复制，直接使用
+Subsequent launches:
+1. Detects pyproject.toml already exists
+2. Skips copying, uses existing directory directly
 ```
 
-`app.getPath('userData')` 在各平台的位置：
+Location of `app.getPath('userData')` on each platform:
 
-| 平台 | 路径 |
-|------|------|
+| Platform | Path |
+|----------|------|
 | macOS | `~/Library/Application Support/NarraNexus/` |
 | Linux | `~/.config/NarraNexus/` |
 | Windows | `%APPDATA%/NarraNexus/` |
 
-### 11.2 macOS Shell 环境变量问题
+### 11.2 macOS Shell Environment Variable Issue
 
-**问题**：macOS 双击 `.app` 启动时，应用继承的是 `launchd` 的极简环境变量。用户在 `~/.zshrc` 里设置的 `$PATH`、API Key 等全部不可见。
+**Problem**: When a `.app` is launched by double-clicking on macOS, the application **does not inherit** environment variables set in `~/.zshrc` (such as `$PATH`, API Keys, etc.). This is because `.app` is launched by `launchd`, which only provides a minimal set of environment variables.
 
-具体影响：
+Specific impact:
 
 ```
-终端启动时的 PATH:
+PATH when launched from terminal:
   /usr/local/bin:/opt/homebrew/bin:/Users/xxx/.local/bin:...
 
-.app 启动时的 PATH:
+PATH when launched from .app:
   /usr/bin:/bin:/usr/sbin:/sbin
-  （找不到 uv、docker、node！）
+  (Cannot find uv, docker, node!)
 ```
 
-**解决方案**：`shell-env.ts`
+**Solution**: `shell-env.ts`
 
-这个模块在应用启动时执行一次用户的登录 Shell，获取完整的环境变量：
+This module executes the user's login shell once at application startup to obtain the full set of environment variables:
 
 ```typescript
 // desktop/src/main/shell-env.ts
@@ -1322,20 +1326,20 @@ let cachedEnv: Record<string, string> | null = null
 
 export async function initShellEnv(): Promise<void> {
   if (process.platform !== 'darwin') {
-    // Linux 从终端启动，已继承完整环境
+    // Linux is launched from a terminal and already inherits the full environment
     cachedEnv = { ...process.env } as Record<string, string>
     return
   }
 
   try {
     const shell = process.env.SHELL || '/bin/zsh'
-    // 执行登录 Shell，用 env -0 打印所有环境变量（NUL 分隔）
+    // Execute a login shell, use env -0 to print all environment variables (NUL-separated)
     const { stdout } = await execFileAsync(shell, ['-ilc', 'env -0'], {
       timeout: 10000,
       maxBuffer: 10 * 1024 * 1024
     })
 
-    // 解析 KEY=VALUE\0KEY=VALUE\0... 格式
+    // Parse KEY=VALUE\0KEY=VALUE\0... format
     const parsed: Record<string, string> = {}
     for (const entry of stdout.split('\0')) {
       if (!entry) continue
@@ -1346,98 +1350,98 @@ export async function initShellEnv(): Promise<void> {
 
     cachedEnv = parsed
   } catch {
-    // 失败时使用 fallback：手动补充常见路径
+    // On failure, use a fallback: manually add common paths
     cachedEnv = buildFallbackEnv()
   }
 }
 
-// 所有子进程启动时都使用这个环境
+// All child processes use this environment when spawned
 export function getShellEnv(): Record<string, string> {
   return cachedEnv || buildFallbackEnv()
 }
 ```
 
-**原理**：`shell -ilc 'env -0'` 的含义：
-- `-i` = interactive（交互模式，会加载 `~/.zshrc`）
-- `-l` = login（登录模式，会加载 `~/.zprofile`）
-- `-c` = command（执行后面的命令）
-- `env -0` = 打印所有环境变量，用 NUL 字符分隔（比换行更安全，因为值里可能有换行）
+**How it works**: The meaning of `shell -ilc 'env -0'`:
+- `-i` = interactive (interactive mode, loads `~/.zshrc`)
+- `-l` = login (login mode, loads `~/.zprofile`)
+- `-c` = command (execute the following command)
+- `env -0` = print all environment variables, separated by NUL characters (safer than newlines, since values may contain newlines)
 
-**使用方式**：所有 `child_process.spawn()` 和 `execFile()` 都传入 `getShellEnv()` 作为 `env` 参数：
+**Usage**: All `child_process.spawn()` and `execFile()` calls pass `getShellEnv()` as the `env` parameter:
 
 ```typescript
 // desktop/src/main/process-manager.ts
 const proc = spawn(svc.command, svc.args, {
   cwd,
-  env: getShellEnv(),  // ← 使用解析后的完整环境
+  env: getShellEnv(),  // <-- Use the parsed full environment
   detached: true
 })
 ```
 
-### 11.3 进程管理的特殊处理
+### 11.3 Special Handling for Process Management
 
-打包后的应用需要管理多个子进程（Python 后端、MCP 服务器等），有一些生产环境特有的问题：
+The packaged application needs to manage multiple child processes (Python backend, MCP server, etc.), with some production-specific issues:
 
-**1. 进程组管理**
+**1. Process Group Management**
 
-NarraNexus 使用 `detached: true` 创建新进程组，这样退出时可以用负 PID 杀掉整个进程组（包括子进程的子进程）：
+NarraNexus uses `detached: true` to create new process groups, so on exit the entire process group (including child processes of child processes) can be killed using a negative PID:
 
 ```typescript
 // desktop/src/main/process-manager.ts
 
 const proc = spawn(svc.command, svc.args, {
-  detached: true  // 创建新进程组
+  detached: true  // Create a new process group
 })
 
-// 停止时杀掉整个进程组
+// Kill the entire process group when stopping
 private killProcessGroup(proc: ChildProcess, signal: NodeJS.Signals): void {
   if (!proc.pid) return
   try {
-    process.kill(-proc.pid, signal)  // 负 PID = 杀掉整个进程组
+    process.kill(-proc.pid, signal)  // Negative PID = kill entire process group
   } catch {
     try { proc.kill(signal) } catch {}
   }
 }
 ```
 
-**2. 崩溃自动重启**
+**2. Automatic Crash Restart**
 
-后台服务崩溃后会自动重启，使用指数退避策略（避免快速循环重启）：
+Backend services automatically restart after a crash, using an exponential backoff strategy (to avoid rapid restart loops):
 
 ```typescript
 private async tryAutoRestart(svc: ServiceDef): Promise<void> {
   const count = (this.restartCounts.get(svc.id) ?? 0) + 1
-  if (count > MAX_RESTART_ATTEMPTS) return  // 最多重启 3 次
+  if (count > MAX_RESTART_ATTEMPTS) return  // Maximum 3 restarts
 
   const waitMs = RESTART_BACKOFF_BASE * Math.pow(2, count - 1)
-  // 第 1 次等 1 秒，第 2 次等 2 秒，第 3 次等 4 秒
+  // 1st attempt waits 1 second, 2nd waits 2 seconds, 3rd waits 4 seconds
   await this.delay(waitMs)
   this.spawnProcess(svc)
 }
 ```
 
-**3. 端口冲突处理**
+**3. Port Conflict Handling**
 
-启动前检测端口是否被占用，弹窗让用户确认是否终止占用进程：
+Before starting, check if ports are occupied and prompt the user with a dialog to confirm whether to terminate the occupying process:
 
 ```typescript
 private async killStalePorts(): Promise<void> {
   for (const { port, label } of portsToCheck) {
     const { stdout } = await execFileAsync('lsof', ['-ti', `:${port}`])
-    // 如果有进程占用端口，弹窗提示
+    // If a process is occupying the port, show a dialog
     const { response } = await dialog.showMessageBox({
       type: 'warning',
-      title: '端口冲突',
-      message: '以下端口被其他进程占用，是否终止这些进程？',
-      buttons: ['终止并继续', '跳过']
+      title: 'Port Conflict',
+      message: 'The following ports are occupied by other processes. Terminate them?',
+      buttons: ['Terminate and Continue', 'Skip']
     })
   }
 }
 ```
 
-### 11.4 持久化存储
+### 11.4 Persistent Storage
 
-应用需要记住一些状态（比如"是否已完成初始设置"），NarraNexus 使用了一个简单的 JSON 文件存储：
+The application needs to remember some state (e.g., "has initial setup been completed"). NarraNexus uses a simple JSON file store:
 
 ```typescript
 // desktop/src/main/store.ts
@@ -1448,7 +1452,7 @@ class SimpleStore {
 
   constructor() {
     this.filePath = join(app.getPath('userData'), 'config.json')
-    // 存储在 ~/Library/Application Support/NarraNexus/config.json
+    // Stored at ~/Library/Application Support/NarraNexus/config.json
     this.data = this.load()
   }
 
@@ -1458,63 +1462,63 @@ class SimpleStore {
 
   set<K extends keyof StoreData>(key: K, value: StoreData[K]): void {
     this.data[key] = value
-    this.save()  // 立即写入磁盘
+    this.save()  // Write to disk immediately
   }
 }
 
 export const store = new SimpleStore()
 ```
 
-为什么不用 `electron-store`（一个流行的 Electron 存储库）？因为 `electron-store` 是 ESM-only 的，和 electron-vite 的 CJS 输出存在兼容性问题。自己写一个只需要 50 行，还没有依赖。
+Why not use `electron-store` (a popular Electron storage library)? Because `electron-store` is ESM-only and has compatibility issues with electron-vite's CJS output. Writing your own takes only about 50 lines and has no dependencies.
 
 ---
 
-## 第 12 章 如何从零创建一个类似项目
+## Chapter 12: How to Create a Similar Project from Scratch
 
-下面是从空目录到能打包出 `.dmg` 的完整 step-by-step 教程。
+Below is a complete step-by-step tutorial from an empty directory to a packaged `.dmg`.
 
-### Step 1: 初始化项目
+### Step 1: Initialize the Project
 
 ```bash
 mkdir my-desktop-app && cd my-desktop-app
 npm init -y
 ```
 
-### Step 2: 安装核心依赖
+### Step 2: Install Core Dependencies
 
 ```bash
-# Electron 运行时
+# Electron runtime
 npm install -D electron
 
-# electron-vite（编译工具链）
+# electron-vite (build toolchain)
 npm install -D electron-vite
 
-# electron-builder（打包工具）
+# electron-builder (packaging tool)
 npm install -D electron-builder
 
-# React 全家桶
+# React ecosystem
 npm install -D react react-dom @types/react @types/react-dom
 
 # TypeScript
 npm install -D typescript
 
-# Vite 插件
+# Vite plugin
 npm install -D @vitejs/plugin-react
 
-# Electron toolkit（可选，提供一些实用工具）
+# Electron toolkit (optional, provides some utilities)
 npm install -D @electron-toolkit/preload @electron-toolkit/utils
 
-# Tailwind CSS（可选）
+# Tailwind CSS (optional)
 npm install -D tailwindcss postcss autoprefixer
 ```
 
-### Step 3: 创建目录结构
+### Step 3: Create the Directory Structure
 
 ```bash
 mkdir -p src/main src/preload src/shared src/renderer/pages src/renderer/styles resources
 ```
 
-### Step 4: 配置 package.json
+### Step 4: Configure package.json
 
 ```json
 {
@@ -1531,11 +1535,11 @@ mkdir -p src/main src/preload src/shared src/renderer/pages src/renderer/styles 
 }
 ```
 
-关键说明：
-- `"main": "./out/main/index.js"` -- 告诉 Electron 去哪找 Main Process 的入口
-- `"postinstall"` -- 安装依赖后自动重编译原生模块（如果有的话）
+Key notes:
+- `"main": "./out/main/index.js"` -- Tells Electron where to find the Main Process entry point
+- `"postinstall"` -- Automatically recompiles native modules after installing dependencies (if any)
 
-### Step 5: 创建 electron-vite 配置
+### Step 5: Create the electron-vite Configuration
 
 ```typescript
 // electron.vite.config.ts
@@ -1579,7 +1583,7 @@ export default defineConfig({
 })
 ```
 
-### Step 6: 创建 TypeScript 配置
+### Step 6: Create TypeScript Configuration
 
 ```json
 // tsconfig.json
@@ -1635,7 +1639,7 @@ export default defineConfig({
 }
 ```
 
-### Step 7: 写 IPC 通道定义
+### Step 7: Write IPC Channel Definitions
 
 ```typescript
 // src/shared/ipc-channels.ts
@@ -1645,7 +1649,7 @@ export const IPC = {
 } as const
 ```
 
-### Step 8: 写 Main Process
+### Step 8: Write the Main Process
 
 ```typescript
 // src/main/index.ts
@@ -1679,9 +1683,9 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-// 注册 IPC handler
+// Register IPC handler
 ipcMain.handle(IPC.GREET, async (_event, name: string) => {
-  return `Hello, ${name}! 来自 Main Process`
+  return `Hello, ${name}! From the Main Process`
 })
 
 app.whenReady().then(() => {
@@ -1701,7 +1705,7 @@ app.on('window-all-closed', () => {
 })
 ```
 
-### Step 9: 写 Preload
+### Step 9: Write the Preload
 
 ```typescript
 // src/preload/index.ts
@@ -1715,12 +1719,12 @@ const api = {
 contextBridge.exposeInMainWorld('api', api)
 ```
 
-### Step 10: 写 Renderer
+### Step 10: Write the Renderer
 
 ```html
 <!-- src/renderer/index.html -->
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title>My Desktop App</title>
@@ -1767,7 +1771,7 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')!).render(<App />)
 ```
 
-### Step 11: 创建 electron-builder 配置
+### Step 11: Create electron-builder Configuration
 
 ```yaml
 # electron-builder.yml
@@ -1790,166 +1794,166 @@ linux:
   category: Development
 ```
 
-### Step 12: 开发和打包
+### Step 12: Develop and Package
 
 ```bash
-# 开发模式（热更新）
+# Development mode (hot reload)
 npm run dev
 
-# 打包 macOS
+# Package for macOS
 npm run build:mac
 
-# 打包 Linux
+# Package for Linux
 npm run build:linux
 ```
 
-### Step 13: 验证
+### Step 13: Verify
 
-开发模式下应该看到一个窗口，点击按钮后显示 "Hello, World! 来自 Main Process"。
+In development mode, you should see a window. Clicking the button should display "Hello, World! From the Main Process".
 
-打包后在 `dist/` 目录下找到 `.dmg`（macOS）或 `.AppImage`（Linux）。
+After packaging, find the `.dmg` (macOS) or `.AppImage` (Linux) in the `dist/` directory.
 
 ---
 
-## 第 13 章 常见坑与排错
+## Chapter 13: Common Pitfalls and Troubleshooting
 
-### 坑 1: macOS 环境变量丢失
+### Pitfall 1: macOS Environment Variables Lost
 
-**现象**：打包后的 `.app` 执行 `uv`、`docker` 等命令时报 "command not found"。开发模式下完全正常。
+**Symptom**: The packaged `.app` reports "command not found" when executing commands like `uv`, `docker`, etc. Works perfectly in development mode.
 
-**原因**：`.app` 双击启动时继承的是 `launchd` 的极简 `$PATH`，只有 `/usr/bin:/bin:/usr/sbin:/sbin`。
+**Cause**: A `.app` launched by double-clicking inherits the minimal `$PATH` from `launchd`, which only includes `/usr/bin:/bin:/usr/sbin:/sbin`.
 
-**解决方案**：参考 NarraNexus 的 `shell-env.ts`，在应用启动时执行一次登录 Shell 获取完整环境。
+**Solution**: Refer to NarraNexus's `shell-env.ts` -- execute a login shell at application startup to obtain the full environment.
 
 ```typescript
-// 核心代码
+// Core code
 const { stdout } = await execFileAsync(shell, ['-ilc', 'env -0'], { timeout: 10000 })
 ```
 
-### 坑 2: asar 只读导致写入失败
+### Pitfall 2: asar Read-Only Causes Write Failures
 
-**现象**：打包后写文件报错 "ENOENT" 或 "EROFS"。
+**Symptom**: Writing files after packaging throws "ENOENT" or "EROFS" errors.
 
-**原因**：`app.asar` 是只读归档，`process.resourcesPath` 下的文件也是只读的（macOS `.app` 签名保护）。
+**Cause**: `app.asar` is a read-only archive, and files under `process.resourcesPath` are also read-only (macOS `.app` signature protection).
 
-**解决方案**：任何需要写入的文件都放在 `app.getPath('userData')` 下：
+**Solution**: Place any files that need writing under `app.getPath('userData')`:
 
 ```typescript
-// 永远用这个路径存放可写数据
+// Always use this path for writable data
 const writablePath = join(app.getPath('userData'), 'my-config.json')
 ```
 
-### 坑 3: 路径在开发/生产模式下不同
+### Pitfall 3: Paths Differ Between Development and Production Modes
 
-**现象**：开发模式下资源路径正确，打包后找不到文件。
+**Symptom**: Resource paths are correct in development mode, but files cannot be found after packaging.
 
-**原因**：开发模式下 `__dirname` 指向源码目录，打包后指向 `app.asar` 内部。
+**Cause**: In development mode, `__dirname` points to the source code directory; after packaging, it points inside `app.asar`.
 
-**解决方案**：始终用 `app.isPackaged` 判断：
+**Solution**: Always use `app.isPackaged` to differentiate:
 
 ```typescript
 const iconPath = app.isPackaged
-  ? join(process.resourcesPath, 'icon.png')     // 打包后
-  : join(__dirname, '..', '..', 'resources', 'icon.png')  // 开发模式
+  ? join(process.resourcesPath, 'icon.png')     // After packaging
+  : join(__dirname, '..', '..', 'resources', 'icon.png')  // Development mode
 ```
 
-### 坑 4: ESM/CJS 兼容问题
+### Pitfall 4: ESM/CJS Compatibility Issues
 
-**现象**：某些 npm 包（如 `electron-store`、`got` 等）在 electron-vite 中导入报错。
+**Symptom**: Certain npm packages (like `electron-store`, `got`, etc.) throw import errors in electron-vite.
 
-**原因**：这些包只提供 ESM 格式（`export default`），但 electron-vite 的 Main Process 默认输出 CJS（`module.exports`）。混用会导致 `require()` 无法加载 ESM 模块。
+**Cause**: These packages only provide ESM format (`export default`), but electron-vite's Main Process defaults to CJS output (`module.exports`). Mixing them causes `require()` to fail when loading ESM modules.
 
-**解决方案**：
+**Solutions**:
 
-方案 A：自己实现简单替代品（NarraNexus 的做法）
+Option A: Implement a simple replacement yourself (NarraNexus's approach)
 ```typescript
-// 自己写一个简单的 JSON 存储，替代 electron-store
+// Write a simple JSON store yourself, replacing electron-store
 class SimpleStore {
   private filePath: string
   private data: StoreData
-  // ... 50 行搞定
+  // ... Done in about 50 lines
 }
 ```
 
-方案 B：在 electron-vite 配置中标记该包不做 externalize
+Option B: Mark the package as non-externalized in the electron-vite configuration
 ```typescript
 main: {
   plugins: [externalizeDepsPlugin({ exclude: ['electron-store'] })],
 }
 ```
 
-### 坑 5: Preload 里不能 import Renderer 的代码
+### Pitfall 5: Cannot Import Renderer Code in Preload
 
-**现象**：在 Preload 里 import React 组件或 Renderer 的工具函数，构建报错。
+**Symptom**: Importing React components or Renderer utility functions in Preload causes build errors.
 
-**原因**：Preload 由 `tsconfig.node.json` 编译，Renderer 由 `tsconfig.web.json` 编译。它们是完全隔离的编译上下文。
+**Cause**: Preload is compiled by `tsconfig.node.json` while Renderer is compiled by `tsconfig.web.json`. They are completely isolated compilation contexts.
 
-**解决方案**：共享代码放在 `src/shared/` 目录，且只包含纯数据（常量、类型），不依赖任何特定运行环境的 API。
+**Solution**: Place shared code in the `src/shared/` directory, containing only pure data (constants, types) without depending on any environment-specific APIs.
 
-### 坑 6: `contextBridge.exposeInMainWorld` 的序列化限制
+### Pitfall 6: Serialization Limits of `contextBridge.exposeInMainWorld`
 
-**现象**：通过 IPC 传递的对象丢失了方法（函数）、`Date` 变成了字符串、`Map`/`Set` 变成了空对象。
+**Symptom**: Objects passed through IPC lose their methods (functions), `Date` becomes a string, `Map`/`Set` become empty objects.
 
-**原因**：IPC 通信使用结构化克隆算法（Structured Clone），不能传递函数、Symbol、DOM 节点等。
+**Cause**: IPC communication uses the Structured Clone Algorithm, which cannot transfer functions, Symbols, DOM nodes, etc.
 
-**解决方案**：只传递纯数据（JSON 可序列化的对象）：
+**Solution**: Only pass pure data (JSON-serializable objects):
 
 ```typescript
-// 不要传函数
+// Do not pass functions
 ipcMain.handle('bad', () => {
-  return { doSomething: () => {} }  // 函数会丢失！
+  return { doSomething: () => {} }  // Functions will be lost!
 })
 
-// 只传纯数据
+// Only pass pure data
 ipcMain.handle('good', () => {
   return { status: 'ok', count: 42, items: ['a', 'b'] }
 })
 ```
 
-### 坑 7: 子进程残留
+### Pitfall 7: Leftover Child Processes
 
-**现象**：关闭 Electron 应用后，Python 后台服务还在跑，占用端口。
+**Symptom**: After closing the Electron application, Python backend services are still running and occupying ports.
 
-**原因**：`uv run python xxx.py` 实际上启动了两个进程：`uv` 和 `python`。只杀 `uv` 进程，`python` 子进程可能变成孤儿进程。
+**Cause**: `uv run python xxx.py` actually starts two processes: `uv` and `python`. Killing only the `uv` process may leave the `python` child process as an orphan.
 
-**解决方案**：使用 `detached: true` + 进程组管理（NarraNexus 的做法）：
+**Solution**: Use `detached: true` + process group management (NarraNexus's approach):
 
 ```typescript
-// 启动时创建新进程组
+// Create a new process group at startup
 const proc = spawn(cmd, args, { detached: true })
 
-// 停止时杀掉整个进程组
-process.kill(-proc.pid, 'SIGTERM')  // 负 PID = 整个进程组
+// Kill the entire process group when stopping
+process.kill(-proc.pid, 'SIGTERM')  // Negative PID = entire process group
 ```
 
-### 坑 8: `ready-to-show` 事件避免白屏闪烁
+### Pitfall 8: `ready-to-show` Event to Avoid White Screen Flash
 
-**现象**：应用启动时先显示一个白色窗口，然后内容才出现。
+**Symptom**: A white window appears briefly when the application starts, then the content loads.
 
-**原因**：`BrowserWindow` 创建后立刻显示，但 HTML 还没加载完。
+**Cause**: `BrowserWindow` is displayed immediately upon creation, but the HTML has not finished loading yet.
 
-**解决方案**：创建时隐藏，加载完后再显示：
+**Solution**: Hide on creation, show after loading is complete:
 
 ```typescript
 const win = new BrowserWindow({
-  show: false  // 创建时不显示
+  show: false  // Do not show on creation
 })
 
 win.once('ready-to-show', () => {
-  win.show()   // HTML 加载完后显示
+  win.show()   // Show after HTML has loaded
 })
 ```
 
-### 坑 9: macOS 关闭窗口 != 退出应用
+### Pitfall 9: macOS -- Closing a Window Does Not Equal Quitting the App
 
-**现象**：点击红色关闭按钮后应用退出，macOS 的习惯是关闭窗口但不退出。
+**Symptom**: Clicking the red close button quits the app. The macOS convention is to close the window but keep the app running.
 
-**解决方案**：拦截 `close` 事件，改为隐藏窗口：
+**Solution**: Intercept the `close` event and hide the window instead:
 
 ```typescript
 // desktop/src/main/index.ts
 
-// 关闭窗口时最小化到托盘，而不是退出
+// Minimize to tray when window is closed, instead of quitting
 win.on('close', (event) => {
   if (!app.isQuitting) {
     event.preventDefault()
@@ -1957,83 +1961,83 @@ win.on('close', (event) => {
   }
 })
 
-// macOS：点击 Dock 图标时重新显示
+// macOS: Show window again when clicking the Dock icon
 app.on('activate', () => {
   if (mainWindow) mainWindow.show()
 })
 
-// 真正退出时才允许关闭
+// Only allow closing when actually quitting
 app.on('before-quit', () => {
   app.isQuitting = true
 })
 ```
 
-### 坑 10: 外部链接在 Electron 内部打开
+### Pitfall 10: External Links Open Inside Electron
 
-**现象**：点击一个 `<a href="https://..." target="_blank">` 链接，在 Electron 窗口内打开了（而不是系统浏览器）。
+**Symptom**: Clicking an `<a href="https://..." target="_blank">` link opens it inside the Electron window instead of the system browser.
 
-**解决方案**：拦截新窗口请求，用系统浏览器打开：
+**Solution**: Intercept new window requests and open them in the system browser:
 
 ```typescript
 // desktop/src/main/index.ts
 win.webContents.setWindowOpenHandler(({ url }) => {
-  shell.openExternal(url)  // 用系统默认浏览器打开
-  return { action: 'deny' }  // 阻止 Electron 打开新窗口
+  shell.openExternal(url)  // Open with the system's default browser
+  return { action: 'deny' }  // Prevent Electron from opening a new window
 })
 ```
 
 ---
 
-## 附录 A: 核心文件速查表
+## Appendix A: Core File Quick Reference
 
-| 文件 | 进程 | 职责 |
-|------|------|------|
-| `src/main/index.ts` | Main | 应用入口，窗口创建，生命周期管理 |
-| `src/main/constants.ts` | Main | 路径/端口/服务定义常量 |
-| `src/main/ipc-handlers.ts` | Main | IPC 请求处理注册中心 |
-| `src/main/process-manager.ts` | Main | 后台服务进程管理（spawn/kill/restart） |
-| `src/main/docker-manager.ts` | Main | Docker 容器管理 |
-| `src/main/dependency-checker.ts` | Main | 系统依赖检测 |
-| `src/main/health-monitor.ts` | Main | 服务健康状态轮询 |
-| `src/main/env-manager.ts` | Main | .env 文件读写与验证 |
-| `src/main/shell-env.ts` | Main | macOS Shell 环境变量解析 |
-| `src/main/store.ts` | Main | JSON 持久化存储 |
-| `src/main/tray-manager.ts` | Main | 系统托盘图标 + 菜单 |
-| `src/preload/index.ts` | Preload | contextBridge 暴露安全 API |
-| `src/shared/ipc-channels.ts` | 共享 | IPC 通道名常量 |
-| `src/renderer/index.html` | Renderer | HTML 入口 |
-| `src/renderer/main.tsx` | Renderer | React 挂载点 |
-| `src/renderer/App.tsx` | Renderer | 根组件，路由/状态控制 |
-| `src/renderer/env.d.ts` | Renderer | window.nexus 类型声明 |
-| `electron.vite.config.ts` | 构建 | electron-vite 三段编译配置 |
-| `electron-builder.yml` | 构建 | electron-builder 打包配置 |
-| `tsconfig.node.json` | 构建 | Main + Preload 的 TypeScript 配置 |
-| `tsconfig.web.json` | 构建 | Renderer 的 TypeScript 配置 |
+| File | Process | Responsibility |
+|------|---------|----------------|
+| `src/main/index.ts` | Main | App entry, window creation, lifecycle management |
+| `src/main/constants.ts` | Main | Path/port/service definition constants |
+| `src/main/ipc-handlers.ts` | Main | IPC request handler registration center |
+| `src/main/process-manager.ts` | Main | Background service process management (spawn/kill/restart) |
+| `src/main/docker-manager.ts` | Main | Docker container management |
+| `src/main/dependency-checker.ts` | Main | System dependency detection |
+| `src/main/health-monitor.ts` | Main | Service health status polling |
+| `src/main/env-manager.ts` | Main | .env file read/write and validation |
+| `src/main/shell-env.ts` | Main | macOS shell environment variable parsing |
+| `src/main/store.ts` | Main | JSON persistent storage |
+| `src/main/tray-manager.ts` | Main | System tray icon + menu |
+| `src/preload/index.ts` | Preload | contextBridge secure API exposure |
+| `src/shared/ipc-channels.ts` | Shared | IPC channel name constants |
+| `src/renderer/index.html` | Renderer | HTML entry point |
+| `src/renderer/main.tsx` | Renderer | React mount point |
+| `src/renderer/App.tsx` | Renderer | Root component, routing/state control |
+| `src/renderer/env.d.ts` | Renderer | window.nexus type declarations |
+| `electron.vite.config.ts` | Build | electron-vite three-segment build configuration |
+| `electron-builder.yml` | Build | electron-builder packaging configuration |
+| `tsconfig.node.json` | Build | TypeScript configuration for Main + Preload |
+| `tsconfig.web.json` | Build | TypeScript configuration for Renderer |
 
-## 附录 B: 命令速查
+## Appendix B: Command Quick Reference
 
 ```bash
-# 开发模式（热更新，自动打开 DevTools）
+# Development mode (hot reload, DevTools auto-open)
 npm run dev
 
-# 编译（不打包，产物在 out/ 目录）
+# Compile (no packaging, output in out/ directory)
 npm run build
 
-# 打包 macOS DMG
+# Package macOS DMG
 npm run build:mac
 
-# 打包 Linux AppImage + deb
+# Package Linux AppImage + deb
 npm run build:linux
 
-# 一键打包（使用项目根目录的脚本）
-bash build-desktop.sh         # 自动检测平台
-bash build-desktop.sh mac     # 指定 macOS
-bash build-desktop.sh linux   # 指定 Linux
+# One-click packaging (using the script in the project root)
+bash build-desktop.sh         # Auto-detect platform
+bash build-desktop.sh mac     # Specify macOS
+bash build-desktop.sh linux   # Specify Linux
 ```
 
-## 附录 C: 进一步学习资源
+## Appendix C: Further Learning Resources
 
-- [Electron 官方文档](https://www.electronjs.org/docs)
-- [electron-vite 文档](https://electron-vite.org/)
-- [electron-builder 文档](https://www.electron.build/)
-- [Electron 安全最佳实践](https://www.electronjs.org/docs/latest/tutorial/security)
+- [Electron Official Documentation](https://www.electronjs.org/docs)
+- [electron-vite Documentation](https://electron-vite.org/)
+- [electron-builder Documentation](https://www.electron.build/)
+- [Electron Security Best Practices](https://www.electronjs.org/docs/latest/tutorial/security)

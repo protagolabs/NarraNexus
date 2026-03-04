@@ -29,7 +29,7 @@ linux:
     - target: deb
   category: Development
 
-# 打包整个项目源码到 Resources/project
+# Bundle entire project source into Resources/project
 extraResources:
   - from: "../"
     to: "project"
@@ -41,4 +41,4 @@ extraResources:
       - "!**/desktop/**"
       - "!**/__pycache__/**"
       - "!**/*.pyc"
-      # 注意：frontend/dist/ 不排除，打包时包含预构建的前端
+      # Note: frontend/dist/ is NOT excluded — pre-built frontend is included in the package

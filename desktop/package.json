@@ -1,7 +1,7 @@
 {
   "name": "narranexus-desktop",
   "version": "1.0.0",
-  "description": "NarraNexus Desktop - 一键启动的桌面应用",
+  "description": "NarraNexus Desktop - One-click launcher",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
