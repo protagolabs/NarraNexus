@@ -17,7 +17,7 @@ import {
   EVERMEMOS_DIR,
   EVERMEMOS_GIT_URL
 } from './constants'
-import { getShellEnv } from './shell-env'
+import { getShellEnv, initShellEnv } from './shell-env'
 import { readEnv } from './env-manager'
 import { resetComposeDetection } from './docker-manager'
 import * as everMemOSEnv from './evermemos-env-manager'
@@ -161,10 +161,62 @@ function createUvInstaller(): Installer {
   }
 }
 
+function createNodeInstaller(): Installer {
+  return {
+    id: 'node',
+    label: 'Node.js',
+    blocking: false,
+    manualUrl: 'https://nodejs.org/',
+    async check() {
+      try {
+        await execInProject('node', ['--version'], { timeout: 10000 })
+        return true
+      } catch { return false }
+    },
+    async install(onOutput) {
+      const home = process.env.HOME || ''
+
+      // macOS: 优先使用 Homebrew
+      if (process.platform === 'darwin') {
+        try {
+          await execInProject('brew', ['--version'], { timeout: 5000 })
+          onOutput('Installing Node.js via Homebrew...')
+          await spawnWithOutput('brew', ['install', 'node'], {
+            timeout: 300000, onOutput
+          })
+          // 刷新 shell 环境缓存，让后续安装器能找到 node/npm
+          await initShellEnv()
+          return
+        } catch { /* Homebrew 不可用，降级到 nvm */ }
+      }
+
+      // 通用方案：通过 nvm 安装
+      onOutput('Installing nvm...')
+      await spawnWithOutput('sh', ['-c',
+        'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash'
+      ], { timeout: 120000, onOutput })
+
+      onOutput('Installing Node.js LTS via nvm...')
+      const nvmScript = [
+        `export NVM_DIR="${home}/.nvm"`,
+        '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"',
+        'nvm install --lts'
+      ].join(' && ')
+      await spawnWithOutput('sh', ['-c', nvmScript], {
+        timeout: 300000, onOutput
+      })
+
+      // 刷新 shell 环境缓存，让后续安装器能找到 node/npm
+      await initShellEnv()
+    }
+  }
+}
+
 function createClaudeInstaller(): Installer {
   return {
     id: 'claude',
     label: 'Claude Code CLI',
+    dependsOn: ['node'],
     blocking: false,
     async check() {
       try {
@@ -620,6 +672,7 @@ export class InstallerRegistry extends EventEmitter {
     super()
     this.installers = [
       createUvInstaller(),
+      createNodeInstaller(),
       createClaudeInstaller(),
       createPythonDepsInstaller(),
       createDockerInstaller(),
