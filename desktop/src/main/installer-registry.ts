@@ -262,44 +262,44 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
 
   // Strategy 1: Launch Docker Desktop (only if Docker.app exists)
   if (existsSync('/Applications/Docker.app')) {
-    console.log('[installer] [Strategy 1/4] Docker.app found, attempting launch')
-    onOutput('[Strategy 1/4] Launching Docker Desktop...')
+    console.log('[installer] [Strategy 1/5] Docker.app found, attempting launch')
+    onOutput('[Strategy 1/5] Launching Docker Desktop...')
     try {
       await execInProject('open', ['-a', 'Docker'], { timeout: 10000 })
       for (let i = 0; i < 30; i++) {
         await new Promise((r) => setTimeout(r, 2000))
         try {
           await execInProject('docker', ['info'], { timeout: 5000 })
-          console.log('[installer] [Strategy 1/4] Docker Desktop is ready')
+          console.log('[installer] [Strategy 1/5] Docker Desktop is ready')
           onOutput('Docker Desktop is ready')
           return
         } catch { /* not ready yet */ }
-        if (i % 5 === 4) onOutput(`[Strategy 1/4] Waiting for Docker Desktop to start... (${(i + 1) * 2}s)`)
+        if (i % 5 === 4) onOutput(`[Strategy 1/5] Waiting for Docker Desktop to start... (${(i + 1) * 2}s)`)
       }
-      console.log('[installer] [Strategy 1/4] Docker Desktop launch timed out after 60s')
-      onOutput('[Strategy 1/4] Docker Desktop launch timed out, trying next strategy...')
+      console.log('[installer] [Strategy 1/5] Docker Desktop launch timed out after 60s')
+      onOutput('[Strategy 1/5] Docker Desktop launch timed out, trying next strategy...')
     } catch (err) {
-      console.log(`[installer] [Strategy 1/4] Docker Desktop launch error: ${err}`)
-      onOutput('[Strategy 1/4] Docker Desktop failed to launch, trying next strategy...')
+      console.log(`[installer] [Strategy 1/5] Docker Desktop launch error: ${err}`)
+      onOutput('[Strategy 1/5] Docker Desktop failed to launch, trying next strategy...')
     }
   } else {
-    console.log('[installer] [Strategy 1/4] /Applications/Docker.app not found, skipping')
-    onOutput('[Strategy 1/4] Docker Desktop not found at /Applications/Docker.app, skipping')
+    console.log('[installer] [Strategy 1/5] /Applications/Docker.app not found, skipping')
+    onOutput('[Strategy 1/5] Docker Desktop not found at /Applications/Docker.app, skipping')
   }
 
   // Strategy 2: Start Colima (only if installed)
   try {
     const colimaVersion = await execInProject('colima', ['version'], { timeout: 5000 })
-    console.log(`[installer] [Strategy 2/4] Colima found: ${colimaVersion.stdout.trim()}`)
-    onOutput('[Strategy 2/4] Starting existing Colima...')
-    await startColima('colima', onOutput, '[Strategy 2/4]')
+    console.log(`[installer] [Strategy 2/5] Colima found: ${colimaVersion.stdout.trim()}`)
+    onOutput('[Strategy 2/5] Starting existing Colima...')
+    await startColima('colima', onOutput, '[Strategy 2/5]')
     await execInProject('docker', ['info'], { timeout: 10000 })
-    console.log('[installer] [Strategy 2/4] Colima started, docker info OK')
+    console.log('[installer] [Strategy 2/5] Colima started, docker info OK')
     onOutput('Colima started successfully')
     return
   } catch (err) {
-    console.log(`[installer] [Strategy 2/4] Colima not available or start failed: ${err}`)
-    onOutput('[Strategy 2/4] Colima not available, trying next strategy...')
+    console.log(`[installer] [Strategy 2/5] Colima not available or start failed: ${err}`)
+    onOutput('[Strategy 2/5] Colima not available, trying next strategy...')
   }
 
   // Strategy 3: brew install colima + docker (skip if Intel brew on Apple Silicon)
@@ -308,28 +308,28 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
     const brewBin = await execInProject('which', ['brew'], { timeout: 5000 })
     const brewPath = brewBin.stdout.trim()
     const isIntelBrewOnArm = process.arch === 'arm64' && brewPath.startsWith('/usr/local')
-    console.log(`[installer] [Strategy 3/4] Homebrew found: ${brewVersion.stdout.trim().split('\n')[0]}, path: ${brewPath}, intelOnArm: ${isIntelBrewOnArm}`)
+    console.log(`[installer] [Strategy 3/5] Homebrew found: ${brewVersion.stdout.trim().split('\n')[0]}, path: ${brewPath}, intelOnArm: ${isIntelBrewOnArm}`)
 
     if (isIntelBrewOnArm) {
-      console.log('[installer] [Strategy 3/4] Skipping — Intel Homebrew on Apple Silicon will install x86 binaries (Rosetta incompatible)')
-      onOutput('[Strategy 3/4] Skipping Intel Homebrew on Apple Silicon (would cause Rosetta errors)')
+      console.log('[installer] [Strategy 3/5] Skipping — Intel Homebrew on Apple Silicon will install x86 binaries (Rosetta incompatible)')
+      onOutput('[Strategy 3/5] Skipping Intel Homebrew on Apple Silicon (would cause Rosetta errors)')
     } else {
-      onOutput('[Strategy 3/4] Installing Docker via Homebrew (colima + docker CLI)...')
+      onOutput('[Strategy 3/5] Installing Docker via Homebrew (colima + docker CLI)...')
       await spawnWithOutput('brew', ['install', 'colima', 'docker', 'docker-compose'], {
         timeout: 600000, onOutput
       })
-      console.log('[installer] [Strategy 3/4] brew install done, starting Colima...')
-      onOutput('[Strategy 3/4] Starting Colima VM...')
-      await startColima('colima', onOutput, '[Strategy 3/4]')
+      console.log('[installer] [Strategy 3/5] brew install done, starting Colima...')
+      onOutput('[Strategy 3/5] Starting Colima VM...')
+      await startColima('colima', onOutput, '[Strategy 3/5]')
       await execInProject('docker', ['info'], { timeout: 10000 })
-      console.log('[installer] [Strategy 3/4] Success — docker info OK')
+      console.log('[installer] [Strategy 3/5] Success — docker info OK')
       onOutput('Docker installed via Homebrew + Colima')
       resetComposeDetection()
       return
     }
   } catch (err) {
-    console.error(`[installer] [Strategy 3/4] Failed: ${err}`)
-    onOutput('[Strategy 3/4] Homebrew install failed, trying next strategy...')
+    console.error(`[installer] [Strategy 3/5] Failed: ${err}`)
+    onOutput('[Strategy 3/5] Homebrew install failed, trying next strategy...')
   }
 
   // Strategy 4: Install Homebrew (as regular user) + colima + docker
@@ -337,62 +337,115 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
   // Instead: prepare /opt/homebrew with privileges, then install Homebrew as regular user.
   // Strategy 4: Install native ARM Homebrew + colima + docker
   // Uses git clone instead of official install script (avoids sudo requirement)
-  console.log('[installer] [Strategy 4/4] Starting — install native Homebrew + Docker')
-  onOutput('[Strategy 4/4] Installing native Homebrew + Docker...')
+  console.log('[installer] [Strategy 4/5] Starting — install native Homebrew + Docker')
+  onOutput('[Strategy 4/5] Installing native Homebrew + Docker...')
   try {
     const brewPrefix = process.arch === 'arm64' ? '/opt/homebrew' : '/usr/local/Homebrew'
     const brewPath = `${brewPrefix}/bin/brew`
     const currentUser = process.env.USER || process.env.LOGNAME || 'nobody'
-    console.log(`[installer] [Strategy 4/4] brewPrefix=${brewPrefix}, user=${currentUser}, arch=${process.arch}`)
+    console.log(`[installer] [Strategy 4/5] brewPrefix=${brewPrefix}, user=${currentUser}, arch=${process.arch}`)
 
     if (!existsSync(brewPath)) {
       // Step 1: Create directory with correct ownership (needs admin privileges)
-      console.log(`[installer] [Strategy 4/4] Step 1: Creating ${brewPrefix} with admin privileges`)
-      onOutput('[Strategy 4/4] Creating Homebrew directory (admin privileges required)...')
+      console.log(`[installer] [Strategy 4/5] Step 1: Creating ${brewPrefix} with admin privileges`)
+      onOutput('[Strategy 4/5] Creating Homebrew directory (admin privileges required)...')
       await execWithPrivileges(
         `mkdir -p "${brewPrefix}" && chown -R ${currentUser}:admin "${brewPrefix}"`,
         { timeout: 30000 }
       )
 
       // Step 2: Git clone Homebrew (as regular user — no sudo needed)
-      console.log('[installer] [Strategy 4/4] Step 2: git clone Homebrew')
-      onOutput('[Strategy 4/4] Downloading Homebrew via git...')
+      console.log('[installer] [Strategy 4/5] Step 2: git clone Homebrew')
+      onOutput('[Strategy 4/5] Downloading Homebrew via git...')
       await spawnWithOutput('git', ['clone', '--depth=1', 'https://github.com/Homebrew/brew', brewPrefix], {
         timeout: 300000, onOutput
       })
 
       // Step 3: Initial brew update
-      console.log('[installer] [Strategy 4/4] Step 3: brew update')
-      onOutput('[Strategy 4/4] Updating Homebrew...')
+      console.log('[installer] [Strategy 4/5] Step 3: brew update')
+      onOutput('[Strategy 4/5] Updating Homebrew...')
       await execInProject(brewPath, ['update', '--force', '--quiet'], { timeout: 300000 })
-      console.log('[installer] [Strategy 4/4] Step 3: Homebrew ready')
+      console.log('[installer] [Strategy 4/5] Step 3: Homebrew ready')
     } else {
-      console.log(`[installer] [Strategy 4/4] Native Homebrew already exists at ${brewPath}`)
-      onOutput('[Strategy 4/4] Native Homebrew already installed')
+      console.log(`[installer] [Strategy 4/5] Native Homebrew already exists at ${brewPath}`)
+      onOutput('[Strategy 4/5] Native Homebrew already installed')
     }
 
     // Step 4: Install colima + docker CLI
-    console.log('[installer] [Strategy 4/4] Step 4: brew install colima docker docker-compose')
-    onOutput('[Strategy 4/4] Installing colima + docker via Homebrew...')
+    console.log('[installer] [Strategy 4/5] Step 4: brew install colima docker docker-compose')
+    onOutput('[Strategy 4/5] Installing colima + docker via Homebrew...')
     await spawnWithOutput(brewPath, ['install', 'colima', 'docker', 'docker-compose'], {
       timeout: 600000, onOutput
     })
-    console.log('[installer] [Strategy 4/4] Step 4: brew install done')
+    console.log('[installer] [Strategy 4/5] Step 4: brew install done')
 
     // Step 5: Start Colima
     const colimaPath = `${brewPrefix}/bin/colima`
-    console.log(`[installer] [Strategy 4/4] Step 5: Starting Colima at ${colimaPath}`)
-    onOutput('[Strategy 4/4] Starting Colima VM...')
-    await startColima(colimaPath, onOutput, '[Strategy 4/4]')
+    console.log(`[installer] [Strategy 4/5] Step 5: Starting Colima at ${colimaPath}`)
+    onOutput('[Strategy 4/5] Starting Colima VM...')
+    await startColima(colimaPath, onOutput, '[Strategy 4/5]')
     await execInProject('docker', ['info'], { timeout: 10000 })
-    console.log('[installer] [Strategy 4/4] Success — docker info OK')
+    console.log('[installer] [Strategy 4/5] Success — docker info OK')
     onOutput('Docker installed via native Homebrew + Colima')
     resetComposeDetection()
     return
   } catch (err) {
-    console.error(`[installer] [Strategy 4/4] Failed: ${err}`)
-    onOutput('[Strategy 4/4] Native Homebrew + Docker install failed')
+    console.error(`[installer] [Strategy 4/5] Failed: ${err}`)
+    onOutput('[Strategy 4/5] Native Homebrew + Docker install failed, trying next strategy...')
   }
+
+  // Strategy 5: Download and install Docker Desktop .dmg directly
+  const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
+  const dmgUrl = `https://desktop.docker.com/mac/main/${arch}/Docker.dmg`
+  const dmgPath = '/tmp/NarraNexus_Docker.dmg'
+  console.log(`[installer] [Strategy 5/5] Downloading Docker Desktop .dmg (arch=${arch})`)
+  onOutput(`[Strategy 5/5] Downloading Docker Desktop for ${arch}...`)
+  try {
+    await spawnWithOutput('curl', ['-fSL', '--progress-bar', '-o', dmgPath, dmgUrl], {
+      timeout: 600000, onOutput
+    })
+    console.log('[installer] [Strategy 5/5] Download complete, mounting dmg...')
+    onOutput('[Strategy 5/5] Installing Docker Desktop (admin privileges required)...')
+    await execWithPrivileges(
+      `hdiutil attach "${dmgPath}" -nobrowse -quiet`
+      + ` && cp -R "/Volumes/Docker/Docker.app" /Applications/`
+      + ` && hdiutil detach "/Volumes/Docker" -quiet`,
+      { timeout: 120000 }
+    )
+    console.log('[installer] [Strategy 5/5] Docker Desktop installed to /Applications')
+
+    // Clean up dmg
+    try { await execInProject('rm', ['-f', dmgPath], { timeout: 5000 }) } catch { /* ignore */ }
+
+    onOutput('[Strategy 5/5] Launching Docker Desktop...')
+    await execInProject('open', ['-a', 'Docker'], { timeout: 10000 })
+
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      try {
+        await execInProject('docker', ['info'], { timeout: 5000 })
+        console.log(`[installer] [Strategy 5/5] Docker Desktop ready after ${(i + 1) * 2}s`)
+        onOutput('Docker Desktop installed and ready')
+        resetComposeDetection()
+        return
+      } catch { /* not ready yet */ }
+      if (i % 5 === 4) {
+        onOutput(`[Strategy 5/5] Waiting for Docker Desktop to initialize... (${(i + 1) * 2}s)`)
+      }
+    }
+    throw new Error('Docker Desktop installed but failed to start within 120s')
+  } catch (err) {
+    // Clean up on failure
+    try {
+      await execInProject('sh', ['-c',
+        `rm -f "${dmgPath}"; hdiutil detach "/Volumes/Docker" 2>/dev/null || true`
+      ], { timeout: 5000 })
+    } catch { /* ignore */ }
+    console.error(`[installer] [Strategy 5/5] Failed: ${err}`)
+    onOutput('[Strategy 5/5] Docker Desktop download/install failed')
+  }
+
+  throw new Error('All Docker installation strategies failed. Please install Docker Desktop manually from https://docker.com/products/docker-desktop/')
 }
 
 async function installDockerLinux(onOutput: (line: string) => void): Promise<void> {
