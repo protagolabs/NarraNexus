@@ -44,7 +44,21 @@ function getExecEnv(): Record<string, string> {
     if (value.trim()) nonEmptyDotEnv[key] = value
   }
   const noProxyHosts = 'localhost,127.0.0.1'
-  return { ...shellEnv, ...nonEmptyDotEnv, NO_PROXY: noProxyHosts, no_proxy: noProxyHosts }
+  const merged = { ...shellEnv, ...nonEmptyDotEnv, NO_PROXY: noProxyHosts, no_proxy: noProxyHosts }
+
+  // On macOS, ensure Docker Desktop bin is first in PATH — on Intel Mac, Homebrew's
+  // /usr/local/bin/docker is a CLI-only binary without compose plugin.
+  if (process.platform === 'darwin') {
+    const ddBin = '/Applications/Docker.app/Contents/Resources/bin'
+    const currentPath = merged.PATH || ''
+    if (!currentPath.startsWith(ddBin)) {
+      // Remove existing entry (if any) and prepend
+      const parts = currentPath.split(':').filter(p => p !== ddBin)
+      merged.PATH = [ddBin, ...parts].join(':')
+    }
+  }
+
+  return merged
 }
 
 async function execInProject(
@@ -64,12 +78,16 @@ async function execWithPrivileges(
   options?: { timeout?: number }
 ): Promise<{ stdout: string; stderr: string }> {
   if (process.platform === 'darwin') {
+    // Docker Desktop bin MUST come first — on Intel Mac, Homebrew's /usr/local/bin/docker
+    // is a CLI-only binary without compose plugin; Docker Desktop's docker has compose built in.
     const extraPaths = [
+      '/Applications/Docker.app/Contents/Resources/bin',
       '/usr/local/bin',
       '/opt/homebrew/bin',
-      '/Applications/Docker.app/Contents/Resources/bin',
     ].join(':')
-    const fullScript = `export PATH="${extraPaths}:$PATH" && ${script}`
+    // Set HOME so root shell can find user's ~/.docker/cli-plugins/
+    const home = process.env.HOME || ''
+    const fullScript = `export PATH="${extraPaths}:$PATH" && export HOME="${home}" && ${script}`
     const escaped = fullScript.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     return execInProject('osascript', ['-e',
       `do shell script "${escaped}" with administrator privileges`
@@ -213,35 +231,49 @@ export class ServiceLauncher extends EventEmitter {
         await waitForDockerReady(30000, 1000)
       }
 
+      // Log which docker binary will be resolved
+      const env = getExecEnv()
+      console.log(`[launcher] compose-up: PATH starts with: ${env.PATH?.split(':').slice(0, 5).join(':')}`)
+
       let composeSuccess = false
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           // Try V2 → V1 → privileged
           let ok = false
           try {
+            console.log('[launcher] compose-up: trying docker compose (V2)...')
             await spawnWithOutput('docker', ['compose', 'up', '-d'], {
               timeout: COMPOSE_TIMEOUT,
               onOutput: (line) => updateStep('compose-up', { status: 'running', message: line })
             })
             ok = true
-          } catch { /* V2 failed */ }
+            console.log('[launcher] compose-up: docker compose (V2) succeeded')
+          } catch (e) {
+            console.log(`[launcher] compose-up: V2 failed: ${e instanceof Error ? e.message : e}`)
+          }
 
           if (!ok) {
             try {
+              console.log('[launcher] compose-up: trying docker-compose (V1)...')
               await spawnWithOutput('docker-compose', ['up', '-d'], {
                 timeout: COMPOSE_TIMEOUT,
                 onOutput: (line) => updateStep('compose-up', { status: 'running', message: line })
               })
               ok = true
-            } catch { /* V1 failed */ }
+              console.log('[launcher] compose-up: docker-compose (V1) succeeded')
+            } catch (e) {
+              console.log(`[launcher] compose-up: V1 failed: ${e instanceof Error ? e.message : e}`)
+            }
           }
 
           if (!ok) {
+            console.log('[launcher] compose-up: trying with elevated privileges...')
             updateStep('compose-up', { status: 'running', message: 'Retrying with elevated privileges...' })
             await execWithPrivileges(
               `cd "${PROJECT_ROOT}" && (docker compose up -d || docker-compose up -d)`,
               { timeout: COMPOSE_TIMEOUT }
             )
+            console.log('[launcher] compose-up: privileged compose succeeded')
           }
 
           composeSuccess = true

@@ -76,12 +76,16 @@ async function execWithPrivileges(
   options?: { timeout?: number }
 ): Promise<{ stdout: string; stderr: string }> {
   if (process.platform === 'darwin') {
+    // Docker Desktop bin MUST come first — on Intel Mac, Homebrew's /usr/local/bin/docker
+    // is a CLI-only binary without compose plugin; Docker Desktop's docker has compose built in.
     const extraPaths = [
+      '/Applications/Docker.app/Contents/Resources/bin',
       '/usr/local/bin',
       '/opt/homebrew/bin',
-      '/Applications/Docker.app/Contents/Resources/bin',
     ].join(':')
-    const fullScript = `export PATH="${extraPaths}:$PATH" && ${script}`
+    // Set HOME so root shell can find user's ~/.docker/cli-plugins/
+    const home = process.env.HOME || ''
+    const fullScript = `export PATH="${extraPaths}:$PATH" && export HOME="${home}" && ${script}`
     const escaped = fullScript.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     return execInProject('osascript', ['-e',
       `do shell script "${escaped}" with administrator privileges`

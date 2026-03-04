@@ -78,16 +78,18 @@ export function getShellEnv(): Record<string, string> {
 /** Build fallback env: process.env + common tool paths */
 function buildFallbackEnv(): Record<string, string> {
   const home = process.env.HOME || ''
+  // Docker Desktop bin MUST come first — on Intel Mac, Homebrew's /usr/local/bin/docker
+  // is a CLI-only binary without compose plugin; Docker Desktop's docker has compose built in.
   const extraPaths = [
+    '/Applications/Docker.app/Contents/Resources/bin',
     '/usr/local/bin',
     '/opt/homebrew/bin',
-    '/Applications/Docker.app/Contents/Resources/bin', // Docker Desktop 内置工具（docker-credential-desktop 等）
     join(home, '.local', 'bin'),            // Claude Code CLI default install path (~/.local/bin/claude)
     join(home, '.cargo', 'bin'),
     join(home, '.nvm', 'versions', 'node'),  // nvm common path
   ]
   const currentPath = process.env.PATH || '/usr/bin:/bin'
-  const enhancedPath = [currentPath, ...extraPaths].join(':')
+  const enhancedPath = [...extraPaths, currentPath].join(':')
 
   return {
     ...(process.env as Record<string, string>),

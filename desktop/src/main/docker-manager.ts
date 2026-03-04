@@ -42,7 +42,9 @@ async function execSafe(
     const env = getShellEnv()
     // Ensure common tool paths are included (Homebrew, Docker Desktop)
     // These may not be in the cached shell env if tools were installed during this session
-    const extraPaths = ['/opt/homebrew/bin', '/usr/local/bin', '/Applications/Docker.app/Contents/Resources/bin']
+    // Docker Desktop bin MUST come first — on Intel Mac, Homebrew's /usr/local/bin/docker
+    // is a CLI-only binary without compose plugin; Docker Desktop's docker has compose built in.
+    const extraPaths = ['/Applications/Docker.app/Contents/Resources/bin', '/opt/homebrew/bin', '/usr/local/bin']
     const currentPath = env.PATH || ''
     const missingPaths = extraPaths.filter(p => !currentPath.includes(p))
     if (missingPaths.length > 0) {
