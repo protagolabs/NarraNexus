@@ -163,9 +163,15 @@ export async function ensureDockerDaemon(): Promise<boolean> {
   }
 
   if (process.platform === 'darwin') {
-    // Strategy 1: Launch Docker Desktop (only if Docker.app exists)
-    if (existsSync('/Applications/Docker.app')) {
-      console.log('[docker-manager] Strategy 1: Launching Docker Desktop')
+    // Strategy 1: Launch Docker Desktop (use `open -Ra` to find it anywhere, not just /Applications)
+    let dockerDesktopFound = false
+    try {
+      await execSafe('open', ['-Ra', 'Docker'], { timeout: 5000 })
+      dockerDesktopFound = true
+    } catch { /* Docker Desktop not registered with macOS */ }
+
+    if (dockerDesktopFound) {
+      console.log('[docker-manager] Strategy 1: Docker Desktop found, launching...')
       try {
         await execSafe('open', ['-a', 'Docker'], { timeout: 10000 })
         for (let i = 0; i < 30; i++) {
@@ -180,7 +186,7 @@ export async function ensureDockerDaemon(): Promise<boolean> {
         console.log(`[docker-manager] Strategy 1: Docker Desktop launch error: ${err}`)
       }
     } else {
-      console.log('[docker-manager] Strategy 1: /Applications/Docker.app not found, skipping')
+      console.log('[docker-manager] Strategy 1: Docker Desktop not found via `open -Ra Docker`, skipping')
     }
 
     // Strategy 2: Start Colima (with auto-detected resource allocation)

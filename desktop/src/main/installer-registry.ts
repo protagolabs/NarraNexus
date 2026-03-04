@@ -280,9 +280,15 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
   console.log('[installer] === installDockerMacOS starting ===')
   console.log(`[installer] Platform: ${process.platform}, Arch: ${process.arch}`)
 
-  // Strategy 1: Launch Docker Desktop (only if Docker.app exists)
-  if (existsSync('/Applications/Docker.app')) {
-    console.log('[installer] [Strategy 1/5] Docker.app found, attempting launch')
+  // Strategy 1: Launch Docker Desktop (use `open -Ra` to find it anywhere, not just /Applications)
+  let dockerDesktopFound = false
+  try {
+    await execInProject('open', ['-Ra', 'Docker'], { timeout: 5000 })
+    dockerDesktopFound = true
+  } catch { /* Docker Desktop not registered with macOS */ }
+
+  if (dockerDesktopFound) {
+    console.log('[installer] [Strategy 1/5] Docker Desktop found via macOS launch services')
     onOutput('[Strategy 1/5] Launching Docker Desktop...')
     try {
       await execInProject('open', ['-a', 'Docker'], { timeout: 10000 })
@@ -303,8 +309,8 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
       onOutput('[Strategy 1/5] Docker Desktop failed to launch, trying next strategy...')
     }
   } else {
-    console.log('[installer] [Strategy 1/5] /Applications/Docker.app not found, skipping')
-    onOutput('[Strategy 1/5] Docker Desktop not found at /Applications/Docker.app, skipping')
+    console.log('[installer] [Strategy 1/5] Docker Desktop not found on this system')
+    onOutput('[Strategy 1/5] Docker Desktop not installed, skipping')
   }
 
   // Strategy 2: Start Colima (only if installed)
@@ -335,9 +341,26 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
       onOutput('[Strategy 3/5] Skipping Intel Homebrew on Apple Silicon (would cause Rosetta errors)')
     } else {
       onOutput('[Strategy 3/5] Installing Docker via Homebrew (colima + docker CLI)...')
-      await spawnWithOutput('brew', ['install', 'colima', 'docker', 'docker-compose'], {
-        timeout: 600000, onOutput
-      })
+      try {
+        await spawnWithOutput('brew', ['install', 'colima', 'docker', 'docker-compose'], {
+          timeout: 600000, onOutput
+        })
+      } catch (brewErr) {
+        // brew link may fail due to permission issues from previous Docker Desktop install
+        const brewMsg = brewErr instanceof Error ? brewErr.message : String(brewErr)
+        if (brewMsg.includes('Permission denied') || brewMsg.includes('not symlinked')) {
+          console.log('[installer] [Strategy 3/5] brew link failed, retrying with link --overwrite...')
+          onOutput('[Strategy 3/5] Fixing brew link permissions...')
+          try {
+            await spawnWithOutput('brew', ['link', '--overwrite', 'docker'], { timeout: 30000, onOutput })
+          } catch { /* ignore */ }
+          try {
+            await spawnWithOutput('brew', ['link', '--overwrite', 'docker-compose'], { timeout: 30000, onOutput })
+          } catch { /* ignore */ }
+        } else {
+          throw brewErr
+        }
+      }
       console.log('[installer] [Strategy 3/5] brew install done, starting Colima...')
       onOutput('[Strategy 3/5] Starting Colima VM...')
       await startColima('colima', onOutput, '[Strategy 3/5]')
@@ -360,7 +383,7 @@ async function installDockerMacOS(onOutput: (line: string) => void): Promise<voi
   console.log('[installer] [Strategy 4/5] Starting — install native Homebrew + Docker')
   onOutput('[Strategy 4/5] Installing native Homebrew + Docker...')
   try {
-    const brewPrefix = process.arch === 'arm64' ? '/opt/homebrew' : '/usr/local/Homebrew'
+    const brewPrefix = process.arch === 'arm64' ? '/opt/homebrew' : '/usr/local'
     const brewPath = `${brewPrefix}/bin/brew`
     const currentUser = process.env.USER || process.env.LOGNAME || 'nobody'
     console.log(`[installer] [Strategy 4/5] brewPrefix=${brewPrefix}, user=${currentUser}, arch=${process.arch}`)
