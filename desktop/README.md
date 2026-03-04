@@ -101,6 +101,19 @@ Open NarraNexus.app
 
 After the initial setup is complete, opening the app goes directly to the Dashboard without showing the SetupWizard.
 
+### Data Storage Locations
+
+| Data | Location (Packaged) | Location (Dev Mode) |
+|------|---------------------|---------------------|
+| API Keys & DB config | `~/Library/Application Support/NarraNexus/project/.env` | `NexusAgent/.env` |
+| App state (setupComplete) | `~/Library/Application Support/NarraNexus/config.json` | same |
+| Project source & dependencies | `~/Library/Application Support/NarraNexus/project/` | repo root |
+| Python virtual environment | `~/Library/Application Support/NarraNexus/project/.venv/` | `NexusAgent/.venv/` |
+
+On Linux, `~/Library/Application Support/NarraNexus/` is replaced by `~/.config/NarraNexus/`.
+
+> **Note**: To reset the app to a clean state, delete the `~/Library/Application Support/NarraNexus/` directory (or `~/.config/NarraNexus/` on Linux) and reopen the app. This will trigger a fresh setup.
+
 ---
 
 ## Packaging and Distribution
