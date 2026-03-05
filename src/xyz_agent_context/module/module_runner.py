@@ -102,6 +102,7 @@ DEFAULT_MCP_MODULES = [
     "SocialNetworkModule",  # port: 7802
     "JobModule",            # port: 7803
     "GeminiRAGModule",      # port: 7805
+    "TelegramModule",       # port: 7806
 ]
 
 # Port reference (for documentation only - actual ports are set in each module)
@@ -111,6 +112,7 @@ MODULE_PORTS = {
     "SocialNetworkModule": 7802,
     "JobModule": 7803,
     "GeminiRAGModule": 7805,
+    "TelegramModule": 7806,
 }
 
 

@@ -65,8 +65,8 @@ class Settings(BaseSettings):
     admin_secret_key: str = ""
 
     # ===== Telegram Bot =====
-    telegram_bot_token: Optional[str] = None   # TELEGRAM_BOT_TOKEN
-    telegram_agent_id: Optional[str] = None    # TELEGRAM_AGENT_ID
+    # TelegramTrigger DB 轮询间隔（秒）
+    telegram_trigger_poll_interval: int = 30
 
 
 settings = Settings()

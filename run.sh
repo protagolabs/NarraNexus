@@ -1749,15 +1749,10 @@ do_run() {
     tmux send-keys -t "$TMUX_SESSION":mcp "bash start/mcp.sh" C-m
     info "MCP Server        → tmux window 5 [mcp]         Ports 7801-7805"
 
-    # Window 6: Telegram Bot（仅当 TELEGRAM_BOT_TOKEN 已配置时启动）
-    local telegram_token=""
-    telegram_token=$(grep '^TELEGRAM_BOT_TOKEN=' "${PROJECT_ROOT}/.env" 2>/dev/null \
-        | sed 's/^TELEGRAM_BOT_TOKEN=//' | tr -d '"' || true)
-    if [ -n "$telegram_token" ]; then
-        tmux new-window -t "$TMUX_SESSION" -n telegram -c "$PROJECT_ROOT"
-        tmux send-keys -t "$TMUX_SESSION":telegram "bash start/telegram.sh" C-m
-        info "Telegram Bot      → tmux window 6 [telegram]"
-    fi
+    # Window 6: Telegram Trigger (always started; runs in standby if no bots are registered)
+    tmux new-window -t "$TMUX_SESSION" -n telegram -c "$PROJECT_ROOT"
+    tmux send-keys -t "$TMUX_SESSION":telegram "bash start/telegram.sh" C-m
+    info "Telegram Trigger  → tmux window 6 [telegram]      Port 7806"
 
     tmux select-window -t "$TMUX_SESSION":control
 

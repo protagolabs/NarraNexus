@@ -79,6 +79,7 @@ class WorkingSource(str, Enum):
     A2A = "a2a"
     CALLBACK = "callback"  # Callback triggered after Job completion
     SKILL_STUDY = "skill_study"  # Skill study trigger
+    IM = "im"  # IM 渠道触发（Telegram / WhatsApp / Discord 等）
 
     @classmethod
     def from_string(cls, value: str) -> "WorkingSource":
@@ -117,9 +118,9 @@ class WorkingSource(str, Enum):
         Check if this is a user-initiated execution
 
         Returns:
-            True if triggered by CHAT
+            True if triggered by CHAT or IM
         """
-        return self == WorkingSource.CHAT
+        return self in (WorkingSource.CHAT, WorkingSource.IM)
 
 
 @dataclass
