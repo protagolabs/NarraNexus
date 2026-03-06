@@ -20,6 +20,7 @@ requirements/
 data
 experiment_scripts/test_data
 CLAUDE.md
+AGENT.md
 sessions/
 new_task/
 /docs_self
