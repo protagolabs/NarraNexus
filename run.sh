@@ -943,6 +943,13 @@ do_install() {
     current=$((current + 1))
     step "${current}/${total_steps}" "Checking Node.js (>= 20 required)"
 
+    # Try to load nvm if available (supports both bash and zsh)
+    if [ -d "$HOME/.nvm" ]; then
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        info "nvm detected, loading..."
+    fi
+
     local need_node_install=false
     if command -v node &>/dev/null; then
         local node_ver
@@ -960,13 +967,47 @@ do_install() {
 
     if [ "$need_node_install" = true ]; then
         echo ""
-        echo -e "    ${BOLD}${WHITE}Install Node.js 20 automatically?${RESET}"
-        echo ""
-        echo -e "    ${G1}[1]${RESET}  ${BOLD}Yes, install for me${RESET}  ${DIM}(Recommended)${RESET}"
-        echo -e "    ${G3}[2]${RESET}  ${BOLD}No, I will install it myself${RESET}"
-        echo ""
-        read -rp "    > " node_install_choice
-        echo ""
+        # If nvm is available, offer nvm-based installation first
+        if command -v nvm &>/dev/null; then
+            echo -e "    ${BOLD}${WHITE}Node.js 20 is required. Install via nvm?${RESET}"
+            echo ""
+            echo -e "    ${G1}[1]${RESET}  ${BOLD}Yes, use nvm install 20${RESET}  ${DIM}(Recommended, via nvm)${RESET}"
+            echo -e "    ${G3}[2]${RESET}  ${BOLD}Use system package manager instead${RESET}"
+            echo -e "    ${G5}[3]${RESET}  ${BOLD}Skip, I will install it myself${RESET}"
+            echo ""
+            read -rp "    > " node_install_choice
+            echo ""
+
+            if [[ "$node_install_choice" == "1" ]]; then
+                info "Installing Node.js 20 via nvm..."
+                nvm install 20
+                nvm alias default 20
+                nvm use 20
+                if command -v node &>/dev/null; then
+                    local new_node_ver
+                    new_node_ver=$(node --version 2>/dev/null | sed 's/^v//')
+                    success "Node.js v${new_node_ver} installed successfully via nvm"
+                fi
+                # Skip the system package manager installation
+                node_install_choice=""
+            elif [[ "$node_install_choice" == "3" ]]; then
+                echo -e "    ${DIM}Please install Node.js >= 20 before running services.${RESET}"
+                echo -e "    ${DIM}You can use: nvm install 20 && nvm use 20${RESET}"
+                read -rp "    Press Enter to continue..."
+                node_install_choice=""
+            else
+                # Fall through to system package manager installation (option 2)
+                node_install_choice="1"
+            fi
+        else
+            echo -e "    ${BOLD}${WHITE}Install Node.js 20 automatically?${RESET}"
+            echo ""
+            echo -e "    ${G1}[1]${RESET}  ${BOLD}Yes, install for me${RESET}  ${DIM}(Recommended)${RESET}"
+            echo -e "    ${G3}[2]${RESET}  ${BOLD}No, I will install it myself${RESET}"
+            echo ""
+            read -rp "    > " node_install_choice
+            echo ""
+        fi
 
         case "$node_install_choice" in
             1)

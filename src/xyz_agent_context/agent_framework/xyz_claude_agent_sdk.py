@@ -136,6 +136,7 @@ class ClaudeAgentSDK:
             cwd=self.working_path,
             mcp_servers=claude_agent_mcp_dict,
             permission_mode="bypassPermissions",
+            max_turns=10,
             max_buffer_size=50 * 1024 * 1024,  # 50MB buffer size for large MCP responses (PDF parsing etc.)
             include_partial_messages=True,  # Enable token-level streaming via StreamEvent
             stderr=_on_cli_stderr,  # 捕获 CLI 错误输出
@@ -193,10 +194,14 @@ class ClaudeAgentSDK:
         except GeneratorExit:
             logger.warning(f"Agent loop generator was closed early (client disconnected). Messages received: {message_count}")
         except Exception as e:
-            logger.error(f"Error in agent_loop: {e}")
-            if cli_stderr_lines:
-                logger.error(f"[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
-            raise
+            error_name = type(e).__name__
+            if error_name == "MessageParseError" and "rate_limit" in str(e).lower():
+                logger.warning(f"Ignoring non-fatal SDK message: {e}")
+            else:
+                logger.error(f"Error in agent_loop: {e}")
+                if cli_stderr_lines:
+                    logger.error(f"[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                raise
         finally:
             if client is not None:
                 try:

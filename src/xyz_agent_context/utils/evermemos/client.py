@@ -176,7 +176,7 @@ class EverMemOSClient:
             "name": narrative_name,
             "description": narrative_description,
             "group_id": narrative_id,
-            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "created_at": (narrative.created_at or datetime.now(timezone.utc)).isoformat().replace("+00:00", "Z"),
             "default_timezone": "UTC",
             "user_details": {
                 self.user_id: {
