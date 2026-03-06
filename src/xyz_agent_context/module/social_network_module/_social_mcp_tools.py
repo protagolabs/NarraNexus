@@ -2,15 +2,15 @@
 @file_name: _social_mcp_tools.py
 @author: NetMind.AI
 @date: 2025-11-21
-@description: SocialNetworkModule MCP Server 工具定义
+@description: SocialNetworkModule MCP Server tool definitions
 
-将 MCP 工具注册逻辑从 SocialNetworkModule 主类中分离。
+Separates MCP tool registration logic from the SocialNetworkModule main class.
 
-工具列表：
-- extract_entity_info: 提取并更新实体信息
-- search_social_network: 搜索社交网络
-- get_contact_info: 获取联系方式
-- get_agent_social_stats: 获取 Agent 社交统计
+Tools:
+- extract_entity_info: Extract and update entity information
+- search_social_network: Search social network
+- get_contact_info: Get contact information
+- get_agent_social_stats: Get Agent social statistics
 """
 
 from typing import Optional, Any
@@ -23,21 +23,21 @@ from xyz_agent_context.repository import InstanceRepository
 
 def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) -> FastMCP:
     """
-    创建 SocialNetworkModule 的 MCP Server 实例
+    Create a SocialNetworkModule MCP Server instance
 
     Args:
-        port: MCP Server 端口
-        get_db_client_fn: 获取数据库连接的异步函数
-        module_class: SocialNetworkModule 类引用（避免循环导入）
+        port: MCP Server port
+        get_db_client_fn: Async function to get database connection
+        module_class: SocialNetworkModule class reference (avoids circular imports)
 
     Returns:
-        配置好全部工具的 FastMCP 实例
+        FastMCP instance with all tools configured
     """
     mcp = FastMCP("social_network_module")
     mcp.settings.port = port
 
     async def _get_instance_and_module(agent_id: str):
-        """通用辅助：获取 db、instance_id 并创建临时 module"""
+        """Common helper: get db, instance_id and create temp module"""
         db = await get_db_client_fn()
         instance_repo = InstanceRepository(db)
         instances = await instance_repo.get_by_agent(
@@ -140,7 +140,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         """
         import json as _json
 
-        # 处理 updates 参数
+        # Process updates parameter
         if isinstance(updates, str):
             try:
                 updates = _json.loads(updates)
@@ -325,7 +325,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         if error:
             return {"success": False, "message": error, "results": []}
 
-        # 解析 filter_tags
+        # Parse filter_tags
         filter_tags_list = None
         if filter_tags and filter_tags.strip():
             filter_tags_list = [tag.strip() for tag in filter_tags.split(",")]

@@ -97,7 +97,7 @@ from xyz_agent_context.repository.job_repository import format_jobs_for_display,
 # Module Instance Factory
 from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
 
-# 提取的子模块
+# Extracted sub-modules
 from xyz_agent_context.module.job_module._job_analysis import (
     extract_execution_trace,
     extract_context_info,
@@ -901,11 +901,11 @@ For example, if the end condition is "customer shows purchase intent or explicit
         return await self._get_repo().update_job(job_id, updates)
 
     def _extract_execution_trace(self, agent_loop_response: List[Any]) -> str:
-        """委托给 _job_analysis 模块"""
+        """Delegate to _job_analysis module"""
         return extract_execution_trace(agent_loop_response)
 
     def _extract_context_info(self, ctx_data: Any) -> str:
-        """委托给 _job_analysis 模块"""
+        """Delegate to _job_analysis module"""
         return extract_context_info(ctx_data)
 
     async def _get_job_info_for_analysis(self, instance: Optional[Any]) -> Dict[str, Any]:
@@ -965,7 +965,7 @@ For example, if the end condition is "customer shows purchase intent or explicit
         final_output: str,
         ctx_data: Any,
     ) -> str:
-        """委托给 _job_analysis 模块"""
+        """Delegate to _job_analysis module"""
         return build_job_analysis_prompt(
             current_time, input_content, job_info,
             execution_trace, final_output, ctx_data,
@@ -994,9 +994,9 @@ For example, if the end condition is "customer shows purchase intent or explicit
 
     def create_mcp_server(self) -> Optional[Any]:
         """
-        创建 MCP Server 实例
+        Create MCP Server instance
 
-        工具定义已提取到 _job_mcp_tools.py 中。
+        Tool definitions have been extracted to _job_mcp_tools.py.
         """
         return create_job_mcp_server(self.port, JobModule.get_mcp_db_client)
 

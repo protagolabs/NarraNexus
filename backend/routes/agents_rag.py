@@ -2,12 +2,12 @@
 @file_name: agents_rag.py
 @author: NetMind.AI
 @date: 2025-11-28
-@description: Agent RAG 文件管理路由
+@description: Agent RAG file management routes
 
 Provides endpoints for:
-- GET /{agent_id}/rag-files - 列出 RAG 文件及状态
-- POST /{agent_id}/rag-files - 上传文件到 RAG 存储
-- DELETE /{agent_id}/rag-files/{filename} - 删除 RAG 文件
+- GET /{agent_id}/rag-files - List RAG files and their status
+- POST /{agent_id}/rag-files - Upload file to RAG store
+- DELETE /{agent_id}/rag-files/{filename} - Delete RAG file
 """
 
 import asyncio
@@ -32,7 +32,7 @@ async def list_rag_files(
     agent_id: str,
     user_id: str = Query(..., description="User ID"),
 ):
-    """列出 Agent-User 对的全部 RAG 文件及上传状态"""
+    """List all RAG files and upload status for Agent-User pair"""
     logger.info(f"Listing RAG files for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -60,10 +60,10 @@ async def upload_rag_file(
     user_id: str = Query(..., description="User ID"),
     file: UploadFile = File(..., description="File to upload to RAG store"),
 ):
-    """上传文件到 RAG 临时目录并触发 Gemini 存储上传"""
+    """Upload file to RAG temp directory and trigger Gemini store upload"""
     logger.info(f"Uploading RAG file '{file.filename}' for agent: {agent_id}, user: {user_id}")
 
-    # 支持的文件格式
+    # Supported file formats
     SUPPORTED_EXTENSIONS = {'.txt', '.md', '.pdf'}
 
     filename_lower = file.filename.lower() if file.filename else ""
@@ -92,7 +92,7 @@ async def upload_rag_file(
             extra={"saved_at": str(filepath.stat().st_mtime)}
         )
 
-        # 触发后台上传任务
+        # Trigger background upload task
         asyncio.create_task(
             RAGFileService.upload_to_gemini_store(agent_id, user_id, str(filepath), file.filename)
         )
@@ -116,9 +116,9 @@ async def delete_rag_file(
     user_id: str = Query(..., description="User ID"),
 ):
     """
-    删除 RAG 临时目录中的文件
+    Delete file from RAG temp directory
 
-    注意：不会从 Gemini store 中删除文件（Gemini 不支持删除）。
+    Note: Does not delete from Gemini store (Gemini does not support deletion).
     """
     logger.info(f"Deleting RAG file '{filename}' for agent: {agent_id}, user: {user_id}")
 

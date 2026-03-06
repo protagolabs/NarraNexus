@@ -2,12 +2,12 @@
 @file_name: agents_files.py
 @author: NetMind.AI
 @date: 2025-11-28
-@description: Agent 工作空间文件管理路由
+@description: Agent workspace file management routes
 
 Provides endpoints for:
-- GET /{agent_id}/files - 列出工作空间文件
-- POST /{agent_id}/files - 上传文件到工作空间
-- DELETE /{agent_id}/files/{filename} - 删除工作空间文件
+- GET /{agent_id}/files - List workspace files
+- POST /{agent_id}/files - Upload file to workspace
+- DELETE /{agent_id}/files/{filename} - Delete workspace file
 """
 
 import os
@@ -27,7 +27,7 @@ router = APIRouter()
 
 
 def _get_workspace_path(agent_id: str, user_id: str) -> str:
-    """获取 Agent-User 工作空间路径"""
+    """Get Agent-User workspace path"""
     from xyz_agent_context.settings import settings
     base_path = settings.base_working_path
     return os.path.join(base_path, f"{agent_id}_{user_id}")
@@ -38,7 +38,7 @@ async def list_workspace_files(
     agent_id: str,
     user_id: str = Query(..., description="User ID")
 ):
-    """列出 Agent 工作空间中的全部文件"""
+    """List all files in Agent workspace"""
     logger.info(f"Listing files for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -75,11 +75,11 @@ async def upload_file(
     user_id: str = Query(..., description="User ID"),
     file: UploadFile = File(..., description="File to upload"),
 ):
-    """上传文件到 Agent 工作空间"""
+    """Upload file to Agent workspace"""
     logger.info(f"Uploading file '{file.filename}' for agent: {agent_id}, user: {user_id}")
 
     try:
-        # 安全检查：防止路径遍历攻击
+        # Security check: prevent path traversal attacks
         safe_filename = os.path.basename(file.filename)
         if safe_filename != file.filename or '..' in file.filename:
             return FileUploadResponse(
@@ -120,11 +120,11 @@ async def delete_file(
     filename: str,
     user_id: str = Query(..., description="User ID"),
 ):
-    """删除 Agent 工作空间中的文件"""
+    """Delete file from Agent workspace"""
     logger.info(f"Deleting file '{filename}' for agent: {agent_id}, user: {user_id}")
 
     try:
-        # 安全检查：防止路径遍历攻击
+        # Security check: prevent path traversal attacks
         if os.path.basename(filename) != filename or '..' in filename:
             return FileDeleteResponse(
                 success=False,
@@ -134,7 +134,7 @@ async def delete_file(
         workspace_path = _get_workspace_path(agent_id, user_id)
         filepath = os.path.join(workspace_path, filename)
 
-        # 二次安全检查：确保文件路径在工作空间内
+        # Secondary security check: ensure file path is within workspace
         if not os.path.abspath(filepath).startswith(os.path.abspath(workspace_path)):
             return FileDeleteResponse(
                 success=False,

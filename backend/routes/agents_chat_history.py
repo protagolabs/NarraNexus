@@ -2,12 +2,12 @@
 @file_name: agents_chat_history.py
 @author: NetMind.AI
 @date: 2025-11-28
-@description: Agent 聊天历史相关路由
+@description: Agent Chat History routes
 
 Provides endpoints for:
-- GET /{agent_id}/chat-history - 获取全部 Narrative 和 Event
-- DELETE /{agent_id}/history - 清除对话历史
-- GET /{agent_id}/simple-chat-history - 获取简化的聊天消息列表
+- GET /{agent_id}/chat-history - Get all Narratives and Events
+- DELETE /{agent_id}/history - Clear conversation history
+- GET /{agent_id}/simple-chat-history - Get simplified chat message list
 """
 
 import json
@@ -35,7 +35,7 @@ router = APIRouter()
 
 
 def _parse_timestamp(ts: str) -> datetime:
-    """解析各种格式的时间戳为 datetime 对象"""
+    """Parse various timestamp formats into datetime objects"""
     if not ts:
         return datetime.min
     try:
@@ -72,7 +72,7 @@ def _parse_timestamp(ts: str) -> datetime:
 
 
 def _parse_json_field(value: Any, default: Any) -> Any:
-    """解析可能为 JSON 字符串的数据库字段"""
+    """Parse database fields that may be JSON strings"""
     if value is None:
         return default
     if isinstance(value, (dict, list)):
@@ -91,10 +91,11 @@ async def get_chat_history(
     user_id: Optional[str] = Query(None, description="Optional user ID to filter")
 ):
     """
-    获取全部 Narratives 和 Events 作为聊天历史
+    Get all Narratives and Events as chat history
 
-    改进的查询逻辑：不仅依赖 narrative_info.actors，还根据 ChatModule instance
-    来补充查询。这样即使 Narrative actors 设置不正确，也能返回用户的聊天历史。
+    Improved query logic: not only relies on narrative_info.actors, but also
+    supplements via ChatModule instance lookup. This ensures chat history is
+    returned even if Narrative actors are set incorrectly.
     """
     logger.info(f"Getting chat history for agent: {agent_id}, user: {user_id}")
 
@@ -105,7 +106,7 @@ async def get_chat_history(
         narrative_ids: List[str] = []
         narrative_map: Dict[str, Any] = {}
 
-        # ===== 方法一：根据 ChatModule instance 查找关联的 Narrative =====
+        # ===== Method 1: Find associated Narratives via ChatModule instance =====
         if user_id:
             all_instances = await instance_repo.get_by_agent_and_user(
                 agent_id=agent_id,
@@ -125,7 +126,7 @@ async def get_chat_history(
                     if nar_id and nar_id not in narrative_ids:
                         narrative_ids.append(nar_id)
 
-            # 加载这些 Narrative 的详细信息
+            # Load detailed info for these Narratives
             valid_narrative_ids = []
             for nar_id in narrative_ids:
                 nar_row = await db_client.get_one("narratives", {"narrative_id": nar_id})
@@ -149,7 +150,7 @@ async def get_chat_history(
 
             narrative_ids = valid_narrative_ids
 
-        # ===== 方法二：回退到基于 narrative_info.actors 的查询（兼容旧数据） =====
+        # ===== Method 2: Fallback to narrative_info.actors-based query (legacy data compat) =====
         if not narrative_ids:
             narratives_raw = await db_client.get(
                 "narratives",
@@ -188,7 +189,7 @@ async def get_chat_history(
         if not narrative_ids:
             return ChatHistoryResponse(success=True)
 
-        # 查询每个 Narrative 关联的 Instance
+        # Query Instances associated with each Narrative
         for narrative_id in narrative_ids:
             links = await db_client.get(
                 "instance_narrative_links",
@@ -225,7 +226,7 @@ async def get_chat_history(
             if narrative_id in narrative_map:
                 narrative_map[narrative_id]["instances"] = instances
 
-        # 查询全部 Event
+        # Query all Events
         events_raw = []
         for narrative_id in narrative_ids:
             narrative_events = await db_client.get(
@@ -237,7 +238,7 @@ async def get_chat_history(
 
         events_raw.sort(key=lambda e: e.get("created_at", ""))
 
-        # 构建响应
+        # Build response
         narratives = [NarrativeInfo(**narrative_map[nid]) for nid in narrative_ids]
 
         events = []
@@ -277,12 +278,12 @@ async def clear_conversation_history(
     user_id: Optional[str] = Query(None, description="Optional user ID to filter")
 ):
     """
-    清除 Agent 的对话历史
+    Clear Agent's conversation history
 
-    搜索逻辑：
-    1. 查询指定 agent_id 下的全部 Narrative
-    2. 解析 narrative_info JSON 字段，检查 actors 列表中是否包含 user_id
-    3. 删除匹配的 Narrative 及其关联的全部 Event
+    Search logic:
+    1. Query all Narratives under the specified agent_id
+    2. Parse narrative_info JSON field, check if actors list contains user_id
+    3. Delete matching Narratives and all associated Events
     """
     logger.info(f"Clearing history for agent: {agent_id}, user: {user_id}")
 
@@ -297,7 +298,7 @@ async def clear_conversation_history(
 
         logger.info(f"Found {len(narratives)} narratives")
 
-        # 按 user_id 过滤
+        # Filter by user_id
         narrative_ids_to_delete = []
 
         if user_id:
@@ -326,7 +327,7 @@ async def clear_conversation_history(
 
         logger.info(f"Will delete {len(narrative_ids_to_delete)} narratives: {narrative_ids_to_delete}")
 
-        # 在事务中删除 Event 和 Narrative
+        # Delete Events and Narratives within a transaction
         events_deleted = 0
         narratives_deleted = 0
 
@@ -361,10 +362,10 @@ async def get_simple_chat_history(
     limit: int = Query(default=20, description="Maximum number of messages to return (recent N rounds)")
 ):
     """
-    获取用户与 Agent 之间的简化聊天历史
+    Get simplified chat history between user and Agent
 
-    直接从 ChatModule instance 查询，不依赖 Narrative。
-    通过 agent_id + user_id 找到所有 ChatModule instance，获取聊天记录。
+    Queries directly from ChatModule instances, without relying on Narratives.
+    Finds all ChatModule instances via agent_id + user_id to retrieve chat records.
     """
     logger.info(f"Getting simple chat history for agent: {agent_id}, user: {user_id}, limit: {limit}")
 
@@ -410,7 +411,7 @@ async def get_simple_chat_history(
                         working_source = meta_data.get("working_source", "chat")
                         role = msg.get("role", "unknown")
 
-                        # 前端聊天历史过滤：只展示 chat 类型消息
+                        # Frontend chat history filter: only show chat-type messages
                         if working_source != "chat":
                             continue
 
@@ -431,14 +432,14 @@ async def get_simple_chat_history(
             except Exception as e:
                 logger.warning(f"Failed to load chat history from instance {instance.instance_id}: {e}")
 
-        # 按时间排序
+        # Sort by time
         all_messages.sort(key=lambda m: _parse_timestamp(m.get("_sort_key", "")))
 
         if all_messages:
             logger.debug(f"First message timestamp: {all_messages[0].get('_sort_key', 'N/A')}")
             logger.debug(f"Last message timestamp: {all_messages[-1].get('_sort_key', 'N/A')}")
 
-        # 限制返回数量
+        # Limit return count
         total_count = len(all_messages)
         if limit > 0 and total_count > limit:
             all_messages = all_messages[-limit:]

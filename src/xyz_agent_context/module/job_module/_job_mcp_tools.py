@@ -2,19 +2,19 @@
 @file_name: _job_mcp_tools.py
 @author: NetMind.AI
 @date: 2025-11-25
-@description: JobModule MCP Server 工具定义
+@description: JobModule MCP Server tool definitions
 
-将 MCP 工具注册逻辑从 JobModule 主类中分离，
-保持 JobModule 聚焦于 Hook 和核心业务逻辑。
+Separates MCP tool registration logic from the JobModule main class,
+keeping JobModule focused on Hook and core business logic.
 
-工具列表：
-- job_create: 创建后台任务
-- job_retrieval_semantic: 语义搜索任务
-- job_retrieval_by_id: 按 ID 查询任务
-- job_retrieval_by_keywords: 关键词搜索任务
-- job_update: 更新任务属性
-- job_pause: 暂停任务
-- job_cancel: 取消任务
+Tools:
+- job_create: Create a background job
+- job_retrieval_semantic: Semantic search for jobs
+- job_retrieval_by_id: Query job by ID
+- job_retrieval_by_keywords: Keyword search for jobs
+- job_update: Update job properties
+- job_pause: Pause a job
+- job_cancel: Cancel a job
 """
 
 from typing import Optional, List, Any
@@ -29,14 +29,14 @@ from xyz_agent_context.utils.embedding import get_embedding
 
 def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
     """
-    创建 JobModule 的 MCP Server 实例
+    Create a JobModule MCP Server instance
 
     Args:
-        port: MCP Server 端口
-        get_db_client_fn: 获取数据库连接的异步函数（JobModule.get_mcp_db_client）
+        port: MCP Server port
+        get_db_client_fn: Async function to get database connection (JobModule.get_mcp_db_client)
 
     Returns:
-        配置好全部工具的 FastMCP 实例
+        FastMCP instance with all tools configured
     """
     mcp = FastMCP("job_module")
     mcp.settings.port = port
@@ -542,7 +542,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             db = await get_db_client_fn()
             job_repo = JobRepository(db)
 
-            # 验证权限
+            # Verify authorization
             job = await job_repo.get_job(job_id)
             if not job:
                 return {"success": False, "job_id": job_id, "message": f"Job {job_id} not found"}
@@ -550,7 +550,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             if job.agent_id != agent_id:
                 return {"success": False, "job_id": job_id, "message": f"Job {job_id} does not belong to agent {agent_id}"}
 
-            # 构建更新字典
+            # Build update dictionary
             updates = {}
 
             if title is not None:
@@ -688,10 +688,10 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             if job.agent_id != agent_id:
                 return {"success": False, "job_id": job_id, "message": f"Job {job_id} does not belong to agent {agent_id}"}
 
-            # 1. 取消 Job
+            # 1. Cancel Job
             updated_rows = await job_repo.cancel_job(job_id)
 
-            # 2. 清理 Entity 关联
+            # 2. Clean up Entity associations
             if job.related_entity_id:
                 service = JobInstanceService(db)
                 social_instance_id = await service._get_social_network_instance_id(agent_id)

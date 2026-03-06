@@ -2,11 +2,11 @@
 @file_name: agents_awareness.py
 @author: NetMind.AI
 @date: 2025-11-28
-@description: Agent Awareness 相关路由
+@description: Agent Awareness routes
 
 Provides endpoints for:
-- GET /{agent_id}/awareness - 获取 Agent 自我意识
-- PUT /{agent_id}/awareness - 更新 Agent 自我意识
+- GET /{agent_id}/awareness - Get Agent self-awareness
+- PUT /{agent_id}/awareness - Update Agent self-awareness
 """
 
 import uuid
@@ -27,7 +27,7 @@ router = APIRouter()
 
 async def _ensure_awareness_instance(agent_id: str) -> str:
     """
-    确保 Agent 存在 AwarenessModule 实例，不存在则自动创建
+    Ensure an AwarenessModule instance exists for the Agent, create one if not
 
     Returns:
         instance_id
@@ -60,10 +60,10 @@ async def _ensure_awareness_instance(agent_id: str) -> str:
 @router.get("/{agent_id}/awareness", response_model=AwarenessResponse)
 async def get_agent_awareness(agent_id: str):
     """
-    获取 Agent 自我意识信息
+    Get Agent self-awareness information
 
-    从 instance_awareness 表中查询数据（通过 AwarenessModule 的 instance_id）。
-    如果不存在 AwarenessModule 实例，会自动创建。
+    Queries data from instance_awareness table (via AwarenessModule's instance_id).
+    Creates an AwarenessModule instance automatically if none exists.
     """
     logger.info(f"Getting awareness for agent: {agent_id}")
 
@@ -97,10 +97,10 @@ async def get_agent_awareness(agent_id: str):
 @router.put("/{agent_id}/awareness", response_model=AwarenessResponse)
 async def update_agent_awareness(agent_id: str, request: AwarenessUpdateRequest):
     """
-    更新 Agent 自我意识信息
+    Update Agent self-awareness information
 
-    更新 instance_awareness 表中的数据（通过 AwarenessModule 的 instance_id）。
-    如果不存在 AwarenessModule 实例，会自动创建。
+    Updates data in instance_awareness table (via AwarenessModule's instance_id).
+    Creates an AwarenessModule instance automatically if none exists.
     """
     logger.info(f"Updating awareness for agent: {agent_id}")
     logger.info(f"  → Request awareness content (first 100 chars): {request.awareness[:100] if request.awareness else 'None'}...")
@@ -110,7 +110,7 @@ async def update_agent_awareness(agent_id: str, request: AwarenessUpdateRequest)
         instance_id = await _ensure_awareness_instance(agent_id)
         logger.info(f"  → Using instance_id: {instance_id}")
 
-        # 更新 instance_awareness 表
+        # Update instance_awareness table
         awareness_repo = InstanceAwarenessRepository(db_client)
         success = await awareness_repo.upsert(instance_id, request.awareness)
         logger.info(f"  → Upsert result: {success}")

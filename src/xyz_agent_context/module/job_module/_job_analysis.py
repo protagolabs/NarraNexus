@@ -2,12 +2,12 @@
 @file_name: _job_analysis.py
 @author: NetMind.AI
 @date: 2025-11-25
-@description: Job 执行结果分析辅助函数
+@description: Job execution result analysis helper functions
 
-从 JobModule 中提取的纯函数，用于：
-- 提取 Agent Loop 执行轨迹
-- 提取上下文信息
-- 构建 Job 分析 Prompt
+Pure functions extracted from JobModule for:
+- Extracting Agent Loop execution traces
+- Extracting context information
+- Building Job analysis prompts
 """
 
 from typing import List, Dict, Any
@@ -17,17 +17,17 @@ from loguru import logger
 
 def extract_execution_trace(agent_loop_response: List[Any]) -> str:
     """
-    从 agent_loop_response 中提取执行轨迹
+    Extract execution trace from agent_loop_response
 
-    agent_loop_response 包含 Agent Loop 执行过程中的所有响应：
-    - ProgressMessage: 工具调用、思考过程、完成标记
-    - AgentTextDelta: 文本输出增量
+    agent_loop_response contains all responses during Agent Loop execution:
+    - ProgressMessage: tool calls, thinking process, completion markers
+    - AgentTextDelta: text output deltas
 
     Args:
-        agent_loop_response: Agent Loop 响应列表
+        agent_loop_response: Agent Loop response list
 
     Returns:
-        格式化的执行轨迹字符串
+        Formatted execution trace string
     """
     if not agent_loop_response:
         return "No execution trace available."
@@ -73,7 +73,7 @@ def extract_execution_trace(agent_loop_response: List[Any]) -> str:
 
 
 def extract_context_info(ctx_data: Any) -> str:
-    """从 ctx_data 中提取关键信息"""
+    """Extract key information from ctx_data"""
     if not ctx_data:
         return "N/A"
 
@@ -100,23 +100,23 @@ def build_job_analysis_prompt(
     ctx_data: Any,
 ) -> str:
     """
-    构建 Job 分析 Prompt
+    Build Job analysis Prompt
 
-    为不同 job_type 提供不同的判断指导：
-    - ONE_OFF: 执行后即完成
-    - SCHEDULED: 执行后保持 active，等待下次触发
-    - ONGOING: 需要判断 end_condition 是否满足
+    Provides different guidance for different job_type:
+    - ONE_OFF: Completes after execution
+    - SCHEDULED: Stays active after execution, awaits next trigger
+    - ONGOING: Needs to determine if end_condition is met
 
     Args:
-        current_time: 当前时间
-        input_content: Job 执行指令
-        job_info: 完整的 Job 信息
-        execution_trace: 执行轨迹
-        final_output: Agent 输出
-        ctx_data: 上下文数据
+        current_time: Current time
+        input_content: Job execution instruction
+        job_info: Complete Job information
+        execution_trace: Execution trace
+        final_output: Agent output
+        ctx_data: Context data
 
     Returns:
-        构建的 Prompt 字符串
+        Constructed Prompt string
     """
     job_type = job_info.get("job_type", "unknown")
     trigger_config = job_info.get("trigger_config", {})
@@ -126,7 +126,7 @@ def build_job_analysis_prompt(
     iteration_count = job_info.get("iteration_count", 0)
     previous_process = job_info.get("process", [])
 
-    # 提取 awareness 信息（如果可用）
+    # Extract awareness info (if available)
     awareness_info = "N/A"
     if ctx_data and hasattr(ctx_data, 'extra_data') and ctx_data.extra_data:
         awareness = ctx_data.extra_data.get("awareness")

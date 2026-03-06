@@ -2,15 +2,15 @@
 @file_name: agents_mcps.py
 @author: NetMind.AI
 @date: 2025-11-28
-@description: Agent MCP 管理路由
+@description: Agent MCP management routes
 
 Provides endpoints for:
-- GET /{agent_id}/mcps - 列出全部 MCP URL
-- POST /{agent_id}/mcps - 添加新 MCP URL
-- PUT /{agent_id}/mcps/{mcp_id} - 更新 MCP URL
-- DELETE /{agent_id}/mcps/{mcp_id} - 删除 MCP URL
-- POST /{agent_id}/mcps/{mcp_id}/validate - 验证单个 MCP 连接
-- POST /{agent_id}/mcps/validate-all - 批量验证全部 MCP
+- GET /{agent_id}/mcps - List all MCP URLs
+- POST /{agent_id}/mcps - Add new MCP URL
+- PUT /{agent_id}/mcps/{mcp_id} - Update MCP URL
+- DELETE /{agent_id}/mcps/{mcp_id} - Delete MCP URL
+- POST /{agent_id}/mcps/{mcp_id}/validate - Validate single MCP connection
+- POST /{agent_id}/mcps/validate-all - Batch validate all MCPs
 """
 
 import uuid
@@ -39,7 +39,7 @@ router = APIRouter()
 
 
 def _mcp_to_info(mcp: MCPUrl) -> MCPInfo:
-    """将 MCPUrl 数据模型转换为 MCPInfo 响应模型"""
+    """Convert MCPUrl data model to MCPInfo response model"""
     return MCPInfo(
         mcp_id=mcp.mcp_id,
         agent_id=mcp.agent_id,
@@ -61,7 +61,7 @@ async def list_mcps(
     agent_id: str,
     user_id: str = Query(..., description="User ID"),
 ):
-    """列出 Agent+User 的全部 MCP URL"""
+    """List all MCP URLs for Agent+User"""
     logger.info(f"Listing MCPs for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -83,7 +83,7 @@ async def create_mcp(
     request: MCPCreateRequest,
     user_id: str = Query(..., description="User ID"),
 ):
-    """创建新的 MCP URL"""
+    """Create a new MCP URL"""
     logger.info(f"Creating MCP for agent: {agent_id}, user: {user_id}, name: {request.name}")
 
     try:
@@ -128,7 +128,7 @@ async def update_mcp_endpoint(
     request: MCPUpdateRequest,
     user_id: str = Query(..., description="User ID"),
 ):
-    """更新已有 MCP URL"""
+    """Update an existing MCP URL"""
     logger.info(f"Updating MCP {mcp_id} for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -171,7 +171,7 @@ async def delete_mcp_endpoint(
     mcp_id: str,
     user_id: str = Query(..., description="User ID"),
 ):
-    """删除 MCP URL"""
+    """Delete MCP URL"""
     logger.info(f"Deleting MCP {mcp_id} for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -200,7 +200,7 @@ async def validate_mcp_endpoint(
     mcp_id: str,
     user_id: str = Query(..., description="User ID"),
 ):
-    """验证单个 MCP SSE 连接"""
+    """Validate a single MCP SSE connection"""
     logger.info(f"Validating MCP {mcp_id} for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -241,7 +241,7 @@ async def validate_all_mcps_endpoint(
     agent_id: str,
     user_id: str = Query(..., description="User ID"),
 ):
-    """批量验证 Agent+User 的全部 MCP SSE 连接（并行执行）"""
+    """Batch validate all MCP SSE connections for Agent+User (parallel execution)"""
     logger.info(f"Validating all MCPs for agent: {agent_id}, user: {user_id}")
 
     try:

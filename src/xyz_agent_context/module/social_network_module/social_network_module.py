@@ -432,9 +432,9 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
 
     def create_mcp_server(self) -> Optional[Any]:
         """
-        创建 MCP Server 实例
+        Create MCP Server instance
 
-        工具定义已提取到 _social_mcp_tools.py 中。
+        Tool definitions have been extracted to _social_mcp_tools.py.
         """
         return create_social_network_mcp_server(
             self.port, SocialNetworkModule.get_mcp_db_client, SocialNetworkModule

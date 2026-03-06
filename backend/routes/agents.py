@@ -2,15 +2,15 @@
 @file_name: agents.py
 @author: NetMind.AI
 @date: 2025-11-28
-@description: Agent 路由聚合器
+@description: Agent route aggregator
 
-将各功能域的子路由整合到统一的 /api/agents 前缀下：
-- Awareness（自我意识）
-- Social Network（社交网络）
-- Chat History（聊天历史）
-- Files（工作空间文件）
-- MCPs（MCP 管理）
-- RAG（RAG 文件管理）
+Aggregates domain-specific sub-routers under the /api/agents prefix:
+- Awareness (self-awareness)
+- Social Network (entity management)
+- Chat History (narratives & events)
+- Files (workspace file management)
+- MCPs (MCP URL management)
+- RAG (RAG file management)
 """
 
 from fastapi import APIRouter

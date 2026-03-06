@@ -2,12 +2,12 @@
 @file_name: agents_social_network.py
 @author: NetMind.AI
 @date: 2025-11-28
-@description: Agent 社交网络相关路由
+@description: Agent Social Network routes
 
 Provides endpoints for:
-- GET /{agent_id}/social-network - 获取 Agent 全部社交实体
-- GET /{agent_id}/social-network/{user_id} - 获取某用户的社交网络信息
-- GET /{agent_id}/social-network/search - 搜索社交实体（关键词/语义）
+- GET /{agent_id}/social-network - Get all social entities for an Agent
+- GET /{agent_id}/social-network/{user_id} - Get social network info for a specific user
+- GET /{agent_id}/social-network/search - Search social entities (keyword/semantic)
 """
 
 import json
@@ -32,10 +32,10 @@ router = APIRouter()
 
 def _parse_json(value: Any, default: Any) -> Any:
     """
-    解析 JSON 字段
+    Parse JSON field
 
-    处理数据库中存储的 JSON 字符串，将其转换为 Python 对象。
-    支持 dict 和 list 类型的 JSON，也处理双重编码的情况。
+    Handles JSON strings stored in the database, converting them to Python objects.
+    Supports dict and list JSON types, also handles double-encoding cases.
     """
     if value is None:
         return default
@@ -44,7 +44,7 @@ def _parse_json(value: Any, default: Any) -> Any:
     if isinstance(value, str):
         try:
             parsed = json.loads(value)
-            # 处理双重编码
+            # Handle double-encoding
             if isinstance(parsed, str):
                 try:
                     parsed = json.loads(parsed)
@@ -61,9 +61,9 @@ def _parse_json(value: Any, default: Any) -> Any:
 @router.get("/{agent_id}/social-network/{user_id}", response_model=SocialNetworkResponse)
 async def get_user_social_network_info(agent_id: str, user_id: str):
     """
-    获取某用户在 Agent 社交网络中的信息
+    Get a user's information in the Agent's social network
 
-    从 instance_social_entities 表查询数据（通过 SocialNetworkModule 的 instance_id）。
+    Queries data from instance_social_entities table (via SocialNetworkModule's instance_id).
     """
     logger.info(f"Getting social network info for user: {user_id}, agent: {agent_id}")
 
@@ -117,9 +117,9 @@ async def get_user_social_network_info(agent_id: str, user_id: str):
 @router.get("/{agent_id}/social-network", response_model=SocialNetworkListResponse)
 async def get_all_social_network_entities(agent_id: str):
     """
-    获取 Agent 的全部社交实体
+    Get all social entities for an Agent
 
-    从 instance_social_entities 表查询数据（通过 SocialNetworkModule 的 instance_id）。
+    Queries data from instance_social_entities table (via SocialNetworkModule's instance_id).
     """
     logger.info(f"Getting all social network entities for agent: {agent_id}")
 
@@ -182,10 +182,10 @@ async def search_social_network_entities(
     limit: int = Query(10, description="Maximum number of results")
 ):
     """
-    搜索社交实体（支持关键词和语义两种模式）
+    Search social entities (supports keyword and semantic modes)
 
-    - keyword: 关键词匹配（搜索 entity_name, entity_description, tags）
-    - semantic: 语义相似度搜索（基于 embedding 向量）
+    - keyword: Keyword matching (searches entity_name, entity_description, tags)
+    - semantic: Semantic similarity search (based on embedding vectors)
     """
     logger.info(f"Searching social network entities: agent={agent_id}, query='{query}', type={search_type}")
 
