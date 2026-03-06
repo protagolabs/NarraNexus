@@ -6,7 +6,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { RefreshCw, Brain, User, Tag, Clock, Users, ChevronDown, ChevronRight, Mail, Phone, Building, Sparkles, Activity, Edit3, Save, X, MessageSquare, Network, TrendingUp, Briefcase, Search, UserCircle, Star, Loader2 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input, KPICard } from '@/components/ui';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -14,59 +14,6 @@ import { FileUpload } from './FileUpload';
 import { RAGUpload } from './RAGUpload';
 import { MCPManager } from './MCPManager';
 import type { SocialNetworkEntity } from '@/types';
-
-// KPI Card Component
-function KPICard({
-  label,
-  value,
-  icon: Icon,
-  color = 'accent',
-  subtext,
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ElementType;
-  color?: 'accent' | 'success' | 'warning' | 'secondary';
-  subtext?: string;
-}) {
-  const colorMap = {
-    accent: {
-      bg: 'bg-[var(--accent-glow)]',
-      icon: 'text-[var(--accent-primary)]',
-      value: 'text-[var(--accent-primary)]',
-    },
-    success: {
-      bg: 'bg-[var(--color-success)]/10',
-      icon: 'text-[var(--color-success)]',
-      value: 'text-[var(--color-success)]',
-    },
-    warning: {
-      bg: 'bg-[var(--color-warning)]/10',
-      icon: 'text-[var(--color-warning)]',
-      value: 'text-[var(--color-warning)]',
-    },
-    secondary: {
-      bg: 'bg-[var(--accent-secondary)]/10',
-      icon: 'text-[var(--accent-secondary)]',
-      value: 'text-[var(--accent-secondary)]',
-    },
-  };
-
-  const colors = colorMap[color];
-
-  return (
-    <div className="p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] transition-all duration-300 hover:border-[var(--accent-primary)]/30">
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className={cn('w-6 h-6 rounded-lg flex items-center justify-center', colors.bg)}>
-          <Icon className={cn('w-3 h-3', colors.icon)} />
-        </div>
-        <span className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-wider font-medium">{label}</span>
-      </div>
-      <div className={cn('text-lg font-bold font-mono', colors.value)}>{value}</div>
-      {subtext && <div className="text-[8px] text-[var(--text-tertiary)] mt-0.5 font-mono truncate">{subtext}</div>}
-    </div>
-  );
-}
 
 interface EntityCardProps {
   entity: SocialNetworkEntity;
