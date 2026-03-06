@@ -28,7 +28,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 from loguru import logger
 
-# 心跳间隔（秒），防止代理/SSH 转发因空闲超时断开连接
+# Heartbeat interval (seconds) to prevent proxy/SSH idle timeout disconnections
 WS_HEARTBEAT_INTERVAL = 15
 
 from xyz_agent_context.agent_runtime import AgentRuntime
@@ -102,20 +102,20 @@ async def websocket_agent_run(websocket: WebSocket):
         except Exception as e:
             logger.warning(f"Failed to load MCP URLs: {e}")
 
-        # 心跳任务：定期发送 heartbeat 防止空闲超时
+        # Heartbeat task: periodically send heartbeat to prevent idle timeout
         heartbeat_stop = asyncio.Event()
 
         async def heartbeat_loop():
-            """定期发送心跳消息，保持 WebSocket 连接活跃"""
+            """Periodically send heartbeat messages to keep WebSocket connection alive"""
             while not heartbeat_stop.is_set():
                 try:
                     await asyncio.wait_for(heartbeat_stop.wait(), timeout=WS_HEARTBEAT_INTERVAL)
-                    break  # stop event 被设置，退出
+                    break  # stop event was set, exit
                 except asyncio.TimeoutError:
                     try:
                         await websocket.send_json({"type": "heartbeat"})
                     except Exception:
-                        break  # 连接已断开
+                        break  # connection already closed
 
         heartbeat_task = asyncio.create_task(heartbeat_loop())
 
