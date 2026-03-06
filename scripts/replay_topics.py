@@ -198,11 +198,11 @@ def pair_turns_into_rounds(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def derive_ids(
-    dialog_data: Dict, dialog_idx: int, perspective: str
+    dialog_data: Dict, dialog_idx: int, perspective: str,
+    agent_id_override: Optional[str] = None,
 ) -> Tuple[str, str, str, str]:
     """Return (agent_id, user_id, agent_speaker_name, user_speaker_name)."""
     speakers = dialog_data["speakers"]
-    # speakers is a list: ["Caroline", "Melanie"]
     sp_a, sp_b = speakers[0], speakers[1]
 
     if perspective.lower() == sp_a.lower():
@@ -215,9 +215,12 @@ def derive_ids(
             f"'{sp_a}' or '{sp_b}' in dialog {dialog_idx}"
         )
 
-    safe_a = re.sub(r"\W+", "_", agent_name.lower())
     safe_u = re.sub(r"\W+", "_", user_name.lower())
-    agent_id = f"agent_locomo_d{dialog_idx}_{safe_a}"
+    if agent_id_override:
+        agent_id = agent_id_override
+    else:
+        safe_a = re.sub(r"\W+", "_", agent_name.lower())
+        agent_id = f"agent_locomo_d{dialog_idx}_{safe_a}"
     user_id = f"user_locomo_{safe_u}"
     return agent_id, user_id, agent_name, user_name
 
@@ -316,9 +319,11 @@ async def replay_one_dialog(
     perspective: str,
     date_lookup: Dict[str, str],
     inter_turn_delay: float = 0.3,
+    agent_id_override: Optional[str] = None,
 ):
     agent_id, user_id, agent_name, user_name = derive_ids(
-        dialog_data, dialog_idx, perspective
+        dialog_data, dialog_idx, perspective,
+        agent_id_override=agent_id_override,
     )
     logger.info(f"=== Dialog {dialog_idx}: agent={agent_name}({agent_id}), user={user_name}({user_id}) ===")
 
@@ -381,8 +386,9 @@ async def replay_one_dialog(
             turn_date_str = date_lookup.get(first_dia_id, "unknown") if first_dia_id else "unknown"
             event_time = parse_locomo_date(turn_date_str)
 
-            # Strategy A: inject date context on first round of each topic
-            if ri == 0 and turn_date_str and turn_date_str != "unknown":
+            # Inject date context on EVERY round so EverMemOS episodes
+            # retain explicit temporal anchors for date-related QA.
+            if turn_date_str and turn_date_str != "unknown":
                 user_input = f"[Conversation date: {turn_date_str}]\n{user_input}"
 
             # Use non-empty content for Narrative selection
@@ -396,6 +402,14 @@ async def replay_one_dialog(
                 logger.warning(f"    Round {ri}: no narratives returned, skipping")
                 continue
             narrative = selection.narratives[0]
+
+            # Override Narrative timestamps with real conversation time
+            # so that Narrative prompt metadata reflects when the conversation
+            # actually happened, not when the replay script ran.
+            if event_time:
+                if selection.is_new:
+                    narrative.created_at = event_time
+                narrative.updated_at = event_time
 
             # -- Create Event --
             event = make_event(
@@ -411,6 +425,11 @@ async def replay_one_dialog(
                 is_main_narrative=not is_default,
                 is_default_narrative=is_default,
             )
+
+            # Re-stamp updated_at after NarrativeUpdater overwrites it with now()
+            if event_time:
+                narrative.updated_at = event_time
+                await narrative_service.save_narrative_to_db(narrative)
 
             # -- Step 5: Execute hooks (Memory + SocialNetwork) --
             hook_params = HookAfterExecutionParams(
@@ -488,6 +507,7 @@ async def async_main(args):
             perspective=args.perspective,
             date_lookup=date_lookup,
             inter_turn_delay=args.delay,
+            agent_id_override=args.agent_id,
         )
         grand_total += rounds
 
@@ -521,6 +541,11 @@ def main():
     parser.add_argument(
         "--delay", type=float, default=0.3,
         help="Seconds to wait between turns (default 0.3)",
+    )
+    parser.add_argument(
+        "--agent-id", type=str, default=None,
+        help="Override the auto-generated agent_id. If not set, derived from "
+             "dialog index + perspective (e.g. agent_locomo_d0_melanie).",
     )
 
     args = parser.parse_args()
