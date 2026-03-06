@@ -112,6 +112,7 @@ export function Sidebar() {
           status: res.agent.status,
           created_at: res.agent.created_at,
           created_by: userId,
+          bootstrap_active: res.agent.bootstrap_active,
         };
         setAgents([newAgent, ...agents]);
         // Auto-select the new agent

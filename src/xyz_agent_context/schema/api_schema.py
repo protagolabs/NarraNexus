@@ -42,6 +42,7 @@ class AgentInfo(BaseModel):
     created_at: Optional[str] = None
     is_public: bool = False
     created_by: Optional[str] = None
+    bootstrap_active: bool = False
 
 
 class AgentListResponse(BaseModel):

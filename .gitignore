@@ -36,6 +36,7 @@ TeamWorkflow.md
 /.evermemos
 /logs
 /logs_20260130
+/related_project
 
 
 # C extensions
@@ -244,8 +245,9 @@ __marimo__/
 cc_analysis_1.md
 
 
-# experiment drafts
+# benchmark experiment drafts
 drafts
 benchmark_test/gaia/validation
 benchmark_test/gaia/test
 benchmark_test/gaia/results
+benchmark_test/gaia

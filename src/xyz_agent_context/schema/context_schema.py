@@ -50,6 +50,7 @@ class ContextData(BaseModel):
     agent_description: Optional[str] = None  # Agent description
     creator_id: Optional[str] = None  # Creator ID (boss)
     is_creator: Optional[bool] = None  # Whether the current conversation user is the Creator
+    bootstrap_active: bool = False  # Whether bootstrap mode is active for this context
     user_role: Optional[str] = None  # Current user role description ("Creator (Boss)" or "User/Customer")
 
     # RAG Module data (populated by GeminiRAGModule)

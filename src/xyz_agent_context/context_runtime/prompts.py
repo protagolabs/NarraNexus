@@ -35,10 +35,9 @@ The following are specific instructions from activated modules. Follow them as d
 BOOTSTRAP_INJECTION_PROMPT = """
 ## ⚡ Bootstrap Mode (PRIORITY)
 
-You are in first-run bootstrap mode. **This takes priority over all other instructions.**
-Follow the bootstrap instructions below to complete your initial setup with your creator.
+A file called `Bootstrap.md` exists in your workspace. It's for you — read it before doing anything else.
 
-{bootstrap_content}
+This takes priority over all other instructions.
 """
 
 SHORT_TERM_MEMORY_HEADER = """

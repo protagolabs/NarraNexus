@@ -14,7 +14,7 @@
 import { Activity, Settings, Inbox, ListTodo, Puzzle } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserInboxPopover } from '@/components/inbox';
-import { usePreloadStore } from '@/stores';
+import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn } from '@/lib/utils';
 
 export type ContextTab = 'runtime' | 'awareness' | 'inbox' | 'jobs' | 'skills';
@@ -34,6 +34,8 @@ const tabs: { id: ContextTab; icon: typeof Activity; label: string }[] = [
 
 export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeaderProps) {
   const { agentInboxUnrespondedCount } = usePreloadStore();
+  const { agentId, awarenessUpdatedAgents } = useConfigStore();
+  const hasAwarenessUpdate = awarenessUpdatedAgents.includes(agentId);
 
   return (
     <div className="flex items-center justify-between mb-3 px-1">
@@ -44,6 +46,7 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             const hasNotification = tab.id === 'inbox' && agentInboxUnrespondedCount > 0;
+            const hasAwarenessDot = tab.id === 'awareness' && hasAwarenessUpdate;
 
             return (
               <TabsTrigger
@@ -74,6 +77,11 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
                   <span className="h-4 min-w-4 px-1 flex items-center justify-center text-[9px] font-bold bg-[var(--color-error)] text-white rounded-full">
                     {agentInboxUnrespondedCount > 9 ? '9+' : agentInboxUnrespondedCount}
                   </span>
+                )}
+
+                {/* Awareness update red dot */}
+                {hasAwarenessDot && (
+                  <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 animate-pulse" />
                 )}
               </TabsTrigger>
             );
