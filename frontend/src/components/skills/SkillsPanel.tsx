@@ -2,7 +2,7 @@
  * @file_name: SkillsPanel.tsx
  * @author: Bin Liang
  * @date: 2026-02-03
- * @description: Skills management panel
+ * @description: Skills management panel (TanStack Query powered)
  *
  * Features:
  * - Display user's installed Skills
@@ -11,7 +11,7 @@
  * - Support Study feature: Agent automatically learns Skill documentation
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState } from 'react';
 import {
   Puzzle,
   RefreshCw,
@@ -21,195 +21,73 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from '@/components/ui';
-import { useConfigStore } from '@/stores';
 import { cn } from '@/lib/utils';
-import { api } from '@/lib/api';
+import {
+  useSkillsList,
+  useInstallFromGithub,
+  useInstallFromZip,
+  useToggleSkill,
+  useRemoveSkill,
+  useStudySkill,
+  useStudyStatus,
+} from '@/hooks/useSkills';
 import type { SkillInfo } from '@/types/skills';
 import { SkillCard } from './SkillCard';
 import { InstallDialog } from './InstallDialog';
 import type { InstallMode } from './InstallDialog';
 
 export function SkillsPanel() {
-  const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [installMode, setInstallMode] = useState<InstallMode>(null);
-  const [isInstalling, setIsInstalling] = useState(false);
-  const [togglingSkill, setTogglingSkill] = useState<string | null>(null);
-  const [removingSkill, setRemovingSkill] = useState<string | null>(null);
-  const [studyingSkill, setStudyingSkill] = useState<string | null>(null);
   const [showDisabled, setShowDisabled] = useState(false);
+  const [studyingSkillName, setStudyingSkillName] = useState<string | null>(null);
 
-  // Interval ref for polling study status
-  const studyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // ── Queries ──────────────────────────────────────────────────────────────
+  const { data: skills = [], isLoading, error, refetch } = useSkillsList(showDisabled);
 
-  const { agentId, userId } = useConfigStore();
+  // Auto-detect skills being studied (resume polling after page load)
+  const activeStudying = studyingSkillName
+    ?? skills.find((s) => s.study_status === 'studying')?.name
+    ?? null;
+  useStudyStatus(activeStudying);
 
-  // Load Skills
-  const loadSkills = useCallback(async () => {
-    if (!agentId || !userId) return;
+  // ── Mutations ────────────────────────────────────────────────────────────
+  const installGithub = useInstallFromGithub();
+  const installZip = useInstallFromZip();
+  const toggleSkill = useToggleSkill();
+  const removeSkill = useRemoveSkill();
+  const studySkill = useStudySkill();
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await api.listSkills(agentId, userId, showDisabled);
-      setSkills(response.skills);
-    } catch (err) {
-      console.error('Failed to load skills:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load skills');
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId, userId, showDisabled]);
-
-  useEffect(() => {
-    loadSkills();
-  }, [loadSkills]);
-
-  // After page load, check if any Skill is being studied and auto-resume polling
-  useEffect(() => {
-    const studyingSkills = skills.filter((s) => s.study_status === 'studying');
-    if (studyingSkills.length > 0 && !studyPollRef.current) {
-      setStudyingSkill(studyingSkills[0].name);
-      startStudyPolling(studyingSkills[0].name);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skills]);
-
-  // Clean up polling on component unmount
-  useEffect(() => {
-    return () => {
-      if (studyPollRef.current) {
-        clearInterval(studyPollRef.current);
-      }
-    };
-  }, []);
-
-  // Start study status polling
-  const startStudyPolling = (skillName: string) => {
-    // Clear existing polling
-    if (studyPollRef.current) {
-      clearInterval(studyPollRef.current);
-    }
-
-    studyPollRef.current = setInterval(async () => {
-      if (!agentId || !userId) return;
-
-      try {
-        const status = await api.getSkillStudyStatus(skillName, agentId, userId);
-        if (status.study_status === 'completed' || status.study_status === 'failed') {
-          // Study completed or failed, stop polling, refresh list
-          if (studyPollRef.current) {
-            clearInterval(studyPollRef.current);
-            studyPollRef.current = null;
-          }
-          setStudyingSkill(null);
-          loadSkills();
-        }
-      } catch (err) {
-        console.error('Failed to poll study status:', err);
-      }
-    }, 3000);
-  };
-
-  // Install Skill
-  const handleInstall = async (data: {
-    url?: string;
-    branch?: string;
-    file?: File;
-  }) => {
-    if (!agentId || !userId) return;
-
-    setIsInstalling(true);
-
-    try {
-      if (installMode === 'github' && data.url) {
-        await api.installSkillFromGithub(
-          agentId,
-          userId,
-          data.url,
-          data.branch || 'main'
-        );
-      } else if (installMode === 'zip' && data.file) {
-        await api.installSkillFromZip(agentId, userId, data.file);
-      }
-
-      setInstallMode(null);
-      loadSkills();
-    } catch (err) {
-      console.error('Failed to install skill:', err);
-      alert(err instanceof Error ? err.message : 'Failed to install skill');
-    } finally {
-      setIsInstalling(false);
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const handleInstall = (data: { url?: string; branch?: string; file?: File }) => {
+    if (installMode === 'github' && data.url) {
+      installGithub.mutate(
+        { url: data.url, branch: data.branch || 'main' },
+        { onSuccess: () => setInstallMode(null) }
+      );
+    } else if (installMode === 'zip' && data.file) {
+      installZip.mutate(data.file, { onSuccess: () => setInstallMode(null) });
     }
   };
 
-  // Toggle Skill status
-  const handleToggle = async (skill: SkillInfo) => {
-    if (!agentId || !userId) return;
-
-    setTogglingSkill(skill.name);
-
-    try {
-      if (skill.disabled) {
-        await api.enableSkill(skill.name, agentId, userId);
-      } else {
-        await api.disableSkill(skill.name, agentId, userId);
-      }
-      loadSkills();
-    } catch (err) {
-      console.error('Failed to toggle skill:', err);
-      alert(err instanceof Error ? err.message : 'Failed to toggle skill');
-    } finally {
-      setTogglingSkill(null);
-    }
+  const handleToggle = (skill: SkillInfo) => {
+    toggleSkill.mutate({ name: skill.name, disabled: skill.disabled });
   };
 
-  // Remove Skill
-  const handleRemove = async (skill: SkillInfo) => {
-    if (!agentId || !userId) return;
-
+  const handleRemove = (skill: SkillInfo) => {
     if (!confirm(`Are you sure you want to remove "${skill.name}"? This action cannot be undone.`)) {
       return;
     }
-
-    setRemovingSkill(skill.name);
-
-    try {
-      await api.removeSkill(skill.name, agentId, userId);
-      loadSkills();
-    } catch (err) {
-      console.error('Failed to remove skill:', err);
-      alert(err instanceof Error ? err.message : 'Failed to remove skill');
-    } finally {
-      setRemovingSkill(null);
-    }
+    removeSkill.mutate(skill.name);
   };
 
-  // Trigger Skill study
-  const handleStudy = async (skill: SkillInfo) => {
-    if (!agentId || !userId) return;
-
-    setStudyingSkill(skill.name);
-
-    try {
-      const response = await api.studySkill(skill.name, agentId, userId);
-      if (response.success) {
-        // Start polling
-        startStudyPolling(skill.name);
-        // Immediately refresh list to show studying status
-        loadSkills();
-      } else {
-        alert(response.message || 'Failed to start study');
-        setStudyingSkill(null);
-      }
-    } catch (err) {
-      console.error('Failed to start skill study:', err);
-      alert(err instanceof Error ? err.message : 'Failed to start study');
-      setStudyingSkill(null);
-    }
+  const handleStudy = (skill: SkillInfo) => {
+    setStudyingSkillName(skill.name);
+    studySkill.mutate(skill.name, {
+      onError: () => setStudyingSkillName(null),
+    });
   };
+
+  const isInstalling = installGithub.isPending || installZip.isPending;
 
   return (
     <Card variant="glass" className="flex flex-col h-full">
@@ -227,12 +105,12 @@ export function SkillsPanel() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={loadSkills}
-            disabled={loading}
+            onClick={() => refetch()}
+            disabled={isLoading}
             title="Refresh"
             className="hover:bg-[var(--accent-glow)]"
           >
-            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+            <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
           </Button>
         </div>
       </CardHeader>
@@ -279,14 +157,16 @@ export function SkillsPanel() {
                 <AlertCircle className="w-7 h-7 text-[var(--color-error)]" />
               </div>
               <p className="text-[var(--color-error)] text-sm font-medium mb-1">Error</p>
-              <p className="text-[var(--text-tertiary)] text-xs">{error}</p>
-              <Button variant="ghost" size="sm" onClick={loadSkills} className="mt-4">
+              <p className="text-[var(--text-tertiary)] text-xs">
+                {error instanceof Error ? error.message : 'Failed to load skills'}
+              </p>
+              <Button variant="ghost" size="sm" onClick={() => refetch()} className="mt-4">
                 <RefreshCw className="w-3 h-3 mr-1.5" />
                 Retry
               </Button>
             </div>
           </div>
-        ) : loading ? (
+        ) : isLoading ? (
           <div className="h-full flex items-center justify-center">
             <Loader2 className="w-8 h-8 text-[var(--accent-primary)] animate-spin" />
           </div>
@@ -313,9 +193,9 @@ export function SkillsPanel() {
                 onToggle={handleToggle}
                 onRemove={handleRemove}
                 onStudy={handleStudy}
-                isToggling={togglingSkill === skill.name}
-                isRemoving={removingSkill === skill.name}
-                isStudying={studyingSkill === skill.name}
+                isToggling={toggleSkill.isPending && toggleSkill.variables?.name === skill.name}
+                isRemoving={removeSkill.isPending && removeSkill.variables === skill.name}
+                isStudying={activeStudying === skill.name}
               />
             ))}
           </div>
