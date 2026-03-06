@@ -629,7 +629,7 @@ async def test_agent_runtime():
             input_content="Do you know what a vector bundle is?",
             working_source=WorkingSource.CHAT,  # Use enum type (also supports string "chat")
         ):
-            print(f"response: {response}")
+            logger.info(f"response: {response}")
 
 
 if __name__ == "__main__":

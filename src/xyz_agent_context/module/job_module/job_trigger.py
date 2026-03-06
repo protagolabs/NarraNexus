@@ -1308,14 +1308,14 @@ Examples:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
 
-    print("=" * 60)
-    print("🚀 JobTrigger - Background Task Executor (Worker Pool)")
-    print("=" * 60)
-    print(f"   Poll interval: {args.interval}s")
-    print(f"   Max workers: {args.workers}")
-    print(f"   Mode: {'Single run' if args.once else 'Continuous'}")
-    print("=" * 60)
-    print("\n💡 Press Ctrl+C to stop\n")
+    logger.info("=" * 60)
+    logger.info("JobTrigger - Background Task Executor (Worker Pool)")
+    logger.info("=" * 60)
+    logger.info(f"   Poll interval: {args.interval}s")
+    logger.info(f"   Max workers: {args.workers}")
+    logger.info(f"   Mode: {'Single run' if args.once else 'Continuous'}")
+    logger.info("=" * 60)
+    logger.info("Press Ctrl+C to stop")
 
     if args.once:
         # Run once for testing (single poll, no worker pool)
@@ -1328,7 +1328,7 @@ Examples:
             # Manually initialize database client
             trigger._db = await get_db_client()
             await trigger._poll_and_enqueue()
-            print(f"\n✅ Single poll completed, {trigger._job_queue.qsize()} jobs in queue")
+            logger.info(f"Single poll completed, {trigger._job_queue.qsize()} jobs in queue")
 
         asyncio.run(run_once())
     else:
