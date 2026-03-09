@@ -23,6 +23,7 @@ import json
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
+from urllib.parse import urlparse
 
 import yaml
 from loguru import logger
@@ -35,6 +36,11 @@ from xyz_agent_context.schema import (
 )
 from xyz_agent_context.schema.skill_schema import SkillInfo
 from xyz_agent_context.utils import DatabaseClient
+from xyz_agent_context.utils.file_safety import (
+    ensure_within_directory,
+    sanitize_filename,
+    validate_zip_member_path,
+)
 
 
 class SkillModule(XYZBaseModule):
@@ -372,8 +378,7 @@ When asked to install or configure a new skill, **always** place it under your s
         # Extract to temp directory for validation first
         temp_dir = Path(tempfile.mkdtemp())
         try:
-            with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
+            self._extract_zip_safely(zip_file_path, temp_dir)
 
             # Find the directory containing SKILL.md
             skill_root = self._find_skill_root(temp_dir)
@@ -385,7 +390,8 @@ When asked to install or configure a new skill, **always** place it under your s
             info = self._parse_skill_md(skill_md)
 
             # Move to target directory
-            target_dir = self.skills_dir / info.name
+            safe_skill_name = sanitize_filename(info.name, label="skill name")
+            target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
             if target_dir.exists():
                 shutil.rmtree(target_dir)
 
@@ -395,6 +401,7 @@ When asked to install or configure a new skill, **always** place it under your s
             self._save_skill_meta(target_dir, source_url=None, source_type="zip")
 
             # Update path and metadata
+            info.name = safe_skill_name
             info.path = str(target_dir)
             info.installed_at = datetime.now().isoformat()
             logger.info(f"Installed skill '{info.name}' to {target_dir}")
@@ -415,6 +422,36 @@ When asked to install or configure a new skill, **always** place it under your s
 
         return None
 
+    def _extract_zip_safely(self, zip_file_path: Path, target_dir: Path) -> None:
+        """Extract a skill archive while rejecting zip-slip style paths."""
+        max_entries = 500
+        max_uncompressed_bytes = 100 * 1024 * 1024
+
+        with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
+            members = zip_ref.infolist()
+            if len(members) > max_entries:
+                raise ValueError("Invalid skill package: too many files")
+
+            total_uncompressed = 0
+            target_root = target_dir.resolve(strict=False)
+            for member in members:
+                member_path = validate_zip_member_path(member.filename)
+                total_uncompressed += member.file_size
+                if total_uncompressed > max_uncompressed_bytes:
+                    raise ValueError("Invalid skill package: uncompressed size is too large")
+
+                destination = (target_dir / member_path).resolve(strict=False)
+                if target_root not in destination.parents and destination != target_root:
+                    raise ValueError("Invalid skill package: path traversal not allowed")
+
+                if member.is_dir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                    continue
+
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with zip_ref.open(member) as src, open(destination, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+
     def install_from_github(self, url: str, branch: str = "main") -> SkillInfo:
         """
         Install Skill from GitHub
@@ -434,6 +471,14 @@ When asked to install or configure a new skill, **always** place it under your s
         # Parse URL (supports shorthand format)
         if url.startswith("github:"):
             url = f"https://github.com/{url[7:]}"
+
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname not in {"github.com", "www.github.com"}:
+            raise ValueError("Only https://github.com repositories are supported")
+        if parsed.username or parsed.password:
+            raise ValueError("GitHub URLs with embedded credentials are not allowed")
+        if not parsed.path or parsed.path == "/":
+            raise ValueError("Invalid GitHub repository URL")
 
         # Clone to temp directory
         temp_dir = Path(tempfile.mkdtemp())
@@ -456,7 +501,8 @@ When asked to install or configure a new skill, **always** place it under your s
 
             # Move to target directory
             self.skills_dir.mkdir(parents=True, exist_ok=True)
-            target_dir = self.skills_dir / info.name
+            safe_skill_name = sanitize_filename(info.name, label="skill name")
+            target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
 
             if target_dir.exists():
                 shutil.rmtree(target_dir)
@@ -472,6 +518,7 @@ When asked to install or configure a new skill, **always** place it under your s
             self._save_skill_meta(target_dir, source_url=url, source_type="github")
 
             # Update path info and metadata
+            info.name = safe_skill_name
             info.path = str(target_dir)
             info.source_url = url
             info.installed_at = datetime.now().isoformat()

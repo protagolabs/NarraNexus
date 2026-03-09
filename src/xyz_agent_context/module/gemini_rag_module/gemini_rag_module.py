@@ -29,7 +29,7 @@ Architecture:
     ├─────────────────────────────────────────────────────────────┤
     │  Store Management:                                           │
     │    - Each agent_id maps to an independent store (shared)     │
-    │    - Mapping saved in ./data/gemini_file_search_map.json     │
+    │    - Mapping saved in ~/.nexusagent/data/                     │
     └─────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -101,7 +101,7 @@ class GeminiRAGModule(XYZBaseModule):
 
     Store naming convention:
     - display_name: agent_{agent_id}
-    - Mapping file path: ./data/gemini_file_search_map.json
+    - Mapping file path: ~/.nexusagent/data/gemini_file_search_map.json
 
     Usage examples:
         # Via MCP tools (Agent auto-invokes)
@@ -116,10 +116,10 @@ class GeminiRAGModule(XYZBaseModule):
     # =========================================================================
 
     # Store mapping file path - saves display_name -> store_name mapping
-    STORE_MAP_FILE = Path("./data/gemini_file_search_map.json")
+    STORE_MAP_FILE = Path.home() / ".nexusagent" / "data" / "gemini_file_search_map.json"
 
     # Temporary file directory - used for creating temp .md files during upload_text
-    TEMP_DIR = Path("./data/gemini_rag_temp")
+    TEMP_DIR = Path.home() / ".nexusagent" / "data" / "gemini_rag_temp"
 
     # =========================================================================
     # Initialization

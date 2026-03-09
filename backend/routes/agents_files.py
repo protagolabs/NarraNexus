@@ -11,15 +11,22 @@ Provides endpoints for:
 """
 
 import os
+from pathlib import Path
 
 from fastapi import APIRouter, Query, UploadFile, File
 from loguru import logger
 
+from backend.config import settings as backend_settings
 from xyz_agent_context.schema import (
     FileInfo,
     FileListResponse,
     FileUploadResponse,
     FileDeleteResponse,
+)
+from xyz_agent_context.utils.file_safety import (
+    enforce_max_bytes,
+    ensure_within_directory,
+    sanitize_filename,
 )
 
 
@@ -79,22 +86,18 @@ async def upload_file(
     logger.info(f"Uploading file '{file.filename}' for agent: {agent_id}, user: {user_id}")
 
     try:
-        # Security check: prevent path traversal attacks
-        safe_filename = os.path.basename(file.filename)
-        if safe_filename != file.filename or '..' in file.filename:
-            return FileUploadResponse(
-                success=False,
-                error="Invalid filename: path traversal not allowed"
-            )
+        safe_filename = sanitize_filename(file.filename or "", label="filename")
 
         workspace_path = _get_workspace_path(agent_id, user_id)
+        workspace_dir = Path(workspace_path)
 
-        if not os.path.exists(workspace_path):
-            os.makedirs(workspace_path)
+        if not workspace_dir.exists():
+            workspace_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created workspace directory: {workspace_path}")
 
-        filepath = os.path.join(workspace_path, safe_filename)
         content = await file.read()
+        enforce_max_bytes(len(content), backend_settings.max_upload_bytes, label="File")
+        filepath = ensure_within_directory(workspace_dir, safe_filename, label="filename")
 
         with open(filepath, "wb") as f:
             f.write(content)
@@ -104,11 +107,13 @@ async def upload_file(
 
         return FileUploadResponse(
             success=True,
-            filename=file.filename,
+            filename=safe_filename,
             size=file_size,
             workspace_path=workspace_path,
         )
 
+    except ValueError as e:
+        return FileUploadResponse(success=False, error=str(e))
     except Exception as e:
         logger.error(f"Error uploading file: {e}")
         return FileUploadResponse(success=False, error=str(e))
@@ -124,34 +129,23 @@ async def delete_file(
     logger.info(f"Deleting file '{filename}' for agent: {agent_id}, user: {user_id}")
 
     try:
-        # Security check: prevent path traversal attacks
-        if os.path.basename(filename) != filename or '..' in filename:
-            return FileDeleteResponse(
-                success=False,
-                error="Invalid filename: path traversal not allowed"
-            )
-
+        safe_filename = sanitize_filename(filename, label="filename")
         workspace_path = _get_workspace_path(agent_id, user_id)
-        filepath = os.path.join(workspace_path, filename)
-
-        # Secondary security check: ensure file path is within workspace
-        if not os.path.abspath(filepath).startswith(os.path.abspath(workspace_path)):
-            return FileDeleteResponse(
-                success=False,
-                error="Invalid filename: path traversal not allowed"
-            )
+        filepath = ensure_within_directory(Path(workspace_path), safe_filename, label="filename")
 
         if not os.path.exists(filepath):
             return FileDeleteResponse(
                 success=False,
-                error=f"File not found: {filename}"
+                error=f"File not found: {safe_filename}"
             )
 
         os.remove(filepath)
         logger.info(f"File deleted: {filepath}")
 
-        return FileDeleteResponse(success=True, filename=filename)
+        return FileDeleteResponse(success=True, filename=safe_filename)
 
+    except ValueError as e:
+        return FileDeleteResponse(success=False, error=str(e))
     except Exception as e:
         logger.error(f"Error deleting file: {e}")
         return FileDeleteResponse(success=False, error=str(e))

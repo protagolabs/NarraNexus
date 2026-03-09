@@ -6,7 +6,7 @@
  * manages application lifecycle (startup, shutdown, tray minimize).
  */
 
-import { app, BrowserWindow, shell, dialog } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import { join } from 'path'
 import { ensureWritableProject } from './constants'
 import { initShellEnv } from './shell-env'
@@ -16,6 +16,7 @@ import { TrayManager } from './tray-manager'
 import { InstallerRegistry } from './installer-registry'
 import { ServiceLauncher } from './service-launcher'
 import { registerIpcHandlers } from './ipc-handlers'
+import { tryOpenExternalUrl } from './external-links'
 
 // ─── Global Instances ───────────────────────────────────────
 
@@ -53,7 +54,7 @@ function createMainWindow(): BrowserWindow {
 
   // Intercept external links, open in system browser
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    tryOpenExternalUrl(url)
     return { action: 'deny' }
   })
 

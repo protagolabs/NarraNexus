@@ -19,8 +19,8 @@ from xyz_agent_context.schema import ContextData, WorkingSource
 from xyz_agent_context.schema.module_schema import (
     HookCallbackResult,
     InstanceStatus,
-    HookAfterExecutionParams,
 )
+from xyz_agent_context.schema.hook_schema import HookAfterExecutionParams
 from xyz_agent_context.schema.job_schema import (
     JobType,
     JobStatus,

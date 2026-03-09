@@ -45,6 +45,10 @@ export function InstallDialog({
         setError('GitHub URL is required');
         return;
       }
+      if (!/^https:\/\/github\.com\/.+/i.test(url.trim()) && !/^github:[^/]+\/.+/i.test(url.trim())) {
+        setError('Only GitHub repositories are supported');
+        return;
+      }
       onInstall({ url: url.trim(), branch: branch.trim() || 'main' });
     } else if (mode === 'zip') {
       if (!file) {
@@ -178,6 +182,12 @@ export function InstallDialog({
               <span className="text-xs text-[var(--color-error)]">{error}</span>
             </div>
           )}
+
+          <div className="rounded-lg border border-[var(--color-warning)]/20 bg-[var(--color-warning)]/8 px-3 py-2">
+            <p className="text-xs text-[var(--text-secondary)]">
+              Only install skills from sources you trust. A skill can contain docs, prompts, and scripts the agent may read or use.
+            </p>
+          </div>
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">

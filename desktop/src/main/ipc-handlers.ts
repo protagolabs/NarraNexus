@@ -9,7 +9,7 @@
 import { ipcMain, shell, BrowserWindow } from 'electron'
 import { store } from './store'
 import { IPC, PROJECT_ROOT, TABLE_MGMT_DIR } from './constants'
-import { readEnv, writeEnv, validateEnv, getEnvFields } from './env-manager'
+import { readEnv, writeEnv, validateEnv, getEnvFields, sanitizeEnvUpdates as sanitizeMainEnvUpdates } from './env-manager'
 import { getClaudeAuthInfo, startClaudeLogin, validateSetupToken } from './claude-auth-manager'
 import type { LoginProcessStatus } from './claude-auth-manager'
 import * as everMemOSEnv from './evermemos-env-manager'
@@ -24,6 +24,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { join } from 'path'
 import { getShellEnv } from './shell-env'
+import { tryOpenExternalUrl } from './external-links'
 
 const execFileAsync = promisify(execFile)
 
@@ -43,7 +44,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(IPC.SET_ENV, (_event, updates: Record<string, string>) => {
-    writeEnv(updates)
+    writeEnv(sanitizeMainEnvUpdates(updates))
     return { success: true }
   })
 
@@ -62,7 +63,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(IPC.SET_EVERMEMOS_ENV, (_event, updates: Record<string, string>) => {
-    everMemOSEnv.writeEnv(updates)
+    everMemOSEnv.writeEnv(everMemOSEnv.sanitizeEnvUpdates(updates))
     return { success: true }
   })
 
@@ -196,7 +197,7 @@ export function registerIpcHandlers(
 
     const handle = startClaudeLogin(
       onStatusChange,
-      (url) => { shell.openExternal(url) }
+      (url) => { tryOpenExternalUrl(url) }
     )
     activeLogin = handle
     return handle.promise
@@ -252,7 +253,7 @@ export function registerIpcHandlers(
   // ─── Miscellaneous ─────────────────────────────────────────
 
   ipcMain.handle(IPC.OPEN_EXTERNAL, async (_event, url: string) => {
-    await shell.openExternal(url)
+    tryOpenExternalUrl(url)
   })
 
   ipcMain.handle(IPC.GET_SETUP_STATE, () => {

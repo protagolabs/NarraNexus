@@ -15,6 +15,7 @@ import asyncio
 from fastapi import APIRouter, Query, UploadFile, File
 from loguru import logger
 
+from backend.config import settings as backend_settings
 from xyz_agent_context.module.gemini_rag_module.rag_file_service import RAGFileService
 from xyz_agent_context.schema import (
     RAGFileInfo,
@@ -22,6 +23,7 @@ from xyz_agent_context.schema import (
     RAGFileUploadResponse,
     RAGFileDeleteResponse,
 )
+from xyz_agent_context.utils.file_safety import enforce_max_bytes, sanitize_filename
 
 
 router = APIRouter()
@@ -61,49 +63,43 @@ async def upload_rag_file(
     file: UploadFile = File(..., description="File to upload to RAG store"),
 ):
     """Upload file to RAG temp directory and trigger Gemini store upload"""
-    logger.info(f"Uploading RAG file '{file.filename}' for agent: {agent_id}, user: {user_id}")
-
     # Supported file formats
-    SUPPORTED_EXTENSIONS = {'.txt', '.md', '.pdf'}
-
-    filename_lower = file.filename.lower() if file.filename else ""
-    file_ext = None
-    for ext in SUPPORTED_EXTENSIONS:
-        if filename_lower.endswith(ext):
-            file_ext = ext
-            break
-
-    if not file_ext:
-        logger.warning(f"Rejected unsupported file format: {file.filename}")
-        return RAGFileUploadResponse(
-            success=False,
-            error=f"Unsupported file format. Only {', '.join(sorted(SUPPORTED_EXTENSIONS))} are supported."
-        )
+    supported_extensions = {".txt", ".md", ".pdf"}
 
     try:
-        content = await file.read()
-        logger.info(f"Uploading RAG file content: {content[:100]}...")
-        file_size = len(content)
+        safe_filename = sanitize_filename(
+            file.filename or "",
+            label="filename",
+            allowed_extensions=supported_extensions,
+        )
+        logger.info(f"Uploading RAG file '{safe_filename}' for agent: {agent_id}, user: {user_id}")
 
-        filepath = RAGFileService.save_file(agent_id, user_id, file.filename, content)
+        content = await file.read()
+        file_size = len(content)
+        enforce_max_bytes(file_size, backend_settings.max_upload_bytes, label="RAG file")
+
+        filepath = RAGFileService.save_file(agent_id, user_id, safe_filename, content)
 
         RAGFileService.update_file_status(
-            agent_id, user_id, file.filename, "pending",
+            agent_id, user_id, safe_filename, "pending",
             extra={"saved_at": str(filepath.stat().st_mtime)}
         )
 
         # Trigger background upload task
         asyncio.create_task(
-            RAGFileService.upload_to_gemini_store(agent_id, user_id, str(filepath), file.filename)
+            RAGFileService.upload_to_gemini_store(agent_id, user_id, str(filepath), safe_filename)
         )
 
         return RAGFileUploadResponse(
             success=True,
-            filename=file.filename,
+            filename=safe_filename,
             size=file_size,
             upload_status="pending",
         )
 
+    except ValueError as e:
+        logger.warning(f"Rejected RAG upload for agent={agent_id}, user={user_id}: {e}")
+        return RAGFileUploadResponse(success=False, error=str(e))
     except Exception as e:
         logger.error(f"Error uploading RAG file: {e}")
         return RAGFileUploadResponse(success=False, error=str(e))
@@ -123,16 +119,19 @@ async def delete_rag_file(
     logger.info(f"Deleting RAG file '{filename}' for agent: {agent_id}, user: {user_id}")
 
     try:
-        deleted = RAGFileService.delete_file(agent_id, user_id, filename)
+        safe_filename = sanitize_filename(filename, label="filename")
+        deleted = RAGFileService.delete_file(agent_id, user_id, safe_filename)
 
         if not deleted:
             return RAGFileDeleteResponse(
                 success=False,
-                error=f"File not found: {filename}"
+                error=f"File not found: {safe_filename}"
             )
 
-        return RAGFileDeleteResponse(success=True, filename=filename)
+        return RAGFileDeleteResponse(success=True, filename=safe_filename)
 
+    except ValueError as e:
+        return RAGFileDeleteResponse(success=False, error=str(e))
     except Exception as e:
         logger.error(f"Error deleting RAG file: {e}")
         return RAGFileDeleteResponse(success=False, error=str(e))

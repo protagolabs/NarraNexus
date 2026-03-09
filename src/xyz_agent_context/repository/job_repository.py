@@ -1291,5 +1291,7 @@ class JobRepository(BaseRepository[JobModel]):
         return value
 
 
-# Re-export for backward compatibility (moved to _job_scheduling.py)
-from xyz_agent_context.module.job_module._job_scheduling import calculate_next_run_time  # noqa: E402, F401
+def calculate_next_run_time(*args, **kwargs):
+    """Re-export shim (moved to _job_scheduling.py). Lazy import to avoid circular dependency."""
+    from xyz_agent_context.module.job_module._job_scheduling import calculate_next_run_time as _impl
+    return _impl(*args, **kwargs)

@@ -25,6 +25,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, UploadFile, File, Form, HTTPException
 from loguru import logger
 
+from backend.config import settings as backend_settings
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.module.skill_module import SkillModule
 from xyz_agent_context.schema.skill_schema import (
@@ -33,6 +34,7 @@ from xyz_agent_context.schema.skill_schema import (
     SkillOperationResponse,
     SkillStudyResponse,
 )
+from xyz_agent_context.utils.file_safety import enforce_max_bytes, sanitize_filename
 
 
 router = APIRouter()
@@ -203,9 +205,19 @@ async def install_skill(
             # Save uploaded file to temporary directory
             temp_dir = Path(tempfile.mkdtemp())
             try:
-                zip_path = temp_dir / file.filename
+                safe_filename = sanitize_filename(
+                    file.filename or "",
+                    label="zip filename",
+                    allowed_extensions={".zip"},
+                )
+                content = await file.read()
+                enforce_max_bytes(
+                    len(content),
+                    backend_settings.max_upload_bytes,
+                    label="Skill package",
+                )
+                zip_path = temp_dir / safe_filename
                 with open(zip_path, "wb") as f:
-                    content = await file.read()
                     f.write(content)
 
                 skill_info = skill_module.install_skill(zip_file_path=zip_path)
