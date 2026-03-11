@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import {
   User, Tag, Clock, ChevronDown, ChevronRight, Mail, Phone,
-  Building, Activity, Briefcase, Search, UserCircle, Star,
+  Building, Activity, Briefcase, UserCircle, Star,
 } from 'lucide-react';
 import { Badge, Markdown } from '@/components/ui';
 import { cn, formatRelativeTime } from '@/lib/utils';
