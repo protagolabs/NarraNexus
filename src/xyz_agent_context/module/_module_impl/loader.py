@@ -29,6 +29,7 @@ from .instance_decision import (
 from .instance_factory import InstanceFactory
 
 from xyz_agent_context.services.instance_sync_service import InstanceSyncService
+from xyz_agent_context.settings import settings
 
 if TYPE_CHECKING:
     from xyz_agent_context.module import XYZBaseModule
@@ -181,6 +182,11 @@ class ModuleLoader:
         logger.info("ModuleLoader: Using LLM Instance intelligent decision mode")
         main_narrative = narrative_list[0] if narrative_list else None
         narrative_id = main_narrative.id if main_narrative else None
+
+        # ===== Fast-path: skip LLM decision, load all capability modules directly =====
+        if settings.skip_module_decision_llm:
+            logger.info("ModuleLoader: SKIP_MODULE_DECISION_LLM is enabled, bypassing LLM instance decision")
+            return await self._load_all_capability_modules(main_narrative, working_source=working_source)
 
         # ===== Load Instances from database =====
         current_instances = await self._load_current_instances(main_narrative)
@@ -343,6 +349,51 @@ class ModuleLoader:
             # Complex Job support
             key_to_id=key_to_id,
             raw_instances=processed_task_instances
+        )
+
+    async def _load_all_capability_modules(
+        self,
+        narrative: Optional["Narrative"],
+        working_source: Optional[str] = None,
+    ) -> ModuleLoadResult:
+        """
+        Fast-path: Load all capability modules + JobModule + SkillModule
+        without making an LLM call.
+
+        Used when SKIP_MODULE_DECISION_LLM=True.  In production, the LLM
+        instance decision always returns the same set of capability modules,
+        so this shortcut saves ~2.5-3s per turn with identical results.
+        """
+        # Load current instances from DB (needed to preserve task module state)
+        current_instances = await self._load_current_instances(narrative)
+
+        # Keep all current instances (capability + task) as-is
+        all_instances = list(current_instances)
+
+        # Ensure JobModule and always-load modules are present
+        all_instances = self._ensure_job_module_available(all_instances)
+        all_instances = self._add_always_load_modules(all_instances)
+
+        # Create Module objects and bind
+        active_instances = self._create_module_objects(all_instances)
+
+        logger.success(
+            f"ModuleLoader: Fast-path complete (LLM skipped), "
+            f"loaded {len(active_instances)} instances"
+        )
+
+        return ModuleLoadResult(
+            active_instances=active_instances,
+            changes_summary={"added": [], "removed": [], "updated": [], "kept": [
+                inst.instance_id for inst in active_instances
+            ]},
+            changes_explanation={},
+            decision_reasoning="LLM decision skipped (SKIP_MODULE_DECISION_LLM=True)",
+            execution_type=ExecutionPath.AGENT_LOOP,
+            direct_trigger=None,
+            relationship_graph="",
+            key_to_id={},
+            raw_instances=[],
         )
 
     async def _load_current_instances(

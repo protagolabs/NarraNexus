@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # ===== Auth =====
     admin_secret_key: str = ""
 
+    # ===== Speed Optimization =====
+    # When True, skip the LLM instance decision call in Step 2 and always load
+    # all capability modules directly.  This saves ~2.5-3s per turn since the
+    # LLM call currently always returns the same 4 modules.
+    skip_module_decision_llm: bool = False
+
 
 settings = Settings()
 

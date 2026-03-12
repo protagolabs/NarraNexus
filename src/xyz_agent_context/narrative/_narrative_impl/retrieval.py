@@ -908,6 +908,7 @@ class NarrativeRetrieval:
                 instructions=instructions,
                 user_input=user_input,
                 output_type=NarrativeMatchOutput,
+                model=config.NARRATIVE_JUDGE_LLM_MODEL,
             )
             output: NarrativeMatchOutput = result.final_output
 
@@ -1004,6 +1005,7 @@ class NarrativeRetrieval:
                 instructions=instructions,
                 user_input=user_input,
                 output_type=UnifiedMatchOutput,
+                model=config.NARRATIVE_JUDGE_LLM_MODEL,
             )
             output: UnifiedMatchOutput = result.final_output
 
