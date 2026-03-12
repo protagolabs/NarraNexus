@@ -158,7 +158,7 @@ async def list_agent_inbox_rooms(
 
         for r in raw_rooms:
             room_id = r.get("room_id", "")
-            room_name = r.get("name", "") or room_id
+            raw_room_name = r.get("name", "")
             if not room_id:
                 continue
 
@@ -188,6 +188,14 @@ async def list_agent_inbox_rooms(
                     agent_name=info.get("agent_name", mid.split(":")[0].lstrip("@") if ":" in mid else mid),
                     matrix_user_id=mid,
                 ))
+
+            # Build room display name: prefer explicit name, fallback to member names
+            if raw_room_name:
+                room_name = raw_room_name
+            elif members:
+                room_name = ", ".join(m.agent_name for m in members)
+            else:
+                room_name = room_id
 
             # Build messages (all participants, chronological order)
             messages = []

@@ -25,6 +25,8 @@ import {
   Zap,
   TrendingUp,
   AlertCircle,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, KPICard } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
@@ -86,6 +88,7 @@ export function JobsPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
+  const [failedExpanded, setFailedExpanded] = useState(false);
 
   const { agentId, userId } = useConfigStore();
   const {
@@ -279,84 +282,125 @@ export function JobsPanel() {
                 </div>
               </div>
             ) : (
-              jobs.map((job) => {
-                const config = statusConfig[job.status] || statusConfig.pending;
-                const StatusIcon = config.icon;
-                const isExpanded = expandedId === job.job_id;
-                const isCancelling = cancellingJobId === job.job_id;
+              (() => {
+                // In "all" mode, separate failed jobs into a collapsible group at the bottom
+                const isAllMode = statusFilter === 'all';
+                const mainJobs = isAllMode ? jobs.filter((j) => j.status !== 'failed') : jobs;
+                const failedJobs = isAllMode ? jobs.filter((j) => j.status === 'failed') : [];
+
+                const renderJobCard = (job: Job) => {
+                  const config = statusConfig[job.status] || statusConfig.pending;
+                  const StatusIcon = config.icon;
+                  const isExpanded = expandedId === job.job_id;
+                  const isCancelling = cancellingJobId === job.job_id;
+
+                  return (
+                    <button
+                      key={job.job_id}
+                      onClick={() => setExpandedId(isExpanded ? null : job.job_id)}
+                      className={cn(
+                        'w-full text-left p-4 rounded-xl transition-all duration-300 group',
+                        'border bg-[var(--bg-elevated)]',
+                        isExpanded
+                          ? 'border-[var(--accent-primary)]/30 shadow-[0_0_20px_var(--accent-glow)]'
+                          : 'border-[var(--border-subtle)] hover:border-[var(--accent-primary)]/20 hover:shadow-lg',
+                        job.status === 'running' && 'bg-[var(--color-warning)]/5 border-[var(--color-warning)]/30',
+                        job.status === 'cancelled' && 'opacity-60'
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={cn(
+                          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300',
+                          config.bgColor,
+                          job.status === 'running' && 'animate-pulse'
+                        )}>
+                          <StatusIcon className={cn('w-4 h-4', config.color)} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={cn(
+                              'text-sm font-semibold truncate transition-colors',
+                              job.status === 'cancelled'
+                                ? 'text-[var(--text-tertiary)] line-through'
+                                : 'text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]'
+                            )}>
+                              {job.title}
+                            </span>
+                            <Badge
+                              variant={
+                                job.status === 'running'
+                                  ? 'warning'
+                                  : job.status === 'completed'
+                                  ? 'success'
+                                  : job.status === 'failed'
+                                  ? 'error'
+                                  : job.status === 'active'
+                                  ? 'accent'
+                                  : job.status === 'paused'
+                                  ? 'outline'
+                                  : 'default'
+                              }
+                              size="sm"
+                              glow={job.status === 'running' || job.status === 'active'}
+                            >
+                              {config.label}
+                            </Badge>
+                          </div>
+
+                          {job.description && (
+                            <p className="text-xs text-[var(--text-tertiary)] mt-1.5 line-clamp-1">
+                              {job.description}
+                            </p>
+                          )}
+
+                          {isExpanded && (
+                            <JobExpandedDetail
+                              job={job}
+                              isCancelling={isCancelling}
+                              canCancel={canCancel(job.status)}
+                              onCancel={handleCancelJob}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                };
 
                 return (
-                  <button
-                    key={job.job_id}
-                    onClick={() => setExpandedId(isExpanded ? null : job.job_id)}
-                    className={cn(
-                      'w-full text-left p-4 rounded-xl transition-all duration-300 group',
-                      'border bg-[var(--bg-elevated)]',
-                      isExpanded
-                        ? 'border-[var(--accent-primary)]/30 shadow-[0_0_20px_var(--accent-glow)]'
-                        : 'border-[var(--border-subtle)] hover:border-[var(--accent-primary)]/20 hover:shadow-lg',
-                      job.status === 'running' && 'bg-[var(--color-warning)]/5 border-[var(--color-warning)]/30',
-                      job.status === 'cancelled' && 'opacity-60'
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={cn(
-                        'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300',
-                        config.bgColor,
-                        job.status === 'running' && 'animate-pulse'
-                      )}>
-                        <StatusIcon className={cn('w-4 h-4', config.color)} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={cn(
-                            'text-sm font-semibold truncate transition-colors',
-                            job.status === 'cancelled'
-                              ? 'text-[var(--text-tertiary)] line-through'
-                              : 'text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]'
-                          )}>
-                            {job.title}
+                  <>
+                    {mainJobs.map(renderJobCard)}
+
+                    {/* Failed jobs collapsible group */}
+                    {failedJobs.length > 0 && (
+                      <div className="mt-1">
+                        <button
+                          onClick={() => setFailedExpanded(!failedExpanded)}
+                          className={cn(
+                            'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all',
+                            'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]',
+                          )}
+                        >
+                          {failedExpanded ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          )}
+                          <XCircle className="w-3.5 h-3.5 text-[var(--color-error)]" />
+                          <span className="text-xs font-medium">
+                            {failedJobs.length} failed job{failedJobs.length !== 1 ? 's' : ''}
                           </span>
-                          <Badge
-                            variant={
-                              job.status === 'running'
-                                ? 'warning'
-                                : job.status === 'completed'
-                                ? 'success'
-                                : job.status === 'failed'
-                                ? 'error'
-                                : job.status === 'active'
-                                ? 'accent'
-                                : job.status === 'paused'
-                                ? 'outline'
-                                : 'default'
-                            }
-                            size="sm"
-                            glow={job.status === 'running' || job.status === 'active'}
-                          >
-                            {config.label}
-                          </Badge>
-                        </div>
-
-                        {job.description && (
-                          <p className="text-xs text-[var(--text-tertiary)] mt-1.5 line-clamp-1">
-                            {job.description}
-                          </p>
-                        )}
-
-                        {isExpanded && (
-                          <JobExpandedDetail
-                            job={job}
-                            isCancelling={isCancelling}
-                            canCancel={canCancel(job.status)}
-                            onCancel={handleCancelJob}
-                          />
+                        </button>
+                        {failedExpanded && (
+                          <div className="space-y-3 mt-2">
+                            {failedJobs.map(renderJobCard)}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  </button>
+                    )}
+                  </>
                 );
-              })
+              })()
             )}
           </div>
         )}

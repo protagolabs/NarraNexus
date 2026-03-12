@@ -229,9 +229,27 @@ Adapt your communication style according to this persona."""
 
                     Social network features are available when interacting with identified users."""
 
-            # 2. Intent recognition (Phase 2 implementation)
-            # TODO: Detect if other entities are mentioned in input
-            # TODO: Detect if expert search is needed
+            # 2. Load known agent entities for cross-module use (e.g. MatrixModule)
+            try:
+                agent_entities = await self._get_repo().get_all_entities(
+                    instance_id=instance_id,
+                    entity_type="agent",
+                    limit=50,
+                )
+                if agent_entities:
+                    ctx_data.extra_data["known_agent_entities"] = [
+                        {
+                            "entity_id": e.entity_id,
+                            "entity_name": e.entity_name,
+                            "entity_description": e.entity_description or "",
+                            "tags": e.tags or [],
+                            "contact_info": e.contact_info or {},
+                        }
+                        for e in agent_entities
+                    ]
+                    logger.info(f"            ✓ Loaded {len(agent_entities)} known agent entities to extra_data")
+            except Exception as exc:
+                logger.warning(f"            Failed to load known agent entities: {exc}")
 
             logger.debug("          ← SocialNetworkModule.hook_data_gathering() completed")
 
@@ -414,13 +432,22 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                             await append_to_entity_description(
                                 repo, matched_entity_id, instance_id, mentioned_entity.summary
                             )
-                        # Merge tags
+                        # Merge tags (conservative: skip duplicates, cap total)
                         if mentioned_entity.tags:
-                            merged_tags = list(set(existing.tags or []) | set(mentioned_entity.tags))
+                            existing_tags = list(existing.tags or [])
+                            existing_lower = {t.lower() for t in existing_tags}
+                            # Only add genuinely new tags (case-insensitive dedup)
+                            for new_tag in mentioned_entity.tags:
+                                if new_tag.lower() not in existing_lower:
+                                    existing_tags.append(new_tag)
+                                    existing_lower.add(new_tag.lower())
+                            # Cap at 10 tags max per entity
+                            if len(existing_tags) > 10:
+                                existing_tags = existing_tags[:10]
                             await repo.update_entity_info(
                                 entity_id=matched_entity_id,
                                 instance_id=instance_id,
-                                updates={"tags": merged_tags},
+                                updates={"tags": existing_tags},
                             )
                     else:
                         # Create new entity
@@ -777,18 +804,24 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                         merged_info = {**existing_info, **new_info}
                         updates["identity_info"] = merged_info
 
-                    # Merge contact_info
+                    # Merge contact_info (deep merge + normalize)
                     if "contact_info" in updates:
+                        from xyz_agent_context.channel.channel_contact_utils import merge_contact_info
                         existing_contact = existing_entity.contact_info or {}
                         new_contact = updates["contact_info"]
-                        merged_contact = {**existing_contact, **new_contact}
-                        updates["contact_info"] = merged_contact
+                        updates["contact_info"] = merge_contact_info(existing_contact, new_contact)
 
-                    # Merge tags (deduplicate)
+                    # Merge tags (case-insensitive dedup, capped at 10)
                     if "tags" in updates:
-                        existing_tags = set(existing_entity.tags or [])
-                        new_tags = set(updates["tags"])
-                        updates["tags"] = list(existing_tags | new_tags)
+                        merged = list(existing_entity.tags or [])
+                        existing_lower = {t.lower() for t in merged}
+                        for new_tag in updates["tags"]:
+                            if new_tag.lower() not in existing_lower:
+                                merged.append(new_tag)
+                                existing_lower.add(new_tag.lower())
+                        if len(merged) > 10:
+                            merged = merged[:10]
+                        updates["tags"] = merged
 
                     # Protect entity_description: not allowed to update via this function
                     # entity_description should only be cumulatively updated by hook_after_event_execution
@@ -825,7 +858,9 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                     updates.pop("entity_description")
 
                 identity_info = updates.pop("identity_info", {})
-                contact_info = updates.pop("contact_info", {})
+                raw_contact = updates.pop("contact_info", {})
+                from xyz_agent_context.channel.channel_contact_utils import normalize_contact_info
+                contact_info = normalize_contact_info(raw_contact)
                 tags = updates.pop("tags", [])
 
                 await repo.add_entity(

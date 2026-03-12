@@ -69,6 +69,13 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         - Contact info is shared (email, phone, website)
         - Any biographical or professional detail appears
 
+        **Tagging Discipline (IMPORTANT)**:
+        - Tags are expensive — only add tags that carry clear, lasting signal
+        - Aim for 2-3 tags per entity. Most updates need ZERO new tags
+        - Before adding a tag, consider if the entity already has a similar one
+        - Use canonical forms consistently (e.g. "expert:recommendation_system", not "expert:recommender_systems")
+        - One expertise level per domain, one stage tag at a time
+
         Args:
             agent_id: The ID of the agent who owns this social network
             entity_id: The user_id or agent_id of the person
@@ -79,7 +86,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         Returns:
             Operation result with success status and message
 
-        Example 1 - Expert level (EXPLICITLY claims expertise):
+        Example 1 - User introduces themselves with clear expertise:
             User: "你好，我是Alice，我是推荐系统专家"
 
             extract_entity_info(
@@ -88,12 +95,12 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 updates={
                     "entity_type": "user",
                     "entity_name": "Alice",
-                    "tags": ["expert:推荐系统", "researcher"]
+                    "tags": ["expert:recommendation_system"]
                 }
             )
 
-        Example 2 - Familiar level (works with but doesn't claim expert):
-            User: "我叫Bob，在Acme Corp做前端开发，主要用React"
+        Example 2 - User shares role and company (store in identity_info, minimal tags):
+            User: "我叫Bob，在Acme Corp做前端开发"
 
             extract_entity_info(
                 agent_id="your_agent_id",
@@ -103,39 +110,26 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                     "entity_name": "Bob",
                     "identity_info": {
                         "organization": "Acme Corp",
-                        "position": "前端工程师",
-                        "tech_stack": ["React"]
+                        "position": "前端工程师"
                     },
-                    "tags": ["familiar:前端", "familiar:React", "engineer"]
+                    "tags": ["engineer"]
                 }
             )
 
-        Example 3 - Interested level (learning or exploring):
-            User: "我最近在学NLP，对大模型很感兴趣"
-
-            extract_entity_info(
-                agent_id="your_agent_id",
-                entity_id="user_carol_789",
-                updates={
-                    "entity_type": "user",
-                    "entity_name": "Carol",
-                    "tags": ["interested:NLP", "interested:大模型", "student"]
-                }
-            )
-
-
-        Example 4 - Adding contact info:
-            User: "我的邮箱是 alice@example.com"
+        Example 3 - Adding contact info (use channels structure for IM channels):
+            User: "我的邮箱是 alice@example.com, Matrix 上是 @alice:localhost"
 
             extract_entity_info(
                 agent_id="your_agent_id",
                 entity_id="user_alice_123",
                 updates={
                     "contact_info": {
-                        "email": "alice@example.com"
+                        "email": "alice@example.com",
+                        "channels": {
+                            "matrix": {"id": "@alice:localhost"}
+                        }
                     }
-                },
-                update_mode="merge"  # Merges with existing info
+                }
             )
         """
         import json as _json
@@ -582,15 +576,22 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
             if not target:
                 return {"success": False, "message": f"Target entity not found: {target_entity_id}"}
 
-            # Merge tags (union)
-            merged_tags = list(set(target.tags or []) | set(source.tags or []))
+            # Merge tags (case-insensitive dedup, capped at 10)
+            merged_tags = list(target.tags or [])
+            existing_lower = {t.lower() for t in merged_tags}
+            for t in (source.tags or []):
+                if t.lower() not in existing_lower:
+                    merged_tags.append(t)
+                    existing_lower.add(t.lower())
+            if len(merged_tags) > 10:
+                merged_tags = merged_tags[:10]
 
             # Merge identity_info (target takes precedence; source fills in missing keys)
             merged_identity = {**(source.identity_info or {}), **(target.identity_info or {})}
 
-            # Merge contact_info (deep merge, target takes precedence)
-            from xyz_agent_context.channel.channel_contact_utils import _deep_merge
-            merged_contact = _deep_merge(source.contact_info or {}, target.contact_info or {})
+            # Merge contact_info (deep merge + normalize)
+            from xyz_agent_context.channel.channel_contact_utils import merge_contact_info
+            merged_contact = merge_contact_info(source.contact_info or {}, target.contact_info or {})
 
             # Merge related_job_ids (union)
             merged_jobs = list(set(target.related_job_ids or []) | set(source.related_job_ids or []))

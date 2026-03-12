@@ -202,7 +202,7 @@ export function AgentList({ collapsed }: AgentListProps) {
               'w-full aspect-square rounded-xl flex items-center justify-center transition-all duration-300',
               'animate-fade-in',
               agentId === agent.agent_id
-                ? 'bg-[var(--gradient-primary)] shadow-[0_0_20px_var(--accent-glow)]'
+                ? 'bg-[var(--accent-primary)]/20 shadow-[0_0_20px_var(--accent-glow)]'
                 : 'bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--accent-primary)]/50 hover:shadow-[0_0_15px_var(--accent-glow)]'
             )}
             style={{ animationDelay: `${index * 50}ms` }}
@@ -210,7 +210,7 @@ export function AgentList({ collapsed }: AgentListProps) {
           >
             <Bot className={cn(
               'w-5 h-5',
-              agentId === agent.agent_id && 'text-[var(--text-inverse)] dark:text-[var(--bg-deep)]'
+              agentId === agent.agent_id ? 'text-[var(--accent-primary)]' : ''
             )} />
           </button>
         ))}
@@ -277,7 +277,7 @@ export function AgentList({ collapsed }: AgentListProps) {
                 'hover:bg-[var(--bg-tertiary)] group relative',
                 'animate-slide-up',
                 agentId === agent.agent_id && [
-                  'bg-[var(--bg-elevated)]',
+                  'bg-[var(--accent-primary)]/10',
                   'border border-[var(--accent-primary)]/30',
                   'shadow-[0_0_30px_var(--accent-glow),inset_0_0_20px_var(--accent-glow)]',
                 ],
@@ -295,14 +295,14 @@ export function AgentList({ collapsed }: AgentListProps) {
                   className={cn(
                     'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300',
                     agentId === agent.agent_id
-                      ? 'bg-[var(--gradient-primary)] shadow-[0_0_20px_var(--accent-glow)]'
+                      ? 'bg-[var(--accent-primary)]/20 shadow-[0_0_20px_var(--accent-glow)]'
                       : 'bg-[var(--bg-tertiary)] border border-[var(--border-default)] group-hover:border-[var(--accent-primary)]/50 group-hover:shadow-[0_0_15px_var(--accent-glow)]'
                   )}
                 >
                   <Bot className={cn(
                     'w-5 h-5 transition-colors',
                     agentId === agent.agent_id
-                      ? 'text-[var(--text-inverse)] dark:text-[var(--bg-deep)]'
+                      ? 'text-[var(--accent-primary)]'
                       : 'text-[var(--text-secondary)] group-hover:text-[var(--accent-primary)]'
                   )} />
                 </div>

@@ -131,6 +131,115 @@ def set_room_id(
     })
 
 
+def merge_contact_info(
+    existing: Dict[str, Any],
+    incoming: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Merge incoming contact_info into existing, with normalization.
+
+    Handles non-standard formats from Agent-generated input:
+    - Top-level channel keys (e.g. {"matrix": "@xxx"}) → moved under channels
+    - Flat key aliases (e.g. "user_id" → "id", "matrix_user_id" → "id")
+
+    Always produces the canonical structure:
+    {
+        "channels": {"matrix": {"id": "...", ...}, ...},
+        "preferred_channel": "..."
+    }
+
+    Args:
+        existing: Current contact_info from DB
+        incoming: New contact_info to merge in
+
+    Returns:
+        Merged and normalized contact_info
+    """
+    result = copy.deepcopy(existing)
+    normalized = normalize_contact_info(incoming)
+    return _deep_merge(result, normalized)
+
+
+def normalize_contact_info(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize contact_info to canonical structure.
+
+    Detects non-standard formats and converts them:
+    - {"matrix": "@xxx:localhost"} → {"channels": {"matrix": {"id": "@xxx:localhost"}}}
+    - {"matrix": {"user_id": "..."}} → {"channels": {"matrix": {"id": "..."}}}
+    - {"channels": {"matrix": {"user_id": "..."}}} → {"channels": {"matrix": {"id": "..."}}}
+
+    Args:
+        raw: Raw contact_info dict (may be in any format)
+
+    Returns:
+        Normalized contact_info
+    """
+    if not raw:
+        return {}
+
+    result: Dict[str, Any] = {}
+    known_channels = {"matrix", "slack", "discord", "telegram"}
+    # Key aliases that should be normalized to "id"
+    id_aliases = {"user_id", "matrix_user_id", "matrix_id", "slack_id", "channel_id"}
+
+    # Preserve top-level metadata
+    if "preferred_channel" in raw:
+        result["preferred_channel"] = raw["preferred_channel"]
+
+    # Preserve non-channel, non-metadata fields (e.g. "email": "alice@example.com")
+    preserved_keys = {"channels", "preferred_channel"} | known_channels
+    for key, val in raw.items():
+        if key not in preserved_keys and not isinstance(val, dict):
+            result[key] = val
+
+    # Start with existing channels structure
+    channels = copy.deepcopy(raw.get("channels", {}))
+
+    # Normalize id aliases inside existing channels
+    for ch_name, ch_data in channels.items():
+        if isinstance(ch_data, dict):
+            _normalize_id_field(ch_data, id_aliases)
+
+    # Detect top-level channel keys (e.g. {"matrix": ...})
+    for ch_name in known_channels:
+        if ch_name not in raw:
+            continue
+        val = raw[ch_name]
+        if isinstance(val, str):
+            # {"matrix": "@xxx:localhost"} → {"channels": {"matrix": {"id": "@xxx"}}}
+            if ch_name not in channels:
+                channels[ch_name] = {}
+            channels[ch_name].setdefault("id", val)
+        elif isinstance(val, dict):
+            # {"matrix": {"user_id": "...", "room_id": "..."}} → normalize and merge
+            normalized_ch = copy.deepcopy(val)
+            _normalize_id_field(normalized_ch, id_aliases)
+            if ch_name in channels:
+                channels[ch_name] = _deep_merge(channels[ch_name], normalized_ch)
+            else:
+                channels[ch_name] = normalized_ch
+
+    if channels:
+        result["channels"] = channels
+
+    return result
+
+
+def _normalize_id_field(ch_data: Dict[str, Any], id_aliases: set) -> None:
+    """
+    Normalize id aliases (user_id, matrix_user_id, etc.) to canonical "id" field in-place.
+
+    If "id" already exists, aliases are removed. Otherwise the first alias found is promoted.
+    """
+    for alias in list(id_aliases):
+        if alias in ch_data:
+            if "id" not in ch_data:
+                ch_data["id"] = ch_data.pop(alias)
+            else:
+                ch_data.pop(alias)
+
+
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     """
     Deep-merge two dicts. Values in override take precedence.

@@ -4,11 +4,22 @@
  */
 
 import { useState } from 'react';
-import { Mail, MailOpen, RefreshCw, CheckCheck, User, Bot, Hash, Users, ChevronRight, ChevronDown } from 'lucide-react';
+import { Mail, MailOpen, RefreshCw, CheckCheck, User, Bot, Hash, Users, ChevronRight, ChevronDown, ChevronLeft } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import type { InboxMessage } from '@/types/api';
+
+/** Build display title with source agent name prefix */
+function buildDisplayTitle(message: InboxMessage, agents: { agent_id: string; name?: string }[]): string {
+  const raw = message.title || 'No title';
+  if (message.source?.type === 'agent' && message.source.id) {
+    const agent = agents.find((a) => a.agent_id === message.source!.id);
+    if (agent?.name) return `[${agent.name}] ${raw}`;
+  }
+  return raw;
+}
 
 type InboxTab = 'user' | 'agent';
 
@@ -17,13 +28,16 @@ export function InboxPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
 
-  const { userId, agentId } = useConfigStore();
+  const { userId, agentId, agents } = useConfigStore();
   const {
     // User Inbox
     inbox: userMessages,
     inboxUnreadCount: userUnreadCount,
+    inboxTotalCount: userTotalCount,
+    inboxPage: userPage,
     inboxLoading: userLoading,
     refreshInbox,
+    loadInboxPage,
     updateInboxMessage,
     markAllInboxRead,
     // Agent Inbox
@@ -32,6 +46,9 @@ export function InboxPanel() {
     agentInboxLoading: agentLoading,
     refreshAgentInbox,
   } = usePreloadStore();
+
+  const PAGE_SIZE = 50;
+  const userTotalPages = Math.max(1, Math.ceil(userTotalCount / PAGE_SIZE));
 
   const handleRefresh = () => {
     if (activeTab === 'user') {
@@ -179,63 +196,94 @@ export function InboxPanel() {
                 <p className="text-[var(--text-tertiary)] text-sm">No messages</p>
               </div>
             ) : (
-              userMessages.map((message) => (
-                <button
-                  key={message.message_id}
-                  onClick={() => toggleExpand(message.message_id)}
-                  className={cn(
-                    'w-full text-left p-3 rounded-lg transition-all',
-                    'border border-[var(--border-default)]',
-                    'hover:border-[var(--color-accent)]/50',
-                    !message.is_read && 'bg-[var(--accent-10)] border-[var(--color-accent)]/30',
-                    expandedId === message.message_id && 'ring-1 ring-[var(--color-accent)]'
-                  )}
-                >
-                  <div className="flex items-start gap-2">
-                    {message.is_read ? (
-                      <MailOpen className="w-4 h-4 text-[var(--text-tertiary)] mt-0.5" />
-                    ) : (
-                      <Mail className="w-4 h-4 text-[var(--color-accent)] mt-0.5" />
+              <>
+                {userMessages.map((message) => (
+                  <button
+                    key={message.message_id}
+                    onClick={() => toggleExpand(message.message_id)}
+                    className={cn(
+                      'w-full text-left p-3 rounded-lg transition-all',
+                      'border border-[var(--border-default)]',
+                      'hover:border-[var(--color-accent)]/50',
+                      !message.is_read && 'bg-[var(--accent-10)] border-[var(--color-accent)]/30',
+                      expandedId === message.message_id && 'ring-1 ring-[var(--color-accent)]'
                     )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span
+                  >
+                    <div className="flex items-start gap-2">
+                      {message.is_read ? (
+                        <MailOpen className="w-4 h-4 text-[var(--text-tertiary)] mt-0.5" />
+                      ) : (
+                        <Mail className="w-4 h-4 text-[var(--color-accent)] mt-0.5" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={cn(
+                              'text-sm font-medium truncate',
+                              !message.is_read ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
+                            )}
+                          >
+                            {buildDisplayTitle(message, agents)}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {message.message_type && (
+                              <Badge size="sm" variant="default">
+                                {message.message_type}
+                              </Badge>
+                            )}
+                            <span className="text-[10px] text-[var(--text-tertiary)] font-mono">
+                              {message.created_at && formatRelativeTime(message.created_at)}
+                            </span>
+                          </div>
+                        </div>
+                        <div
                           className={cn(
-                            'text-sm font-medium truncate',
-                            !message.is_read ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
+                            'text-xs mt-1',
+                            expandedId === message.message_id
+                              ? 'text-[var(--text-secondary)] max-h-[400px] overflow-y-auto'
+                              : 'text-[var(--text-tertiary)] line-clamp-2'
                           )}
                         >
-                          {message.title || 'No title'}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {message.message_type && (
-                            <Badge size="sm" variant="default">
-                              {message.message_type}
-                            </Badge>
+                          {expandedId === message.message_id ? (
+                            <Markdown content={message.content} />
+                          ) : (
+                            <span className="whitespace-pre-wrap">{message.content}</span>
                           )}
-                          <span className="text-[10px] text-[var(--text-tertiary)] font-mono">
-                            {message.created_at && formatRelativeTime(message.created_at)}
-                          </span>
                         </div>
                       </div>
-                      <div
-                        className={cn(
-                          'text-xs mt-1',
-                          expandedId === message.message_id
-                            ? 'text-[var(--text-secondary)] max-h-[400px] overflow-y-auto'
-                            : 'text-[var(--text-tertiary)] line-clamp-2'
-                        )}
-                      >
-                        {expandedId === message.message_id ? (
-                          <Markdown content={message.content} />
-                        ) : (
-                          <span className="whitespace-pre-wrap">{message.content}</span>
-                        )}
-                      </div>
                     </div>
+                  </button>
+                ))}
+
+                {/* Pagination */}
+                {userTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={userPage <= 1 || userLoading}
+                      onClick={() => { loadInboxPage(userId, userPage - 1); setExpandedId(null); }}
+                      className="gap-1 text-xs"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      Prev
+                    </Button>
+                    <span className="text-xs text-[var(--text-tertiary)]">
+                      {userPage} / {userTotalPages}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={userPage >= userTotalPages || userLoading}
+                      onClick={() => { loadInboxPage(userId, userPage + 1); setExpandedId(null); }}
+                      className="gap-1 text-xs"
+                    >
+                      Next
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
-                </button>
-              ))
+                )}
+              </>
             )}
           </>
         )}

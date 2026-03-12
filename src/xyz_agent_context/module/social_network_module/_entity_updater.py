@@ -59,7 +59,7 @@ class ExtractedEntity(BaseModel):
     name: str = Field(..., description="Entity name as mentioned in the conversation")
     entity_type: str = Field(default="user", description="Entity type: user | agent | organization")
     summary: str = Field(default="", description="Brief summary of what was said about this entity")
-    tags: List[str] = Field(default_factory=list, description="Relevant tags for the entity")
+    tags: List[str] = Field(default_factory=list, description="0-2 tags only when clearly evidenced (e.g. expert:ML, engineer). Prefer empty list.")
 
 
 class BatchExtractionOutput(BaseModel):

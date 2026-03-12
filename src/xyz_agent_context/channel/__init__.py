@@ -23,6 +23,8 @@ from .channel_contact_utils import (
     get_preferred_channel,
     get_room_id,
     set_room_id,
+    merge_contact_info,
+    normalize_contact_info,
 )
 
 __all__ = [
@@ -34,4 +36,6 @@ __all__ = [
     "get_preferred_channel",
     "get_room_id",
     "set_room_id",
+    "merge_contact_info",
+    "normalize_contact_info",
 ]
