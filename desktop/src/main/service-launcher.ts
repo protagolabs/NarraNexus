@@ -2,7 +2,7 @@
  * @file service-launcher.ts
  * @description Phase 3: Service startup with Docker 500 retry logic
  *
- * Launch steps: wait-docker → compose-up → wait-mysql → init-tables → wait-evermemos → start-services
+ * Launch steps: wait-docker → compose-up → wait-mysql → wait-synapse → init-tables → wait-evermemos → start-services
  * Extracted from process-manager.ts runQuickStart + runAutoSetup Step 6-12.
  *
  * Core fix: waits for Docker daemon to become healthy before running compose,
@@ -63,6 +63,7 @@ export class ServiceLauncher extends EventEmitter {
       { id: 'wait-docker', label: 'Wait for Docker', status: 'pending' },
       { id: 'compose-up', label: 'Start containers', status: 'pending' },
       { id: 'wait-mysql', label: 'Wait for MySQL', status: 'pending' },
+      { id: 'wait-synapse', label: 'Wait for Synapse', status: 'pending' },
       { id: 'init-tables', label: 'Initialize database', status: 'pending' },
       { id: 'wait-evermemos', label: 'Wait for EverMemOS infra', status: 'pending' },
       { id: 'start-services', label: 'Start services', status: 'pending' }
@@ -116,15 +117,40 @@ export class ServiceLauncher extends EventEmitter {
       console.log('[launcher] Step 1: DONE — Docker is ready')
       updateStep('wait-docker', { status: 'done', message: 'Docker is ready' })
 
+      // ─── Step 1.5: Ensure Synapse config exists ───────
+      const synapseDataDir = join(PROJECT_ROOT, 'related_project', 'NetMind-AI-RS-NexusMatrix', 'deploy', 'synapse', 'data')
+      const synapseConfig = join(synapseDataDir, 'homeserver.yaml')
+      if (!existsSync(synapseConfig)) {
+        console.log('[launcher] Synapse config not found, generating...')
+        updateStep('compose-up', { status: 'running', message: 'Generating Synapse config (first run)...' })
+        try {
+          // Ensure parent directory exists
+          const { mkdirSync } = require('fs')
+          mkdirSync(synapseDataDir, { recursive: true })
+          await spawnWithOutput('docker', [
+            'run', '--rm',
+            '-v', `${synapseDataDir}:/data`,
+            '-e', 'SYNAPSE_SERVER_NAME=localhost',
+            '-e', 'SYNAPSE_REPORT_STATS=no',
+            'matrixdotorg/synapse:latest', 'generate'
+          ], { timeout: 120000, onOutput: (line) => updateStep('compose-up', { status: 'running', message: line }) })
+          console.log('[launcher] Synapse config generated successfully')
+        } catch (err) {
+          console.warn(`[launcher] Synapse config generation failed: ${err instanceof Error ? err.message : err}`)
+          // Non-fatal: Synapse just won't start, Matrix features unavailable
+        }
+      }
+
       // ─── Step 2: docker compose up ─────
       console.log('[launcher] Step 2: compose-up')
       const COMPOSE_TIMEOUT = 600000 // 10 minutes for image pull
-      updateStep('compose-up', { status: 'running', message: 'Starting MySQL container...' })
+      updateStep('compose-up', { status: 'running', message: 'Starting containers (MySQL + Synapse)...' })
 
-      // 端口已通 = MySQL 已经在跑（之前启动的容器或本地 MySQL），直接跳过 compose
-      if (await isPortReachable(3306)) {
-        console.log('[launcher] Step 2: Port 3306 already reachable, skipping compose-up')
-        updateStep('compose-up', { status: 'done', message: 'MySQL already running (port 3306)' })
+      // Both ports reachable = containers already running, skip compose
+      const [mysqlUp, synapseUp] = await Promise.all([isPortReachable(3306), isPortReachable(8008)])
+      if (mysqlUp && synapseUp) {
+        console.log('[launcher] Step 2: Ports 3306+8008 already reachable, skipping compose-up')
+        updateStep('compose-up', { status: 'done', message: 'Containers already running' })
       } else {
         // Ensure Docker is truly healthy before compose
         const preComposeState = await detectDockerState()
@@ -268,6 +294,34 @@ export class ServiceLauncher extends EventEmitter {
       await delay(5000)
       console.log('[launcher] Step 3: DONE — MySQL is ready')
       updateStep('wait-mysql', { status: 'done', message: 'MySQL is ready' })
+
+      // ─── Step 3.5: Wait for Synapse ────────────────────
+      console.log('[launcher] Step 3.5: wait-synapse')
+      updateStep('wait-synapse', { status: 'running', message: 'Waiting for Synapse port...' })
+      let synapseReady = false
+      for (let i = 0; i < 90; i++) {
+        if (await isPortReachable(8008)) {
+          synapseReady = true
+          console.log(`[launcher] Step 3.5: Synapse port reachable after ${i + 1}s`)
+          break
+        }
+        if (i % 5 === 4) {
+          console.log(`[launcher] Step 3.5: Synapse port not reachable yet (${i + 1}s)`)
+          updateStep('wait-synapse', {
+            status: 'running',
+            message: `Waiting for Synapse port... (${i + 1}s)`
+          })
+        }
+        await delay(1000)
+      }
+      if (!synapseReady) {
+        // Synapse failure is non-fatal — Matrix features won't work but the app is usable
+        console.warn('[launcher] Step 3.5: Synapse port timeout (90s) — Matrix features will be unavailable')
+        updateStep('wait-synapse', { status: 'error', message: 'Synapse timeout — Matrix features unavailable' })
+      } else {
+        console.log('[launcher] Step 3.5: DONE — Synapse is ready')
+        updateStep('wait-synapse', { status: 'done', message: 'Synapse is ready' })
+      }
 
       // ─── Step 4: Initialize database tables ─────────────
       console.log('[launcher] Step 4: init-tables')
