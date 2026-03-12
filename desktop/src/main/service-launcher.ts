@@ -15,7 +15,10 @@ import { EventEmitter } from 'events'
 import {
   PROJECT_ROOT,
   TABLE_MGMT_DIR,
-  EVERMEMOS_DIR
+  EVERMEMOS_DIR,
+  SYNAPSE_TEMPLATE_DIR,
+  SYNAPSE_DATA_DIR,
+  NEXUS_MATRIX_DIR
 } from './constants'
 import {
   detectDockerState,
@@ -118,26 +121,23 @@ export class ServiceLauncher extends EventEmitter {
       updateStep('wait-docker', { status: 'done', message: 'Docker is ready' })
 
       // ─── Step 1.5: Ensure Synapse config exists ───────
-      const synapseDataDir = join(PROJECT_ROOT, 'related_project', 'NetMind-AI-RS-NexusMatrix', 'deploy', 'synapse', 'data')
-      const synapseConfig = join(synapseDataDir, 'homeserver.yaml')
+      // Copy template files to data directory if homeserver.yaml is missing.
+      // Templates live at deploy/synapse/ (committed); runtime data at deploy/synapse/data/ (gitignored).
+      const synapseConfig = join(SYNAPSE_DATA_DIR, 'homeserver.yaml')
       if (!existsSync(synapseConfig)) {
-        console.log('[launcher] Synapse config not found, generating...')
-        updateStep('compose-up', { status: 'running', message: 'Generating Synapse config (first run)...' })
+        console.log('[launcher] Synapse config not found, copying templates...')
+        updateStep('compose-up', { status: 'running', message: 'Initializing Synapse config (first run)...' })
         try {
-          // Ensure parent directory exists
-          const { mkdirSync } = require('fs')
-          mkdirSync(synapseDataDir, { recursive: true })
-          await spawnWithOutput('docker', [
-            'run', '--rm',
-            '-v', `${synapseDataDir}:/data`,
-            '-e', 'SYNAPSE_SERVER_NAME=localhost',
-            '-e', 'SYNAPSE_REPORT_STATS=no',
-            'matrixdotorg/synapse:latest', 'generate'
-          ], { timeout: 120000, onOutput: (line) => updateStep('compose-up', { status: 'running', message: line }) })
-          console.log('[launcher] Synapse config generated successfully')
+          const { mkdirSync, copyFileSync } = require('fs')
+          mkdirSync(SYNAPSE_DATA_DIR, { recursive: true })
+          copyFileSync(join(SYNAPSE_TEMPLATE_DIR, 'homeserver.yaml'), synapseConfig)
+          copyFileSync(
+            join(SYNAPSE_TEMPLATE_DIR, 'localhost.log.config'),
+            join(SYNAPSE_DATA_DIR, 'localhost.log.config')
+          )
+          console.log('[launcher] Synapse config templates copied successfully')
         } catch (err) {
-          console.warn(`[launcher] Synapse config generation failed: ${err instanceof Error ? err.message : err}`)
-          // Non-fatal: Synapse just won't start, Matrix features unavailable
+          console.warn(`[launcher] Synapse config setup failed: ${err instanceof Error ? err.message : err}`)
         }
       }
 
@@ -320,6 +320,27 @@ export class ServiceLauncher extends EventEmitter {
         updateStep('wait-synapse', { status: 'error', message: 'Synapse timeout — Matrix features unavailable' })
       } else {
         console.log('[launcher] Step 3.5: DONE — Synapse is ready')
+        // Create admin user if NexusMatrix scripts are available
+        const createAdminScript = join(NEXUS_MATRIX_DIR, 'scripts', 'create_admin.py')
+        if (existsSync(createAdminScript)) {
+          try {
+            console.log('[launcher] Step 3.5: Creating Synapse admin user...')
+            updateStep('wait-synapse', { status: 'running', message: 'Creating admin user...' })
+            await execInProject('python', [
+              createAdminScript,
+              '--homeserver', 'http://localhost:8008',
+              '--shared-secret', '9_HimzS2a&CBS^DPyP&mLBT2Nry-e-tR=39.w&jkwf9IGkOCGH',
+              '--username', 'nexus_admin',
+              '--password', 'nexus_admin_password',
+              '--admin',
+              '--display-name', 'NexusAdmin'
+            ], { timeout: 15000 })
+            console.log('[launcher] Step 3.5: Admin user ready')
+          } catch (err) {
+            // Non-fatal: admin user may already exist
+            console.warn(`[launcher] Step 3.5: Admin user creation: ${err instanceof Error ? err.message : err}`)
+          }
+        }
         updateStep('wait-synapse', { status: 'done', message: 'Synapse is ready' })
       }
 

@@ -16,6 +16,7 @@
 /logs_*/
 /sessions/
 /new_task/
+/deploy/synapse/data/
 
 # ── Reference & external projects (kept out of core) ───────────────────────
 /reference/

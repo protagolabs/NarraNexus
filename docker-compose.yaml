@@ -36,7 +36,7 @@ services:
     container_name: nexus-synapse
     restart: unless-stopped
     volumes:
-      - ./related_project/NetMind-AI-RS-NexusMatrix/deploy/synapse/data:/data
+      - ./deploy/synapse/data:/data
     ports:
       - "8008:8008"
     healthcheck:

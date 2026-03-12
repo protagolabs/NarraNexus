@@ -85,6 +85,18 @@ export const EVERMEMOS_DIR = join(PROJECT_ROOT, '.evermemos')
 /** EverMemOS Git repository URL */
 export const EVERMEMOS_GIT_URL = 'https://github.com/NetMindAI-Open/EverMemOS.git'
 
+/** NexusMatrix project directory */
+export const NEXUS_MATRIX_DIR = join(PROJECT_ROOT, 'related_project', 'NetMind-AI-RS-NexusMatrix')
+
+/** NexusMatrix Git repository URL */
+export const NEXUS_MATRIX_GIT_URL = 'git@github.com:protagolabs/NetMind-AI-RS-NexusMatrix.git'
+
+/** Synapse template directory (committed config templates) */
+export const SYNAPSE_TEMPLATE_DIR = join(PROJECT_ROOT, 'deploy', 'synapse')
+
+/** Synapse data directory (runtime, gitignored) */
+export const SYNAPSE_DATA_DIR = join(PROJECT_ROOT, 'deploy', 'synapse', 'data')
+
 /** All MCP module ports (7801-7805) */
 export const MCP_PORTS = Array.from(
   { length: PORTS.MCP_END - PORTS.MCP_START + 1 },
@@ -96,6 +108,7 @@ export const MCP_PORTS = Array.from(
 /** Infrastructure service definitions (Docker containers, HealthMonitor checks port health) */
 export const INFRA_SERVICES = [
   { id: 'mysql',         label: 'MySQL',         port: 3306,  required: true },
+  { id: 'synapse',       label: 'Synapse',       port: 8008,  required: false },
   { id: 'mongodb',       label: 'MongoDB',       port: 27017, required: false },
   { id: 'elasticsearch', label: 'Elasticsearch', port: 19200, required: false },
   { id: 'milvus',        label: 'Milvus',        port: 19530, required: false },

@@ -13,7 +13,9 @@ import {
   PROJECT_ROOT,
   FRONTEND_DIR,
   EVERMEMOS_DIR,
-  EVERMEMOS_GIT_URL
+  EVERMEMOS_GIT_URL,
+  NEXUS_MATRIX_DIR,
+  NEXUS_MATRIX_GIT_URL
 } from './constants'
 import { initShellEnv } from './shell-env'
 import { resetComposeDetection } from './docker-manager'
@@ -569,6 +571,48 @@ function createEverMemosDepsInstaller(): Installer {
   }
 }
 
+function createNexusMatrixCloneInstaller(): Installer {
+  return {
+    id: 'nexus-matrix-clone',
+    label: 'Clone NexusMatrix',
+    blocking: false,
+    async check() {
+      return existsSync(NEXUS_MATRIX_DIR)
+    },
+    async install(onOutput) {
+      onOutput('Cloning NexusMatrix repository...')
+      const parentDir = join(NEXUS_MATRIX_DIR, '..')
+      const { mkdirSync } = require('fs')
+      mkdirSync(parentDir, { recursive: true })
+      const dirName = 'NetMind-AI-RS-NexusMatrix'
+      await spawnWithOutput('git', ['clone', '--depth', '1', '--progress', NEXUS_MATRIX_GIT_URL, dirName], {
+        cwd: parentDir, timeout: 600000, onOutput
+      })
+    }
+  }
+}
+
+function createNexusMatrixDepsInstaller(): Installer {
+  return {
+    id: 'nexus-matrix-deps',
+    label: 'NexusMatrix dependencies',
+    dependsOn: ['uv', 'nexus-matrix-clone'],
+    blocking: false,
+    async check() {
+      return existsSync(join(NEXUS_MATRIX_DIR, '.venv'))
+    },
+    async install(onOutput) {
+      if (!existsSync(NEXUS_MATRIX_DIR)) {
+        throw new Error('NexusMatrix directory not found, skipping')
+      }
+      onOutput('Installing NexusMatrix Python dependencies...')
+      await spawnWithOutput('uv', ['sync'], {
+        cwd: NEXUS_MATRIX_DIR, timeout: 600000, onOutput
+      })
+    }
+  }
+}
+
 function createFrontendBuildInstaller(): Installer {
   return {
     id: 'frontend-build',
@@ -605,6 +649,8 @@ export class InstallerRegistry extends EventEmitter {
       createClaudeInstaller(),
       createPythonDepsInstaller(),
       createDockerInstaller(),
+      createNexusMatrixCloneInstaller(),
+      createNexusMatrixDepsInstaller(),
       createEverMemosCloneInstaller(),
       createEverMemosDepsInstaller(),
       createFrontendBuildInstaller()
