@@ -213,6 +213,10 @@ async def step_3_agent_loop(
         final_output=state.final_output,
         execution_steps=state.get_all_steps_as_list(),
         response_count=state.response_count,
+        input_tokens=state.input_tokens,
+        output_tokens=state.output_tokens,
+        model=state.model,
+        total_cost_usd=state.total_cost_usd,
         agent_loop_response=agent_loop_response,
         ctx_data=context.ctx_data,
     )

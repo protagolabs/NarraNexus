@@ -21,7 +21,8 @@ import type {
   SocialNetworkEntity,
   ChatHistoryEvent,
   ChatHistoryNarrative,
-  RAGFileInfo
+  RAGFileInfo,
+  CostSummary,
 } from '@/types';
 
 // ────────────────────────────────────────────
@@ -32,6 +33,8 @@ interface PreloadState {
   // Data
   inbox: InboxMessage[];
   inboxUnreadCount: number;
+  inboxTotalCount: number;
+  inboxPage: number;
   agentInboxRooms: MatrixRoom[];
   agentInboxUnreadCount: number;
   jobs: Job[];
@@ -44,6 +47,7 @@ interface PreloadState {
   ragFiles: RAGFileInfo[];
   ragCompletedCount: number;
   ragPendingCount: number;
+  costSummary: CostSummary | null;
 
   // Loading states
   inboxLoading: boolean;
@@ -53,6 +57,7 @@ interface PreloadState {
   socialNetworkLoading: boolean;
   chatHistoryLoading: boolean;
   ragFilesLoading: boolean;
+  costLoading: boolean;
 
   // Error states
   inboxError: string | null;
@@ -62,6 +67,7 @@ interface PreloadState {
   socialNetworkError: string | null;
   chatHistoryError: string | null;
   ragFilesError: string | null;
+  costError: string | null;
 
   // Last loaded params (to detect changes)
   lastUserId: string | null;
@@ -70,12 +76,14 @@ interface PreloadState {
   // Actions (silent=true skips loading state toggle & deduplicates unchanged data)
   preloadAll: (agentId: string, userId: string) => Promise<void>;
   refreshInbox: (userId: string, silent?: boolean) => Promise<void>;
+  loadInboxPage: (userId: string, page: number) => Promise<void>;
   refreshAgentInbox: (agentId: string, silent?: boolean) => Promise<void>;
   refreshJobs: (agentId: string, userId?: string, status?: string, silent?: boolean) => Promise<void>;
   refreshAwareness: (agentId: string, silent?: boolean) => Promise<void>;
   refreshSocialNetwork: (agentId: string, silent?: boolean) => Promise<void>;
   refreshChatHistory: (agentId: string, userId: string, silent?: boolean) => Promise<void>;
   refreshRAGFiles: (agentId: string, userId: string, silent?: boolean) => Promise<void>;
+  refreshCost: (agentId: string, days?: number, silent?: boolean) => Promise<void>;
   addChatHistoryEvent: (event: ChatHistoryEvent) => void;
   updateInboxMessage: (messageId: string, updates: Partial<InboxMessage>) => void;
   updateAgentInboxMessage: (messageId: string, updates: Partial<RoomMessage>) => void;
@@ -164,6 +172,8 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   // Initial data
   inbox: [],
   inboxUnreadCount: 0,
+  inboxTotalCount: 0,
+  inboxPage: 1,
   agentInboxRooms: [],
   agentInboxUnreadCount: 0,
   jobs: [],
@@ -176,6 +186,7 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   ragFiles: [],
   ragCompletedCount: 0,
   ragPendingCount: 0,
+  costSummary: null,
 
   // Initial loading / error
   inboxLoading: false,
@@ -185,6 +196,7 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   socialNetworkLoading: false,
   chatHistoryLoading: false,
   ragFilesLoading: false,
+  costLoading: false,
   inboxError: null,
   agentInboxError: null,
   jobsError: null,
@@ -192,6 +204,7 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   socialNetworkError: null,
   chatHistoryError: null,
   ragFilesError: null,
+  costError: null,
 
   lastUserId: null,
   lastAgentId: null,
@@ -207,13 +220,13 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
       lastAgentId: agentId,
       inboxLoading: true, agentInboxLoading: true, jobsLoading: true,
       awarenessLoading: true, socialNetworkLoading: true,
-      chatHistoryLoading: true, ragFilesLoading: true,
+      chatHistoryLoading: true, ragFilesLoading: true, costLoading: true,
       inboxError: null, agentInboxError: null, jobsError: null,
       awarenessError: null, socialNetworkError: null,
-      chatHistoryError: null, ragFilesError: null,
+      chatHistoryError: null, ragFilesError: null, costError: null,
     });
 
-    const [inbox, agentInbox, jobs, awareness, social, history, rag] = await Promise.allSettled([
+    const [inbox, agentInbox, jobs, awareness, social, history, rag, cost] = await Promise.allSettled([
       api.getInbox(userId),
       api.getAgentInbox(agentId),
       api.getJobs(agentId),
@@ -221,11 +234,12 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
       api.getSocialNetworkList(agentId),
       api.getChatHistory(agentId, userId),
       api.listRAGFiles(agentId, userId),
+      api.getCosts(agentId),
     ]);
 
     set({
       ...extractSettled(inbox,
-        (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count }),
+        (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count, inboxTotalCount: r.total_count, inboxPage: 1 }),
         'inboxLoading', 'inboxError', 'Failed to load inbox'),
       ...extractSettled(agentInbox,
         (r) => ({ agentInboxRooms: r.rooms, agentInboxUnreadCount: r.total_unread }),
@@ -245,6 +259,9 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
       ...extractSettled(rag,
         (r) => ({ ragFiles: r.files || [], ragCompletedCount: r.completed_count || 0, ragPendingCount: r.pending_count || 0 }),
         'ragFilesLoading', 'ragFilesError', 'Failed to load RAG files'),
+      ...extractSettled(cost,
+        (r) => ({ costSummary: r.summary || null }),
+        'costLoading', 'costError', 'Failed to load cost data'),
     } as Partial<PreloadState>);
   },
 
@@ -252,9 +269,29 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
 
   refreshInbox: (userId, silent?) => loadDomain(set, get,
     'inboxLoading', 'inboxError',
-    () => api.getInbox(userId),
-    (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count }),
+    () => api.getInbox(userId, undefined, 50, (get().inboxPage - 1) * 50),
+    (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count, inboxTotalCount: r.total_count }),
     'Failed to load inbox', silent),
+
+  loadInboxPage: async (userId, page) => {
+    set({ inboxLoading: true, inboxError: null });
+    try {
+      const result = await api.getInbox(userId, undefined, 50, (page - 1) * 50);
+      if (result.success) {
+        set({
+          inbox: result.messages,
+          inboxUnreadCount: result.unread_count,
+          inboxTotalCount: result.total_count,
+          inboxPage: page,
+          inboxLoading: false,
+        });
+      } else {
+        set({ inboxLoading: false, inboxError: result.error || 'Failed to load inbox' });
+      }
+    } catch (error) {
+      set({ inboxLoading: false, inboxError: String(error) });
+    }
+  },
 
   refreshAgentInbox: (agentId, silent?) => loadDomain(set, get,
     'agentInboxLoading', 'agentInboxError',
@@ -291,6 +328,12 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
     () => api.listRAGFiles(agentId, userId),
     (r) => ({ ragFiles: r.files || [], ragCompletedCount: r.completed_count || 0, ragPendingCount: r.pending_count || 0 }),
     'Failed to load RAG files', silent),
+
+  refreshCost: (agentId, days = 7, silent?) => loadDomain(set, get,
+    'costLoading', 'costError',
+    () => api.getCosts(agentId, days),
+    (r) => ({ costSummary: r.summary || null }),
+    'Failed to load cost data', silent),
 
   // ── Mutation helpers ──────────────────────────────
 
@@ -337,17 +380,18 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
 
   clearAll: () => {
     set({
-      inbox: [], inboxUnreadCount: 0,
+      inbox: [], inboxUnreadCount: 0, inboxTotalCount: 0, inboxPage: 1,
       agentInboxRooms: [], agentInboxUnreadCount: 0,
       jobs: [],
       awareness: null, awarenessCreateTime: null, awarenessUpdateTime: null,
       socialNetworkList: [],
       chatHistoryEvents: [], chatHistoryNarratives: [],
       ragFiles: [], ragCompletedCount: 0, ragPendingCount: 0,
+      costSummary: null,
       lastUserId: null, lastAgentId: null,
       inboxError: null, agentInboxError: null, jobsError: null,
       awarenessError: null, socialNetworkError: null,
-      chatHistoryError: null, ragFilesError: null,
+      chatHistoryError: null, ragFilesError: null, costError: null,
     });
   },
 }));

@@ -80,6 +80,7 @@ export interface InboxMessage {
 export interface InboxListResponse extends ApiResponse {
   messages: InboxMessage[];
   count: number;
+  total_count: number;
   unread_count: number;
 }
 
@@ -382,4 +383,43 @@ export interface RAGFileUploadResponse extends ApiResponse {
 
 export interface RAGFileDeleteResponse extends ApiResponse {
   filename?: string;
+}
+
+// Cost types
+export interface CostModelBreakdown {
+  cost: number;
+  input_tokens: number;
+  output_tokens: number;
+  call_count: number;
+}
+
+export interface CostDailyEntry {
+  date: string;
+  cost: number;
+}
+
+export interface CostSummary {
+  total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  by_model: Record<string, CostModelBreakdown>;
+  daily: CostDailyEntry[];
+}
+
+export interface CostRecord {
+  id: number;
+  agent_id: string;
+  event_id?: string;
+  call_type: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_cost_usd: number;
+  created_at?: string;
+}
+
+export interface CostResponse extends ApiResponse {
+  summary?: CostSummary;
+  records: CostRecord[];
+  total_count: number;
 }

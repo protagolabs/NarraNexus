@@ -14,6 +14,7 @@
 import { Activity, Settings, Inbox, ListTodo, Puzzle } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserInboxPopover } from '@/components/inbox';
+import { CostPopover } from '@/components/cost/CostPopover';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn } from '@/lib/utils';
 
@@ -89,8 +90,11 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
         </TabsList>
       </Tabs>
 
-      {/* User Inbox Notification Bell */}
-      <UserInboxPopover />
+      {/* Utility buttons: Cost + User Inbox */}
+      <div className="flex items-center gap-1">
+        <CostPopover />
+        <UserInboxPopover />
+      </div>
     </div>
   );
 }

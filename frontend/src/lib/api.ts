@@ -41,6 +41,7 @@ import type {
   SkillListResponse,
   SkillOperationResponse,
   SkillStudyResponse,
+  CostResponse,
 } from '@/types';
 
 // In development, use relative paths (Vite proxy handles it)
@@ -102,8 +103,8 @@ class ApiClient {
   }
 
   // Inbox API
-  async getInbox(userId: string, isRead?: boolean): Promise<InboxListResponse> {
-    let url = `/api/inbox?user_id=${encodeURIComponent(userId)}`;
+  async getInbox(userId: string, isRead?: boolean, limit: number = 50, offset: number = 0): Promise<InboxListResponse> {
+    let url = `/api/inbox?user_id=${encodeURIComponent(userId)}&limit=${limit}&offset=${offset}`;
     if (isRead !== undefined) url += `&is_read=${isRead}`;
     return this.request<InboxListResponse>(url);
   }
@@ -495,6 +496,14 @@ class ApiClient {
     return this.request<SkillOperationResponse>(
       `/api/skills/${encodeURIComponent(skillName)}/enable?${params}`,
       { method: 'PUT' }
+    );
+  }
+
+  // Cost API
+  async getCosts(agentId: string, days: number = 7): Promise<CostResponse> {
+    const params = new URLSearchParams({ days: days.toString() });
+    return this.request<CostResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/costs?${params}`
     );
   }
 

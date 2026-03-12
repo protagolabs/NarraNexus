@@ -21,6 +21,7 @@ from backend.routes.agents_chat_history import router as chat_history_router
 from backend.routes.agents_files import router as files_router
 from backend.routes.agents_mcps import router as mcps_router
 from backend.routes.agents_rag import router as rag_router
+from backend.routes.agents_cost import router as cost_router
 
 
 router = APIRouter()
@@ -31,3 +32,4 @@ router.include_router(chat_history_router)
 router.include_router(files_router)
 router.include_router(mcps_router)
 router.include_router(rag_router)
+router.include_router(cost_router)
