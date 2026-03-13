@@ -103,9 +103,6 @@ class MatrixTrigger:
         self._room_activity: Dict[str, List[datetime]] = {}
         self._workers: List[asyncio.Task] = []
         self._poller_task: Optional[asyncio.Task] = None
-        # Room metadata cache: room_id → {member_count, creator}
-        # Used for DM detection and creator-always-active rule.
-        self._room_meta: Dict[str, Dict[str, Any]] = {}
 
     @property
     def db(self) -> DatabaseClient:
@@ -264,25 +261,19 @@ class MatrixTrigger:
         self, client: "NexusMatrixClient", api_key: str, room_id: str
     ) -> Dict[str, Any]:
         """
-        Get room metadata (cached): member_count + creator.
+        Get room metadata from API (no cache).
 
-        Uses in-memory cache to avoid repeated API calls.
-        Cache is never invalidated within a session — acceptable because
-        room creator never changes and DM rooms rarely change membership.
+        Always fetches fresh data to avoid stale member_count or creator
+        causing incorrect DM detection or mention filtering.
 
         Returns:
             {"member_count": int, "creator": str | None}
         """
-        if room_id in self._room_meta:
-            return self._room_meta[room_id]
-
         info = await client.get_room_info(api_key=api_key, room_id=room_id)
-        meta = {
+        return {
             "member_count": info.get("member_count", 0) if info else 0,
             "creator": info.get("creator") if info else None,
         }
-        self._room_meta[room_id] = meta
-        return meta
 
     # =========================================================================
     # Poller
