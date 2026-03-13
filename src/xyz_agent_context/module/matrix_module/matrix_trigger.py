@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import argparse
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
@@ -95,8 +96,9 @@ class MatrixTrigger:
         self.running = False
         self._task_queue: asyncio.Queue[MessageTask] = asyncio.Queue()
         self._processing_agents: Set[str] = set()  # Agents currently being processed
-        self._processed_event_ids: Set[str] = set()  # Dedup: recently processed event IDs
-        self._max_event_id_cache = 500  # Max cached event IDs before pruning
+        # Dedup: recently seen event IDs (OrderedDict for deterministic FIFO eviction)
+        self._processed_event_ids: OrderedDict[str, None] = OrderedDict()
+        self._max_event_id_cache = 5000  # Max cached event IDs before FIFO pruning
         # Safety net: track (agent_id, room_id) → list of timestamps
         self._room_activity: Dict[str, List[datetime]] = {}
         self._workers: List[asyncio.Task] = []
@@ -240,6 +242,24 @@ class MatrixTrigger:
 
         return False
 
+    def _dedup_add(self, event_id: str) -> None:
+        """
+        Add an event ID to the dedup cache with FIFO eviction.
+
+        Uses OrderedDict to guarantee oldest entries are evicted first,
+        preventing the non-deterministic eviction bug of set.pop().
+        """
+        if not event_id:
+            return
+        # Move to end if already present (refresh recency)
+        if event_id in self._processed_event_ids:
+            self._processed_event_ids.move_to_end(event_id)
+            return
+        self._processed_event_ids[event_id] = None
+        # FIFO eviction: remove oldest entries when cache is full
+        while len(self._processed_event_ids) > self._max_event_id_cache:
+            self._processed_event_ids.popitem(last=False)
+
     async def _get_room_meta(
         self, client: "NexusMatrixClient", api_key: str, room_id: str
     ) -> Dict[str, Any]:
@@ -358,12 +378,14 @@ class MatrixTrigger:
                         if not room_id:
                             continue
 
-                        # Fetch messages since last sync
+                        # Fetch latest messages (no pagination token — rely on
+                        # event_id dedup to avoid reprocessing).
+                        # NOTE: Do NOT pass sync_token as `since` here. The sync
+                        # token is for the /sync API, not for room_messages pagination.
                         messages = await client.get_messages(
                             api_key=cred.api_key,
                             room_id=room_id,
                             limit=10,
-                            since=cred.sync_token if cred.sync_token else None,
                         )
 
                         if messages:
@@ -392,8 +414,7 @@ class MatrixTrigger:
                                 # - Room creator: always process (always-active rule)
                                 # - Others: only process if explicitly mentioned
                                 if not is_dm and not is_creator and not self._is_mentioned(msg, cred):
-                                    if event_id:
-                                        self._processed_event_ids.add(event_id)
+                                    self._dedup_add(event_id)
                                     continue
 
                                 # Safety net: skip if rate limited
@@ -410,16 +431,22 @@ class MatrixTrigger:
                                     },
                                 )
                                 await self._task_queue.put(task)
-                                if event_id:
-                                    self._processed_event_ids.add(event_id)
+                                self._dedup_add(event_id)
                                 enqueued += 1
 
-                        # Prune dedup cache if too large
-                        if len(self._processed_event_ids) > self._max_event_id_cache:
-                            # Keep only the most recent half
-                            excess = len(self._processed_event_ids) - self._max_event_id_cache // 2
-                            for _ in range(excess):
-                                self._processed_event_ids.pop()
+                        # Always mark the room as read after processing, even if
+                        # no messages were enqueued (e.g. all filtered out).
+                        # Without this, heartbeat keeps reporting unread forever
+                        # for agents that aren't mentioned in group chats.
+                        try:
+                            await client.mark_read(
+                                api_key=cred.api_key, room_id=room_id
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to mark_read for {cred.agent_id} "
+                                f"room {room_id}: {e}"
+                            )
 
                     if enqueued > 0:
                         logger.info(
@@ -551,14 +578,8 @@ class MatrixTrigger:
             # 4. Write to Inbox (agent replies via matrix_send_message tool, not forced here)
             await self._write_to_inbox(cred, event, content, room_id=task.room_id)
 
-            # 5. Mark as read
-            read_client = NexusMatrixClient(server_url=cred.server_url)
-            try:
-                await read_client.mark_read(
-                    api_key=cred.api_key, room_id=task.room_id
-                )
-            finally:
-                await read_client.close()
+            # Note: mark_read is now handled per-room in _check_credential
+            # after all messages are processed (including filtered ones).
 
             logger.info(
                 f"[Worker {worker_id}] Message processed for {agent_id}, "
