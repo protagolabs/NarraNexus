@@ -24,7 +24,7 @@ name: Desktop Release
 
 on:
   push:
-    branches: [main, feature/agent-communication-matrix-module]
+    branches: [main]
     paths:
       - 'desktop/**'
       - 'frontend/**'

@@ -7,7 +7,7 @@ directories:
 # Auto-updater: check GitHub Releases for new versions
 publish:
   provider: github
-  owner: protagolabs
+  owner: NetMindAI-Open
   repo: NexusAgent
 
 mac:

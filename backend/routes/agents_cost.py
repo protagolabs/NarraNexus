@@ -42,7 +42,7 @@ async def get_agent_costs(
 
         # Fetch records within the time window
         rows = await db.execute(
-            f"""
+            """
             SELECT id, agent_id, event_id, call_type, model,
                    input_tokens, output_tokens, total_cost_usd, created_at
             FROM cost_records

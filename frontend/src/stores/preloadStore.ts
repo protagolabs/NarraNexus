@@ -144,26 +144,6 @@ async function loadDomain<T extends ApiResponse>(
   }
 }
 
-/** Extract success data or error info from a single Promise.allSettled result */
-function extractSettled<T extends ApiResponse>(
-  result: PromiseSettledResult<T>,
-  onFulfilled: (val: T) => Partial<PreloadState>,
-  loadingKey: keyof PreloadState,
-  errorKey: keyof PreloadState,
-  fallbackError: string,
-): Partial<PreloadState> {
-  if (result.status === 'fulfilled') {
-    if (result.value.success) {
-      return { ...onFulfilled(result.value), [loadingKey]: false };
-    }
-    return {
-      [loadingKey]: false,
-      [errorKey]: result.value.error || fallbackError,
-    };
-  }
-  return { [loadingKey]: false, [errorKey]: String(result.reason) };
-}
-
 // ────────────────────────────────────────────
 // Store
 // ────────────────────────────────────────────

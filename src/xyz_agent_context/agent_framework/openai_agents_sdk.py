@@ -12,7 +12,6 @@ from loguru import logger
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
-from loguru import logger
 from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
 

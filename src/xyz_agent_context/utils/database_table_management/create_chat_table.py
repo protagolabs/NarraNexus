@@ -105,7 +105,7 @@ class InboxTableManager(BaseTableManager):
                 print(f"  [DRY RUN] {sql}")
             else:
                 await db.execute(sql, fetch=False)
-                print(f"  [DONE] Changed content to TEXT")
+                print("  [DONE] Changed content to TEXT")
 
         # Standard column add/drop sync
         await super().sync_table(dry_run=dry_run)
