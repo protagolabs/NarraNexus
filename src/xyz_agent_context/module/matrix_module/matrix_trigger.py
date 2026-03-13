@@ -700,6 +700,28 @@ def run_matrix_trigger(
     asyncio.run(trigger.start())
 
 
+def _setup_file_logger() -> None:
+    """Add a rotating file logger under logs/matrix_trigger/."""
+    import sys
+    from pathlib import Path
+
+    log_dir = Path(__file__).resolve().parents[3] / "logs" / "matrix_trigger"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file = str(log_dir / "matrix_trigger_{time:YYYYMMDD}.log")
+    logger.add(
+        log_file,
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+        level="DEBUG",
+        rotation="00:00",      # New file daily at midnight
+        retention="7 days",    # Keep 7 days of logs
+        compression="zip",
+        encoding="utf-8",
+        enqueue=True,
+    )
+    logger.info(f"Log file: {log_dir}")
+
+
 def main():
     """CLI entry point for MatrixTrigger."""
     parser = argparse.ArgumentParser(
@@ -718,6 +740,8 @@ def main():
         help="Disable conversation history loading in prompts",
     )
     args = parser.parse_args()
+
+    _setup_file_logger()
 
     logger.info("=" * 60)
     logger.info("MatrixTrigger — Background Matrix Message Poller")
