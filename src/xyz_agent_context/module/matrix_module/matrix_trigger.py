@@ -404,10 +404,6 @@ class MatrixTrigger:
                             # member_count == 0 means unknown (cache miss) — treat as group
                             mc = room_meta["member_count"]
                             is_dm = mc > 0 and mc <= 2
-                            is_creator = (
-                                room_meta["creator"] is not None
-                                and room_meta["creator"] == cred.matrix_user_id
-                            )
 
                             for msg in messages:
                                 # Skip own messages
@@ -420,10 +416,10 @@ class MatrixTrigger:
                                     continue
 
                                 # Mention filter for group rooms:
-                                # - DM rooms: always process
-                                # - Room creator: always process (always-active rule)
-                                # - Others: only process if explicitly mentioned
-                                if not is_dm and not is_creator and not self._is_mentioned(msg, cred):
+                                # - DM rooms: always process (only 2 people, no need for @)
+                                # - Group rooms: only process if explicitly mentioned
+                                #   (creator has no special privilege — avoids creator ↔ agent ping-pong loops)
+                                if not is_dm and not self._is_mentioned(msg, cred):
                                     self._dedup_add(event_id)
                                     continue
 
