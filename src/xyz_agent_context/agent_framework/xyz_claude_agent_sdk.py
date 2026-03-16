@@ -81,8 +81,10 @@ class ClaudeAgentSDK:
                 conversation_history.append(f"User: {msg['content']}")
             elif msg["role"] == "assistant":
                 conversation_history.append(f"Assistant: {msg['content']}")
+            elif msg["role"] == "context":
+                conversation_history.append(f"[Memory] {msg['content']}")
         # If there is conversation history, append it to the system prompt
-        if len(user_messages) > 1:  # More than 1 user message indicates there is history
+        if conversation_history:
             history_text = "\n\n=== Chat History ===\n" + "\n\n".join(conversation_history)
 
             # If the history is too long, truncate and keep the most recent part
