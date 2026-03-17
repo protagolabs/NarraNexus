@@ -645,4 +645,53 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
             logger.error(f"Error merging entities: {e}")
             return {"success": False, "message": f"Error: {str(e)}"}
 
+    @mcp.tool()
+    async def delete_entity(
+        agent_id: str,
+        entity_id: str,
+    ) -> dict:
+        """
+        Delete a social network entity permanently.
+
+        **WHEN TO CALL**: When the user explicitly asks you to remove a contact/entity
+        from your social network — e.g., "delete Alice", "remove that entity",
+        "clean up duplicate entries". Also useful for removing test or junk entries.
+
+        This action is irreversible. The entity and all its associated data
+        (tags, contact info, interaction history) will be permanently deleted.
+
+        Args:
+            agent_id: The ID of the agent who owns this social network.
+            entity_id: The entity ID to delete (e.g., "user_alice_123").
+
+        Returns:
+            Operation result with success status.
+        """
+        temp_module, instance_id, error = await _get_instance_and_module(agent_id)
+        if error:
+            return {"success": False, "message": error}
+
+        try:
+            from xyz_agent_context.repository import SocialNetworkRepository
+            db = await get_db_client_fn()
+            repo = SocialNetworkRepository(db)
+
+            # Verify entity exists
+            entity = await repo.get_entity(entity_id, instance_id)
+            if not entity:
+                return {"success": False, "message": f"Entity not found: {entity_id}"}
+
+            entity_name = entity.entity_name or entity_id
+            await repo.delete_entity(entity_id, instance_id)
+
+            logger.info(f"Deleted entity '{entity_name}' ({entity_id}) from instance {instance_id}")
+            return {
+                "success": True,
+                "message": f"Entity '{entity_name}' ({entity_id}) has been permanently deleted.",
+            }
+
+        except Exception as e:
+            logger.error(f"Error deleting entity: {e}")
+            return {"success": False, "message": f"Error: {str(e)}"}
+
     return mcp
