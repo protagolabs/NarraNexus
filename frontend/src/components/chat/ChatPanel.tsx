@@ -216,15 +216,16 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     }
 
     // 2. Add current session messages (from chatStore)
-    // Dedup: skip session messages that overlap with history.
-    // Use a 2-second tolerance window because backend may lose subsecond precision
-    // (Date.now() has ms, but DB might round to seconds)
-    const latestHistoryTs = items.length > 0 ? items[items.length - 1].timestamp : 0;
-    const DEDUP_TOLERANCE_MS = 2000;
+    // Dedup by content: if a session message's role+content already exists in history,
+    // it has been persisted to DB and the history version is authoritative — skip it.
+    // This avoids timestamp-based dedup which is unreliable (frontend Date.now() vs backend utc_now()).
+    const historyContentKeys = new Set(
+      items.slice(-30).map((item) => `${item.role}:${item.content}`)
+    );
 
     for (const msg of messages) {
-      // Skip if this session message is within tolerance of or older than latest history
-      if (msg.timestamp <= latestHistoryTs + DEDUP_TOLERANCE_MS && latestHistoryTs > 0) continue;
+      const key = `${msg.role}:${msg.content}`;
+      if (historyContentKeys.has(key)) continue;
 
       items.push({
         id: msg.id,
