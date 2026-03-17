@@ -426,9 +426,31 @@ class ContextRuntime:
                     "Bootstrap.md"
                 )
                 if os.path.isfile(bootstrap_path):
-                    prompt_parts.append(BOOTSTRAP_INJECTION_PROMPT)
-                    ctx_data.bootstrap_active = True
-                    logger.debug("        Added Bootstrap injection (file-read approach)")
+                    # Auto-delete Bootstrap.md after 3 rounds to prevent
+                    # perpetual bootstrap mode if the agent fails to delete it.
+                    try:
+                        event_count_rows = await self.db.execute(
+                            "SELECT COUNT(*) AS cnt FROM events WHERE agent_id = %s",
+                            (self.agent_id,),
+                            fetch=True,
+                        )
+                        event_count = event_count_rows[0]["cnt"] if event_count_rows else 0
+                    except Exception:
+                        event_count = 0
+
+                    if event_count >= 3:
+                        try:
+                            os.remove(bootstrap_path)
+                            logger.info(
+                                f"        Auto-deleted Bootstrap.md after {event_count} events "
+                                f"(agent={self.agent_id})"
+                            )
+                        except OSError as rm_err:
+                            logger.warning(f"        Failed to auto-delete Bootstrap.md: {rm_err}")
+                    else:
+                        prompt_parts.append(BOOTSTRAP_INJECTION_PROMPT)
+                        ctx_data.bootstrap_active = True
+                        logger.debug("        Added Bootstrap injection (file-read approach)")
         except Exception as e:
             logger.warning(f"        Failed to inject Bootstrap: {e}")
 
