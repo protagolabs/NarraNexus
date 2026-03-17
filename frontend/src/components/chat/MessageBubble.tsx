@@ -230,14 +230,10 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
 
           {/* Copy & Download (assistant messages only, not during streaming) */}
           {!isUser && !isStreaming && message.content && (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 hover:!opacity-100 transition-opacity"
-              style={{ opacity: undefined }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = ''; }}
-            >
+            <div className="flex items-center gap-1">
               <button
                 onClick={handleCopy}
-                className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--bg-tertiary)] transition-all"
                 title="Copy Markdown"
               >
                 {copied ? (
@@ -248,7 +244,7 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
               </button>
               <button
                 onClick={handleDownload}
-                className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--bg-tertiary)] transition-all"
                 title="Download as .md"
               >
                 <Download className="w-3 h-3" />
