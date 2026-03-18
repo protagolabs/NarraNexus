@@ -10,7 +10,7 @@
 #   bash run.sh run          # Start all services directly
 #   bash run.sh status       # View service status
 #   bash run.sh stop         # Stop all services
-#   bash run.sh update       # Pull latest code & update deps (DB untouched)
+#   bash run.sh update       # Pull latest code (run Install after to apply changes)
 # ============================================================================
 
 set -uo pipefail
@@ -311,7 +311,7 @@ show_menu() {
     echo -e "    ${G3}[2]${RESET}  ${BOLD}Run${RESET}       Start all services"
     echo -e "    ${G5}[3]${RESET}  ${BOLD}Status${RESET}    View service status"
     echo -e "    ${YELLOW}[4]${RESET}  ${BOLD}Stop${RESET}      Stop all services"
-    echo -e "    ${CYAN}[5]${RESET}  ${BOLD}Update${RESET}    Pull latest code and update dependencies"
+    echo -e "    ${CYAN}[5]${RESET}  ${BOLD}Update${RESET}    Pull latest code (run Install after to apply)"
     echo -e "    ${DIM}[q]${RESET}  ${DIM}Quit${RESET}      ${DIM}Exit${RESET}"
     echo ""
     read -rp "    > " choice
@@ -2287,19 +2287,15 @@ show_status_panel() {
 # ============================================================================
 do_update() {
     echo -e "  ${BOLD}${CYAN}╔══════════════════════════════════════════════════╗${RESET}"
-    echo -e "  ${BOLD}${CYAN}║           Update & Reinstall                     ║${RESET}"
+    echo -e "  ${BOLD}${CYAN}║           Update                                 ║${RESET}"
     echo -e "  ${BOLD}${CYAN}╚══════════════════════════════════════════════════╝${RESET}"
     echo ""
-    echo -e "    ${DIM}This will pull the latest code and update dependencies.${RESET}"
+    echo -e "    ${DIM}This will pull the latest code from the remote repository.${RESET}"
     echo -e "    ${DIM}Database, .env, and Docker volumes will NOT be touched.${RESET}"
     echo ""
 
-    local total_steps=6
-    local current=0
-
     # --- Step 1: Stop running services ---
-    current=$((current + 1))
-    step "${current}/${total_steps}" "Stopping running services"
+    step "1/2" "Stopping running services"
 
     local services_were_running=false
 
@@ -2317,8 +2313,7 @@ do_update() {
     fi
 
     # --- Step 2: Pull latest code ---
-    current=$((current + 1))
-    step "${current}/${total_steps}" "Pulling latest code (git pull)"
+    step "2/2" "Pulling latest code (git pull)"
     cd "$PROJECT_ROOT"
 
     # Check for uncommitted changes
@@ -2327,7 +2322,7 @@ do_update() {
         echo ""
         echo -e "    ${G1}[1]${RESET}  ${BOLD}Stash changes and pull${RESET}  ${DIM}(git stash → pull → stash pop)${RESET}"
         echo -e "    ${G3}[2]${RESET}  ${BOLD}Pull anyway${RESET}             ${DIM}(may cause merge conflicts)${RESET}"
-        echo -e "    ${YELLOW}[3]${RESET}  ${BOLD}Skip git pull${RESET}          ${DIM}(only update dependencies)${RESET}"
+        echo -e "    ${YELLOW}[3]${RESET}  ${BOLD}Cancel update${RESET}"
         echo ""
         read -rp "    > " git_choice
         echo ""
@@ -2358,11 +2353,12 @@ do_update() {
                     fail "git pull failed (likely merge conflicts). Please resolve manually."
                 fi
                 ;;
-            3)
-                info "Skipping git pull"
-                ;;
             *)
-                info "Skipping git pull"
+                info "Update cancelled"
+                read -rp "    Press Enter to return to menu..."
+                show_banner
+                show_menu
+                return
                 ;;
         esac
     else
@@ -2373,69 +2369,16 @@ do_update() {
         fi
     fi
 
-    # --- Step 3: Update Python dependencies ---
-    current=$((current + 1))
-    step "${current}/${total_steps}" "Updating Python dependencies (uv sync)"
-    if command -v uv &>/dev/null; then
-        cd "$PROJECT_ROOT"
-        if uv sync; then
-            success "Python dependencies updated"
-        else
-            fail "uv sync failed. Check pyproject.toml for errors."
-        fi
-    else
-        fail "uv is not installed. Run Install first."
-    fi
-
-    # --- Step 4: Update frontend dependencies ---
-    current=$((current + 1))
-    step "${current}/${total_steps}" "Updating frontend dependencies (npm install)"
-    if [ -d "${PROJECT_ROOT}/frontend" ] && command -v npm &>/dev/null; then
-        cd "${PROJECT_ROOT}/frontend"
-        if npm install --silent; then
-            success "Frontend dependencies updated"
-        else
-            fail "npm install failed. Check frontend/package.json for errors."
-        fi
-        cd "$PROJECT_ROOT"
-    else
-        warn "Frontend directory not found or npm not available, skipping"
-    fi
-
-    # --- Step 5: Update EverMemOS (if initialized) ---
-    current=$((current + 1))
-    step "${current}/${total_steps}" "Updating EverMemOS"
-    if [ -d "${EVERMEMOS_DIR}" ]; then
+    # Also pull sub-projects if they exist
+    if [ -d "${EVERMEMOS_DIR}" ] && [ -d "${EVERMEMOS_DIR}/.git" ]; then
         cd "${EVERMEMOS_DIR}"
-        if git pull 2>/dev/null; then
-            success "EverMemOS code updated"
-        else
-            warn "EverMemOS git pull failed (may not be a git repo or has conflicts)"
-        fi
-        if command -v uv &>/dev/null && [ -f "${EVERMEMOS_DIR}/pyproject.toml" ]; then
-            uv sync 2>/dev/null && success "EverMemOS dependencies updated" || warn "EverMemOS uv sync failed"
-        fi
+        git pull 2>/dev/null && success "EverMemOS code updated" || warn "EverMemOS git pull failed"
         cd "$PROJECT_ROOT"
-    else
-        info "EverMemOS not initialized, skipping"
     fi
-
-    # --- Step 6: Update NexusMatrix (if initialized) ---
-    current=$((current + 1))
-    step "${current}/${total_steps}" "Updating NexusMatrix"
-    if [ -d "${NEXUSMATRIX_DIR}" ]; then
+    if [ -d "${NEXUSMATRIX_DIR}" ] && [ -d "${NEXUSMATRIX_DIR}/.git" ]; then
         cd "${NEXUSMATRIX_DIR}"
-        if git pull 2>/dev/null; then
-            success "NexusMatrix code updated"
-        else
-            warn "NexusMatrix git pull failed (may not be a git repo or has conflicts)"
-        fi
-        if command -v uv &>/dev/null && [ -f "${NEXUSMATRIX_DIR}/pyproject.toml" ]; then
-            uv sync 2>/dev/null && success "NexusMatrix dependencies updated" || warn "NexusMatrix uv sync failed"
-        fi
+        git pull 2>/dev/null && success "NexusMatrix code updated" || warn "NexusMatrix git pull failed"
         cd "$PROJECT_ROOT"
-    else
-        info "NexusMatrix not initialized, skipping (run Install to set up)"
     fi
 
     # --- Done ---
@@ -2444,19 +2387,7 @@ do_update() {
     echo -e "  ${BOLD}${GREEN}║           Update Complete!                        ║${RESET}"
     echo -e "  ${BOLD}${GREEN}╚══════════════════════════════════════════════════╝${RESET}"
     echo ""
-    echo -e "    ${DIM}Database and .env were not modified.${RESET}"
-
-    if [ "$services_were_running" = true ]; then
-        echo ""
-        read -rp "    Services were running before update. Restart now? [Y/n] " restart_choice
-        if [[ "$restart_choice" != "n" && "$restart_choice" != "N" ]]; then
-            do_run
-            return
-        fi
-    fi
-
-    echo ""
-    echo -e "    ${DIM}Next step: Select [2] Run to start all services${RESET}"
+    echo -e "    ${YELLOW}⚠  Please run [1] Install to update dependencies and rebuild.${RESET}"
     echo ""
 
     read -rp "    Press Enter to return to menu..."
@@ -2585,7 +2516,7 @@ main() {
             echo "  run       Start all services"
             echo "  status    View service status"
             echo "  stop      Stop all services"
-            echo "  update    Pull latest code and update dependencies (DB untouched)"
+            echo "  update    Pull latest code (run Install after to apply changes)"
             echo ""
             echo "Run without arguments for an interactive menu."
             exit 0
