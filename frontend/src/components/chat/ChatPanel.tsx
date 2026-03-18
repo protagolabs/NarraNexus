@@ -39,6 +39,9 @@ interface TimelineItem {
   source: 'history' | 'session';  // Where this message came from (for dedup)
   messageType?: string;           // "activity" for background activity records
   workingSource?: string;         // "chat" | "job" | "matrix"
+  eventId?: string;               // Associated Event ID (for loading event_log on demand)
+  thinking?: string;              // Reasoning content (from session messages)
+  toolCalls?: import('@/types').AgentToolCall[];  // Tool calls (from session messages)
 }
 
 interface ChatPanelProps {
@@ -212,6 +215,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         source: 'history',
         messageType: msg.message_type,
         workingSource: msg.working_source,
+        eventId: msg.event_id,
       });
     }
 
@@ -233,6 +237,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         content: msg.content,
         timestamp: msg.timestamp,
         source: 'session',
+        thinking: msg.thinking,
+        toolCalls: msg.toolCalls,
       });
     }
 
@@ -442,7 +448,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   role: item.role,
                   content: item.content,
                   timestamp: item.timestamp,
+                  thinking: item.thinking,
+                  toolCalls: item.toolCalls,
                 }}
+                eventId={item.eventId}
+                agentId={agentId}
               />
             </div>
           );

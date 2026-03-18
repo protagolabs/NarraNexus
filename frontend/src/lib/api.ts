@@ -16,6 +16,7 @@ import type {
   SocialNetworkSearchResponse,
   ChatHistoryResponse,
   SimpleChatHistoryResponse,
+  EventLogResponse,
   CreateAgentResponse,
   UpdateAgentResponse,
   DeleteAgentResponse,
@@ -174,6 +175,12 @@ class ApiClient {
     });
     return this.request<SimpleChatHistoryResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/simple-chat-history?${params}`
+    );
+  }
+
+  async getEventLog(agentId: string, eventId: string): Promise<EventLogResponse> {
+    return this.request<EventLogResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/event-log/${encodeURIComponent(eventId)}`
     );
   }
 

@@ -27,6 +27,8 @@ from xyz_agent_context.schema import (
     ClearHistoryResponse,
     SimpleChatMessage,
     SimpleChatHistoryResponse,
+    EventLogToolCall,
+    EventLogResponse,
 )
 from xyz_agent_context.schema.api_schema import InstanceInfo
 
@@ -433,6 +435,7 @@ async def get_simple_chat_history(
                             "instance_id": instance.instance_id,
                             "working_source": working_source,
                             "message_type": message_type,
+                            "event_id": meta_data.get("event_id"),
                             "_sort_key": timestamp or ""
                         })
 
@@ -468,6 +471,7 @@ async def get_simple_chat_history(
                 narrative_id=msg.get("narrative_id"),
                 working_source=msg.get("working_source"),
                 message_type=msg.get("message_type"),
+                event_id=msg.get("event_id"),
             )
             for msg in all_messages
         ]
@@ -485,3 +489,83 @@ async def get_simple_chat_history(
         import traceback
         traceback.print_exc()
         return SimpleChatHistoryResponse(success=False, error=str(e))
+
+
+@router.get("/{agent_id}/event-log/{event_id}", response_model=EventLogResponse)
+async def get_event_log_detail(agent_id: str, event_id: str):
+    """
+    Get event log detail (thinking + tool calls) for a specific event.
+
+    Used by the frontend to lazily load reasoning and tool call details
+    for historical chat messages. The event_log is already stored in the
+    events table during Step 4 of the pipeline.
+    """
+    logger.info(f"Getting event log detail: agent_id={agent_id}, event_id={event_id}")
+
+    try:
+        db_client = await get_db_client()
+
+        event_row = await db_client.get_one(
+            "events",
+            {"event_id": event_id, "agent_id": agent_id}
+        )
+
+        if not event_row:
+            return EventLogResponse(
+                success=False,
+                event_id=event_id,
+                error="Event not found"
+            )
+
+        event_log = _parse_json_field(event_row.get("event_log"), [])
+
+        # Extract thinking: concatenate all thinking entries
+        thinking_parts = []
+        for entry in event_log:
+            content = entry.get("content", {})
+            if isinstance(content, dict) and content.get("type") == "thinking":
+                thinking_text = content.get("content", "")
+                if thinking_text:
+                    thinking_parts.append(thinking_text)
+
+        thinking = "\n\n".join(thinking_parts) if thinking_parts else None
+
+        # Extract tool calls: pair each tool_call with the next tool_output
+        tool_calls: List[EventLogToolCall] = []
+        entries_content = [
+            entry.get("content", {}) if isinstance(entry.get("content"), dict) else entry
+            for entry in event_log
+        ]
+
+        i = 0
+        while i < len(entries_content):
+            entry = entries_content[i]
+            if isinstance(entry, dict) and entry.get("type") == "tool_call":
+                tool_name = entry.get("tool_name", "unknown")
+                tool_input = entry.get("arguments", {})
+
+                # Look ahead for matching tool_output
+                tool_output = None
+                if i + 1 < len(entries_content):
+                    next_entry = entries_content[i + 1]
+                    if isinstance(next_entry, dict) and next_entry.get("type") == "tool_output":
+                        tool_output = next_entry.get("output")
+                        i += 1  # Skip the tool_output entry
+
+                tool_calls.append(EventLogToolCall(
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    tool_output=tool_output,
+                ))
+            i += 1
+
+        return EventLogResponse(
+            success=True,
+            event_id=event_id,
+            thinking=thinking,
+            tool_calls=tool_calls,
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting event log detail: {e}")
+        return EventLogResponse(success=False, event_id=event_id, error=str(e))

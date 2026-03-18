@@ -245,6 +245,7 @@ class SimpleChatMessage(BaseModel):
     narrative_id: Optional[str] = None  # Source Narrative
     working_source: Optional[str] = None  # "chat" | "job" | "matrix" | etc.
     message_type: Optional[str] = None  # "chat" (default) | "activity"
+    event_id: Optional[str] = None  # Associated Event ID (for loading event_log on demand)
 
 
 class SimpleChatHistoryResponse(BaseModel):
@@ -257,6 +258,22 @@ class SimpleChatHistoryResponse(BaseModel):
     success: bool
     messages: List[SimpleChatMessage] = []
     total_count: int = 0
+    error: Optional[str] = None
+
+
+class EventLogToolCall(BaseModel):
+    """A single tool call extracted from event_log"""
+    tool_name: str
+    tool_input: Dict[str, Any] = {}
+    tool_output: Optional[str] = None
+
+
+class EventLogResponse(BaseModel):
+    """Response for event log detail endpoint (on-demand loading)"""
+    success: bool
+    event_id: str = ""
+    thinking: Optional[str] = None
+    tool_calls: List[EventLogToolCall] = []
     error: Optional[str] = None
 
 

@@ -97,7 +97,7 @@ export const SYNAPSE_TEMPLATE_DIR = join(PROJECT_ROOT, 'deploy', 'synapse')
 /** Synapse data directory (runtime, gitignored) */
 export const SYNAPSE_DATA_DIR = join(PROJECT_ROOT, 'deploy', 'synapse', 'data')
 
-/** All MCP module ports (7801-7805) */
+/** All MCP module ports (7801-7810) */
 export const MCP_PORTS = Array.from(
   { length: PORTS.MCP_END - PORTS.MCP_START + 1 },
   (_, i) => PORTS.MCP_START + i

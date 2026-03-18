@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start MCP server (ports 7801-7805)
+# Start MCP server (ports 7801-7810)
 # Auto-restart on crash: 3 attempts, exponential backoff (1s, 2s, 4s)
 cd "$(dirname "$0")/.."
 

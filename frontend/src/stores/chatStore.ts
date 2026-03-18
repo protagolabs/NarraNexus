@@ -259,7 +259,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
           timestamp: Date.now(),
           isError,
           warnings,
-          thinking: session.currentThinking || session.currentAssistantMessage || undefined,
+          thinking: session.currentThinking || undefined,
           toolCalls: session.currentToolCalls.length > 0 ? [...session.currentToolCalls] : undefined,
         };
 

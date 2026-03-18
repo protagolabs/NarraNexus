@@ -156,11 +156,25 @@ export interface SimpleChatMessage {
   narrative_id?: string;
   working_source?: string;  // "chat" | "job" | "matrix" | etc.
   message_type?: string;    // "chat" (default) | "activity"
+  event_id?: string;        // Associated Event ID (for loading event_log on demand)
 }
 
 export interface SimpleChatHistoryResponse extends ApiResponse {
   messages: SimpleChatMessage[];
   total_count: number;
+}
+
+// Event Log Detail types (on-demand loading for chat history)
+export interface EventLogToolCall {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_output?: string;
+}
+
+export interface EventLogResponse extends ApiResponse {
+  event_id: string;
+  thinking?: string;
+  tool_calls: EventLogToolCall[];
 }
 
 export interface ChatHistoryEvent {

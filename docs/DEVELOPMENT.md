@@ -71,7 +71,7 @@ bash start/all.sh --no-fe
 Or start each service individually:
 
 ```bash
-# Terminal 1 -- MCP servers (ports 7801-7805)
+# Terminal 1 -- MCP servers (ports 7801-7810)
 uv run python src/xyz_agent_context/module/module_runner.py mcp
 
 # Terminal 2 -- FastAPI (port 8000)
@@ -150,7 +150,7 @@ tmux attach -t xyz-dev   # Attach to session
 | 2 | backend | FastAPI backend (8000) |
 | 3 | job-trigger | Scheduled task executor |
 | 4 | poller | Module status polling |
-| 5 | mcp | MCP tool servers (7801-7805) |
+| 5 | mcp | MCP tool servers (7801-7810) |
 
 ---
 

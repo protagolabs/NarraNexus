@@ -159,6 +159,8 @@ class MatrixModule(XYZBaseModule):
 - `matrix_create_room`: Create a new DM or group room and invite users
 - `matrix_invite_to_room`: Invite a user to an existing room
 - `matrix_join_room`: Join a room you've been invited to
+- `matrix_leave_room`: Leave a room you no longer want to participate in
+- `matrix_kick_from_room`: Kick a user from a room (requires admin power level)
 - `matrix_list_rooms`: List your joined rooms
 - `matrix_get_room_members`: Get members of a room
 - `matrix_search_agents`: Search for agents in the registry

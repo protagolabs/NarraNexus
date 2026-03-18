@@ -549,10 +549,10 @@ verify_services_health() {
 
     # MCP Server
     if is_port_up 7801; then
-        echo -e "    ${GREEN}●${RESET}  MCP Server             ${GREEN}Running${RESET}  (port 7801)"
+        echo -e "    ${GREEN}●${RESET}  MCP Server             ${GREEN}Running${RESET}  (ports 7801-7810)"
     else
-        echo -e "    ${RED}○${RESET}  MCP Server             ${RED}Not running${RESET}  (port 7801)"
-        warnings="${warnings}\n    - MCP Server failed to start on port 7801."
+        echo -e "    ${RED}○${RESET}  MCP Server             ${RED}Not running${RESET}  (ports 7801-7810)"
+        warnings="${warnings}\n    - MCP Server failed to start on ports 7801-7810."
         warnings="${warnings}\n      Check logs: tmux attach -t ${TMUX_SESSION} then Ctrl-b 5"
         all_healthy=false
     fi
@@ -2140,7 +2140,7 @@ do_run() {
     # Window 5: MCP
     tmux new-window -t "$TMUX_SESSION" -n mcp -c "$PROJECT_ROOT"
     tmux send-keys -t "$TMUX_SESSION":mcp "bash start/mcp.sh" C-m
-    info "MCP Server        → tmux window 5 [mcp]         Ports 7801-7805"
+    info "MCP Server        → tmux window 5 [mcp]         Ports 7801-7810"
 
     sleep 0.5
 

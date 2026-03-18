@@ -135,6 +135,9 @@ from .api_schema import (
     # Simple Chat History
     SimpleChatMessage,
     SimpleChatHistoryResponse,
+    # Event Log Detail
+    EventLogToolCall,
+    EventLogResponse,
     # Files
     FileInfo,
     FileListResponse,
@@ -330,6 +333,9 @@ __all__ = [
     # Simple Chat History
     "SimpleChatMessage",
     "SimpleChatHistoryResponse",
+    # Event Log Detail
+    "EventLogToolCall",
+    "EventLogResponse",
     # Files
     "FileInfo",
     "FileListResponse",
