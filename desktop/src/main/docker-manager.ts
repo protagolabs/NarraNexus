@@ -355,25 +355,64 @@ export async function ensureDockerDaemon(): Promise<boolean> {
 
 // ─── MySQL (Primary Database) ──────────────────────────────
 
-/** Start MySQL containers */
+/** Hard-coded container names from docker-compose.yaml */
+const COMPOSE_CONTAINERS = ['xyz-mysql', 'nexus-synapse']
+
+/**
+ * Start MySQL + Synapse containers.
+ *
+ * When the local directory is renamed (or cloned to a different path),
+ * Docker Compose's project name changes and it can no longer manage
+ * containers created under the old project name. This causes
+ * "container name already in use" errors on `compose up`.
+ *
+ * Fix (aligned with run.sh): detect existing containers first,
+ * `docker start` them directly, and only `compose up` for truly missing ones.
+ */
 export async function startMySQL(): Promise<{ success: boolean; output: string }> {
-  // 端口已通 = MySQL 已经在跑，直接当作成功
-  if (await checkPort(PORTS.MYSQL)) {
-    console.log('[docker-manager] MySQL port already reachable, skipping compose up')
-    return { success: true, output: 'MySQL already running' }
+  // Port already reachable = containers running, skip entirely
+  const [mysqlUp, synapseUp] = await Promise.all([
+    checkPort(PORTS.MYSQL),
+    checkPort(8008),
+  ])
+  if (mysqlUp && synapseUp) {
+    console.log('[docker-manager] MySQL + Synapse ports already reachable, skipping compose up')
+    return { success: true, output: 'Containers already running' }
   }
-  const { cmd, baseArgs } = await composeCmd(DOCKER_COMPOSE_PATH)
-  // First pull may take a while, allow generous timeout (10 min)
-  const result = await execSafe(cmd, [...baseArgs, 'up', '-d'], { timeout: 600000 })
-  // 容器名冲突 = 之前的容器还在，也当作成功
-  if (!result.success && result.stderr.includes('already in use')) {
-    console.warn('[docker-manager] Container name conflict, treating as success')
-    return { success: true, output: 'Container already exists' }
+
+  // Check which containers already exist (possibly from a different compose project)
+  const existing = await execSafe('docker', ['ps', '-a', '--format', '{{.Names}}'], { timeout: 5000 })
+  const existingNames = new Set(existing.stdout.trim().split('\n').filter(Boolean))
+  const servicesToCreate: string[] = []
+
+  for (const name of COMPOSE_CONTAINERS) {
+    if (existingNames.has(name)) {
+      // Container exists but may be stopped — start it directly
+      console.log(`[docker-manager] Container ${name} already exists, starting directly`)
+      await execSafe('docker', ['start', name], { timeout: 30000 })
+    } else {
+      // Map container name to compose service name
+      const service = name === 'xyz-mysql' ? 'mysql' : 'synapse'
+      servicesToCreate.push(service)
+    }
   }
-  return {
-    success: result.success,
-    output: result.success ? result.stdout : result.stderr
+
+  // Only compose-create truly missing services
+  if (servicesToCreate.length > 0) {
+    const { cmd, baseArgs } = await composeCmd(DOCKER_COMPOSE_PATH)
+    const result = await execSafe(cmd, [...baseArgs, 'up', '-d', ...servicesToCreate], { timeout: 600000 })
+    if (!result.success && result.stderr.includes('already in use')) {
+      // Race condition: container appeared between check and compose up
+      console.warn('[docker-manager] Container name conflict on compose up, starting directly')
+      for (const name of COMPOSE_CONTAINERS) {
+        await execSafe('docker', ['start', name], { timeout: 30000 })
+      }
+    } else if (!result.success) {
+      return { success: false, output: result.stderr }
+    }
   }
+
+  return { success: true, output: 'Containers started' }
 }
 
 /** Stop MySQL containers */

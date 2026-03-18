@@ -223,9 +223,16 @@ export class ServiceLauncher extends EventEmitter {
             break
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err)
-            // 容器名冲突 = 之前的容器还在，当作成功
+            // Container name conflict = containers from a previous compose project still exist.
+            // Start them directly since compose can't manage them under the new project name.
             if (errMsg.includes('already in use')) {
-              console.warn('[launcher] compose-up: container already exists, treating as success')
+              console.warn('[launcher] compose-up: container name conflict, starting existing containers directly')
+              for (const name of ['xyz-mysql', 'nexus-synapse']) {
+                try {
+                  await execInProject('docker', ['start', name], { timeout: 30000 })
+                  console.log(`[launcher] compose-up: started existing container ${name}`)
+                } catch { /* container may not exist, ignore */ }
+              }
               composeSuccess = true
               break
             }
