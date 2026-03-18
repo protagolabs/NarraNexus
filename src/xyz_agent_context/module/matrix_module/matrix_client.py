@@ -463,6 +463,60 @@ class NexusMatrixClient:
             logger.error(f"Get room members failed: {e}")
             return None
 
+    async def leave_room(self, api_key: str, room_id: str) -> bool:
+        """
+        Leave a room.
+
+        Args:
+            api_key: Agent's API key
+            room_id: Room ID to leave
+
+        Returns:
+            True if successful
+        """
+        client = await self._get_client()
+        try:
+            resp = await client.post(
+                f"/api/v1/rooms/{room_id}/leave",
+                headers=self._headers(api_key),
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"Leave room failed: {e}")
+            return False
+
+    async def kick_from_room(
+        self, api_key: str, room_id: str, user_id: str, reason: str = ""
+    ) -> bool:
+        """
+        Kick a user from a room. Requires admin/moderator power level.
+
+        Args:
+            api_key: Agent's API key
+            room_id: Room ID
+            user_id: Matrix user ID to kick
+            reason: Optional reason for the kick
+
+        Returns:
+            True if successful
+        """
+        client = await self._get_client()
+        payload: Dict[str, Any] = {"user_id": user_id}
+        if reason:
+            payload["reason"] = reason
+        try:
+            resp = await client.post(
+                f"/api/v1/rooms/{room_id}/kick",
+                headers=self._headers(api_key),
+                json=payload,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"Kick from room failed: {e}")
+            return False
+
     async def invite_to_room(
         self, api_key: str, room_id: str, user_id: str
     ) -> bool:

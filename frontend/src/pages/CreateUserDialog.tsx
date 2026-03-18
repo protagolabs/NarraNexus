@@ -1,9 +1,9 @@
 /**
- * Create User Dialog - admin creates a new user
+ * Create User Dialog - create a new local user
  */
 
 import { useState } from 'react';
-import { Loader2, UserPlus, X, Check } from 'lucide-react';
+import { Loader2, UserPlus, X, Check, Info } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { api } from '@/lib/api';
 
@@ -14,7 +14,6 @@ interface CreateUserDialogProps {
 
 export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) {
   const [userId, setUserId] = useState('');
-  const [adminSecretKey, setAdminSecretKey] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -25,10 +24,6 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
       setError('Please enter a User ID');
       return;
     }
-    if (!adminSecretKey.trim()) {
-      setError('Please enter the Admin Secret Key');
-      return;
-    }
 
     setLoading(true);
     setError('');
@@ -37,7 +32,6 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
     try {
       const res = await api.createUser(
         userId.trim(),
-        adminSecretKey.trim(),
         displayName.trim() || undefined
       );
 
@@ -88,9 +82,6 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
           <h2 className="text-xl font-bold font-[family-name:var(--font-display)] text-[var(--text-primary)]">
             Create New User
           </h2>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">
-            Admin authorization required
-          </p>
         </div>
 
         {/* Success Message */}
@@ -135,18 +126,13 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              Admin Secret Key <span className="text-[var(--color-error)]">*</span>
-            </label>
-            <Input
-              type="password"
-              value={adminSecretKey}
-              onChange={(e) => setAdminSecretKey(e.target.value)}
-              placeholder="Enter admin secret key"
-              disabled={loading || success}
-              className="h-11 font-mono"
-            />
+          {/* Explanation */}
+          <div className="flex gap-2 p-3 bg-[var(--bg-tertiary)] rounded-xl">
+            <Info className="w-4 h-4 text-[var(--accent-primary)] shrink-0 mt-0.5" />
+            <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
+              The User ID is your local identity for NarraNexus. It isolates your agents, conversations, and data.
+              Choose something memorable — you'll use it to log in each time.
+            </p>
           </div>
 
           {error && (
@@ -159,9 +145,9 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
           <Button
             variant="accent"
             onClick={handleCreate}
-            disabled={loading || success || !userId.trim() || !adminSecretKey.trim()}
+            disabled={loading || success || !userId.trim()}
             className="w-full h-11 font-semibold mt-2"
-            glow={!loading && !success && !!userId.trim() && !!adminSecretKey.trim()}
+            glow={!loading && !success && !!userId.trim()}
           >
             {loading ? (
               <>

@@ -41,7 +41,7 @@ Each layer depends only on the layers below it. Modules participate in AgentRunt
 |---------|------|-------------|
 | Frontend | 5173 | React dev server |
 | FastAPI Backend | 8000 | REST API + WebSocket |
-| MCP Servers | 7801-7805 | Module Tool Servers |
+| MCP Servers | 7801-7810 | Module Tool Servers |
 | Job Trigger | - | Background scheduled task executor |
 | Module Poller | - | Instance status polling & dependency chain trigger |
 | MySQL | 3306 | Primary database |

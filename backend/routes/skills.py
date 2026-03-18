@@ -37,7 +37,6 @@ from xyz_agent_context.schema.skill_schema import (
     SkillEnvConfigResponse,
 )
 from xyz_agent_context.utils.file_safety import enforce_max_bytes, sanitize_filename
-from xyz_agent_context.schema.runtime_message import ProgressMessage
 
 
 router = APIRouter()
@@ -143,39 +142,54 @@ async def _run_skill_study(
     """
     # Lazy import to avoid circular dependencies
     from xyz_agent_context.agent_runtime import AgentRuntime
-    from xyz_agent_context.schema import WorkingSource, AgentToolCall
+    from xyz_agent_context.schema import WorkingSource
     from xyz_agent_context.repository import MCPRepository
 
     input_content = (
-        f"Please study the skill '{skill_name}' located at {skill_path}.\n\n"
+        f"Please study the skill '{skill_name}' located at skills/{skill_name}/.\n\n"
+
+        f"## Important Rules\n"
+        f"- All files you create MUST be stored in `skills/{skill_name}/` (your workspace), "
+        f"NOT in `~/`, `~/.config/`, or any path outside your workspace\n"
+        f"- When the SKILL.md suggests paths like `~/.foo/`, remap them to `skills/{skill_name}/`\n"
+        f"- **Credentials** — do BOTH: (1) save to local file if SKILL.md requires it "
+        f"(inside `skills/{skill_name}/`), AND (2) call `skill_save_config` so the system "
+        f"can track and inject them at runtime\n\n"
+
         f"## Step 1: Read & Understand\n"
-        f"Read {skill_path}/SKILL.md thoroughly. Understand what this skill does, "
+        f"Read skills/{skill_name}/SKILL.md thoroughly. Understand what this skill does, "
         f"what APIs it provides, and how it works.\n\n"
+
         f"## Step 2: Registration & Activation (if applicable)\n"
-        f"If this skill involves a platform, competition, or external service that requires "
-        f"registration or account setup, complete the registration process. "
-        f"Save any credentials (API keys, tokens, etc.) securely in {skill_path}/.\n\n"
+        f"If this skill involves a platform or external service requiring registration:\n"
+        f"1. Complete the registration process\n"
+        f"2. **Save any credentials** (API keys, tokens) using `skill_save_config('{skill_name}', key, value)` — "
+        f"this stores them securely and makes them appear in the frontend config panel\n"
+        f"3. Check what env vars are needed: use `skill_list_required_env('{skill_name}')`\n"
+        f"4. **If a step requires human action** (e.g., Twitter/X verification, OAuth browser login, "
+        f"email confirmation), you MUST use `send_message_to_user_directly` to tell the user exactly "
+        f"what they need to do — include URLs, codes, and clear instructions. "
+        f"Do NOT skip human-required steps silently.\n\n"
+
         f"## Step 3: Set Up Scheduled Jobs (if applicable)\n"
-        f"Check if the skill directory contains a HEARTBEAT.md or similar periodic-task guide "
-        f"(e.g., heartbeat, polling, check-in, periodic sync). "
-        f"If it does, this likely means the skill requires recurring background work — "
-        f"such as checking for new competitions, polling game state, submitting periodic actions, etc.\n\n"
-        f"**For platform/competition/arena-type skills that have periodic tasks:**\n"
-        f"Use your `job_create` tool to set up the appropriate scheduled jobs. For example:\n"
-        f"- A heartbeat check-in → `scheduled` job with a suitable cron/interval\n"
-        f"- Polling for new competitions → `scheduled` job\n"
-        f"- Any recurring workflow described in the heartbeat doc → `scheduled` or `ongoing` job\n\n"
-        f"Read the heartbeat/periodic doc carefully and translate each recurring task into "
-        f"a concrete job with the right `trigger_config`, `payload`, and `job_type`.\n\n"
-        f"**Note:** Pure capability skills (e.g., a coding helper, a translation tool) "
-        f"that don't involve external platforms or periodic operations do NOT need scheduled jobs. "
-        f"Only create jobs when the skill genuinely requires background recurring work.\n\n"
-        f"## Step 4: Summarize\n"
-        f"After studying, provide a summary covering:\n"
+        f"Check if the skill directory contains a HEARTBEAT.md or similar periodic-task guide. "
+        f"If it does, the skill requires recurring background work.\n\n"
+        f"**For skills that have periodic tasks:**\n"
+        f"Use your `job_create` tool to set up scheduled jobs. For example:\n"
+        f"- A heartbeat check-in → `scheduled` job with a suitable interval\n"
+        f"- Polling for new events → `scheduled` job\n"
+        f"- Any recurring workflow → `scheduled` or `ongoing` job\n\n"
+        f"**Note:** Pure capability skills (coding helper, translation tool) do NOT need scheduled jobs.\n\n"
+
+        f"## Step 4: Save Study Summary\n"
+        f"**You MUST call `skill_save_study_summary('{skill_name}', summary)`** with a well-formatted "
+        f"Markdown summary covering:\n"
         f"- What this skill does (core capabilities)\n"
         f"- Any accounts/registrations you completed\n"
+        f"- Any credentials you saved (just the key names, not values)\n"
         f"- Any scheduled jobs you created (with their schedules and purposes)\n"
-        f"- Any pending actions that require human intervention (e.g., Twitter verification)"
+        f"- Any pending actions that require human intervention (e.g., Twitter verification)\n\n"
+        f"This summary is displayed to the user in the Skills panel, so make it clear and useful."
     )
 
     skill_module = _get_skill_module(agent_id, user_id)
@@ -195,37 +209,30 @@ async def _run_skill_study(
         except Exception as e:
             logger.warning(f"Failed to load MCP URLs for skill study: {e}")
 
-        # Run AgentRuntime, collect results
-        study_result = ""
+        # Run AgentRuntime — agent is expected to call skill_save_study_summary MCP tool
         async with AgentRuntime() as runtime:
-            async for message in runtime.run(
+            async for _message in runtime.run(
                 agent_id=agent_id,
                 user_id=user_id,
                 input_content=input_content,
                 working_source=WorkingSource.SKILL_STUDY,
                 pass_mcp_urls=mcp_urls,
             ):
-                # Capture final_output from ProgressMessage step 3.5
-                # (PathExecutionResult is consumed internally by step_3_execute_path)
-                if isinstance(message, ProgressMessage):
-                    if message.step == "3.5" and message.details:
-                        final_output = message.details.get("final_output", "")
-                        if final_output:
-                            study_result = final_output
-                # Also capture from send_message_to_user_directly as fallback
-                elif isinstance(message, AgentToolCall):
-                    if message.tool_name.endswith('send_message_to_user_directly'):
-                        study_result = message.tool_input.get('content', '')
-
-        # Fallback handling
-        if not study_result:
-            study_result = "Study completed. No explicit summary was provided by the agent."
+                pass  # Just consume the stream; agent writes summary via MCP tool
 
         # Extract env/bin requirements via lightweight LLM call (reads SKILL.md directly)
         await _extract_requirements_via_llm(skill_module, skill_name, skill_path)
 
-        skill_module.set_study_status(skill_name, "completed", result=study_result)
-        logger.info(f"Skill study completed for '{skill_name}'")
+        # Verify agent saved the summary via MCP tool; fallback if it didn't
+        meta = skill_module._read_skill_meta(skill_name)
+        if meta.get("study_status") == "completed" and meta.get("study_result"):
+            logger.info(f"Skill study completed for '{skill_name}' (summary saved via MCP tool)")
+        else:
+            skill_module.set_study_status(
+                skill_name, "completed",
+                result="Study completed, but the agent did not provide a structured summary."
+            )
+            logger.warning(f"Skill study for '{skill_name}': agent did not call skill_save_study_summary")
 
     except Exception as e:
         logger.error(f"Skill study failed for '{skill_name}': {e}")

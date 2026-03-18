@@ -227,6 +227,80 @@ def register_matrix_mcp_tools(mcp: Any) -> None:
         return {"success": ok}
 
     @mcp.tool()
+    async def matrix_leave_room(
+        agent_id: str,
+        room_id: str,
+    ) -> dict:
+        """
+        Leave a Matrix room.
+
+        Use this to leave a room you no longer want to participate in.
+        Once you leave, you will stop receiving messages from this room.
+        If all members leave, the room becomes empty and is effectively deleted.
+
+        Args:
+            agent_id: Your agent ID
+            room_id: Room ID to leave (e.g. "!abc123:matrix.example.com")
+
+        Returns:
+            Result dict indicating success or failure
+        """
+        client, cred = await _get_client_and_cred(agent_id)
+        if not client:
+            return {"success": False, "error": "Matrix credentials not found"}
+
+        ok = await client.leave_room(api_key=cred.api_key, room_id=room_id)
+        await client.close()
+
+        if ok:
+            return {"success": True, "message": f"Left room {room_id}"}
+        return {"success": False, "error": f"Failed to leave room {room_id}"}
+
+    @mcp.tool()
+    async def matrix_kick_from_room(
+        agent_id: str,
+        room_id: str,
+        user_id: str,
+        reason: str = "",
+    ) -> dict:
+        """
+        Kick a user from a Matrix room. Requires admin/moderator power level.
+
+        Use this to remove a user from a room. The kicked user can rejoin
+        if re-invited (unlike ban which is permanent until unbanned).
+
+        To DELETE a room entirely (no "delete" API in Matrix protocol):
+        1. Use `matrix_get_room_members` to list all members.
+        2. Use `matrix_kick_from_room` to kick every other member.
+        3. Use `matrix_leave_room` to leave the now-empty room yourself.
+        This requires you to be the room admin (typically the room creator).
+
+        Args:
+            agent_id: Your agent ID
+            room_id: Room ID (e.g. "!abc123:matrix.example.com")
+            user_id: Matrix user ID to kick (e.g. "@alice:localhost")
+            reason: Optional reason for the kick
+
+        Returns:
+            Result dict indicating success or failure
+        """
+        client, cred = await _get_client_and_cred(agent_id)
+        if not client:
+            return {"success": False, "error": "Matrix credentials not found"}
+
+        ok = await client.kick_from_room(
+            api_key=cred.api_key,
+            room_id=room_id,
+            user_id=user_id,
+            reason=reason,
+        )
+        await client.close()
+
+        if ok:
+            return {"success": True, "message": f"Kicked {user_id} from {room_id}"}
+        return {"success": False, "error": f"Failed to kick {user_id}. You may not have admin permissions in this room."}
+
+    @mcp.tool()
     async def matrix_list_rooms(
         agent_id: str,
     ) -> dict:

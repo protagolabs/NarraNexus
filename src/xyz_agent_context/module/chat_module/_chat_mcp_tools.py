@@ -8,20 +8,14 @@ Separates MCP tool registration logic from ChatModule main class,
 keeping the module focused on Hook lifecycle and memory management.
 
 Tools:
-- agent_send_content_to_user_inbox: Send message to user's Inbox
-- get_inbox_status: Get user Inbox status
+- send_message_to_user_directly: Agent speaks to user (the ONLY way to deliver messages)
 - get_chat_history: Get chat history for a Chat Instance
-- send_message_to_user_directly: Agent speaks to user (real-time)
 """
 
 import json
 
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
-
-from xyz_agent_context.schema import InboxMessageType
-from xyz_agent_context.repository import InboxRepository
-
 
 def create_chat_mcp_server(port: int, get_db_client_fn) -> FastMCP:
     """
@@ -36,90 +30,6 @@ def create_chat_mcp_server(port: int, get_db_client_fn) -> FastMCP:
     """
     mcp = FastMCP("chat_module")
     mcp.settings.port = port
-
-    @mcp.tool()
-    async def agent_send_content_to_user_inbox(
-        agent_id: str,
-        user_id: str,
-        title: str,
-        content: str,
-        event_id: str = ""
-    ) -> str:
-        """
-        Send a message to the user's inbox.
-
-        Use this tool when you want to proactively notify or communicate with the user.
-        The message will appear in the user's inbox and they can read it later.
-
-        Args:
-            agent_id: Your agent ID (the sender).
-            user_id: The user ID to send the message to.
-            title: A brief, descriptive title for the message.
-            content: The main content of the message.
-            event_id: Optional event ID for tracking. Can be left empty.
-
-        Returns:
-            A confirmation message with the created message ID.
-
-        Example:
-            agent_send_content_to_user_inbox(
-                agent_id="agent_sales_001",
-                user_id="user_123",
-                title="Daily Summary",
-                content="Here's your daily summary: ..."
-            )
-        """
-        db = await get_db_client_fn()
-        repo = InboxRepository(db)
-
-        actual_source_type = "agent"
-        actual_source_id = agent_id
-        message_type = InboxMessageType.AGENT_MESSAGE
-
-        from uuid import uuid4
-        msg_id = f"msg_{uuid4().hex[:16]}"
-
-        await repo.create_message(
-            user_id=user_id,
-            title=title,
-            content=content,
-            message_id=msg_id,
-            message_type=message_type,
-            source_type=actual_source_type,
-            source_id=actual_source_id,
-            event_id=event_id if event_id else None
-        )
-
-        logger.info(f"ChatModule: Sent message to user inbox - user={user_id}, title={title}, message_id={msg_id}")
-
-        return f"Message sent successfully! Message ID: {msg_id}"
-
-    @mcp.tool()
-    async def get_inbox_status(user_id: str) -> str:
-        """
-        Get the inbox status for a user.
-
-        Args:
-            user_id: The user ID to check.
-
-        Returns:
-            A summary of the user's inbox status.
-        """
-        db = await get_db_client_fn()
-        repo = InboxRepository(db)
-
-        unread_count = await repo.get_unread_count(user_id)
-
-        if unread_count == 0:
-            return f"User {user_id} has no unread messages in their inbox."
-
-        recent_messages = await repo.get_messages(user_id, is_read=False, limit=3)
-
-        status = f"User {user_id} has {unread_count} unread message(s).\n\nRecent unread messages:\n"
-        for msg in recent_messages:
-            status += f"- [{msg.title}] {msg.content[:50]}...\n"
-
-        return status
 
     @mcp.tool()
     async def get_chat_history(

@@ -322,6 +322,9 @@ async def _get_job_info_for_analysis(instance, get_job_by_instance_id) -> Dict[s
             "iteration_count": job.iteration_count or 0,
             "process": job.process or [],
             "status": job.status.value if job.status else None,
+            "last_run_time": job.last_run_time.strftime("%Y-%m-%dT%H:%M:%SZ") if job.last_run_time else None,
+            "next_run_time": job.next_run_time.strftime("%Y-%m-%dT%H:%M:%SZ") if job.next_run_time else None,
+            "created_at": job.created_at.strftime("%Y-%m-%dT%H:%M:%SZ") if job.created_at else None,
         }
     except Exception as e:
         logger.error(f"Failed to get job info for analysis: {e}")

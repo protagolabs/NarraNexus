@@ -2,19 +2,18 @@
  * Preload Store - Cache data on page load for faster tab switching
  *
  * Loads all panel data in parallel when the app initializes:
- * - Inbox messages
  * - Jobs
  * - Agent awareness
  * - Social network list (all contacts)
  * - Chat history (narratives + events)
  * - RAG files
+ * - Agent inbox (Matrix channel messages)
  */
 
 import { create } from 'zustand';
 import { api } from '@/lib/api';
 import type {
   ApiResponse,
-  InboxMessage,
   MatrixRoom,
   RoomMessage,
   Job,
@@ -31,10 +30,6 @@ import type {
 
 interface PreloadState {
   // Data
-  inbox: InboxMessage[];
-  inboxUnreadCount: number;
-  inboxTotalCount: number;
-  inboxPage: number;
   agentInboxRooms: MatrixRoom[];
   agentInboxUnreadCount: number;
   jobs: Job[];
@@ -50,7 +45,6 @@ interface PreloadState {
   costSummary: CostSummary | null;
 
   // Loading states
-  inboxLoading: boolean;
   agentInboxLoading: boolean;
   jobsLoading: boolean;
   awarenessLoading: boolean;
@@ -60,7 +54,6 @@ interface PreloadState {
   costLoading: boolean;
 
   // Error states
-  inboxError: string | null;
   agentInboxError: string | null;
   jobsError: string | null;
   awarenessError: string | null;
@@ -75,8 +68,6 @@ interface PreloadState {
 
   // Actions (silent=true skips loading state toggle & deduplicates unchanged data)
   preloadAll: (agentId: string, userId: string) => Promise<void>;
-  refreshInbox: (userId: string, silent?: boolean) => Promise<void>;
-  loadInboxPage: (userId: string, page: number) => Promise<void>;
   refreshAgentInbox: (agentId: string, silent?: boolean) => Promise<void>;
   refreshJobs: (agentId: string, userId?: string, status?: string, silent?: boolean) => Promise<void>;
   refreshAwareness: (agentId: string, silent?: boolean) => Promise<void>;
@@ -85,9 +76,7 @@ interface PreloadState {
   refreshRAGFiles: (agentId: string, userId: string, silent?: boolean) => Promise<void>;
   refreshCost: (agentId: string, days?: number, silent?: boolean) => Promise<void>;
   addChatHistoryEvent: (event: ChatHistoryEvent) => void;
-  updateInboxMessage: (messageId: string, updates: Partial<InboxMessage>) => void;
   updateAgentInboxMessage: (messageId: string, updates: Partial<RoomMessage>) => void;
-  markAllInboxRead: () => void;
   clearAll: () => void;
 }
 
@@ -150,10 +139,6 @@ async function loadDomain<T extends ApiResponse>(
 
 export const usePreloadStore = create<PreloadState>()((set, get) => ({
   // Initial data
-  inbox: [],
-  inboxUnreadCount: 0,
-  inboxTotalCount: 0,
-  inboxPage: 1,
   agentInboxRooms: [],
   agentInboxUnreadCount: 0,
   jobs: [],
@@ -169,7 +154,6 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   costSummary: null,
 
   // Initial loading / error
-  inboxLoading: false,
   agentInboxLoading: false,
   jobsLoading: false,
   awarenessLoading: false,
@@ -177,7 +161,6 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   chatHistoryLoading: false,
   ragFilesLoading: false,
   costLoading: false,
-  inboxError: null,
   agentInboxError: null,
   jobsError: null,
   awarenessError: null,
@@ -193,15 +176,15 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
 
   preloadAll: async (agentId, userId) => {
     const { lastUserId, lastAgentId } = get();
-    if (lastUserId === userId && lastAgentId === agentId && get().inbox.length > 0) return;
+    if (lastUserId === userId && lastAgentId === agentId && get().jobs.length > 0) return;
 
     set({
       lastUserId: userId,
       lastAgentId: agentId,
-      inboxLoading: true, agentInboxLoading: true, jobsLoading: true,
+      agentInboxLoading: true, jobsLoading: true,
       awarenessLoading: true, socialNetworkLoading: true,
       chatHistoryLoading: true, ragFilesLoading: true, costLoading: true,
-      inboxError: null, agentInboxError: null, jobsError: null,
+      agentInboxError: null, jobsError: null,
       awarenessError: null, socialNetworkError: null,
       chatHistoryError: null, ragFilesError: null, costError: null,
     });
@@ -209,10 +192,6 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
     // Fire all domains independently — each updates UI as soon as it resolves,
     // so fast APIs (awareness ~2ms) don't wait for slow ones (chat-history ~7MB).
     const tasks = [
-      loadDomain(set, get, 'inboxLoading', 'inboxError',
-        () => api.getInbox(userId),
-        (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count, inboxTotalCount: r.total_count, inboxPage: 1 }),
-        'Failed to load inbox'),
       loadDomain(set, get, 'agentInboxLoading', 'agentInboxError',
         () => api.getAgentInbox(agentId),
         (r) => ({ agentInboxRooms: r.rooms, agentInboxUnreadCount: r.total_unread }),
@@ -247,32 +226,6 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   },
 
   // ── Individual refresh methods ────────────────────
-
-  refreshInbox: (userId, silent?) => loadDomain(set, get,
-    'inboxLoading', 'inboxError',
-    () => api.getInbox(userId, undefined, 50, (get().inboxPage - 1) * 50),
-    (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count, inboxTotalCount: r.total_count }),
-    'Failed to load inbox', silent),
-
-  loadInboxPage: async (userId, page) => {
-    set({ inboxLoading: true, inboxError: null });
-    try {
-      const result = await api.getInbox(userId, undefined, 50, (page - 1) * 50);
-      if (result.success) {
-        set({
-          inbox: result.messages,
-          inboxUnreadCount: result.unread_count,
-          inboxTotalCount: result.total_count,
-          inboxPage: page,
-          inboxLoading: false,
-        });
-      } else {
-        set({ inboxLoading: false, inboxError: result.error || 'Failed to load inbox' });
-      }
-    } catch (error) {
-      set({ inboxLoading: false, inboxError: String(error) });
-    }
-  },
 
   refreshAgentInbox: (agentId, silent?) => loadDomain(set, get,
     'agentInboxLoading', 'agentInboxError',
@@ -326,15 +279,6 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
     }));
   },
 
-  updateInboxMessage: (messageId, updates) => {
-    set((state) => ({
-      inbox: state.inbox.map((m) => m.message_id === messageId ? { ...m, ...updates } : m),
-      inboxUnreadCount: updates.is_read === true
-        ? Math.max(0, state.inboxUnreadCount - 1)
-        : state.inboxUnreadCount,
-    }));
-  },
-
   updateAgentInboxMessage: (messageId, updates) => {
     set((state) => ({
       agentInboxRooms: state.agentInboxRooms.map((room) => ({
@@ -352,16 +296,8 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
     }));
   },
 
-  markAllInboxRead: () => {
-    set((state) => ({
-      inbox: state.inbox.map((m) => ({ ...m, is_read: true })),
-      inboxUnreadCount: 0,
-    }));
-  },
-
   clearAll: () => {
     set({
-      inbox: [], inboxUnreadCount: 0, inboxTotalCount: 0, inboxPage: 1,
       agentInboxRooms: [], agentInboxUnreadCount: 0,
       jobs: [],
       awareness: null, awarenessCreateTime: null, awarenessUpdateTime: null,
@@ -370,7 +306,7 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
       ragFiles: [], ragCompletedCount: 0, ragPendingCount: 0,
       costSummary: null,
       lastUserId: null, lastAgentId: null,
-      inboxError: null, agentInboxError: null, jobsError: null,
+      agentInboxError: null, jobsError: null,
       awarenessError: null, socialNetworkError: null,
       chatHistoryError: null, ragFilesError: null, costError: null,
     });

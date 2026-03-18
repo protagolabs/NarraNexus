@@ -334,9 +334,9 @@ class JobExecutionResult(BaseModel):
     next_run_time: Optional[datetime] = Field(
         default=None,
         description=(
-            "Next execution time, intelligently determined by LLM. "
+            "Next execution time in UTC (ISO 8601 format with Z suffix, e.g. 2026-03-17T09:13:00Z). "
             "completed/failed -> null; "
-            "active -> intelligently adjusted based on task progress, not rigidly following preset intervals"
+            "active -> default is current_time + interval_seconds, may adjust slightly based on context"
         )
     )
 

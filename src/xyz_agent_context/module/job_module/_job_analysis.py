@@ -136,8 +136,8 @@ def build_job_analysis_prompt(
     prompt = f"""
 Analyze job execution results and determine the job status.
 
-## Current Time
-{current_time.strftime("%Y-%m-%d %H:%M:%S")} ({current_time.strftime("%A")})
+## Current Time (UTC)
+{current_time.strftime("%Y-%m-%dT%H:%M:%S")}Z ({current_time.strftime("%A")})
 
 ## Job Information
 
@@ -152,6 +152,11 @@ Analyze job execution results and determine the job status.
 - **Interval (seconds)**: {interval_seconds or "N/A"}
 - **Max Iterations**: {max_iterations or "No limit"}
 - **Current Iteration**: {iteration_count}
+
+### Time References (all UTC)
+- **Created at**: {job_info.get("created_at", "N/A")}
+- **Last run time**: {job_info.get("last_run_time", "N/A")}
+- **Previous next_run_time**: {job_info.get("next_run_time", "N/A")}
 
 ### Previous Execution History
 {chr(10).join(f"- {p}" for p in previous_process[-5:]) if previous_process else "No previous executions"}
@@ -190,13 +195,11 @@ This job runs repeatedly until the end_condition is satisfied OR max_iterations 
    - end_condition NOT MET → "active" (continue running)
    - execution error/exception → "failed"
 
-**Intelligent Scheduling (IMPORTANT):**
-You have FULL CONTROL over next_run_time! Adjust it based on your analysis:
-- Target user seems busy/unresponsive → extend to hours/days later
-- Target user is actively engaged → check again in minutes
-- Close to achieving end_condition → more frequent checks
-- Far from end_condition → less frequent checks
-- Example: preset is 60s, but user just said "I'll think about it" → maybe 2 hours later is better
+**Scheduling (all times in UTC):**
+Default next_run_time = current_time + interval_seconds. You may adjust slightly:
+- Close to achieving end_condition → slightly shorter interval
+- Far from end_condition → slightly longer interval
+- Do NOT deviate more than 2x from the configured interval without strong justification
 
 **Note**: Refer to the Agent Awareness section above for specific guidance on how to evaluate the end_condition in this context.
 """
@@ -221,11 +224,9 @@ This job runs on a schedule (interval: {interval_seconds}s, cron: {trigger_confi
 - execution succeeded → "active" (waiting for next run)
 - execution failed → "failed"
 
-**Intelligent Scheduling:**
-You can ADJUST the next_run_time based on your analysis! Don't just follow the preset interval blindly.
-- If task is progressing well → maybe extend interval (e.g., 30min later)
-- If task needs urgent attention → shorten interval (e.g., 5min later)
-- If waiting for external event → set appropriate time based on context
+**Scheduling (all times in UTC):**
+Default next_run_time = current_time + interval_seconds (or next cron time).
+You may adjust slightly based on context, but stay close to the configured interval.
 """
 
     prompt += """
@@ -250,13 +251,12 @@ Based on the execution results and context above, determine:
 
 3. **process**: 2-5 concise action descriptions from this execution
 
-4. **next_run_time**: ISO 8601 format ("YYYY-MM-DDTHH:MM:SS") or null
+4. **next_run_time**: ISO 8601 **UTC** format ("YYYY-MM-DDTHH:MM:SSZ") or null
+   - **IMPORTANT: All times MUST be in UTC.** The Current Time above is UTC. Your output must also be UTC.
    - completed/failed → null
-   - active → YOU DECIDE intelligently based on context:
-     * Default: current_time + interval_seconds (or next cron time)
-     * But you CAN ADJUST: shorter if urgent, longer if progressing well
-     * Consider: user behavior, task progress, external factors
-   - Example: preset is 15s, but you analyze and decide "30 minutes later is better" → set that time
+   - active → Default: current_time + interval_seconds (or next cron time)
+     * You may adjust slightly based on context, but stay close to the configured interval
+     * Do NOT shift by hours unless there is a very strong reason
 
 5. **last_error**: Error description if failed, else null
 

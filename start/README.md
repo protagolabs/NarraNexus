@@ -3,7 +3,7 @@ Directory structure:
   start/
   ├── all.sh           # Start all services (tmux 5 windows)
   ├── control.sh       # Control panel (status + quit)
-  ├── mcp.sh           # MCP server (7801-7805)
+  ├── mcp.sh           # MCP server (7801-7810)
   ├── backend.sh       # FastAPI backend (8000)
   ├── job-trigger.sh   # Job trigger
   ├── poller.sh        # ModulePoller

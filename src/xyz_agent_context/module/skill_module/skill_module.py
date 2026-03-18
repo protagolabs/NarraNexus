@@ -5,13 +5,18 @@
 @description: Skill Module - Manages user Skills
 
 Skill Module manages Skills under the user's workspace:
-- No MCP: Skill files are read directly by Claude via bash
+- MCP tools for agent self-configuration (env vars, study summary)
 - No database: State is expressed through the filesystem
 - Always loaded: No intelligent decision-making or Instance records needed
 
 Skills directory:
 - Located at {agent_workspace}/{agent_id}_{user_id}/skills/
 - Same as Claude Agent's cwd
+
+MCP Tools:
+- skill_save_config: Save env var for a skill (credentials auto-injected at runtime)
+- skill_list_required_env: Query required env vars and config status
+- skill_save_study_summary: Save structured Markdown study summary
 """
 
 import os
@@ -43,6 +48,83 @@ from xyz_agent_context.utils.file_safety import (
 )
 
 
+# =============================================================================
+# Shared prompt constants
+# WORKSPACE_RULES is shared between instructions (conversation) and study prompt
+# =============================================================================
+
+WORKSPACE_RULES = (
+    "- All files you create or download MUST be stored inside your workspace "
+    "(`skills/<skill-name>/` or current working directory)\n"
+    "- When a SKILL.md suggests paths like `~/.foo/` or `~/.config/foo/`, "
+    "**remap them** to `skills/<skill-name>/` instead\n"
+    "- The ONLY exception: system-level tools that genuinely require global installation "
+    "(e.g., `pip install`)\n"
+    "- **Credentials and API keys** — do BOTH of the following:\n"
+    "  1. If the SKILL.md instructs you to save to a local file (e.g., `credentials.json`), "
+    "do so inside `skills/<skill-name>/` (remapped path)\n"
+    "  2. **Also** call `skill_save_config` for each key — this registers it in the system "
+    "so it appears in the frontend config panel and is auto-injected at runtime"
+)
+
+SKILL_INSTRUCTIONS_TEMPLATE = """\
+## Available Skills
+
+Your skills directory: `skills/` (relative to your current working directory)
+
+{skills_table}
+
+### 1. Using Skills
+- When a task matches a Skill, read its `SKILL.md` using `cat`
+- Follow the instructions; access referenced files (guides, scripts) as needed
+- For scripts, execute them and use the output (don't read the source code)
+
+### 2. Workspace & File Storage Rules
+""" + WORKSPACE_RULES + """
+
+### 3. Skill Configuration Tools
+| Tool | Purpose |
+|------|---------|
+| `skill_save_config(agent_id, user_id, skill_name, env_key, env_value)` | Save a credential for a skill |
+| `skill_list_required_env(agent_id, user_id, skill_name)` | Check required env vars and their status |
+| `skill_save_study_summary(agent_id, user_id, skill_name, summary)` | Save a Markdown study summary |
+
+**IMPORTANT**: Every time you obtain a credential (API key, token, secret), you MUST call \
+`skill_save_config` — even if you also saved it to a local file as the SKILL.md instructed. \
+The local file is for the skill's own use; `skill_save_config` is for the system to track and inject it.
+
+### 4. Installing Skills
+**General rule**: Always install to `skills/<skill-name>/`. Never to `~/` or other paths.
+
+**From ClawHub URL** (e.g. `https://clawhub.ai/author/skill-name`):
+1. Extract slug (last path segment only, e.g. `skill-name`)
+2. Run: `clawhub install <slug> --dir skills/ --force --no-input`
+3. If rate-limited, wait 5s and retry
+4. Verify: `skills/<slug>/SKILL.md` exists
+
+**From GitHub or other URL**: Clone/download to `skills/<skill-name>/`
+
+### 5. When User Asks You to Learn a Skill (in conversation)
+If a user sends a skill URL and asks you to learn/study it:
+1. Install the skill (see §4 above)
+2. Read SKILL.md to understand it
+3. If registration is needed, complete it
+4. Save credentials via `skill_save_config`
+5. If it has periodic tasks (HEARTBEAT.md), create scheduled jobs via `job_create`
+6. Call `skill_save_study_summary` with a Markdown summary
+7. Report to the user what you did
+
+### 6. Human Assistance
+Some skills require human intervention to activate (e.g., Twitter/X verification, \
+email confirmation, OAuth browser login). When the SKILL.md describes a step that \
+**only a human can complete**, you MUST use `send_message_to_user_directly` to:
+1. Clearly explain what the human needs to do (with exact URLs, steps, codes)
+2. Provide any claim tokens, verification codes, or links the human will need
+3. Wait for the human to confirm completion before proceeding
+Do NOT silently skip human-required steps — the skill will not function without them.
+"""
+
+
 class SkillModule(XYZBaseModule):
     """
     Skill Module - Manages Skills under the user's workspace
@@ -70,39 +152,13 @@ class SkillModule(XYZBaseModule):
         # Skills directory (same as Claude Agent's cwd)
         self.skills_dir = self.base_path / f"{agent_id}_{user_id}" / "skills" if user_id else None
 
+        # MCP Server port
+        self.port = 7806
+
         # Instructions template
         # Note: Agent's cwd is already {base_working_path}/{agent_id}_{user_id}/
         # so paths in the prompt must use skills/ relative to cwd, not absolute paths
-        self.instructions = """
-## Available Skills
-
-Your skills directory: `skills/` (relative to your current working directory)
-
-You have access to the following Skills. When a task matches a Skill's description, read its SKILL.md for detailed instructions.
-
-{skills_table}
-
-### How to Use Skills
-1. When a task matches a Skill, read the SKILL.md at the path shown above using `cat`
-2. Follow the instructions in the SKILL.md
-3. If the Skill references other files (guides, scripts), access them as needed
-4. For scripts, execute them and use the output (don't read the code)
-
-### How to Install New Skills
-When asked to install or configure a new skill, **always** place it under your skills directory:
-- Create a subdirectory: `skills/<skill-name>/`
-- Place the SKILL.md and any related files inside that subdirectory
-- Do NOT install skills to `~/`, `~/.arena/`, or any path outside your skills directory
-- External skill docs may suggest their own install paths — ignore those and use `skills/` instead
-
-### Installing Skills from ClawHub URLs
-When a user shares a ClawHub URL (e.g. `https://clawhub.ai/author/skill-name` or `https://clawhub.ai/skill-name`):
-1. Extract the slug (last path segment only, e.g. `skill-name` — do NOT use `author/skill-name`)
-2. Run: `clawhub install <slug> --dir skills/ --force --no-input`
-3. If it fails with "Rate limit exceeded", wait 5 seconds and retry. Do NOT try alternative approaches (no WebFetch, no different slug formats).
-4. Verify installation: check that `skills/<slug>/SKILL.md` exists
-5. Confirm success and tell the user to visit the Skills panel to "Study" the skill
-"""
+        self.instructions = SKILL_INSTRUCTIONS_TEMPLATE
 
     def get_config(self) -> ModuleConfig:
         """Return SkillModule configuration"""
@@ -168,29 +224,35 @@ When a user shares a ClawHub URL (e.g. `https://clawhub.ai/author/skill-name` or
         # Agent's cwd is already {base_working_path}/{agent_id}_{user_id}/
         # Use relative path skills/ in prompt to avoid path duplication
         if skills_count == 0:
-            return (
-                "## Skills\n"
-                "*No skills installed.*\n\n"
-                "Your skills directory: `skills/` (relative to your current working directory)\n\n"
-                "When asked to install or configure a new skill, **always** place it under your skills directory:\n"
-                "- Create a subdirectory: `skills/<skill-name>/`\n"
-                "- Place the SKILL.md and any related files inside that subdirectory\n"
-                "- Do NOT install skills to `~/`, `~/.arena/`, or any path outside your skills directory\n"
-                "- External skill docs may suggest their own install paths — ignore those and use `skills/` instead\n\n"
-                "### Installing Skills from ClawHub URLs\n"
-                "When a user shares a ClawHub URL (e.g. `https://clawhub.ai/author/skill-name` or `https://clawhub.ai/skill-name`):\n"
-                "1. Extract the slug (last path segment only, e.g. `skill-name` — do NOT use `author/skill-name`)\n"
-                "2. Run: `clawhub install <slug> --dir skills/ --force --no-input`\n"
-                "3. If it fails with \"Rate limit exceeded\", wait 5 seconds and retry. Do NOT try alternative approaches (no WebFetch, no different slug formats).\n"
-                "4. Verify installation: check that `skills/<slug>/SKILL.md` exists\n"
-                "5. Confirm success and tell the user to visit the Skills panel to \"Study\" the skill\n"
-            )
+            # Even with no skills, agent needs workspace rules and installation instructions
+            return SKILL_INSTRUCTIONS_TEMPLATE.format(skills_table="*No skills installed.*")
 
         return self.instructions.format(skills_table=skills_table)
 
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
-        """SkillModule does not need MCP, Claude reads files directly"""
-        return None
+        """
+        Return MCP Server configuration
+
+        SkillModule provides MCP tools for agent self-configuration:
+        - skill_save_config: Save env var for a skill
+        - skill_list_required_env: Query required env vars
+        - skill_save_study_summary: Save structured study summary
+        """
+        return MCPServerConfig(
+            server_name="skill_module",
+            server_url=f"http://127.0.0.1:{self.port}/sse",
+            type="sse"
+        )
+
+    def create_mcp_server(self):
+        """
+        Create MCP Server, delegates to _skill_mcp_tools module.
+
+        Tools are stateless — they accept agent_id + user_id as parameters
+        and construct temporary SkillModule instances internally.
+        """
+        from xyz_agent_context.module.skill_module._skill_mcp_tools import create_skill_mcp_server
+        return create_skill_mcp_server(self.port)
 
     # =========================================================================
     # Scanning Logic

@@ -6,7 +6,7 @@ This document describes the responsibilities and interactions of each backend se
 
 ### 1. xyz-agent-mcp (MCP Server)
 
-**Ports**: 7801-7805 (internal)
+**Ports**: 7801-7810 (internal)
 **Start command**: `python src/xyz_agent_context/module/module_runner.py mcp`
 
 **Responsibilities**:
@@ -20,7 +20,7 @@ This document describes the responsibilities and interactions of each backend se
 | AwarenessModule | 7801 | awareness_get, awareness_update |
 | SocialNetworkModule | 7802 | extract_entity, recall_entity, search_social_network |
 | JobModule | 7803 | job_create, job_retrieval_* |
-| ChatModule | 7804 | send_message_to_user_directly, get_inbox_status, agent_send_* |
+| ChatModule | 7804 | send_message_to_user_directly, get_chat_history |
 | GeminiRAGModule | 7805 | rag_query, rag_upload_file, rag_upload_text |
 
 ### 2. xyz-agent-api (FastAPI Backend)
@@ -106,7 +106,7 @@ Instance A completes → ModulePoller detects → Find Instances depending on A 
 ```
 User → Nginx (80) → FastAPI (8000) → AgentRuntime
                                     ↓
-                                  MCP Servers (7801-7805)
+                                  MCP Servers (7801-7810)
                                     ↓
                                   Return response → User
 ```
@@ -258,13 +258,13 @@ ExecStart=.../python -m xyz_agent_context.services.module_poller --interval 5 --
 
 **Possible causes**:
 1. Database connection failure: Check `.env` configuration
-2. Port conflicts: Check if ports 8000, 7801-7805 are occupied
+2. Port conflicts: Check if ports 8000, 7801-7810 are occupied
 3. Insufficient memory: Use `htop` to check memory usage
 4. Python environment issues: Verify virtual environment path is correct
 
 ## Security Recommendations
 
-1. **Do not expose internal ports**: Ports 8000, 7801-7805 should not be publicly accessible
+1. **Do not expose internal ports**: Ports 8000, 7801-7810 should not be publicly accessible
 2. **Log rotation**: Ensure log files don't grow indefinitely
 3. **Monitoring alerts**: Set up service status monitoring with alerts for anomalies
 4. **Resource limits**: Consider setting memory and CPU limits for services

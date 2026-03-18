@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     # When True, skip the LLM instance decision call in Step 2 and always load
     # all capability modules directly.  This saves ~2.5-3s per turn since the
     # LLM call currently always returns the same 4 modules.
-    skip_module_decision_llm: bool = False
+    skip_module_decision_llm: bool = True
 
     @model_validator(mode="after")
     def _expand_user_paths(self) -> "Settings":

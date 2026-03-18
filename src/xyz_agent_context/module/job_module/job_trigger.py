@@ -73,9 +73,6 @@ from xyz_agent_context.schema.job_schema import (
     JobType,
     TriggerConfig,
 )
-from xyz_agent_context.schema.inbox_schema import (
-    InboxMessageType,
-)
 from xyz_agent_context.schema.runtime_message import (
     MessageType,
 )
@@ -85,7 +82,7 @@ from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.utils import DatabaseClient, get_db_client, utc_now, format_for_llm
 
 # Repository
-from xyz_agent_context.repository import JobRepository, InboxRepository, UserRepository
+from xyz_agent_context.repository import JobRepository, UserRepository
 from xyz_agent_context.module.job_module._job_scheduling import calculate_next_run_time
 
 # Context builder (extracted: dependency outputs, social network, narrative, prompt assembly)
@@ -136,7 +133,6 @@ class JobTrigger:
 
         # Repository (lazy initialization)
         self._job_repo: Optional[JobRepository] = None
-        self._inbox_repo: Optional[InboxRepository] = None
 
         # Worker Pool related
         self._job_queue: asyncio.Queue[JobModel] = asyncio.Queue()
@@ -161,12 +157,6 @@ class JobTrigger:
         if self._job_repo is None:
             self._job_repo = JobRepository(self.db)
         return self._job_repo
-
-    def _get_inbox_repo(self) -> InboxRepository:
-        """Get or create InboxRepository instance"""
-        if self._inbox_repo is None:
-            self._inbox_repo = InboxRepository(self.db)
-        return self._inbox_repo
 
     async def _get_user_timezone(self, user_id: str) -> str:
         """
@@ -498,8 +488,7 @@ class JobTrigger:
            - Dependency Outputs (prerequisite task results)
         3. Call AgentRuntime (using related_entity_id as user_id)
         4. Process execution results
-        5. Write to Inbox (notify job.user_id original requester)
-        6. Update Job status and next execution time
+        5. Update Job status and next execution time
 
         Args:
             job: Job to execute
@@ -524,7 +513,7 @@ class JobTrigger:
             logger.debug(f"Built prompt for job {job.job_id}: {prompt[:100]}...")
 
             # 3. Call AgentRuntime
-            # Agent will send report to user via agent_send_content_to_user_inbox after task execution
+            # Agent will send report to user via send_message_to_user_directly
             result = await self._run_agent(job, prompt)
 
             # 4. Update Job status
@@ -541,7 +530,8 @@ class JobTrigger:
         Execute job using AgentRuntime.
 
         Creates an AgentRuntime instance and runs the prompt,
-        collecting all output for delivery to the user's inbox.
+        collecting all output. The agent sends the final report
+        to the user via send_message_to_user_directly.
 
         Args:
             job: JobModel instance
@@ -637,43 +627,6 @@ The task was executed but produced no text output.
     # =========================================================================
     # Result Processing
     # =========================================================================
-
-    async def _write_to_inbox(self, job: JobModel, result: Dict[str, Any]) -> None:
-        """
-        Write execution result to user's Inbox.
-
-        Uses ChatModule's inbox capability to deliver job results
-        to the user. The message will appear in their Streamlit inbox.
-
-        Args:
-            job: JobModel instance
-            result: Execution result containing content and event_id
-        """
-        try:
-            # Get user timezone, format timestamp
-            user_tz = await self._get_user_timezone(job.user_id)
-            timestamp = format_for_llm(utc_now(), user_tz)
-            title = f"{job.title} - {timestamp}"
-
-            # Generate message_id
-            msg_id = f"msg_{uuid4().hex[:16]}"
-
-            # Create inbox message
-            db_id = await self._get_inbox_repo().create_message(
-                user_id=job.user_id,
-                title=title,
-                content=result.get("content", ""),
-                message_id=msg_id,
-                message_type=InboxMessageType.JOB_RESULT,
-                source_type="job",
-                source_id=job.job_id,
-                event_id=result.get("event_id")
-            )
-
-            logger.debug(f"Created inbox message {msg_id} (db_id={db_id}) for job {job.job_id}")
-
-        except Exception as e:
-            logger.error(f"Error writing to inbox for job {job.job_id}: {e}")
 
     async def _finalize_job_execution(
         self,
@@ -839,29 +792,6 @@ The task was executed but produced no text output.
                 await self._update_instance_failed(job.instance_id)
 
             logger.warning(f"Job {job.job_id} failed: {error}")
-
-            # Get user timezone, format error time
-            user_tz = await self._get_user_timezone(job.user_id)
-            error_time_str = format_for_llm(utc_now(), user_tz)
-
-            # Send error notification to user's inbox
-            await self._get_inbox_repo().create_message(
-                user_id=job.user_id,
-                message_id=f"msg_{uuid4().hex[:16]}",
-                title=f"Job Failed: {job.title}",
-                content=f"""## Job Execution Failed
-
-**Job:** {job.title}
-**Job ID:** {job.job_id}
-**Error:** {error}
-**Time:** {error_time_str}
-
-Please check the job configuration and try again.
-""",
-                message_type=InboxMessageType.JOB_RESULT,
-                source_type="job",
-                source_id=job.job_id
-            )
 
         except Exception as e:
             logger.error(f"Error handling job failure for {job.job_id}: {e}")

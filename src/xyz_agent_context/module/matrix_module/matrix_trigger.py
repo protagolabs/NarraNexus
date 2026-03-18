@@ -299,6 +299,58 @@ class MatrixTrigger:
             "creator": info.get("creator") if info else None,
         }
 
+    async def _resolve_friendly_names(
+        self, matrix_user_id: str, room_id: str, room_name: str
+    ) -> Dict[str, str]:
+        """
+        Resolve matrix_user_id and room_id to human-friendly names.
+
+        Queries matrix_credentials + agents tables for sender name,
+        and uses room members to build a room display name if missing.
+
+        Returns:
+            {"sender_name": "...", "room_name": "..."}
+        """
+        friendly_sender = matrix_user_id
+        friendly_room = room_name
+
+        try:
+            # Resolve sender: matrix_user_id → agent_name
+            rows = await self.db.execute(
+                """
+                SELECT a.agent_name
+                FROM matrix_credentials mc
+                LEFT JOIN agents a ON mc.agent_id = a.agent_id
+                WHERE mc.matrix_user_id = %s AND mc.is_active = TRUE
+                LIMIT 1
+                """,
+                (matrix_user_id,),
+            )
+            if rows and rows[0].get("agent_name"):
+                friendly_sender = rows[0]["agent_name"]
+
+            # Resolve room name if empty: build from member names
+            if not friendly_room and room_id:
+                member_rows = await self.db.execute(
+                    """
+                    SELECT a.agent_name
+                    FROM matrix_credentials mc
+                    LEFT JOIN agents a ON mc.agent_id = a.agent_id
+                    WHERE mc.is_active = TRUE
+                    """,
+                    fetch=True,
+                )
+                if member_rows:
+                    names = [r["agent_name"] for r in member_rows if r.get("agent_name")]
+                    if names:
+                        friendly_room = ", ".join(names[:3])
+                        if len(names) > 3:
+                            friendly_room += f" +{len(names) - 3}"
+        except Exception as e:
+            logger.debug(f"Failed to resolve friendly names: {e}")
+
+        return {"sender_name": friendly_sender, "room_name": friendly_room or room_id}
+
     # =========================================================================
     # Poller
     # =========================================================================
@@ -639,8 +691,10 @@ class MatrixTrigger:
 
         Flow:
         1. Build prompt from latest message via MatrixContextBuilder
-        2. Call AgentRuntime.run() ONCE (not per-message)
-        3. Write result to Inbox
+        2. Resolve friendly names (agent name, room name)
+        3. Create ChannelTag with friendly names
+        4. Call AgentRuntime.run() ONCE (not per-message)
+        5. Write result to Inbox
         """
         event = batch.latest_message
         agent_id = cred.agent_id
@@ -665,16 +719,23 @@ class MatrixTrigger:
         finally:
             await client.close()
 
-        # 2. Create ChannelTag
-        channel_tag = ChannelTag.matrix(
-            sender_name=event.get("sender_display_name", sender),
-            sender_id=sender,
+        # 2. Resolve friendly names for channel tag (agent name, room name)
+        friendly = await self._resolve_friendly_names(
+            matrix_user_id=sender,
             room_id=batch.room_id,
             room_name=batch.room_name,
         )
+
+        # 3. Create ChannelTag with friendly names
+        channel_tag = ChannelTag.matrix(
+            sender_name=friendly["sender_name"],
+            sender_id=sender,
+            room_id=batch.room_id,
+            room_name=friendly["room_name"],
+        )
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
 
-        # 3. Call AgentRuntime with logging DISABLED
+        # 4. Call AgentRuntime with logging DISABLED
         #    (trigger process already has its own file logger via service_logger;
         #     per-worker LoggingService causes file race conditions)
         from xyz_agent_context.agent_runtime import AgentRuntime
@@ -697,7 +758,7 @@ class MatrixTrigger:
 
         content = "".join(final_output)
 
-        # 4. Write to Inbox
+        # 5. Write to Inbox
         await self._write_to_inbox(cred, event, content, room_id=batch.room_id)
 
         logger.info(

@@ -59,36 +59,11 @@ export interface CancelJobResponse extends ApiResponse {
   previous_status?: string;
 }
 
-// Inbox types (User Inbox)
-export interface MessageSource {
-  type?: string;
-  id?: string;
-}
-
-export interface InboxMessage {
-  message_id: string;
-  user_id: string;
-  message_type: string;
-  title: string;
-  content: string;
-  source?: MessageSource;
-  event_id?: string;
-  is_read: boolean;
-  created_at?: string;
-}
-
-export interface InboxListResponse extends ApiResponse {
-  messages: InboxMessage[];
-  count: number;
-  total_count: number;
-  unread_count: number;
-}
+// Agent Inbox types (Matrix channel messages, room-grouped)
 
 export interface MarkReadResponse extends ApiResponse {
   marked_count: number;
 }
-
-// Agent Inbox types (Matrix channel messages, room-grouped)
 export interface RoomMember {
   agent_id: string;
   agent_name: string;
@@ -117,8 +92,6 @@ export interface AgentInboxListResponse extends ApiResponse {
   rooms: MatrixRoom[];
   total_unread: number;
 }
-
-// MarkReadResponse is reused for both user inbox and agent inbox (defined above)
 
 // Awareness types
 export interface AwarenessResponse extends ApiResponse {
@@ -181,11 +154,27 @@ export interface SimpleChatMessage {
   content: string;
   timestamp?: string;
   narrative_id?: string;
+  working_source?: string;  // "chat" | "job" | "matrix" | etc.
+  message_type?: string;    // "chat" (default) | "activity"
+  event_id?: string;        // Associated Event ID (for loading event_log on demand)
 }
 
 export interface SimpleChatHistoryResponse extends ApiResponse {
   messages: SimpleChatMessage[];
   total_count: number;
+}
+
+// Event Log Detail types (on-demand loading for chat history)
+export interface EventLogToolCall {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_output?: string;
+}
+
+export interface EventLogResponse extends ApiResponse {
+  event_id: string;
+  thinking?: string;
+  tool_calls: EventLogToolCall[];
 }
 
 export interface ChatHistoryEvent {
@@ -395,7 +384,8 @@ export interface CostModelBreakdown {
 
 export interface CostDailyEntry {
   date: string;
-  cost: number;
+  input_tokens: number;
+  output_tokens: number;
 }
 
 export interface CostSummary {

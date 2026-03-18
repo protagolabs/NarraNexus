@@ -53,7 +53,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         job_type: str,
         trigger_config: dict,
         payload: str,
-        notification_method: str = "inbox",
+        notification_method: str = "direct",
         task_key: Optional[str] = None,
         depends_on_job_ids: Optional[List[str]] = None,
         related_entity_id: Optional[str] = None,

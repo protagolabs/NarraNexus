@@ -549,10 +549,10 @@ verify_services_health() {
 
     # MCP Server
     if is_port_up 7801; then
-        echo -e "    ${GREEN}●${RESET}  MCP Server             ${GREEN}Running${RESET}  (port 7801)"
+        echo -e "    ${GREEN}●${RESET}  MCP Server             ${GREEN}Running${RESET}  (ports 7801-7810)"
     else
-        echo -e "    ${RED}○${RESET}  MCP Server             ${RED}Not running${RESET}  (port 7801)"
-        warnings="${warnings}\n    - MCP Server failed to start on port 7801."
+        echo -e "    ${RED}○${RESET}  MCP Server             ${RED}Not running${RESET}  (ports 7801-7810)"
+        warnings="${warnings}\n    - MCP Server failed to start on ports 7801-7810."
         warnings="${warnings}\n      Check logs: tmux attach -t ${TMUX_SESSION} then Ctrl-b 5"
         all_healthy=false
     fi
@@ -1858,10 +1858,19 @@ do_run() {
         "8000:FastAPI Backend" \
         "5173:Frontend Dev" \
         "7801:MCP Server" \
+        "7802:MCP Server (SocialNetwork)" \
+        "7803:MCP Server (BasicInfo)" \
+        "7804:MCP Server (GeminiRAG)" \
+        "7805:MCP Server (Job)" \
+        "7806:MCP Server (Skill)" \
+        "7810:MCP Server (Matrix)" \
         "8953:NexusMatrix Server"; then
         port_warnings=true
         # Collect conflicting port PIDs for potential kill
-        for pair in "8000:FastAPI Backend" "5173:Frontend Dev" "7801:MCP Server" "8953:NexusMatrix Server"; do
+        for pair in "8000:FastAPI Backend" "5173:Frontend Dev" \
+            "7801:MCP Server" "7802:MCP Server" "7803:MCP Server" \
+            "7804:MCP Server" "7805:MCP Server" "7806:MCP Server" \
+            "7810:MCP Server" "8953:NexusMatrix Server"; do
             local _port="${pair%%:*}"
             if is_port_up "$_port"; then
                 conflict_ports+=("$_port")
@@ -1879,6 +1888,9 @@ do_run() {
         case "$port_choice" in
             1)
                 # Step 1: Kill known project processes by pattern (handles most cases)
+                # Note: module_runner spawns MCP servers as child processes via
+                # multiprocessing. Killing the runner alone orphans the children,
+                # so we also kill by MCP port below.
                 local kill_patterns=(
                     "uvicorn.*backend.main"
                     "module_runner.py.*mcp"
@@ -2128,7 +2140,7 @@ do_run() {
     # Window 5: MCP
     tmux new-window -t "$TMUX_SESSION" -n mcp -c "$PROJECT_ROOT"
     tmux send-keys -t "$TMUX_SESSION":mcp "bash start/mcp.sh" C-m
-    info "MCP Server        → tmux window 5 [mcp]         Ports 7801-7805"
+    info "MCP Server        → tmux window 5 [mcp]         Ports 7801-7810"
 
     sleep 0.5
 
@@ -2466,7 +2478,7 @@ do_stop() {
     local stop_patterns=(
         "uvicorn.*backend.main"      # FastAPI backend (port 8000)
         "uvicorn.*1995"              # EverMemOS Web
-        "module_runner.py.*mcp"      # MCP server (port 7801)
+        "module_runner.py.*mcp"      # MCP server runner
         "module_poller"              # ModulePoller
         "job_trigger.py"             # Job trigger
         "npm.*dev.*5173"             # Frontend dev server
@@ -2478,11 +2490,40 @@ do_stop() {
     for pat in "${stop_patterns[@]}"; do
         pkill -f "$pat" 2>/dev/null
     done
+
+    # Kill orphaned MCP child processes by port.
+    # module_runner spawns MCP servers via multiprocessing.Process;
+    # killing the runner alone orphans the children on ports 7801-7810.
+    local mcp_ports=(7801 7802 7803 7804 7805 7806 7810)
+    for _port in "${mcp_ports[@]}"; do
+        local _pid=""
+        if [ "$(uname)" = "Darwin" ]; then
+            _pid=$(lsof -iTCP:"$_port" -sTCP:LISTEN -P -n 2>/dev/null | awk 'NR==2{print $2}')
+        else
+            _pid=$(fuser "${_port}/tcp" 2>/dev/null | awk '{print $1}')
+        fi
+        if [ -n "$_pid" ]; then
+            kill "$_pid" 2>/dev/null || true
+        fi
+    done
+
     # Wait for graceful shutdown, then SIGKILL any survivors
     sleep 2
     for pat in "${stop_patterns[@]}"; do
         if pgrep -f "$pat" &>/dev/null; then
             pkill -9 -f "$pat" 2>/dev/null
+        fi
+    done
+    # SIGKILL any MCP children still alive
+    for _port in "${mcp_ports[@]}"; do
+        local _pid=""
+        if [ "$(uname)" = "Darwin" ]; then
+            _pid=$(lsof -iTCP:"$_port" -sTCP:LISTEN -P -n 2>/dev/null | awk 'NR==2{print $2}')
+        else
+            _pid=$(fuser "${_port}/tcp" 2>/dev/null | awk '{print $1}')
+        fi
+        if [ -n "$_pid" ]; then
+            kill -9 "$_pid" 2>/dev/null || true
         fi
     done
     success "Application processes stopped"

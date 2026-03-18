@@ -102,6 +102,7 @@ DEFAULT_MCP_MODULES = [
     "SocialNetworkModule",  # port: 7802
     "JobModule",            # port: 7803
     "GeminiRAGModule",      # port: 7805
+    "SkillModule",          # port: 7806
     "MatrixModule",         # port: 7810
 ]
 
@@ -112,6 +113,7 @@ MODULE_PORTS = {
     "SocialNetworkModule": 7802,
     "JobModule": 7803,
     "GeminiRAGModule": 7805,
+    "SkillModule": 7806,
     "MatrixModule": 7810,
 }
 

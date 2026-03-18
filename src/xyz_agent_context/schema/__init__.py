@@ -135,6 +135,9 @@ from .api_schema import (
     # Simple Chat History
     SimpleChatMessage,
     SimpleChatHistoryResponse,
+    # Event Log Detail
+    EventLogToolCall,
+    EventLogResponse,
     # Files
     FileInfo,
     FileListResponse,
@@ -152,11 +155,6 @@ from .api_schema import (
     JobResponse,
     JobListResponse,
     JobDetailResponse,
-    # Inbox
-    MessageSourceResponse,
-    InboxMessageResponse,
-    InboxListResponse,
-    MarkReadResponse,
     # RAG Files
     RAGFileInfo,
     RAGFileListResponse,
@@ -335,6 +333,9 @@ __all__ = [
     # Simple Chat History
     "SimpleChatMessage",
     "SimpleChatHistoryResponse",
+    # Event Log Detail
+    "EventLogToolCall",
+    "EventLogResponse",
     # Files
     "FileInfo",
     "FileListResponse",
@@ -352,11 +353,6 @@ __all__ = [
     "JobResponse",
     "JobListResponse",
     "JobDetailResponse",
-    # Inbox (API)
-    "MessageSourceResponse",
-    "InboxMessageResponse",
-    "InboxListResponse",
-    "MarkReadResponse",
     # RAG Files
     "RAGFileInfo",
     "RAGFileListResponse",

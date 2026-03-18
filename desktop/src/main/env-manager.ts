@@ -196,9 +196,9 @@ export function getEnvFields(): Array<{
     },
     {
       key: 'GOOGLE_API_KEY',
-      label: 'Google API Key',
+      label: 'Google API Key (optional, for Gemini RAG)',
       required: false,
-      placeholder: 'AIza...'
+      placeholder: 'AIza... (leave empty if not using Gemini RAG)'
     },
     {
       key: 'NETMIND_API_KEY',

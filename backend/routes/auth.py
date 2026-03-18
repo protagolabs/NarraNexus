@@ -631,35 +631,15 @@ async def delete_agent(
 @router.post("/create-user", response_model=CreateUserResponse)
 async def create_user(request: CreateUserRequest):
     """
-    Create a new user (requires admin secret key verification)
+    Create a new local user.
 
-    Verification flow:
-    1. Verify the admin secret key is correct
-    2. Check if user_id already exists
-    3. Create a new user in the users table
+    Flow:
+    1. Check if user_id already exists
+    2. Create a new user in the users table
     """
     logger.info(f"Create user request for: {request.user_id}")
 
     try:
-        # Get admin secret key from environment variables
-        from xyz_agent_context.settings import settings
-        admin_secret_key = settings.admin_secret_key
-
-        if not admin_secret_key:
-            logger.error("ADMIN_SECRET_KEY not configured in .env")
-            return CreateUserResponse(
-                success=False,
-                error="Server configuration error: Admin key not set"
-            )
-
-        # Verify admin secret key
-        if request.admin_secret_key != admin_secret_key:
-            logger.warning(f"Invalid admin secret key attempt for user: {request.user_id}")
-            return CreateUserResponse(
-                success=False,
-                error="Invalid admin secret key"
-            )
-
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
 

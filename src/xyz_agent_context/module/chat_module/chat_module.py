@@ -12,9 +12,8 @@ Core concept - Thinking vs Speaking:
 - Like two people talking face-to-face: thinking in your head (invisible) vs speaking out loud (visible)
 
 Included MCP Tools:
-- send_message_to_user_directly: Agent speaks to user (real-time conversation, must be called for user to see response)
-- agent_send_content_to_user_inbox: Agent proactively sends message to user's Inbox (async notification)
-- get_inbox_status: Get user Inbox status
+- send_message_to_user_directly: Agent speaks to user (the ONLY way to deliver messages to the user)
+- get_chat_history: Get chat history for a Chat Instance
 
 Note: ChatModule itself does not include "multi-turn conversation" capability; multi-turn conversation requires Social-Network/Memory modules
 """
@@ -34,14 +33,13 @@ from xyz_agent_context.schema import (
     HookAfterExecutionParams,
     ModuleConfig,
     MCPServerConfig,
-    InboxMessageType,
 )
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, utc_now
 
 # Repository
-from xyz_agent_context.repository import InboxRepository, AgentMessageRepository
+from xyz_agent_context.repository import AgentMessageRepository
 
 # Schema
 from xyz_agent_context.schema.agent_message_schema import MessageSourceType
@@ -62,10 +60,8 @@ class ChatModule(XYZBaseModule):
     Provided capabilities:
     1. **Instructions** - Guide Agent to understand the "thinking vs speaking" distinction
     2. **Tools** (via MCP):
-       - send_message_to_user_directly: Real-time response to user (must be called for user to see response)
-       - agent_send_content_to_user_inbox: Async notification to Inbox
-       - get_inbox_status: Query Inbox status
-    3. **Data** - User's Inbox unread message count
+       - send_message_to_user_directly: The ONLY way to deliver messages to the user
+       - get_chat_history: Retrieve past conversations for a specific Chat Instance
 
     Dual-track memory loading (2026-01-21 P1-2):
     - Long-term memory: Current Narrative's EverMemOS semantically relevant history (2026-02-09 optimization)
@@ -106,7 +102,7 @@ class ChatModule(XYZBaseModule):
             name="ChatModule",
             priority=1,  # High priority (base module)
             enabled=True,
-            description="Provides messaging capabilities (instant chat + Inbox notifications)"
+            description="Provides messaging capabilities (chat conversation + history retrieval)"
         )
 
     # ============================================================================= MCP Server
@@ -116,7 +112,8 @@ class ChatModule(XYZBaseModule):
         Return MCP Server configuration
 
         ChatModule provides MCP Server for:
-        - agent_send_content_to_user_inbox: Agent proactively sends messages to users
+        - send_message_to_user_directly: Agent speaks to user
+        - get_chat_history: Retrieve past conversations
 
         Returns:
             MCPServerConfig
@@ -155,21 +152,19 @@ class ChatModule(XYZBaseModule):
         """
         Extract user-visible response content from agent_loop_response
 
-        Iterates through agent_loop_response, looking for send_message_to_user_directly tool calls,
-        and extracts the content parameter as the actual content displayed to the user.
-
-        Logic is consistent with getUserVisibleResponse in the frontend chatStore.ts:
-        - Tool name ends with 'send_message_to_user_directly' (Claude SDK format: mcp__chat_module__send_message_to_user_directly)
-        - Extracts content field from tool_input/arguments
+        Iterates through agent_loop_response, looking for ALL send_message_to_user_directly
+        tool calls, and concatenates their content. Agent may call this tool multiple times
+        in a single turn (e.g. sending a greeting then a detailed answer).
 
         Args:
             agent_loop_response: Raw response list from Agent Loop, containing ProgressMessage etc.
 
         Returns:
-            str: User-visible response content; returns default message if send_message_to_user_directly was not called
+            str: Concatenated user-visible response content; returns default message if not called
         """
         from xyz_agent_context.schema import ProgressMessage
 
+        parts = []
         for response in agent_loop_response:
             # Check if it's a ProgressMessage (tool calls are wrapped as ProgressMessage)
             if isinstance(response, ProgressMessage) and response.details:
@@ -179,11 +174,15 @@ class ChatModule(XYZBaseModule):
                     arguments = response.details.get("arguments", {})
                     content = arguments.get("content", "")
                     if content:
-                        logger.debug(
-                            f"ChatModule._extract_user_visible_response: "
-                            f"Extracted reply content from {tool_name}, length {len(content)}"
-                        )
-                        return content
+                        parts.append(content)
+
+        if parts:
+            combined = "\n\n".join(parts)
+            logger.debug(
+                f"ChatModule._extract_user_visible_response: "
+                f"Extracted {len(parts)} reply(s), total length {len(combined)}"
+            )
+            return combined
 
         # send_message_to_user_directly call not found
         logger.debug(
@@ -191,6 +190,32 @@ class ChatModule(XYZBaseModule):
             "send_message_to_user_directly tool call not found, Agent did not reply to user"
         )
         return "(Agent decided no response needed)"
+
+    @staticmethod
+    def _build_activity_summary(working_source: str, meta: dict) -> str:
+        """
+        Build a human-readable activity summary for background tasks
+        where the agent chose not to send a message to the user.
+
+        Args:
+            working_source: Execution source ("job", "matrix", etc.)
+            meta: Shared meta_data dict (may contain channel_tag)
+
+        Returns:
+            Short activity description string
+        """
+        if working_source == "matrix":
+            channel_tag = meta.get("channel_tag", {})
+            room_name = channel_tag.get("room_name") or channel_tag.get("room_id", "unknown room")
+            sender = channel_tag.get("sender_name") or channel_tag.get("sender_id", "")
+            if sender:
+                return f"Handled a message from {sender} in {room_name}"
+            return f"Handled a message in {room_name}"
+
+        if working_source == "job":
+            return "Executed a background job"
+
+        return f"Background activity ({working_source})"
 
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
         """
@@ -501,22 +526,31 @@ class ChatModule(XYZBaseModule):
                     channel_tag_data = channel_tag_data.to_dict()
                 shared_meta["channel_tag"] = channel_tag_data
 
-        # User message
-        messages.append({
-            "role": "user",
-            "content": params.input_content,
-            "meta_data": {**shared_meta},
-        })
-
-        # Assistant message - Extract actual reply content from send_message_to_user_directly tool call
-        # Instead of using final_output (which is the Agent's internal thinking result)
+        # Extract the user-visible response (from send_message_to_user_directly tool call)
         assistant_content = self._extract_user_visible_response(params.agent_loop_response)
+        is_no_response = assistant_content == "(Agent decided no response needed)"
 
-        messages.append({
-            "role": "assistant",
-            "content": assistant_content,
-            "meta_data": {**shared_meta},
-        })
+        if working_source == "chat" or not is_no_response:
+            # Normal conversation: store user message + assistant reply
+            messages.append({
+                "role": "user",
+                "content": params.input_content,
+                "meta_data": {**shared_meta},
+            })
+            messages.append({
+                "role": "assistant",
+                "content": assistant_content,
+                "meta_data": {**shared_meta},
+            })
+        else:
+            # Background task (job/matrix) where agent chose not to message user:
+            # Store a lightweight activity record instead of a fake conversation pair
+            activity_summary = self._build_activity_summary(working_source, shared_meta)
+            messages.append({
+                "role": "assistant",
+                "content": activity_summary,
+                "meta_data": {**shared_meta, "message_type": "activity"},
+            })
 
         # Save updated history (using instance_id)
         memory = {

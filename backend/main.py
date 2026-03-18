@@ -66,7 +66,6 @@ app.add_middleware(
 from backend.routes.websocket import router as websocket_router
 from backend.routes.agents import router as agents_router
 from backend.routes.jobs import router as jobs_router
-from backend.routes.inbox import router as inbox_router
 from backend.routes.agent_inbox import router as agent_inbox_router
 from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
@@ -75,7 +74,6 @@ app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
-app.include_router(inbox_router, prefix="/api/inbox", tags=["Inbox"])
 app.include_router(agent_inbox_router, prefix="/api/agent-inbox", tags=["Agent Inbox"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 

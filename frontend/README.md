@@ -482,14 +482,13 @@ interface PreloadState {
 
   // Methods
   preloadAll(agentId: string, userId: string): Promise<void>;
-  refreshInbox(userId: string): Promise<void>;
-  refreshJobs(agentId: string, userId: string, status?: string): Promise<void>;
-  refreshAwareness(agentId: string): Promise<void>;
-  refreshSocialNetwork(agentId: string): Promise<void>;
-  refreshChatHistory(agentId: string, userId: string): Promise<void>;
+  refreshAgentInbox(agentId: string, silent?: boolean): Promise<void>;
+  refreshJobs(agentId: string, userId?: string, status?: string, silent?: boolean): Promise<void>;
+  refreshAwareness(agentId: string, silent?: boolean): Promise<void>;
+  refreshSocialNetwork(agentId: string, silent?: boolean): Promise<void>;
+  refreshChatHistory(agentId: string, userId: string, silent?: boolean): Promise<void>;
   addChatHistoryEvent(event: ChatHistoryEvent): void;
-  updateInboxMessage(messageId: string, updates: Partial<InboxMessage>): void;
-  markAllInboxRead(): void;
+  updateAgentInboxMessage(messageId: string, updates: Partial<RoomMessage>): void;
   clearAll(): void;
 }
 ```

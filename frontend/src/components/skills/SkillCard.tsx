@@ -19,7 +19,7 @@ import {
   KeyRound,
   CircleAlert,
 } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Button, Markdown } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import type { SkillInfo } from '@/types/skills';
 
@@ -131,8 +131,8 @@ export function SkillCard({
                 Study Result
               </button>
               {showResult && (
-                <div className="mt-1.5 p-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] whitespace-pre-wrap max-h-48 overflow-y-auto">
-                  {skill.study_result}
+                <div className="mt-1.5 p-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] max-h-48 overflow-y-auto [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                  <Markdown content={skill.study_result!} />
                 </div>
               )}
             </div>

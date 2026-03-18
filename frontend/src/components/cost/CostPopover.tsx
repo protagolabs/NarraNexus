@@ -2,27 +2,21 @@
  * @file_name: CostPopover.tsx
  * @author: Bin Liang
  * @date: 2026-03-12
- * @description: Cost tracking popover - shows LLM API spend summary
+ * @description: Token usage popover - shows LLM API token consumption summary
  *
- * Displays a small dollar-sign button next to the inbox bell.
- * Click to open a popover with total spend, per-model breakdown, and daily trend.
+ * Supports two views: current agent and all agents combined.
  */
 
-import { useState } from 'react';
-import { DollarSign, RefreshCw, HelpCircle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Activity, RefreshCw } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui';
 import { usePreloadStore, useConfigStore } from '@/stores';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { CostSummary } from '@/types/api';
 
-/** Format USD cost for display */
-function formatCost(usd: number): string {
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  if (usd < 1) return `$${usd.toFixed(3)}`;
-  return `$${usd.toFixed(2)}`;
-}
+type CostView = 'agent' | 'all';
 
 /** Format token count (e.g. 12345 -> "12.3k") */
 function formatTokens(n: number): string {
@@ -34,13 +28,13 @@ function formatTokens(n: number): string {
 /** Short model name for display (drop date suffixes) */
 function shortModelName(model: string): string {
   if (model === 'claude-code') return 'Claude Code';
-  // "gpt-5.1-2025-11-13" -> "gpt-5.1"
   return model.replace(/-\d{4}-?\d{2}-?\d{2}$/, '').replace(/-\d{8}$/, '');
 }
 
 function SummaryContent({ summary }: { summary: CostSummary }) {
+  const totalTokens = summary.total_input_tokens + summary.total_output_tokens;
   const models = Object.entries(summary.by_model).sort(
-    ([, a], [, b]) => b.cost - a.cost
+    ([, a], [, b]) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens)
   );
 
   return (
@@ -48,7 +42,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
       {/* Total */}
       <div className="text-center pb-2 border-b border-[var(--border-subtle)]">
         <div className="text-2xl font-bold text-[var(--text-primary)]">
-          {formatCost(summary.total_cost_usd)}
+          {formatTokens(totalTokens)}
         </div>
         <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
           {formatTokens(summary.total_input_tokens)} in / {formatTokens(summary.total_output_tokens)} out
@@ -71,7 +65,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
                   x{data.call_count}
                 </span>
                 <span className="font-medium text-[var(--text-primary)] min-w-[50px] text-right">
-                  {formatCost(data.cost)}
+                  {formatTokens(data.input_tokens + data.output_tokens)}
                 </span>
               </div>
             </div>
@@ -89,7 +83,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
             <div key={entry.date} className="flex items-center justify-between text-xs">
               <span className="text-[var(--text-tertiary)]">{entry.date.slice(5)}</span>
               <span className="font-medium text-[var(--text-primary)]">
-                {formatCost(entry.cost)}
+                {formatTokens(entry.input_tokens + entry.output_tokens)}
               </span>
             </div>
           ))}
@@ -100,31 +94,63 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
 }
 
 export function CostPopover() {
+  const [view, setView] = useState<CostView>('agent');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [allSummary, setAllSummary] = useState<CostSummary | null>(null);
+  const [allLoading, setAllLoading] = useState(false);
+
   const { agentId } = useConfigStore();
   const { costSummary, costLoading, refreshCost } = usePreloadStore();
+
+  const activeSummary = view === 'agent' ? costSummary : allSummary;
+  const activeLoading = view === 'agent' ? costLoading : allLoading;
+
+  const loadAllAgents = useCallback(async () => {
+    setAllLoading(true);
+    try {
+      const res = await api.getCosts('_all');
+      if (res.success && res.summary) {
+        setAllSummary(res.summary);
+      }
+    } catch {
+      // Silently ignore
+    } finally {
+      setAllLoading(false);
+    }
+  }, []);
+
+  // Load "all agents" data on first switch
+  useEffect(() => {
+    if (view === 'all' && !allSummary && !allLoading) {
+      loadAllAgents();
+    }
+  }, [view, allSummary, allLoading, loadAllAgents]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await refreshCost(agentId);
+      if (view === 'agent') {
+        await refreshCost(agentId);
+      } else {
+        await loadAllAgents();
+      }
     } finally {
       setIsRefreshing(false);
     }
   };
 
-  const todayCost = costSummary?.daily?.find(
-    (d) => d.date === new Date().toISOString().slice(0, 10)
-  )?.cost ?? 0;
+  const totalTokens = activeSummary
+    ? activeSummary.total_input_tokens + activeSummary.total_output_tokens
+    : 0;
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" title="API Cost">
-          <DollarSign className="w-5 h-5" />
-          {todayCost > 0 && (
+        <Button variant="ghost" size="icon" className="relative" title="Token Usage">
+          <Activity className="w-5 h-5" />
+          {totalTokens > 0 && (
             <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 flex items-center justify-center text-[9px] font-medium bg-[var(--accent-primary)] text-white rounded-full">
-              {formatCost(todayCost)}
+              {formatTokens(totalTokens)}
             </span>
           )}
         </Button>
@@ -134,54 +160,56 @@ export function CostPopover() {
         sideOffset={8}
         className="w-[260px] p-3 bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-xl shadow-lg"
       >
-        {/* Header */}
+        {/* Header with view toggle */}
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1">
-            <span className="text-xs font-medium text-[var(--text-secondary)]">
-              API Cost (7d)
-            </span>
-            <TooltipProvider delayDuration={0}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
-                    <HelpCircle className="w-3 h-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-[240px] text-xs leading-relaxed">
-                  <p className="font-medium mb-1">How costs are calculated</p>
-                  <p>
-                    Costs are computed from token usage reported by each LLM SDK.
-                    For Claude Code (Agent Loop), the SDK returns a total_cost_usd
-                    based on list pricing — this reflects equivalent API spend,
-                    not your actual bill if you are on a Max subscription.
-                  </p>
-                  <p className="mt-1">
-                    For OpenAI and Gemini calls, costs are calculated from our
-                    built-in per-model price table.
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          <div className="flex items-center gap-1 p-0.5 bg-[var(--bg-tertiary)] rounded-md">
+            <button
+              onClick={() => setView('agent')}
+              className={cn(
+                'px-2 py-0.5 rounded text-[10px] font-medium transition-all',
+                view === 'agent'
+                  ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+              )}
+            >
+              Agent
+            </button>
+            <button
+              onClick={() => setView('all')}
+              className={cn(
+                'px-2 py-0.5 rounded text-[10px] font-medium transition-all',
+                view === 'all'
+                  ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm'
+                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+              )}
+            >
+              All
+            </button>
           </div>
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6"
             onClick={handleRefresh}
-            disabled={isRefreshing || costLoading}
+            disabled={isRefreshing || activeLoading}
           >
-            <RefreshCw className={cn('w-3 h-3', (isRefreshing || costLoading) && 'animate-spin')} />
+            <RefreshCw className={cn('w-3 h-3', (isRefreshing || activeLoading) && 'animate-spin')} />
           </Button>
         </div>
 
+        {/* Subtitle */}
+        <div className="text-[10px] text-[var(--text-tertiary)] mb-2">
+          {view === 'agent' ? 'Current agent · 7 days' : 'All agents · 7 days'}
+        </div>
+
         {/* Content */}
-        {costLoading && !costSummary ? (
+        {activeLoading && !activeSummary ? (
           <div className="py-4 text-center text-xs text-[var(--text-tertiary)]">Loading...</div>
-        ) : costSummary ? (
-          <SummaryContent summary={costSummary} />
+        ) : activeSummary ? (
+          <SummaryContent summary={activeSummary} />
         ) : (
           <div className="py-4 text-center text-xs text-[var(--text-tertiary)]">
-            No cost data yet
+            No usage data yet
           </div>
         )}
       </PopoverContent>
