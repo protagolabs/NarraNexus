@@ -121,7 +121,7 @@ class OpenAIAgentsSDK:
                 model=model_name,
                 openai_client=client,
             ),
-            model_settings=ModelSettings(max_tokens=16384),
+            model_settings=ModelSettings(max_tokens=58000),
         )
         return await Runner.run(agent, user_input)
 
@@ -155,7 +155,7 @@ class OpenAIAgentsSDK:
         resp = await client.chat.completions.create(
             model=model_name,
             messages=messages,
-            max_tokens=16384,  # Explicitly set large value; some providers default to 256
+            max_tokens=58000,  # Explicitly set large value; some providers default to 256
         )
 
         raw_content = resp.choices[0].message.content or ""
