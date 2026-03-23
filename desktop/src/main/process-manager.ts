@@ -229,6 +229,10 @@ export class ProcessManager extends EventEmitter {
     const parentDir = join(cwd, '..')
     const dirName = cwd.split('/').pop() || cwd.split('\\').pop() || ''
 
+    // Ensure parent directory exists (ENOENT from spawn is often a missing cwd, not a missing binary)
+    const fs = await import('fs')
+    fs.mkdirSync(parentDir, { recursive: true })
+
     this.addLog(svc.id, 'stdout', `Cloning ${svc.gitRepo} ...`)
     this.statuses.set(svc.id, 'starting')
     this.emit('status-change', svc.id, 'starting')
