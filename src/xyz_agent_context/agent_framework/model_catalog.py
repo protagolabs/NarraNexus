@@ -34,6 +34,7 @@ class ModelInfo:
     display_name: str                    # e.g. "BGE-M3 (Multilingual)"
     slot_types: list[str]                # Which slots can use this: ["embedding"], ["agent"], ["helper_llm"]
     dimensions: Optional[int] = None     # Embedding dimensions (only for embedding models)
+    max_output_tokens: Optional[int] = None  # Max output tokens (90% of model limit)
     is_default: bool = False             # Whether this is the preset default
 
 
@@ -48,6 +49,7 @@ NETMIND_MODELS: list[ModelInfo] = [
         model_id="minimax/minimax-m2.5",
         display_name="MiniMax M2.5",
         slot_types=["agent"],
+        max_output_tokens=58982,  # 65536 * 0.9
         is_default=True,
     ),
     # Helper LLM models (OpenAI protocol)
@@ -55,32 +57,38 @@ NETMIND_MODELS: list[ModelInfo] = [
         model_id="minimax/minimax-m2.5",
         display_name="MiniMax M2.5",
         slot_types=["helper_llm"],
+        max_output_tokens=58982,  # 65536 * 0.9
         is_default=True,
     ),
     ModelInfo(
         model_id="google/gemini-3.1-pro-preview",
         display_name="Gemini 3.1 Pro",
         slot_types=["helper_llm"],
+        max_output_tokens=58982,  # 65536 * 0.9
     ),
     ModelInfo(
         model_id="google/gemini-3.1-flash-lite-preview",
         display_name="Gemini 3.1 Flash Lite",
         slot_types=["helper_llm"],
+        max_output_tokens=58982,  # 65536 * 0.9
     ),
     ModelInfo(
         model_id="moonshotai/Kimi-K2.5",
         display_name="Kimi K2.5",
         slot_types=["helper_llm"],
+        max_output_tokens=58981,  # 65535 * 0.9
     ),
     ModelInfo(
         model_id="zai-org/GLM-5",
         display_name="GLM-5",
         slot_types=["helper_llm"],
+        max_output_tokens=117964,  # 131072 * 0.9
     ),
     ModelInfo(
         model_id="deepseek-ai/DeepSeek-V3",
         display_name="DeepSeek V3",
         slot_types=["helper_llm"],
+        max_output_tokens=7200,  # 8000 * 0.9
     ),
     # Embedding models (OpenAI protocol)
     ModelInfo(
@@ -210,6 +218,19 @@ def get_embedding_dimensions(model_id: str) -> Optional[int]:
     return None
 
 
+def get_max_output_tokens(model_id: str) -> Optional[int]:
+    """
+    Look up the max output tokens for a given model ID.
+
+    Searches all catalogs. Returns None if the model is not found.
+    """
+    for models in _CATALOG.values():
+        for m in models:
+            if m.model_id == model_id and m.max_output_tokens is not None:
+                return m.max_output_tokens
+    return None
+
+
 def get_all_presets_summary() -> dict[str, list[dict]]:
     """
     Get a summary of all presets and their models for API/frontend use.
@@ -225,6 +246,7 @@ def get_all_presets_summary() -> dict[str, list[dict]]:
                 "display_name": m.display_name,
                 "slot_types": m.slot_types,
                 "dimensions": m.dimensions,
+                "max_output_tokens": m.max_output_tokens,
                 "is_default": m.is_default,
             }
             for m in models

@@ -80,6 +80,10 @@ class OpenAIAgentsSDK:
         """
         model_name = model or openai_config.model
 
+        # Resolve max_tokens from model catalog (per-model limit)
+        from xyz_agent_context.agent_framework.model_catalog import get_max_output_tokens
+        max_tokens = get_max_output_tokens(model_name) or 58000  # fallback for unknown models
+
         # Build AsyncOpenAI client
         client_kwargs: dict = {"api_key": openai_config.api_key}
         if openai_config.base_url:
@@ -90,7 +94,7 @@ class OpenAIAgentsSDK:
         if output_type and model_name not in _structured_output_blocklist:
             try:
                 result = await self._try_agents_sdk(
-                    openai_client, model_name, instructions, user_input, output_type
+                    openai_client, model_name, instructions, user_input, output_type, max_tokens
                 )
                 await self._record_cost(result, model_name, agent_id, db)
                 return result
@@ -103,12 +107,12 @@ class OpenAIAgentsSDK:
 
         # Fallback: direct chat completion + manual JSON parsing
         result = await self._fallback_chat_completion(
-            openai_client, model_name, instructions, user_input, output_type
+            openai_client, model_name, instructions, user_input, output_type, max_tokens
         )
         return result
 
     async def _try_agents_sdk(
-        self, client, model_name, instructions, user_input, output_type
+        self, client, model_name, instructions, user_input, output_type, max_tokens: int
     ):
         """Attempt structured output via OpenAI Agents SDK"""
         from agents import Agent, Runner, OpenAIChatCompletionsModel, ModelSettings
@@ -121,7 +125,7 @@ class OpenAIAgentsSDK:
                 model=model_name,
                 openai_client=client,
             ),
-            model_settings=ModelSettings(max_tokens=58000),
+            model_settings=ModelSettings(max_tokens=max_tokens),
         )
         return await Runner.run(agent, user_input)
 
@@ -129,6 +133,7 @@ class OpenAIAgentsSDK:
         self, client: AsyncOpenAI, model_name: str,
         instructions: str, user_input: str,
         output_type: Optional[Type[BaseModel]] = None,
+        max_tokens: int = 58000,
     ):
         """
         Direct chat completion with prompt-guided JSON extraction.
@@ -155,7 +160,7 @@ class OpenAIAgentsSDK:
         resp = await client.chat.completions.create(
             model=model_name,
             messages=messages,
-            max_tokens=58000,  # Explicitly set large value; some providers default to 256
+            max_tokens=max_tokens,  # Per-model limit from catalog; some providers default to 256
         )
 
         raw_content = resp.choices[0].message.content or ""
