@@ -165,8 +165,22 @@ class EmbeddingMigrationService:
         Get the current migration status.
 
         Checks how many entities have embeddings for the active model
-        vs. how many exist in total.
+        vs. how many exist in total. In legacy mode (no llm_config.json),
+        always returns all_done=True since the old columns are used.
         """
+        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import use_embedding_store
+
+        # Legacy mode: embeddings_store not in use, everything is fine
+        if not use_embedding_store():
+            return {
+                "model": embedding_config.model,
+                "dimensions": embedding_config.dimensions,
+                "stats": {},
+                "all_done": True,
+                "migration": _progress.to_dict(),
+                "legacy_mode": True,
+            }
+
         model = embedding_config.model
         stats = {}
 
