@@ -58,6 +58,26 @@ NETMIND_MODELS: list[ModelInfo] = [
         is_default=True,
     ),
     ModelInfo(
+        model_id="google/gemini-3.1-pro-preview",
+        display_name="Gemini 3.1 Pro",
+        slot_types=["helper_llm"],
+    ),
+    ModelInfo(
+        model_id="google/gemini-3.1-flash-lite-preview",
+        display_name="Gemini 3.1 Flash Lite",
+        slot_types=["helper_llm"],
+    ),
+    ModelInfo(
+        model_id="moonshotai/Kimi-K2.5",
+        display_name="Kimi K2.5",
+        slot_types=["helper_llm"],
+    ),
+    ModelInfo(
+        model_id="zai-org/GLM-5",
+        display_name="GLM-5",
+        slot_types=["helper_llm"],
+    ),
+    ModelInfo(
         model_id="deepseek-ai/DeepSeek-V3",
         display_name="DeepSeek V3",
         slot_types=["helper_llm"],
