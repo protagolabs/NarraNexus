@@ -495,13 +495,17 @@ class ProviderRegistry:
 
         if resp.status_code == 200:
             return True, "Connected successfully"
-        elif resp.status_code in (400, 404):
+        elif resp.status_code in (400, 404, 422):
             # Auth passed but model invalid — auth works
             return True, "Authentication verified (API reachable)"
         elif resp.status_code == 401:
             return False, "Authentication failed (invalid API key)"
         elif resp.status_code == 403:
             return False, "Access denied (check API key permissions)"
+        elif resp.status_code in (502, 503):
+            # Upstream error with a test model name — auth likely works,
+            # the proxy just can't route the fake model name
+            return True, "API reachable (upstream returned 502/503 for test model)"
         else:
             body = resp.text[:200]
             return False, f"HTTP {resp.status_code}: {body}"
@@ -538,12 +542,17 @@ class ProviderRegistry:
 
         if resp.status_code == 200:
             return True, "Connected successfully"
-        elif resp.status_code == 400:
+        elif resp.status_code in (400, 404, 422):
+            # Auth passed but payload invalid (e.g., model not found) — auth works
             return True, "Authentication verified (API reachable)"
         elif resp.status_code == 401:
             return False, "Authentication failed (invalid API key)"
         elif resp.status_code == 403:
             return False, "Access denied (check API key permissions)"
+        elif resp.status_code in (502, 503):
+            # Upstream error with a test model name — auth likely works,
+            # the proxy just can't route the fake model name
+            return True, "API reachable (upstream returned 502/503 for test model)"
         else:
             body = resp.text[:200]
             return False, f"HTTP {resp.status_code}: {body}"
