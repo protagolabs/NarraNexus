@@ -194,19 +194,90 @@ def _load_gemini_config() -> GeminiConfig:
 
 
 # =============================================================================
-# Initialize: per-slot merge (llm_config.json preferred, .env fallback)
+# Lazy-loading config with hot-reload support
 # =============================================================================
 
-_json_result = _load_from_llm_config()
-_env_claude, _env_openai, _env_embedding = _load_from_settings()
+class _ConfigHolder:
+    """
+    Holds LLM configs with lazy-loading and hot-reload.
 
-if _json_result is not None:
-    _json_claude, _json_openai, _json_embedding = _json_result
-    # Per-slot: use json config if it has a non-empty api_key (or is OAuth), else fallback
-    claude_config = _json_claude if (_json_claude.api_key or _json_claude.auth_type == "oauth") else _env_claude
-    openai_config = _json_openai if _json_openai.api_key else _env_openai
-    embedding_config = _json_embedding if _json_embedding.api_key else _env_embedding
-else:
-    claude_config, openai_config, embedding_config = _env_claude, _env_openai, _env_embedding
+    Config is loaded on first access and cached. Call reload() after
+    changing llm_config.json to pick up new settings without restarting.
+    """
 
-gemini_config = _load_gemini_config()
+    def __init__(self) -> None:
+        self._claude: Optional[ClaudeConfig] = None
+        self._openai: Optional[OpenAIConfig] = None
+        self._embedding: Optional[EmbeddingConfig] = None
+        self._gemini: Optional[GeminiConfig] = None
+        self._loaded = False
+
+    def _ensure_loaded(self) -> None:
+        if self._loaded:
+            return
+        self.reload()
+
+    def reload(self) -> None:
+        """Reload config from llm_config.json + .env fallback."""
+        json_result = _load_from_llm_config()
+        env_claude, env_openai, env_embedding = _load_from_settings()
+
+        if json_result is not None:
+            json_claude, json_openai, json_embedding = json_result
+            self._claude = json_claude if (json_claude.api_key or json_claude.auth_type == "oauth") else env_claude
+            self._openai = json_openai if json_openai.api_key else env_openai
+            self._embedding = json_embedding if json_embedding.api_key else env_embedding
+        else:
+            self._claude, self._openai, self._embedding = env_claude, env_openai, env_embedding
+
+        self._gemini = _load_gemini_config()
+        self._loaded = True
+        logger.info("LLM configs (re)loaded")
+
+    @property
+    def claude(self) -> ClaudeConfig:
+        self._ensure_loaded()
+        return self._claude  # type: ignore
+
+    @property
+    def openai(self) -> OpenAIConfig:
+        self._ensure_loaded()
+        return self._openai  # type: ignore
+
+    @property
+    def embedding(self) -> EmbeddingConfig:
+        self._ensure_loaded()
+        return self._embedding  # type: ignore
+
+    @property
+    def gemini(self) -> GeminiConfig:
+        self._ensure_loaded()
+        return self._gemini  # type: ignore
+
+
+_holder = _ConfigHolder()
+
+# Public API — properties that auto-reload on first access.
+# Existing code reads `claude_config.model` etc. — these module-level
+# names delegate to the holder so no import changes are needed.
+
+
+class _ConfigProxy:
+    """Proxy that delegates attribute access to the holder's config object."""
+
+    def __init__(self, attr_name: str):
+        self._attr_name = attr_name
+
+    def __getattr__(self, name: str):
+        return getattr(getattr(_holder, self._attr_name), name)
+
+
+claude_config: ClaudeConfig = _ConfigProxy("claude")  # type: ignore
+openai_config: OpenAIConfig = _ConfigProxy("openai")  # type: ignore
+embedding_config: EmbeddingConfig = _ConfigProxy("embedding")  # type: ignore
+gemini_config: GeminiConfig = _ConfigProxy("gemini")  # type: ignore
+
+
+def reload_llm_config() -> None:
+    """Reload LLM config from disk. Call after llm_config.json changes."""
+    _holder.reload()

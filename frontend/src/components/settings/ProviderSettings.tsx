@@ -270,7 +270,10 @@ export function ProviderSettings() {
 
   const getModelsForSlot = (prov: ProviderSummary, slotKey: string) => {
     if (slotKey === 'embedding') {
-      return embeddingModels.filter((em) => prov.models.includes(em.model_id))
+      if (prov.source === 'netmind') {
+        return embeddingModels.filter((em) => prov.models.includes(em.model_id))
+      }
+      return embeddingModels.filter((em) => em.model_id.startsWith('text-embedding-'))
     }
     return prov.models
       .filter((mid) => !knownModels[mid]?.dimensions)

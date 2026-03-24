@@ -154,6 +154,10 @@ async def remove_provider(provider_id: str):
 
     config = provider_registry.remove_provider(config, provider_id)
     provider_registry.save(config)
+
+    from xyz_agent_context.agent_framework.api_config import reload_llm_config
+    reload_llm_config()
+
     return {"success": True, "data": _config_to_response(config)}
 
 
@@ -188,6 +192,11 @@ async def set_slot(slot_name: str, req: SetSlotRequest):
         config = _get_or_empty_config()
         config = provider_registry.set_slot(config, slot_name, req.provider_id, req.model)
         provider_registry.save(config)
+
+        # Hot-reload api_config so changes take effect immediately
+        from xyz_agent_context.agent_framework.api_config import reload_llm_config
+        reload_llm_config()
+
         errors = provider_registry.validate(config)
         return {
             "success": True,

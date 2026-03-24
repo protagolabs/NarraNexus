@@ -32,6 +32,7 @@ interface ProviderSummary {
   models: string[]
   api_key_masked?: string
   linked_group?: string
+  base_url?: string
 }
 
 interface SlotStatus {
@@ -379,8 +380,16 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
   // Get filtered models for a slot + provider
   const getModelsForSlot = (prov: ProviderSummary, slotKey: string) => {
     if (slotKey === 'embedding') {
-      // Embedding: only show known embedding models that this provider has
-      return embeddingModels.filter((em) => prov.models.includes(em.model_id))
+      // Embedding: show ALL known embedding models for this provider's source.
+      // NetMind has its own embedding models, OpenAI has its own.
+      // Users cannot add custom embedding models.
+      if (prov.source === 'netmind') {
+        return embeddingModels.filter((em) => prov.models.includes(em.model_id))
+      }
+      // For official OpenAI or user providers: show OpenAI embedding models
+      return embeddingModels.filter((em) =>
+        em.model_id.startsWith('text-embedding-')
+      )
     }
     // Agent / Helper LLM: show non-embedding models only
     return prov.models
