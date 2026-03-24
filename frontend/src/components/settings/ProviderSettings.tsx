@@ -318,9 +318,11 @@ export function ProviderSettings() {
               </button>
             )}
             {!claudeStatus.logged_in && (
-              <code className="block px-2 py-1 text-[9px] font-mono rounded bg-[var(--bg-tertiary)] text-[var(--accent-primary)] select-all">
-                {claudeStatus.cli_installed ? 'claude login' : 'npm i -g @anthropic-ai/claude-code && claude login'}
-              </code>
+              <p className="text-[9px] text-[var(--text-tertiary)]">
+                {claudeStatus.cli_installed
+                  ? 'Run "claude login" in your terminal first, then refresh this page.'
+                  : 'Install Claude Code CLI first, then run "claude login" in your terminal.'}
+              </p>
             )}
           </div>
         )}

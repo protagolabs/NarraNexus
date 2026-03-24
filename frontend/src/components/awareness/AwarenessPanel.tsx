@@ -11,7 +11,7 @@ import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
-import { ProviderSettings } from '@/components/settings/ProviderSettings';
+
 import { EntityCard } from './EntityCard';
 import { FileUpload } from './FileUpload';
 import { RAGUpload } from './RAGUpload';
@@ -203,9 +203,6 @@ export function AwarenessPanel() {
               subtext={`${networkMetrics.avgStrength}% avg`}
             />
           </div>
-
-          {/* LLM Provider Configuration */}
-          <ProviderSettings />
 
           {/* Embedding Vector Index Status */}
           <EmbeddingStatus />
