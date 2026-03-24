@@ -54,9 +54,29 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
 _structured_output_blocklist: set[str] = set()
 
 
+_OFFICIAL_OPENAI_BASE_URLS = {"", "https://api.openai.com/v1", "https://api.openai.com/v1/"}
+
+
 class OpenAIAgentsSDK:
     def __init__(self):
         pass
+
+    @staticmethod
+    def _resolve_model(requested_model: str | None) -> str:
+        """
+        Resolve which model to use based on the provider endpoint.
+
+        - Official OpenAI endpoint: honor the requested model (e.g., caller
+          can specify 'gpt-4o-mini' for cheap tasks). This works because
+          OpenAI's endpoint supports all OpenAI models.
+        - Non-official endpoint (NetMind, custom proxy, etc.): ignore the
+          requested model and use the user-configured slot model, because
+          the endpoint may not support the requested model name.
+        """
+        is_official = openai_config.base_url in _OFFICIAL_OPENAI_BASE_URLS
+        if is_official and requested_model:
+            return requested_model
+        return openai_config.model
 
     async def agent_loop(self) -> AsyncGenerator[str, None]:
         pass
@@ -78,7 +98,7 @@ class OpenAIAgentsSDK:
         response_format), the model is added to a blocklist and all
         subsequent calls skip straight to the fallback path.
         """
-        model_name = model or openai_config.model
+        model_name = self._resolve_model(model)
 
         # Resolve max_tokens from model catalog (per-model limit)
         from xyz_agent_context.agent_framework.model_catalog import get_max_output_tokens
