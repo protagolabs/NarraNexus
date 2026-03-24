@@ -1487,20 +1487,7 @@ ADMIN_SECRET_KEY="nexus-admin-secret"
 # BASE_WORKING_PATH="./agent_workspace"
 EOF
 
-    success ".env auto-generated (Docker MySQL default config)"
-
-    # Ask whether to fill in optional keys now
-    echo ""
-    read -rp "    Configure Google API Key now? (optional, for RAG) [y/N] " fill_keys
-    if [[ "$fill_keys" == "y" || "$fill_keys" == "Y" ]]; then
-        read -rp "    GOOGLE_API_KEY: " val_google
-        if [ -n "$val_google" ]; then
-            sed_inplace "s|^GOOGLE_API_KEY=.*|GOOGLE_API_KEY=\"${val_google}\"|" "$env_file"
-        fi
-        success "API key updated"
-    fi
-    echo ""
-    info "LLM providers are configured separately. Select [2] Configure after install."
+    success ".env generated (Docker defaults)"
 }
 
 # ============================================================================
@@ -1897,21 +1884,14 @@ do_configure() {
         return
     fi
 
-    # 1. .env (database, admin secret — auto-generate if missing)
-    step "1/2" "Environment variables (.env)"
+    # Ensure .env exists (silent, Docker defaults)
     if [ ! -f "${PROJECT_ROOT}/.env" ]; then
         auto_generate_env
-    else
-        success ".env already exists"
-        read -rp "    Reconfigure database / auth settings? [y/N] " reconfigure
-        if [[ "$reconfigure" == "y" || "$reconfigure" == "Y" ]]; then
-            configure_env
-        fi
+        echo ""
     fi
-    echo ""
 
-    # 2. LLM Providers + Gemini (interactive loop)
-    step "2/2" "LLM Providers & API Keys"
+    # LLM Providers + Gemini (interactive loop)
+    step "" "LLM Providers & API Keys"
     configure_llm_providers
 
     echo ""
