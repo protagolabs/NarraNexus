@@ -269,6 +269,10 @@ export function ProviderSettings() {
           <button onClick={() => setCollapsed(true)} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Collapse</button>
         )}
       </div>
+      <div className="text-[9px] text-[var(--text-tertiary)] space-y-0.5">
+        <p>Need at least: <span className="text-[var(--text-secondary)]">one OpenAI-compatible provider</span> (Embedding &amp; Helper LLM) + <span className="text-[var(--text-secondary)]">one Anthropic-compatible provider or Claude Code Login</span> (Agent).</p>
+        <p>A <span className="text-[var(--text-secondary)]">NetMind.AI Power</span> key meets the minimum in one step, though model selection is limited.</p>
+      </div>
 
       {/* ---- NetMind.AI Power Card ---- */}
       <div className="p-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">

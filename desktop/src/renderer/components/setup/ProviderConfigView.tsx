@@ -359,9 +359,16 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
       {/* Layer 1: Provider Atomic Cards                                     */}
       {/* ================================================================= */}
       <div className="space-y-3">
-        <p className="text-xs text-gray-500">
-          Add one or more providers below. Each provider connects to an LLM API endpoint.
-        </p>
+        <div className="text-xs text-gray-500 space-y-1">
+          <p>
+            You need at least: <strong>one OpenAI-compatible provider</strong> (for Embedding &amp; Helper LLM),
+            and <strong>one Anthropic-compatible provider or Claude Code Login</strong> (for Agent).
+          </p>
+          <p className="text-gray-400">
+            With a <span className="text-gray-500">NetMind.AI Power</span> key you can meet the minimum
+            requirements in one step, though the available model selection is limited.
+          </p>
+        </div>
 
         {/* ---- NetMind.AI Power Card (unique) ---- */}
         <div className="p-3 rounded-lg border border-gray-200 bg-gray-50/30">
