@@ -307,24 +307,26 @@ show_banner() {
 show_menu() {
     echo -e "    ${BOLD}${WHITE}Select an action:${RESET}"
     echo ""
-    echo -e "    ${G1}[1]${RESET}  ${BOLD}Install${RESET}   Install all dependencies and environment"
-    echo -e "    ${G3}[2]${RESET}  ${BOLD}Run${RESET}       Start all services"
-    echo -e "    ${G5}[3]${RESET}  ${BOLD}Status${RESET}    View service status"
-    echo -e "    ${YELLOW}[4]${RESET}  ${BOLD}Stop${RESET}      Stop all services"
-    echo -e "    ${CYAN}[5]${RESET}  ${BOLD}Update${RESET}    Pull latest code (run Install after to apply)"
-    echo -e "    ${DIM}[q]${RESET}  ${DIM}Quit${RESET}      ${DIM}Exit${RESET}"
+    echo -e "    ${G1}[1]${RESET}  ${BOLD}Install${RESET}     Install all dependencies and environment"
+    echo -e "    ${BLUE}[2]${RESET}  ${BOLD}Configure${RESET}   Configure LLM providers and API keys"
+    echo -e "    ${G3}[3]${RESET}  ${BOLD}Run${RESET}         Start all services"
+    echo -e "    ${G5}[4]${RESET}  ${BOLD}Status${RESET}      View service status"
+    echo -e "    ${YELLOW}[5]${RESET}  ${BOLD}Stop${RESET}        Stop all services"
+    echo -e "    ${CYAN}[6]${RESET}  ${BOLD}Update${RESET}      Pull latest code (run Install after to apply)"
+    echo -e "    ${DIM}[q]${RESET}  ${DIM}Quit${RESET}        ${DIM}Exit${RESET}"
     echo ""
     read -rp "    > " choice
     echo ""
 
     case "$choice" in
-        1|install)  do_install ;;
-        2|run)      do_run ;;
-        3|status)   do_status ;;
-        4|stop)     do_stop ;;
-        5|update)   do_update ;;
-        q|Q|quit)   echo -e "    ${DIM}Bye!${RESET}"; exit 0 ;;
-        *)          warn "Invalid option: $choice"; show_menu ;;
+        1|install)    do_install ;;
+        2|configure)  do_configure ;;
+        3|run)        do_run ;;
+        4|status)     do_status ;;
+        5|stop)       do_stop ;;
+        6|update)     do_update ;;
+        q|Q|quit)     echo -e "    ${DIM}Bye!${RESET}"; exit 0 ;;
+        *)            warn "Invalid option: $choice"; show_menu ;;
     esac
 }
 
@@ -1365,7 +1367,7 @@ do_install() {
     echo -e "  ${BOLD}${GREEN}║           Installation Complete!                 ║${RESET}"
     echo -e "  ${BOLD}${GREEN}╚══════════════════════════════════════════════════╝${RESET}"
     echo ""
-    echo -e "    ${DIM}Next step: Select [2] Run to start all services${RESET}"
+    echo -e "    ${DIM}Next step: Select [2] Configure to set up LLM providers${RESET}"
     echo ""
 
     read -rp "    Press Enter to return to menu..."
@@ -1392,9 +1394,7 @@ configure_env() {
         echo ""
     fi
 
-    read -rp "    OPENAI_API_KEY: " val_openai
-    read -rp "    GOOGLE_API_KEY: " val_google
-    read -rp "    NETMIND_API_KEY (optional, for EverMemOS, press Enter to skip): " val_netmind
+    read -rp "    GOOGLE_API_KEY (optional, for RAG, press Enter to skip): " val_google
     echo ""
 
     # If Docker MySQL is available, use Docker config by default
@@ -1437,11 +1437,11 @@ configure_env() {
 
     cat > "$env_file" << EOF
 # =============================================================================
-# LLM API Keys
+# Optional API Keys
 # =============================================================================
-OPENAI_API_KEY="${val_openai}"
+# LLM providers are configured separately via 'Configure' menu or web UI.
+# Config stored at: ~/.nexusagent/llm_config.json
 GOOGLE_API_KEY="${val_google}"
-NETMIND_API_KEY="${val_netmind}"
 
 # =============================================================================
 # Database (MySQL)
@@ -1465,8 +1465,7 @@ EOF
 
     success ".env generated: ${env_file}"
     echo ""
-    info "Note: Claude Code (if installed) uses its own global API key config."
-    info "If you use Claude Code, run 'claude config' to set its API key separately."
+    info "LLM providers are configured separately via [2] Configure or web UI."
 }
 
 # ============================================================================
@@ -1478,11 +1477,11 @@ auto_generate_env() {
     # Auto-generate .env with Docker MySQL defaults, API keys left blank
     cat > "$env_file" << 'EOF'
 # =============================================================================
-# LLM API Keys (please fill in manually after installation)
+# Optional API Keys
 # =============================================================================
-OPENAI_API_KEY=""
+# LLM providers are configured separately via 'Configure' menu or web UI.
+# Config stored at: ~/.nexusagent/llm_config.json
 GOOGLE_API_KEY=""
-NETMIND_API_KEY=""
 
 # =============================================================================
 # Database (MySQL) — Docker default config, no changes needed
@@ -1506,29 +1505,418 @@ EOF
 
     success ".env auto-generated (Docker MySQL default config)"
 
-    # Ask whether to fill in API keys now
+    # Ask whether to fill in optional keys now
     echo ""
-    read -rp "    Configure API keys now? [y/N] " fill_keys
+    read -rp "    Configure Google API Key now? (optional, for RAG) [y/N] " fill_keys
     if [[ "$fill_keys" == "y" || "$fill_keys" == "Y" ]]; then
-        read -rp "    OPENAI_API_KEY: " val_openai
         read -rp "    GOOGLE_API_KEY: " val_google
-        read -rp "    NETMIND_API_KEY (optional, for EverMemOS, press Enter to skip): " val_netmind
-        if [ -n "$val_openai" ]; then
-            sed_inplace "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=\"${val_openai}\"|" "$env_file"
-        fi
         if [ -n "$val_google" ]; then
             sed_inplace "s|^GOOGLE_API_KEY=.*|GOOGLE_API_KEY=\"${val_google}\"|" "$env_file"
         fi
-        if [ -n "$val_netmind" ]; then
-            sed_inplace "s|^NETMIND_API_KEY=.*|NETMIND_API_KEY=\"${val_netmind}\"|" "$env_file"
-        fi
-        success "API keys updated"
-        echo ""
-        info "Note: Claude Code (if installed) uses its own global API key config."
-        info "If you use Claude Code, run 'claude config' to set its API key separately."
-    else
-        info "Skipping API key config. You can edit the .env file later."
+        success "API key updated"
     fi
+    echo ""
+    info "LLM providers are configured separately. Select [2] Configure after install."
+}
+
+# ============================================================================
+# LLM Provider Configuration (interactive loop)
+# ============================================================================
+
+# Helper: run the Python CLI tool and capture JSON output
+_provider_cli() {
+    uv run python "${PROJECT_ROOT}/scripts/configure_providers.py" "$@" 2>/dev/null
+}
+
+# Helper: print slot status line
+_print_slot_status() {
+    local slot_name="$1"
+    local label="$2"
+    local protocol="$3"
+    local status_json="$4"
+
+    local configured
+    configured=$(echo "$status_json" | python3 -c "import sys,json; s=json.load(sys.stdin)['slots']['${slot_name}']; print('yes' if s.get('configured') else 'no')" 2>/dev/null)
+
+    if [ "$configured" = "yes" ]; then
+        local prov_name model_display
+        prov_name=$(echo "$status_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['slots']['${slot_name}']['provider_name'])" 2>/dev/null)
+        model_display=$(echo "$status_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['slots']['${slot_name}']['model_display'])" 2>/dev/null)
+        echo -e "    ${GREEN}✓${RESET} ${label}  ${DIM}→ ${prov_name} / ${model_display}${RESET}"
+    else
+        echo -e "    ${RED}✗${RESET} ${label}  ${DIM}(needs ${protocol} protocol provider)${RESET}"
+    fi
+}
+
+configure_llm_providers() {
+    echo ""
+    echo -e "  ${BOLD}${BLUE}╔══════════════════════════════════════════════════╗${RESET}"
+    echo -e "  ${BOLD}${BLUE}║         LLM Provider Configuration              ║${RESET}"
+    echo -e "  ${BOLD}${BLUE}╚══════════════════════════════════════════════════╝${RESET}"
+    echo ""
+    echo -e "    ${DIM}NarraNexus needs 3 LLM slots:${RESET}"
+    echo -e "    ${DIM}  Agent      (Anthropic protocol) — core dialogue${RESET}"
+    echo -e "    ${DIM}  Embedding  (OpenAI protocol)    — vector search${RESET}"
+    echo -e "    ${DIM}  Helper LLM (OpenAI protocol)    — auxiliary tasks${RESET}"
+    echo ""
+    echo -e "    ${DIM}Embedding currently supports OpenAI API and NetMind.AI Power only.${RESET}"
+    echo -e "    ${DIM}A NetMind.AI Power key covers all 3 slots in one step.${RESET}"
+    echo ""
+
+    while true; do
+        # Fetch current status
+        local status_json
+        status_json=$(_provider_cli status)
+
+        # Print providers
+        local provider_count
+        provider_count=$(echo "$status_json" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['providers']))" 2>/dev/null)
+
+        echo -e "  ${BOLD}Providers:${RESET}"
+        if [ "$provider_count" = "0" ]; then
+            echo -e "    ${DIM}(none)${RESET}"
+        else
+            echo "$status_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for p in data['providers']:
+    print(f'    • {p[\"name\"]}  ({p[\"protocol\"]})  {p[\"key_hint\"]}')
+" 2>/dev/null
+        fi
+        echo ""
+
+        # Print slot status
+        echo -e "  ${BOLD}Slots:${RESET}"
+        _print_slot_status "agent" "Agent     " "Anthropic" "$status_json"
+        _print_slot_status "embedding" "Embedding " "OpenAI" "$status_json"
+        _print_slot_status "helper_llm" "Helper LLM" "OpenAI" "$status_json"
+        echo ""
+
+        # Check if all configured
+        local all_valid
+        all_valid=$(echo "$status_json" | python3 -c "
+import sys, json
+slots = json.load(sys.stdin)['slots']
+print('yes' if all(s.get('configured') for s in slots.values()) else 'no')
+" 2>/dev/null)
+
+        if [ "$all_valid" = "yes" ]; then
+            echo -e "    ${GREEN}All 3 slots configured ✓${RESET}"
+            echo ""
+        else
+            echo -e "    ${YELLOW}⚠ All 3 slots must be configured before running.${RESET}"
+            echo ""
+        fi
+
+        # Actions
+        echo -e "  ${BOLD}Add provider:${RESET}"
+        echo -e "    ${G1}[1]${RESET}  NetMind.AI Power  ${DIM}(one key → all 3 slots)${RESET}"
+        echo -e "    ${G3}[2]${RESET}  Claude Code Login  ${DIM}(→ Agent slot)${RESET}"
+        echo -e "    ${G5}[3]${RESET}  Anthropic API Key  ${DIM}(→ Agent slot)${RESET}"
+        echo -e "    ${BLUE}[4]${RESET}  OpenAI API Key     ${DIM}(→ Embedding + Helper LLM)${RESET}"
+        echo -e "    ${CYAN}[5]${RESET}  Custom endpoint"
+        echo ""
+        echo -e "  ${BOLD}Assign slot:${RESET}"
+        echo -e "    ${BOLD}[a]${RESET}  Assign a provider + model to a slot"
+        echo ""
+        echo -e "    ──────────────────────────────"
+        if [ "$all_valid" = "yes" ]; then
+            echo -e "    ${GREEN}[d]${RESET}  ${GREEN}${BOLD}Done${RESET} — all slots ready, continue"
+        else
+            echo -e "    ${DIM}[d]  Done (all slots must be configured first)${RESET}"
+        fi
+        echo -e "    ${DIM}[s]  Skip — configure later in web UI${RESET}"
+        echo ""
+
+        read -rp "    Choice: " llm_choice
+        echo ""
+
+        case "$llm_choice" in
+            1)  # NetMind.AI Power
+                read -rsp "    NetMind API Key: " nm_key
+                echo ""
+                if [ -z "$nm_key" ]; then
+                    warn "No key entered"
+                    continue
+                fi
+                local add_result
+                add_result=$(_provider_cli add netmind --api-key "$nm_key")
+                if echo "$add_result" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+                    success "Added NetMind.AI Power (Anthropic + OpenAI protocols)"
+                else
+                    fail "Failed to add provider"
+                fi
+                ;;
+
+            2)  # Claude Code Login
+                local cc_status
+                cc_status=$(_provider_cli claude-status)
+                local cc_installed cc_logged_in
+                cc_installed=$(echo "$cc_status" | python3 -c "import sys,json; print(json.load(sys.stdin)['installed'])" 2>/dev/null)
+                cc_logged_in=$(echo "$cc_status" | python3 -c "import sys,json; print(json.load(sys.stdin)['logged_in'])" 2>/dev/null)
+
+                if [ "$cc_installed" != "True" ]; then
+                    warn "Claude Code CLI not found."
+                    info "Install with: npm install -g @anthropic-ai/claude-code"
+                    continue
+                fi
+
+                if [ "$cc_logged_in" != "True" ]; then
+                    info "Claude Code CLI installed but not logged in."
+                    echo -e "    ${DIM}Please run 'claude login' in another terminal window.${RESET}"
+                    read -rp "    Press Enter when done, or [b] to go back: " cc_wait
+                    if [ "$cc_wait" = "b" ] || [ "$cc_wait" = "B" ]; then
+                        continue
+                    fi
+                    # Re-check
+                    cc_status=$(_provider_cli claude-status)
+                    cc_logged_in=$(echo "$cc_status" | python3 -c "import sys,json; print(json.load(sys.stdin)['logged_in'])" 2>/dev/null)
+                    if [ "$cc_logged_in" != "True" ]; then
+                        warn "Still not logged in. Please complete 'claude login' first."
+                        continue
+                    fi
+                fi
+
+                local add_result
+                add_result=$(_provider_cli add claude_oauth)
+                if echo "$add_result" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+                    success "Added Claude Code (OAuth) — Anthropic protocol"
+                else
+                    fail "Failed to add provider"
+                fi
+                ;;
+
+            3)  # Anthropic API Key
+                read -rp "    Provider name [Anthropic]: " anth_name
+                anth_name="${anth_name:-Anthropic}"
+                read -rp "    Base URL [https://api.anthropic.com]: " anth_url
+                anth_url="${anth_url:-https://api.anthropic.com}"
+                read -rsp "    API Key: " anth_key
+                echo ""
+                if [ -z "$anth_key" ]; then
+                    warn "No key entered"
+                    continue
+                fi
+                local add_result
+                add_result=$(_provider_cli add anthropic --name "$anth_name" --api-key "$anth_key" --base-url "$anth_url")
+                if echo "$add_result" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+                    success "Added ${anth_name} (Anthropic protocol)"
+                else
+                    fail "Failed to add provider"
+                fi
+                ;;
+
+            4)  # OpenAI API Key
+                read -rp "    Provider name [OpenAI]: " oai_name
+                oai_name="${oai_name:-OpenAI}"
+                read -rp "    Base URL [https://api.openai.com/v1]: " oai_url
+                oai_url="${oai_url:-https://api.openai.com/v1}"
+                read -rsp "    API Key: " oai_key
+                echo ""
+                if [ -z "$oai_key" ]; then
+                    warn "No key entered"
+                    continue
+                fi
+                local add_result
+                add_result=$(_provider_cli add openai --name "$oai_name" --api-key "$oai_key" --base-url "$oai_url")
+                if echo "$add_result" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+                    success "Added ${oai_name} (OpenAI protocol)"
+                else
+                    fail "Failed to add provider"
+                fi
+                ;;
+
+            5)  # Custom endpoint
+                echo -e "    ${DIM}Protocol:${RESET}"
+                echo -e "    [1] Anthropic   [2] OpenAI"
+                read -rp "    : " custom_proto_choice
+                local custom_proto="openai"
+                [ "$custom_proto_choice" = "1" ] && custom_proto="anthropic"
+                read -rp "    Provider name: " custom_name
+                read -rp "    Base URL: " custom_url
+                read -rsp "    API Key: " custom_key
+                echo ""
+                if [ -z "$custom_key" ] || [ -z "$custom_url" ]; then
+                    warn "Key and URL are required"
+                    continue
+                fi
+                local add_result
+                add_result=$(_provider_cli add "$custom_proto" --name "${custom_name:-Custom}" --api-key "$custom_key" --base-url "$custom_url")
+                if echo "$add_result" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+                    success "Added ${custom_name:-Custom} (${custom_proto} protocol)"
+                else
+                    fail "Failed to add provider"
+                fi
+                ;;
+
+            a|A)  # Assign slot
+                echo -e "    ${BOLD}Which slot?${RESET}"
+                echo -e "    [1] Agent   [2] Embedding   [3] Helper LLM"
+                read -rp "    : " slot_choice
+                local slot_name=""
+                local slot_protocol=""
+                case "$slot_choice" in
+                    1) slot_name="agent";      slot_protocol="anthropic" ;;
+                    2) slot_name="embedding";  slot_protocol="openai" ;;
+                    3) slot_name="helper_llm"; slot_protocol="openai" ;;
+                    *) warn "Invalid slot"; continue ;;
+                esac
+
+                # List matching providers
+                echo ""
+                echo -e "    ${BOLD}Available ${slot_protocol} providers:${RESET}"
+                local matching_providers
+                matching_providers=$(echo "$status_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+matches = [p for p in data['providers'] if p['protocol'] == '${slot_protocol}']
+if not matches:
+    print('NONE')
+else:
+    for i, p in enumerate(matches, 1):
+        print(f'    [{i}] {p[\"name\"]}  ({p[\"id\"]})')
+" 2>/dev/null)
+
+                if [ "$matching_providers" = "NONE" ]; then
+                    warn "No ${slot_protocol} protocol providers. Add one first."
+                    continue
+                fi
+                echo "$matching_providers"
+                read -rp "    Select provider #: " prov_idx
+
+                # Get provider ID
+                local selected_pid
+                selected_pid=$(echo "$status_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+matches = [p for p in data['providers'] if p['protocol'] == '${slot_protocol}']
+idx = int('${prov_idx}') - 1
+if 0 <= idx < len(matches):
+    print(matches[idx]['id'])
+else:
+    print('INVALID')
+" 2>/dev/null)
+
+                if [ "$selected_pid" = "INVALID" ] || [ -z "$selected_pid" ]; then
+                    warn "Invalid selection"
+                    continue
+                fi
+
+                # List models for this provider
+                echo ""
+                echo -e "    ${BOLD}Available models:${RESET}"
+                local models_json
+                models_json=$(_provider_cli list-models "$selected_pid")
+                local model_count
+                model_count=$(echo "$models_json" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['models']))" 2>/dev/null)
+
+                if [ "$model_count" = "0" ]; then
+                    echo -e "    ${DIM}No preset models. Enter model name manually.${RESET}"
+                    read -rp "    Model name: " manual_model
+                    if [ -z "$manual_model" ]; then
+                        warn "No model entered"
+                        continue
+                    fi
+                    local assign_result
+                    assign_result=$(_provider_cli assign "$slot_name" "$selected_pid" "$manual_model")
+                else
+                    echo "$models_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for i, m in enumerate(data['models'], 1):
+    print(f'    [{i}] {m[\"display\"]}  ({m[\"id\"]})')
+" 2>/dev/null
+                    read -rp "    Select model #: " model_idx
+
+                    local selected_model
+                    selected_model=$(echo "$models_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+idx = int('${model_idx}') - 1
+if 0 <= idx < len(data['models']):
+    print(data['models'][idx]['id'])
+else:
+    print('INVALID')
+" 2>/dev/null)
+
+                    if [ "$selected_model" = "INVALID" ] || [ -z "$selected_model" ]; then
+                        warn "Invalid selection"
+                        continue
+                    fi
+                    local assign_result
+                    assign_result=$(_provider_cli assign "$slot_name" "$selected_pid" "$selected_model")
+                fi
+
+                if echo "${assign_result:-}" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+                    success "Slot '${slot_name}' assigned"
+                else
+                    local err_msg
+                    err_msg=$(echo "${assign_result:-}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null)
+                    fail "Assignment failed: ${err_msg}"
+                fi
+                ;;
+
+            d|D)  # Done
+                if [ "$all_valid" = "yes" ]; then
+                    success "LLM provider configuration complete"
+                    return 0
+                else
+                    warn "Not all slots are configured yet. Please configure all 3 slots."
+                fi
+                ;;
+
+            s|S)  # Skip
+                warn "Skipping LLM configuration. You can configure later in the web UI (CPU icon in header)."
+                return 0
+                ;;
+
+            *)
+                warn "Invalid option: $llm_choice"
+                ;;
+        esac
+        echo ""
+    done
+}
+
+# ============================================================================
+# do_configure — Configure menu entry point
+# ============================================================================
+do_configure() {
+    echo -e "  ${BOLD}${BLUE}╔══════════════════════════════════════════════════╗${RESET}"
+    echo -e "  ${BOLD}${BLUE}║              Configuration                      ║${RESET}"
+    echo -e "  ${BOLD}${BLUE}╚══════════════════════════════════════════════════╝${RESET}"
+    echo ""
+
+    # Check uv is available
+    if ! command -v uv &>/dev/null; then
+        fail "uv is not installed. Please run Install first."
+        show_menu
+        return
+    fi
+
+    # 1. .env (database, google key, admin secret)
+    if [ ! -f "${PROJECT_ROOT}/.env" ]; then
+        step "1/2" "Environment variables (.env)"
+        auto_generate_env
+    else
+        step "1/2" "Environment variables (.env)"
+        success ".env already exists"
+        read -rp "    Reconfigure .env? [y/N] " reconfigure
+        if [[ "$reconfigure" == "y" || "$reconfigure" == "Y" ]]; then
+            configure_env
+        fi
+    fi
+    echo ""
+
+    # 2. LLM Providers
+    step "2/2" "LLM Providers (~/.nexusagent/llm_config.json)"
+    configure_llm_providers
+
+    echo ""
+    echo -e "  ${BOLD}${GREEN}Configuration complete.${RESET}"
+    echo -e "    ${DIM}Select [3] Run to start all services.${RESET}"
+    echo ""
+    show_menu
 }
 
 # ============================================================================
@@ -1849,6 +2237,26 @@ do_run() {
         return
     fi
     success "Pre-flight checks passed"
+
+    # --- LLM Provider config check ---
+    if command -v uv &>/dev/null; then
+        local validate_result
+        validate_result=$(uv run python "${PROJECT_ROOT}/scripts/configure_providers.py" validate 2>/dev/null || echo '{"valid":false}')
+        local llm_valid
+        llm_valid=$(echo "$validate_result" | python3 -c "import sys,json; print(json.load(sys.stdin).get('valid',False))" 2>/dev/null)
+        if [ "$llm_valid" != "True" ]; then
+            warn "LLM providers not fully configured."
+            echo -e "    ${DIM}Some features may not work. Run [2] Configure to set up providers.${RESET}"
+            read -rp "    Continue anyway? [y/N] " continue_anyway
+            if [[ "$continue_anyway" != "y" && "$continue_anyway" != "Y" ]]; then
+                show_banner
+                show_menu
+                return
+            fi
+        else
+            success "LLM providers configured"
+        fi
+    fi
 
     # --- Port conflict pre-check ---
     step "0.3" "Checking for port conflicts"
@@ -2504,25 +2912,27 @@ do_stop() {
 main() {
     # Support direct command-line arguments
     case "${1:-}" in
-        install)  show_banner; do_install ;;
-        run)      show_banner; do_run ;;
-        status)   show_banner; do_status ;;
-        stop)     show_banner; do_stop ;;
-        update)   show_banner; do_update ;;
+        install)    show_banner; do_install ;;
+        configure)  show_banner; do_configure ;;
+        run)        show_banner; do_run ;;
+        status)     show_banner; do_status ;;
+        stop)       show_banner; do_stop ;;
+        update)     show_banner; do_update ;;
         -h|--help)
-            echo "Usage: bash run.sh [install|run|status|stop|update]"
+            echo "Usage: bash run.sh [install|configure|run|status|stop|update]"
             echo ""
-            echo "  install   Install all dependencies and environment"
-            echo "  run       Start all services"
-            echo "  status    View service status"
-            echo "  stop      Stop all services"
-            echo "  update    Pull latest code (run Install after to apply changes)"
+            echo "  install     Install all dependencies and environment"
+            echo "  configure   Configure LLM providers and API keys"
+            echo "  run         Start all services"
+            echo "  status      View service status"
+            echo "  stop        Stop all services"
+            echo "  update      Pull latest code (run Install after to apply changes)"
             echo ""
             echo "Run without arguments for an interactive menu."
             exit 0
             ;;
         "")       show_banner; show_menu ;;
-        *)        echo "Unknown command: $1"; echo "Usage: bash run.sh [install|run|status|stop|update]"; exit 1 ;;
+        *)        echo "Unknown command: $1"; echo "Usage: bash run.sh [install|configure|run|status|stop|update]"; exit 1 ;;
     esac
 }
 
