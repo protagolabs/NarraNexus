@@ -19,6 +19,8 @@ Architecture:
 from typing import Any, AsyncGenerator, Dict, Optional, Union
 from loguru import logger
 
+from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
+
 # Type alias for database client
 DatabaseClientType = Union["DatabaseClient", "AsyncDatabaseClient"]
 
@@ -145,6 +147,7 @@ class AgentRuntime:
         job_instance_id: Optional[str] = None,
         forced_narrative_id: Optional[str] = None,
         trigger_extra_data: Optional[Dict[str, Any]] = None,
+        cancellation: Optional[CancellationToken] = None,
     ) -> AsyncGenerator:
         """
         Execute the main flow of the Agent runtime
@@ -246,6 +249,10 @@ class AgentRuntime:
         # =============================================================================
         # Create run context
         # =============================================================================
+        # Use a no-op token if none provided (avoids None checks everywhere)
+        if cancellation is None:
+            cancellation = CancellationToken()
+
         ctx = RunContext(
             agent_id=agent_id,
             user_id=user_id,
@@ -255,6 +262,7 @@ class AgentRuntime:
             job_instance_id=job_instance_id,
             forced_narrative_id=forced_narrative_id,
             trigger_extra_data=trigger_extra_data or {},
+            cancellation=cancellation,
         )
 
         # =============================================================================
@@ -378,6 +386,9 @@ class AgentRuntime:
         async for msg in step_2_load_modules(ctx):
             yield msg
 
+        # ---- Cancellation checkpoint (before expensive Step 2.5) ----
+        cancellation.raise_if_cancelled()
+
         # =============================================================================
         # Step 2.5: Sync Instance Changes
         # =============================================================================
@@ -396,6 +407,9 @@ class AgentRuntime:
             ctx, self.narrative_service, self.markdown_manager
         ):
             yield msg
+
+        # ---- Cancellation checkpoint (before the main LLM call) ----
+        cancellation.raise_if_cancelled()
 
         # =============================================================================
         # Step 3: Execute different paths based on execution_path -- Core Step
@@ -446,6 +460,13 @@ class AgentRuntime:
         # =============================================================================
         async for msg in step_3_execute_path(ctx, db_client, self._response_processor):
             yield msg
+            # Check cancellation after each streamed message from the agent loop
+            if cancellation.is_cancelled:
+                logger.info("Cancellation detected during Step 3 (agent loop), breaking")
+                break
+
+        # ---- Cancellation checkpoint (before persistence) ----
+        cancellation.raise_if_cancelled()
 
         # =============================================================================
         # Step 4: Persist Execution Results

@@ -405,6 +405,12 @@ export const useChatStore = create<ChatState>((_set, get) => {
           get().stopStreaming(agentId);
           break;
         }
+
+        case 'cancelled': {
+          // User-initiated cancellation — stop streaming gracefully
+          get().stopStreaming(agentId);
+          break;
+        }
       }
     },
 

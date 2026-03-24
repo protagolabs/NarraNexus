@@ -54,6 +54,7 @@ class ClaudeAgentSDK:
         mcp_server_urls: dict[str, str],  # Corrected type annotation: should be a dict, not a list
         streaming: bool = True,  # Whether to use streaming output
         extra_env: dict[str, str] | None = None,  # Additional env vars (e.g., skill-configured API keys)
+        cancellation: Any | None = None,  # CancellationToken for cooperative cancellation
         **kwargs: Any,
         ) -> AsyncGenerator[dict[str, Any], None]:
 
@@ -195,6 +196,11 @@ class ClaudeAgentSDK:
                         f"Claude Code CLI did not respond for {IDLE_TIMEOUT_SECONDS} seconds. "
                         f"The service may be overloaded or unresponsive. Please try again."
                     )
+
+                # Check cancellation before processing
+                if cancellation is not None and cancellation.is_cancelled:
+                    logger.info(f"[ClaudeAgentSDK] Cancellation detected after {message_count} messages, stopping")
+                    break
 
                 message_count += 1
                 msg_type = type(message).__name__
