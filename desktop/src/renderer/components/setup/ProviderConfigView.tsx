@@ -692,6 +692,21 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
                     )}
                   </div>
 
+                  {/* Agent Framework selector (agent slot only) */}
+                  {slot.key === 'agent' && (
+                    <div className="mb-2">
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Agent Framework</label>
+                      <select
+                        value="claude_code"
+                        disabled
+                        className="titlebar-no-drag w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-50 text-gray-600 outline-none"
+                      >
+                        <option value="claude_code">Claude Code</option>
+                      </select>
+                      <p className="text-[10px] text-gray-400 mt-0.5">More frameworks coming soon.</p>
+                    </div>
+                  )}
+
                   {matchingProviders.length > 0 ? (
                     <div className="grid grid-cols-2 gap-2">
                       {/* Provider dropdown */}

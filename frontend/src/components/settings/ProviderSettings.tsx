@@ -458,6 +458,21 @@ export function ProviderSettings() {
                   </span>
                   {ready ? <span className="text-[var(--color-success)] text-sm">{'\u2713'}</span> : <span className="text-xs text-[var(--color-error)]">Needed</span>}
                 </div>
+                {/* Agent Framework selector (agent slot only) */}
+                {slot.key === 'agent' && (
+                  <div className="mb-2">
+                    <label className="block text-[11px] text-[var(--text-tertiary)] mb-0.5">Agent Framework</label>
+                    <select
+                      value="claude_code"
+                      disabled
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] outline-none"
+                    >
+                      <option value="claude_code">Claude Code</option>
+                    </select>
+                    <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">More frameworks coming soon.</p>
+                  </div>
+                )}
+
                 {matching.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
                     <select value={cfg?.provider_id || ''}
