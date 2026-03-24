@@ -65,9 +65,9 @@ interface ProviderConfigViewProps {
 // =============================================================================
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
-  { key: 'agent', label: 'Agent', desc: 'Main dialogue model', protocol: 'anthropic' },
-  { key: 'embedding', label: 'Embedding', desc: 'Vector search', protocol: 'openai' },
-  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks', protocol: 'openai' },
+  { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic protocol)', protocol: 'anthropic' },
+  { key: 'embedding', label: 'Embedding', desc: 'Vector search (OpenAI protocol)', protocol: 'openai' },
+  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI protocol)', protocol: 'openai' },
 ]
 
 // =============================================================================

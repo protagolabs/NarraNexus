@@ -47,9 +47,9 @@ interface KnownModelMeta {
 }
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
-  { key: 'agent', label: 'Agent', desc: 'Main dialogue', protocol: 'anthropic' },
-  { key: 'embedding', label: 'Embedding', desc: 'Vector search', protocol: 'openai' },
-  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks', protocol: 'openai' },
+  { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic protocol)', protocol: 'anthropic' },
+  { key: 'embedding', label: 'Embedding', desc: 'Vector search (OpenAI protocol)', protocol: 'openai' },
+  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI protocol)', protocol: 'openai' },
 ]
 
 // =============================================================================
@@ -68,9 +68,9 @@ function ModelBubbleInput({
     setInput('')
   }
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1.5">
       {models.map((m) => (
-        <span key={m} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 whitespace-nowrap">
+        <span key={m} className="inline-flex items-center gap-0.5 px-2 py-0.5 text-xs rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 whitespace-nowrap">
           {m}
           <button onClick={() => onChange(models.filter((x) => x !== m))} className="text-[var(--accent-primary)]/50 hover:text-[var(--accent-primary)]">&times;</button>
         </span>
@@ -79,10 +79,10 @@ function ModelBubbleInput({
         <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel() } }}
           placeholder={placeholder}
-          style={{ width: Math.max(70, (input.length + 1) * 6) }}
-          className="px-1.5 py-0.5 text-[10px] rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+          style={{ width: Math.max(80, (input.length + 1) * 7) }}
+          className="px-2 py-0.5 text-xs rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
         <button onClick={addModel} disabled={!input.trim()}
-          className="px-1 py-0.5 text-[10px] rounded-full border border-[var(--accent-primary)]/20 text-[var(--accent-primary)] bg-[var(--accent-primary)]/5 hover:bg-[var(--accent-primary)]/10 disabled:opacity-30">
+          className="px-1.5 py-0.5 text-xs rounded-full border border-[var(--accent-primary)]/20 text-[var(--accent-primary)] bg-[var(--accent-primary)]/5 hover:bg-[var(--accent-primary)]/10 disabled:opacity-30">
           +
         </button>
       </span>
@@ -239,18 +239,21 @@ export function ProviderSettings() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded-full bg-[var(--color-success)]/20 flex items-center justify-center">
-              <span className="text-[var(--color-success)] text-xs">{'\u2713'}</span>
+              <span className="text-[var(--color-success)] text-sm">{'\u2713'}</span>
             </div>
-            <span className="text-xs text-[var(--text-secondary)]">LLM Providers configured</span>
+            <span className="text-sm text-[var(--text-secondary)]">LLM Providers configured</span>
           </div>
-          <button onClick={() => setCollapsed(false)} className="text-[10px] text-[var(--accent-primary)] hover:underline">Edit</button>
+          <button onClick={() => setCollapsed(false)}
+            className="px-2.5 py-1 text-xs font-medium text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 rounded-lg hover:bg-[var(--accent-primary)]/20 transition-colors">
+            Edit
+          </button>
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
           {SLOT_DEFS.map((s) => {
             const cfg = slots[s.key]?.config
             const prov = cfg?.provider_id ? providers[cfg.provider_id] : null
             return (
-              <span key={s.key} className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">
+              <span key={s.key} className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">
                 {s.label}: {prov?.name || '?'} / {cfg?.model || '?'}
               </span>
             )
@@ -264,61 +267,61 @@ export function ProviderSettings() {
   return (
     <div className="p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-[var(--text-primary)]">LLM Providers</span>
+        <span className="text-sm font-medium text-[var(--text-primary)]">LLM Providers</span>
         {allSlotsReady && (
-          <button onClick={() => setCollapsed(true)} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Collapse</button>
+          <button onClick={() => setCollapsed(true)} className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Collapse</button>
         )}
       </div>
-      <div className="text-[9px] text-[var(--text-tertiary)] space-y-0.5">
+      <div className="text-[11px] text-[var(--text-tertiary)] space-y-0.5">
         <p>Need at least: <span className="text-[var(--text-secondary)]">one OpenAI-compatible provider</span> (Embedding &amp; Helper LLM) + <span className="text-[var(--text-secondary)]">one Anthropic-compatible provider or Claude Code Login</span> (Agent).</p>
         <p>Embedding is required — currently only <span className="text-[var(--text-secondary)]">OpenAI official API</span> and <span className="text-[var(--text-secondary)]">NetMind.AI Power</span> are supported. More providers coming soon.</p>
         <p>A <span className="text-[var(--text-secondary)]">NetMind.AI Power</span> key meets the minimum in one step, though model selection is limited.</p>
       </div>
 
       {/* ---- NetMind.AI Power Card ---- */}
-      <div className="p-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+      <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-[11px] font-medium text-[var(--text-primary)]">NetMind.AI Power</span>
-          {hasNetMind && <span className="text-[var(--color-success)] text-[10px] ml-auto">{'\u2713'} Added</span>}
+          <span className="text-[13px] font-medium text-[var(--text-primary)]">NetMind.AI Power</span>
+          {hasNetMind && <span className="text-[var(--color-success)] text-xs ml-auto">{'\u2713'} Added</span>}
         </div>
-        <p className="text-[9px] text-[var(--text-tertiary)] mb-1.5">A single API key covers both Anthropic and OpenAI protocol endpoints.</p>
+        <p className="text-[11px] text-[var(--text-tertiary)] mb-2">A single API key covers both Anthropic and OpenAI protocol endpoints.</p>
         <div className="flex gap-1.5">
           <input type="password" value={netmindKey} onChange={(e) => setNetmindKey(e.target.value)}
             placeholder={hasNetMind ? 'New key to re-configure...' : 'NetMind API Key'}
-            className="flex-1 px-2 py-1 text-[10px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+            className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
           <button onClick={handleAddNetMind} disabled={netmindAdding}
-            className="px-2 py-1 text-[10px] font-medium rounded bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20 disabled:opacity-40">
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20 disabled:opacity-40">
             {netmindAdding ? '...' : hasNetMind ? 'Update' : 'Add'}
           </button>
         </div>
       </div>
 
       {/* ---- Claude Code Card ---- */}
-      <div className="p-2.5 rounded-lg border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+      <div className="p-3 rounded-lg border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-[11px] font-medium text-[var(--text-primary)]">Claude Code Login</span>
-          {hasClaude && <span className="text-[var(--color-success)] text-[10px] ml-auto">{'\u2713'} Added</span>}
+          <span className="text-[13px] font-medium text-[var(--text-primary)]">Claude Code Login</span>
+          {hasClaude && <span className="text-[var(--color-success)] text-xs ml-auto">{'\u2713'} Added</span>}
         </div>
-        <p className="text-[9px] text-[var(--text-tertiary)] mb-1.5">OAuth login via Claude Code CLI. No API key needed.</p>
+        <p className="text-[11px] text-[var(--text-tertiary)] mb-1.5">OAuth login via Claude Code CLI. No API key needed.</p>
         {!hasClaude && claudeStatus && (
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5">
-              <span className={cn('inline-block w-1.5 h-1.5 rounded-full',
+              <span className={cn('inline-block w-2 h-2 rounded-full',
                 claudeStatus.logged_in ? 'bg-[var(--color-success)]' :
                 claudeStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
               )} />
-              <span className="text-[9px] text-[var(--text-secondary)]">
+              <span className="text-xs text-[var(--text-secondary)]">
                 {claudeStatus.logged_in ? 'Logged in' : claudeStatus.cli_installed ? 'Not logged in' : 'CLI not installed'}
               </span>
             </div>
             {claudeStatus.logged_in && (
               <button onClick={handleAddClaudeOAuth}
-                className="px-2 py-1 text-[10px] font-medium rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30">
+                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30">
                 Add as Provider
               </button>
             )}
             {!claudeStatus.logged_in && (
-              <p className="text-[9px] text-[var(--text-tertiary)]">
+              <p className="text-[11px] text-[var(--text-tertiary)]">
                 {claudeStatus.cli_installed
                   ? 'Run "claude login" in your terminal first, then refresh this page.'
                   : 'Install Claude Code CLI first, then run "claude login" in your terminal.'}
@@ -331,82 +334,82 @@ export function ProviderSettings() {
       {/* ---- Add Protocol Buttons ---- */}
       <div className="flex gap-1.5">
         <button onClick={() => openForm('anthropic')}
-          className="flex-1 py-1.5 text-[10px] rounded border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]">
+          className="flex-1 py-2 text-xs rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]">
           + Anthropic Protocol
         </button>
         <button onClick={() => openForm('openai')}
-          className="flex-1 py-1.5 text-[10px] rounded border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]">
+          className="flex-1 py-2 text-xs rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]">
           + OpenAI Protocol
         </button>
       </div>
 
       {/* ---- Protocol Form ---- */}
       {showForm && (
-        <div className="p-2.5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-2">
+        <div className="p-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-[var(--text-primary)]">
+            <span className="text-[13px] font-medium text-[var(--text-primary)]">
               {showForm === 'anthropic' ? 'Anthropic' : 'OpenAI'} Protocol
             </span>
-            <button onClick={() => setShowForm(null)} className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Cancel</button>
+            <button onClick={() => setShowForm(null)} className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Cancel</button>
           </div>
-          <p className="text-[9px] text-[var(--text-tertiary)]">
+          <p className="text-[11px] text-[var(--text-tertiary)]">
             {showForm === 'anthropic' ? 'Anthropic API or compatible endpoint.' : 'OpenAI API or compatible endpoint.'}
           </p>
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-2 gap-2">
             <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
               placeholder="Provider name"
-              className="px-2 py-1 text-[10px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+              className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
             {showForm === 'anthropic' ? (
               <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
-                className="px-2 py-1 text-[10px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
                 <option value="api_key">API Key</option>
                 <option value="bearer_token">Bearer Token</option>
               </select>
             ) : (
-              <div /> /* Placeholder for grid alignment */
+              <div />
             )}
           </div>
           <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
             placeholder="Base URL"
-            className="w-full px-2 py-1 text-[10px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
           <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
             placeholder="API Key"
-            className="w-full px-2 py-1 text-[10px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
           <div>
-            <label className="block text-[9px] text-[var(--text-tertiary)] mb-0.5">Available Models</label>
+            <label className="block text-[11px] text-[var(--text-tertiary)] mb-1">Available Models</label>
             <ModelBubbleInput models={formModels} onChange={setFormModels} />
           </div>
           <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-            className="w-full py-1 text-[10px] font-medium rounded bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 hover:bg-[var(--accent-primary)]/20 disabled:opacity-40">
+            className="w-full py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 hover:bg-[var(--accent-primary)]/20 disabled:opacity-40">
             {formAdding ? 'Adding...' : 'Add Provider'}
           </button>
         </div>
       )}
 
-      {error && <p className="text-[9px] text-[var(--color-error)]">{error}</p>}
+      {error && <p className="text-xs text-[var(--color-error)]">{error}</p>}
 
       {/* ---- Configured Providers ---- */}
       {hasProviders && (
-        <div className="space-y-1">
-          <span className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-wider">Providers</span>
+        <div className="space-y-1.5">
+          <span className="text-[11px] text-[var(--text-tertiary)] uppercase tracking-wider">Providers</span>
           {providerList.map((prov) => (
-            <div key={prov.provider_id} className="flex items-center justify-between p-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
+            <div key={prov.provider_id} className="flex items-center justify-between p-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
-                  <span className="text-[8px] px-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase">{prov.protocol}</span>
+                  <span className="text-xs font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase">{prov.protocol}</span>
                 </div>
-                <span className="text-[9px] text-[var(--text-tertiary)]">{prov.api_key_masked} · {prov.models.length} model(s)</span>
+                <span className="text-[11px] text-[var(--text-tertiary)]">{prov.api_key_masked} · {prov.models.length} model(s)</span>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
-                  className="px-1.5 py-0.5 text-[9px] text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded disabled:opacity-40">
+                  className="px-2 py-1 text-xs text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded-md disabled:opacity-40">
                   {testing === prov.provider_id ? '...' : 'Test'}
                 </button>
                 <button onClick={() => handleDelete(prov.provider_id)}
-                  className="px-1.5 py-0.5 text-[9px] text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded">Del</button>
+                  className="px-2 py-1 text-xs text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded-md">Del</button>
                 {testResults[prov.provider_id] && (
-                  <span className={cn('text-[9px]', testResults[prov.provider_id].ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
+                  <span className={cn('text-[11px]', testResults[prov.provider_id].ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
                     {testResults[prov.provider_id].msg}
                   </span>
                 )}
@@ -418,8 +421,8 @@ export function ProviderSettings() {
 
       {/* ---- Slot Tabs ---- */}
       {hasProviders && (
-        <div className="space-y-2 pt-2 border-t border-[var(--border-subtle)]">
-          <span className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-wider">Model Assignment</span>
+        <div className="space-y-2.5 pt-2.5 border-t border-[var(--border-subtle)]">
+          <span className="text-[11px] text-[var(--text-tertiary)] uppercase tracking-wider">Model Assignment</span>
 
           {/* Tab row */}
           <div className="flex rounded-lg border border-[var(--border-subtle)] overflow-hidden">
@@ -428,10 +431,10 @@ export function ProviderSettings() {
               const ready = !!(cfg?.provider_id && cfg?.model)
               return (
                 <button key={s.key} onClick={() => setActiveTab(s.key)}
-                  className={cn('flex-1 py-1.5 text-[10px] font-medium transition-colors',
+                  className={cn('flex-1 py-2 text-xs font-medium transition-colors',
                     activeTab === s.key ? 'bg-[var(--bg-primary)] text-[var(--text-primary)]' : 'bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]'
                   )}>
-                  <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-1', ready ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]')} />
+                  <span className={cn('inline-block w-2 h-2 rounded-full mr-1.5', ready ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]')} />
                   {s.label}
                 </button>
               )
@@ -446,17 +449,17 @@ export function ProviderSettings() {
             const curProv = cfg?.provider_id ? providers[cfg.provider_id] : null
 
             return (
-              <div key={slot.key} className={cn('p-2 rounded-lg border',
+              <div key={slot.key} className={cn('p-3 rounded-lg border',
                 ready ? 'border-[var(--color-success)]/20 bg-[var(--color-success)]/5' : 'border-[var(--color-error)]/20 bg-[var(--color-error)]/5'
               )}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[11px] font-medium text-[var(--text-primary)]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-[var(--text-primary)]">
                     {slot.label} <span className="text-[var(--text-tertiary)] font-normal">({slot.desc}, {slot.protocol})</span>
                   </span>
-                  {ready ? <span className="text-[var(--color-success)] text-xs">{'\u2713'}</span> : <span className="text-[9px] text-[var(--color-error)]">Needed</span>}
+                  {ready ? <span className="text-[var(--color-success)] text-sm">{'\u2713'}</span> : <span className="text-xs text-[var(--color-error)]">Needed</span>}
                 </div>
                 {matching.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-1.5">
+                  <div className="grid grid-cols-2 gap-2">
                     <select value={cfg?.provider_id || ''}
                       onChange={(e) => {
                         const pid = e.target.value
@@ -464,14 +467,14 @@ export function ProviderSettings() {
                         if (prov?.models.length) handleSlotChange(slot.key, pid, prov.models[0])
                         else if (prov) handleSlotChange(slot.key, pid, '')
                       }}
-                      className="px-2 py-1 text-[10px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
+                      className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
                       <option value="">Provider...</option>
                       {matching.map((p) => <option key={p.provider_id} value={p.provider_id}>{p.name}</option>)}
                     </select>
                     {curProv && curProv.models.length > 0 ? (
                       <select value={cfg?.model || ''}
                         onChange={(e) => { if (cfg?.provider_id) handleSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                        className="px-2 py-1 text-[10px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
+                        className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
                         <option value="">Model...</option>
                         {curProv.models.map((mid) => {
                           const meta = knownModels[mid]
@@ -482,11 +485,11 @@ export function ProviderSettings() {
                       <input type="text" value={cfg?.model || ''}
                         onChange={(e) => { if (cfg?.provider_id) handleSlotChange(slot.key, cfg.provider_id, e.target.value) }}
                         placeholder="Model name"
-                        className="px-2 py-1 text-[10px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none" />
+                        className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none" />
                     )}
                   </div>
                 ) : (
-                  <p className="text-[9px] text-[var(--color-error)]">No {slot.protocol} provider. Add one above.</p>
+                  <p className="text-xs text-[var(--color-error)]">No {slot.protocol} provider. Add one above.</p>
                 )}
               </div>
             )
