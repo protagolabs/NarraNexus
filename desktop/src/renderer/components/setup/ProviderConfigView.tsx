@@ -61,11 +61,28 @@ interface ProviderConfigViewProps {
 }
 
 // =============================================================================
+// Agent Framework definitions
+// =============================================================================
+
+interface AgentFramework {
+  id: string
+  label: string
+  protocol: string   // The LLM protocol this framework requires
+  desc: string
+}
+
+const AGENT_FRAMEWORKS: AgentFramework[] = [
+  { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
+  // Future frameworks:
+  // { id: 'openai_agents', label: 'OpenAI Agents SDK', protocol: 'openai', desc: 'OpenAI Agents SDK' },
+]
+
+// =============================================================================
 // Slot metadata
 // =============================================================================
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
-  { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic protocol)', protocol: 'anthropic' },
+  { key: 'agent', label: 'Agent', desc: 'Main dialogue', protocol: 'anthropic' },
   { key: 'embedding', label: 'Embedding', desc: 'Vector search (OpenAI protocol)', protocol: 'openai' },
   { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI protocol)', protocol: 'openai' },
 ]
@@ -214,6 +231,7 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
 
   // Slot tab state
   const [activeSlotTab, setActiveSlotTab] = useState<string>('agent')
+  const [agentFramework, setAgentFramework] = useState<string>(AGENT_FRAMEWORKS[0].id)
 
   // ---- Data loading ----
   const refreshConfig = useCallback(async () => {
@@ -662,10 +680,16 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
 
             {/* ---- Active Tab Content ---- */}
             {SLOT_DEFS.filter((s) => s.key === activeSlotTab).map((slot) => {
+              // For agent slot, protocol is driven by the selected framework
+              const selectedFramework = AGENT_FRAMEWORKS.find((f) => f.id === agentFramework)
+              const effectiveProtocol = slot.key === 'agent' && selectedFramework
+                ? selectedFramework.protocol
+                : slot.protocol
+
               const slotData = slots[slot.key]
               const cfg = slotData?.config
               const isConfigured = !!(cfg?.provider_id && cfg?.model)
-              const matchingProviders = getProvidersForSlot(slot.protocol)
+              const matchingProviders = getProvidersForSlot(effectiveProtocol)
               const currentProvider = cfg?.provider_id ? providers[cfg.provider_id] : null
 
               return (
@@ -682,7 +706,7 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
                       <span className="text-sm font-medium text-gray-700">{slot.label}</span>
                       <span className="text-[10px] text-gray-400 ml-2">{slot.desc}</span>
                       <span className="text-[10px] text-gray-400 ml-1">
-                        (requires {slot.protocol} protocol)
+                        ({effectiveProtocol} protocol)
                       </span>
                     </div>
                     {isConfigured ? (
@@ -697,13 +721,17 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
                     <div className="mb-2">
                       <label className="block text-[10px] text-gray-500 mb-0.5">Agent Framework</label>
                       <select
-                        value="claude_code"
-                        disabled
-                        className="titlebar-no-drag w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-50 text-gray-600 outline-none"
+                        value={agentFramework}
+                        onChange={(e) => setAgentFramework(e.target.value)}
+                        className="titlebar-no-drag w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400 outline-none"
                       >
-                        <option value="claude_code">Claude Code</option>
+                        {AGENT_FRAMEWORKS.map((fw) => (
+                          <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
+                        ))}
                       </select>
-                      <p className="text-[10px] text-gray-400 mt-0.5">More frameworks coming soon.</p>
+                      {AGENT_FRAMEWORKS.length <= 1 && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">More frameworks coming soon.</p>
+                      )}
                     </div>
                   )}
 

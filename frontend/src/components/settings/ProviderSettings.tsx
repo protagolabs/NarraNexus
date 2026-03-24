@@ -46,8 +46,25 @@ interface KnownModelMeta {
   max_output_tokens: number | null
 }
 
+// =============================================================================
+// Agent Framework definitions
+// =============================================================================
+
+interface AgentFramework {
+  id: string
+  label: string
+  protocol: string   // The LLM protocol this framework requires
+  desc: string
+}
+
+const AGENT_FRAMEWORKS: AgentFramework[] = [
+  { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
+  // Future:
+  // { id: 'openai_agents', label: 'OpenAI Agents SDK', protocol: 'openai', desc: 'OpenAI Agents SDK' },
+]
+
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
-  { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic protocol)', protocol: 'anthropic' },
+  { key: 'agent', label: 'Agent', desc: 'Main dialogue', protocol: 'anthropic' },
   { key: 'embedding', label: 'Embedding', desc: 'Vector search (OpenAI protocol)', protocol: 'openai' },
   { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI protocol)', protocol: 'openai' },
 ]
@@ -117,6 +134,7 @@ export function ProviderSettings() {
 
   // Slot tab
   const [activeTab, setActiveTab] = useState('agent')
+  const [agentFramework, setAgentFramework] = useState<string>(AGENT_FRAMEWORKS[0].id)
 
   // Testing
   const [testing, setTesting] = useState<string | null>(null)
@@ -443,9 +461,15 @@ export function ProviderSettings() {
 
           {/* Active tab content */}
           {SLOT_DEFS.filter((s) => s.key === activeTab).map((slot) => {
+            // For agent slot, protocol is driven by the selected framework
+            const selectedFramework = AGENT_FRAMEWORKS.find((f) => f.id === agentFramework)
+            const effectiveProtocol = slot.key === 'agent' && selectedFramework
+              ? selectedFramework.protocol
+              : slot.protocol
+
             const cfg = slots[slot.key]?.config
             const ready = !!(cfg?.provider_id && cfg?.model)
-            const matching = getProvidersForSlot(slot.protocol)
+            const matching = getProvidersForSlot(effectiveProtocol)
             const curProv = cfg?.provider_id ? providers[cfg.provider_id] : null
 
             return (
@@ -454,7 +478,7 @@ export function ProviderSettings() {
               )}>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium text-[var(--text-primary)]">
-                    {slot.label} <span className="text-[var(--text-tertiary)] font-normal">({slot.desc}, {slot.protocol})</span>
+                    {slot.label} <span className="text-[var(--text-tertiary)] font-normal">({slot.desc}, {effectiveProtocol})</span>
                   </span>
                   {ready ? <span className="text-[var(--color-success)] text-sm">{'\u2713'}</span> : <span className="text-xs text-[var(--color-error)]">Needed</span>}
                 </div>
@@ -463,13 +487,17 @@ export function ProviderSettings() {
                   <div className="mb-2">
                     <label className="block text-[11px] text-[var(--text-tertiary)] mb-0.5">Agent Framework</label>
                     <select
-                      value="claude_code"
-                      disabled
-                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] outline-none"
+                      value={agentFramework}
+                      onChange={(e) => setAgentFramework(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
                     >
-                      <option value="claude_code">Claude Code</option>
+                      {AGENT_FRAMEWORKS.map((fw) => (
+                        <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
+                      ))}
                     </select>
-                    <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">More frameworks coming soon.</p>
+                    {AGENT_FRAMEWORKS.length <= 1 && (
+                      <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">More frameworks coming soon.</p>
+                    )}
                   </div>
                 )}
 
