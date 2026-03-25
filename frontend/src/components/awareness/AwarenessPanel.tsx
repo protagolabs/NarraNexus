@@ -10,7 +10,6 @@ import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, Text
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
-import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 
 import { EntityCard } from './EntityCard';
 import { FileUpload } from './FileUpload';
@@ -203,9 +202,6 @@ export function AwarenessPanel() {
               subtext={`${networkMetrics.avgStrength}% avg`}
             />
           </div>
-
-          {/* Embedding Vector Index Status */}
-          <EmbeddingStatus />
 
           {/* Agent Awareness Section */}
           <section className="space-y-3">

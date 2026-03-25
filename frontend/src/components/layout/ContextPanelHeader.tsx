@@ -17,6 +17,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { Button } from '@/components/ui';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
+import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn } from '@/lib/utils';
 
@@ -106,6 +107,9 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
             className="w-[340px] max-h-[70vh] overflow-y-auto p-3 bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-xl shadow-lg"
           >
             <ProviderSettings />
+            <div className="mt-3">
+              <EmbeddingStatus />
+            </div>
           </PopoverContent>
         </Popover>
         <CostPopover />
