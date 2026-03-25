@@ -10,6 +10,7 @@ Note: Conversation continuity ≠ Same Narrative. Must consider the Narrative's 
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
@@ -20,6 +21,74 @@ from ..models import ConversationSession, ContinuityResult
 from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
 from ..config import config as narrative_config
 from .prompts import CONTINUITY_DETECTION_INSTRUCTIONS
+
+
+# Pattern to detect Matrix channel template (starts with [Matrix · ...])
+_MATRIX_TAG_RE = re.compile(r"^\[Matrix\s*·")
+
+# Pattern to extract sender friendly name from the ChannelTag header line:
+# [Matrix · 巨灵神 · @agent_56ce...:localhost · !room:localhost]
+# Captures the second field (friendly name), which sits between the first and second " · "
+_MATRIX_SENDER_NAME_RE = re.compile(
+    r"^\[Matrix\s*·\s*([^·\]]+?)\s*·"
+)
+
+# Pattern to find the last message entry in conversation history:
+# [timestamp] @sender:localhost:\n    actual message content
+_MATRIX_LAST_MSG_RE = re.compile(
+    r"\[[\d]+\]\s*@[^\n]+:\n\s*(.*)",
+    re.DOTALL
+)
+
+
+def _extract_core_content(text: str) -> str:
+    """
+    Strip Matrix channel template wrapper from a query/response,
+    keeping only the core message content for continuity detection.
+
+    The Matrix template looks like:
+        [Matrix · @sender · @sender · !room_id]
+        You received a new message ...
+        ## Message Information
+        ...
+        ## Conversation History
+        [timestamp] @sender:
+            <actual message content>
+
+    We extract only the <actual message content> from the last message entry.
+    This prevents the LLM from being distracted by channel IDs,
+    sender profiles, and conversation history metadata.
+
+    COUPLING NOTE:
+    This function depends on the template format produced by:
+    - ChannelTag.format() in schema/channel_tag.py  → "[Matrix · ...]" header line
+    - ChannelContextBuilderBase.build_prompt() in channel/channel_context_builder_base.py
+    - CHANNEL_MESSAGE_EXECUTION_TEMPLATE in channel/channel_prompts.py
+    - _format_messages() in channel/channel_context_builder_base.py → "[ts] @sender:" lines
+    If any of these change their output format, this function must be updated.
+    """
+    stripped = text.strip()
+    if not _MATRIX_TAG_RE.match(stripped):
+        return text
+
+    # Extract sender friendly name from tag line (e.g. "巨灵神" from "[Matrix · 巨灵神 · @agent_...:localhost · !room...]")
+    sender_name = ""
+    name_match = _MATRIX_SENDER_NAME_RE.match(stripped)
+    if name_match:
+        sender_name = name_match.group(1).strip()
+
+    # Extract core message body from the last [timestamp] @sender: entry
+    msg_match = _MATRIX_LAST_MSG_RE.search(text)
+    if msg_match:
+        content = msg_match.group(1).strip()
+        if content:
+            # Prepend sender name so the LLM knows who said it
+            if sender_name:
+                return f"[From {sender_name}] {content}"
+            return content
+
+    # Fallback: if no conversation history pattern found, return original
+    return text
 
 if TYPE_CHECKING:
     from ..models import Narrative
@@ -170,11 +239,17 @@ Agent Awareness:
 Note: The Agent's role and characteristics may influence how Narratives are categorized. Please consider the Agent's positioning when judging topic attribution.
 """
 
+        # Strip channel template wrappers (e.g. Matrix headers) so the LLM
+        # focuses on business content, not channel/room IDs.
+        clean_previous = _extract_core_content(previous_query)
+        clean_current = _extract_core_content(current_query)
+        clean_response = _extract_core_content(previous_response)
+
         user_input = f"""Previous conversation turn:
-User asked: {previous_query}
-Agent's reasoning: {previous_response}
+User asked: {clean_previous}
+Agent's reasoning: {clean_response}
 {narrative_context}{awareness_context}
-Current user query: {current_query}
+Current user query: {clean_current}
 
 Time elapsed: {time_elapsed_minutes:.1f} minutes
 

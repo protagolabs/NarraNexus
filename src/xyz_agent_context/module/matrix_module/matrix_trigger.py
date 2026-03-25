@@ -733,6 +733,16 @@ class MatrixTrigger:
             room_id=batch.room_id,
             room_name=friendly["room_name"],
         )
+        # TODO [Narrative Continuity Coupling]:
+        # The tagged_prompt below (ChannelTag header + CHANNEL_MESSAGE_EXECUTION_TEMPLATE)
+        # is stored as session.last_query and fed to Narrative continuity detection.
+        # A counterpart function `_extract_core_content()` in
+        # `narrative/_narrative_impl/continuity.py` strips this template wrapper
+        # to prevent channel metadata (room IDs, sender profiles, etc.) from
+        # interfering with topic-level continuity judgment.
+        # If you change the template format here or in channel_context_builder_base.py,
+        # you MUST update `_extract_core_content()` accordingly — otherwise the
+        # continuity detector will see raw template text and make incorrect decisions.
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
 
         # 4. Call AgentRuntime with logging DISABLED

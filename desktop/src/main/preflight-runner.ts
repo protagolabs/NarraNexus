@@ -87,8 +87,8 @@ async function checkNode(): Promise<PreflightItem> {
     label: 'Node.js (>=20)',
     status: ok ? 'ok' : 'missing',
     version,
-    hint: ok ? undefined : 'Node.js >= 20 is required. Download from https://nodejs.org',
-    canAutoInstall: false,
+    hint: ok ? undefined : 'Node.js >= 20 is required and will be installed with your permission.',
+    canAutoInstall: true,
     manualUrl: 'https://nodejs.org/en/download/'
   }
 }

@@ -73,44 +73,62 @@ function createNodeInstaller(): Installer {
     manualUrl: 'https://nodejs.org/',
     async check() {
       try {
-        await execInProject('node', ['--version'], { timeout: 10000 })
-        return true
+        const { stdout } = await execInProject('node', ['--version'], { timeout: 10000 })
+        const major = parseInt(stdout.trim().replace(/^v/, '').split('.')[0], 10)
+        return major >= 20
       } catch { return false }
     },
     async install(onOutput) {
-      const home = process.env.HOME || ''
-
-      // macOS: 优先使用 Homebrew
+      // macOS: Homebrew → nvm fallback (aligned with run.sh)
       if (process.platform === 'darwin') {
         try {
           await execInProject('brew', ['--version'], { timeout: 5000 })
-          onOutput('Installing Node.js via Homebrew...')
-          await spawnWithOutput('brew', ['install', 'node'], {
+          onOutput('Installing Node.js 20 via Homebrew...')
+          await spawnWithOutput('brew', ['install', 'node@20'], {
             timeout: 300000, onOutput
           })
-          // 刷新 shell 环境缓存，让后续安装器能找到 node/npm
+          // brew link so 'node' command resolves to node@20
+          try {
+            await spawnWithOutput('brew', ['link', '--overwrite', 'node@20'], {
+              timeout: 30000, onOutput
+            })
+          } catch { /* link may fail if already linked, ignore */ }
           await initShellEnv()
           return
-        } catch { /* Homebrew 不可用，降级到 nvm */ }
+        } catch { /* Homebrew not available, fall through to nvm */ }
       }
 
-      // 通用方案：通过 nvm 安装
+      // Linux: NodeSource repository (aligned with run.sh)
+      if (process.platform === 'linux') {
+        try {
+          // Detect package manager and install via NodeSource
+          const script = 'curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs'
+          onOutput('Installing Node.js 20 via NodeSource (requires admin)...')
+          await execWithPrivileges(script, { timeout: 300000 })
+          await initShellEnv()
+          return
+        } catch {
+          onOutput('NodeSource install failed, falling back to nvm...')
+        }
+      }
+
+      // Fallback: nvm (works on both macOS and Linux)
+      const home = process.env.HOME || ''
       onOutput('Installing nvm...')
       await spawnWithOutput('sh', ['-c',
         'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash'
       ], { timeout: 120000, onOutput })
 
-      onOutput('Installing Node.js LTS via nvm...')
+      onOutput('Installing Node.js 20 via nvm...')
       const nvmScript = [
         `export NVM_DIR="${home}/.nvm"`,
         '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"',
-        'nvm install --lts'
+        'nvm install 20'
       ].join(' && ')
       await spawnWithOutput('sh', ['-c', nvmScript], {
         timeout: 300000, onOutput
       })
 
-      // 刷新 shell 环境缓存，让后续安装器能找到 node/npm
       await initShellEnv()
     }
   }
@@ -129,10 +147,33 @@ function createClaudeInstaller(): Installer {
       } catch { return false }
     },
     async install(onOutput) {
-      onOutput('Installing Claude Code...')
-      await spawnWithOutput('sh', ['-c', 'curl -fsSL https://claude.ai/install.sh | sh'], {
-        timeout: 300000, onOutput
-      })
+      // Strategy 1: Official install script
+      onOutput('Installing Claude Code via official script...')
+      try {
+        await spawnWithOutput('sh', ['-c', 'curl -fsSL https://claude.ai/install.sh | sh'], {
+          timeout: 300000, onOutput
+        })
+        // Refresh shell env so claude is found in PATH
+        await initShellEnv()
+        return
+      } catch (err) {
+        onOutput('Official install script failed, trying npm fallback...')
+      }
+
+      // Strategy 2: npm global install (requires Node.js)
+      try {
+        await execInProject('npm', ['--version'], { timeout: 5000 })
+        onOutput('Installing Claude Code via npm...')
+        await spawnWithOutput('npm', ['install', '-g', '@anthropic-ai/claude-code'], {
+          timeout: 300000, onOutput
+        })
+        await initShellEnv()
+        return
+      } catch {
+        onOutput('npm fallback also failed (npm not available)')
+      }
+
+      throw new Error('Claude Code installation failed. Please install manually: npm install -g @anthropic-ai/claude-code')
     }
   }
 }
@@ -722,6 +763,29 @@ export class InstallerRegistry extends EventEmitter {
     // Filter to only known installers, preserving registry order
     const toInstall = this.installers.filter((inst) => missingIds.includes(inst.id))
     console.log(`[installer] installAll: ${toInstall.length} installers to process: [${toInstall.map(i => i.id).join(', ')}]`)
+
+    // Pre-check: for any dependency NOT in the install list, run check() to see
+    // if it's already installed. Without this, deps like 'node' that passed
+    // preflight would stay in 'pending' state, causing dependents (claude,
+    // frontend-build) to incorrectly skip or fail.
+    const installSet = new Set(missingIds)
+    const depsToCheck = new Set<string>()
+    for (const inst of toInstall) {
+      for (const depId of inst.dependsOn ?? []) {
+        if (!installSet.has(depId)) depsToCheck.add(depId)
+      }
+    }
+    for (const depId of depsToCheck) {
+      const dep = this.installers.find((i) => i.id === depId)
+      if (dep) {
+        try {
+          if (await dep.check()) {
+            console.log(`[installer] pre-check: ${depId} already installed, marking done`)
+            this.updateState(depId, { status: 'done' })
+          }
+        } catch { /* ignore check failures */ }
+      }
+    }
 
     for (const inst of toInstall) {
       // Check if already done

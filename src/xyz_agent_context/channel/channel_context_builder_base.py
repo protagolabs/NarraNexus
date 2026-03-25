@@ -172,6 +172,14 @@ class ChannelContextBuilderBase(ABC):
         room_members_section = await self._build_members_section(info)
 
         # Step 6: Assemble full template
+        # TODO [Narrative Continuity Coupling]:
+        # The output of this method becomes the AgentRuntime input_content and is
+        # stored as session.last_query. A counterpart function `_extract_core_content()`
+        # in `narrative/_narrative_impl/continuity.py` strips this template to extract
+        # the core message body for topic continuity detection.
+        # If you change CHANNEL_MESSAGE_EXECUTION_TEMPLATE or the section assembly
+        # (especially Conversation History format with `[timestamp] @sender:` lines),
+        # you MUST update `_extract_core_content()` accordingly.
         return CHANNEL_MESSAGE_EXECUTION_TEMPLATE.format(
             **info,
             sender_profile_section=sender_profile_section,
