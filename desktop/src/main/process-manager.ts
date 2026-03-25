@@ -61,7 +61,12 @@ export class ProcessManager extends EventEmitter {
   private lastErrors = new Map<string, string>()
   private logs: LogEntry[] = []
   private maxLogs = 500
-  private shuttingDown = false
+
+  // Operation token: monotonically incrementing ID that invalidates
+  // any in-flight auto-restart callbacks when a new startAll/stopAll begins.
+  // Replaces the old boolean `shuttingDown` flag which was racy.
+  private operationId = 0
+  private activeOperation: 'idle' | 'starting' | 'stopping' = 'idle'
 
   constructor() {
     super()
@@ -80,26 +85,67 @@ export class ProcessManager extends EventEmitter {
       await this.stopService(serviceId)
     }
 
+    // EverMemOS needs Docker infrastructure (MongoDB, ES, Milvus, Redis).
+    // Check ALL required ports, not just MongoDB.
+    if (svc.id === 'evermemos') {
+      const allUp = await this.isEverMemOSInfraReady()
+      if (!allUp) {
+        this.addLog(svc.id, 'stdout', 'Starting EverMemOS Docker infrastructure...')
+        try {
+          const { startEverMemOS } = await import('./docker-manager')
+          await startEverMemOS()
+          const ready = await this.waitForEverMemOSInfra(svc.id)
+          if (!ready) {
+            this.addLog(svc.id, 'stderr', 'EverMemOS infrastructure did not become ready in time')
+            return false
+          }
+        } catch (e) {
+          this.addLog(svc.id, 'stderr', `Failed to start Docker containers: ${e}`)
+          return false
+        }
+      }
+    }
+
     return this.spawnProcess(svc)
   }
 
   /** Start all services in order (clean up residual port-occupying processes first) */
   async startAll(options?: { skipEverMemOS?: boolean }): Promise<void> {
-    await this.stopAll()
+    const myOp = ++this.operationId
+    this.activeOperation = 'stopping'
 
-    this.shuttingDown = false
-    for (const svc of SERVICES) {
-      this.restartCounts.set(svc.id, 0)
-    }
+    try {
+      // Phase 1: Stop all managed processes
+      await this.stopProcesses()
 
-    await this.forceKillServicePorts()
+      // Phase 2: Kill orphaned processes on service ports
+      await this.forceKillServicePorts()
 
-    const sorted = [...SERVICES]
-      .filter((svc) => !(options?.skipEverMemOS && svc.id === 'evermemos'))
-      .sort((a, b) => a.order - b.order)
-    for (const svc of sorted) {
-      await this.spawnProcess(svc)
-      await this.delay(500)
+      // Check if this operation was superseded (e.g., user clicked Stop during startup)
+      if (this.operationId !== myOp) return
+
+      // Phase 3: Start services
+      this.activeOperation = 'starting'
+      for (const svc of SERVICES) {
+        this.restartCounts.set(svc.id, 0)
+      }
+
+      const sorted = [...SERVICES]
+        .filter((svc) => !(options?.skipEverMemOS && svc.id === 'evermemos'))
+        .sort((a, b) => a.order - b.order)
+      for (const svc of sorted) {
+        if (this.operationId !== myOp) return // Superseded
+        // Use startService (not spawnProcess) so dependency checks run —
+        // e.g. EverMemOS waits for Docker infra before spawning.
+        await this.startService(svc.id)
+        await this.delay(500)
+      }
+    } finally {
+      // Always reset to idle, even if an error occurred.
+      // Only reset if this operation wasn't superseded by another.
+      if (this.operationId === myOp) {
+        this.activeOperation = 'idle'
+      }
     }
   }
 
@@ -130,19 +176,29 @@ export class ProcessManager extends EventEmitter {
     })
   }
 
-  /** Stop All Services */
+  /**
+   * Stop all managed processes + orphaned port occupants.
+   *
+   * Sets activeOperation to 'stopping' for the full duration, preventing
+   * auto-restart from firing. Resets to 'idle' at the end.
+   */
   async stopAll(): Promise<void> {
-    this.shuttingDown = true
+    const myOp = ++this.operationId
+    this.activeOperation = 'stopping'
+    try {
+      await this.stopProcesses()
+      await this.forceKillServicePorts()
+    } finally {
+      if (this.operationId === myOp) {
+        this.activeOperation = 'idle'
+      }
+    }
+  }
 
-    // Phase 1: SIGTERM each managed process group
+  /** Internal: SIGTERM all managed processes */
+  private async stopProcesses(): Promise<void> {
     const stopPromises = SERVICES.map((svc) => this.stopService(svc.id))
     await Promise.all(stopPromises)
-
-    // Phase 2: Kill any orphaned child processes still occupying service ports.
-    // Python's multiprocessing (used by MCP module_runner) spawns children that
-    // escape the parent process group and survive SIGTERM. Same as run.sh's
-    // port-based cleanup.
-    await this.forceKillServicePorts()
   }
 
   /** Restart a single service */
@@ -150,6 +206,19 @@ export class ProcessManager extends EventEmitter {
     this.restartCounts.set(serviceId, 0)
     await this.stopService(serviceId)
     return this.startService(serviceId)
+  }
+
+  /** Promote a service from 'starting' to 'running' (called by HealthMonitor when port becomes reachable) */
+  promoteToRunning(serviceId: string): void {
+    if (this.statuses.get(serviceId) === 'starting') {
+      this.statuses.set(serviceId, 'running')
+      this.emit('status-change', serviceId, 'running')
+    }
+  }
+
+  /** Get single service status */
+  getServiceStatus(serviceId: string): ProcessStatus {
+    return this.statuses.get(serviceId) ?? 'stopped'
   }
 
   /** Get all service statuses */
@@ -196,9 +265,12 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
-   * Force clean all residual processes on service ports (no dialog)
+   * Force clean all residual processes on service ports.
+   *
+   * Used at startup to kill stale processes from a previous unclean exit,
+   * and in stopAll() to kill orphaned child processes (MCP workers etc.).
    */
-  private async forceKillServicePorts(): Promise<void> {
+  async forceKillServicePorts(): Promise<void> {
     const portsSet = new Set<number>()
     for (const svc of SERVICES) {
       if (svc.port !== null) portsSet.add(svc.port)
@@ -207,17 +279,39 @@ export class ProcessManager extends EventEmitter {
       portsSet.add(p)
     }
 
+    // Get our own PID and parent PID to avoid killing ourselves or Electron
+    const safePids = new Set([process.pid, process.ppid])
+
     let killed = false
     for (const port of portsSet) {
       try {
-        const { stdout } = await execFileAsync('lsof', ['-ti', `:${port}`], {
+        // Use -sTCP:LISTEN to only find the LISTENING process, not all
+        // connected clients (e.g., Cursor SSH port forwarding). This
+        // prevents accidentally killing the IDE or other unrelated processes.
+        const { stdout } = await execFileAsync('lsof', [
+          '-ti', `:${port}`, '-sTCP:LISTEN'
+        ], {
           timeout: 5000,
           env: getShellEnv()
         })
         const pids = stdout.trim().split('\n').filter(Boolean)
         for (const pid of pids) {
+          const numPid = Number(pid)
+          if (safePids.has(numPid)) continue
+          // Don't kill Docker proxy processes — they manage container port mappings.
+          // Killing them would break running containers until they're restarted.
           try {
-            process.kill(Number(pid), 'SIGKILL')
+            const { stdout: comm } = await execFileAsync('ps', ['-p', pid, '-o', 'comm='], {
+              timeout: 2000, env: getShellEnv()
+            })
+            const procName = comm.trim().toLowerCase()
+            if (procName.includes('docker-proxy') || procName.includes('com.docker')) {
+              this.addLog('system', 'stderr', `Skipped Docker process on port ${port} (PID: ${pid})`)
+              continue
+            }
+          } catch { /* ps failed, process may have exited — proceed with kill */ }
+          try {
+            process.kill(numPid, 'SIGKILL')
             this.addLog('system', 'stderr', `Killed stale process on port ${port} (PID: ${pid})`)
             killed = true
           } catch { /* process may have already exited */ }
@@ -308,7 +402,10 @@ export class ProcessManager extends EventEmitter {
         const message = data.toString().trim()
         if (!message) return
         this.addLog(svc.id, 'stdout', message)
-        if (this.statuses.get(svc.id) === 'starting') {
+        // Only auto-promote to 'running' for services WITHOUT a port.
+        // Services with ports stay 'starting' until HealthMonitor confirms
+        // the port is actually accepting connections (via promoteToRunning).
+        if (this.statuses.get(svc.id) === 'starting' && !svc.port) {
           this.statuses.set(svc.id, 'running')
           this.emit('status-change', svc.id, 'running')
         }
@@ -318,7 +415,7 @@ export class ProcessManager extends EventEmitter {
         const message = data.toString().trim()
         if (!message) return
         this.addLog(svc.id, 'stderr', message)
-        if (this.statuses.get(svc.id) === 'starting') {
+        if (this.statuses.get(svc.id) === 'starting' && !svc.port) {
           this.statuses.set(svc.id, 'running')
           this.emit('status-change', svc.id, 'running')
         }
@@ -327,7 +424,8 @@ export class ProcessManager extends EventEmitter {
       proc.on('exit', (code, signal) => {
         this.processes.delete(svc.id)
 
-        if (this.shuttingDown) {
+        // During an active operation (starting/stopping), don't auto-restart
+        if (this.activeOperation !== 'idle') {
           this.statuses.set(svc.id, 'stopped')
           this.emit('status-change', svc.id, 'stopped')
           return
@@ -363,8 +461,20 @@ export class ProcessManager extends EventEmitter {
     }
   }
 
-  /** Auto-restart after crash (exponential backoff) */
+  /**
+   * Auto-restart after crash (exponential backoff).
+   *
+   * Captures the operationId at entry. If any startAll/stopAll happens
+   * during the backoff delay or infra wait, the operationId changes
+   * and this callback aborts — no race conditions possible.
+   */
   private async tryAutoRestart(svc: ServiceDef): Promise<void> {
+    // Capture operation token — if it changes, a new operation supersedes us
+    const myOp = this.operationId
+    const isSuperseded = () => this.operationId !== myOp || this.activeOperation !== 'idle'
+
+    if (isSuperseded()) return
+
     const count = (this.restartCounts.get(svc.id) ?? 0) + 1
     this.restartCounts.set(svc.id, count)
 
@@ -374,24 +484,45 @@ export class ProcessManager extends EventEmitter {
       return
     }
 
-    // EverMemOS depends on infrastructure ports
+    // EverMemOS depends on Docker infrastructure (MongoDB, ES, Milvus, Redis).
     if (svc.id === 'evermemos') {
+      if (isSuperseded()) return
+      const allUp = await this.isEverMemOSInfraReady()
+      if (!allUp) {
+        if (isSuperseded()) return
+        this.addLog(svc.id, 'stderr', 'Infrastructure not running, starting EverMemOS Docker containers...')
+        try {
+          const { startEverMemOS } = await import('./docker-manager')
+          await startEverMemOS()
+        } catch (e) {
+          this.addLog(svc.id, 'stderr', `Failed to start Docker containers: ${e}`)
+        }
+      }
+      if (isSuperseded()) return
       const infraReady = await this.waitForEverMemOSInfra(svc.id)
       if (!infraReady) {
         this.restartCounts.set(svc.id, count - 1)
-        this.addLog(svc.id, 'stderr', 'Infrastructure not ready, skipping restart')
+        this.addLog(svc.id, 'stderr', 'Infrastructure not ready after 180s, skipping restart')
         return
       }
     }
 
     const waitMs = RESTART_BACKOFF_BASE * Math.pow(2, count - 1)
     this.addLog(svc.id, 'stderr', `Auto-restarting in ${waitMs}ms (attempt ${count})`)
-
     await this.delay(waitMs)
 
-    if (!this.shuttingDown) {
-      await this.spawnProcess(svc)
+    // After delay: check if superseded or service already restarted by another path
+    if (isSuperseded() || this.processes.has(svc.id)) return
+
+    await this.spawnProcess(svc)
+  }
+
+  /** Quick check if ALL EverMemOS infrastructure ports are reachable */
+  private async isEverMemOSInfraReady(): Promise<boolean> {
+    for (const { port } of ProcessManager.EM_INFRA_PORTS) {
+      if (!await this.isPortReachable(port)) return false
     }
+    return true
   }
 
   /** EverMemOS infrastructure port list */
@@ -408,7 +539,7 @@ export class ProcessManager extends EventEmitter {
     for (const { port, name } of ProcessManager.EM_INFRA_PORTS) {
       let ready = false
       for (let i = 0; i < 180; i++) {
-        if (this.shuttingDown) return false
+        if (this.activeOperation === 'stopping') return false
         if (await this.isPortReachable(port)) { ready = true; break }
         if (i % 10 === 9) {
           this.addLog(logServiceId, 'stderr', `Still waiting for ${name}:${port}... (${i + 1}s)`)

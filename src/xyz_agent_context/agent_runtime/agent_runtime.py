@@ -27,6 +27,7 @@ DatabaseClientType = Union["DatabaseClient", "AsyncDatabaseClient"]
 # Schema - Runtime Messages
 from xyz_agent_context.schema import (
     ProgressMessage,
+    ProgressStatus,
     WorkingSource,
 )
 

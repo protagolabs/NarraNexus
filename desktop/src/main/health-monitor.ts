@@ -33,10 +33,17 @@ export interface OverallHealth {
 
 // ─── HealthMonitor ──────────────────────────────────
 
+// Number of consecutive unhealthy checks required before downgrading
+// from 'healthy' to 'unhealthy'. Prevents flickering caused by
+// transient timeouts when services are under load.
+const UNHEALTHY_THRESHOLD = 2
+
 export class HealthMonitor extends EventEmitter {
   private intervalId: ReturnType<typeof setInterval> | null = null
   private healthStates = new Map<string, ServiceHealth>()
   private infraStates = new Map<string, ServiceHealth>()
+  // Consecutive unhealthy check count per service (for debounce)
+  private unhealthyCounts = new Map<string, number>()
 
   constructor() {
     super()
@@ -145,7 +152,14 @@ export class HealthMonitor extends EventEmitter {
     )
   }
 
-  /** Update health state for a specific service */
+  /**
+   * Update health state for a specific service.
+   *
+   * Debounce: transitioning from healthy → unhealthy requires
+   * UNHEALTHY_THRESHOLD consecutive unhealthy checks. This prevents
+   * flickering when services are momentarily slow to respond.
+   * Transitioning to healthy is immediate (no debounce needed).
+   */
   private updateHealth(
     states: Map<string, ServiceHealth>,
     serviceId: string,
@@ -157,12 +171,29 @@ export class HealthMonitor extends EventEmitter {
     if (!current) return
 
     const prev = current.state
+
+    // Debounce healthy → unhealthy transitions
+    if (state === 'unhealthy' && prev === 'healthy') {
+      const count = (this.unhealthyCounts.get(serviceId) ?? 0) + 1
+      this.unhealthyCounts.set(serviceId, count)
+      if (count < UNHEALTHY_THRESHOLD) {
+        // Not enough consecutive failures — keep healthy, update timestamp only
+        current.lastChecked = Date.now()
+        return
+      }
+      // Threshold reached — fall through to actually mark unhealthy
+    }
+
+    // Reset counter on any non-unhealthy result
+    if (state !== 'unhealthy') {
+      this.unhealthyCounts.set(serviceId, 0)
+    }
+
     current.state = state
     current.port = port
     current.lastChecked = Date.now()
     current.message = message
 
-    // Only emit event on state change
     if (prev !== state) {
       this.emit('service-health-change', serviceId, state, prev)
     }

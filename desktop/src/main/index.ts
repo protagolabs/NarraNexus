@@ -11,6 +11,7 @@ import { join } from 'path'
 import { ensureWritableProject } from './constants'
 import { initShellEnv } from './shell-env'
 import { ProcessManager } from './process-manager'
+import { stopAll as stopDocker } from './docker-manager'
 import { HealthMonitor } from './health-monitor'
 import { TrayManager } from './tray-manager'
 import { InstallerRegistry } from './installer-registry'
@@ -161,7 +162,20 @@ app.whenReady().then(async () => {
   trayManager = new TrayManager(healthMonitor, processManager)
   trayManager.create(mainWindow)
 
-  // Start health checks
+  // Clean up stale processes from a previous unclean exit BEFORE health
+  // monitor starts, so Dashboard doesn't flash stale green indicators.
+  await processManager.forceKillServicePorts()
+
+  // Wire HealthMonitor → ProcessManager: when a port becomes reachable,
+  // promote the service from 'starting' to 'running'. This ensures
+  // "running" means "actually serving", not just "process emitted stdout".
+  healthMonitor.on('service-health-change', (serviceId: string, state: string) => {
+    if (state === 'healthy' && processManager.getServiceStatus(serviceId) === 'starting') {
+      processManager.promoteToRunning(serviceId)
+    }
+  })
+
+  // Start health checks (AFTER port cleanup so first check is accurate)
   healthMonitor.start()
 
   // Initialize auto-updater (checks GitHub Releases)
@@ -182,9 +196,8 @@ app.on('window-all-closed', () => {
   }
 })
 
-// Before app quit: clean up all background processes
-// before-quit is synchronous; async won't make Electron wait.
-// Must use preventDefault() to block quit, then manually quit after cleanup.
+// Before app quit: clean up ALL background processes, Docker containers, and ports.
+// Uses preventDefault() to block quit until cleanup completes (or hard timeout).
 let cleanupDone = false
 
 app.on('before-quit', (e) => {
@@ -194,15 +207,30 @@ app.on('before-quit', (e) => {
 
   e.preventDefault() // Prevent immediate quit
 
-  // Stop health checks
+  // Stop health checks immediately
   healthMonitor.stop()
 
   // Destroy tray
   trayManager?.destroy()
 
-  // Stop all service processes, then quit
-  const cleanup = processManager?.stopAll() ?? Promise.resolve()
-  cleanup.finally(() => {
+  const cleanup = async () => {
+    // stopAll() handles processes + port sweep. After it completes, Docker
+    // compose down runs. All ports are clear so compose down won't hang.
+    // Note: stopAll resets activeOperation to 'idle' at the end, but since
+    // the app is quitting, the cleanupDone flag prevents any re-entry.
+    await (processManager?.stopAll() ?? Promise.resolve())
+    await stopDocker()
+  }
+
+  // Hard timeout: force quit after 15s even if cleanup hangs
+  const forceQuitTimer = setTimeout(() => {
+    console.error('[main] Cleanup timed out after 15s, forcing quit')
+    cleanupDone = true
+    app.quit()
+  }, 15000)
+
+  cleanup().finally(() => {
+    clearTimeout(forceQuitTimer)
     cleanupDone = true
     app.quit()
   })
