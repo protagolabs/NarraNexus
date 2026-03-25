@@ -629,10 +629,12 @@ class ContextRuntime:
             if inst.module_class not in seen_module_classes and inst.module is not None:
                 logger.debug(f"          Getting MCP config from {inst.module_class} ({inst.instance_id})")
                 mcp_config = await inst.module.get_mcp_config()
-                if mcp_config:
+                if mcp_config and mcp_config.server_url:
                     mcp_urls[mcp_config.server_name] = mcp_config.server_url
                     collected_count += 1
-                    logger.debug(f"          ✓ Added MCP: {mcp_config.server_name} -> {mcp_config.server_url or '(empty)'}")
+                    logger.debug(f"          ✓ Added MCP: {mcp_config.server_name} -> {mcp_config.server_url}")
+                elif mcp_config:
+                    logger.debug(f"          ⏭ Skipped MCP: {mcp_config.server_name} -> (empty URL)")
                 seen_module_classes.add(inst.module_class)
 
         logger.debug(f"        Collected {collected_count} MCP URLs from {len(active_instances)} instances (deduped by module_class)")
@@ -640,14 +642,20 @@ class ContextRuntime:
         logger.debug(f"      build_input_for_framework() completed: {len(final_messages)} messages, {len(mcp_urls)} MCP URLs")
         return final_messages, mcp_urls
 
+    # Token budget for the short-term memory section.
+    # ~4 chars per token is a rough estimate; keeps the section under ~10k tokens.
+    SHORT_TERM_TOKEN_LIMIT = 40000  # characters (≈ 10000 tokens)
+
     def _build_short_term_memory_prompt(
         self,
         short_term_messages: List[Dict[str, Any]]
     ) -> str:
         """
-        Build the short-term memory Prompt section (2026-01-21 P1-2).
+        Build the short-term memory Prompt section.
 
-        Format cross-Narrative recent conversations into a Prompt to help the Agent understand the user's recent context.
+        Loads recent messages at full length (up to per-message limit) and stops
+        when the total token budget is reached. Most recent messages are
+        prioritised — groups are processed in reverse chronological order.
 
         Args:
             short_term_messages: List of short-term memory messages
@@ -659,8 +667,8 @@ class ContextRuntime:
 
         prompt = SHORT_TERM_MEMORY_HEADER
 
-        # Group by instance_id
-        messages_by_instance = {}
+        # Group by instance_id, preserving insertion order (most-recent last)
+        messages_by_instance: dict[str, list] = {}
         for msg in short_term_messages:
             meta = msg.get("meta_data", {})
             instance_id = meta.get("instance_id", "unknown")
@@ -668,8 +676,16 @@ class ContextRuntime:
                 messages_by_instance[instance_id] = []
             messages_by_instance[instance_id].append(msg)
 
-        # Format each group of messages
-        for instance_id, msgs in messages_by_instance.items():
+        # Reverse so most-recent groups are processed first
+        groups = list(reversed(messages_by_instance.items()))
+
+        budget = self.SHORT_TERM_TOKEN_LIMIT - len(prompt)
+        sections: list[str] = []
+
+        for instance_id, msgs in groups:
+            if budget <= 0:
+                break
+
             # Get the earliest message timestamp for display
             first_timestamp = ""
             for msg in msgs:
@@ -679,7 +695,7 @@ class ContextRuntime:
                     first_timestamp = ts
                     break
 
-            # Calculate relative time (if timestamp is available)
+            # Calculate relative time
             time_ago = ""
             if first_timestamp:
                 try:
@@ -708,17 +724,25 @@ class ContextRuntime:
                     source_label = f" via {ch}" + (f" ({name})" if name else "")
                     break
 
-            prompt += f"\n**[{time_ago}{source_label}]**\n"
+            section = f"\n**[{time_ago}{source_label}]**\n"
 
-            # Add conversation content
             for msg in msgs:
+                if budget <= 0:
+                    break
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
-                # Truncate overly long content
-                if len(content) > 200:
-                    content = content[:200] + "..."
                 role_label = "User" if role == "user" else "Assistant"
-                prompt += f"- {role_label}: {content}\n"
+                line = f"- {role_label}: {content}\n"
+                if len(section) + len(line) > budget:
+                    break
+                section += line
+
+            budget -= len(section)
+            sections.append(section)
+
+        # Reverse back to chronological order for the final prompt
+        sections.reverse()
+        prompt += "".join(sections)
 
         return prompt
 
