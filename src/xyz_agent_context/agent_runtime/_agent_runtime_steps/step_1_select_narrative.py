@@ -199,13 +199,27 @@ async def step_1_select_narrative(
     # Calculate similarity scores (if query_embedding is available)
     scores: Dict[str, float] = {}
     if query_embedding:
-        for narrative in narrative_list:
-            if hasattr(narrative, 'routing_embedding') and narrative.routing_embedding:
-                try:
-                    score = cosine_similarity(query_embedding, narrative.routing_embedding)
-                    scores[narrative.id] = score
-                except Exception as e:
-                    logger.warning(f"Failed to calculate similarity for {narrative.id}: {e}")
+        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
+            use_embedding_store, get_stored_embeddings_batch,
+        )
+        # Load embeddings from the correct source (new embeddings_store or legacy column)
+        if use_embedding_store():
+            narrative_ids = [n.id for n in narrative_list if n.id]
+            stored = await get_stored_embeddings_batch("narrative", narrative_ids)
+            for narrative in narrative_list:
+                vector = stored.get(narrative.id)
+                if vector:
+                    try:
+                        scores[narrative.id] = cosine_similarity(query_embedding, vector)
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate similarity for {narrative.id}: {e}")
+        else:
+            for narrative in narrative_list:
+                if hasattr(narrative, 'routing_embedding') and narrative.routing_embedding:
+                    try:
+                        scores[narrative.id] = cosine_similarity(query_embedding, narrative.routing_embedding)
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate similarity for {narrative.id}: {e}")
 
     # Format for developer-friendly display
     display_data = format_narrative_for_display(narrative_list, scores=scores)

@@ -390,6 +390,16 @@ class EmbeddingMigrationService:
                 entity_id = row[id_field]
                 source_text = source_text_fn(row)
                 if not source_text.strip():
+                    # Write a sentinel record (empty vector) so get_status()
+                    # won't count this entity as "missing" forever.
+                    records.append({
+                        "entity_type": entity_type,
+                        "entity_id": entity_id,
+                        "model": model,
+                        "dimensions": 0,
+                        "vector": [],
+                        "source_text": "",
+                    })
                     _progress.completed[entity_type] += 1
                     continue
                 try:
