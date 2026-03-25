@@ -197,11 +197,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
     }
   }
 
-  const handleInstallComplete = async () => {
-    // Check EverMemOS install status BEFORE entering launch phase,
-    // so ServiceLaunchView knows whether to start EverMemOS.
-    const installed = await window.nexus.isEverMemOSInstalled()
-    setEverMemOSInstalled(installed)
+  const handleInstallComplete = () => {
     setPhase('launch')
   }
 
@@ -310,7 +306,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
         {/* ─── Phase: Launch ─────────────────────────── */}
         {phase === 'launch' && (
           <ServiceLaunchView
-            skipEverMemOS={!isEverMemOSInstalled}
+            skipEverMemOS={true}
             onComplete={handleLaunchComplete}
             onRetry={() => {}}
           />
