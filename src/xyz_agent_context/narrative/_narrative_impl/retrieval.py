@@ -273,6 +273,9 @@ class NarrativeRetrieval:
 
         # Step 4: Two-tier threshold judgment
         best_score = search_results[0].similarity_score if search_results else None
+        # Build per-narrative scores dict (carried through NarrativeSelectionResult
+        # so step_1 doesn't need to re-load embeddings and re-compute)
+        all_scores = {r.narrative_id: r.similarity_score for r in search_results}
 
         # Phase 2 & 4: Build evermemos_memories cache (for MemoryModule use)
         # Phase 4: Added episode_contents for short-term memory dedup
@@ -307,6 +310,7 @@ class NarrativeRetrieval:
                 selection_method="high_confidence",
                 is_new=False,
                 best_score=best_score,
+                scores=all_scores,
                 retrieval_method=retrieval_method,
                 evermemos_memories=evermemos_memories  # Phase 2: Pass cache
             )
@@ -351,6 +355,7 @@ class NarrativeRetrieval:
                 selection_method="new_created",
                 is_new=True,
                 best_score=best_score,
+                scores=all_scores,
                 retrieval_method=retrieval_method,
                 evermemos_memories=evermemos_memories  # Phase 2: Pass cache
             )
@@ -677,6 +682,9 @@ class NarrativeRetrieval:
         """
         # 1. Prepare search result candidates
         # Phase 1: Added matched_content field (from EverMemOS episode_summaries)
+        # Per-narrative scores from search (passed through to NarrativeSelectionResult)
+        all_scores = {r.narrative_id: r.similarity_score for r in search_results}
+
         # Phase 2 & 4: Build evermemos_memories cache for MemoryModule use
         search_candidates = []
         evermemos_memories = {}  # Phase 2: Cache EverMemOS retrieval results
@@ -791,6 +799,7 @@ class NarrativeRetrieval:
                     selection_method="default_narrative_matched",
                     is_new=False,
                     best_score=best_score,
+                    scores=all_scores,
                     retrieval_method=retrieval_method,
                     evermemos_memories=evermemos_memories  # Phase 2: Pass cache
                 )
@@ -807,6 +816,7 @@ class NarrativeRetrieval:
                     selection_method="participant_narrative_matched",
                     is_new=False,
                     best_score=best_score,
+                    scores=all_scores,
                     retrieval_method=retrieval_method,
                     evermemos_memories=evermemos_memories  # Phase 2: Pass cache
                 )
@@ -833,6 +843,7 @@ class NarrativeRetrieval:
                     selection_method="llm_confirmed",
                     is_new=False,
                     best_score=best_score,
+                    scores=all_scores,
                     retrieval_method=retrieval_method,
                     evermemos_memories=evermemos_memories  # Phase 2: Pass cache
                 )
@@ -854,6 +865,7 @@ class NarrativeRetrieval:
             selection_method="new_created",
             is_new=True,
             best_score=best_score,
+            scores=all_scores,
             retrieval_method=retrieval_method,
             evermemos_memories=evermemos_memories  # Phase 2: Pass cache
         )

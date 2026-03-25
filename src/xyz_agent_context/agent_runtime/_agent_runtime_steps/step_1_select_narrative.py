@@ -17,7 +17,7 @@ from typing import AsyncGenerator, Dict, TYPE_CHECKING
 from loguru import logger
 
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
-from xyz_agent_context.agent_framework.llm_api.embedding import cosine_similarity
+
 from .step_display import format_narrative_for_display
 
 if TYPE_CHECKING:
@@ -196,30 +196,10 @@ async def step_1_select_narrative(
         f"method={selection_method}, reason={selection_reason[:50]}..."
     )
 
-    # Calculate similarity scores (if query_embedding is available)
-    scores: Dict[str, float] = {}
-    if query_embedding:
-        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
-            use_embedding_store, get_stored_embeddings_batch,
-        )
-        # Load embeddings from the correct source (new embeddings_store or legacy column)
-        if use_embedding_store():
-            narrative_ids = [n.id for n in narrative_list if n.id]
-            stored = await get_stored_embeddings_batch("narrative", narrative_ids)
-            for narrative in narrative_list:
-                vector = stored.get(narrative.id)
-                if vector:
-                    try:
-                        scores[narrative.id] = cosine_similarity(query_embedding, vector)
-                    except Exception as e:
-                        logger.warning(f"Failed to calculate similarity for {narrative.id}: {e}")
-        else:
-            for narrative in narrative_list:
-                if hasattr(narrative, 'routing_embedding') and narrative.routing_embedding:
-                    try:
-                        scores[narrative.id] = cosine_similarity(query_embedding, narrative.routing_embedding)
-                    except Exception as e:
-                        logger.warning(f"Failed to calculate similarity for {narrative.id}: {e}")
+    # Use similarity scores already computed during Narrative selection
+    # (carried through NarrativeSelectionResult.scores, avoiding redundant
+    # embedding loading and cosine similarity re-computation)
+    scores: Dict[str, float] = selection_result.scores
 
     # Format for developer-friendly display
     display_data = format_narrative_for_display(narrative_list, scores=scores)

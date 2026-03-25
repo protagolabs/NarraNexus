@@ -201,19 +201,24 @@ def _entity_source_text(row: dict) -> str:
 # WHERE clauses. A mismatch would cause "missing" to never reach 0.
 # =============================================================================
 
-# Events that have embeddable content (pre-built embedding_text, OR
-# env_context with input, OR final_output). This is the broadest set
-# we can meaningfully re-embed.
+# Events that have embeddable text content. Both status and rebuild queries
+# share this clause so "total" always matches what can actually be processed.
+# Note: final_output must be non-empty, not just non-NULL.
 _EVENT_WHERE = (
     "WHERE (embedding_text IS NOT NULL AND embedding_text != '') "
-    "OR final_output IS NOT NULL"
+    "OR (final_output IS NOT NULL AND final_output != '')"
 )
 
+# Jobs and entities need at least one non-empty text field to be embeddable.
+_JOB_WHERE = "WHERE (title IS NOT NULL AND title != '') OR (description IS NOT NULL AND description != '')"
+_ENTITY_WHERE = "WHERE (entity_name IS NOT NULL AND entity_name != '') OR (entity_description IS NOT NULL AND entity_description != '')"
+
 _STATUS_QUERIES: list[tuple[str, str]] = [
+    # Narratives always produce text (fallback to "Conversation {id}")
     ("narrative", "SELECT COUNT(*) as cnt FROM narratives"),
     ("event",    f"SELECT COUNT(*) as cnt FROM events {_EVENT_WHERE}"),
-    ("job",      "SELECT COUNT(*) as cnt FROM instance_jobs"),
-    ("entity",   "SELECT COUNT(*) as cnt FROM instance_social_entities"),
+    ("job",      f"SELECT COUNT(*) as cnt FROM instance_jobs {_JOB_WHERE}"),
+    ("entity",   f"SELECT COUNT(*) as cnt FROM instance_social_entities {_ENTITY_WHERE}"),
 ]
 
 
@@ -336,16 +341,18 @@ class EmbeddingMigrationService:
 
     async def _rebuild_jobs(self, model: str) -> None:
         entity_type = "job"
+        # Use the same WHERE as _STATUS_QUERIES to keep total/missing in sync
         rows = await self.db.execute(
-            "SELECT job_id, title, description, payload FROM instance_jobs",
+            f"SELECT job_id, title, description, payload FROM instance_jobs {_JOB_WHERE}",
             fetch=True,
         )
         await self._process_rows(entity_type, model, rows, "job_id", _job_source_text)
 
     async def _rebuild_entities(self, model: str) -> None:
         entity_type = "entity"
+        # Use the same WHERE as _STATUS_QUERIES to keep total/missing in sync
         rows = await self.db.execute(
-            "SELECT entity_id, entity_name, entity_description, tags FROM instance_social_entities",
+            f"SELECT entity_id, entity_name, entity_description, tags FROM instance_social_entities {_ENTITY_WHERE}",
             fetch=True,
         )
         await self._process_rows(entity_type, model, rows, "entity_id", _entity_source_text)
@@ -390,16 +397,8 @@ class EmbeddingMigrationService:
                 entity_id = row[id_field]
                 source_text = source_text_fn(row)
                 if not source_text.strip():
-                    # Write a sentinel record (empty vector) so get_status()
-                    # won't count this entity as "missing" forever.
-                    records.append({
-                        "entity_type": entity_type,
-                        "entity_id": entity_id,
-                        "model": model,
-                        "dimensions": 0,
-                        "vector": [],
-                        "source_text": "",
-                    })
+                    # Entity has no embeddable text — skip it.
+                    # SQL WHERE clauses should prevent this, but defensive.
                     _progress.completed[entity_type] += 1
                     continue
                 try:
