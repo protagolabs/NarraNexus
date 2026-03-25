@@ -76,6 +76,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
     await window.nexus.startDocker()
     await new Promise((r) => setTimeout(r, 3000))
     await window.nexus.startAllServices()
+    // Extra delay for infrastructure containers (MongoDB, ES, Milvus, Redis)
+    // to fully initialize and accept connections.
+    await new Promise((r) => setTimeout(r, 3000))
     setStarting(false)
     refreshStatus()
   }
@@ -84,6 +87,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
     setStopping(true)
     await window.nexus.stopAllServices()
     await window.nexus.stopDocker()
+    // Brief delay for Docker containers to fully release ports,
+    // then refresh so health checks detect the stopped state.
+    await new Promise((r) => setTimeout(r, 2000))
     setStopping(false)
     refreshStatus()
   }
