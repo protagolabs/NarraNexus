@@ -267,12 +267,8 @@ class EmbeddingMigrationService:
 
         model = embedding_config.model
 
-        # Exclude sentinel records (dimensions=0) from count_by_model,
-        # left by a previous buggy run — they shouldn't count as "migrated".
-        await self.db.execute(
-            f"DELETE FROM {self.emb_repo.TABLE} WHERE dimensions = 0 AND model = %s",
-            (model,),
-        )
+        # Clean stale data before counting
+        await self._cleanup_before_rebuild(model)
 
         stats = {}
 
@@ -312,14 +308,8 @@ class EmbeddingMigrationService:
         logger.info(f"Starting embedding migration for model={model}")
 
         try:
-            # Clean up any sentinel records (dimensions=0) left by a previous
-            # buggy run. They inflate count_by_model and must be removed.
-            cleaned = await self.db.execute(
-                f"DELETE FROM {self.emb_repo.TABLE} WHERE dimensions = 0 AND model = %s",
-                (model,),
-            )
-            if cleaned:
-                logger.info(f"Cleaned {cleaned} sentinel records from previous run")
+            # Phase 0: Data cleanup before rebuild
+            await self._cleanup_before_rebuild(model)
 
             await self._rebuild_narratives(model)
             await self._rebuild_events(model)
@@ -336,6 +326,39 @@ class EmbeddingMigrationService:
             logger.error(f"Embedding migration failed: {e}")
         finally:
             _progress.is_running = False
+
+    # ---- Data cleanup ----
+
+    async def _cleanup_before_rebuild(self, model: str) -> None:
+        """
+        Clean up stale/empty data before rebuild or status check.
+
+        1. Remove sentinel records (dimensions=0) from embeddings_store
+        2. Remove empty-shell entities (no name AND no description)
+        3. Remove orphaned embeddings_store entries whose source entity no longer exists
+        """
+        # 1. Sentinel records from a previous buggy run
+        sentinel_count = await self.db.execute(
+            f"DELETE FROM {self.emb_repo.TABLE} WHERE dimensions = 0 AND model = %s",
+            (model,),
+        )
+        if sentinel_count:
+            logger.info(f"Cleaned {sentinel_count} sentinel records")
+
+        # 2. Empty-shell entities (no embeddable text at all)
+        empty_entity_count = await self.db.execute(
+            "DELETE FROM instance_social_entities "
+            "WHERE (entity_name IS NULL OR TRIM(entity_name) = '') "
+            "AND (entity_description IS NULL OR TRIM(entity_description) = '')",
+        )
+        if empty_entity_count:
+            logger.info(f"Cleaned {empty_entity_count} empty-shell entities from instance_social_entities")
+            # Also remove their orphaned embeddings
+            await self.db.execute(
+                f"DELETE es FROM {self.emb_repo.TABLE} es "
+                "LEFT JOIN instance_social_entities ise ON es.entity_id = ise.entity_id "
+                "WHERE es.entity_type = 'entity' AND ise.entity_id IS NULL",
+            )
 
     # ---- Per-entity-type rebuild ----
 
