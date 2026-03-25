@@ -133,8 +133,16 @@ export class ProcessManager extends EventEmitter {
   /** Stop All Services */
   async stopAll(): Promise<void> {
     this.shuttingDown = true
+
+    // Phase 1: SIGTERM each managed process group
     const stopPromises = SERVICES.map((svc) => this.stopService(svc.id))
     await Promise.all(stopPromises)
+
+    // Phase 2: Kill any orphaned child processes still occupying service ports.
+    // Python's multiprocessing (used by MCP module_runner) spawns children that
+    // escape the parent process group and survive SIGTERM. Same as run.sh's
+    // port-based cleanup.
+    await this.forceKillServicePorts()
   }
 
   /** Restart a single service */
