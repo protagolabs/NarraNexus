@@ -214,12 +214,11 @@ app.on('before-quit', (e) => {
   trayManager?.destroy()
 
   const cleanup = async () => {
-    // Sequential shutdown to avoid conflicts:
-    // 1. Stop managed processes (SIGTERM → SIGKILL)
+    // stopAll() handles processes + port sweep. After it completes, Docker
+    // compose down runs. All ports are clear so compose down won't hang.
+    // Note: stopAll resets activeOperation to 'idle' at the end, but since
+    // the app is quitting, the cleanupDone flag prevents any re-entry.
     await (processManager?.stopAll() ?? Promise.resolve())
-    // 2. Kill orphaned children on service ports (MCP workers etc.)
-    await (processManager?.forceKillServicePorts() ?? Promise.resolve())
-    // 3. Stop Docker containers LAST (ports are now clear, compose down won't hang)
     await stopDocker()
   }
 

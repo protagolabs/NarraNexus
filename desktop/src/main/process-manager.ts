@@ -114,31 +114,37 @@ export class ProcessManager extends EventEmitter {
     const myOp = ++this.operationId
     this.activeOperation = 'stopping'
 
-    // Phase 1: Stop all managed processes
-    await this.stopProcesses()
+    try {
+      // Phase 1: Stop all managed processes
+      await this.stopProcesses()
 
-    // Phase 2: Kill orphaned processes on service ports
-    await this.forceKillServicePorts()
+      // Phase 2: Kill orphaned processes on service ports
+      await this.forceKillServicePorts()
 
-    // Check if this operation was superseded (e.g., user clicked Stop during startup)
-    if (this.operationId !== myOp) return
+      // Check if this operation was superseded (e.g., user clicked Stop during startup)
+      if (this.operationId !== myOp) return
 
-    // Phase 3: Start services
-    this.activeOperation = 'starting'
-    for (const svc of SERVICES) {
-      this.restartCounts.set(svc.id, 0)
+      // Phase 3: Start services
+      this.activeOperation = 'starting'
+      for (const svc of SERVICES) {
+        this.restartCounts.set(svc.id, 0)
+      }
+
+      const sorted = [...SERVICES]
+        .filter((svc) => !(options?.skipEverMemOS && svc.id === 'evermemos'))
+        .sort((a, b) => a.order - b.order)
+      for (const svc of sorted) {
+        if (this.operationId !== myOp) return // Superseded
+        await this.spawnProcess(svc)
+        await this.delay(500)
+      }
+    } finally {
+      // Always reset to idle, even if an error occurred.
+      // Only reset if this operation wasn't superseded by another.
+      if (this.operationId === myOp) {
+        this.activeOperation = 'idle'
+      }
     }
-
-    const sorted = [...SERVICES]
-      .filter((svc) => !(options?.skipEverMemOS && svc.id === 'evermemos'))
-      .sort((a, b) => a.order - b.order)
-    for (const svc of sorted) {
-      if (this.operationId !== myOp) return // Superseded
-      await this.spawnProcess(svc)
-      await this.delay(500)
-    }
-
-    this.activeOperation = 'idle'
   }
 
   /** Stop a single service (kill entire process group) */
@@ -169,15 +175,22 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
-   * Stop all managed processes (SIGTERM → wait → SIGKILL).
-   * Does NOT clean up orphaned port occupants — call forceKillServicePorts()
-   * separately when needed (startup cleanup, shutdown cleanup).
+   * Stop all managed processes + orphaned port occupants.
+   *
+   * Sets activeOperation to 'stopping' for the full duration, preventing
+   * auto-restart from firing. Resets to 'idle' at the end.
    */
   async stopAll(): Promise<void> {
-    ++this.operationId
+    const myOp = ++this.operationId
     this.activeOperation = 'stopping'
-    await this.stopProcesses()
-    this.activeOperation = 'idle'
+    try {
+      await this.stopProcesses()
+      await this.forceKillServicePorts()
+    } finally {
+      if (this.operationId === myOp) {
+        this.activeOperation = 'idle'
+      }
+    }
   }
 
   /** Internal: SIGTERM all managed processes */
