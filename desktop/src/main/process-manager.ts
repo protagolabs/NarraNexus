@@ -106,14 +106,21 @@ export class ProcessManager extends EventEmitter {
 
   /** Start all services in order (clean up residual port-occupying processes first) */
   async startAll(options?: { skipEverMemOS?: boolean }): Promise<void> {
+    // Phase 1: Stop all managed processes (sets shuttingDown = true,
+    // which prevents auto-restart from firing during cleanup)
     await this.stopAll()
 
+    // Phase 2: Kill any orphaned processes still occupying service ports
+    // (MCP children, stale uvicorn workers, etc.)
+    // IMPORTANT: shuttingDown stays true during this phase so no
+    // auto-restart sneaks in between stop and port cleanup.
+    await this.forceKillServicePorts()
+
+    // Phase 3: NOW it's safe to reset and start fresh
     this.shuttingDown = false
     for (const svc of SERVICES) {
       this.restartCounts.set(svc.id, 0)
     }
-
-    await this.forceKillServicePorts()
 
     const sorted = [...SERVICES]
       .filter((svc) => !(options?.skipEverMemOS && svc.id === 'evermemos'))
@@ -419,14 +426,30 @@ export class ProcessManager extends EventEmitter {
       }
     }
 
+    // Snapshot: if shuttingDown is true NOW, don't even schedule restart
+    if (this.shuttingDown) {
+      this.addLog(svc.id, 'stderr', 'Shutdown in progress, skipping auto-restart')
+      return
+    }
+
     const waitMs = RESTART_BACKOFF_BASE * Math.pow(2, count - 1)
     this.addLog(svc.id, 'stderr', `Auto-restarting in ${waitMs}ms (attempt ${count})`)
 
     await this.delay(waitMs)
 
-    if (!this.shuttingDown) {
-      await this.spawnProcess(svc)
+    // Check again after delay — startAll() or stopAll() may have been called
+    if (this.shuttingDown) {
+      this.addLog(svc.id, 'stderr', 'Shutdown triggered during backoff, aborting auto-restart')
+      return
     }
+
+    // Check if something else already started this service (e.g., startAll)
+    if (this.processes.has(svc.id)) {
+      this.addLog(svc.id, 'stderr', 'Service already running, skipping auto-restart')
+      return
+    }
+
+    await this.spawnProcess(svc)
   }
 
   /** Quick check if ALL EverMemOS infrastructure ports are reachable */
