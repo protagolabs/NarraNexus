@@ -166,6 +166,15 @@ app.whenReady().then(async () => {
   // monitor starts, so Dashboard doesn't flash stale green indicators.
   await processManager.forceKillServicePorts()
 
+  // Wire HealthMonitor → ProcessManager: when a port becomes reachable,
+  // promote the service from 'starting' to 'running'. This ensures
+  // "running" means "actually serving", not just "process emitted stdout".
+  healthMonitor.on('service-health-change', (serviceId: string, state: string) => {
+    if (state === 'healthy' && processManager.getServiceStatus(serviceId) === 'starting') {
+      processManager.promoteToRunning(serviceId)
+    }
+  })
+
   // Start health checks (AFTER port cleanup so first check is accurate)
   healthMonitor.start()
 
@@ -205,13 +214,13 @@ app.on('before-quit', (e) => {
   trayManager?.destroy()
 
   const cleanup = async () => {
-    // Phase 1: Stop service processes AND Docker containers in parallel
-    const stopProcesses = processManager?.stopAll() ?? Promise.resolve()
-    await Promise.all([stopProcesses, stopDocker()])
-
-    // Phase 2: Final port sweep — kill anything still occupying service ports
-    // (catches orphaned MCP children, uvicorn workers, etc.)
+    // Sequential shutdown to avoid conflicts:
+    // 1. Stop managed processes (SIGTERM → SIGKILL)
+    await (processManager?.stopAll() ?? Promise.resolve())
+    // 2. Kill orphaned children on service ports (MCP workers etc.)
     await (processManager?.forceKillServicePorts() ?? Promise.resolve())
+    // 3. Stop Docker containers LAST (ports are now clear, compose down won't hang)
+    await stopDocker()
   }
 
   // Hard timeout: force quit after 15s even if cleanup hangs
