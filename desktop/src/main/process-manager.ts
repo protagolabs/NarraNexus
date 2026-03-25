@@ -135,7 +135,9 @@ export class ProcessManager extends EventEmitter {
         .sort((a, b) => a.order - b.order)
       for (const svc of sorted) {
         if (this.operationId !== myOp) return // Superseded
-        await this.spawnProcess(svc)
+        // Use startService (not spawnProcess) so dependency checks run —
+        // e.g. EverMemOS waits for Docker infra before spawning.
+        await this.startService(svc.id)
         await this.delay(500)
       }
     } finally {
