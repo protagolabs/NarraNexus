@@ -242,12 +242,22 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
   }
 
   const handleDualSetup = async () => {
-    setDualAdding(true)
     setError('')
+
+    // Validate all inputs upfront — avoid partial setup if one key is missing
+    if (anthropicMode === 'api_key' && !anthropicKey.trim()) {
+      setError('Please enter your Anthropic API key')
+      return
+    }
+    if (!openaiKey.trim()) {
+      setError('Please enter your OpenAI API key')
+      return
+    }
+
+    setDualAdding(true)
     try {
       // Step A: Add Anthropic provider (CC login or API key)
       if (anthropicMode === 'cc_login') {
-        // Add Claude OAuth provider
         const res = await apiPost<any>('/api/providers', { card_type: 'claude_oauth' })
         if (!res.success) {
           setError(res.detail || 'Failed to add Claude OAuth provider')
@@ -255,7 +265,6 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
           return
         }
       } else {
-        if (!anthropicKey.trim()) { setError('Please enter your Anthropic API key'); setDualAdding(false); return }
         const res = await apiPost<any>('/api/providers', {
           card_type: 'anthropic',
           api_key: anthropicKey.trim(),
@@ -269,7 +278,6 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
       }
 
       // Step B: Add OpenAI provider
-      if (!openaiKey.trim()) { setError('Please enter your OpenAI API key'); setDualAdding(false); return }
       const res2 = await apiPost<any>('/api/providers', {
         card_type: 'openai',
         api_key: openaiKey.trim(),

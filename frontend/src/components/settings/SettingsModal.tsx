@@ -11,7 +11,7 @@
  * how it affects the Agent's behavior, making it accessible to non-technical users.
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, Cpu, Database, Info } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
@@ -82,6 +82,22 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState('providers');
+
+  // ESC key to close + lock body scroll
+  const handleEscape = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, handleEscape]);
 
   if (!isOpen) return null;
 
