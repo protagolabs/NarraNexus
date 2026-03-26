@@ -73,13 +73,24 @@ const SLOT_DEFS = [
  * still starting up when the user reaches the Config phase.
  */
 async function apiFetch<T = any>(path: string, init?: RequestInit, retries = 3): Promise<T> {
+  const url = `${API}${path}`
   for (let i = 0; i <= retries; i++) {
     try {
-      const res = await fetch(`${API}${path}`, init)
+      console.log(`[apiFetch] ${init?.method || 'GET'} ${url} (attempt ${i + 1}/${retries + 1})`)
+      const res = await fetch(url, init)
+      console.log(`[apiFetch] Response: ${res.status} ${res.statusText}`)
+      if (!res.ok) {
+        const text = await res.text()
+        console.error(`[apiFetch] HTTP error ${res.status}: ${text.slice(0, 500)}`)
+        // Don't retry on 4xx client errors
+        if (res.status >= 400 && res.status < 500) {
+          return JSON.parse(text) as T
+        }
+      }
       return await res.json() as T
     } catch (err) {
+      console.error(`[apiFetch] Attempt ${i + 1} failed:`, err instanceof Error ? err.message : err)
       if (i < retries) {
-        // Wait before retrying (1s, 2s, 3s)
         await new Promise((r) => setTimeout(r, (i + 1) * 1000))
         continue
       }
@@ -210,18 +221,23 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
   useEffect(() => {
     let cancelled = false
     const waitForBackend = async () => {
-      for (let i = 0; i < 30; i++) {  // Try for up to 30 seconds
+      console.log(`[waitForBackend] Starting to poll ${API}/api/providers ...`)
+      for (let i = 0; i < 30; i++) {
         if (cancelled) return
         try {
           const res = await fetch(`${API}/api/providers`)
+          console.log(`[waitForBackend] Attempt ${i + 1}: status=${res.status}`)
           if (res.ok) {
+            console.log('[waitForBackend] Backend is ready!')
             setBackendReady(true)
             return
           }
-        } catch { /* backend not ready yet */ }
+        } catch (err) {
+          console.log(`[waitForBackend] Attempt ${i + 1}: ${err instanceof Error ? err.message : err}`)
+        }
         await new Promise((r) => setTimeout(r, 1000))
       }
-      // After 30s, give up and let user try anyway
+      console.warn('[waitForBackend] Gave up after 30s, proceeding anyway')
       setBackendReady(true)
     }
     waitForBackend()
@@ -316,8 +332,10 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
       }
       await refreshConfig()
       setStep('summary')
-    } catch {
-      setError('Network error — is the backend running?')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[handleQuickSetup] CATCH:', msg, err)
+      setError(`Network error: ${msg}`)
     }
     setPresetAdding(false)
   }
@@ -372,8 +390,10 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
 
       await refreshConfig()
       setStep('summary')
-    } catch {
-      setError('Network error — is the backend running?')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[handleDualSetup] CATCH:', msg, err)
+      setError(`Network error: ${msg}`)
     }
     setDualAdding(false)
   }
