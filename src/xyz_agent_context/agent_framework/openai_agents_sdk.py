@@ -123,6 +123,12 @@ class OpenAIAgentsSDK:
             client_kwargs["base_url"] = openai_config.base_url
         openai_client = AsyncOpenAI(**client_kwargs)
 
+        logger.debug(
+            f"[HelperLLM] Calling: model={model_name}, "
+            f"base_url={openai_config.base_url or '(official)'}, "
+            f"max_tokens={max_tokens}, output_type={output_type.__name__ if output_type else 'None'}"
+        )
+
         # Try Agents SDK structured output (skip if model is blocklisted)
         if output_type and model_name not in _structured_output_blocklist:
             try:
