@@ -190,11 +190,20 @@ class OpenAIAgentsSDK:
             {"role": "user", "content": user_input},
         ]
 
-        resp = await client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            max_tokens=max_tokens,  # Per-model limit from catalog; some providers default to 256
-        )
+        # Use max_completion_tokens (newer OpenAI standard, e.g. gpt-5.1 / o-series)
+        # with max_tokens as fallback for older providers that don't support it yet.
+        try:
+            resp = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_completion_tokens=max_tokens,
+            )
+        except Exception:
+            resp = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_tokens=max_tokens,
+            )
 
         raw_content = resp.choices[0].message.content or ""
         input_tokens = getattr(resp.usage, "prompt_tokens", 0) or 0
