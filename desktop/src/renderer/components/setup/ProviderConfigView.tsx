@@ -68,9 +68,25 @@ const SLOT_DEFS = [
 // Helper: fetch wrapper
 // =============================================================================
 
-async function apiFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, init)
-  return res.json()
+/**
+ * Fetch with automatic retry — handles the case where the backend is
+ * still starting up when the user reaches the Config phase.
+ */
+async function apiFetch<T = any>(path: string, init?: RequestInit, retries = 3): Promise<T> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(`${API}${path}`, init)
+      return await res.json() as T
+    } catch (err) {
+      if (i < retries) {
+        // Wait before retrying (1s, 2s, 3s)
+        await new Promise((r) => setTimeout(r, (i + 1) * 1000))
+        continue
+      }
+      throw err
+    }
+  }
+  throw new Error('Unreachable')
 }
 
 async function apiPost<T = any>(path: string, body: unknown): Promise<T> {
