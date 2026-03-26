@@ -37,7 +37,7 @@ const PHASE_LABELS: { phase: SetupPhase; label: string }[] = [
 const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, initialPhase = 'preflight' }) => {
   const [phase, setPhase] = useState<SetupPhase>(initialPhase)
 
-  // EverMemOS install toggle (set during preflight)
+  // EverMemOS: auto-install if memory sufficient, skip otherwise (no user toggle)
   const [installEverMemOS, setInstallEverMemOS] = useState(true)
 
   // Config state (loaded early, used in config phase)
@@ -105,9 +105,9 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, initialPhase = 'p
     try {
       const result = await window.nexus.runPreflight() as PreflightResult
       setPreflightResult(result)
-      // Auto-disable EverMemOS toggle if low memory
+      // Auto-decide EverMemOS install based on available memory
       const mem = Math.max(2, Math.min(12, Math.floor(result.systemInfo.totalMemoryGb / 2)))
-      if (mem < 6) setInstallEverMemOS(false)
+      setInstallEverMemOS(mem >= 6)
     } catch (err) {
       console.error('Preflight failed:', err)
     }
@@ -221,7 +221,6 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, initialPhase = 'p
                 onRecheck={runPreflight}
                 checking={checking}
                 installEverMemOS={installEverMemOS}
-                onToggleEverMemOS={setInstallEverMemOS}
                 lowMemory={lowMemory}
                 dockerMemoryGb={dockerMemoryGb}
               />
