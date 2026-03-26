@@ -33,10 +33,14 @@ class Settings:
     """
 
     # ── CORS ─────────────────────────────────────────────────────────────────
-    # Allow all origins by default — this is a local-only application.
-    # The Electron desktop app uses file:// protocol (origin=null) in
-    # packaged mode, which doesn't match any specific origin whitelist.
-    _DEFAULT_CORS_ORIGINS = "*"
+    _DEFAULT_CORS_ORIGINS = (
+        "http://localhost:5173,"
+        "http://localhost:3000,"
+        "http://localhost:8000,"
+        "http://127.0.0.1:5173,"
+        "http://127.0.0.1:3000,"
+        "http://127.0.0.1:8000"
+    )
     cors_origins: List[str] = _parse_list(
         os.getenv("CORS_ORIGINS", _DEFAULT_CORS_ORIGINS)
     )
