@@ -292,14 +292,18 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
    */
   const autoAssignSlots = async (
     defaults: PresetSlotDefaults,
-    freshProviders: Record<string, ProviderSummary>,
+    newProviderIds: string[],
+    allProviders: Record<string, ProviderSummary>,
   ) => {
-    const provList = Object.values(freshProviders)
-    console.log('[autoAssignSlots] providers:', provList.map((p) => `${p.provider_id} (${p.protocol})`))
+    // Only use the newly created providers for slot assignment
+    const newProvs = newProviderIds
+      .map((id) => allProviders[id])
+      .filter(Boolean)
+    console.log('[autoAssignSlots] new providers:', newProvs.map((p) => `${p.provider_id} (${p.protocol})`))
     console.log('[autoAssignSlots] defaults:', defaults)
 
     for (const [slotName, slotDef] of Object.entries(defaults)) {
-      const match = provList.find((p) => p.protocol === slotDef.protocol && p.is_active)
+      const match = newProvs.find((p) => p.protocol === slotDef.protocol && p.is_active)
       if (match) {
         console.log(`[autoAssignSlots] ${slotName}: assigning provider=${match.provider_id} model=${slotDef.model}`)
         const res = await apiFetch<any>(`/api/providers/slots/${slotName}`, {
@@ -333,12 +337,12 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
         setPresetAdding(false)
         return
       }
-      // Auto-assign slots using preset defaults (no manual model selection)
-      if (res.data?.providers) {
-        console.log('[handleQuickSetup] POST response has providers, starting autoAssignSlots')
-        await autoAssignSlots(currentPreset.default_slots, res.data.providers)
+      // Auto-assign slots using preset defaults — only use the newly created providers
+      if (res.provider_ids?.length && res.data?.providers) {
+        console.log('[handleQuickSetup] New provider IDs:', res.provider_ids)
+        await autoAssignSlots(currentPreset.default_slots, res.provider_ids, res.data.providers)
       } else {
-        console.warn('[handleQuickSetup] POST response missing providers:', JSON.stringify(res).slice(0, 300))
+        console.warn('[handleQuickSetup] POST response missing provider_ids or providers:', JSON.stringify(res).slice(0, 300))
       }
       await refreshConfig()
       setStep('summary')
