@@ -75,12 +75,13 @@ interface WebPresetProvider {
   id: string       // card_type sent to backend
   name: string
   description: string
+  get_key_url: string
 }
 
 const PRESET_PROVIDERS: WebPresetProvider[] = [
-  { id: 'netmind',    name: 'NetMind.AI Power', description: 'One key covers both Anthropic & OpenAI endpoints' },
-  { id: 'yunwu',      name: 'Yunwu',            description: 'Proxies official Claude & OpenAI APIs' },
-  { id: 'openrouter', name: 'OpenRouter',       description: 'Proxies official Claude & OpenAI APIs' },
+  { id: 'netmind',    name: 'NetMind.AI Power', description: 'One key covers both Anthropic & OpenAI endpoints', get_key_url: 'https://www.netmind.ai/user/dashboard' },
+  { id: 'yunwu',      name: 'Yunwu',            description: 'Proxies official Claude & OpenAI APIs',           get_key_url: 'https://yunwu.ai' },
+  { id: 'openrouter', name: 'OpenRouter',       description: 'Proxies official Claude & OpenAI APIs',           get_key_url: 'https://openrouter.ai/keys' },
 ]
 
 // =============================================================================
@@ -540,12 +541,20 @@ export function ProviderSettings() {
                 </select>
               </div>
 
-              {/* API Key + Add button */}
+              {/* API Key + Get Key + Add button */}
               <div className="flex gap-2">
                 <input type="password" value={presetKey} onChange={(e) => setPresetKey(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAdd() }}
                   placeholder={addedPresets.has(selectedPreset) ? 'New key to re-configure...' : 'Paste your API key'}
                   className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                <a
+                  href={PRESET_PROVIDERS.find((p) => p.id === selectedPreset)?.get_key_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-2 text-sm text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 rounded-lg hover:bg-[var(--accent-primary)]/20 whitespace-nowrap transition-colors"
+                >
+                  Get Key
+                </a>
                 <button onClick={handleQuickAdd} disabled={presetAdding}
                   className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors">
                   {presetAdding ? 'Adding...' : addedPresets.has(selectedPreset) ? 'Update' : 'Add'}
