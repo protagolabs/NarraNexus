@@ -20,6 +20,8 @@ import ProviderConfigView from '../components/setup/ProviderConfigView'
 
 interface SetupWizardProps {
   onComplete: () => void
+  /** Start directly at a specific phase (e.g. 'config' for LLM reconfiguration) */
+  initialPhase?: SetupPhase
 }
 
 type SetupPhase = 'preflight' | 'install' | 'launch' | 'config'
@@ -59,8 +61,8 @@ const PHASE_LABELS: { phase: SetupPhase; label: string }[] = [
   { phase: 'config', label: 'Configure' }
 ]
 
-const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
-  const [phase, setPhase] = useState<SetupPhase>('preflight')
+const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, initialPhase = 'preflight' }) => {
+  const [phase, setPhase] = useState<SetupPhase>(initialPhase)
 
   // EverMemOS install toggle (set during preflight)
   const [installEverMemOS, setInstallEverMemOS] = useState(true)
@@ -117,9 +119,11 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
     return unsub
   }, [])
 
-  // Auto-start preflight on mount
+  // Auto-start preflight on mount (skip if entering directly at config phase)
   useEffect(() => {
-    runPreflight()
+    if (initialPhase === 'preflight') {
+      runPreflight()
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compute derived state

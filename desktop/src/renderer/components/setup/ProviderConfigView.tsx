@@ -16,7 +16,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { PRESET_PROVIDERS, type PresetProvider } from '../../../shared/provider-presets'
+import { PRESET_PROVIDERS, type PresetProvider, type PresetSlotDefaults } from '../../../shared/provider-presets'
 
 const API = 'http://localhost:8000'
 
@@ -216,6 +216,29 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
 
   const currentPreset = PRESET_PROVIDERS.find((p) => p.id === selectedPreset)
 
+  // ---- Auto slot assignment helper ----
+
+  /**
+   * After creating providers from a preset, auto-assign models to all 3 slots
+   * using the preset's default_slots config. Matches provider by protocol.
+   */
+  const autoAssignSlots = async (
+    defaults: PresetSlotDefaults,
+    freshProviders: Record<string, ProviderSummary>,
+  ) => {
+    const provList = Object.values(freshProviders)
+    for (const [slotName, slotDef] of Object.entries(defaults)) {
+      const match = provList.find((p) => p.protocol === slotDef.protocol && p.is_active)
+      if (match) {
+        await apiFetch(`/api/providers/slots/${slotName}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider_id: match.provider_id, model: slotDef.model }),
+        })
+      }
+    }
+  }
+
   // ---- Actions ----
 
   const handleQuickSetup = async () => {
@@ -232,6 +255,10 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
         setError(res.detail || `Failed to add ${currentPreset.name}`)
         setPresetAdding(false)
         return
+      }
+      // Auto-assign slots using preset defaults (no manual model selection)
+      if (res.data?.providers) {
+        await autoAssignSlots(currentPreset.default_slots, res.data.providers)
       }
       await refreshConfig()
       setStep('summary')
@@ -684,11 +711,21 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
             })}
           </div>
 
+          {allSlotsReady && approach === 'quick' && (
+            <div className="p-3 rounded-lg bg-green-50 border border-green-200">
+              <p className="text-xs text-green-700">
+                Default models have been assigned automatically. If you&apos;d like to switch models,
+                you can do so in the web UI&apos;s Settings page after setup, or use the &quot;Configure LLM&quot;
+                button on the dashboard.
+              </p>
+            </div>
+          )}
+
           {!allSlotsReady && approach !== 'later' && (
             <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
               <p className="text-xs text-amber-700">
-                Some slots are not yet assigned. The backend auto-assigns models when possible.
-                You can fine-tune this in the web UI&apos;s Advanced Settings after setup.
+                Some slots are not yet assigned. You can configure them in the web UI&apos;s
+                Settings page after setup.
               </p>
             </div>
           )}
