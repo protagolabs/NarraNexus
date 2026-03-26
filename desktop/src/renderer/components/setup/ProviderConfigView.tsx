@@ -227,14 +227,23 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
     freshProviders: Record<string, ProviderSummary>,
   ) => {
     const provList = Object.values(freshProviders)
+    console.log('[autoAssignSlots] providers:', provList.map((p) => `${p.provider_id} (${p.protocol})`))
+    console.log('[autoAssignSlots] defaults:', defaults)
+
     for (const [slotName, slotDef] of Object.entries(defaults)) {
       const match = provList.find((p) => p.protocol === slotDef.protocol && p.is_active)
       if (match) {
-        await apiFetch(`/api/providers/slots/${slotName}`, {
+        console.log(`[autoAssignSlots] ${slotName}: assigning provider=${match.provider_id} model=${slotDef.model}`)
+        const res = await apiFetch<any>(`/api/providers/slots/${slotName}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ provider_id: match.provider_id, model: slotDef.model }),
         })
+        if (!res.success) {
+          console.error(`[autoAssignSlots] ${slotName} FAILED:`, res)
+        }
+      } else {
+        console.warn(`[autoAssignSlots] ${slotName}: no provider found for protocol=${slotDef.protocol}`)
       }
     }
   }
@@ -258,7 +267,10 @@ const ProviderConfigView: React.FC<ProviderConfigViewProps> = ({
       }
       // Auto-assign slots using preset defaults (no manual model selection)
       if (res.data?.providers) {
+        console.log('[handleQuickSetup] POST response has providers, starting autoAssignSlots')
         await autoAssignSlots(currentPreset.default_slots, res.data.providers)
+      } else {
+        console.warn('[handleQuickSetup] POST response missing providers:', JSON.stringify(res).slice(0, 300))
       }
       await refreshConfig()
       setStep('summary')

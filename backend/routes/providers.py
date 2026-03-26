@@ -188,6 +188,7 @@ async def update_provider_models(provider_id: str, req: UpdateModelsRequest):
 @router.put("/slots/{slot_name}")
 async def set_slot(slot_name: str, req: SetSlotRequest):
     """Assign a provider + model to a slot."""
+    logger.info(f"[set_slot] {slot_name} <- provider={req.provider_id}, model={req.model}")
     try:
         config = _get_or_empty_config()
         config = provider_registry.set_slot(config, slot_name, req.provider_id, req.model)
