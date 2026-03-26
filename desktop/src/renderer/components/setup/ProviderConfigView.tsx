@@ -79,10 +79,27 @@ async function apiFetch<T = any>(path: string, init?: RequestInit, retries = 3):
       console.log(`[apiFetch] ${init?.method || 'GET'} ${url} (attempt ${i + 1}/${retries + 1})`)
       const res = await fetch(url, init)
       const text = await res.text()
-      console.log(`[apiFetch] Response: ${res.status} ${res.statusText}, body: ${text.slice(0, 200)}`)
+      console.log(`[apiFetch] ${res.status} ${res.statusText} | ${text.slice(0, 300)}`)
+
+      if (!res.ok) {
+        // Server returned an error — try to parse JSON detail, otherwise show raw text
+        let detail: string
+        try {
+          const json = JSON.parse(text)
+          detail = json.detail || json.error || JSON.stringify(json)
+        } catch {
+          detail = text.slice(0, 200)
+        }
+        throw new Error(`Server error ${res.status}: ${detail}`)
+      }
+
       return JSON.parse(text) as T
     } catch (err) {
       console.error(`[apiFetch] Attempt ${i + 1} failed:`, err instanceof Error ? err.message : err)
+      // Don't retry on 4xx/5xx server errors (only retry on network failures)
+      if (err instanceof Error && err.message.startsWith('Server error')) {
+        throw err
+      }
       if (i < retries) {
         await new Promise((r) => setTimeout(r, (i + 1) * 1000))
         continue
