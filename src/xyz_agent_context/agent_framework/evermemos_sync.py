@@ -23,7 +23,6 @@ from typing import Optional
 from loguru import logger
 
 from xyz_agent_context.schema.provider_schema import LLMConfig
-from xyz_agent_context.agent_framework.model_catalog import get_embedding_dimensions
 
 
 # =============================================================================
@@ -147,10 +146,11 @@ def sync_evermemos_from_config(config: LLMConfig) -> bool:
             env_data["VECTORIZE_BASE_URL"] = provider.base_url or ""
             env_data["VECTORIZE_API_KEY"] = provider.api_key or ""
 
-            # Look up dimensions from catalog; 0 = use model's full dimensions
-            dims = get_embedding_dimensions(emb_slot.model)
-            if dims is not None:
-                env_data["VECTORIZE_DIMENSIONS"] = str(dims)
+            # Always truncate to 1024 dimensions for Milvus schema stability.
+            # This ensures switching embedding models (1536d, 3072d, 4096d, etc.)
+            # won't cause a Milvus SchemaNotReadyException — the collection
+            # always stores 1024d vectors regardless of the upstream model.
+            env_data["VECTORIZE_DIMENSIONS"] = "1024"
 
             # Disable fallback — we rely on the primary provider
             env_data["VECTORIZE_FALLBACK_PROVIDER"] = "none"
