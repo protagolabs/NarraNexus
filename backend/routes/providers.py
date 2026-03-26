@@ -128,6 +128,7 @@ async def add_provider(req: AddProviderRequest):
     - "openai": user-configured openai-protocol provider. Can have multiple.
     """
     try:
+        logger.info(f"[add_provider] card_type={req.card_type}, name={req.name}")
         config, new_ids = provider_registry.add_provider(
             card_type=req.card_type,
             name=req.name,
@@ -136,13 +137,18 @@ async def add_provider(req: AddProviderRequest):
             auth_type=req.auth_type,
             models=req.models if req.models else None,
         )
+        logger.info(f"[add_provider] Success: created {new_ids}")
         return {
             "success": True,
             "provider_ids": new_ids,
             "data": _config_to_response(config),
         }
     except ValueError as e:
+        logger.warning(f"[add_provider] ValueError: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[add_provider] Unexpected error: {e}", exc_info=True)
+        return {"success": False, "detail": str(e)}
 
 
 @router.delete("/{provider_id}")
