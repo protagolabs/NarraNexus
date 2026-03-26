@@ -693,11 +693,8 @@ class NarrativeRetrieval:
                     f"episode_contents count={len(result.episode_contents)}"
                 )
                 if result.episode_summaries or result.episode_contents:
-                    # Merge summaries, separated by newlines, max 500 characters
                     if result.episode_summaries:
                         matched_content = "\n".join(result.episode_summaries)
-                        if len(matched_content) > 500:
-                            matched_content = matched_content[:500] + "..."
 
                     # Phase 2 & 4: Cache to evermemos_memories for MemoryModule use
                     evermemos_memories[result.narrative_id] = {
@@ -712,12 +709,12 @@ class NarrativeRetrieval:
                 candidate_name = (
                     narrative.narrative_info.name
                     if narrative.narrative_info and narrative.narrative_info.name
-                    else (narrative.topic_hint[:50] if narrative.topic_hint else "Untitled")
+                    else (narrative.topic_hint or "Untitled")
                 )
                 candidate_desc = (
-                    narrative.narrative_info.current_summary[:300]
+                    narrative.narrative_info.current_summary
                     if narrative.narrative_info and narrative.narrative_info.current_summary
-                    else (narrative.topic_hint[:100] if narrative.topic_hint else "")
+                    else (narrative.topic_hint or "")
                 )
 
                 search_candidates.append({
@@ -759,9 +756,17 @@ class NarrativeRetrieval:
             for narrative in participant_narratives:
                 participant_candidates.append({
                     "id": narrative.id,
-                    "type": "participant",  # P0-4: Changed to "participant"
-                    "name": narrative.topic_hint[:50] if narrative.topic_hint else "Untitled",
-                    "description": narrative.topic_hint[:100] if narrative.topic_hint else "",
+                    "type": "participant",
+                    "name": (
+                        narrative.narrative_info.name
+                        if narrative.narrative_info and narrative.narrative_info.name
+                        else (narrative.topic_hint or "Untitled")
+                    ),
+                    "description": (
+                        narrative.narrative_info.current_summary
+                        if narrative.narrative_info and narrative.narrative_info.current_summary
+                        else (narrative.topic_hint or "")
+                    ),
                 })
             logger.info(f"P0-4: Added {len(participant_candidates)} PARTICIPANT candidates to LLM judgment")
 
@@ -869,8 +874,16 @@ class NarrativeRetrieval:
             if narrative:
                 candidates.append({
                     "id": narrative.id,
-                    "name": narrative.topic_hint[:30] if narrative.topic_hint else "Untitled",
-                    "query": narrative.topic_hint[:50] if narrative.topic_hint else "",
+                    "name": (
+                        narrative.narrative_info.name
+                        if narrative.narrative_info and narrative.narrative_info.name
+                        else (narrative.topic_hint or "Untitled")
+                    ),
+                    "query": (
+                        narrative.narrative_info.current_summary
+                        if narrative.narrative_info and narrative.narrative_info.current_summary
+                        else (narrative.topic_hint or "")
+                    ),
                 })
         return candidates
 

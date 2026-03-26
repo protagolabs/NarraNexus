@@ -159,9 +159,10 @@ class NarrativeConfig:
     EMBEDDING_SUMMARY_EVENT_COUNT = 5
 
     # Summary maximum length
-    # Description: Maximum character count for topic_hint
-    # Recommended: 200
-    SUMMARY_MAX_LENGTH = 200
+    # Description: Maximum character count for topic_hint (used for embedding generation)
+    # Increased from 200 to 800 to capture more of the narrative's semantic content.
+    # Summary compaction (to bound current_summary growth) is a separate concern — TODO.
+    SUMMARY_MAX_LENGTH = 800
 
     # ==================== Embedding Service Configuration (Shared by Narrative & Event) ====================
     #
