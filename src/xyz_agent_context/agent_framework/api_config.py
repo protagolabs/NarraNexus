@@ -235,7 +235,8 @@ class _ConfigHolder:
         self._loaded = True
 
         # Log provider summary so it's clear which providers/models are active
-        _mask = lambda k: f"***{k[-4:]}" if k and len(k) > 4 else "(empty)"
+        def _mask(k: str) -> str:
+            return f"***{k[-4:]}" if k and len(k) > 4 else "(empty)"
         logger.info(
             f"LLM configs (re)loaded:\n"
             f"  Agent:      model={self._claude.model or '(default)'}, "
