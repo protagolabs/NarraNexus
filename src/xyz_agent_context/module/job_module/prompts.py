@@ -17,7 +17,7 @@
 # - {execution_user_id}: Execution identity user_id
 # - {user_id}: Task creator user_id, from job.user_id
 # ============================================================================
-JOB_TASK_INFO_TEMPLATE = """## Task Information
+JOB_TASK_INFO_TEMPLATE = """#### Task Information
 - **Title**: {title}
 - **Description**: {description}
 - **Created at**: {created_str}
@@ -33,7 +33,7 @@ JOB_TASK_INFO_TEMPLATE = """## Task Information
 # - {entity_lines}: Formatted entity info lines, dynamically built by _build_execution_prompt()
 # ============================================================================
 JOB_ENTITIES_SECTION_TEMPLATE = """
-## Related People/Entities
+#### Related People/Entities
 
 {entity_lines}
 """
@@ -46,7 +46,7 @@ JOB_ENTITIES_SECTION_TEMPLATE = """
 # - {narrative_summary}: Narrative summary
 # ============================================================================
 JOB_PROGRESS_SECTION_TEMPLATE = """
-## Current Progress
+#### Current Progress
 
 {narrative_summary}
 """
@@ -59,7 +59,7 @@ JOB_PROGRESS_SECTION_TEMPLATE = """
 # - {dep_parts}: Formatted dependency task outputs, dynamically built by _build_execution_prompt()
 # ============================================================================
 JOB_DEPENDENCIES_SECTION_TEMPLATE = """
-## Prerequisite Task Results
+#### Prerequisite Task Results
 
 The following are the execution results of prerequisite tasks this task depends on. Please refer to this information when executing this task:
 
@@ -86,15 +86,15 @@ JOB_EXECUTION_PROMPT_TEMPLATE = """You are executing a background scheduled task
 {entities_section}
 {narrative_section}
 {dependency_section}
-## Execution Instructions
+#### Execution Instructions
 {payload}
 
-## Execution Context
+#### Execution Context
 - **Target entity**: {related_entity_id}
 - Your Narrative, memory, and chat history are loaded for this entity
 - When you call `send_message_to_user_directly`, the message will appear in the chat history with this entity — the owner will see it when they open this conversation
 
-## Important Requirements
+#### Important Requirements
 1. Complete all steps required for the task (search, analyze, organize, etc.)
 2. **After completing the task, you MUST use `send_message_to_user_directly` to send the final report to the user**
 3. The content sent should be the final report — do not include your thinking process
