@@ -69,6 +69,10 @@ tmux_send_with_retry poller "bash start/poller.sh"
 tmux new-window -t $SESSION -n mcp -c "$DIR"
 tmux_send_with_retry mcp "bash start/mcp.sh"
 
+# Window 6: Telegram Trigger
+tmux new-window -t $SESSION -n telegram -c "$DIR"
+tmux_send_with_retry telegram "bash start/telegram-trigger.sh"
+
 # Switch to control window and attach
 tmux select-window -t $SESSION:control
 tmux attach -t $SESSION

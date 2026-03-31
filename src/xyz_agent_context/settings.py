@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     # ===== Auth =====
     admin_secret_key: str = ""
 
+    # ===== Telegram =====
+    telegram_bot_token: str = ""
+    telegram_allowed_user_ids: str = ""  # Comma-separated Telegram user IDs
+
     # ===== Speed Optimization =====
     # When True, skip the LLM instance decision call in Step 2 and always load
     # all capability modules directly.  This saves ~2.5-3s per turn since the

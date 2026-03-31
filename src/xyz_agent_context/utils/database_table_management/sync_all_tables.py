@@ -52,6 +52,7 @@ try:
     from xyz_agent_context.utils.database_table_management.create_instance_awareness_table import InstanceAwarenessTableManager
     from xyz_agent_context.utils.database_table_management.create_instance_event_memory_table import InstanceModuleReportMemoryTableManager, InstanceJsonFormatMemoryTableManager
     from xyz_agent_context.utils.database_table_management.create_matrix_table import MatrixCredentialsTableManager
+    from xyz_agent_context.utils.database_table_management.create_telegram_credentials_table import TelegramCredentialsTableManager
     from xyz_agent_context.utils.db_factory import get_db_client
 except ImportError:
     project_root = Path(__file__).resolve().parents[4]
@@ -72,6 +73,7 @@ except ImportError:
     from xyz_agent_context.utils.database_table_management.create_instance_awareness_table import InstanceAwarenessTableManager
     from xyz_agent_context.utils.database_table_management.create_instance_event_memory_table import InstanceModuleReportMemoryTableManager, InstanceJsonFormatMemoryTableManager
     from xyz_agent_context.utils.database_table_management.create_matrix_table import MatrixCredentialsTableManager
+    from xyz_agent_context.utils.database_table_management.create_telegram_credentials_table import TelegramCredentialsTableManager
     from xyz_agent_context.utils.db_factory import get_db_client
 
 
@@ -97,6 +99,8 @@ TABLE_MANAGERS = {
     "instance_json_format_memory": InstanceJsonFormatMemoryTableManager,
     # Matrix tables
     "matrix_credentials": MatrixCredentialsTableManager,
+    # Telegram tables
+    "telegram_credentials": TelegramCredentialsTableManager,
 }
 
 

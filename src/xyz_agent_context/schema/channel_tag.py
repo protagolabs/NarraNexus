@@ -142,3 +142,19 @@ class ChannelTag:
             room_id=room_id,
             room_name=room_name,
         )
+
+    @staticmethod
+    def telegram(
+        sender_name: str,
+        sender_id: str,
+        chat_id: str = "",
+        chat_title: str = "",
+    ) -> ChannelTag:
+        """Create a ChannelTag for Telegram message."""
+        return ChannelTag(
+            channel="telegram",
+            sender_name=sender_name,
+            sender_id=sender_id,
+            room_id=chat_id,
+            room_name=chat_title,
+        )

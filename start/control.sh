@@ -113,7 +113,7 @@ show_dashboard() {
 
     # ── Application services status ──
     echo -e "  ${BOLD}  Application Services${RESET}"
-    local app_items=("Frontend:5173" "FastAPI:8000" "MCP:7801" "NexusMatrix:8953" "JobTrigger:-" "MatrixTrig:-" "Poller:-")
+    local app_items=("Frontend:5173" "FastAPI:8000" "MCP:7801" "NexusMatrix:8953" "JobTrigger:-" "MatrixTrig:-" "TelegramTrig:-" "Poller:-")
     printf "    "
     for item in "${app_items[@]}"; do
         local name="${item%%:*}"
@@ -156,6 +156,7 @@ do_stop_all() {
         "node.*vite"                 # Vite node process
         "nexus_matrix.main"          # NexusMatrix Server (port 8953)
         "matrix_trigger"             # MatrixTrigger (message polling)
+        "telegram_trigger"           # TelegramTrigger (message polling)
     )
     for pat in "${patterns[@]}"; do
         pkill -f "$pat" 2>/dev/null

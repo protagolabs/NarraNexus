@@ -62,12 +62,18 @@ class ModuleLoader:
         "JobModule",
         "GeminiRAGModule",
         "MatrixModule",
+        "TelegramModule",
     ]
 
     # Always-loaded modules (no Instance record needed, loaded directly)
     # These modules are independent of the database Instance mechanism and are always auto-loaded
+    # Always-loaded: these modules need no DB instance record.
+    # TelegramModule is always-loaded (unlike MatrixModule) because it needs to
+    # present the telegram_register tool even before any credential exists.
+    # MatrixModule relies on DB instance records created during the LLM decision flow.
     ALWAYS_LOAD_MODULES = [
         "SkillModule",
+        "TelegramModule",
     ]
 
     def __init__(

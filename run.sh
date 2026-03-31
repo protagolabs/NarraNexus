@@ -2544,6 +2544,12 @@ do_run() {
     tmux new-window -t "$TMUX_SESSION" -n matrix-trigger -c "$PROJECT_ROOT"
     tmux send-keys -t "$TMUX_SESSION":matrix-trigger "bash start/matrix-trigger.sh" C-m
     info "Matrix Trigger    → tmux window 7 [matrix-trigger]"
+    sleep 0.5
+
+    # Window 8: TelegramTrigger (Telegram message polling)
+    tmux new-window -t "$TMUX_SESSION" -n telegram-trigger -c "$PROJECT_ROOT"
+    tmux send-keys -t "$TMUX_SESSION":telegram-trigger "bash start/telegram-trigger.sh" C-m
+    info "Telegram Trigger  → tmux window 8 [telegram-trigger]"
 
     tmux select-window -t "$TMUX_SESSION":control
 

@@ -52,8 +52,10 @@ try:
     from xyz_agent_context.utils.database_table_management.create_instance_awareness_table import InstanceAwarenessTableManager
     from xyz_agent_context.utils.database_table_management.create_instance_event_memory_table import InstanceModuleReportMemoryTableManager, InstanceJsonFormatMemoryTableManager
     from xyz_agent_context.utils.database_table_management.create_matrix_table import MatrixCredentialsTableManager
+    from xyz_agent_context.utils.database_table_management.create_telegram_credentials_table import TelegramCredentialsTableManager
     from xyz_agent_context.utils.database_table_management.create_cost_records_table import create_cost_records_table
     from xyz_agent_context.utils.database_table_management.create_matrix_processed_events_table import create_matrix_processed_events_table
+    from xyz_agent_context.utils.database_table_management.create_telegram_processed_updates_table import create_telegram_processed_updates_table
     from xyz_agent_context.utils.database_table_management.create_embeddings_store_table import create_embeddings_store_table
     from xyz_agent_context.utils.database_table_management.create_table_base import (
         create_table,
@@ -79,8 +81,10 @@ except ImportError:
     from xyz_agent_context.utils.database_table_management.create_instance_awareness_table import InstanceAwarenessTableManager
     from xyz_agent_context.utils.database_table_management.create_instance_event_memory_table import InstanceModuleReportMemoryTableManager, InstanceJsonFormatMemoryTableManager
     from xyz_agent_context.utils.database_table_management.create_matrix_table import MatrixCredentialsTableManager
+    from xyz_agent_context.utils.database_table_management.create_telegram_credentials_table import TelegramCredentialsTableManager
     from xyz_agent_context.utils.database_table_management.create_cost_records_table import create_cost_records_table
     from xyz_agent_context.utils.database_table_management.create_matrix_processed_events_table import create_matrix_processed_events_table
+    from xyz_agent_context.utils.database_table_management.create_telegram_processed_updates_table import create_telegram_processed_updates_table
     from xyz_agent_context.utils.database_table_management.create_embeddings_store_table import create_embeddings_store_table
     from xyz_agent_context.utils.database_table_management.create_table_base import (
         create_table,
@@ -214,6 +218,13 @@ TABLE_CONFIGS: Dict[str, Tuple[Type, List[Tuple[str, List[str], bool]]]] = {
             ("idx_next_poll_time", ["next_poll_time"], False),
         ]
     ),
+    # ===== Telegram Tables =====
+    "telegram_credentials": (
+        TelegramCredentialsTableManager,
+        [
+            ("idx_is_active", ["is_active"], False),
+        ]
+    ),
 }
 
 
@@ -302,6 +313,7 @@ async def create_all_tables(
     raw_sql_tables = {
         "cost_records": create_cost_records_table,
         "matrix_processed_events": create_matrix_processed_events_table,
+        "telegram_processed_updates": create_telegram_processed_updates_table,
         "embeddings_store": create_embeddings_store_table,
     }
     for raw_table_name, create_fn in raw_sql_tables.items():
