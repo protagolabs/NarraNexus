@@ -25,9 +25,9 @@ if [ ! -f "$PYTHON_DIR/bin/python3" ]; then
     # Detect architecture
     ARCH=$(uname -m)
     if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
-        PYTHON_URL="https://github.com/indygreg/python-build-standalone/releases/download/20240415/cpython-3.13.0-aarch64-apple-darwin-install_only_stripped.tar.gz"
+        PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260325/cpython-3.13.12%2B20260325-aarch64-apple-darwin-install_only.tar.gz"
     else
-        PYTHON_URL="https://github.com/indygreg/python-build-standalone/releases/download/20240415/cpython-3.13.0-x86_64-apple-darwin-install_only_stripped.tar.gz"
+        PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20260325/cpython-3.13.12%2B20260325-x86_64-apple-darwin-install_only.tar.gz"
     fi
 
     curl -L -o /tmp/python-standalone.tar.gz "$PYTHON_URL"

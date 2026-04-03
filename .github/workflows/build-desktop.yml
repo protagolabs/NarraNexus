@@ -43,7 +43,7 @@ jobs:
         run: |
           mkdir -p tauri/src-tauri/resources/python
           curl -L -o python.tar.gz \
-            "https://github.com/indygreg/python-build-standalone/releases/download/20240415/cpython-3.13.0-aarch64-apple-darwin-install_only_stripped.tar.gz"
+            "https://github.com/astral-sh/python-build-standalone/releases/download/20260325/cpython-3.13.12%2B20260325-aarch64-apple-darwin-install_only.tar.gz"
           tar xzf python.tar.gz -C tauri/src-tauri/resources/python --strip-components=1
           rm python.tar.gz
 
