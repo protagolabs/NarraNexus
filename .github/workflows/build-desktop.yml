@@ -61,21 +61,24 @@ jobs:
             --exclude='.claude' --exclude='.codex' \
             . tauri/src-tauri/resources/project/
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build Tauri app (unsigned)
+        run: cd tauri && cargo tauri build -- --no-default-features
+        env:
+          CI: true
+
+      - name: Upload DMG to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            tauri/src-tauri/target/release/bundle/dmg/*.dmg
+            tauri/src-tauri/target/release/bundle/macos/*.app.tar.gz
+          tag_name: ${{ github.ref_name }}
+          name: 'NarraNexus ${{ github.ref_name }}'
+          body: 'Unsigned development build. On macOS, right-click the app → Open to bypass Gatekeeper.'
+          draft: true
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Apple signing (optional — unsigned build if secrets not configured)
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        with:
-          projectPath: tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: 'NarraNexus ${{ github.ref_name }}'
-          releaseBody: 'Unsigned development build. On macOS, right-click → Open to bypass Gatekeeper.'
-          releaseDraft: true
-          prerelease: true
