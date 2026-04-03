@@ -46,8 +46,10 @@ status() {
 
 stop_all() {
   echo -e "${Y}Stopping NarraNexus services...${R}"
+  # Kill tmux session if running
+  tmux kill-session -t nexus-dev 2>/dev/null || true
   # Kill processes on known ports
-  for port in 8000 5173 7801 7802 7803 7804 7805; do
+  for port in 8000 5173 5174 7801 7802 7803 7804 7805; do
     lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
   done
   # Kill known process patterns
