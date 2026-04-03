@@ -6,11 +6,15 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useTheme, useTimezoneSync } from '@/hooks';
-import { useConfigStore } from '@/stores';
+import { useConfigStore, useRuntimeStore } from '@/stores';
 import { api } from '@/lib/api';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
+const ModeSelectPage = lazy(() => import('@/pages/ModeSelectPage'));
+const SetupPage = lazy(() => import('@/pages/SetupPage'));
+const SystemPage = lazy(() => import('@/pages/SystemPage'));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -52,6 +56,23 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Redirect root based on runtime state */
+function RootRedirect() {
+  const { isLoggedIn } = useConfigStore();
+  const { mode, initialized } = useRuntimeStore();
+
+  if (!initialized && !mode) {
+    return <Navigate to="/mode-select" replace />;
+  }
+  if (!initialized && mode === 'local') {
+    return <Navigate to="/setup" replace />;
+  }
+  if (!isLoggedIn) {
+    return <Navigate to="/login" replace />;
+  }
+  return <Navigate to="/app/chat" replace />;
+}
+
 function App() {
   const { effectiveTheme } = useTheme();
   useTimezoneSync();
@@ -63,14 +84,27 @@ function App() {
   return (
     <Suspense fallback={<PageFallback />}>
       <Routes>
+        {/* Public routes */}
+        <Route path="/mode-select" element={<ModeSelectPage />} />
+        <Route path="/setup" element={<SetupPage />} />
         <Route
           path="/login"
           element={<PublicRoute><LoginPage /></PublicRoute>}
         />
+
+        {/* Protected app routes */}
         <Route
-          path="/"
+          path="/app"
           element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
-        />
+        >
+          <Route index element={<Navigate to="chat" replace />} />
+          <Route path="chat" element={null} />
+          <Route path="system" element={<SystemPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+
+        {/* Root redirect + catch-all */}
+        <Route path="/" element={<RootRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

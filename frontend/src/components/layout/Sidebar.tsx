@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   User,
   LogOut,
@@ -12,9 +12,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  Sliders,
+  Server,
 } from 'lucide-react';
 import { Button, ThemeToggle } from '@/components/ui';
-import { useConfigStore, useChatStore } from '@/stores';
+import { useConfigStore, useChatStore, useRuntimeStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { AgentList } from './AgentList';
@@ -22,9 +24,11 @@ import { AgentList } from './AgentList';
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { userId, agentId, logout } = useConfigStore();
   const { clearAll } = useChatStore();
+  const { features } = useRuntimeStore();
 
   const handleLogout = () => {
     if (confirm('Are you sure you want to logout?')) {
@@ -121,6 +125,71 @@ export function Sidebar() {
       {/* Agents List */}
       <div className="flex-1 overflow-y-auto">
         <AgentList collapsed={collapsed} />
+      </div>
+
+      {/* Navigation Items */}
+      <div className="px-3 py-2 border-t border-[var(--border-subtle)] space-y-1">
+        {!collapsed ? (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/app/settings')}
+              className={cn(
+                'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                location.pathname === '/app/settings' &&
+                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+              )}
+            >
+              <Sliders className="w-4 h-4" />
+              Settings
+            </Button>
+            {features.showSystemPage && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/app/system')}
+                className={cn(
+                  'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                  location.pathname === '/app/system' &&
+                    'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                )}
+              >
+                <Server className="w-4 h-4" />
+                System
+              </Button>
+            )}
+          </>
+        ) : (
+          <div className="flex flex-col items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/app/settings')}
+              title="Settings"
+              className={cn(
+                location.pathname === '/app/settings' &&
+                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+              )}
+            >
+              <Sliders className="w-4 h-4" />
+            </Button>
+            {features.showSystemPage && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate('/app/system')}
+                title="System"
+                className={cn(
+                  location.pathname === '/app/system' &&
+                    'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                )}
+              >
+                <Server className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Footer Actions */}
