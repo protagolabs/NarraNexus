@@ -103,7 +103,7 @@ DEFAULT_MCP_MODULES = [
     "JobModule",            # port: 7803
     "GeminiRAGModule",      # port: 7805
     "SkillModule",          # port: 7806
-    # "MatrixModule",       # Disabled — replaced by MessageBusModule
+    "MessageBusModule",     # port: 7820
 ]
 
 # Port reference (for documentation only - actual ports are set in each module)
@@ -114,7 +114,7 @@ MODULE_PORTS = {
     "JobModule": 7803,
     "GeminiRAGModule": 7805,
     "SkillModule": 7806,
-    # "MatrixModule": 7810,  # Disabled
+    "MessageBusModule": 7820,
 }
 
 

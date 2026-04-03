@@ -124,6 +124,9 @@ class InstanceFactory:
         if bus_instance:
             instances.append(bus_instance)
 
+        # 6. Auto-register agent in MessageBus registry
+        await self._register_agent_in_bus(agent_id)
+
         logger.info(f"Created {len(instances)} agent-level instances")
         return instances
 
@@ -299,6 +302,36 @@ class InstanceFactory:
         await self._instance_repo.create_instance(instance)
         logger.info(f"Created MessageBusModule instance: {instance.instance_id}")
         return instance
+
+    async def _register_agent_in_bus(self, agent_id: str) -> None:
+        """Register agent in MessageBus agent registry for discovery by other agents."""
+        try:
+            # Get agent info
+            agent_row = await self._db.get_one("agents", {"agent_id": agent_id})
+            if not agent_row:
+                return
+
+            owner = agent_row.get("created_by", "")
+            name = agent_row.get("agent_name", "")
+            desc = agent_row.get("agent_description", "")
+            is_public = agent_row.get("is_public", 0)
+
+            # Upsert into bus_agent_registry
+            import json
+            from datetime import datetime, timezone as dt_tz
+            now = datetime.now(dt_tz.utc).isoformat()
+            await self._db.upsert("bus_agent_registry", {
+                "agent_id": agent_id,
+                "owner_user_id": owner,
+                "capabilities": json.dumps([]),
+                "description": f"{name}: {desc}" if desc else name,
+                "visibility": "public" if is_public else "private",
+                "registered_at": now,
+                "last_seen_at": now,
+            }, "agent_id")
+            logger.info(f"Registered agent {agent_id} ({name}) in MessageBus registry")
+        except Exception as e:
+            logger.warning(f"Failed to register agent {agent_id} in MessageBus: {e}")
 
     async def get_agent_level_instances(self, agent_id: str) -> List[ModuleInstanceRecord]:
         """
