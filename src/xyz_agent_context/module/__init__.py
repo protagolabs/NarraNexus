@@ -40,7 +40,8 @@ from xyz_agent_context.module.job_module.job_module import JobModule
 from xyz_agent_context.module.gemini_rag_module.gemini_rag_module import GeminiRAGModule
 from xyz_agent_context.module.skill_module.skill_module import SkillModule
 from xyz_agent_context.module.memory_module.memory_module import MemoryModule
-from xyz_agent_context.module.matrix_module.matrix_module import MatrixModule
+# MatrixModule kept in codebase but disabled — replaced by MessageBusModule
+# from xyz_agent_context.module.matrix_module.matrix_module import MatrixModule
 from xyz_agent_context.module.message_bus_module.message_bus_module import MessageBusModule
 
 # Module mapping table
@@ -53,7 +54,7 @@ MODULE_MAP = {
     "JobModule": JobModule,
     "GeminiRAGModule": GeminiRAGModule,
     "SkillModule": SkillModule,
-    "MatrixModule": MatrixModule,
+    # "MatrixModule": MatrixModule,  # Disabled — replaced by MessageBusModule
     "MessageBusModule": MessageBusModule,
 }
 
@@ -102,7 +103,7 @@ __all__ = [
     "JobModule",
     "GeminiRAGModule",
     "SkillModule",
-    "MatrixModule",
+    # "MatrixModule",  # Disabled
     "MessageBusModule",
 
     # ===== Module mapping =====

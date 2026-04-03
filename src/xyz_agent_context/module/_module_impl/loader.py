@@ -61,7 +61,8 @@ class ModuleLoader:
         "SocialNetworkModule",
         "JobModule",
         "GeminiRAGModule",
-        "MatrixModule",
+        # "MatrixModule",  # Disabled — replaced by MessageBusModule
+        "MessageBusModule",
     ]
 
     # Always-loaded modules (no Instance record needed, loaded directly)

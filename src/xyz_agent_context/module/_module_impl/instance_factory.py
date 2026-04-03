@@ -119,10 +119,10 @@ class InstanceFactory:
         if rag_instance:
             instances.append(rag_instance)
 
-        # 5. Create MatrixModule instance
-        matrix_instance = await self._create_matrix_instance(agent_id)
-        if matrix_instance:
-            instances.append(matrix_instance)
+        # 5. Create MessageBusModule instance (replaces MatrixModule)
+        bus_instance = await self._create_message_bus_instance(agent_id)
+        if bus_instance:
+            instances.append(bus_instance)
 
         logger.info(f"Created {len(instances)} agent-level instances")
         return instances
@@ -270,6 +270,34 @@ class InstanceFactory:
 
         await self._instance_repo.create_instance(instance)
         logger.info(f"Created MatrixModule instance: {instance.instance_id}")
+        return instance
+
+    async def _create_message_bus_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
+        """Create MessageBusModule Instance"""
+        existing = await self._instance_repo.get_by_agent(
+            agent_id=agent_id,
+            module_class="MessageBusModule",
+            is_public=True
+        )
+        if existing:
+            logger.debug(f"MessageBusModule instance already exists for agent {agent_id}")
+            return existing[0]
+
+        instance = ModuleInstanceRecord(
+            instance_id=generate_instance_id("bus"),
+            module_class="MessageBusModule",
+            agent_id=agent_id,
+            user_id=None,
+            is_public=True,
+            status=InstanceStatus.ACTIVE,
+            description="Agent-to-agent communication via message bus",
+            keywords=["message_bus", "communication", "messaging", "agent"],
+            topic_hint="Inter-agent messaging via message bus",
+            created_at=utc_now(),
+        )
+
+        await self._instance_repo.create_instance(instance)
+        logger.info(f"Created MessageBusModule instance: {instance.instance_id}")
         return instance
 
     async def get_agent_level_instances(self, agent_id: str) -> List[ModuleInstanceRecord]:
@@ -468,7 +496,8 @@ class InstanceFactory:
             "SocialNetworkModule": self._create_social_network_instance,
             "BasicInfoModule": self._create_basic_info_instance,
             "GeminiRAGModule": self._create_rag_instance,
-            "MatrixModule": self._create_matrix_instance,
+            # "MatrixModule": self._create_matrix_instance,  # Disabled
+            "MessageBusModule": self._create_message_bus_instance,
         }
         for module_class, creator_fn in creators.items():
             if module_class not in existing_classes:
