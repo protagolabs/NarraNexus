@@ -3,7 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-RESOURCES_DIR="$PROJECT_ROOT/tauri/src-tauri/resources"
+TAURI_DIR="$PROJECT_ROOT/tauri"
+SRC_TAURI="$TAURI_DIR/src-tauri"
+RESOURCES_DIR="$SRC_TAURI/resources"
 PYTHON_DIR="$RESOURCES_DIR/python"
 PROJ_DIR="$RESOURCES_DIR/project"
 
@@ -16,11 +18,9 @@ echo "--- Step 0: Cleaning previous build ---"
 rm -rf "$PYTHON_DIR"
 rm -rf "$PROJ_DIR"
 rm -rf "$RESOURCES_DIR/venv"
-rm -rf "$PROJECT_ROOT/tauri/src-tauri/target"
+rm -rf "$SRC_TAURI/target"
 mkdir -p "$PYTHON_DIR"
 mkdir -p "$PROJ_DIR"
-# Keep .gitkeep so the resources glob always matches
-touch "$RESOURCES_DIR/.gitkeep"
 echo "Clean done"
 
 # Step 1: Build frontend
@@ -29,7 +29,7 @@ echo "--- Step 1: Building frontend ---"
 cd "$PROJECT_ROOT/frontend"
 npm ci
 npm run build
-echo "Frontend build complete: frontend/dist/"
+echo "Frontend build complete"
 
 # Step 2: Download standalone Python
 echo ""
@@ -46,7 +46,7 @@ tar xzf /tmp/python-standalone.tar.gz -C "$PYTHON_DIR" --strip-components=1
 rm /tmp/python-standalone.tar.gz
 echo "Python downloaded: $("$PYTHON_DIR/bin/python3" --version)"
 
-# Step 3: Install Python dependencies (directly into standalone Python, no venv)
+# Step 3: Install Python dependencies directly into standalone Python
 echo ""
 echo "--- Step 3: Installing Python dependencies ---"
 "$PYTHON_DIR/bin/python3" -m pip install --no-cache-dir -e "$PROJECT_ROOT" 2>&1 | tail -5
@@ -62,24 +62,60 @@ rsync -a \
     --exclude='desktop' --exclude='tauri' --exclude='__pycache__' \
     --exclude='*.pyc' --exclude='.env' --exclude='logs' \
     --exclude='.claude' --exclude='.codex' --exclude='.worktrees' \
+    --exclude='.evermemos' --exclude='related_project' \
     "$PROJECT_ROOT/" "$PROJ_DIR/"
 echo "Project source copied"
 
-# Step 5: Clean extended attributes (macOS)
+# Step 5: Clean ALL extended attributes in tauri dir (macOS resource fork issue)
 echo ""
 echo "--- Step 5: Cleaning extended attributes ---"
-xattr -cr "$PROJECT_ROOT/tauri/" 2>/dev/null || true
+find "$TAURI_DIR" -type f -exec xattr -c {} \; 2>/dev/null || true
 echo "xattr cleaned"
 
-# Step 6: Build Tauri
+# Step 6: Build Tauri (compile only, no bundle yet)
 echo ""
-echo "--- Step 6: Building Tauri app ---"
-cd "$PROJECT_ROOT/tauri"
-APPLE_SIGNING_IDENTITY='-' cargo tauri build
+echo "--- Step 6: Compiling Tauri app ---"
+cd "$TAURI_DIR"
+export APPLE_SIGNING_IDENTITY='-'
+cargo build --release --manifest-path src-tauri/Cargo.toml
+echo "Rust compilation done"
+
+# Step 7: Clean xattr on compiled binary, then bundle
+echo ""
+echo "--- Step 7: Bundling app ---"
+find "$SRC_TAURI/target/release" -type f -exec xattr -c {} \; 2>/dev/null || true
+cargo tauri build 2>&1 || {
+    # If bundling fails due to codesign, try manual bundle
+    echo ""
+    echo "--- Bundling failed, trying manual approach ---"
+    APP_DIR="$SRC_TAURI/target/release/bundle/macos/NarraNexus.app"
+    if [ -d "$APP_DIR" ]; then
+        find "$APP_DIR" -type f -exec xattr -c {} \; 2>/dev/null || true
+        codesign --force --deep --sign - "$APP_DIR" 2>/dev/null || true
+        echo "Manual signing done"
+    fi
+}
 
 echo ""
 echo "=== Build complete ==="
 echo ""
-echo "Output:"
-ls -lh "$PROJECT_ROOT/tauri/src-tauri/target/release/bundle/dmg/"*.dmg 2>/dev/null || echo "  DMG: not found (check bundle/macos/ for .app)"
-ls -lh "$PROJECT_ROOT/tauri/src-tauri/target/release/bundle/macos/"*.app 2>/dev/null || true
+
+# Show output
+DMG=$(find "$SRC_TAURI/target/release/bundle/dmg/" -name "*.dmg" 2>/dev/null | head -1)
+APP=$(find "$SRC_TAURI/target/release/bundle/macos/" -name "*.app" -maxdepth 1 2>/dev/null | head -1)
+
+if [ -n "$DMG" ]; then
+    echo "DMG: $DMG"
+    ls -lh "$DMG"
+elif [ -n "$APP" ]; then
+    echo "APP: $APP"
+    echo ""
+    echo "To open directly:"
+    echo "  open \"$APP\""
+    echo ""
+    echo "To create DMG manually:"
+    echo "  hdiutil create -volname NarraNexus -srcfolder \"$APP\" -ov NarraNexus.dmg"
+else
+    echo "Binary at: $SRC_TAURI/target/release/narranexus"
+    echo "Run directly: $SRC_TAURI/target/release/narranexus"
+fi
