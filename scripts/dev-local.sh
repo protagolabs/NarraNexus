@@ -53,70 +53,60 @@ CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"
 cat > "$CONTROL_SCRIPT" << 'CTRL'
 #!/usr/bin/env bash
 SESSION="nexus-dev"
-C="\033[36m"; G="\033[32m"; Y="\033[33m"; RED="\033[31m"; R="\033[0m"
+C="\033[36m"; G="\033[32m"; Y="\033[33m"; RED="\033[31m"; DIM="\033[2m"; R="\033[0m"
 
-check_port() {
-  if lsof -iTCP:"$1" -sTCP:LISTEN -P -n &>/dev/null 2>&1; then
-    echo -e "  ${G}●${R} $2 (port $1)"
+status_line() {
+  local label="$1" check="$2"
+  if eval "$check" 2>/dev/null; then
+    printf "  ${G}●${R} %-20s\n" "$label"
   else
-    echo -e "  ${RED}○${R} $2 (port $1)"
+    printf "  ${RED}○${R} %-20s\n" "$label"
   fi
 }
 
+# Draw static parts once
+clear
+echo ""
+echo -e "${C}  ╔═══════════════════════════════════════╗${R}"
+echo -e "${C}  ║       NarraNexus Control Panel        ║${R}"
+echo -e "${C}  ╚═══════════════════════════════════════╝${R}"
+echo ""
+echo -e "  ${Y}Service Status${R}          ${DIM}(updates every 3s)${R}"
+echo ""
+echo "                              "  # Backend
+echo "                              "  # Frontend
+echo "                              "  # MCP
+echo "                              "  # Poller
+echo "                              "  # Jobs
+echo ""
+echo -e "  ${Y}Navigation${R}"
+echo ""
+echo -e "  ${C}Ctrl+B N${R}  Next window       ${C}Ctrl+B 1-5${R}  Jump to service"
+echo -e "  ${C}Ctrl+B P${R}  Previous window   ${C}Ctrl+B D${R}    Detach"
+echo ""
+echo -e "  Press ${RED}q${R} to stop all services and exit"
+
+# Status lines start at row 8 (after header)
+STATUS_ROW=8
+
 while true; do
-  clear
-  echo ""
-  echo -e "${C}  ╔═══════════════════════════════════════╗${R}"
-  echo -e "${C}  ║       NarraNexus Control Panel        ║${R}"
-  echo -e "${C}  ╚═══════════════════════════════════════╝${R}"
-  echo ""
-  echo -e "  ${Y}Service Status${R}"
-  echo ""
-  check_port 8000 "Backend API"
-  check_port 5173 "Frontend   "
-  check_port 5174 "Frontend   "
+  # Move cursor to status area and overwrite
+  printf "\033[${STATUS_ROW};0H"
+  status_line "Backend API   :8000" "lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null"
+  status_line "Frontend      :5173" "lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null || lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null"
+  status_line "MCP Server"          "pgrep -f 'module_runner.py mcp' >/dev/null"
+  status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
+  status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
 
-  # Check non-port services by process
-  if pgrep -f "module_runner.py mcp" >/dev/null 2>&1; then
-    echo -e "  ${G}●${R} MCP Server"
-  else
-    echo -e "  ${RED}○${R} MCP Server"
-  fi
+  # Move cursor below the UI
+  printf "\033[20;0H"
 
-  if pgrep -f "module_poller" >/dev/null 2>&1; then
-    echo -e "  ${G}●${R} Module Poller"
-  else
-    echo -e "  ${RED}○${R} Module Poller"
-  fi
-
-  if pgrep -f "job_trigger" >/dev/null 2>&1; then
-    echo -e "  ${G}●${R} Job Trigger"
-  else
-    echo -e "  ${RED}○${R} Job Trigger"
-  fi
-
-  echo ""
-  echo -e "  ${Y}Windows${R}"
-  echo ""
-  echo -e "  ${C}Ctrl+B N${R}  Next window"
-  echo -e "  ${C}Ctrl+B P${R}  Previous window"
-  echo -e "  ${C}Ctrl+B 1${R}  Backend"
-  echo -e "  ${C}Ctrl+B 2${R}  MCP"
-  echo -e "  ${C}Ctrl+B 3${R}  Poller"
-  echo -e "  ${C}Ctrl+B 4${R}  Jobs"
-  echo -e "  ${C}Ctrl+B 5${R}  Frontend"
-  echo -e "  ${C}Ctrl+B D${R}  Detach (keep running)"
-  echo ""
-  echo -e "  Press ${RED}q${R} to stop all services and exit"
-  echo ""
-
-  # Wait for input with timeout (refresh every 3s)
   if read -t 3 -n 1 key 2>/dev/null; then
     if [ "$key" = "q" ] || [ "$key" = "Q" ]; then
-      echo ""
+      printf "\033[20;0H"
       echo -e "  ${Y}Stopping all services...${R}"
       tmux kill-session -t "$SESSION" 2>/dev/null
-      echo -e "  ${G}All services stopped.${R}"
+      echo -e "  ${G}Done.${R}"
       exit 0
     fi
   fi
