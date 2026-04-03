@@ -47,6 +47,60 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
+# URL-based Backend Detection
+# =============================================================================
+
+def detect_backend_type(url: str) -> str:
+    """
+    Detect the database backend type from a URL scheme.
+
+    Args:
+        url: Database URL (e.g., 'sqlite:///path/to/db', 'mysql://user:pass@host/db').
+
+    Returns:
+        'sqlite' or 'mysql'.
+
+    Raises:
+        ValueError: If the URL scheme is not recognized.
+    """
+    scheme = url.split("://", 1)[0].lower() if "://" in url else ""
+    if scheme == "sqlite":
+        return "sqlite"
+    if scheme in ("mysql", "mysql+mysqlconnector"):
+        return "mysql"
+    raise ValueError(
+        f"Unsupported database URL scheme '{scheme}'. "
+        "Use 'sqlite:///path' or 'mysql://user:pass@host/db'."
+    )
+
+
+def parse_sqlite_url(url: str) -> str:
+    """
+    Extract the file path from a sqlite:// URL.
+
+    Supports both sqlite:///absolute/path and sqlite:///relative/path.
+    A special case sqlite:///:memory: returns ':memory:'.
+
+    Args:
+        url: A sqlite:// URL.
+
+    Returns:
+        The database file path.
+
+    Raises:
+        ValueError: If the URL does not start with 'sqlite://'.
+    """
+    prefix = "sqlite://"
+    if not url.lower().startswith(prefix):
+        raise ValueError(f"Not a sqlite URL: {url}")
+    # Everything after 'sqlite://' is the path (including leading slash for absolute)
+    path = url[len(prefix):]
+    if not path:
+        raise ValueError("sqlite URL must include a path (e.g., sqlite:///path/to/db)")
+    return path
+
+
+# =============================================================================
 # Global State
 # =============================================================================
 
