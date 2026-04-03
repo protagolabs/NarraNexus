@@ -174,6 +174,30 @@ def _mysql_to_sqlite_sql(query: str) -> str:
     q = re.sub(r'\bUNSIGNED\b', '', q, flags=re.IGNORECASE)
     # Remove AUTO_INCREMENT (standalone, after we already handled BIGINT combo)
     q = re.sub(r'\bAUTO_INCREMENT\b', '', q, flags=re.IGNORECASE)
+    # MySQL UPSERT: INSERT ... VALUES (...) AS alias ON DUPLICATE KEY UPDATE alias.col = ...
+    # -> SQLite: INSERT ... VALUES (...) ON CONFLICT(id) DO UPDATE SET col = excluded.col
+    # This handles the MySQL 8.0.20+ upsert pattern used in EventMemoryModule
+    mysql_upsert = re.search(
+        r'INSERT\s+INTO\s+"?(\w+)"?\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)\s*AS\s+(\w+)\s+'
+        r'ON\s+DUPLICATE\s+KEY\s+UPDATE\s+(.*)',
+        q, flags=re.IGNORECASE | re.DOTALL
+    )
+    if mysql_upsert:
+        table = mysql_upsert.group(1)
+        cols = mysql_upsert.group(2)
+        vals = mysql_upsert.group(3)
+        alias = mysql_upsert.group(4)
+        update_clause = mysql_upsert.group(5).strip().rstrip(';')
+        # First column is typically the unique key
+        first_col = cols.split(',')[0].strip().strip('"').strip("'")
+        # Replace alias.col references with excluded."col"
+        update_clause = re.sub(
+            rf'{alias}\."?(\w+)"?',
+            r'excluded."\1"',
+            update_clause
+        )
+        q = f'INSERT INTO "{table}" ({cols}) VALUES ({vals}) ON CONFLICT("{first_col}") DO UPDATE SET {update_clause}'
+
     # NOW() -> datetime('now')
     q = re.sub(r'\bNOW\(\)', "datetime('now')", q, flags=re.IGNORECASE)
     # DATE_SUB(datetime('now'), INTERVAL ? DAY) -> datetime('now', '-' || ? || ' days')
