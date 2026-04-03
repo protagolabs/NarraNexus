@@ -39,7 +39,9 @@ class WebSocketManager {
     const agentName = options?.agentName;
     // In Tauri mode, connect directly to the backend on localhost:8000.
     // In browser mode, derive from the current page host.
-    const isTauri = typeof window !== 'undefined' && '__TAURI__' in window;
+    const w = window as any;
+    const isTauri = typeof window !== 'undefined' &&
+      ('__TAURI__' in w || '__TAURI_INTERNALS__' in w || window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost');
     const wsHost = isTauri ? 'localhost:8000' : window.location.host;
     const wsProtocol = isTauri ? 'ws:' : (window.location.protocol === 'https:' ? 'wss:' : 'ws:');
     const wsUrl = `${wsProtocol}//${wsHost}/ws/agent/run`;

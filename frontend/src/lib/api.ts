@@ -72,10 +72,21 @@ export const getBaseUrl = (): string => {
     // Ignore parse errors
   }
 
-  // Tauri app or local mode: backend on localhost:8000
-  if (typeof window !== 'undefined' && '__TAURI__' in window) {
-    return 'http://localhost:8000';
+  // Detect Tauri / non-dev environment:
+  // - window.__TAURI__ exists (Tauri injects this)
+  // - OR window.__TAURI_INTERNALS__ exists (Tauri 2 alternative)
+  // - OR protocol is tauri:// or http://tauri.localhost
+  // - OR we're NOT on localhost:5173 (meaning not Vite dev server)
+  if (typeof window !== 'undefined') {
+    const w = window as any;
+    const isTauri = '__TAURI__' in w || '__TAURI_INTERNALS__' in w;
+    const isTauriProtocol = window.location.protocol === 'tauri:' ||
+      window.location.hostname === 'tauri.localhost';
+    if (isTauri || isTauriProtocol) {
+      return 'http://localhost:8000';
+    }
   }
+
   return '';
 };
 
