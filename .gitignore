@@ -2,44 +2,21 @@
 # NarraNexus .gitignore
 # =============================================================================
 # Directory classification:
-#   Core:      backend/, src/, frontend/, desktop/, deploy/, scripts/, start/
-#   Runtime:   agent_workspace/, agent-workspace/, data/, logs/, sessions/
-#   Reference: reference/, related_project/, arena_debate/, docs/
-#   Generated: __pycache__/, node_modules/, dist/, build/, .eggs/
+#   Core:      backend/, src/, frontend/, tauri/, deploy/, scripts/
+#   Runtime:   logs/, sessions/
+#   Reference: reference/
+#   Generated: __pycache__/, node_modules/, dist/, build/
 # =============================================================================
 
 # ── Runtime data (never committed) ──────────────────────────────────────────
-/agent_workspace/
-/agent-workspace/
-/data/
 /logs/
 /logs_*/
 /sessions/
-/new_task/
-/deploy/synapse/data/
 
-# ── Reference & external projects (kept out of core) ───────────────────────
+# ── Reference & internal docs ─────────────────────────────────────────────
 /reference/
-/related_project/
-/arena_debate/
-
-# ── Plans & internal docs ──────────────────────────────────────────────────
-/plans/
-/docs_self/
 CLAUDE.md
 AGENT.md
-TeamWorkflow.md
-DESIGN_AGENT_COMMUNICATION.md
-MATRIX_MODULE_SUMMARY.md
-OPTIMIZATION_PLAN_CN.md
-PRODUCT_FEATURE_UI_ROADMAP.md
-SCENARIO_WALKTHROUGH.md
-
-# ── Experiment & benchmark data ────────────────────────────────────────────
-/drafts/
-/benchmark_test/gaia/
-experiment_scripts/test_data/
-cc_analysis_1.md
 
 # ── Python bytecode & cache ────────────────────────────────────────────────
 __pycache__/
@@ -48,28 +25,14 @@ __pycache__/
 *.so
 *.egg-info/
 *.egg
-.installed.cfg
-MANIFEST
 
 # ── Python packaging & build ───────────────────────────────────────────────
-.Python
 build/
 dist/
 develop-eggs/
-downloads/
-eggs/
 .eggs/
-/lib/
-/lib64/
-parts/
 sdist/
-var/
 wheels/
-share/python-wheels/
-.pdm-python
-.pdm-build/
-.pixi/
-__pypackages__/
 
 # ── Python virtual environments ────────────────────────────────────────────
 .env
@@ -77,38 +40,24 @@ __pypackages__/
 .venv/
 env/
 venv/
-ENV/
-env.bak/
-venv.bak/
 
 # ── Test & coverage ───────────────────────────────────────────────────────
 htmlcov/
-.tox/
-.nox/
 .coverage
 .coverage.*
-.cache/
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
 .pytest_cache/
-cover/
+.hypothesis/
 
 # ── Linter & type checker cache ───────────────────────────────────────────
 .mypy_cache/
-.dmypy.json
-dmypy.json
-.pyre/
-.pytype/
 .ruff_cache/
-cython_debug/
+.pytype/
 
 # ── Node / Frontend ───────────────────────────────────────────────────────
 node_modules/
 .next/
 *.tsbuildinfo
+.vite/
 
 # ── Logs & temp files ─────────────────────────────────────────────────────
 *.log
@@ -121,40 +70,14 @@ Thumbs.db
 # ── Editor / IDE ──────────────────────────────────────────────────────────
 **/.vscode/
 **/.idea/
-.ropeproject/
-.spyderproject
-.spyproject
 
 # ── AI tool state ─────────────────────────────────────────────────────────
-/.agents/
 /.claude/
 /.codex/
+/.codex
 /.gemini/
-/.opencode/
-/.specstory/
 /.cursor/
 /.evermemos/
-.cursorignore
-.cursorindexingignore
-.abstra/
-
-# ── Jupyter ───────────────────────────────────────────────────────────────
-.ipynb_checkpoints/
-profile_default/
-ipython_config.py
-
-# ── Misc generated ────────────────────────────────────────────────────────
-*.manifest
-*.spec
-*.mo
-*.pot
-*.sage.py
-.pypirc
-requirements/
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-.vite/
 
 # ── Tauri build artifacts ────────────────────────────────────────────────
 tauri/src-tauri/target/
@@ -162,3 +85,6 @@ tauri/src-tauri/resources/python/
 tauri/src-tauri/resources/venv/
 tauri/src-tauri/resources/project/
 tauri/src-tauri/gen/
+
+# ── Cloud deploy secrets ─────────────────────────────────────────────────
+deploy/.env.cloud
