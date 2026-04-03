@@ -31,9 +31,7 @@
       "icons/icon.png"
     ],
     "resources": [
-      "resources/python/**",
-      "resources/venv/**",
-      "resources/project/**"
+      "resources/**/*"
     ],
     "macOS": {
       "minimumSystemVersion": "12.0"
