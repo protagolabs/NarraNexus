@@ -293,7 +293,18 @@ class AsyncDatabaseClient:
             # or
             db = await AsyncDatabaseClient.create(pool_size=20)
         """
+        # Check if we should use SQLite backend instead of MySQL
         if db_config is None:
+            from xyz_agent_context.settings import settings
+            url = getattr(settings, 'database_url', None) or ''
+            if url.startswith('sqlite'):
+                from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+                from xyz_agent_context.utils.db_factory import parse_sqlite_url
+                db_path = parse_sqlite_url(url)
+                backend = SQLiteBackend(db_path)
+                await backend.initialize()
+                logger.info(f"AsyncDatabaseClient.create() auto-switched to SQLite: {db_path}")
+                return cls(_backend=backend)
             db_config = load_db_config()
 
         # Create aiomysql connection pool
