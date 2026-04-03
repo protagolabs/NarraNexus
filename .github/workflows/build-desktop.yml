@@ -65,6 +65,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Apple signing (optional — unsigned build if secrets not configured)
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -75,6 +76,6 @@ jobs:
           projectPath: tauri
           tagName: ${{ github.ref_name }}
           releaseName: 'NarraNexus ${{ github.ref_name }}'
-          releaseBody: 'See the release notes for details.'
+          releaseBody: 'Unsigned development build. On macOS, right-click → Open to bypass Gatekeeper.'
           releaseDraft: true
-          prerelease: false
+          prerelease: true
