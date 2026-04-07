@@ -250,85 +250,40 @@ class ChatModule(XYZBaseModule):
             ctx_data.chat_history = []
             return ctx_data
 
-        # ========== 1. Load long-term memory (Current Narrative's EverMemOS semantically relevant history) ==========
-        # 2026-02-09 optimization: Use EverMemOS episode_contents instead of full DB history
+        # ========== 1. Load long-term memory (always from ChatModule DB) ==========
+        # After EverMemOS decoupling: always load from DB. EverMemOS episodes are
+        # provided separately as "Relevant Memory" in the system prompt.
         long_term_messages = []
-        current_narrative_id = ctx_data.narrative_id
-        evermemos_memories = ctx_data.extra_data.get("evermemos_memories") if ctx_data.extra_data else None
 
-        if evermemos_memories and current_narrative_id:
-            # Priority path: Extract current Narrative's episode_contents from EverMemOS cache
-            # Count is already controlled by EverMemOS retrieval top_k, no further limiting needed
-            current_narrative_data = evermemos_memories.get(current_narrative_id)
-            if current_narrative_data:
-                episode_contents = current_narrative_data.get("episode_contents", [])
-                topic_hint = current_narrative_data.get("topic_hint", "")
+        if self.event_memory_module:
+            for instance_id in current_instance_ids:
+                memory = await self.event_memory_module.search_instance_json_format_memory(module_name, instance_id)
 
-                for content in episode_contents:
-                    # Directly use raw text format ("User: xxx\nAssistant: xxx")
-                    long_term_messages.append({
-                        "role": "context",  # Special role, indicates context from EverMemOS
-                        "content": content,
-                        "meta_data": {
-                            "memory_type": "long_term",
-                            "source": "evermemos",
-                            "narrative_id": current_narrative_id,
-                            "topic_hint": topic_hint,
-                            "timestamp": ""  # EverMemOS has no timestamp
-                        }
-                    })
+                if memory and "messages" in memory:
+                    messages = memory.get("messages", [])
+                    for msg in messages:
+                        if "meta_data" not in msg:
+                            msg["meta_data"] = {}
+                        msg["meta_data"]["instance_id"] = instance_id
+                        msg["meta_data"]["memory_type"] = "long_term"
 
-                logger.info(
-                    f"ChatModule: Long-term memory - Retrieved {len(long_term_messages)} episodes from EverMemOS, "
-                    f"topic_hint: {topic_hint}"
-                )
-                # Output preview of each episode content (for debugging)
-                for i, content in enumerate(episode_contents):
-                    # Truncate to first 500 characters as preview (for more complete viewing)
-                    preview = content[:500].replace('\n', ' ')
-                    if len(content) > 500:
-                        preview += "..."
+                        # Messages from non-chat sources (job/a2a): only load assistant side
+                        working_source = msg.get("meta_data", {}).get("working_source", "chat")
+                        if working_source != "chat" and msg.get("role") != "assistant":
+                            continue
+
+                        long_term_messages.append(msg)
                     logger.debug(
-                        f"ChatModule: Long-term memory [{i+1}/{len(episode_contents)}] (length {len(content)}): {preview}"
+                        f"[ChatHistory-A] Instance {instance_id}: {len(messages)} messages loaded"
                     )
-        else:
-            # Fallback path: Load Instance conversation history from DB event_memory_module
-            if self.event_memory_module:
-                for instance_id in current_instance_ids:
-                    memory = await self.event_memory_module.search_instance_json_format_memory(module_name, instance_id)
 
-                    if memory and "messages" in memory:
-                        messages = memory.get("messages", [])
-                        for msg in messages:
-                            if "meta_data" not in msg:
-                                msg["meta_data"] = {}
-                            msg["meta_data"]["instance_id"] = instance_id
-                            msg["meta_data"]["memory_type"] = "long_term"
-
-                            # Messages from non-chat sources (job/a2a): only load assistant side
-                            working_source = msg.get("meta_data", {}).get("working_source", "chat")
-                            if working_source != "chat" and msg.get("role") != "assistant":
-                                continue
-
-                            long_term_messages.append(msg)
-                        logger.debug(
-                            f"ChatModule: Long-term memory (DB fallback) - Instance {instance_id} retrieved {len(messages)} messages"
-                        )
-            else:
-                logger.debug(
-                    f"ChatModule: Long-term memory is empty - "
-                    f"narrative_id={current_narrative_id}, "
-                    f"evermemos_memories/event_memory_module both unavailable"
-                )
-
-        # Limit long-term memory count: keep only the most recent 20 conversation rounds (40 messages)
-        MAX_LONG_TERM_ROUNDS = 20
-        MAX_LONG_TERM_MESSAGES = MAX_LONG_TERM_ROUNDS * 2  # Each round = 1 user + 1 assistant
-        if len(long_term_messages) > MAX_LONG_TERM_MESSAGES:
+        # Limit to most recent 30 messages (Part A: recency-based)
+        MAX_RECENT_MESSAGES = 30
+        if len(long_term_messages) > MAX_RECENT_MESSAGES:
             original_count = len(long_term_messages)
-            long_term_messages = long_term_messages[-MAX_LONG_TERM_MESSAGES:]
+            long_term_messages = long_term_messages[-MAX_RECENT_MESSAGES:]
             logger.info(
-                f"ChatModule: Long-term memory truncated - original {original_count} messages, kept most recent {MAX_LONG_TERM_MESSAGES}"
+                f"[ChatHistory-A] Truncated: {original_count} → {MAX_RECENT_MESSAGES} messages"
             )
 
         # ========== 2. Load short-term memory (recent cross-Narrative conversations) ==========
@@ -456,6 +411,53 @@ class ChatModule(XYZBaseModule):
         )
 
         return short_term_messages
+
+    async def _embed_message_pair(
+        self,
+        instance_id: str,
+        message_index: int,
+        user_content: str,
+        assistant_content: str,
+        event_id: str = "",
+    ) -> None:
+        """
+        Embed a user+assistant message pair and store for Part B retrieval.
+
+        The content is stored in the same format used for prompt context building:
+        "User: {user_content}\nAssistant: {assistant_content}"
+        """
+        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.repository.chat_message_embedding_repository import (
+            ChatMessageEmbeddingRepository,
+        )
+        from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
+
+        # Build content in prompt format
+        content = f"User: {user_content}\nAssistant: {assistant_content}"
+
+        # Generate embedding (truncate source text for embedding to ~500 chars)
+        source_text = content[:500]
+        embedding = await get_embedding(source_text)
+
+        if not embedding:
+            return
+
+        db = await get_db_client()
+        repo = ChatMessageEmbeddingRepository(db)
+        await repo.upsert(
+            instance_id=instance_id,
+            message_index=message_index,
+            content=content,
+            embedding=embedding,
+            source_text=source_text,
+            event_id=event_id,
+            role="pair",
+        )
+
+        logger.debug(
+            f"[ChatHistory-B] Embedded message pair: instance={instance_id}, "
+            f"index={message_index}, content_len={len(content)}"
+        )
 
     async def hook_after_event_execution(self, params: HookAfterExecutionParams) -> None:
         """
@@ -592,5 +594,16 @@ class ChatModule(XYZBaseModule):
                 f"ChatModule.hook_after_event_execution: Status report updated successfully, "
                 f"narrative_id={narrative_id}, instance_id={instance_id}"
             )
-        
-        
+
+        # ========== 3. Embed message pair for Part B retrieval ==========
+        try:
+            await self._embed_message_pair(
+                instance_id=instance_id,
+                message_index=len(messages) - 1,  # index of the last pair
+                user_content=params.input_content,
+                assistant_content=assistant_content,
+                event_id=params.event_id,
+            )
+        except Exception as e:
+            logger.warning(f"[ChatHistory-B] Embedding failed (non-fatal): {e}")
+

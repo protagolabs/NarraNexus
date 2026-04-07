@@ -88,15 +88,19 @@ async def step_3_agent_loop(
 
     # ------------- 3.2: Run ContextRuntime -------------
     logger.info("  🏃 Step 3.2: Running ContextRuntime")
+    # Await EverMemOS episodes (launched in parallel at Step 0)
+    relevant_episodes = await ctx.evermemos_task if hasattr(ctx, 'evermemos_task') and ctx.evermemos_task else []
+    logger.info(f"  [EverMemOS-Search] Awaited: {len(relevant_episodes)} episodes ready for context")
+
     context = await context_runtime.run(
         ctx.narrative_list,
         ctx.active_instances,
         ctx.input_content,
         working_source=ctx.working_source,
         query_embedding=ctx.query_embedding,
-        created_job_ids=ctx.created_job_ids,  # Jobs created this round, for context passing
-        evermemos_memories=ctx.evermemos_memories,  # Phase 2: Pass EverMemOS cache
-        trigger_extra_data=ctx.trigger_extra_data,  # Trigger 层附加数据（channel_tag 等）
+        created_job_ids=ctx.created_job_ids,
+        trigger_extra_data=ctx.trigger_extra_data,
+        relevant_episodes=relevant_episodes,
     )
     substeps.append(
         f"[3.2] ✓ Context build complete: {len(context.messages)} messages, "

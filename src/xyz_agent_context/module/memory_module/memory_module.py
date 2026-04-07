@@ -138,25 +138,26 @@ class MemoryModule(XYZBaseModule):
     async def search_evermemos(
         self,
         query: str,
-        top_k: int = 10
-    ) -> List[NarrativeSearchResult]:
+        top_k: int = 20
+    ) -> list:
         """
-        Search for related Narratives
+        Search for relevant episodes from EverMemOS.
 
-        Called by NarrativeService Step 1, used for Narrative routing assistance.
+        After decoupling: returns flat episode list (not grouped by narrative).
+        Called independently during context assembly.
 
         Args:
             query: Query text
-            top_k: Number of results to return
+            top_k: Number of episodes to return
 
         Returns:
-            List of NarrativeSearchResult, sorted by score in descending order
+            List of EpisodeResult, sorted by relevance
         """
         client = self._get_evermemos_client()
-        results = await client.search_narratives(query, top_k)
+        results = await client.search_episodes(query, top_k)
         logger.debug(
             f"[MemoryModule] search_evermemos: query='{query[:50]}...', "
-            f"returned {len(results)} narratives"
+            f"returned {len(results)} episodes"
         )
         return results
 
@@ -265,32 +266,26 @@ class MemoryModule(XYZBaseModule):
         narrative: "Narrative"
     ) -> None:
         """
-        Asynchronously write Event to EverMemOS
+        Write Event to EverMemOS.
 
-        Functionality:
-        - Write user input and Agent response to EverMemOS
-        - Support EverMemOS for memory extraction and retrieval
-
-        Args:
-            event: Event object
-            narrative: Narrative object
+        After decoupling: group_id = agent_id (not narrative_id).
+        Narrative param kept for agent_id extraction and logging only.
         """
         try:
-            # Get user_id from Event
             user_id = event.user_id
             agent_id = narrative.agent_id
 
             if not user_id:
-                logger.warning(f"[MemoryModule] Event {event.id} has no user_id, skipping write")
+                logger.warning(f"[EverMemOS-Write] Event {event.id} has no user_id, skipping")
                 return
 
             evermemos = get_evermemos_client(agent_id, user_id)
-            success = await evermemos.write_event(event, narrative)
+            success = await evermemos.write_event(event)
 
             if success:
-                logger.info(f"[MemoryModule] EverMemOS write succeeded: event={event.id}, narrative={narrative.id}")
+                logger.info(f"[EverMemOS-Write] Succeeded: event={event.id}, agent={agent_id}")
             else:
-                logger.warning(f"[MemoryModule] EverMemOS write failed: event={event.id}")
+                logger.warning(f"[EverMemOS-Write] Failed: event={event.id}")
 
         except Exception as e:
-            logger.error(f"[MemoryModule] EverMemOS write exception: {type(e).__name__}: {e}")
+            logger.error(f"[EverMemOS-Write] Exception: {type(e).__name__}: {e}")

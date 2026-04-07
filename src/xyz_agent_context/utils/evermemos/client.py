@@ -70,29 +70,31 @@ class EverMemOSClient:
     # Write
     # =========================================================================
 
-    async def write_event(self, event: "Event", narrative: "Narrative") -> bool:
+    async def write_event(self, event: "Event", narrative: "Narrative" = None) -> bool:
         """
         Write an Event to EverMemOS
 
         Flow:
-        1. Ensure conversation-meta has been created
+        1. Ensure conversation-meta has been created (group_id = agent_id)
         2. Convert Event to message format
         3. Call POST /api/v1/memories
 
+        After decoupling: group_id = agent_id (not narrative_id).
+        Episodes are grouped per agent, not per narrative.
+        narrative param kept for backward compat but only used for logging.
+
         Args:
             event: Narrative Event
-            narrative: Associated Narrative
+            narrative: (deprecated) Associated Narrative, only used for logging
 
         Returns:
             bool: Whether the write was successful
         """
-        narrative_id = narrative.id
-
-        # Ensure conversation-meta has been created
-        await self._ensure_conversation_meta(narrative)
+        # Ensure conversation-meta has been created (keyed by agent_id)
+        await self._ensure_agent_meta()
 
         # Convert to message format and send
-        messages = self._event_to_messages(event, narrative)
+        messages = self._event_to_messages(event)
 
         if not messages:
             logger.debug(f"Event {event.id} has no content to write")
@@ -146,36 +148,25 @@ class EverMemOSClient:
 
         return success
 
-    async def _ensure_conversation_meta(self, narrative: "Narrative") -> bool:
+    async def _ensure_agent_meta(self) -> bool:
         """
-        Ensure conversation-meta has been created
+        Ensure conversation-meta has been created for this agent.
 
-        Args:
-            narrative: Narrative object
-
-        Returns:
-            bool: Whether successful
+        After decoupling: one meta per agent_id (not per narrative_id).
+        Called once per agent lifecycle.
         """
-        narrative_id = narrative.id
+        meta_key = self.agent_id
 
-        # Skip if already created
-        if self._conversation_meta_saved.get(narrative_id):
+        if self._conversation_meta_saved.get(meta_key):
             return True
-
-        # Get narrative info
-        narrative_name = narrative_id
-        narrative_description = ""
-        if narrative.narrative_info:
-            narrative_name = narrative.narrative_info.name or narrative_id
-            narrative_description = narrative.narrative_info.description or ""
 
         payload = {
             "version": "1.0",
             "scene": "assistant",
             "scene_desc": {},
-            "name": narrative_name,
-            "description": narrative_description,
-            "group_id": narrative_id,
+            "name": f"Agent {self.agent_id}",
+            "description": f"All conversations for agent {self.agent_id}",
+            "group_id": self.agent_id,
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "default_timezone": "UTC",
             "user_details": {
@@ -185,7 +176,7 @@ class EverMemOSClient:
                     "extra": {}
                 }
             },
-            "tags": ["narrative", self.agent_id]
+            "tags": ["agent", self.agent_id]
         }
 
         try:
@@ -196,22 +187,21 @@ class EverMemOSClient:
                     headers={"Content-Type": "application/json"}
                 )
                 if response.status_code == 200:
-                    self._conversation_meta_saved[narrative_id] = True
-                    logger.debug(f"conversation-meta created successfully: {narrative_id}")
+                    self._conversation_meta_saved[meta_key] = True
+                    logger.debug(f"[EverMemOS-Write] Agent meta created: agent={self.agent_id}")
                     return True
                 else:
                     logger.warning(
-                        f"conversation-meta creation failed: HTTP {response.status_code}, "
-                        f"narrative={narrative_id}"
+                        f"[EverMemOS-Write] Agent meta creation failed: HTTP {response.status_code}, "
+                        f"agent={self.agent_id}"
                     )
         except Exception as e:
-            logger.warning(f"conversation-meta creation exception: {type(e).__name__}: {e}")
+            logger.warning(f"[EverMemOS-Write] Agent meta creation exception: {type(e).__name__}: {e}")
 
-        # Mark even on failure to avoid repeated attempts
-        self._conversation_meta_saved[narrative_id] = True
+        self._conversation_meta_saved[meta_key] = True
         return False
 
-    def _event_to_messages(self, event: "Event", narrative: "Narrative") -> List[Dict]:
+    def _event_to_messages(self, event: "Event") -> List[Dict]:
         """
         Convert Event to EverMemOS message format
 
@@ -223,12 +213,9 @@ class EverMemOSClient:
             List of messages, each corresponding to an HTTP request
         """
         messages = []
-        narrative_id = narrative.id
-
-        # Get narrative name
-        narrative_name = narrative_id
-        if narrative.narrative_info:
-            narrative_name = narrative.narrative_info.name or narrative_id
+        # After decoupling: group_id = agent_id (not narrative_id)
+        group_id = self.agent_id
+        group_name = f"Agent {self.agent_id}"
 
         # Timestamp
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -249,8 +236,8 @@ class EverMemOSClient:
                 "role": "user",
                 "type": "text",
                 "content": input_content,
-                "group_id": narrative_id,
-                "group_name": narrative_name,
+                "group_id": group_id,
+                "group_name": group_name,
                 "scene": "assistant"
             })
 
@@ -268,8 +255,8 @@ class EverMemOSClient:
                 "role": "assistant",
                 "type": "text",
                 "content": event.final_output,
-                "group_id": narrative_id,
-                "group_name": narrative_name,
+                "group_id": group_id,
+                "group_name": group_name,
                 "scene": "assistant"
             })
 
@@ -360,6 +347,138 @@ class EverMemOSClient:
         except Exception as e:
             logger.error(f"EverMemOS retrieval exception: {type(e).__name__}: {e}")
             return []
+
+    async def search_episodes(
+        self,
+        query: str,
+        top_k: int = 20,
+    ) -> List["EpisodeResult"]:
+        """
+        Pure memory retrieval — flat list of relevant episodes.
+
+        After decoupling: searches within group_id = agent_id.
+        No narrative grouping. No aggregation. No top_k × 3 hack.
+
+        Args:
+            query: Search query text
+            top_k: Number of episodes to return
+
+        Returns:
+            List of EpisodeResult, sorted by relevance score
+        """
+        from xyz_agent_context.narrative.models import EpisodeResult
+        import time as _time
+
+        _start = _time.monotonic()
+
+        params = {
+            "query": query,
+            "top_k": top_k,
+            "memory_types": "episodic_memory",
+            "retrieve_method": "rrf",
+            "group_id": self.agent_id,
+            "user_id": self.user_id,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    self.search_url,
+                    params=params
+                )
+
+                if response.status_code != 200:
+                    logger.warning(
+                        f"[EverMemOS-Search] Failed: HTTP {response.status_code}, "
+                        f"response: {response.text[:200]}"
+                    )
+                    return []
+
+                result = response.json()
+                if result.get("status") != "ok":
+                    logger.warning(f"[EverMemOS-Search] Failed: {result.get('message')}")
+                    return []
+
+                # Parse into flat episode list (no narrative grouping)
+                raw_memories = result.get("result", {}).get("memories", [])
+                raw_scores = result.get("result", {}).get("scores", [])
+
+                episodes = self._parse_flat_episodes(raw_memories, raw_scores, top_k)
+
+                elapsed = _time.monotonic() - _start
+                logger.info(
+                    f"[EverMemOS-Search] query='{query[:50]}...', "
+                    f"returned {len(episodes)} episodes in {elapsed:.1f}s"
+                )
+                return episodes
+
+        except httpx.ConnectError:
+            logger.error(f"[EverMemOS-Search] Cannot connect to EverMemOS: {self.base_url}")
+            return []
+        except httpx.TimeoutException:
+            logger.error(f"[EverMemOS-Search] Timed out: {self.timeout}s")
+            return []
+        except Exception as e:
+            logger.error(f"[EverMemOS-Search] Exception: {type(e).__name__}: {e}")
+            return []
+
+    def _parse_flat_episodes(
+        self,
+        raw_memories: List[Dict],
+        raw_scores: List[Dict],
+        top_k: int,
+    ) -> List["EpisodeResult"]:
+        """
+        Parse EverMemOS response into a flat list of EpisodeResult.
+
+        No narrative grouping — just episodes ranked by score.
+        """
+        from xyz_agent_context.narrative.models import EpisodeResult
+
+        # Collect all episodes with scores
+        all_episodes = []
+
+        # Build score lookup: flatten all group scores into one list
+        score_by_group: Dict[str, List[float]] = {}
+        for score_dict in raw_scores:
+            if not isinstance(score_dict, dict):
+                continue
+            for group_id, scores in score_dict.items():
+                if scores and isinstance(scores, list):
+                    score_by_group.setdefault(group_id, []).extend(
+                        float(s) for s in scores if s is not None
+                    )
+
+        # Parse episodes with their scores
+        for group_dict in raw_memories:
+            if not isinstance(group_dict, dict):
+                continue
+            for group_id, episodes in group_dict.items():
+                if not episodes or not isinstance(episodes, list):
+                    continue
+                group_scores = score_by_group.get(group_id, [])
+                for i, episode_data in enumerate(episodes):
+                    if not isinstance(episode_data, dict):
+                        continue
+                    episode_text = episode_data.get("episode", "")
+                    summary = episode_data.get("summary", "")
+                    score = group_scores[i] if i < len(group_scores) else 0.0
+
+                    if episode_text or summary:
+                        all_episodes.append(EpisodeResult(
+                            episode_text=episode_text,
+                            summary=summary,
+                            score=score,
+                            timestamp=str(episode_data.get("timestamp", "")),
+                        ))
+
+        # Sort by score descending, return top_k
+        all_episodes.sort(key=lambda e: e.score, reverse=True)
+        return all_episodes[:top_k]
+
+    # =========================================================================
+    # Legacy methods (to be removed after full decoupling — Step G)
+    # =========================================================================
 
     def _filter_pending_messages_by_agent(
         self,

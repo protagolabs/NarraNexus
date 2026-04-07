@@ -55,6 +55,7 @@ try:
     from xyz_agent_context.utils.database_table_management.create_cost_records_table import create_cost_records_table
     from xyz_agent_context.utils.database_table_management.create_matrix_processed_events_table import create_matrix_processed_events_table
     from xyz_agent_context.utils.database_table_management.create_embeddings_store_table import create_embeddings_store_table
+    from xyz_agent_context.utils.database_table_management.create_chat_message_embeddings_table import create_chat_message_embeddings_table
     from xyz_agent_context.utils.database_table_management.create_table_base import (
         create_table,
         check_table_exists,
@@ -82,6 +83,7 @@ except ImportError:
     from xyz_agent_context.utils.database_table_management.create_cost_records_table import create_cost_records_table
     from xyz_agent_context.utils.database_table_management.create_matrix_processed_events_table import create_matrix_processed_events_table
     from xyz_agent_context.utils.database_table_management.create_embeddings_store_table import create_embeddings_store_table
+    from xyz_agent_context.utils.database_table_management.create_chat_message_embeddings_table import create_chat_message_embeddings_table
     from xyz_agent_context.utils.database_table_management.create_table_base import (
         create_table,
         check_table_exists,
@@ -303,6 +305,7 @@ async def create_all_tables(
         "cost_records": create_cost_records_table,
         "matrix_processed_events": create_matrix_processed_events_table,
         "embeddings_store": create_embeddings_store_table,
+        "chat_message_embeddings": create_chat_message_embeddings_table,
     }
     for raw_table_name, create_fn in raw_sql_tables.items():
         if tables is not None and raw_table_name not in tables:

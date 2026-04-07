@@ -49,7 +49,7 @@ class ChannelHistoryConfig:
     """
     load_conversation_history: bool = True
     history_limit: int = 20
-    history_max_chars: int = 3000
+    history_max_chars: int = 20000
 
 
 class ChannelContextBuilderBase(ABC):

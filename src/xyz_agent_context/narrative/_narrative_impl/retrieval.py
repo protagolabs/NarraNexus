@@ -228,15 +228,15 @@ class NarrativeRetrieval:
         query_embedding = await get_embedding(query)
         logger.debug(f"Generated Query embedding (dim={len(query_embedding)})")
 
-        # Step 2: Search for similar Narratives
-        search_results, retrieval_method = await self._search(
+        # Step 2: Search for similar Narratives (VectorStore only — EverMemOS decoupled)
+        search_results = await self._vector_search(
             query_embedding=query_embedding,
             user_id=user_id,
             agent_id=agent_id,
             top_k=max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K),
-            query_text=query  # Needed for EverMemOS mode
         )
-        logger.info(f"Retrieval method: {retrieval_method}")
+        retrieval_method = "vector"
+        logger.info(f"[NarrativeSelect] VectorStore search returned {len(search_results)} candidates")
 
         # Step 2.5 (P0-4): Add PARTICIPANT Narratives to candidate list (if not already in search results)
         # This is key: participant_narratives come from Narratives created by other users; vector search won't return them
@@ -263,9 +263,7 @@ class NarrativeRetrieval:
             result.rank = i + 1
 
         # Step 3: Enhance scores using recent Events
-        # Note: Skip this step in EverMemOS mode, as RRF already combines BM25 + vector search
-        # Additional Event enhancement would distort the normalized scores
-        if search_results and retrieval_method != "evermemos":
+        if search_results:
             search_results = await self._enhance_with_events(
                 search_results=search_results,
                 query_embedding=query_embedding
@@ -273,24 +271,7 @@ class NarrativeRetrieval:
 
         # Step 4: Two-tier threshold judgment
         best_score = search_results[0].similarity_score if search_results else None
-        # Build per-narrative scores dict (carried through NarrativeSelectionResult
-        # so step_1 doesn't need to re-load embeddings and re-compute)
         all_scores = {r.narrative_id: r.similarity_score for r in search_results}
-
-        # Phase 2 & 4: Build evermemos_memories cache (for MemoryModule use)
-        # Phase 4: Added episode_contents for short-term memory dedup
-        evermemos_memories = {}
-        for result in search_results:
-            if result.episode_summaries or result.episode_contents:
-                narrative = await self._crud.load_by_id(result.narrative_id)
-                if narrative:
-                    evermemos_memories[result.narrative_id] = {
-                        "episode_summaries": result.episode_summaries,
-                        "episode_contents": result.episode_contents,  # Phase 4: Raw content
-                        "scores": [result.similarity_score],
-                        "topic_hint": narrative.topic_hint or "Unknown topic"
-                    }
-        logger.debug(f"[Phase 2/4] evermemos_memories cache built: {len(evermemos_memories)} Narratives")
 
         # First tier: High confidence - Return Top-K directly
         # P0-4 improvement: If user has PARTICIPANT Narratives, still go through LLM judgment even with high confidence
@@ -312,7 +293,7 @@ class NarrativeRetrieval:
                 best_score=best_score,
                 scores=all_scores,
                 retrieval_method=retrieval_method,
-                evermemos_memories=evermemos_memories  # Phase 2: Pass cache
+                # evermemos_memories removed — EverMemOS decoupled from narrative selection
             )
 
         # P0-4: If user has PARTICIPANT Narratives, force LLM judgment
@@ -357,7 +338,7 @@ class NarrativeRetrieval:
                 best_score=best_score,
                 scores=all_scores,
                 retrieval_method=retrieval_method,
-                evermemos_memories=evermemos_memories  # Phase 2: Pass cache
+                # evermemos_memories removed — EverMemOS decoupled from narrative selection
             )
 
     async def retrieve_auxiliary_narratives(
@@ -496,6 +477,42 @@ class NarrativeRetrieval:
             )
             # Do not raise exception, allow continued execution (default Narrative creation failure should not block main flow)
 
+    async def _vector_search(
+        self,
+        query_embedding: List[float],
+        user_id: str,
+        agent_id: str,
+        top_k: int,
+    ) -> List[NarrativeSearchResult]:
+        """
+        VectorStore-only search for narrative selection (decoupled from EverMemOS).
+
+        Uses routing_embedding cosine similarity to find candidate narratives.
+
+        Args:
+            query_embedding: Query embedding vector
+            user_id: User ID
+            agent_id: Agent ID
+            top_k: Number of results to return
+
+        Returns:
+            List of NarrativeSearchResult sorted by similarity
+        """
+        db_client = await get_db_client()
+
+        filters = {"user_id": user_id, "agent_id": agent_id}
+        results = await self._vector_store.search(
+            query_embedding=query_embedding,
+            filters=filters,
+            top_k=top_k,
+            min_score=config.VECTOR_SEARCH_MIN_SCORE,
+            db_client=db_client
+        )
+
+        logger.debug(f"[NarrativeSelect] VectorStore found {len(results)} candidates")
+        return results
+
+    # Legacy _search method kept for backward compat (used by retrieve_top_k_by_embedding)
     async def _search(
         self,
         query_embedding: List[float],
@@ -680,43 +697,14 @@ class NarrativeRetrieval:
         Returns:
             NarrativeSelectionResult
         """
-        # 1. Prepare search result candidates
-        # Phase 1: Added matched_content field (from EverMemOS episode_summaries)
-        # Per-narrative scores from search (passed through to NarrativeSelectionResult)
+        # 1. Prepare search result candidates (narrative metadata only — no EverMemOS episodes)
         all_scores = {r.narrative_id: r.similarity_score for r in search_results}
-
-        # Phase 2 & 4: Build evermemos_memories cache for MemoryModule use
         search_candidates = []
-        evermemos_memories = {}  # Phase 2: Cache EverMemOS retrieval results
 
         for result in search_results:
             narrative = await self._crud.load_by_id(result.narrative_id)
             if narrative:
-                # Phase 1: Use episode_summaries as matched_content
-                matched_content = ""
-                # Phase 1 debug log
-                logger.debug(
-                    f"[Phase 1] NarrativeSearchResult {result.narrative_id}: "
-                    f"episode_summaries count={len(result.episode_summaries)}, "
-                    f"episode_contents count={len(result.episode_contents)}"
-                )
-                if result.episode_summaries or result.episode_contents:
-                    # Merge summaries, separated by newlines, max 500 characters
-                    if result.episode_summaries:
-                        matched_content = "\n".join(result.episode_summaries)
-                        if len(matched_content) > 500:
-                            matched_content = matched_content[:500] + "..."
-
-                    # Phase 2 & 4: Cache to evermemos_memories for MemoryModule use
-                    evermemos_memories[result.narrative_id] = {
-                        "episode_summaries": result.episode_summaries,
-                        "episode_contents": result.episode_contents,  # Phase 4: Raw content
-                        "scores": [result.similarity_score],  # Extensible to per-episode scores
-                        "topic_hint": narrative.topic_hint or "Unknown topic"
-                    }
-
-                # Use narrative_info (LLM-generated) for richer candidate info.
-                # Falls back to topic_hint only when narrative_info is empty.
+                # Use narrative_info for candidate info (no episode_summaries after decoupling)
                 candidate_name = (
                     narrative.narrative_info.name
                     if narrative.narrative_info and narrative.narrative_info.name
@@ -734,10 +722,9 @@ class NarrativeRetrieval:
                     "name": candidate_name,
                     "description": candidate_desc,
                     "score": result.similarity_score,
-                    "matched_content": matched_content  # Phase 1: New field
                 })
 
-        logger.debug(f"[Phase 2/4] evermemos_memories cache: {len(evermemos_memories)} Narratives")
+        logger.debug(f"[NarrativeSelect] Prepared {len(search_candidates)} search candidates for LLM judge")
 
         # 2. Use Repository to get default Narrative candidates (lazy import to avoid circular dependency)
         from xyz_agent_context.repository import NarrativeRepository
@@ -801,7 +788,7 @@ class NarrativeRetrieval:
                     best_score=best_score,
                     scores=all_scores,
                     retrieval_method=retrieval_method,
-                    evermemos_memories=evermemos_memories  # Phase 2: Pass cache
+                    # evermemos_memories removed — EverMemOS decoupled from narrative selection
                 )
 
             elif matched_type == "participant":
@@ -818,7 +805,7 @@ class NarrativeRetrieval:
                     best_score=best_score,
                     scores=all_scores,
                     retrieval_method=retrieval_method,
-                    evermemos_memories=evermemos_memories  # Phase 2: Pass cache
+                    # evermemos_memories removed — EverMemOS decoupled from narrative selection
                 )
 
             elif matched_type == "search":
@@ -845,7 +832,7 @@ class NarrativeRetrieval:
                     best_score=best_score,
                     scores=all_scores,
                     retrieval_method=retrieval_method,
-                    evermemos_memories=evermemos_memories  # Phase 2: Pass cache
+                    # evermemos_memories removed — EverMemOS decoupled from narrative selection
                 )
 
         # 5. No match, create new Narrative
@@ -867,7 +854,6 @@ class NarrativeRetrieval:
             best_score=best_score,
             scores=all_scores,
             retrieval_method=retrieval_method,
-            evermemos_memories=evermemos_memories  # Phase 2: Pass cache
         )
 
     async def _prepare_candidates(

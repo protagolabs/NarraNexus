@@ -83,10 +83,10 @@ class ContextRuntime:
         active_instances: List,  # Changed to active_instances (module already bound)
         input_content: str,  # Added: current user input
         working_source: Union[WorkingSource, str] = WorkingSource.CHAT,
-        query_embedding: Optional[List[float]] = None,  # Used for intelligent Event selection
-        created_job_ids: Optional[List[str]] = None,  # Job IDs created this turn (to distinguish "created this turn" from "previously existing")
-        evermemos_memories: Optional[Dict[str, Any]] = None,  # Phase 2: EverMemOS cache
-        trigger_extra_data: Optional[Dict[str, Any]] = None,  # Trigger 层附加数据（channel_tag 等）
+        query_embedding: Optional[List[float]] = None,
+        created_job_ids: Optional[List[str]] = None,
+        trigger_extra_data: Optional[Dict[str, Any]] = None,
+        relevant_episodes: Optional[List] = None,  # EverMemOS episodes (fetched in parallel upstream)
     ) -> ContextRuntimeOutput:
         logger.info("    ┌─ ContextRuntime.run() started")
         logger.info(f"    │ Narratives: {len(narrative_list)}, Instances: {len(active_instances)}")
@@ -94,48 +94,31 @@ class ContextRuntime:
 
         # Step 0: Initialize ContextData
         logger.debug("    │ Step 0: Initializing ContextData")
-        # Get the main Narrative's ID (used for Module Memory isolation)
         main_narrative_id = narrative_list[0].id if narrative_list else None
         ctx_data = ContextData(
             agent_id=self.agent_id,
             user_id=self.user_id,
             input_content=input_content,
-            narrative_id=main_narrative_id,  # Key: pass narrative_id to Module
+            narrative_id=main_narrative_id,
             agent_info_model_type="Claude Agent SDK",
             model_name="sonnet-4",
             working_source=working_source
         )
-        # Merge Trigger 层传入的附加数据（如 channel_tag）
         ctx_data.extra_data = ctx_data.extra_data or {}
         if trigger_extra_data:
             ctx_data.extra_data.update(trigger_extra_data)
 
-        # Pass the Top-K Narrative ID list to Module (used for merging conversation history)
         if narrative_list:
             ctx_data.extra_data["narrative_ids"] = [n.id for n in narrative_list]
             logger.debug(f"    │ ContextData initialized with narrative_id={main_narrative_id}, narrative_ids={len(narrative_list)}")
-        else:
-            logger.debug(f"    │ ContextData initialized with narrative_id={main_narrative_id}")
 
-        # Pass Job IDs created this turn (used by JobModule to distinguish "created this turn" from "previously existing")
         if created_job_ids:
             ctx_data.extra_data["created_job_ids_this_turn"] = created_job_ids
-            logger.debug(f"    │ Created job IDs this turn: {created_job_ids}")
 
-        # Phase 2: Pass EverMemOS cache (for use by MemoryModule)
-        if evermemos_memories:
-            ctx_data.extra_data["evermemos_memories"] = evermemos_memories
-            logger.debug(f"    │ [Phase 2] evermemos_memories injected into ContextData: {len(evermemos_memories)} Narrative(s)")
-
-        # Step 1: Extract data from Narrative
-        # TODO: [2025-12-10] Event selection logic temporarily disabled; chat history is provided by ChatModule + EventMemoryModule
-        # Event storage is retained but not used in runtime for now; will decide whether to remove after ChatModule approach is validated
+        # Step 1: Extract data from Narrative (disabled — ChatModule provides history)
         logger.info("    │ Step 1-1: Extracting Narrative data (Event selection disabled)")
-        # messages, selected_events, ctx_data = await self.extract_narrative_data(
-        #     narrative_list, ctx_data, query_embedding
-        # )
-        messages = []  # Temporarily set to empty; ChatModule.hook_data_gathering() will populate ctx_data.chat_history
-        selected_events = []  # Temporarily not selecting Events
+        messages = []
+        selected_events = []
         logger.success("    │ ✅ Narrative data extracted (Event selection disabled, using ChatModule for history)")
 
         # Step 2: Gather data from Modules (executed for each instance)
@@ -163,13 +146,14 @@ class ContextRuntime:
 
         logger.success(f"    │ ✅ Built {len(module_instructions_list)} Module instructions (deduped from {len(active_instances)} instances)")
 
-        # Step 4: Build the complete System Prompt (including Narrative + Events + Modules)
+        # Step 4: Build the complete System Prompt (including Narrative + Relevant Memory + Modules)
         logger.info("    │ Step 1-4: Building Complete System Prompt")
         system_prompt = await self.build_complete_system_prompt(
             narrative_list=narrative_list,
             selected_events=selected_events,
             module_instructions_list=module_instructions_list,
-            ctx_data=ctx_data
+            ctx_data=ctx_data,
+            relevant_episodes=relevant_episodes,
         )
         logger.success(f"    │ ✅ System Prompt built: {len(system_prompt)} characters")
 
@@ -318,22 +302,25 @@ class ContextRuntime:
         narrative_list: List[Narrative],
         selected_events: List[Event],
         module_instructions_list: List[ModuleInstructions],
-        ctx_data: ContextData
+        ctx_data: ContextData,
+        relevant_episodes: Optional[List] = None,
     ) -> str:
         """
-        Build the complete System Prompt (including Narrative + Events + Auxiliary + Modules).
+        Build the complete System Prompt.
 
-        Prompt structure:
-        1. Narrative Info - Detailed information of the main Narrative
-        2. Event History - Detailed records of key Events
-        3. Auxiliary Narratives - Summaries of auxiliary Narratives
-        4. Module Instructions - Instructions from each Module
+        Prompt structure (after decoupling):
+        1. Narrative Info - main Narrative metadata
+        2. Relevant Memory - EverMemOS episodes (decoupled, query-relevant)
+        3. Module Instructions - Instructions from each Module
+        4. Bootstrap Injection (first 3 turns only)
+        (Short-term memory appended later in build_input_for_framework)
 
         Args:
             narrative_list: List of Narratives (the 1st is the main Narrative)
-            selected_events: List of selected Events
+            selected_events: List of selected Events (currently unused)
             module_instructions_list: List of Module instructions
             ctx_data: Context data
+            relevant_episodes: EverMemOS episodes retrieved by query (decoupled)
 
         Returns:
             The complete system prompt string
@@ -341,8 +328,6 @@ class ContextRuntime:
         logger.debug("      → build_complete_system_prompt() started")
         prompt_parts = []
         narrative_service = NarrativeService(self.agent_id)
-        # TODO: [2025-12-10] event_service is temporarily unused; Event History is provided by ChatModule
-        # event_service = EventService(self.agent_id)
 
         # ========================================================================
         # Part 1: Narrative Info (main Narrative)
@@ -354,55 +339,16 @@ class ContextRuntime:
             logger.debug(f"        Added Narrative prompt: {len(narrative_prompt)} chars")
 
         # ========================================================================
-        # Part 2: Event History (key Events)
-        # TODO: [2025-12-10] Event History temporarily disabled; chat history is provided by ChatModule
-        # Will decide whether to remove this section after ChatModule approach is validated
+        # Part 2: Relevant Memory (EverMemOS episodes — decoupled from narrative)
         # ========================================================================
-        # if selected_events:
-        #     # Get Event header description
-        #     event_prompts = await event_manager.get_event_head_tail_prompt()
-        #     event_section = event_prompts["head"]
-        #
-        #     # Add detailed information for each Event
-        #     for i, event in enumerate(selected_events):
-        #         if event:
-        #             event_prompt = await event_manager.combine_event_prompt(event, str(i + 1))
-        #             event_section += event_prompt
-        #
-        #     # Add Event tail requirements
-        #     event_section += event_prompts["tail"]
-        #
-        #     prompt_parts.append(event_section)
-        #     logger.debug(f"        Added Event prompts: {len(event_section)} chars ({len(selected_events)} events)")
+        if relevant_episodes:
+            memory_section = self._build_relevant_memory_prompt(relevant_episodes)
+            prompt_parts.append(memory_section)
+            logger.debug(f"        Added Relevant Memory: {len(memory_section)} chars ({len(relevant_episodes)} episodes)")
 
         # ========================================================================
-        # Part 3: Auxiliary Narratives (auxiliary Narrative summaries)
+        # Part 3: Module Instructions
         # ========================================================================
-        # Prefer fetching from ctx_data (if extract_narrative_data was called)
-        auxiliary_summaries = ctx_data.extra_data.get("auxiliary_narratives", []) if ctx_data.extra_data else []
-        
-        # If not available in ctx_data, extract directly from narrative_list (handles the case where extract_narrative_data is commented out)
-        if not auxiliary_summaries and len(narrative_list) > 1:
-            auxiliary_narratives = narrative_list[1:]
-            auxiliary_summaries = []
-            for aux_narrative in auxiliary_narratives:
-                summary_info = {
-                    "narrative_id": aux_narrative.id,
-                    "name": aux_narrative.narrative_info.name if aux_narrative.narrative_info else "Unknown",
-                    "topic_hint": aux_narrative.topic_hint or (aux_narrative.narrative_info.current_summary if aux_narrative.narrative_info else ""),
-                    "event_count": len(aux_narrative.event_ids) if aux_narrative.event_ids else 0
-                }
-                auxiliary_summaries.append(summary_info)
-            logger.debug(f"        Extracted {len(auxiliary_summaries)} auxiliary Narrative summaries from narrative_list")
-        
-        if auxiliary_summaries:
-            #  Pass evermemos_memories to enhance Related Content
-            evermemos_memories = ctx_data.extra_data.get("evermemos_memories") if ctx_data.extra_data else None
-            aux_prompt = await self._build_auxiliary_narratives_prompt(auxiliary_summaries, evermemos_memories)
-            prompt_parts.append(aux_prompt)
-            logger.debug(f"        Added Auxiliary Narratives prompt: {len(aux_prompt)} chars ({len(auxiliary_summaries)} narratives)")
-
-
         if module_instructions_list:
             module_prompt = await self._build_module_instructions_prompt(module_instructions_list)
             prompt_parts.append(module_prompt)
@@ -459,6 +405,36 @@ class ContextRuntime:
         logger.debug(f"      build_complete_system_prompt() completed: {len(full_prompt)} total chars")
         return full_prompt.strip()
 
+    def _build_relevant_memory_prompt(self, episodes: List) -> str:
+        """
+        Build the Relevant Memory section from EverMemOS episodes.
+
+        Episodes are a flat list ranked by query relevance (decoupled from narrative).
+        Each episode has: episode_text (full content), summary, score, timestamp.
+        Uses full content — no truncation per episode, only top_k limit on count.
+        """
+        if not episodes:
+            return ""
+
+        section = "## Relevant Memory (from past conversations)\n\n"
+        section += "The following are semantically relevant memories from your past conversations, "
+        section += "retrieved based on the current query. Use them for context when responding.\n\n"
+
+        for i, ep in enumerate(episodes, 1):
+            # Prefer full episode_text, fall back to summary
+            content = ep.episode_text if ep.episode_text else ep.summary
+            if not content:
+                continue
+
+            section += f"### Memory {i}"
+            if ep.timestamp:
+                section += f" ({ep.timestamp})"
+            section += "\n"
+            section += f"{content}\n\n"
+
+        return section
+
+    # Legacy method — kept for backward compatibility, may be removed
     async def _build_auxiliary_narratives_prompt(
         self,
         auxiliary_summaries: List[Dict[str, Any]],

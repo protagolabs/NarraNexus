@@ -229,9 +229,6 @@ class NarrativeService:
 
                 logger.info(f"Continuity detection: returning {len(narratives)} Narratives (main Narrative in first position)")
 
-        # Phase 2: Cache EverMemOS retrieval results for MemoryModule use
-        evermemos_memories = {}
-
         if not narratives:
             # Not continuous or continuity detection failed: retrieve Top-K
             retrieval_result = await self._retrieval.retrieve_top_k(
@@ -245,7 +242,6 @@ class NarrativeService:
             selection_reason = retrieval_result.selection_reason
             selection_method = retrieval_result.selection_method
             retrieval_method = retrieval_result.retrieval_method
-            evermemos_memories = retrieval_result.evermemos_memories  # Phase 2: Extract EverMemOS cache
 
         # Update Session (using main Narrative)
         if session and narratives:
@@ -254,9 +250,9 @@ class NarrativeService:
             session.last_query_embedding = query_embedding
             session.current_narrative_id = narratives[0].id
             session.query_count += 1
-            session.last_query_time = datetime.now(timezone.utc)  # Update query time
+            session.last_query_time = datetime.now(timezone.utc)
 
-        logger.info(f"select() completed: returning {len(narratives)} Narratives, method={selection_method}")
+        logger.info(f"[NarrativeSelect] completed: {len(narratives)} Narratives, method={selection_method}")
 
         return NarrativeSelectionResult(
             narratives=narratives,
@@ -266,7 +262,6 @@ class NarrativeService:
             is_new=(selection_method == "new_created"),
             best_score=None,
             retrieval_method=retrieval_method,
-            evermemos_memories=evermemos_memories  # Phase 2: Pass EverMemOS cache
         )
 
     # =========================================================================

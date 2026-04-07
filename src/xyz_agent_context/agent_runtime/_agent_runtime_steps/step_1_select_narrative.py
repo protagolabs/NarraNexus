@@ -228,13 +228,6 @@ async def step_1_select_narrative(
         is_new = selection_result.is_new
         retrieval_method = selection_result.retrieval_method
 
-        # Phase 2: Cache EverMemOS retrieval results for MemoryModule use
-        if selection_result.evermemos_memories:
-            ctx.evermemos_memories = selection_result.evermemos_memories
-            logger.debug(
-                f"[Phase 2] Cached evermemos_memories: {len(ctx.evermemos_memories)} Narratives"
-            )
-
     # Cancellation checkpoint — abort after selection before post-processing
     if ctx.cancellation:
         ctx.cancellation.raise_if_cancelled()
