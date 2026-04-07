@@ -266,7 +266,11 @@ async def _get_bus() -> LocalMessageBus:
     backend = SQLiteBackend(db_path)
     await backend.initialize()
 
-    # Ensure tables exist
+    # Ensure all tables exist (runs as separate process)
+    from xyz_agent_context.utils.schema_registry import auto_migrate
+    await auto_migrate(backend)
+
+    # Ensure bus-specific tables exist
     await create_bus_tables_sqlite(backend)
 
     return LocalMessageBus(backend=backend)
