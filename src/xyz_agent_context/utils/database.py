@@ -164,6 +164,13 @@ def _mysql_to_sqlite_sql(query: str) -> str:
     Covers DDL (CREATE TABLE) and DML (SELECT/INSERT/UPDATE/DELETE).
     """
     q = query
+
+    # information_schema.tables → SQLite sqlite_master
+    # Handles: SELECT COUNT(*) [as cnt] FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = %s
+    if re.search(r'information_schema\.tables', q, flags=re.IGNORECASE):
+        q = "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?"
+        return q
+
     # %s -> ?
     q = q.replace("%s", "?")
     # Remove BINARY keyword
