@@ -263,7 +263,7 @@ Adapt your communication style according to this persona."""
 Error: {type(e).__name__}: {str(e)[:100]}
 
 Please check the database connection and ensure all required tables exist.
-Run: `uv run python src/xyz_agent_context/utils/database_table_management/create_all_tables.py`"""
+Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
         return ctx_data
 

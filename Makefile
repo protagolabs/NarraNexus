@@ -11,8 +11,8 @@
 
 .PHONY: help lint lint-backend lint-frontend typecheck typecheck-backend typecheck-frontend \
         test test-backend build build-frontend \
-        dev-backend dev-frontend dev-mcp dev-poller \
-        db-sync db-sync-dry clean
+        dev-db-proxy dev-backend dev-frontend dev-mcp dev-poller \
+        clean
 
 # Default target
 help:
@@ -36,14 +36,14 @@ help:
 	@echo "    make build-frontend     Build frontend for production"
 	@echo ""
 	@echo "  Dev Servers (run in separate terminals):"
+	@echo "    make dev-db-proxy       SQLite proxy (start first, port 8100)"
 	@echo "    make dev-backend        FastAPI server (port 8000)"
 	@echo "    make dev-frontend       Vite dev server"
 	@echo "    make dev-mcp            MCP servers"
 	@echo "    make dev-poller         Module poller service"
 	@echo ""
 	@echo "  Database:"
-	@echo "    make db-sync-dry        Preview table schema changes"
-	@echo "    make db-sync            Apply table schema changes"
+	@echo "    Schema auto-migrates on startup (schema_registry.py)"
 	@echo ""
 	@echo "  Cleanup:"
 	@echo "    make clean              Remove generated artifacts"
@@ -99,12 +99,8 @@ dev-poller:
 	uv run python -m xyz_agent_context.services.module_poller
 
 # ── Database ────────────────────────────────────────────────────────────────
-
-db-sync-dry:
-	cd src/xyz_agent_context/utils/database_table_management && uv run python sync_all_tables.py --dry-run
-
-db-sync:
-	cd src/xyz_agent_context/utils/database_table_management && uv run python sync_all_tables.py
+# Schema is auto-migrated on startup via schema_registry.auto_migrate().
+# No manual sync needed. To add tables/columns, edit schema_registry.py.
 
 # ── Cleanup ─────────────────────────────────────────────────────────────────
 
