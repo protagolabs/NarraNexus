@@ -342,10 +342,18 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
 
             primary_name = entity.entity_name or user_id if entity else user_id
 
+            # Get agent's own name for self-exclusion in extraction
+            agent_name = ""
+            if params.ctx_data:
+                agent_name = getattr(params.ctx_data, 'agent_name', '') or ''
+
             # 1. Run independent LLM calls in parallel: summary + batch extraction
             new_summary, mentioned = await asyncio.gather(
                 summarize_new_entity_info(input_content, final_output),
-                extract_mentioned_entities(input_content, final_output, primary_name),
+                extract_mentioned_entities(
+                    input_content, final_output, primary_name,
+                    agent_name=agent_name, agent_id=self.agent_id,
+                ),
             )
 
             # 2. Process summary results

@@ -111,11 +111,14 @@ export interface ClearHistoryResponse extends ApiResponse {
 export interface SocialNetworkEntity {
   entity_id: string;
   entity_name?: string;
+  aliases?: string[];              // Cross-system IDs and alternate names
   entity_description?: string;
   entity_type: string;
+  familiarity?: string;            // "direct" | "known_of"
   identity_info: Record<string, unknown>;
   contact_info: Record<string, unknown>;
-  tags: string[];
+  tags: string[];                  // Backward compat
+  keywords?: string[];             // Same data, new name
   relationship_strength: number;
   interaction_count: number;
   last_interaction_time?: string;

@@ -217,26 +217,28 @@ The persona should be actionable and specific, not generic."""
 # Batch entity extraction LLM instructions
 # Used by extract_mentioned_entities() to find all entities in a conversation
 # ============================================================================
-BATCH_ENTITY_EXTRACTION_INSTRUCTIONS = """Extract ONLY social entities mentioned in the conversation: humans, AI agents, and groups (teams that act as a unit).
+BATCH_ENTITY_EXTRACTION_INSTRUCTIONS = """Extract ONLY social entities mentioned in the conversation.
 
-**CRITICAL: What to extract (social entities only)**
-- Humans: users, colleagues, managers, clients — anyone who can be interacted with
-- AI agents: named agents that participate in conversations or tasks
-- Groups: teams, squads, crews that receive messages and act collectively (e.g., "alpha team", "Hering's team")
+**Definition of a social entity:**
+A social entity is a specific, individually identifiable being that has agency — it can send messages, make decisions, hold conversations, or be directly contacted. Each social entity must have a **proper name or unique identifier** that distinguishes it from all others.
 
-**CRITICAL: What NOT to extract**
-- Competitions, contests, polls, challenges (e.g., "Bitcoin Forum", "Art Contest", "Daily Lottery")
-- Platforms, APIs, tools, systems (e.g., "Arena42", "NexusMatrix API", "TodoWrite")
-- Concepts, topics, technologies (e.g., "Bitcoin", "machine learning", "proof-of-work")
-- Sports teams, companies as abstract entities (e.g., "Lakers", "Google", "OECD")
-- Events, debates, forums as standalone entities
-- URLs, file paths, verification codes
-Instead, attach these as **keywords** on the person/agent they are associated with.
+Three types qualify:
+- **Humans** — individually named people (not role descriptions like "a user" or "my creator")
+- **AI agents** — individually named agents with their own identity (not generic references like "an agent" or "some agents")
+- **Groups** — named teams or squads that act collectively and can receive messages as a unit
 
-**Rules:**
-- EXCLUDE the primary speaker (the user/entity directly talking)
+**What disqualifies something from being a social entity:**
+- It cannot receive a message or hold a conversation (concepts, platforms, competitions, technologies)
+- It is referred to only by a generic role, category, or plural noun rather than a specific name (e.g., "colleagues", "participants", "members", "users")
+- It is a description of what something is rather than who it is (e.g., "a testing tool", "a scheduled task", "a prediction market")
+- It is the conversation participants themselves (these are explicitly excluded below)
+
+Non-social things mentioned alongside a person should become **keywords** on that person instead.
+
+**Exclusion rules:**
+- EXCLUDE all names listed in the exclusion list provided with each conversation — these are the conversation participants
 - IGNORE channel source tags formatted like [Channel · Name · ID] — these are system metadata
-- Do NOT extract pronouns or vague references
+- Do NOT extract pronouns or references that cannot be resolved to a specific named individual
 - If no social entities are mentioned, return an empty list
 
 **Aliases — CRITICAL for deduplication:**

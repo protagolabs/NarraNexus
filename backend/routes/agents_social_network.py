@@ -90,14 +90,18 @@ async def get_user_social_network_info(agent_id: str, user_id: str):
         )
 
         if entity_data:
+            tags_data = _parse_json(entity_data.get("tags"), [])
             entity_info = SocialNetworkEntityInfo(
                 entity_id=entity_data.get("entity_id"),
                 entity_name=entity_data.get("entity_name"),
+                aliases=_parse_json(entity_data.get("aliases"), []),
                 entity_description=entity_data.get("entity_description"),
                 entity_type=entity_data.get("entity_type"),
+                familiarity=entity_data.get("familiarity") or "known_of",
                 identity_info=_parse_json(entity_data.get("identity_info"), {}),
                 contact_info=_parse_json(entity_data.get("contact_info"), {}),
-                tags=_parse_json(entity_data.get("tags"), []),
+                tags=tags_data,
+                keywords=tags_data,
                 relationship_strength=entity_data.get("relationship_strength", 0.0),
                 interaction_count=entity_data.get("interaction_count", 0),
                 last_interaction_time=format_for_api(entity_data.get("last_interaction_time")),
@@ -146,14 +150,18 @@ async def get_all_social_network_entities(agent_id: str):
 
         entity_list = []
         for entity_data in entities_data:
+            tags_data = _parse_json(entity_data.get("tags"), [])
             entity_info = SocialNetworkEntityInfo(
                 entity_id=entity_data.get("entity_id"),
                 entity_name=entity_data.get("entity_name"),
+                aliases=_parse_json(entity_data.get("aliases"), []),
                 entity_description=entity_data.get("entity_description"),
                 entity_type=entity_data.get("entity_type"),
+                familiarity=entity_data.get("familiarity") or "known_of",
                 identity_info=_parse_json(entity_data.get("identity_info"), {}),
                 contact_info=_parse_json(entity_data.get("contact_info"), {}),
-                tags=_parse_json(entity_data.get("tags"), []),
+                tags=tags_data,
+                keywords=tags_data,
                 relationship_strength=entity_data.get("relationship_strength", 0.0),
                 interaction_count=entity_data.get("interaction_count", 0),
                 last_interaction_time=format_for_api(entity_data.get("last_interaction_time")),
@@ -219,11 +227,14 @@ async def search_social_network_entities(
                 entity_info = SocialNetworkEntityInfo(
                     entity_id=entity.entity_id,
                     entity_name=entity.entity_name,
+                    aliases=entity.aliases or [],
                     entity_description=entity.entity_description,
                     entity_type=entity.entity_type,
+                    familiarity=entity.familiarity or "known_of",
                     identity_info=entity.identity_info or {},
                     contact_info=entity.contact_info or {},
-                    tags=entity.tags or [],
+                    tags=entity.keywords or [],
+                    keywords=entity.keywords or [],
                     relationship_strength=entity.relationship_strength or 0.0,
                     interaction_count=entity.interaction_count or 0,
                     last_interaction_time=format_for_api(entity.last_interaction_time),
@@ -244,11 +255,14 @@ async def search_social_network_entities(
                 entity_info = SocialNetworkEntityInfo(
                     entity_id=entity.entity_id,
                     entity_name=entity.entity_name,
+                    aliases=entity.aliases or [],
                     entity_description=entity.entity_description,
                     entity_type=entity.entity_type,
+                    familiarity=entity.familiarity or "known_of",
                     identity_info=entity.identity_info or {},
                     contact_info=entity.contact_info or {},
-                    tags=entity.tags or [],
+                    tags=entity.keywords or [],
+                    keywords=entity.keywords or [],
                     relationship_strength=entity.relationship_strength or 0.0,
                     interaction_count=entity.interaction_count or 0,
                     last_interaction_time=format_for_api(entity.last_interaction_time),

@@ -146,9 +146,11 @@ async def extract_mentioned_entities(
     input_content: str,
     final_output: str,
     primary_entity_name: str = "",
+    agent_name: str = "",
+    agent_id: str = "",
 ) -> List[ExtractedEntity]:
     """
-    Extract all entities mentioned in a conversation (besides the primary speaker).
+    Extract all entities mentioned in a conversation (besides the primary speaker and the agent itself).
 
     Uses LLM to detect mentions of other people, agents, or organizations
     in the conversation, so SocialNetworkModule can auto-create or update them.
@@ -157,22 +159,32 @@ async def extract_mentioned_entities(
         input_content: User input
         final_output: Agent output
         primary_entity_name: Name of the primary interaction entity (excluded from results)
+        agent_name: The agent's own name (excluded from results to prevent self-extraction)
+        agent_id: The agent's own ID (excluded from results)
 
     Returns:
         List of extracted entities (may be empty if no others are mentioned)
     """
     try:
+        # Build exclusion list for the LLM prompt
+        exclusions = [primary_entity_name or 'unknown']
+        if agent_name:
+            exclusions.append(agent_name)
+        if agent_id:
+            exclusions.append(agent_id)
+        exclusion_str = ", ".join(exclusions)
+
         user_input = f"""Conversation:
 User: {input_content}
 Agent: {final_output}
 
-Primary speaker name (EXCLUDE from results): {primary_entity_name or 'unknown'}
+Names to EXCLUDE from results (these are the conversation participants): {exclusion_str}
 
-Extract all OTHER entities mentioned:"""
+Extract all OTHER social entities mentioned:"""
 
         logger.debug(
             f"[SocialExtraction] LLM input:\n"
-            f"  Primary speaker (excluded): {primary_entity_name or 'unknown'}\n"
+            f"  Excluded names: {exclusion_str}\n"
             f"  User msg preview: {input_content[:200]}...\n"
             f"  Agent msg preview: {final_output[:200]}..."
         )
@@ -190,11 +202,16 @@ Extract all OTHER entities mentioned:"""
             f"{[e.name for e in output.entities]}"
         )
 
-        # Filter out empty or primary entity matches
+        # Build exclusion set for post-filter (case-insensitive)
+        exclude_lower = {n.lower() for n in exclusions if n}
+        if agent_id:
+            exclude_lower.add(agent_id.lower())
+
+        # Filter out empty, primary entity, and self-references
         filtered = [
             e for e in output.entities
             if e.name.strip()
-            and e.name.lower() != primary_entity_name.lower()
+            and e.name.lower() not in exclude_lower
         ]
 
         if filtered:

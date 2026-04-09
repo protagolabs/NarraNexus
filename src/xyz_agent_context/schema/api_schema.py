@@ -138,11 +138,14 @@ class SocialNetworkEntityInfo(BaseModel):
     """Social network entity info"""
     entity_id: str
     entity_name: Optional[str] = None
+    aliases: List[str] = []                    # Cross-system IDs and alternate names
     entity_description: Optional[str] = None
     entity_type: str
+    familiarity: str = "known_of"              # direct | known_of
     identity_info: Dict[str, Any] = {}
     contact_info: Dict[str, Any] = {}
-    tags: List[str] = []
+    tags: List[str] = []                       # Kept for backward compat
+    keywords: List[str] = []                   # Same data as tags, new name
     relationship_strength: float = 0.0
     interaction_count: int = 0
     last_interaction_time: Optional[str] = None
