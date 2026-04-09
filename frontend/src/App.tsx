@@ -7,7 +7,7 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
-import { api } from '@/lib/api';
+import { api, getBaseUrl } from '@/lib/api';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
@@ -59,25 +59,53 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 /** Redirect root based on runtime state */
 function RootRedirect() {
-  const { isLoggedIn } = useConfigStore();
-  const { mode, initialized, setMode, initialize } = useRuntimeStore();
+  const { isLoggedIn, userId } = useConfigStore();
+  const { mode, setMode, initialize } = useRuntimeStore();
+  const [checking, setChecking] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
 
   // Cloud web deployment: force cloud-web mode, skip mode select
   const forceCloud = import.meta.env.VITE_FORCE_CLOUD === 'true';
   if (forceCloud && !mode) {
     setMode('cloud-web');
     initialize();
-    return <Navigate to="/login" replace />;
   }
 
-  if (!initialized && !mode) {
+  useEffect(() => {
+    if (!isLoggedIn || !userId) {
+      setChecking(false);
+      return;
+    }
+    // Check if user has any providers configured
+    const checkProviders = async () => {
+      try {
+        const baseUrl = getBaseUrl();
+        const res = await fetch(`${baseUrl}/api/providers?user_id=${encodeURIComponent(userId)}`);
+        const data = await res.json();
+        if (data.success && data.data?.providers) {
+          const count = Object.keys(data.data.providers).length;
+          setNeedsSetup(count === 0);
+        }
+      } catch {
+        // Backend not ready — don't block, just go to chat
+        setNeedsSetup(false);
+      }
+      setChecking(false);
+    };
+    checkProviders();
+  }, [isLoggedIn, userId]);
+
+  if (!mode) {
     return <Navigate to="/mode-select" replace />;
-  }
-  if (!initialized && mode === 'local') {
-    return <Navigate to="/setup" replace />;
   }
   if (!isLoggedIn) {
     return <Navigate to="/login" replace />;
+  }
+  if (checking) {
+    return <PageFallback />;
+  }
+  if (needsSetup) {
+    return <Navigate to="/setup" replace />;
   }
   return <Navigate to="/app/chat" replace />;
 }
@@ -95,7 +123,6 @@ function App() {
       <Routes>
         {/* Public routes */}
         <Route path="/mode-select" element={<ModeSelectPage />} />
-        <Route path="/setup" element={<SetupPage />} />
         <Route
           path="/login"
           element={<PublicRoute><LoginPage /></PublicRoute>}
@@ -103,6 +130,12 @@ function App() {
         <Route
           path="/register"
           element={<PublicRoute><RegisterPage /></PublicRoute>}
+        />
+
+        {/* Setup — requires login */}
+        <Route
+          path="/setup"
+          element={<ProtectedRoute><SetupPage /></ProtectedRoute>}
         />
 
         {/* Protected app routes */}

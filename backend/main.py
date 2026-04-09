@@ -80,6 +80,7 @@ from backend.routes.jobs import router as jobs_router
 from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
 from backend.routes.providers import router as providers_router
+from backend.routes.inbox import router as inbox_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -87,6 +88,7 @@ app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
+app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 
 
 @app.get("/health")

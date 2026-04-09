@@ -5,7 +5,7 @@
  * @description: Runtime configuration store
  *
  * Manages app mode, user type, and derived feature flags.
- * Persists mode, userType, and initialized state to localStorage.
+ * Persists mode, userType, and cloudApiUrl to localStorage.
  */
 
 import { create } from 'zustand';
@@ -16,26 +16,25 @@ interface RuntimeState {
   mode: AppMode | null;
   userType: UserType;
   features: FeatureFlags;
-  initialized: boolean;
   cloudApiUrl: string;
 
   setMode: (mode: AppMode | null) => void;
   setUserType: (type: UserType) => void;
   setCloudApiUrl: (url: string) => void;
+  /** @deprecated No longer used — kept for backwards compat with persisted state */
   initialize: () => void;
 }
 
 function deriveFeatures(
   mode: AppMode | null,
   userType: UserType,
-  initialized: boolean,
 ): FeatureFlags {
   if (mode === 'local') {
     return {
       canUseClaudeCode: true,
       canUseApiMode: true,
       showSystemPage: true,
-      showSetupWizard: !initialized,
+      showSetupWizard: false,
     };
   }
 
@@ -62,31 +61,26 @@ export const useRuntimeStore = create<RuntimeState>()(
     (set, get) => ({
       mode: null,
       userType: 'internal',
-      initialized: false,
       cloudApiUrl: '',
-      features: deriveFeatures(null, 'internal', false),
+      features: deriveFeatures(null, 'internal'),
 
       setMode: (mode) => {
-        const { userType, initialized } = get();
-        set({ mode, features: deriveFeatures(mode, userType, initialized) });
+        const { userType } = get();
+        set({ mode, features: deriveFeatures(mode, userType) });
       },
 
       setUserType: (userType) => {
-        const { mode, initialized } = get();
+        const { mode } = get();
         set({
           userType,
-          features: deriveFeatures(mode, userType, initialized),
+          features: deriveFeatures(mode, userType),
         });
       },
 
       setCloudApiUrl: (url) => set({ cloudApiUrl: url }),
 
       initialize: () => {
-        const { mode, userType } = get();
-        set({
-          initialized: true,
-          features: deriveFeatures(mode, userType, true),
-        });
+        // No-op — kept so old persisted state with `initialize` calls doesn't crash
       },
     }),
     {
@@ -94,21 +88,18 @@ export const useRuntimeStore = create<RuntimeState>()(
       partialize: (state) => ({
         mode: state.mode,
         userType: state.userType,
-        initialized: state.initialized,
         cloudApiUrl: state.cloudApiUrl,
       }),
       merge: (persisted, current) => {
         const p = persisted as Partial<RuntimeState>;
         const mode = p.mode ?? current.mode;
         const userType = p.userType ?? current.userType;
-        const initialized = p.initialized ?? current.initialized;
         return {
           ...current,
           mode,
           userType,
-          initialized,
           cloudApiUrl: p.cloudApiUrl ?? current.cloudApiUrl,
-          features: deriveFeatures(mode, userType, initialized),
+          features: deriveFeatures(mode, userType),
         };
       },
     },

@@ -2,8 +2,8 @@
  * @file_name: AgentInboxPanel.tsx
  * @author: Bin Liang
  * @date: 2026-03-11
- * @description: Agent Inbox Panel - Displays Matrix channel messages grouped by room
- * Shows room list with members (agent_name, matrix_user_id) and expandable messages
+ * @description: Agent Inbox Panel - Displays MessageBus channel messages grouped by room
+ * Shows room list with members and expandable messages
  */
 
 import { useState, useMemo } from 'react';
@@ -172,7 +172,7 @@ export function AgentInboxPanel() {
               value={rooms.length}
               icon={Hash}
               color="secondary"
-              subtext="Matrix rooms"
+              subtext="Channels"
             />
             <KPICard
               label="Read"
@@ -193,7 +193,7 @@ export function AgentInboxPanel() {
                 <Inbox className="w-7 h-7 text-[var(--accent-primary)]" />
               </div>
               <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">No messages</p>
-              <p className="text-[var(--text-tertiary)] text-xs">Matrix channel messages will appear here</p>
+              <p className="text-[var(--text-tertiary)] text-xs">Channel messages will appear here</p>
             </div>
           </div>
         ) : (

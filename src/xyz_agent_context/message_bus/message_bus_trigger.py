@@ -22,10 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from loguru import logger
 
@@ -105,14 +104,18 @@ class MessageBusTrigger:
 
     async def _poll_cycle(self) -> bool:
         """Run one poll cycle. Returns True if any messages were found."""
-        agents = await self._bus.search_agents(query="", limit=1000)
-        if not agents:
+        # Get all agents that are members of any channel (not just registered ones)
+        rows = await self._bus._db.execute(
+            "SELECT DISTINCT agent_id FROM bus_channel_members", ()
+        )
+        agent_ids = [r["agent_id"] for r in rows] if rows else []
+        if not agent_ids:
             return False
 
         had_messages = False
         tasks = []
-        for agent_info in agents:
-            tasks.append(self._process_agent(agent_info.agent_id))
+        for aid in agent_ids:
+            tasks.append(self._process_agent(aid))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for r in results:
@@ -122,32 +125,41 @@ class MessageBusTrigger:
         return had_messages
 
     def _should_process_message(
-        self, msg: BusMessage, agent_id: str, channel_type: str,
+        self, msg: BusMessage, agent_id: str, channel_type: str, channel_owner: str,
     ) -> bool:
         """Check if a message should trigger processing for an agent.
 
         Rules:
-        - DM (direct) channels: always process
-        - Group channels: only process if agent is mentioned or @everyone
         - Never process own messages
+        - DM (direct) channels: always process
+        - Group channels:
+            * Channel owner (created_by) is ALWAYS activated by any new message
+            * Other members: only process if mentioned or @everyone
         """
         if msg.from_agent == agent_id:
             return False
         if channel_type == "direct":
             return True
+        # Channel owner is always activated, regardless of mentions
+        if agent_id == channel_owner:
+            return True
         if not msg.mentions:
             return False
         return agent_id in msg.mentions or "@everyone" in msg.mentions
 
-    async def _get_channel_type(self, channel_id: str) -> str:
-        """Get channel type (direct/group) from database."""
-        rows = await self._bus._backend.execute(
-            "SELECT channel_type FROM bus_channels WHERE channel_id = ?",
+    async def _get_channel_info(self, channel_id: str) -> tuple[str, str]:
+        """Get (channel_type, created_by) for a channel."""
+        # Use %s — auto-translated for SQLite by AsyncDatabaseClient
+        rows = await self._bus._db.execute(
+            "SELECT channel_type, created_by FROM bus_channels WHERE channel_id = %s",
             (channel_id,),
         )
         if rows:
-            return rows[0].get("channel_type", "group")
-        return "group"
+            return (
+                rows[0].get("channel_type", "group"),
+                rows[0].get("created_by", ""),
+            )
+        return ("group", "")
 
     def _check_rate_limit(self, agent_id: str, channel_id: str) -> bool:
         """Return True if within rate limit, False if exceeded."""
@@ -179,12 +191,12 @@ class MessageBusTrigger:
 
                 handled_any = False
                 for channel_id, messages in by_channel.items():
-                    channel_type = await self._get_channel_type(channel_id)
+                    channel_type, channel_owner = await self._get_channel_info(channel_id)
 
-                    # Mention filtering
+                    # Mention filtering (channel owner is always activated)
                     relevant = [
                         m for m in messages
-                        if self._should_process_message(m, agent_id, channel_type)
+                        if self._should_process_message(m, agent_id, channel_type, channel_owner)
                     ]
                     if not relevant:
                         # Still ack to advance cursor
@@ -369,14 +381,11 @@ class MessageBusTrigger:
 
 
 async def _get_bus() -> LocalMessageBus:
-    """Create and return a LocalMessageBus instance from environment config."""
-    db_url = os.environ.get("DATABASE_URL", "")
-    if not db_url:
-        raise RuntimeError("DATABASE_URL environment variable is required")
+    """Create and return a LocalMessageBus instance from environment config.
 
-    if not db_url.startswith("sqlite"):
-        raise RuntimeError("MessageBusTrigger only supports SQLite. MySQL deployments use Matrix for inter-agent messaging.")
-
+    Works with both SQLite (local) and MySQL (cloud) backends — LocalMessageBus
+    is a misnomer; it's a database-backed bus that runs against any backend.
+    """
     from xyz_agent_context.utils.db_factory import get_db_client
 
     db = await get_db_client()

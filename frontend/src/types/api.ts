@@ -59,7 +59,7 @@ export interface CancelJobResponse extends ApiResponse {
   previous_status?: string;
 }
 
-// Agent Inbox types (Matrix channel messages, room-grouped)
+// Agent Inbox types (MessageBus channels, room-grouped)
 
 export interface MarkReadResponse extends ApiResponse {
   marked_count: number;
@@ -67,7 +67,7 @@ export interface MarkReadResponse extends ApiResponse {
 export interface RoomMember {
   agent_id: string;
   agent_name: string;
-  matrix_user_id: string;
+  matrix_user_id: string;  // compat alias — contains agent_id
 }
 
 export interface RoomMessage {

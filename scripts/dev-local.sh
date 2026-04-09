@@ -25,12 +25,22 @@ if ! command -v tmux &>/dev/null; then
   exit 1
 fi
 
-# --- Kill existing session if running ---
+# --- Kill existing session and orphan processes ---
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "Stopping existing session '$SESSION'..."
   tmux kill-session -t "$SESSION"
-  sleep 1
 fi
+# Always clean up orphan processes from a previous run
+pkill -f "sqlite_proxy_server" 2>/dev/null || true
+pkill -f "uvicorn backend.main:app" 2>/dev/null || true
+pkill -f "module_runner.py mcp" 2>/dev/null || true
+pkill -f "module_poller" 2>/dev/null || true
+pkill -f "job_trigger" 2>/dev/null || true
+pkill -f "message_bus_trigger" 2>/dev/null || true
+for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805; do
+  lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
+done
+sleep 1
 
 # --- Banner ---
 C="\033[36m"; G="\033[32m"; Y="\033[33m"; R="\033[0m"
@@ -66,34 +76,15 @@ status_line() {
   fi
 }
 
-# Draw static parts once
-clear
-echo ""
-echo -e "${C}  ╔═══════════════════════════════════════╗${R}"
-echo -e "${C}  ║       NarraNexus Control Panel        ║${R}"
-echo -e "${C}  ╚═══════════════════════════════════════╝${R}"
-echo ""
-echo -e "  ${Y}Service Status${R}          ${DIM}(updates every 3s)${R}"
-echo ""
-echo "                              "  # Backend
-echo "                              "  # Frontend
-echo "                              "  # MCP
-echo "                              "  # Poller
-echo "                              "  # Jobs
-echo ""
-echo -e "  ${Y}Navigation${R}"
-echo ""
-echo -e "  ${C}Ctrl+B N${R}  Next window       ${C}Ctrl+B 1-6${R}  Jump to service"
-echo -e "  ${C}Ctrl+B P${R}  Previous window   ${C}Ctrl+B D${R}    Detach"
-echo ""
-echo -e "  Press ${RED}q${R} to stop all services and exit"
-
-# Status lines start at row 8 (after header)
-STATUS_ROW=8
-
-while true; do
-  # Move cursor to status area and overwrite
-  printf "\033[${STATUS_ROW};0H"
+draw_panel() {
+  clear
+  echo ""
+  echo -e "${C}  ╔═══════════════════════════════════════╗${R}"
+  echo -e "${C}  ║       NarraNexus Control Panel        ║${R}"
+  echo -e "${C}  ╚═══════════════════════════════════════╝${R}"
+  echo ""
+  echo -e "  ${Y}Service Status${R}          ${DIM}(updates every 3s)${R}"
+  echo ""
   status_line "DB Proxy      :8100" "lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null || ss -tlnp 2>/dev/null | grep -q ':8100 '"
   status_line "Backend API   :8000" "lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null"
   status_line "Frontend      :5173" "lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null || lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null"
@@ -101,19 +92,46 @@ while true; do
   status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
   status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
   status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
+  echo ""
+  echo -e "  ${Y}Navigation${R}"
+  echo ""
+  echo -e "  ${C}Ctrl+B N${R}  Next window       ${C}Ctrl+B 1-7${R}  Jump to service"
+  echo -e "  ${C}Ctrl+B P${R}  Previous window   ${C}Ctrl+B D${R}    Detach"
+  echo ""
+  echo -e "  Press ${RED}q${R} to stop all services and exit"
+}
 
-  # Move cursor below the UI
-  printf "\033[20;0H"
+draw_panel
 
+while true; do
   if read -t 3 -n 1 key 2>/dev/null; then
     if [ "$key" = "q" ] || [ "$key" = "Q" ]; then
-      printf "\033[20;0H"
+      echo ""
       echo -e "  ${Y}Stopping all services...${R}"
+      # Kill all known NarraNexus processes BEFORE killing the tmux session.
+      # tmux kill-session sends SIGHUP but some processes may ignore it.
+      pkill -f "sqlite_proxy_server" 2>/dev/null || true
+      pkill -f "uvicorn backend.main:app" 2>/dev/null || true
+      pkill -f "module_runner.py mcp" 2>/dev/null || true
+      pkill -f "module_poller" 2>/dev/null || true
+      pkill -f "job_trigger" 2>/dev/null || true
+      pkill -f "message_bus_trigger" 2>/dev/null || true
+      # Kill processes on known ports
+      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805; do
+        lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
+      done
+      sleep 1
+      # Force-kill any stragglers
+      for port in 8100 8000 5173 5174 7801; do
+        lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      done
+      echo -e "  ${G}All services stopped.${R}"
+      sleep 1
       tmux kill-session -t "$SESSION" 2>/dev/null
-      echo -e "  ${G}Done.${R}"
       exit 0
     fi
   fi
+  draw_panel
 done
 CTRL
 chmod +x "$CONTROL_SCRIPT"

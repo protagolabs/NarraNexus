@@ -65,7 +65,7 @@ export function ModeSelectPage() {
 
   const handleLocal = () => {
     setMode('local');
-    navigate('/setup');
+    navigate('/login');
   };
 
   const handleCloudSelect = () => {

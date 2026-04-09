@@ -58,6 +58,7 @@ stop_all() {
   pkill -f "module_runner.py mcp" 2>/dev/null || true
   pkill -f "module_poller" 2>/dev/null || true
   pkill -f "job_trigger" 2>/dev/null || true
+  pkill -f "message_bus_trigger" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
 

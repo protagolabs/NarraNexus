@@ -155,7 +155,7 @@ class ApiClient {
     });
   }
 
-  // Agent Inbox API (Matrix channel messages)
+  // Agent Inbox API (MessageBus channel messages)
   async getAgentInbox(agentId: string, isRead?: boolean, limit?: number): Promise<AgentInboxListResponse> {
     let url = `/api/agent-inbox?agent_id=${encodeURIComponent(agentId)}`;
     if (isRead !== undefined) url += `&is_read=${isRead}`;

@@ -71,7 +71,7 @@ def _get_user_id(request: Request, user_id: Optional[str] = None) -> str:
         return request.state.user_id
     if user_id:
         return user_id
-    return "local_user"
+    return ""
 
 
 async def _get_service():

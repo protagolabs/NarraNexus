@@ -727,6 +727,9 @@ def generate_sqlite_ddl(table: TableDef) -> List[str]:
             parts.append("INTEGER PRIMARY KEY AUTOINCREMENT")
         else:
             parts.append(col.sqlite_type)
+            if col.primary_key and not table.primary_key:
+                # Single-column text primary key (non-autoincrement)
+                parts.append("PRIMARY KEY")
             if not col.nullable:
                 parts.append("NOT NULL")
             if col.unique:

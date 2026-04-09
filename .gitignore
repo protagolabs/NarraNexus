@@ -89,3 +89,6 @@ tauri/src-tauri/gen/
 
 # ── Cloud deploy secrets ─────────────────────────────────────────────────
 deploy/.env.cloud
+
+# ── Runtime-generated scripts ────────────────────────────────────────────
+scripts/.control.sh
