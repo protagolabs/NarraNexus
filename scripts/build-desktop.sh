@@ -86,25 +86,38 @@ xattr -cr "$TAURI_DIR" 2>/dev/null || true
 find "$TAURI_DIR" -name '._*' -delete 2>/dev/null || true
 echo "xattr cleaned"
 
-# Step 6: Build + bundle via cargo tauri, but SKIP its internal codesign.
+# Step 6: Build + bundle via cargo tauri. Its internal codesign WILL likely
+# fail because macOS adds xattrs to the binary between the bundle copy and
+# the sign step, and we can't hook in between. We let it try anyway — by
+# then the .app directory is already assembled, so step 7 can clean xattrs
+# and sign manually.
 #
-# Setting APPLE_SIGNING_IDENTITY to empty string tells Tauri to skip signing.
-# We sign manually in step 7 so the codesign call happens IMMEDIATELY after
-# a fresh xattr cleanup — no window for new xattrs to sneak in.
+# APPLE_SIGNING_IDENTITY='-' = ad-hoc. An empty string causes tauri to
+# report "no identity found" and bail before the .app is in a usable state.
 echo ""
-echo "--- Step 6: Building Tauri app (unsigned) ---"
+echo "--- Step 6: Building Tauri app (sign may fail — fallback in step 7) ---"
 cd "$TAURI_DIR"
-export APPLE_SIGNING_IDENTITY=''
+export APPLE_SIGNING_IDENTITY='-'
+
+# Temporarily disable -e so a signing failure here doesn't kill the script.
+# We only need the .app directory to exist for step 7 to succeed.
+set +e
 cargo tauri build
-echo "Tauri build done"
+CARGO_EXIT=$?
+set -e
+if [ $CARGO_EXIT -ne 0 ]; then
+    echo "cargo tauri build exited $CARGO_EXIT (expected if codesign failed)"
+fi
 
 # Step 7: Clean xattrs, manually codesign, build DMG + ZIP.
+# This MUST run regardless of cargo tauri's outcome.
 echo ""
 echo "--- Step 7: Signing & packaging ---"
 APP_DIR="$SRC_TAURI/target/release/bundle/macos/NarraNexus.app"
 if [ ! -d "$APP_DIR" ]; then
     echo "Error: .app bundle not found at $APP_DIR"
-    echo "Build may have failed upstream — check output above."
+    echo "cargo tauri build failed before creating the .app (exit=$CARGO_EXIT)."
+    echo "Check step 6 output for the real error."
     exit 1
 fi
 

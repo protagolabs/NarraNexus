@@ -45,6 +45,22 @@ export function Sidebar() {
     logout();           // configStore: userId, token, role, agents
     clearChat();        // chatStore: per-agent chat history
     clearPreload();     // preloadStore: cached jobs, awareness, costs, etc.
+
+    // Also wipe auxiliary localStorage keys that are written directly
+    // (not through Zustand persist). Currently just lastSeenAwarenessTime:*
+    // but kept as a pattern scan so future per-agent keys are picked up.
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('lastSeenAwarenessTime:')) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // ignore storage exceptions (Safari private mode, etc.)
+    }
   };
 
   const handleSwitchMode = () => {
@@ -52,14 +68,24 @@ export function Sidebar() {
     setCloudApiUrl('');   // forget the cloud server URL
     setMode(null);
     setShowModePopup(false);
-    navigate('/mode-select');
+
+    // Hard reload on mode switch — bypassing React Router navigate() here
+    // is deliberate. Soft-navigating keeps React component state, pending
+    // fetches, closure-captured store snapshots, and any in-memory caches
+    // from the previous mode alive across the transition, which is what
+    // caused cloud data to bleed into a subsequent local session. A full
+    // document reload guarantees a clean slate: React tree is torn down,
+    // all fetches abort, modules re-initialize, every store starts from
+    // its persisted-or-default state.
+    window.location.href = '/mode-select';
   };
 
   const handleLogout = () => {
-    if (confirm('Are you sure you want to logout?')) {
-      wipeAllSessionData();
-      navigate('/login');
-    }
+    if (!confirm('Are you sure you want to logout?')) return;
+    wipeAllSessionData();
+    // Same rationale as handleSwitchMode — full reload prevents stale
+    // session data from surviving into the next login.
+    window.location.href = '/login';
   };
 
   const handleClearHistory = async () => {
