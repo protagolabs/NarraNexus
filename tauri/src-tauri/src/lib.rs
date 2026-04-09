@@ -38,6 +38,14 @@ pub fn run() {
                 format!("sqlite:///{}", db_path.display()),
             );
 
+            // Point every child process at the SQLite proxy so they go through
+            // one arbiter instead of fighting over the raw DB file. Mirrors
+            // `scripts/dev-local.sh`'s ENV_CMD. Without this the agent loop
+            // hangs the first time chat triggers multi-process DB writes.
+            // Keep in sync with SQLite Proxy port in state.rs bundled_services.
+            std::env::set_var("SQLITE_PROXY_URL", "http://localhost:8100");
+            std::env::set_var("SQLITE_PROXY_PORT", "8100");
+
             tray::create_tray(app)?;
 
             // Auto-start Python services in local mode (non-blocking)

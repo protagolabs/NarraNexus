@@ -64,26 +64,37 @@ impl ProcessManager {
             .clone()
             .unwrap_or_else(|| project_root.to_string());
 
-        // Explicitly propagate DATABASE_URL to the child process.
+        // Explicitly propagate DATABASE_URL / SQLITE_PROXY_URL / SQLITE_PROXY_PORT
+        // to the child process.
         //
-        // Tauri's lib.rs setup() calls std::env::set_var("DATABASE_URL", ...)
-        // to point the bundled Python backend at the per-user SQLite file.
-        // However, std::env::set_var is NOT thread-safe on macOS — the tokio
-        // thread that spawns this subprocess may not observe the write, and
-        // the child then inherits an empty DATABASE_URL. The Python side
-        // historically treated empty DATABASE_URL as "cloud mode", which
-        // made the bundled desktop app demand passwords in local mode.
+        // Tauri's lib.rs setup() calls std::env::set_var(...) to point the
+        // bundled Python backend at the per-user SQLite file and to tell
+        // every service to talk to the SQLite proxy. However,
+        // std::env::set_var is NOT thread-safe on macOS — the tokio thread
+        // that spawns this subprocess may not observe the write, and the
+        // child then inherits an empty value. The Python side historically
+        // treated empty DATABASE_URL as "cloud mode", which made the bundled
+        // desktop app demand passwords in local mode.
         //
-        // Reading the var here and passing it via .env() bypasses the
+        // Reading each var here and passing it via .env() bypasses the
         // implicit inheritance path and makes the intent fully explicit.
-        // If the var is unset here too, we pass an empty string and rely
-        // on the Python-side default (empty → local).
+        // If a var is unset here too, we pass an empty string and rely on
+        // the Python-side defaults.
+        //
+        // SQLITE_PROXY_URL is especially load-bearing: without it, every
+        // child process (backend, mcp, poller, triggers) falls back to
+        // opening the SQLite file directly, which causes multi-process lock
+        // contention and hangs the agent loop the moment chat starts.
         let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
+        let proxy_url = std::env::var("SQLITE_PROXY_URL").unwrap_or_default();
+        let proxy_port = std::env::var("SQLITE_PROXY_PORT").unwrap_or_default();
 
         let child = Command::new(&def.command)
             .args(&def.args)
             .current_dir(&cwd)
             .env("DATABASE_URL", &db_url)
+            .env("SQLITE_PROXY_URL", &proxy_url)
+            .env("SQLITE_PROXY_PORT", &proxy_port)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -120,6 +131,17 @@ impl ProcessManager {
 
         for def in &sorted_defs {
             self.start_service(def, project_root).await?;
+            // Mirror `scripts/dev-local.sh`'s `sleep 3` after
+            // sqlite_proxy_server: give a service time to come up before
+            // dependents start, when requested via ServiceDef.
+            if let Some(delay_ms) = def.startup_delay_ms {
+                log::info!(
+                    "Waiting {}ms for {} to become ready before starting next service",
+                    delay_ms,
+                    def.id
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
         }
         Ok(())
     }

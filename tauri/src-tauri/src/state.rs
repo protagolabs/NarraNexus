@@ -51,6 +51,12 @@ pub struct ServiceDef {
     pub port: Option<u16>,
     pub health_url: Option<String>,
     pub order: u32,
+    /// Optional delay (ms) to wait AFTER spawning this service before starting
+    /// the next one. Used to mirror `scripts/dev-local.sh`'s explicit
+    /// `sleep 3` after `sqlite_proxy_server`, which every downstream service
+    /// depends on.
+    #[serde(default)]
+    pub startup_delay_ms: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -138,8 +144,32 @@ impl ServiceDef {
 
     /// Services when running from a packaged .app bundle.
     /// Uses the standalone Python interpreter directly (no uv).
+    ///
+    /// MUST stay in lockstep with `scripts/dev-local.sh` (CLAUDE.md iron rule #7):
+    /// the dev script and the bundled app run the exact same set of services
+    /// in the exact same order.
     fn bundled_services(project_root: &str, python_path: &str) -> Vec<ServiceDef> {
         vec![
+            // Order 0: SQLite Proxy — MUST start first. All other services
+            // depend on it for cross-process DB serialization (without it
+            // backend/mcp/poller fight over the same SQLite file lock and
+            // chats hang in the agent loop).
+            ServiceDef {
+                id: "sqlite_proxy".to_string(),
+                label: "SQLite Proxy".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.utils.sqlite_proxy_server".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: Some(8100),
+                health_url: None,
+                order: 0,
+                // Give uvicorn a moment to bind :8100 before the dependents
+                // start. Mirrors `sleep 3` in scripts/dev-local.sh.
+                startup_delay_ms: Some(3000),
+            },
             ServiceDef {
                 id: "backend".to_string(),
                 label: "Backend API".to_string(),
@@ -155,6 +185,7 @@ impl ServiceDef {
                 port: Some(8000),
                 health_url: Some("/docs".to_string()),
                 order: 1,
+                startup_delay_ms: None,
             },
             ServiceDef {
                 id: "mcp".to_string(),
@@ -168,6 +199,7 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 2,
+                startup_delay_ms: None,
             },
             ServiceDef {
                 id: "poller".to_string(),
@@ -181,13 +213,60 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 3,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "job_trigger".to_string(),
+                label: "Job Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "src/xyz_agent_context/module/job_module/job_trigger.py".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 4,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "message_bus_trigger".to_string(),
+                label: "Bus Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.message_bus.message_bus_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 5,
+                startup_delay_ms: None,
             },
         ]
     }
 
     /// Services during development — uses `uv run`.
+    ///
+    /// MUST stay in lockstep with `bundled_services` and `scripts/dev-local.sh`.
     fn dev_services(project_root: &str) -> Vec<ServiceDef> {
         vec![
+            // Order 0: SQLite Proxy — see bundled_services for rationale.
+            ServiceDef {
+                id: "sqlite_proxy".to_string(),
+                label: "SQLite Proxy".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.utils.sqlite_proxy_server".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: Some(8100),
+                health_url: None,
+                order: 0,
+                startup_delay_ms: Some(3000),
+            },
             ServiceDef {
                 id: "backend".to_string(),
                 label: "Backend API".to_string(),
@@ -203,6 +282,7 @@ impl ServiceDef {
                 port: Some(8000),
                 health_url: Some("/docs".to_string()),
                 order: 1,
+                startup_delay_ms: None,
             },
             ServiceDef {
                 id: "mcp".to_string(),
@@ -218,6 +298,7 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 2,
+                startup_delay_ms: None,
             },
             ServiceDef {
                 id: "poller".to_string(),
@@ -233,6 +314,38 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 3,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "job_trigger".to_string(),
+                label: "Job Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "src/xyz_agent_context/module/job_module/job_trigger.py".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 4,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "message_bus_trigger".to_string(),
+                label: "Bus Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.message_bus.message_bus_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 5,
+                startup_delay_ms: None,
             },
         ]
     }
