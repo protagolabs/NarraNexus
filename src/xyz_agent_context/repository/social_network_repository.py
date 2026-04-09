@@ -46,7 +46,7 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
     id_field = "id"
 
     # JSON fields (2026-01-15 Feature 2.2.1: added related_job_ids; Persona: added extra_data; Feature 2.3: added embedding)
-    _json_fields = {"identity_info", "contact_info", "tags", "expertise_domains", "related_job_ids", "extra_data", "embedding"}
+    _json_fields = {"identity_info", "contact_info", "tags", "expertise_domains", "related_job_ids", "extra_data", "embedding", "aliases"}
 
     async def get_entity(
         self,
@@ -104,25 +104,29 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
         entity_type: str,
         instance_id: str,
         entity_name: Optional[str] = None,
+        aliases: Optional[List[str]] = None,
         entity_description: Optional[str] = None,
         identity_info: Optional[Dict[str, Any]] = None,
         contact_info: Optional[Dict[str, Any]] = None,
-        tags: Optional[List[str]] = None,
-        expertise_domains: Optional[List[str]] = None
+        keywords: Optional[List[str]] = None,
+        expertise_domains: Optional[List[str]] = None,
+        familiarity: str = "known_of",
     ) -> int:
         """
         Add a social network entity
 
         Args:
             entity_id: Entity ID
-            entity_type: Entity type (user | agent)
+            entity_type: Entity type (user | agent | group)
             instance_id: Instance ID (SocialNetworkModule's instance_id)
             entity_name: Entity name
+            aliases: Cross-system IDs and alternate names
             entity_description: Entity description
             identity_info: Identity information dictionary
             contact_info: Contact information dictionary
-            tags: Tag list
+            keywords: Keyword list (stored as 'tags' column in DB)
             expertise_domains: Expertise domain list
+            familiarity: Familiarity level (direct | known_of)
 
         Returns:
             Inserted record ID
@@ -134,11 +138,13 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
             entity_type=entity_type,
             instance_id=instance_id,
             entity_name=entity_name,
+            aliases=aliases or [],
             entity_description=entity_description,
             identity_info=identity_info or {},
             contact_info=contact_info or {},
-            tags=tags or [],
+            keywords=keywords or [],
             expertise_domains=expertise_domains or [],
+            familiarity=familiarity,
             relationship_strength=0.0,
             interaction_count=0
         )
@@ -364,6 +370,7 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
                   entity_name LIKE %s
                   OR entity_description LIKE %s
                   OR tags LIKE %s
+                  OR aliases LIKE %s
               )
             ORDER BY interaction_count DESC, updated_at DESC
             LIMIT %s
@@ -371,7 +378,52 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
 
         results = await self._db.execute(
             query,
-            params=(instance_id, search_pattern, search_pattern, search_pattern, limit),
+            params=(instance_id, search_pattern, search_pattern, search_pattern, search_pattern, limit),
+            fetch=True
+        )
+
+        if not results:
+            return []
+
+        return [self._row_to_entity(row) for row in results]
+
+    async def search_by_name_or_alias(
+        self,
+        instance_id: str,
+        name: str,
+        limit: int = 5
+    ) -> List[SocialNetworkEntity]:
+        """
+        Search entities by exact name match or alias containment.
+
+        Used by the dedup pipeline to find existing entities that may match
+        a newly extracted entity by name or cross-system ID.
+
+        Args:
+            instance_id: Instance ID
+            name: Name or alias to search for
+            limit: Result count limit
+
+        Returns:
+            List of matching SocialNetworkEntity
+        """
+        logger.debug(f"    → SocialNetworkRepository.search_by_name_or_alias({instance_id}, '{name}')")
+
+        # JSON_CONTAINS checks if the aliases array contains the exact string
+        query = f"""
+            SELECT * FROM {self.table_name}
+            WHERE instance_id = %s
+              AND (
+                  LOWER(entity_name) = LOWER(%s)
+                  OR JSON_CONTAINS(aliases, %s)
+              )
+            ORDER BY interaction_count DESC
+            LIMIT %s
+        """
+
+        results = await self._db.execute(
+            query,
+            params=(instance_id, name, json.dumps(name), limit),
             fetch=True
         )
 
@@ -534,11 +586,12 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
         # Parse JSON fields
         identity_info = self._parse_json_field(row.get("identity_info"), {})
         contact_info = self._parse_json_field(row.get("contact_info"), {})
-        tags = self._parse_json_field(row.get("tags"), [])
+        keywords = self._parse_json_field(row.get("tags"), [])  # DB column 'tags' → Python 'keywords'
+        aliases = self._parse_json_field(row.get("aliases"), [])
         expertise_domains = self._parse_json_field(row.get("expertise_domains"), [])
-        related_job_ids = self._parse_json_field(row.get("related_job_ids"), [])  # Feature 2.2.1
+        related_job_ids = self._parse_json_field(row.get("related_job_ids"), [])
         extra_data = self._parse_json_field(row.get("extra_data"), {})
-        embedding = self._parse_json_field(row.get("embedding"), None)  # Feature 2.3
+        embedding = self._parse_json_field(row.get("embedding"), None)
 
         return SocialNetworkEntity(
             id=row.get("id"),
@@ -546,16 +599,18 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
             entity_id=row["entity_id"],
             entity_type=row["entity_type"],
             entity_name=row.get("entity_name"),
+            aliases=aliases,
             entity_description=row.get("entity_description"),
             identity_info=identity_info,
             contact_info=contact_info,
+            familiarity=row.get("familiarity") or "known_of",
             relationship_strength=row.get("relationship_strength", 0.0),
             interaction_count=row.get("interaction_count", 0),
             last_interaction_time=row.get("last_interaction_time"),
-            tags=tags,
+            keywords=keywords,
             expertise_domains=expertise_domains,
-            related_job_ids=related_job_ids,  # Feature 2.2.1
-            embedding=embedding,  # Feature 2.3
+            related_job_ids=related_job_ids,
+            embedding=embedding,
             persona=row.get("persona"),
             extra_data=extra_data,
             created_at=row.get("created_at"),
@@ -577,16 +632,18 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
             "entity_id": entity.entity_id,
             "entity_type": entity.entity_type,
             "entity_name": entity.entity_name,
+            "aliases": json.dumps(entity.aliases, ensure_ascii=False),
             "entity_description": entity.entity_description,
             "identity_info": json.dumps(entity.identity_info, ensure_ascii=False),
             "contact_info": json.dumps(entity.contact_info, ensure_ascii=False),
+            "familiarity": entity.familiarity,
             "relationship_strength": entity.relationship_strength,
             "interaction_count": entity.interaction_count,
             "last_interaction_time": entity.last_interaction_time,
-            "tags": json.dumps(entity.tags, ensure_ascii=False),
+            "tags": json.dumps(entity.keywords, ensure_ascii=False),  # Python 'keywords' → DB column 'tags'
             "expertise_domains": json.dumps(entity.expertise_domains, ensure_ascii=False),
-            "related_job_ids": json.dumps(entity.related_job_ids, ensure_ascii=False),  # Feature 2.2.1
-            "embedding": json.dumps(entity.embedding, ensure_ascii=False) if entity.embedding else None,  # Feature 2.3
+            "related_job_ids": json.dumps(entity.related_job_ids, ensure_ascii=False),
+            "embedding": json.dumps(entity.embedding, ensure_ascii=False) if entity.embedding else None,
             "persona": entity.persona,
             "extra_data": json.dumps(entity.extra_data, ensure_ascii=False),
         }

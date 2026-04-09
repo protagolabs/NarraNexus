@@ -13,6 +13,7 @@ Per the design document:
   3. Automatically load relevant information at the right time
 """
 
+import asyncio
 from typing import Optional, Dict, Any, List
 from loguru import logger
 from datetime import datetime
@@ -182,7 +183,7 @@ class SocialNetworkModule(XYZBaseModule):
                         "entity_name": entity.entity_name,
                         "entity_description": entity.entity_description,
                         "identity_info": entity.identity_info or {},
-                        "tags": entity.tags or [],
+                        "keywords": entity.keywords or [],
                         "interaction_count": entity.interaction_count,
                         "relationship_strength": entity.relationship_strength,
                         "last_interaction_time": entity.last_interaction_time.isoformat() if entity.last_interaction_time else None
@@ -192,7 +193,7 @@ class SocialNetworkModule(XYZBaseModule):
                     display_text = f"""**You already know this user:**
                         - Name: {entity.entity_name}
                         - Description: {entity.entity_description or 'N/A'}
-                        - Tags: {', '.join(entity.tags) if entity.tags else 'None'}
+                        - Keywords: {', '.join(entity.keywords) if entity.keywords else 'None'}
                         - Previous interactions: {entity.interaction_count}
                         - Last contact: {entity.last_interaction_time.strftime('%Y-%m-%d') if entity.last_interaction_time else 'N/A'}
 
@@ -242,7 +243,7 @@ Adapt your communication style according to this persona."""
                             "entity_id": e.entity_id,
                             "entity_name": e.entity_name,
                             "entity_description": e.entity_description or "",
-                            "tags": e.tags or [],
+                            "keywords": e.keywords or [],
                             "contact_info": e.contact_info or {},
                         }
                         for e in agent_entities
@@ -315,54 +316,50 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
 
             logger.debug(f"            Processing hook for user_id: {user_id}, instance_id: {instance_id}")
 
-            # 0. Check if entity exists
+            # 0. Check if entity exists — single fetch, reused throughout
             repo = self._get_repo()
             entity = await repo.get_entity(
                 entity_id=user_id,
                 instance_id=instance_id
             )
 
-            # If entity does not exist, create a minimal entity
-            # This way conversation history can be recorded even if the user hasn't introduced themselves
             if not entity:
-                logger.info(f"            Entity {user_id} not found, creating minimal entity to record conversation")
-
+                logger.info(f"            Entity {user_id} not found, creating minimal entity")
                 try:
                     await repo.add_entity(
                         entity_id=user_id,
                         entity_type="user",
                         instance_id=instance_id,
-                        entity_name=user_id,  # Temporarily use user_id as name
-                        entity_description="",  # Empty description, awaiting population
-                        tags=[]  # Empty tags
+                        entity_name=user_id,
+                        entity_description="",
+                        familiarity="direct",
                     )
                     logger.info(f"            ✓ Created minimal entity for {user_id}")
+                    entity = await repo.get_entity(entity_id=user_id, instance_id=instance_id)
                 except Exception as e:
                     logger.error(f"            ❌ Failed to create entity: {e}")
                     return
 
-            # 1. Call LLM to summarize this round of conversation
-            new_summary = await summarize_new_entity_info(input_content, final_output)
+            primary_name = entity.entity_name or user_id if entity else user_id
 
-            if not new_summary or new_summary.strip() == "":
-                logger.debug("            No new information to add")
-                await update_interaction_stats(repo, user_id, instance_id)
-                return
+            # 1. Run independent LLM calls in parallel: summary + batch extraction
+            new_summary, mentioned = await asyncio.gather(
+                summarize_new_entity_info(input_content, final_output),
+                extract_mentioned_entities(input_content, final_output, primary_name),
+            )
 
-            logger.info(f"            New summary generated: {new_summary[:100]}...")
+            # 2. Process summary results
+            if new_summary and new_summary.strip():
+                logger.info(f"            New summary generated: {new_summary[:100]}...")
+                await append_to_entity_description(repo, user_id, instance_id, new_summary)
+                await update_entity_embedding(repo, user_id, instance_id)
 
-            # 2. Append to entity_description
-            await append_to_entity_description(repo, user_id, instance_id, new_summary)
-
-            # 3. Update embedding (based on latest entity_description + tags)
-            await update_entity_embedding(repo, user_id, instance_id)
-
-            # 4. Update statistics
+            # 3. Update interaction stats (always)
             await update_interaction_stats(repo, user_id, instance_id)
 
-            # 5. Check and update Persona (if needed)
+            # 4. Persona update (conditional) — re-fetch entity to get updated description
             entity = await repo.get_entity(entity_id=user_id, instance_id=instance_id)
-            if entity and should_update_persona(entity, final_output):
+            if entity and should_update_persona(entity, input_content):
                 logger.info(f"            Updating persona for {user_id}...")
 
                 awareness = ""
@@ -375,94 +372,18 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                             job_info_str = str(related_jobs)
 
                 recent_conversation = f"User: {input_content}\nAgent: {final_output}"
-
                 new_persona = await infer_persona(
-                    entity=entity,
-                    awareness=awareness,
-                    job_info=job_info_str,
-                    recent_conversation=recent_conversation
+                    entity=entity, awareness=awareness,
+                    job_info=job_info_str, recent_conversation=recent_conversation
                 )
-
                 if new_persona:
                     await update_entity_persona(repo, user_id, instance_id, new_persona)
 
-            logger.success(f"            ✅ Entity description updated for {user_id}")
+            logger.success(f"            ✅ Entity updated for {user_id}")
 
-            # 6. Batch extraction: detect other entities mentioned in conversation
+            # 5. Process mentioned entities (dedup pipeline)
             try:
-                primary_name = ""
-                entity = await repo.get_entity(entity_id=user_id, instance_id=instance_id)
-                if entity:
-                    primary_name = entity.entity_name or user_id
-
-                mentioned = await extract_mentioned_entities(
-                    input_content=input_content,
-                    final_output=final_output,
-                    primary_entity_name=primary_name,
-                )
-
-                for mentioned_entity in mentioned:
-                    # Generate a stable entity_id from name
-                    entity_id_candidate = f"entity_{mentioned_entity.name.lower().replace(' ', '_')}"
-                    existing = await repo.get_entity(
-                        entity_id=entity_id_candidate,
-                        instance_id=instance_id,
-                    )
-
-                    # Fuzzy fallback: keyword search if exact ID match fails
-                    matched_entity_id = entity_id_candidate
-                    if not existing:
-                        fuzzy_results = await repo.keyword_search(
-                            instance_id=instance_id,
-                            keyword=mentioned_entity.name,
-                            limit=3,
-                        )
-                        if fuzzy_results:
-                            # Pick the best match (highest interaction count)
-                            existing = max(fuzzy_results, key=lambda e: e.interaction_count or 0)
-                            matched_entity_id = existing.entity_id
-                            logger.info(
-                                f"            Fuzzy matched '{mentioned_entity.name}' "
-                                f"to existing entity: {existing.entity_name} ({matched_entity_id})"
-                            )
-
-                    if existing:
-                        # Append to description
-                        if mentioned_entity.summary:
-                            await append_to_entity_description(
-                                repo, matched_entity_id, instance_id, mentioned_entity.summary
-                            )
-                        # Merge tags (conservative: skip duplicates, cap total)
-                        if mentioned_entity.tags:
-                            existing_tags = list(existing.tags or [])
-                            existing_lower = {t.lower() for t in existing_tags}
-                            # Only add genuinely new tags (case-insensitive dedup)
-                            for new_tag in mentioned_entity.tags:
-                                if new_tag.lower() not in existing_lower:
-                                    existing_tags.append(new_tag)
-                                    existing_lower.add(new_tag.lower())
-                            # Cap at 10 tags max per entity
-                            if len(existing_tags) > 10:
-                                existing_tags = existing_tags[:10]
-                            await repo.update_entity_info(
-                                entity_id=matched_entity_id,
-                                instance_id=instance_id,
-                                updates={"tags": existing_tags},
-                            )
-                    else:
-                        # Create new entity
-                        await repo.add_entity(
-                            entity_id=entity_id_candidate,
-                            entity_type=mentioned_entity.entity_type,
-                            instance_id=instance_id,
-                            entity_name=mentioned_entity.name,
-                            entity_description=mentioned_entity.summary,
-                            tags=mentioned_entity.tags,
-                        )
-                        logger.info(
-                            f"            Auto-created entity from conversation: "
-                            f"{mentioned_entity.name} ({entity_id_candidate})"
-                        )
+                await self._process_mentioned_entities(repo, instance_id, mentioned)
             except Exception as e:
                 logger.warning(f"            Batch entity extraction failed (non-critical): {e}")
 
@@ -471,6 +392,143 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
             logger.exception(e)
 
         logger.debug("          ← SocialNetworkModule.hook_after_event_execution() completed")
+
+    async def _process_mentioned_entities(self, repo, instance_id: str, mentioned: list) -> None:
+        """
+        3-stage dedup pipeline for entities extracted from conversation.
+
+        For each mentioned entity:
+          Stage 1: Exact name+alias match → if 1 match, UPDATE
+          Stage 2: Vector similarity search (threshold + topK) → if candidates, go to Stage 3
+          Stage 3: LLM merge decision → MERGE or CREATE_NEW
+        """
+        from xyz_agent_context.module.social_network_module._entity_updater import (
+            append_to_entity_description,
+            decide_merge_or_create,
+            DEDUP_SIMILARITY_THRESHOLD,
+            DEDUP_TOP_K,
+        )
+
+        for mentioned_entity in mentioned:
+            try:
+                entity_id_candidate = f"entity_{mentioned_entity.name.lower().replace(' ', '_')}"
+                candidate_aliases = getattr(mentioned_entity, 'aliases', [])
+                candidate_familiarity = getattr(mentioned_entity, 'familiarity', 'known_of')
+
+                # ── STAGE 1: Exact name+alias match ──
+                matches = await repo.search_by_name_or_alias(
+                    instance_id=instance_id,
+                    name=mentioned_entity.name,
+                )
+                for alias in candidate_aliases:
+                    alias_matches = await repo.search_by_name_or_alias(
+                        instance_id=instance_id,
+                        name=alias,
+                    )
+                    seen_ids = {m.entity_id for m in matches}
+                    for m in alias_matches:
+                        if m.entity_id not in seen_ids:
+                            matches.append(m)
+                            seen_ids.add(m.entity_id)
+
+                existing = None
+                if len(matches) == 1:
+                    # Single exact match — high confidence, skip LLM
+                    existing = matches[0]
+                    logger.info(
+                        f"            Stage 1 exact match: '{mentioned_entity.name}' "
+                        f"→ {existing.entity_name} ({existing.entity_id})"
+                    )
+                elif len(matches) > 1:
+                    # Multiple matches — LLM decides (Stage 3)
+                    for candidate in matches:
+                        decision = await decide_merge_or_create(
+                            mentioned_entity.name, mentioned_entity.summary,
+                            candidate_aliases, candidate,
+                        )
+                        if decision == "MERGE":
+                            existing = candidate
+                            break
+
+                # ── STAGE 2: Vector similarity search ──
+                if not existing:
+                    try:
+                        embed_text = f"{mentioned_entity.name} {mentioned_entity.summary}".strip()
+                        if embed_text:
+                            query_embedding = await get_embedding(embed_text)
+                            sim_results = await repo.semantic_search(
+                                instance_id=instance_id,
+                                query_embedding=query_embedding,
+                                limit=DEDUP_TOP_K,
+                                min_similarity=DEDUP_SIMILARITY_THRESHOLD,
+                            )
+                            if sim_results:
+                                # ── STAGE 3: LLM merge decision ──
+                                for candidate_entity, score in sim_results:
+                                    logger.info(
+                                        f"            Stage 2 candidate: '{candidate_entity.entity_name}' "
+                                        f"(similarity={score:.3f})"
+                                    )
+                                    decision = await decide_merge_or_create(
+                                        mentioned_entity.name, mentioned_entity.summary,
+                                        candidate_aliases, candidate_entity,
+                                    )
+                                    if decision == "MERGE":
+                                        existing = candidate_entity
+                                        break
+                    except Exception as e:
+                        logger.warning(f"            Stage 2 vector search failed: {e}")
+
+                # ── UPDATE existing or CREATE NEW ──
+                if existing:
+                    matched_id = existing.entity_id
+                    if mentioned_entity.summary:
+                        await append_to_entity_description(
+                            repo, matched_id, instance_id, mentioned_entity.summary
+                        )
+                    # Merge keywords
+                    if mentioned_entity.keywords:
+                        existing_kws = list(existing.keywords or [])
+                        existing_lower = {k.lower() for k in existing_kws}
+                        for kw in mentioned_entity.keywords:
+                            if kw.lower() not in existing_lower:
+                                existing_kws.append(kw)
+                                existing_lower.add(kw.lower())
+                        if len(existing_kws) > 10:
+                            existing_kws = existing_kws[:10]
+                        await repo.update_entity_info(
+                            entity_id=matched_id, instance_id=instance_id,
+                            updates={"tags": existing_kws},
+                        )
+                    # Merge aliases
+                    if candidate_aliases:
+                        existing_aliases = list(existing.aliases or [])
+                        existing_alias_lower = {a.lower() for a in existing_aliases}
+                        for a in candidate_aliases:
+                            if a.lower() not in existing_alias_lower:
+                                existing_aliases.append(a)
+                                existing_alias_lower.add(a.lower())
+                        await repo.update_entity_info(
+                            entity_id=matched_id, instance_id=instance_id,
+                            updates={"aliases": existing_aliases},
+                        )
+                else:
+                    await repo.add_entity(
+                        entity_id=entity_id_candidate,
+                        entity_type=mentioned_entity.entity_type,
+                        instance_id=instance_id,
+                        entity_name=mentioned_entity.name,
+                        entity_description=mentioned_entity.summary,
+                        keywords=mentioned_entity.keywords,
+                        aliases=candidate_aliases,
+                        familiarity=candidate_familiarity,
+                    )
+                    logger.info(
+                        f"            Created new entity: "
+                        f"{mentioned_entity.name} ({entity_id_candidate})"
+                    )
+            except Exception as e:
+                logger.warning(f"            Failed to process entity '{mentioned_entity.name}': {e}")
 
     # ============================================================================= MCP Server
 
@@ -588,7 +646,7 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
             "entity_description": entity.entity_description,
             "identity_info": entity.identity_info or {},
             "contact_info": entity.contact_info or {},
-            "tags": entity.tags or [],
+            "keywords": entity.keywords or [],
             "interaction_count": entity.interaction_count,
             "relationship_strength": entity.relationship_strength,
         }
@@ -612,11 +670,11 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
         """
         # Auto: auto-detect type
         if search_type == "auto":
-            # If starts with "user_" or "entity_", treat as entity_id
-            if search_keyword.startswith(("user_", "entity_")):
+            # If starts with "user_", "entity_", or "agent_", treat as entity_id
+            if search_keyword.startswith(("user_", "entity_", "agent_")):
                 search_type = "exact_id"
             else:
-                search_type = "tags"
+                search_type = "keyword"  # Search by name + description + keywords + aliases
 
         # Exact ID: exact lookup
         repo = self._get_repo()
@@ -632,7 +690,7 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                     "entity_name": entity.entity_name,
                     "entity_description": entity.entity_description,
                     "identity_info": entity.identity_info or {},
-                    "tags": entity.tags or [],
+                    "keywords": entity.keywords or [],
                     "contact_info": entity.contact_info or {},
                     "relationship_strength": entity.relationship_strength,
                     "interaction_count": entity.interaction_count,
@@ -652,9 +710,29 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                     "entity_id": e.entity_id,
                     "entity_name": e.entity_name,
                     "entity_description": e.entity_description,
-                    "tags": e.tags or [],
+                    "keywords": e.keywords or [],
                     "contact_info": e.contact_info or {},
                     "relationship_strength": e.relationship_strength,
+                }
+                for e in entities
+            ]
+
+        # Keyword: search by name, description, keywords, aliases
+        if search_type == "keyword":
+            entities = await repo.keyword_search(
+                instance_id=instance_id,
+                keyword=search_keyword,
+                limit=10,
+            )
+            return [
+                {
+                    "entity_id": e.entity_id,
+                    "entity_name": e.entity_name,
+                    "entity_description": e.entity_description,
+                    "keywords": e.keywords or [],
+                    "contact_info": e.contact_info or {},
+                    "relationship_strength": e.relationship_strength,
+                    "interaction_count": e.interaction_count,
                 }
                 for e in entities
             ]
@@ -677,7 +755,7 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                     "entity_id": e.entity_id,
                     "entity_name": e.entity_name,
                     "entity_description": e.entity_description,
-                    "tags": e.tags or [],
+                    "keywords": e.keywords or [],
                     "contact_info": e.contact_info or {},
                     "relationship_strength": e.relationship_strength,
                     "similarity_score": round(score, 3),  # Semantic similarity score
@@ -720,7 +798,7 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
             if filter_tags:
                 entities = [
                     e for e in entities
-                    if e.tags and any(tag in e.tags for tag in filter_tags)
+                    if e.keywords and any(tag in e.keywords for tag in filter_tags)
                 ]
 
             # Sort
@@ -811,9 +889,12 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                         new_contact = updates["contact_info"]
                         updates["contact_info"] = merge_contact_info(existing_contact, new_contact)
 
-                    # Merge tags (case-insensitive dedup, capped at 10)
+                    # Merge keywords (case-insensitive dedup, capped at 10)
+                    # Accept both "tags" and "keywords" keys for backward compat
+                    if "keywords" in updates:
+                        updates["tags"] = updates.pop("keywords")
                     if "tags" in updates:
-                        merged = list(existing_entity.tags or [])
+                        merged = list(existing_entity.keywords or [])
                         existing_lower = {t.lower() for t in merged}
                         for new_tag in updates["tags"]:
                             if new_tag.lower() not in existing_lower:
@@ -861,7 +942,8 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                 raw_contact = updates.pop("contact_info", {})
                 from xyz_agent_context.channel.channel_contact_utils import normalize_contact_info
                 contact_info = normalize_contact_info(raw_contact)
-                tags = updates.pop("tags", [])
+                # Accept both "tags" and "keywords" for backward compat
+                keywords = updates.pop("keywords", None) or updates.pop("tags", [])
 
                 await repo.add_entity(
                     entity_id=entity_id,
@@ -871,7 +953,7 @@ Run: `uv run python src/xyz_agent_context/utils/database_table_management/create
                     entity_description="",  # Empty description, awaiting hook population
                     identity_info=identity_info,
                     contact_info=contact_info,
-                    tags=tags
+                    keywords=keywords
                 )
 
                 return {

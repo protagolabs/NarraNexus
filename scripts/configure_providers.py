@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -147,19 +148,32 @@ def cmd_claude_status() -> None:
     if shutil.which("claude"):
         result["installed"] = True
 
-    creds_file = Path.home() / ".claude" / ".credentials.json"
-    if creds_file.is_file():
+        # Preferred: use `claude auth status` (Claude Code v2.x+)
         try:
-            data = json.loads(creds_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                for key in ("accessToken", "oauthToken", "claudeAiOauth"):
-                    if data.get(key):
-                        result["logged_in"] = True
-                        break
-                if not result["logged_in"] and data.get("oauth"):
+            auth_out = subprocess.run(
+                ["claude", "auth", "status"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if auth_out.returncode == 0 and auth_out.stdout.strip():
+                auth_data = json.loads(auth_out.stdout)
+                if auth_data.get("loggedIn"):
                     result["logged_in"] = True
         except Exception:
             pass
+
+        # Fallback: check legacy credentials file (Claude Code v1.x)
+        if not result["logged_in"]:
+            creds_file = Path.home() / ".claude" / ".credentials.json"
+            if creds_file.is_file():
+                try:
+                    data = json.loads(creds_file.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        for key in ("accessToken", "oauthToken", "claudeAiOauth", "oauth"):
+                            if data.get(key):
+                                result["logged_in"] = True
+                                break
+                except Exception:
+                    pass
 
     print(json.dumps(result))
 

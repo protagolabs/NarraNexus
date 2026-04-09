@@ -49,11 +49,13 @@ class SocialEntity(BaseModel):
     id: Optional[int] = None
     instance_id: str = Field(..., max_length=64, description="Associated ModuleInstance ID")
     entity_id: str = Field(..., max_length=64, description="Entity ID (user_id or agent_id)")
-    entity_type: str = Field(..., max_length=32, description="Entity type: user | agent")
+    entity_type: str = Field(..., max_length=32, description="Entity type: user | agent | group")
     entity_name: Optional[str] = Field(None, max_length=255, description="Entity name/nickname")
+    aliases: List[str] = Field(default=[], description="Cross-system IDs and alternate names JSON")
     entity_description: Optional[str] = Field(None, description="Entity brief description")
     identity_info: Dict[str, Any] = Field(default={}, description="Identity information JSON")
     contact_info: Dict[str, Any] = Field(default={}, description="Contact information JSON")
+    familiarity: str = Field(default="known_of", max_length=32, description="Familiarity level: direct | known_of")
     relationship_strength: float = Field(default=0.0, description="Relationship strength 0.0-1.0")
     interaction_count: int = Field(default=0, description="Interaction count")
     last_interaction_time: Optional[datetime] = Field(None, description="Last interaction time")
@@ -79,7 +81,7 @@ class InstanceSocialEntitiesTableManager(BaseTableManager):
     new_column_defaults = {}
 
     unique_id_field = None  # Composite unique key: instance_id + entity_id
-    json_fields = {"identity_info", "contact_info", "tags", "expertise_domains", "related_job_ids", "extra_data", "embedding"}
+    json_fields = {"identity_info", "contact_info", "tags", "expertise_domains", "related_job_ids", "extra_data", "embedding", "aliases"}
 
     @classmethod
     def get_mysql_type(cls, field_name: str, field_type: type, field_info: Any) -> str:
@@ -94,6 +96,8 @@ class InstanceSocialEntitiesTableManager(BaseTableManager):
             return "VARCHAR(255)"
         if field_name == "entity_description":
             return "TEXT"
+        if field_name == "familiarity":
+            return "VARCHAR(32) DEFAULT 'known_of'"
         if field_name == "relationship_strength":
             return "FLOAT DEFAULT 0.0"
         if field_name == "interaction_count":

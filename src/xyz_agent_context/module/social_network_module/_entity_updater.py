@@ -31,6 +31,7 @@ from xyz_agent_context.module.social_network_module.prompts import (
     DESCRIPTION_COMPRESSION_INSTRUCTIONS,
     PERSONA_INFERENCE_INSTRUCTIONS,
     BATCH_ENTITY_EXTRACTION_INSTRUCTIONS,
+    DEDUP_MERGE_DECISION_INSTRUCTIONS,
 )
 
 
@@ -55,11 +56,13 @@ class PersonaOutput(BaseModel):
 
 
 class ExtractedEntity(BaseModel):
-    """A single entity mentioned in the conversation"""
+    """A single social entity mentioned in the conversation (human, agent, or group only)"""
     name: str = Field(..., description="Entity name as mentioned in the conversation")
-    entity_type: str = Field(default="user", description="Entity type: user | agent | organization")
+    entity_type: str = Field(default="user", description="Entity type: user | agent | group")
     summary: str = Field(default="", description="Brief summary of what was said about this entity")
-    tags: List[str] = Field(default_factory=list, description="0-2 tags only when clearly evidenced (e.g. expert:ML, engineer). Prefer empty list.")
+    keywords: List[str] = Field(default_factory=list, description="0-3 contextual keywords (topics, domains, platforms associated with this person)")
+    aliases: List[str] = Field(default_factory=list, description="System IDs and alternate names (e.g. Matrix IDs, platform agent IDs)")
+    familiarity: str = Field(default="known_of", description="direct (participating in conversation) | known_of (only referenced)")
 
 
 class BatchExtractionOutput(BaseModel):
@@ -68,6 +71,72 @@ class BatchExtractionOutput(BaseModel):
         default_factory=list,
         description="All entities mentioned in the conversation (excluding the primary speaker)"
     )
+
+
+class DedupDecision(BaseModel):
+    """Dedup merge decision output"""
+    decision: str = Field(description="MERGE or CREATE_NEW")
+    reason: str = Field(default="", description="One-line explanation for the decision")
+
+
+# ── Dedup Pipeline ──────────────────────────────────────────────────────────
+
+# Similarity threshold for vector-based dedup candidate retrieval
+DEDUP_SIMILARITY_THRESHOLD = 0.7
+DEDUP_TOP_K = 3
+
+
+async def decide_merge_or_create(
+    candidate_name: str,
+    candidate_summary: str,
+    candidate_aliases: List[str],
+    existing_entity: SocialNetworkEntity,
+) -> str:
+    """
+    Use LLM to decide if a candidate entity should be merged with an existing one.
+
+    Returns: "MERGE" or "CREATE_NEW"
+    """
+    try:
+        existing_desc = existing_entity.entity_description or "No description"
+        existing_aliases = ", ".join(existing_entity.aliases) if existing_entity.aliases else "None"
+        existing_keywords = ", ".join(existing_entity.keywords) if existing_entity.keywords else "None"
+        candidate_aliases_str = ", ".join(candidate_aliases) if candidate_aliases else "None"
+
+        user_input = f"""**Candidate (newly extracted):**
+- Name: {candidate_name}
+- Summary: {candidate_summary or 'No summary'}
+- Aliases: {candidate_aliases_str}
+
+**Existing (in database):**
+- Name: {existing_entity.entity_name or 'Unknown'}
+- Entity ID: {existing_entity.entity_id}
+- Description: {existing_desc[:300]}
+- Aliases: {existing_aliases}
+- Keywords: {existing_keywords}
+- Interaction count: {existing_entity.interaction_count}
+
+Are these the same entity? Decide MERGE or CREATE_NEW:"""
+
+        sdk = OpenAIAgentsSDK()
+        result = await sdk.llm_function(
+            instructions=DEDUP_MERGE_DECISION_INSTRUCTIONS,
+            user_input=user_input,
+            output_type=DedupDecision,
+        )
+        output: DedupDecision = result.final_output
+        decision = output.decision.strip().upper()
+
+        if decision not in ("MERGE", "CREATE_NEW"):
+            logger.warning(f"            Unexpected dedup decision: {decision}, defaulting to CREATE_NEW")
+            return "CREATE_NEW"
+
+        logger.info(f"            Dedup decision for '{candidate_name}': {decision} — {output.reason}")
+        return decision
+
+    except Exception as e:
+        logger.warning(f"            Dedup LLM call failed, defaulting to CREATE_NEW: {e}")
+        return "CREATE_NEW"
 
 
 # ── Batch Entity Extraction Pipeline ────────────────────────────────────────
@@ -208,8 +277,8 @@ async def update_entity_embedding(
             text_parts.append(f"Name: {entity.entity_name}")
         if entity.entity_description:
             text_parts.append(f"Description: {entity.entity_description}")
-        if entity.tags:
-            text_parts.append(f"Tags: {', '.join(entity.tags)}")
+        if entity.keywords:
+            text_parts.append(f"Keywords: {', '.join(entity.keywords)}")
 
         embedding_text = "\n".join(text_parts)
         if not embedding_text.strip():
@@ -313,7 +382,7 @@ async def infer_persona(
 - Name: {entity.entity_name or 'Unknown'}
 - Type: {entity.entity_type}
 - Description: {entity.entity_description or 'No description yet'}
-- Tags: {', '.join(entity.tags) if entity.tags else 'None'}
+- Keywords: {', '.join(entity.keywords) if entity.keywords else 'None'}
 - Interaction count: {entity.interaction_count}"""
 
         if entity.identity_info:

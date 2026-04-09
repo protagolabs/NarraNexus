@@ -51,10 +51,14 @@ class SocialNetworkEntity(BaseModel):
 
     # Entity identifier (required)
     entity_id: str = Field(..., max_length=64, description="Entity ID (user_id or agent_id)")
-    entity_type: str = Field(..., max_length=32, description="Entity type: user | agent")
+    entity_type: str = Field(..., max_length=32, description="Entity type: user | agent | group")
 
     # Entity basic information
     entity_name: Optional[str] = Field(None, max_length=255, description="Entity name/nickname")
+    aliases: List[str] = Field(
+        default=[],
+        description="Cross-system identifiers and alternate names (e.g., Matrix IDs, platform agent IDs)"
+    )
     entity_description: Optional[str] = Field(None, description="Entity brief description")
 
     # Core field: Identity information (JSON format)
@@ -67,6 +71,13 @@ class SocialNetworkEntity(BaseModel):
     contact_info: Dict[str, Any] = Field(
         default={},
         description="Contact info JSON: chat_channel, email, preferred_method, etc."
+    )
+
+    # Familiarity level (cognitive tier)
+    familiarity: str = Field(
+        default="known_of",
+        max_length=32,
+        description="Familiarity level: direct (interacted with) | known_of (mentioned by others)"
     )
 
     # Relationship metadata
@@ -83,10 +94,11 @@ class SocialNetworkEntity(BaseModel):
         description="Last interaction time"
     )
 
-    # Tag system (for search and classification)
-    tags: List[str] = Field(
+    # Keyword system (for search and classification)
+    # NOTE: DB column is still named 'tags' — mapping handled in repository layer
+    keywords: List[str] = Field(
         default=[],
-        description="Tag list JSON: ['domain:recommendation_system', 'expert:recommendation_system', 'frequent_user']"
+        description="Keyword list: ['bitcoin_forum', 'expert:recommendation_system', 'engineer']"
     )
 
     # Expertise domains (for intelligent matching and recommendations)
@@ -104,7 +116,7 @@ class SocialNetworkEntity(BaseModel):
     # === Semantic search (Feature 2.3 - Entity semantic search) ===
     embedding: Optional[List[float]] = Field(
         default=None,
-        description="Entity semantic vector (generated from entity_name + entity_description + tags, for semantic search)"
+        description="Entity semantic vector (generated from entity_name + entity_description + keywords, for semantic search)"
     )
 
     # Persona (communication style guide)

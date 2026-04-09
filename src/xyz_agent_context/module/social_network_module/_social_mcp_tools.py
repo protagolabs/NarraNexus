@@ -576,10 +576,10 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
             if not target:
                 return {"success": False, "message": f"Target entity not found: {target_entity_id}"}
 
-            # Merge tags (case-insensitive dedup, capped at 10)
-            merged_tags = list(target.tags or [])
+            # Merge keywords (case-insensitive dedup, capped at 10)
+            merged_tags = list(target.keywords or [])
             existing_lower = {t.lower() for t in merged_tags}
-            for t in (source.tags or []):
+            for t in (source.keywords or []):
                 if t.lower() not in existing_lower:
                     merged_tags.append(t)
                     existing_lower.add(t.lower())

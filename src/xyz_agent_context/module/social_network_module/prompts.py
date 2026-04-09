@@ -34,31 +34,36 @@ Always pass `agent_id="{agent_id}"` when calling social network tools.
 ##### 2. Entity Memory Rules
 
 ###### What counts as an entity
-You only store three types:
+You only store **social entities** — things with agency that you can interact with:
 - **user** – human users interacting with you
 - **agent** – other AI agents
-- **organization** – companies / institutions mentioned in conversation
+- **group** – teams / squads that act as a collective unit (e.g., "alpha team")
+
+**NOT entities:** Competitions, platforms, APIs, concepts, technologies, sports teams.
+These are **keywords** attached to the people associated with them.
+Example: "Bitcoin Forum" is NOT an entity. "alpha4 who participated in Bitcoin Forum" IS an entity with keyword "bitcoin_forum".
 
 ###### When to record
 Record new or updated information **immediately** when:
 - Someone introduces themselves
 - Their role, domain, or background is described
 - New contact information is given
-- A new agent or organization is mentioned
+- A new agent or group is mentioned
 
 No permission asking, no delay.
 
 ###### What to store
-- Name and role/position (or industry for organizations)
+- Name and role/position
 - Expertise/domain information
-- Stable tags representing skill level or role
+- Contextual keywords (topics, platforms, projects associated with this person)
+- Aliases (alternate names, system IDs, Matrix IDs)
 - Contact information
 - Your conversational observations
 
 ###### Entity ID rules
 - For current user: use existing `user_id` from context
 - For other users/agents: `entity_{{name}}_{{timestamp}}`
-- For organizations: `org_{{name}}_{{timestamp}}`
+- For groups: `group_{{name}}_{{timestamp}}`
 
 ---
 
@@ -100,36 +105,31 @@ use this to merge them into one consolidated record.
 
 ---
 
-##### 4. Tagging Rules
+##### 4. Keyword Rules
 
-**IMPORTANT — Tags must be concise and minimal.**
-Tags are expensive metadata. Only add a tag when it carries clear, lasting signal.
-Aim for **3-5 tags per entity** at most. Do NOT add tags redundantly.
+**Keywords serve two purposes:**
+1. Contextual topics/domains associated with a person (e.g., `bitcoin_forum`, `machine_learning`, `arena42`)
+2. Structured role/expertise markers (e.g., `expert:frontend`, `engineer`)
 
-###### Expertise Level Tags (choose ONE per domain)
+Aim for **3-5 keywords per entity** at most. Use `lowercase_with_underscores` format.
+
+###### Contextual Keywords (primary use)
+- Topics, platforms, projects the person is associated with
+- Example: Person participates in Bitcoin Forum → add `bitcoin_forum`
+- Example: Person works at Google on ML → add `google`, `machine_learning`
+
+###### Expertise Level Keywords (choose ONE per domain)
 - `expert:domain` — explicitly stated expertise
 - `familiar:domain` — works in / familiar with the domain
-- `interested:domain` — learning or exploring the domain
 
-###### Role Tags
+###### Role Keywords
 One simple role: `engineer`, `researcher`, `student`, `manager`, `designer`, `architect`
 
-###### Intent Tags (only when clearly observed)
-- `intent:high_interest` / `intent:low_interest`
-- `intent:price_sensitive` / `intent:urgent`
-- `intent:decision_maker` / `intent:influencer`
-
-###### Sales Stage Tags
-- `stage:initial_contact` / `stage:interested` / `stage:evaluating`
-- `stage:negotiating` / `stage:committed` / `stage:closed_won` / `stage:closed_lost`
-
 ###### Strict Rules
-- **Max ONE expertise tag per domain** — do NOT add both `expert:ML` and `familiar:ML`
-- **Max ONE sales stage tag** — replace the old one, never accumulate
+- **Max ONE expertise keyword per domain** — do NOT add both `expert:ML` and `familiar:ML`
 - **No synonyms** — `expert:recommendation_system` and `expert:recommender_systems` are duplicates, pick ONE canonical form
-- **No sub-domains when parent exists** — if `expert:ML` exists, do NOT add `expert:deep_learning`
-- **Do NOT re-tag** what is already tagged — check existing tags before adding new ones
-- **When updating, REPLACE outdated tags** rather than appending new variations
+- **Do NOT re-add** what already exists — check existing keywords before adding new ones
+- **When updating, REPLACE outdated keywords** rather than appending variations
 
 ---
 
@@ -139,16 +139,43 @@ One simple role: `engineer`, `researcher`, `student`, `manager`, `designer`, `ar
 ---
 
 ##### 6. Behavior Expectations
-- Maintain a coherent, growing memory of social entities
+- Maintain a coherent, growing memory of social entities (humans, agents, groups only)
 - Use the correct tool promptly when information appears
 - Rely on search and stats tools to answer relationship-based questions
 - Keep entity data clean, structured, and deduplicated
+- Never create entities for competitions, platforms, concepts, or other non-social things
 """
 
 # ============================================================================
 # Entity info summary LLM instructions
 # Used as instructions when _summarize_new_entity_info() calls the LLM
 # ============================================================================
+# ============================================================================
+# Dedup merge decision LLM instructions
+# Used by decide_merge_or_create() to determine if two entities are the same
+# ============================================================================
+DEDUP_MERGE_DECISION_INSTRUCTIONS = """You are deciding whether two entity records refer to the same real-world person, agent, or group.
+
+Given:
+- **Candidate**: a newly extracted entity from a conversation
+- **Existing**: an entity already stored in the database
+
+Decide: **MERGE** or **CREATE_NEW**
+
+Rules:
+- MERGE if they clearly refer to the same person/agent/group:
+  - Same name or overlapping aliases
+  - Descriptions clearly describe the same individual
+  - System IDs match (e.g., Matrix IDs, platform agent IDs)
+- CREATE_NEW if they are different entities who happen to share partial similarity:
+  - Different roles, organizations, or contexts
+  - Name similarity is coincidental
+- When in doubt, **CREATE_NEW** — false negatives are cheaper than false merges
+- A short/common name (e.g., "David", "agent_01") with no overlapping context should be CREATE_NEW
+
+Output your decision and a one-line reason."""
+
+
 ENTITY_SUMMARY_INSTRUCTIONS = """Summarize conversations in one brief sentence or bullet point. Focus on what the user said about themselves or discussed with the agent.
 
 If there's nothing meaningful to summarize, return empty string.
@@ -190,39 +217,56 @@ The persona should be actionable and specific, not generic."""
 # Batch entity extraction LLM instructions
 # Used by extract_mentioned_entities() to find all entities in a conversation
 # ============================================================================
-BATCH_ENTITY_EXTRACTION_INSTRUCTIONS = """Extract all people, agents, or organizations mentioned in the conversation.
+BATCH_ENTITY_EXTRACTION_INSTRUCTIONS = """Extract ONLY social entities mentioned in the conversation: humans, AI agents, and groups (teams that act as a unit).
 
-Rules:
+**CRITICAL: What to extract (social entities only)**
+- Humans: users, colleagues, managers, clients — anyone who can be interacted with
+- AI agents: named agents that participate in conversations or tasks
+- Groups: teams, squads, crews that receive messages and act collectively (e.g., "alpha team", "Hering's team")
+
+**CRITICAL: What NOT to extract**
+- Competitions, contests, polls, challenges (e.g., "Bitcoin Forum", "Art Contest", "Daily Lottery")
+- Platforms, APIs, tools, systems (e.g., "Arena42", "NexusMatrix API", "TodoWrite")
+- Concepts, topics, technologies (e.g., "Bitcoin", "machine learning", "proof-of-work")
+- Sports teams, companies as abstract entities (e.g., "Lakers", "Google", "OECD")
+- Events, debates, forums as standalone entities
+- URLs, file paths, verification codes
+Instead, attach these as **keywords** on the person/agent they are associated with.
+
+**Rules:**
 - EXCLUDE the primary speaker (the user/entity directly talking)
-- IGNORE channel source tags formatted like [Channel · Name · ID] or [Channel · Name · ID · RoomID] — these are system metadata markers, not conversation participants to extract
-- Only extract entities explicitly named or described in the conversation content
-- Do NOT infer entities that are not mentioned
-- For each entity: provide name, type (user/agent/organization), and a brief summary
-- If no other entities are mentioned, return an empty list
+- IGNORE channel source tags formatted like [Channel · Name · ID] — these are system metadata
+- Do NOT extract pronouns or vague references
+- If no social entities are mentioned, return an empty list
 
-Tagging Rules (CRITICAL — be minimal):
-- Only add tags when the conversation CLEARLY reveals expertise, role, or intent
-- Use at most 1-2 tags per entity. Prefer ZERO tags if nothing specific is mentioned
-- Use canonical forms: `expert:recommendation_system` not `expert:recommender_systems`
-- If the entity's existing tags are provided, do NOT generate synonyms or variations — only add genuinely NEW information
-- Prefer broad domains over sub-domains: `expert:ML` not `expert:deep_learning` + `expert:neural_networks`
+**Aliases — CRITICAL for deduplication:**
+- When a name appears alongside a system ID (e.g., "alpha4 (@agent_5a22e015f115:localhost)"), extract ONE entity with name="alpha4" and aliases=["@agent_5a22e015f115:localhost"]
+- Matrix IDs (@user:server) are aliases, NOT separate entities
+- If the same person is referred to by multiple names, output ONCE with the most recognizable name and put alternatives in aliases
 
-Deduplication & Naming Rules (IMPORTANT):
-- Use the entity's CANONICAL name (e.g., "千里眼" not "千里眼agent" or "千里眼兄弟")
-- Do NOT extract Matrix IDs (e.g., @username:server.org) as separate entities — they refer to an already-named entity
-- Do NOT extract pronouns ("他", "她", "they", "him") or vague references ("兄弟", "那个人", "the other agent") as entities
-- If the same entity is referred to by multiple names/aliases, output it ONCE using the most recognizable name
-- Do NOT extract the agent itself (the one generating the response) as an entity
+**Keywords — attach non-social context to people:**
+- When a person is mentioned alongside a topic, competition, or platform, add those as keywords on the person
+- Example: "alpha4 participated in Bitcoin Forum" → name="alpha4", keywords=["bitcoin_forum"]
+- Example: "Bob works at Google on ML" → name="Bob", keywords=["google", "machine_learning"]
+- Use 0-3 keywords per entity. Use lowercase_with_underscores format.
 
-Examples of what to extract:
-- "My colleague Bob is a frontend expert" -> Bob (user, tags: ["expert:frontend"])
-- "We use products from Google" -> Google (organization, tags: [])
-- "Agent Research-01 helped me" -> Research-01 (agent, tags: [])
-- "Talk to Alice about this" -> Alice (user, tags: [])
+**Familiarity:**
+- "direct" — the entity is actively participating in this conversation (sending messages, responding)
+- "known_of" — the entity is only mentioned or referenced by others
 
-Examples of what NOT to extract:
-- "@bob:matrix.org said hello" -> Do NOT extract "@bob:matrix.org" (use "Bob" if identifiable)
-- "他很厉害" -> Do NOT extract "他" (pronoun)
-- "那个兄弟 agent" -> Do NOT extract (vague reference)
+**Entity type:**
+- "user" — human person
+- "agent" — AI agent
+- "group" — team/squad that acts as a collective unit
 
-If the conversation is purely between the primary speaker and the agent with no mention of anyone else, return an empty entities list."""
+Examples:
+- "My colleague Bob is a frontend expert at Google" → Bob (user, keywords=["frontend", "google"], familiarity="known_of")
+- "alpha4 (@agent_5a22e015f115:localhost) joined the Bitcoin Forum" → alpha4 (agent, aliases=["@agent_5a22e015f115:localhost"], keywords=["bitcoin_forum"], familiarity="known_of")
+- "The alpha team reported their results" → alpha team (group, keywords=[], familiarity="known_of")
+- "Agent Research-01 is helping me with analysis" → Research-01 (agent, keywords=["analysis"], familiarity="direct")
+
+NOT extracted (these become keywords on people instead):
+- "Bitcoin Forum competition" → NOT an entity (becomes keyword on participants)
+- "Arena42 platform" → NOT an entity
+- "Art Contest" → NOT an entity
+- "Google" → NOT an entity (becomes keyword on Bob: keywords=["google"])"""
