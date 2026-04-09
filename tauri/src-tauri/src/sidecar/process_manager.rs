@@ -2,9 +2,18 @@ use log;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
+use std::sync::{Arc, Mutex as StdMutex};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::{Child, Command};
 
 use crate::state::ServiceDef;
+
+/// Ring buffer shared between ProcessManager and the per-child log drainer
+/// tasks. Uses std::sync::Mutex (not tokio's) because log pushes are brief
+/// and never cross .await points — this keeps log writes decoupled from the
+/// outer tokio::sync::Mutex<ProcessManager> so start_all can hold the outer
+/// lock without blocking drainers.
+type LogBuffer = Arc<StdMutex<VecDeque<LogEntry>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -38,7 +47,7 @@ pub struct LogEntry {
 pub struct ProcessManager {
     processes: HashMap<String, Child>,
     status: HashMap<String, ProcessInfo>,
-    logs: VecDeque<LogEntry>,
+    logs: LogBuffer,
     max_logs: usize,
 }
 
@@ -47,7 +56,7 @@ impl ProcessManager {
         Self {
             processes: HashMap::new(),
             status: HashMap::new(),
-            logs: VecDeque::new(),
+            logs: Arc::new(StdMutex::new(VecDeque::new())),
             max_logs: 500,
         }
     }
@@ -89,7 +98,7 @@ impl ProcessManager {
         let proxy_url = std::env::var("SQLITE_PROXY_URL").unwrap_or_default();
         let proxy_port = std::env::var("SQLITE_PROXY_PORT").unwrap_or_default();
 
-        let child = Command::new(&def.command)
+        let mut child = Command::new(&def.command)
             .args(&def.args)
             .current_dir(&cwd)
             .env("DATABASE_URL", &db_url)
@@ -102,6 +111,33 @@ impl ProcessManager {
             .map_err(|e| format!("Failed to start {}: {}", def.id, e))?;
 
         let pid = child.id();
+
+        // CRITICAL: drain the child's stdout/stderr into the shared log
+        // buffer. If nobody reads these pipes, the kernel buffer (≈16KB on
+        // macOS) fills up and the child blocks on its next write(stderr).
+        // loguru's default handler writes to stderr, so every Python
+        // sidecar would silently deadlock mid-run once the buffer fills —
+        // this was the direct cause of `chat hangs at agent loop step 3.2`
+        // on the packaged dmg. Draining also feeds the System page's
+        // LogViewer so users can actually see what's happening.
+        if let Some(stdout) = child.stdout.take() {
+            spawn_log_drainer(
+                def.id.clone(),
+                "stdout",
+                stdout,
+                self.logs.clone(),
+                self.max_logs,
+            );
+        }
+        if let Some(stderr) = child.stderr.take() {
+            spawn_log_drainer(
+                def.id.clone(),
+                "stderr",
+                stderr,
+                self.logs.clone(),
+                self.max_logs,
+            );
+        }
 
         self.status.insert(
             def.id.clone(),
@@ -185,22 +221,17 @@ impl ProcessManager {
     }
 
     pub fn get_logs(&self, service_id: Option<&str>) -> Vec<LogEntry> {
+        let Ok(logs) = self.logs.lock() else {
+            return Vec::new();
+        };
         match service_id {
-            Some(id) => self
-                .logs
+            Some(id) => logs
                 .iter()
                 .filter(|l| l.service_id == id)
                 .cloned()
                 .collect(),
-            None => self.logs.iter().cloned().collect(),
+            None => logs.iter().cloned().collect(),
         }
-    }
-
-    pub fn add_log(&mut self, entry: LogEntry) {
-        if self.logs.len() >= self.max_logs {
-            self.logs.pop_front();
-        }
-        self.logs.push_back(entry);
     }
 
     pub fn promote_to_running(&mut self, service_id: &str) {
@@ -210,4 +241,62 @@ impl ProcessManager {
             }
         }
     }
+}
+
+/// Spawn a detached tokio task that reads one line at a time from a child's
+/// piped stdout/stderr and appends it to the shared log buffer.
+///
+/// Why this exists: `tokio::process::Command` with `Stdio::piped()` creates
+/// an OS pipe that MUST be drained. If nothing reads the parent end, the
+/// kernel buffer fills up (~16KB on macOS) and the child's next write to
+/// that fd blocks — deadlocking the Python sidecars mid-execution and
+/// making the frontend agent loop look "stuck" for no visible reason.
+///
+/// The task terminates naturally when the child closes its fd (EOF on the
+/// pipe), so there's no explicit cleanup needed; child.kill_on_drop in
+/// start_service takes care of the lifecycle.
+fn spawn_log_drainer<R>(
+    service_id: String,
+    stream: &'static str,
+    reader: R,
+    logs: LogBuffer,
+    max_logs: usize,
+) where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(reader).lines();
+        loop {
+            match lines.next_line().await {
+                Ok(Some(line)) => {
+                    let timestamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let entry = LogEntry {
+                        service_id: service_id.clone(),
+                        timestamp,
+                        stream: stream.to_string(),
+                        message: line,
+                    };
+                    if let Ok(mut buf) = logs.lock() {
+                        if buf.len() >= max_logs {
+                            buf.pop_front();
+                        }
+                        buf.push_back(entry);
+                    }
+                }
+                Ok(None) => break, // EOF: child closed the pipe
+                Err(e) => {
+                    log::warn!(
+                        "Log drainer for {} ({}) errored: {}",
+                        service_id,
+                        stream,
+                        e
+                    );
+                    break;
+                }
+            }
+        }
+    });
 }
