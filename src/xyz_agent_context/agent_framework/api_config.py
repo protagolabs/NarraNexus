@@ -352,6 +352,44 @@ def set_user_config(claude: ClaudeConfig, openai: OpenAIConfig, embedding: Embed
 # Per-user config loading (for cloud multi-tenant mode)
 # =============================================================================
 
+# =============================================================================
+# TODO: LONG-TERM REFACTOR
+# =============================================================================
+#
+# The current design uses ContextVar + module-level proxies to propagate
+# per-user LLM config through the agent execution call chain. It works, but
+# it's not elegant — it has several issues:
+#
+# 1. Action at a distance: reading `claude_config.api_key` in any module
+#    silently depends on whoever set the ContextVar earlier in the task.
+# 2. Hidden contract: every code path that invokes an agent turn MUST call
+#    set_user_config first, or the proxy falls through to legacy behavior.
+# 3. Type system lies: claude_config is annotated as ClaudeConfig but is
+#    actually a _ConfigProxy. Attribute errors won't be caught statically.
+# 4. ContextVar only propagates inside asyncio tasks — code using
+#    ThreadPoolExecutor or manual loop.call_soon will break silently.
+#
+# The clean solution is explicit parameter passing: construct a
+# RuntimeContext dataclass at the top of AgentRuntime.run() and thread it
+# through every component (step_3_agent_loop, ClaudeAgentSDK.agent_loop,
+# EmbeddingClient.__init__, etc.). Blast radius is ~20 files, mostly
+# mechanical changes to function signatures.
+#
+# Blocked by: none — just time.
+# Priority: medium (current design is safe thanks to fail-fast in
+# get_user_llm_configs, so this is cleanup not a bug fix).
+
+
+class LLMConfigNotConfigured(RuntimeError):
+    """Raised when a user's LLM config is missing or incomplete.
+
+    No silent fallback to global defaults — users MUST configure their
+    own providers via the Settings page. This prevents accidentally
+    billing one user's agent runs to another user (or to the company's
+    default keys).
+    """
+
+
 async def get_agent_owner_llm_configs(
     agent_id: str,
 ) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
@@ -364,89 +402,105 @@ async def get_agent_owner_llm_configs(
     represent other agents or target identities, but LLM billing must
     always go to the owner.
 
-    Fallback: if agent is not found or owner has no config, returns
-    the global default (from llm_config.json or .env).
+    Raises:
+        LLMConfigNotConfigured: if the agent does not exist, has no
+            owner, or the owner has not configured all required slots.
+            No silent fallback — the caller must surface the error.
     """
-    try:
-        from xyz_agent_context.utils.db_factory import get_db_client
-        db = await get_db_client()
-        agent_row = await db.get_one("agents", {"agent_id": agent_id})
-        if agent_row and agent_row.get("created_by"):
-            owner_user_id = agent_row["created_by"]
-            return await get_user_llm_configs(owner_user_id)
-    except Exception as e:
-        logger.warning(f"Failed to look up agent owner for {agent_id}: {e}")
+    from xyz_agent_context.utils.db_factory import get_db_client
 
-    # Fallback to global defaults
-    _holder._ensure_loaded()
-    return _holder.claude, _holder.openai, _holder.embedding
+    db = await get_db_client()
+    agent_row = await db.get_one("agents", {"agent_id": agent_id})
+    if not agent_row:
+        raise LLMConfigNotConfigured(
+            f"Agent {agent_id!r} not found. Cannot resolve LLM config."
+        )
+    owner_user_id = agent_row.get("created_by")
+    if not owner_user_id:
+        raise LLMConfigNotConfigured(
+            f"Agent {agent_id!r} has no owner (created_by is empty)."
+        )
+    return await get_user_llm_configs(owner_user_id)
 
 
 async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """
     Load LLM configs for a specific user from the database.
 
-    Reads from user_providers + user_slots tables. If a slot is not
-    configured for the user, that slot falls back to the global default
-    (from llm_config.json or .env) rather than returning an empty config.
+    Reads from user_providers + user_slots tables. Requires all three
+    slots (agent, embedding, helper_llm) to be configured. If ANY slot
+    is missing or its provider is broken, raises LLMConfigNotConfigured
+    with a clear message — no silent fallback to global defaults.
 
-    This function is called per-request during agent execution.
+    Raises:
+        LLMConfigNotConfigured: if any slot is missing or invalid.
     """
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
 
-    # Ensure globals are loaded so we can fall back on per-slot basis
-    _holder._ensure_loaded()
-    default_claude = _holder.claude
-    default_openai = _holder.openai
-    default_embedding = _holder.embedding
+    db = await get_db_client()
+    service = UserProviderService(db)
+    config = await service.get_user_config(user_id)
 
-    try:
-        db = await get_db_client()
-        service = UserProviderService(db)
-        config = await service.get_user_config(user_id)
-    except Exception as e:
-        logger.warning(f"Failed to load user providers for {user_id}: {e}")
-        return default_claude, default_openai, default_embedding
-
-    # Build ClaudeConfig from agent slot (fall back to global default)
+    # ─── Agent slot ──────────────────────────────────────────────────
     agent_slot = config.slots.get(SlotName.AGENT) or config.slots.get("agent")
-    agent_provider = config.providers.get(agent_slot.provider_id) if agent_slot else None
-
-    if agent_provider:
-        claude = ClaudeConfig(
-            api_key=agent_provider.api_key,
-            base_url=agent_provider.base_url,
-            model=agent_slot.model,
-            auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
+    if not agent_slot:
+        raise LLMConfigNotConfigured(
+            f"User {user_id!r}: 'agent' slot is not configured. "
+            "Please add an Anthropic-protocol provider and assign it to "
+            "the agent slot in Settings → Providers."
         )
-    else:
-        claude = default_claude
+    agent_provider = config.providers.get(agent_slot.provider_id)
+    if not agent_provider:
+        raise LLMConfigNotConfigured(
+            f"User {user_id!r}: agent slot references provider "
+            f"{agent_slot.provider_id!r} which no longer exists."
+        )
+    claude = ClaudeConfig(
+        api_key=agent_provider.api_key,
+        base_url=agent_provider.base_url,
+        model=agent_slot.model,
+        auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
+    )
 
-    # Build OpenAIConfig from helper_llm slot
+    # ─── Helper LLM slot ─────────────────────────────────────────────
     helper_slot = config.slots.get(SlotName.HELPER_LLM) or config.slots.get("helper_llm")
-    helper_provider = config.providers.get(helper_slot.provider_id) if helper_slot else None
-
-    if helper_provider:
-        openai_cfg = OpenAIConfig(
-            api_key=helper_provider.api_key,
-            base_url=helper_provider.base_url,
-            model=helper_slot.model,
+    if not helper_slot:
+        raise LLMConfigNotConfigured(
+            f"User {user_id!r}: 'helper_llm' slot is not configured. "
+            "Please add an OpenAI-protocol provider and assign it to "
+            "the helper_llm slot in Settings → Providers."
         )
-    else:
-        openai_cfg = default_openai
+    helper_provider = config.providers.get(helper_slot.provider_id)
+    if not helper_provider:
+        raise LLMConfigNotConfigured(
+            f"User {user_id!r}: helper_llm slot references provider "
+            f"{helper_slot.provider_id!r} which no longer exists."
+        )
+    openai_cfg = OpenAIConfig(
+        api_key=helper_provider.api_key,
+        base_url=helper_provider.base_url,
+        model=helper_slot.model,
+    )
 
-    # Build EmbeddingConfig from embedding slot
+    # ─── Embedding slot ──────────────────────────────────────────────
     emb_slot = config.slots.get(SlotName.EMBEDDING) or config.slots.get("embedding")
-    emb_provider = config.providers.get(emb_slot.provider_id) if emb_slot else None
-
-    if emb_provider:
-        embedding = EmbeddingConfig(
-            api_key=emb_provider.api_key,
-            base_url=emb_provider.base_url,
-            model=emb_slot.model,
+    if not emb_slot:
+        raise LLMConfigNotConfigured(
+            f"User {user_id!r}: 'embedding' slot is not configured. "
+            "Please add an OpenAI-protocol provider and assign it to "
+            "the embedding slot in Settings → Providers."
         )
-    else:
-        embedding = default_embedding
+    emb_provider = config.providers.get(emb_slot.provider_id)
+    if not emb_provider:
+        raise LLMConfigNotConfigured(
+            f"User {user_id!r}: embedding slot references provider "
+            f"{emb_slot.provider_id!r} which no longer exists."
+        )
+    embedding = EmbeddingConfig(
+        api_key=emb_provider.api_key,
+        base_url=emb_provider.base_url,
+        model=emb_slot.model,
+    )
 
     return claude, openai_cfg, embedding

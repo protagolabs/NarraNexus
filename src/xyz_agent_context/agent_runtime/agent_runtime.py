@@ -298,15 +298,28 @@ class AgentRuntime:
         # LLM API keys always come from the agent's owner (agents.created_by).
         # This lookup + set_user_config() uses ContextVar, so concurrent
         # agent turns from different owners are isolated from each other.
+        #
+        # Fail fast: if the owner has not configured all required slots,
+        # raise immediately so the user sees a clear error instead of the
+        # turn silently running with wrong credentials or failing later
+        # with a cryptic Claude/OpenAI error.
+        from xyz_agent_context.agent_framework.api_config import (
+            get_agent_owner_llm_configs,
+            set_user_config,
+            LLMConfigNotConfigured,
+        )
         try:
-            from xyz_agent_context.agent_framework.api_config import (
-                get_agent_owner_llm_configs,
-                set_user_config,
-            )
             owner_claude, owner_openai, owner_embedding = await get_agent_owner_llm_configs(agent_id)
             set_user_config(owner_claude, owner_openai, owner_embedding)
-        except Exception as e:
-            logger.warning(f"Failed to load LLM config for agent {agent_id}: {e}")
+        except LLMConfigNotConfigured as e:
+            logger.error(f"LLM config missing for agent {agent_id}: {e}")
+            # Surface the error to the WebSocket / caller as a structured message
+            from xyz_agent_context.schema import ErrorMessage
+            yield ErrorMessage(
+                error_message=str(e),
+                error_type="LLMConfigNotConfigured",
+            )
+            return
 
         # =============================================================================
         # Step 1: Select Narrative
