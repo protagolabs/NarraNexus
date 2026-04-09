@@ -115,6 +115,20 @@ export function AgentInboxPanel() {
     return { totalMessages, readRate };
   }, [rooms, unreadCount]);
 
+  // Sort rooms by latest activity (newest first), and sort each room's
+  // messages by created_at descending (newest first).
+  const sortedRooms = useMemo(() => {
+    const toTime = (s?: string | null) => (s ? new Date(s).getTime() : 0);
+    return rooms
+      .map((room) => ({
+        ...room,
+        messages: [...room.messages].sort(
+          (a, b) => toTime(b.created_at) - toTime(a.created_at)
+        ),
+      }))
+      .sort((a, b) => toTime(b.latest_at) - toTime(a.latest_at));
+  }, [rooms]);
+
   return (
     <Card variant="glass" className="flex flex-col h-full">
       <CardHeader>
