@@ -170,6 +170,13 @@ Primary speaker name (EXCLUDE from results): {primary_entity_name or 'unknown'}
 
 Extract all OTHER entities mentioned:"""
 
+        logger.debug(
+            f"[SocialExtraction] LLM input:\n"
+            f"  Primary speaker (excluded): {primary_entity_name or 'unknown'}\n"
+            f"  User msg preview: {input_content[:200]}...\n"
+            f"  Agent msg preview: {final_output[:200]}..."
+        )
+
         sdk = OpenAIAgentsSDK()
         result = await sdk.llm_function(
             instructions=BATCH_ENTITY_EXTRACTION_INSTRUCTIONS,
@@ -177,6 +184,11 @@ Extract all OTHER entities mentioned:"""
             output_type=BatchExtractionOutput,
         )
         output: BatchExtractionOutput = result.final_output
+
+        logger.info(
+            f"[SocialExtraction] LLM returned {len(output.entities)} raw entities: "
+            f"{[e.name for e in output.entities]}"
+        )
 
         # Filter out empty or primary entity matches
         filtered = [
@@ -186,7 +198,16 @@ Extract all OTHER entities mentioned:"""
         ]
 
         if filtered:
-            logger.info(f"Batch extraction found {len(filtered)} mentioned entities")
+            logger.info(f"[SocialExtraction] After filtering: {len(filtered)} entities")
+            for e in filtered:
+                logger.info(
+                    f"[SocialExtraction]   → {e.name} (type={e.entity_type}, "
+                    f"familiarity={e.familiarity}, keywords={e.keywords}, "
+                    f"aliases={e.aliases}, summary={e.summary[:80]}...)"
+                )
+        else:
+            logger.debug("[SocialExtraction] No entities after filtering")
+
         return filtered
 
     except Exception as e:
@@ -217,7 +238,9 @@ Summary (one line only):"""
             output_type=SummaryOutput,
         )
         output: SummaryOutput = result.final_output
-        return output.summary.strip()
+        summary = output.summary.strip()
+        logger.info(f"[SocialSummary] Result: '{summary[:120]}'" if summary else "[SocialSummary] No significant info")
+        return summary
 
     except Exception as e:
         logger.error(f"Error summarizing entity info: {e}")

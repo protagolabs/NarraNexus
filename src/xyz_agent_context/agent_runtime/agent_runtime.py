@@ -602,7 +602,8 @@ class AgentRuntime:
                 clear_cost_context()
                 # Clean up the agent log file handler AFTER background work finishes,
                 # so all [BG] log lines are captured in the agent's .log file.
-                _logging_service.cleanup()
+                # Use async_cleanup() to flush the enqueue buffer before removing.
+                await _logging_service.async_cleanup()
 
         asyncio.create_task(_run_hooks_background())
         logger.info(f"[BG] Steps 5-6 dispatched to background for {_agent_id}")
