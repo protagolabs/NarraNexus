@@ -40,14 +40,12 @@
 
 ### References（权威深度文档 · 按需读取）
 
-- `.nac_doc/project/references/architecture.md` — 架构分层全貌
-  **何时读**：跨层重构、需要理解依赖方向时
-- `.nac_doc/project/references/agent_runtime_pipeline.md` — 7 步流水线详解
-  **何时读**：修改 `agent_runtime/` 下任何 step，或 debug 流水线问题
-- `.nac_doc/project/references/module_system.md` — Module 基类、Hook、MCP
-  **何时读**：修改 Module 基类、Hook 行为、Instance 生命周期
-- `.nac_doc/project/references/narrative_system.md` — Narrative 编排
-  **何时读**：修改 Narrative 选择/去重/向量匹配逻辑
+- `.nac_doc/project/references/architecture.md` — ✅ 架构分层 + 7 步流水线 + **Trigger 三种模式** + Channel 系统 + 设计模式
+  **何时读**：跨层重构、新增 Trigger/Channel 集成、理解依赖方向、debug 流水线
+- `.nac_doc/project/references/module_system.md` — ✅ Module 基类 + **Instance 生命周期** + **三层 Prompts 体系** + **MCP per-agent 上下文** + 新建 Module checklist
+  **何时读**：新建 Module、修改 Hook/Instance/Prompts、理解 MCP 工具如何获取 agent_id
+- `.nac_doc/project/references/narrative_system.md` — ✅ Narrative 选择 + **Instance-Narrative 绑定** + ContextData 流转 + 跨轮记忆 + Module 协作模式
+  **何时读**：修改 Narrative 选择/去重/向量匹配、理解 Instance 如何绑定 Narrative、设计新 IM 集成的记忆策略
 - `.nac_doc/project/references/context_engineering.md` — Context 构建引擎
   **何时读**：修改 ContextData、Prompt 装配
 - `.nac_doc/project/references/database_schema.md` — 所有表结构
@@ -84,7 +82,9 @@
 - `.nac_doc/project/playbooks/work_with_worktree.md` — worktree 流程
   **何时读**：开始多人并行任务、或按 superpowers 流程启动 plan
 
-> **未写就时的 fallback**（Phase 2 内容创作工作延后）：Read 返回 file-not-found 时，按以下顺序回退——
+> **已就绪的 references**：`architecture.md`、`module_system.md`、`narrative_system.md` 已写就（标 ✅）。其余 references 和所有 playbooks 仍在 Phase 2。
+>
+> **未写就时的 fallback**：Read 返回 file-not-found 时，按以下顺序回退——
 >
 > 1. **先读 CLAUDE.md 本文**：`项目介绍`、`架构分层`、`新建 Module 步骤`（简表版）、`编码规范` 这四节合起来覆盖了绝大部分 on-board 信息
 > 2. **再读对应的 mirror md**：`.nac_doc/mirror/<path>.md` —— 即使是 stub，frontmatter 的 `code_file` 也会告诉你去读哪个源码文件
