@@ -170,11 +170,27 @@ AsyncDatabaseClient + Schema      ← 数据层
 → 详细端到端流程见 `.nac_doc/project/playbooks/add_new_module.md`
 
 必须对齐的铁律：
-- 模块必须继承 `XYZBaseModule` 并定义 `get_config()`
+- 模块必须继承 `XYZBaseModule` 并定义 `get_config()`（字段见下方示例）
 - 必须在 `module/__init__.py` 的 `MODULE_MAP` 中注册
 - 数据库表在 `utils/schema_registry.py` 中用 `_register(TableDef(...))` 注册（**不再**使用 `create_*_table.py` / `modify_*_table.py`）
 - Repository 放 `repository/`；Schema 放 `schema/`；私有实现放 `_{module}_impl/`
 - MCP 端口从下表选下一个可用值
+
+### get_config() 示例
+
+```python
+@staticmethod
+def get_config() -> ModuleConfig:
+    return ModuleConfig(
+        name="NewModule",            # 类名，和 MODULE_MAP key 一致
+        priority=5,                  # 排序优先级（0=最高，Awareness=0, Chat=1）
+        enabled=True,
+        description="What this module does",
+        module_type="capability",    # "capability"（自动加载）| "task"（需 LLM 判断创建）
+    )
+```
+
+> **注意**：`ModuleConfig` 只有 `name / priority / enabled / description / module_type` 五个字段。Instance ID 前缀由框架从类名自动推导（如 `ChatModule` → `chat_`），**不需要**手动指定。
 
 ### MCP 端口分配
 
