@@ -13,10 +13,11 @@ of this file — extract them to a config file later when packaging as a skill.
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterator
 
 
 # ============================================================================
@@ -168,9 +169,19 @@ def is_excluded_dir(dir_path: Path) -> bool:
 
 def is_empty_or_pure_reexport_init(init_py: Path) -> bool:
     """
-    True if the given __init__.py is empty or contains only re-export statements
-    (imports + __all__ + docstring + blank lines). Such files are excluded from
-    mirroring because they have no behavioral content to document.
+    True if the given __init__.py is empty or contains only re-export statements.
+
+    A file is considered a pure re-export when every top-level statement is one of:
+    - ``import ...`` or ``from ... import ...`` (including multi-line parenthesized
+      imports — the AST collapses them into a single ImportFrom node)
+    - The module docstring (first statement only, must be a string constant)
+    - An ``__all__ = [...]`` assignment
+
+    Any other top-level statement (function defs, class defs, arbitrary assignments,
+    conditionals, loops, etc.) disqualifies the file. Syntax errors or read errors
+    are treated as "not pure re-export" (conservative — we still want intent docs).
+
+    Uses ast.parse so line continuations and conditional formatting don't trip us up.
     """
     if init_py.name != "__init__.py":
         return False
@@ -178,40 +189,28 @@ def is_empty_or_pure_reexport_init(init_py: Path) -> bool:
         text = init_py.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return False
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return False
 
-    # Strip docstring: module docstring must be the first statement, quoted.
-    lines = text.splitlines()
-    cleaned: list[str] = []
-    in_docstring = False
-    docstring_delim: str | None = None
-    for line in lines:
-        stripped = line.strip()
-        if in_docstring:
-            if docstring_delim and docstring_delim in stripped:
-                in_docstring = False
+    for i, node in enumerate(tree.body):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
             continue
-        if not cleaned and (stripped.startswith('"""') or stripped.startswith("'''")):
-            delim = stripped[:3]
-            # Single-line docstring?
-            if len(stripped) >= 6 and stripped.endswith(delim):
+        # Module docstring: only the first statement, must be a string Constant.
+        if (
+            i == 0
+            and isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            continue
+        # __all__ = [...] assignment
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and target.id == "__all__":
                 continue
-            in_docstring = True
-            docstring_delim = delim
-            continue
-        if not stripped or stripped.startswith("#"):
-            continue
-        cleaned.append(stripped)
-
-    if not cleaned:
-        return True
-
-    allowed_prefixes = ("import ", "from ")
-    for line in cleaned:
-        if any(line.startswith(p) for p in allowed_prefixes):
-            continue
-        if line.startswith("__all__"):
-            continue
-        # Any other statement → not pure re-export
+        # Any other top-level construct disqualifies the file.
         return False
     return True
 

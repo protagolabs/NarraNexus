@@ -90,3 +90,62 @@ def test_non_init_is_not_pure_reexport(tmp_path: Path) -> None:
     f = tmp_path / "foo.py"
     f.write_text("", encoding="utf-8")
     assert is_empty_or_pure_reexport_init(f) is False
+
+
+def test_multiline_parenthesized_import_is_pure_reexport(tmp_path: Path) -> None:
+    """Regression: real-world schema/__init__.py uses multi-line imports."""
+    f = tmp_path / "__init__.py"
+    f.write_text(
+        '"""Schema package."""\n'
+        "from .module_schema import (\n"
+        "    ModuleConfig,\n"
+        "    ContextData,\n"
+        ")\n"
+        "from .event_schema import (\n"
+        "    Event,\n"
+        "    EventType,\n"
+        ")\n",
+        encoding="utf-8",
+    )
+    assert is_empty_or_pure_reexport_init(f) is True
+
+
+def test_init_with_alias_assignment_is_not_pure_reexport(tmp_path: Path) -> None:
+    """A non-__all__ assignment (e.g. DatabaseClient = AsyncDatabaseClient) counts as logic."""
+    f = tmp_path / "__init__.py"
+    f.write_text(
+        "from .database import AsyncDatabaseClient\n"
+        "DatabaseClient = AsyncDatabaseClient\n",
+        encoding="utf-8",
+    )
+    assert is_empty_or_pure_reexport_init(f) is False
+
+
+def test_init_with_function_def_is_not_pure_reexport(tmp_path: Path) -> None:
+    f = tmp_path / "__init__.py"
+    f.write_text(
+        "from .foo import bar\n"
+        "def helper(): return bar()\n",
+        encoding="utf-8",
+    )
+    assert is_empty_or_pure_reexport_init(f) is False
+
+
+def test_init_with_syntax_error_is_not_pure_reexport(tmp_path: Path) -> None:
+    f = tmp_path / "__init__.py"
+    f.write_text("from .foo import (", encoding="utf-8")  # unterminated
+    assert is_empty_or_pure_reexport_init(f) is False
+
+
+def test_init_with_all_and_multiline_import(tmp_path: Path) -> None:
+    f = tmp_path / "__init__.py"
+    f.write_text(
+        '"""Package."""\n'
+        "from .a import (X, Y)\n"
+        "__all__ = [\n"
+        "    'X',\n"
+        "    'Y',\n"
+        "]\n",
+        encoding="utf-8",
+    )
+    assert is_empty_or_pure_reexport_init(f) is True
