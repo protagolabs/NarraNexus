@@ -1,4 +1,4 @@
-# NAC Doc · Netmind.AI Auto Coding Documentation System
+# MindFlow · Netmind.AI Auto Coding Documentation System
 
 > Version: 1.0
 > A three-tier documentation system designed so that any human or AI agent can
@@ -32,12 +32,12 @@ Tier-1 · In-code comments
   └── Inline comments, docstrings, file headers
   └── Answers: "What does this line/function do? What are the parameters?"
 
-Tier-2 · .nac_doc/mirror/ · Intent mirror
+Tier-2 · .mindflow/mirror/ · Intent mirror
   └── One md per code file, directory structure mirrors source tree
   └── Answers: "Why does this file exist? Who calls it? What decisions shaped it? Where are the traps?"
   └── Never repeats signatures, class lists, or step-by-step behavior
 
-Tier-3 · .nac_doc/project/ · References + playbooks
+Tier-3 · .mindflow/project/ · References + playbooks
   └── references/ — deep authoritative docs on cross-cutting topics
   └── playbooks/  — task-oriented SOPs with explicit "when to read" triggers
   └── Referenced by CLAUDE.md / AGENTS.md / GEMINI.md with read triggers
@@ -59,7 +59,7 @@ how"; tier-2 captures "why".
 
 ### 4.1 Coverage rules
 
-Mirror the source code directory tree 1:1 under `.nac_doc/mirror/`. Rename
+Mirror the source code directory tree 1:1 under `.mindflow/mirror/`. Rename
 each source file's extension to `.md`. Each directory gets an additional
 `_overview.md` file describing the directory's role.
 
@@ -250,7 +250,7 @@ CLAUDE.md (or AGENTS.md / GEMINI.md) gains four things:
    file is modified behaviorally, re-read the corresponding mirror md and
    update intent if the change invalidates it; refresh `last_verified`.
 2. A **three-tier doc system** section (~1 paragraph) pointing to
-   `.nac_doc/README.md`.
+   `.mindflow/README.md`.
 3. A **workflow startup** section listing the steps an agent MUST do before
    brainstorming / coding: scan the doc index, read matching playbooks/
    references first, read mirror mds for files about to be edited.
@@ -325,21 +325,21 @@ Typical coverage target: 80%+ within 6 months of normal development.
 
 ## 8. Migrating this system to a new project
 
-1. Copy this `README.md` to the new project's `.nac_doc/README.md`.
-2. Create the skeleton: `.nac_doc/{mirror,project/{references,playbooks}}/`.
-3. Copy and adapt `scripts/{scaffold,check,audit}_nac_doc.py` and
-   `scripts/nac_doc_lib.py`. Edit the `INCLUDE_SPECS`, `EXCLUDED_*`, and
+1. Copy this `README.md` to the new project's `.mindflow/README.md`.
+2. Create the skeleton: `.mindflow/{mirror,project/{references,playbooks}}/`.
+3. Copy and adapt `scripts/{scaffold,check,audit}_mindflow.py` and
+   `scripts/mindflow_lib.py`. Edit the `INCLUDE_SPECS`, `EXCLUDED_*`, and
    `OVERVIEW_ONLY_*` constants at the top of the library for the new project's
    source layout.
 4. Copy `scripts/install_git_hooks.sh` and run it.
-5. Add Makefile (or equivalent) targets: `check-nac-doc`, `audit-nac-doc`,
-   `scaffold-nac-doc`.
+5. Add Makefile (or equivalent) targets: `check-mindflow`, `audit-mindflow`,
+   `scaffold-mindflow`.
 6. Update the project's CLAUDE.md (or AGENTS.md / GEMINI.md) with:
    - Tier-2 sync ironclad rule
    - Three-tier doc system section
    - Workflow startup section
    - Deep doc index section with "when to read" triggers
-7. Run `python -m scripts.scaffold_nac_doc` to seed stubs.
+7. Run `python -m scripts.scaffold_mindflow` to seed stubs.
 8. Define and hand-write the project-specific critical file list.
 9. Write the first batch of references and playbooks.
 
@@ -354,11 +354,11 @@ superpowers skill. To package:
 2. Prepend skill frontmatter:
    ```
    ---
-   name: nac-doc
+   name: mindflow
    description: Use when setting up or maintaining a three-tier documentation system in a codebase that needs AI + human onboarding support
    ---
    ```
 3. The body of this README becomes the skill body largely unchanged.
-4. Distribute `scripts/nac_doc_lib.py` and the three scripts as skill
+4. Distribute `scripts/mindflow_lib.py` and the three scripts as skill
    resources.
 5. The §8 migration checklist becomes the skill's "how to apply" section.

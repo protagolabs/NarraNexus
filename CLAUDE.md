@@ -11,7 +11,7 @@
 7. **双运行方式对齐**——`bash run.sh` 和桌面端 dmg 的运行逻辑必须一致，改一个就要检查另一个
 8. **不要让代码变成屎山**——每做一个功能，全面检查有没有相关代码也需要调整
 9. **不强依赖某一个 Agent 框架或 LLM**: 我们不能完全的依赖某一个 Agent 框架，或者 LLM，所以设计的时候要考虑好，不能有某一个环节完全必须用某一个 Agent 框架，后续不能换。
-10. **Tier-2 文档同步**——对 `.py/.tsx/.ts/.rs` 做行为性修改时，必须重读对应 `.nac_doc/mirror/…/X.md`，若修改让 intent 失效，同一 commit 内更新 md 并刷新 frontmatter 的 `last_verified`。新增代码文件 → 同一 commit 新增对应 mirror md；删除代码文件 → 同一 commit 删除对应 mirror md。**新增/修改前必须先读对应 mirror md**。
+10. **Tier-2 文档同步**——对 `.py/.tsx/.ts/.rs` 做行为性修改时，必须重读对应 `.mindflow/mirror/…/X.md`，若修改让 intent 失效，同一 commit 内更新 md 并刷新 frontmatter 的 `last_verified`。新增代码文件 → 同一 commit 新增对应 mirror md；删除代码文件 → 同一 commit 删除对应 mirror md。**新增/修改前必须先读对应 mirror md**。
 
 ---
 
@@ -20,10 +20,10 @@
 本项目使用 NAC Doc 三级文档体系：
 
 1. **Tier-1 · 代码内**：行间注释、docstring、文件头
-2. **Tier-2 · `.nac_doc/mirror/`**：镜像源代码结构。每个代码文件对应一个 md，写 intent（为什么存在、上下游、设计决策、gotcha）。**不**写签名/做了什么。
-3. **Tier-3 · `.nac_doc/project/`**：`references/`（深度权威）+ `playbooks/`（任务 SOP）
+2. **Tier-2 · `.mindflow/mirror/`**：镜像源代码结构。每个代码文件对应一个 md，写 intent（为什么存在、上下游、设计决策、gotcha）。**不**写签名/做了什么。
+3. **Tier-3 · `.mindflow/project/`**：`references/`（深度权威）+ `playbooks/`（任务 SOP）
 
-详细方法论见 `.nac_doc/README.md`。NexusAgent 专属入口见 `.nac_doc/_overview.md`。
+详细方法论见 `.mindflow/README.md`。NexusAgent 专属入口见 `.mindflow/_overview.md`。
 
 ## 工作流启动
 
@@ -31,7 +31,7 @@
 
 1. **扫深度文档索引**：看任务是否匹配下方「深度文档索引」中某个 playbook 或 reference 的「何时读」触发器
 2. **命中则先读**：匹配的 playbook/reference 必须在动手前 Read 一遍，把 SOP 纳入计划
-3. **编辑代码前**：对要改的 `.py/.tsx/.ts/.rs` 文件，Read 对应 `.nac_doc/mirror/…/X.md` 理解 intent，再动手
+3. **编辑代码前**：对要改的 `.py/.tsx/.ts/.rs` 文件，Read 对应 `.mindflow/mirror/…/X.md` 理解 intent，再动手
 4. **完工时**：遵守铁律 #10，同步对应 mirror md
 
 ## 深度文档索引
@@ -40,46 +40,46 @@
 
 ### References（权威深度文档 · 按需读取）
 
-- `.nac_doc/project/references/architecture.md` — ✅ 架构分层 + 7 步流水线 + **Trigger 三种模式** + Channel 系统 + 设计模式
+- `.mindflow/project/references/architecture.md` — ✅ 架构分层 + 7 步流水线 + **Trigger 三种模式** + Channel 系统 + 设计模式
   **何时读**：跨层重构、新增 Trigger/Channel 集成、理解依赖方向、debug 流水线
-- `.nac_doc/project/references/module_system.md` — ✅ Module 基类 + **Instance 生命周期** + **三层 Prompts 体系** + **MCP per-agent 上下文** + 新建 Module checklist
+- `.mindflow/project/references/module_system.md` — ✅ Module 基类 + **Instance 生命周期** + **三层 Prompts 体系** + **MCP per-agent 上下文** + 新建 Module checklist
   **何时读**：新建 Module、修改 Hook/Instance/Prompts、理解 MCP 工具如何获取 agent_id
-- `.nac_doc/project/references/narrative_system.md` — ✅ Narrative 选择 + **Instance-Narrative 绑定** + ContextData 流转 + 跨轮记忆 + Module 协作模式
+- `.mindflow/project/references/narrative_system.md` — ✅ Narrative 选择 + **Instance-Narrative 绑定** + ContextData 流转 + 跨轮记忆 + Module 协作模式
   **何时读**：修改 Narrative 选择/去重/向量匹配、理解 Instance 如何绑定 Narrative、设计新 IM 集成的记忆策略
-- `.nac_doc/project/references/context_engineering.md` — Context 构建引擎
+- `.mindflow/project/references/context_engineering.md` — Context 构建引擎
   **何时读**：修改 ContextData、Prompt 装配
-- `.nac_doc/project/references/database_schema.md` — 所有表结构
+- `.mindflow/project/references/database_schema.md` — 所有表结构
   **何时读**：改表、加表、或遇到字段语义不清
-- `.nac_doc/project/references/coding_standards.md` — 完整编码规范
+- `.mindflow/project/references/coding_standards.md` — 完整编码规范
   **何时读**：做 code review、或不确定命名/结构约定时
-- `.nac_doc/project/references/frontend_architecture.md` — 前端结构
+- `.mindflow/project/references/frontend_architecture.md` — 前端结构
   **何时读**：改前端状态管理、路由、API 调用层
-- `.nac_doc/project/references/desktop_tauri_integration.md` — Tauri sidecar
+- `.mindflow/project/references/desktop_tauri_integration.md` — Tauri sidecar
   **何时读**：改 `run.sh` 或 Tauri sidecar，触发铁律 #7
-- `.nac_doc/project/references/llm_and_framework_abstraction.md` — 框架抽象层
+- `.mindflow/project/references/llm_and_framework_abstraction.md` — 框架抽象层
   **何时读**：新增 LLM provider、Agent 框架适配
 
 ### Playbooks（任务 SOP · 匹配即读）
 
-- `.nac_doc/project/playbooks/onboarding.md` — Day-1 新人入职
+- `.mindflow/project/playbooks/onboarding.md` — Day-1 新人入职
   **何时读**：首次接触本项目
-- `.nac_doc/project/playbooks/add_new_module.md` — 新建 Module 端到端
+- `.mindflow/project/playbooks/add_new_module.md` — 新建 Module 端到端
   **何时读**：用户说「加一个 Module」、「新建模块」—— **必须先读再动手**
-- `.nac_doc/project/playbooks/add_new_database_table.md` — 新建数据表
+- `.mindflow/project/playbooks/add_new_database_table.md` — 新建数据表
   **何时读**：加新表、改表结构 —— **必须先读再动手**
-- `.nac_doc/project/playbooks/add_new_api_endpoint.md` — 后端 + 前端联动加 API
+- `.mindflow/project/playbooks/add_new_api_endpoint.md` — 后端 + 前端联动加 API
   **何时读**：加新 API endpoint
-- `.nac_doc/project/playbooks/add_new_frontend_page.md` — 加前端页面
+- `.mindflow/project/playbooks/add_new_frontend_page.md` — 加前端页面
   **何时读**：加新前端页面
-- `.nac_doc/project/playbooks/debug_runtime.md` — 流水线 debug 套路
+- `.mindflow/project/playbooks/debug_runtime.md` — 流水线 debug 套路
   **何时读**：runtime 报错或行为异常
-- `.nac_doc/project/playbooks/run_tests.md` — TDD 工作流
+- `.mindflow/project/playbooks/run_tests.md` — TDD 工作流
   **何时读**：写测试前
-- `.nac_doc/project/playbooks/handle_migration.md` — 数据库迁移
+- `.mindflow/project/playbooks/handle_migration.md` — 数据库迁移
   **何时读**：需要改已有表结构（触发铁律 #6）
-- `.nac_doc/project/playbooks/write_nac_doc.md` — 写 tier-2 md
+- `.mindflow/project/playbooks/write_nac_doc.md` — 写 tier-2 md
   **何时读**：首次给某个文件写 mirror md、或 stub 转成稿时
-- `.nac_doc/project/playbooks/work_with_worktree.md` — worktree 流程
+- `.mindflow/project/playbooks/work_with_worktree.md` — worktree 流程
   **何时读**：开始多人并行任务、或按 superpowers 流程启动 plan
 
 > **已就绪的 references**：`architecture.md`、`module_system.md`、`narrative_system.md` 已写就（标 ✅）。其余 references 和所有 playbooks 仍在 Phase 2。
@@ -87,11 +87,11 @@
 > **未写就时的 fallback**：Read 返回 file-not-found 时，按以下顺序回退——
 >
 > 1. **先读 CLAUDE.md 本文**：`项目介绍`、`架构分层`、`新建 Module 步骤`（简表版）、`编码规范` 这四节合起来覆盖了绝大部分 on-board 信息
-> 2. **再读对应的 mirror md**：`.nac_doc/mirror/<path>.md` —— 即使是 stub，frontmatter 的 `code_file` 也会告诉你去读哪个源码文件
+> 2. **再读对应的 mirror md**：`.mindflow/mirror/<path>.md` —— 即使是 stub，frontmatter 的 `code_file` 也会告诉你去读哪个源码文件
 > 3. **最后读源码**：`code_file` 指向的 `.py/.tsx/.ts/.rs`，配合 docstring 和文件头注释（铁律 #1 保证都是英文）
 > 4. **完工时回填 mirror md**：按铁律 #10，在同一 commit 内把你理解的 intent 写进对应 mirror md，把 frontmatter 的 `stub: true` 改成 `false`，刷新 `last_verified`
 >
-> `.nac_doc/README.md` 是**方法论**，教你 HOW 写 md，不是项目知识；它**无法**替代项目特定信息。
+> `.mindflow/README.md` 是**方法论**，教你 HOW 写 md，不是项目知识；它**无法**替代项目特定信息。
 
 ---
 
@@ -167,7 +167,7 @@ AsyncDatabaseClient + Schema      ← 数据层
 
 ## 新建 Module 步骤
 
-→ 详细端到端流程见 `.nac_doc/project/playbooks/add_new_module.md`
+→ 详细端到端流程见 `.mindflow/project/playbooks/add_new_module.md`
 
 必须对齐的铁律：
 - 模块必须继承 `XYZBaseModule` 并定义 `get_config()`（字段见下方示例）
@@ -343,7 +343,7 @@ class EventRepository(BaseRepository[Event]):
 
 ```
 NexusAgent/
-├── .nac_doc/                      # NAC Doc 三级文档系统
+├── .mindflow/                      # NAC Doc 三级文档系统
 │   ├── README.md                  #   方法论全本（Skill 种子）
 │   ├── _overview.md               #   NexusAgent 顶层入口
 │   ├── mirror/                    #   Tier-2：代码镜像 intent

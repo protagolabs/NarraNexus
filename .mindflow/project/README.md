@@ -3,9 +3,9 @@ doc_type: project_index
 last_verified: 2026-04-09
 ---
 
-# `.nac_doc/project/` — Tier-3 深度文档入口
+# `.mindflow/project/` — Tier-3 深度文档入口
 
-本目录承载 NAC Doc 三级文档体系的 **Tier-3** 内容：项目级的权威参考 + 任务 SOP。
+本目录承载 MindFlow 三级文档体系的 **Tier-3** 内容：项目级的权威参考 + 任务 SOP。
 
 ## 两个子目录
 
@@ -28,7 +28,7 @@ last_verified: 2026-04-09
 - `references/coding_standards.md`
 - `playbooks/onboarding.md`
 - `playbooks/add_new_module.md`
-- `playbooks/write_nac_doc.md`
+- `playbooks/write_mindflow.md`
 
 未写就的情况下，agent 会按 `CLAUDE.md` 深度文档索引的 fallback 规则回退到代码 + mirror md。
 
@@ -36,4 +36,4 @@ last_verified: 2026-04-09
 
 - 方法论全本：[`../README.md`](../README.md)
 - NexusAgent 顶层入口：[`../_overview.md`](../_overview.md)
-- 系统设计 spec：`/reference/self_notebook/specs/2026-04-09-nac-doc-system-design.md`
+- 系统设计 spec：`/reference/self_notebook/specs/2026-04-09-mindflow-system-design.md`

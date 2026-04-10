@@ -12,7 +12,6 @@
 .PHONY: help lint lint-backend lint-frontend typecheck typecheck-backend typecheck-frontend \
         test test-backend build build-frontend \
         dev-db-proxy dev-backend dev-frontend dev-mcp dev-poller \
-        scaffold-nac-doc check-nac-doc audit-nac-doc doc-audit install-hooks \
         clean
 
 # Default target
@@ -46,12 +45,6 @@ help:
 	@echo "  Database:"
 	@echo "    Schema auto-migrates on startup (schema_registry.py)"
 	@echo ""
-	@echo "  NAC Doc:"
-	@echo "    make scaffold-nac-doc   Generate/refresh mirror md stubs"
-	@echo "    make check-nac-doc      Layer 1 structural invariants"
-	@echo "    make audit-nac-doc      Layer 3 soft staleness detection"
-	@echo "    make doc-audit          Alias for audit-nac-doc (spec §8.3)"
-	@echo "    make install-hooks      Install git pre-commit hook"
 	@echo ""
 	@echo "  Cleanup:"
 	@echo "    make clean              Remove generated artifacts"
@@ -110,22 +103,9 @@ dev-poller:
 # Schema is auto-migrated on startup via schema_registry.auto_migrate().
 # No manual sync needed. To add tables/columns, edit schema_registry.py.
 
-# ── NAC Doc ─────────────────────────────────────────────────────────────────
-
-scaffold-nac-doc:
-	uv run python -m scripts.scaffold_nac_doc
-
-check-nac-doc:
-	uv run python -m scripts.check_nac_doc
-
-audit-nac-doc:
-	uv run python -m scripts.audit_nac_doc
-
-# Alias matching spec §8.3 — both names work.
-doc-audit: audit-nac-doc
-
-install-hooks:
-	bash scripts/install_git_hooks.sh
+# ── MindFlow (doc tooling moved to MindFlow plugin) ────────────────────────
+# Doc check/scaffold/audit commands are now in the MindFlow plugin CLI.
+# Install MindFlow plugin for doc management: bash related_project/MindFlow/install.sh
 
 # ── Cleanup ─────────────────────────────────────────────────────────────────
 
