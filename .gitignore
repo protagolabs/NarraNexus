@@ -91,3 +91,6 @@ deploy/.env.cloud
 
 # ── Runtime-generated scripts ────────────────────────────────────────────
 scripts/.control.sh
+
+# ── Related projects (separate repos) ───────────────────────────────────
+/related_project/
