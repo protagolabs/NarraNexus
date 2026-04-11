@@ -44,9 +44,10 @@ def _is_cloud_mode() -> bool:
     explicitly provides a non-sqlite DATABASE_URL.
     """
     db_url = os.environ.get("DATABASE_URL", "")
-    if not db_url:
-        return False
-    return not db_url.startswith("sqlite")
+    if db_url:
+        return not db_url.startswith("sqlite")
+    # Fallback: individual DB_HOST field means cloud deployment
+    return bool(os.environ.get("DB_HOST", ""))
 
 
 # =============================================================================

@@ -20,13 +20,13 @@ stub: false
 - **依赖谁**：
   - `bcrypt` — 密码哈希
   - `PyJWT`（`jwt`）— token 生成和验证
-  - 运行时读取 `DATABASE_URL`、`JWT_SECRET`、`INVITE_CODE` 环境变量
+  - 运行时读取 `DATABASE_URL`（或 fallback 到 `DB_HOST`）、`JWT_SECRET`、`INVITE_CODE` 环境变量
 
 ## 设计决策
 
 **`_is_cloud_mode` 的安全默认值**
 
-判断是否为云模式时，空 `DATABASE_URL` 被视为本地模式，而不是报错或默认云模式。这个决策是为了修复 Tauri dmg 打包后的一个具体 bug：macOS 上 Rust 通过 `std::env::set_var` 设置环境变量不是线程安全的，tokio 生成的 Python 子进程可能无法读到它。如果默认云模式，没有 `DATABASE_URL` 的桌面用户每次启动都会被要求输入密码，完全破坏本地使用场景。被否决的方案是用独立的 `MODE=cloud/local` 环境变量，但这需要两处配置同步，容易出现 `MODE=cloud` 但 `DATABASE_URL` 指向 SQLite 的矛盾状态。
+判断是否为云模式时，优先检查 `DATABASE_URL`，若为空则 fallback 检查 `DB_HOST`（与 `database.py` 的 `load_db_config()` 对齐）。两者都为空时视为本地模式。这个决策是为了修复 Tauri dmg 打包后的一个具体 bug：macOS 上 Rust 通过 `std::env::set_var` 设置环境变量不是线程安全的，tokio 生成的 Python 子进程可能无法读到它。如果默认云模式，没有 `DATABASE_URL` 的桌面用户每次启动都会被要求输入密码，完全破坏本地使用场景。被否决的方案是用独立的 `MODE=cloud/local` 环境变量，但这需要两处配置同步，容易出现 `MODE=cloud` 但 `DATABASE_URL` 指向 SQLite 的矛盾状态。
 
 **OPTIONS 请求豁免**
 
@@ -51,4 +51,4 @@ stub: false
 
 修改 `AUTH_EXEMPT_PATHS` 或 `AUTH_EXEMPT_PREFIXES` 时，漏掉新的公开端点会导致云模式下这些路径突然开始要求登录，表现为前端请求 401，但本地开发时完全正常（本地模式跳过所有鉴权），因此这类 bug 在本地测试时根本发现不了。
 
-`_is_cloud_mode()` 每次调用都重新读 `os.environ`，测试时如果没有设置环境变量，它永远返回 False，云模式代码路径在测试里默认不覆盖。要测试云模式逻辑，需要在测试里 monkeypatch `os.environ["DATABASE_URL"] = "mysql://..."`。
+`_is_cloud_mode()` 每次调用都重新读 `os.environ`，测试时如果没有设置环境变量，它永远返回 False，云模式代码路径在测试里默认不覆盖。要测试云模式逻辑，需要在测试里 monkeypatch `os.environ["DATABASE_URL"] = "mysql://..."` 或 `os.environ["DB_HOST"] = "some-host"`。
