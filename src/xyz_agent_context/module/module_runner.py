@@ -104,6 +104,7 @@ DEFAULT_MCP_MODULES = [
     "GeminiRAGModule",      # port: 7805
     "SkillModule",          # port: 7806
     "MessageBusModule",     # port: 7820
+    "LarkModule",           # port: 7830
 ]
 
 # Port reference (for documentation only - actual ports are set in each module)
@@ -115,6 +116,7 @@ MODULE_PORTS = {
     "GeminiRAGModule": 7805,
     "SkillModule": 7806,
     "MessageBusModule": 7820,
+    "LarkModule": 7830,
 }
 
 

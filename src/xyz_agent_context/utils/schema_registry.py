@@ -702,6 +702,33 @@ _register(
 )
 
 
+# --- 27. lark_credentials ---------------------------------------------------
+_register(
+    TableDef(
+        name="lark_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("app_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("app_secret_ref", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("brand", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("profile_name", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("bot_name", "TEXT", "VARCHAR(255)"),
+            Column("owner_open_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("auth_status", "TEXT", "VARCHAR(32)", nullable=False, default="'not_logged_in'"),
+            Column("is_active", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_lark_cred_agent_id", ["agent_id"], unique=True),
+            Index("idx_lark_cred_profile", ["profile_name"], unique=True),
+        ],
+    )
+)
+
+
 # ============================================================================
 # DDL Generation
 # ============================================================================

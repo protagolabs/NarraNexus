@@ -19,6 +19,9 @@
 
 set -uo pipefail
 
+# Clear any external VIRTUAL_ENV (e.g. pyenv) that interferes with uv's .venv
+unset VIRTUAL_ENV 2>/dev/null || true
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Colors
@@ -97,9 +100,19 @@ case "${1:-}" in
       (cd "$SCRIPT_DIR/frontend" && npm install)
     fi
 
-    # Sync Python deps
+    # Sync Python deps — clear ALL external Python env vars that interfere with uv
+    UV_CLEAN_ENV="env -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u CONDA_PYTHON_EXE"
     echo -e "${Y}Syncing Python dependencies...${R}"
-    uv sync 2>&1 | tail -1
+    $UV_CLEAN_ENV uv sync 2>&1 | tail -1
+    # Ensure editable install is active (uv .pth can fail on some Python builds)
+    $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" --reinstall-package xyz-agent-context 2>&1 | tail -1
+    # Verify import works
+    "$SCRIPT_DIR/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null || {
+      echo -e "${RED}Failed to install xyz_agent_context. Rebuilding venv...${R}"
+      rm -rf "$SCRIPT_DIR/.venv"
+      $UV_CLEAN_ENV uv sync 2>&1 | tail -1
+      $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" 2>&1 | tail -1
+    }
 
     # Start everything
     exec "$SCRIPT_DIR/scripts/dev-local.sh"

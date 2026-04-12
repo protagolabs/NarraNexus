@@ -191,6 +191,12 @@ class MessageBusTrigger:
 
                 handled_any = False
                 for channel_id, messages in by_channel.items():
+                    # Skip Lark channels — they are managed by LarkTrigger, not MessageBusTrigger
+                    if channel_id.startswith("lark_"):
+                        latest = max(messages, key=lambda m: str(m.created_at))
+                        await self._bus.ack_processed(agent_id, channel_id, str(latest.created_at))
+                        continue
+
                     channel_type, channel_owner = await self._get_channel_info(channel_id)
 
                     # Mention filtering (channel owner is always activated)

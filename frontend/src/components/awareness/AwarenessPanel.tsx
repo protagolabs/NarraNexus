@@ -14,6 +14,7 @@ import { api } from '@/lib/api';
 import { EntityCard } from './EntityCard';
 import { FileUpload } from './FileUpload';
 import { MCPManager } from './MCPManager';
+import { LarkConfig } from './LarkConfig';
 import type { SocialNetworkEntity } from '@/types';
 
 export function AwarenessPanel() {
@@ -411,6 +412,12 @@ export function AwarenessPanel() {
 
           {/* MCP Manager Section */}
           <MCPManager />
+
+          {/* Divider */}
+          <div className="border-t border-[var(--border-subtle)]" />
+
+          {/* Lark / Feishu Integration */}
+          <LarkConfig />
         </CardContent>
       </Card>
 

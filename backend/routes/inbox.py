@@ -25,14 +25,24 @@ async def _get_db():
 
 
 async def _resolve_agent_names(db, agent_ids: list[str]) -> dict[str, str]:
-    """Resolve agent_id -> agent_name. Returns dict mapping id to name."""
+    """Resolve agent_id -> agent_name. Checks agents table and bus_agent_registry."""
     if not agent_ids:
         return {}
+    result = {}
+    # 1. Check agents table (NarraNexus agents)
     rows = await db.get_by_ids("agents", "agent_id", agent_ids)
-    return {
-        r["agent_id"]: r.get("agent_name", r["agent_id"])
-        for r in rows if r
-    }
+    for r in rows:
+        if r:
+            result[r["agent_id"]] = r.get("agent_name", r["agent_id"])
+    # 2. Check bus_agent_registry for external users (e.g. Lark users)
+    missing = [aid for aid in agent_ids if aid not in result]
+    if missing:
+        for aid in missing:
+            reg = await db.get_one("bus_agent_registry", {"agent_id": aid})
+            if reg:
+                # description stores the display name for Lark users
+                result[aid] = reg.get("description") or aid
+    return result
 
 
 @router.get("")
@@ -75,13 +85,7 @@ async def get_agent_inbox(
             rows = await db.get("bus_channel_members", {"channel_id": cid})
             all_members.extend(rows)
 
-        # Collect all unique agent_ids for name resolution
-        all_agent_ids = list(set(
-            [r["agent_id"] for r in all_members] + [agent_id]
-        ))
-        name_map = await _resolve_agent_names(db, all_agent_ids)
-
-        # 4. Get messages per channel
+        # 4. Get messages per channel (collect sender IDs for name resolution)
         effective_limit = 50
         if limit is not None:
             effective_limit = 9999 if limit < 0 else limit
@@ -89,21 +93,32 @@ async def get_agent_inbox(
         total_unread = 0
         rooms = []
 
+        # First pass: fetch messages and collect all sender IDs
+        all_sender_ids = set([r["agent_id"] for r in all_members] + [agent_id])
+        channel_msg_rows: dict[str, list] = {}
+
+        for cid in channel_ids:
+            query = (
+                f"SELECT * FROM bus_messages WHERE channel_id = %s "
+                f"ORDER BY created_at DESC LIMIT {int(effective_limit)}"
+            )
+            msg_rows = await db.execute(query, (cid,))
+            msg_rows = list(reversed(msg_rows))
+            channel_msg_rows[cid] = msg_rows
+            for m in msg_rows:
+                all_sender_ids.add(m.get("from_agent", ""))
+
+        # Resolve all names (agents + Lark users from bus_agent_registry)
+        name_map = await _resolve_agent_names(db, list(all_sender_ids))
+
+        # Second pass: build rooms
         for cid in channel_ids:
             channel = channel_map.get(cid)
             if not channel:
                 continue
 
             cursor = cursor_map.get(cid, "1970-01-01")
-
-            # Fetch messages — use %s (MySQL style); auto-translated for SQLite
-            query = (
-                f"SELECT * FROM bus_messages WHERE channel_id = %s "
-                f"ORDER BY created_at DESC LIMIT {int(effective_limit)}"
-            )
-            msg_rows = await db.execute(query, (cid,))
-            # Reverse to chronological order
-            msg_rows = list(reversed(msg_rows))
+            msg_rows = channel_msg_rows.get(cid, [])
 
             # Count unread (messages after cursor, not from self)
             unread = sum(

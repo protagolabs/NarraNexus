@@ -37,6 +37,7 @@ pkill -f "module_runner.py mcp" 2>/dev/null || true
 pkill -f "module_poller" 2>/dev/null || true
 pkill -f "job_trigger" 2>/dev/null || true
 pkill -f "message_bus_trigger" 2>/dev/null || true
+pkill -f "run_lark_trigger" 2>/dev/null || true
 for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
@@ -58,7 +59,8 @@ echo ""
 # --- Common env ---
 SQLITE_PROXY_PORT="${SQLITE_PROXY_PORT:-8100}"
 SQLITE_PROXY_URL="http://localhost:${SQLITE_PROXY_PORT}"
-ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; cd '$PROJECT_ROOT'"
+PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export PYTHONPATH='$PROJECT_ROOT/src:$PROJECT_ROOT'; cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"
@@ -92,6 +94,7 @@ draw_panel() {
   status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
   status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
   status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
+  status_line "Lark Trigger"        "pgrep -f 'run_lark_trigger' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -142,30 +145,34 @@ tmux new-session -d -s "$SESSION" -n "Control" \
 
 # --- SQLite Proxy (MUST start first — all other services depend on it) ---
 tmux new-window -t "$SESSION" -n "DB Proxy" \
-  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; uv run python -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
+  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; '$PYTHON' -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
 
 # Wait for proxy to be ready before starting other services
 sleep 3
 
 # --- Backend ---
 tmux new-window -t "$SESSION" -n "Backend" \
-  "$ENV_CMD; echo '=== Backend API :8000 ==='; uv run uvicorn backend.main:app --port 8000; echo 'Backend stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Backend API :8000 ==='; '$PYTHON' -m uvicorn backend.main:app --port 8000; echo 'Backend stopped. Press Enter to close.'; read"
 
 # --- MCP Server ---
 tmux new-window -t "$SESSION" -n "MCP" \
-  "$ENV_CMD; echo '=== MCP Server ==='; uv run python src/xyz_agent_context/module/module_runner.py mcp; echo 'MCP stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== MCP Server ==='; '$PYTHON' src/xyz_agent_context/module/module_runner.py mcp; echo 'MCP stopped. Press Enter to close.'; read"
 
 # --- Module Poller ---
 tmux new-window -t "$SESSION" -n "Poller" \
-  "$ENV_CMD; echo '=== Module Poller ==='; uv run python -m xyz_agent_context.services.module_poller; echo 'Poller stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Module Poller ==='; '$PYTHON' -m xyz_agent_context.services.module_poller; echo 'Poller stopped. Press Enter to close.'; read"
 
 # --- Job Trigger ---
 tmux new-window -t "$SESSION" -n "Jobs" \
-  "$ENV_CMD; echo '=== Job Trigger ==='; uv run python src/xyz_agent_context/module/job_module/job_trigger.py; echo 'Jobs stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Job Trigger ==='; '$PYTHON' src/xyz_agent_context/module/job_module/job_trigger.py; echo 'Jobs stopped. Press Enter to close.'; read"
 
 # --- Bus Trigger ---
 tmux new-window -t "$SESSION" -n "BusTrigger" \
-  "$ENV_CMD; echo '=== Bus Trigger ==='; uv run python -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Bus Trigger ==='; '$PYTHON' -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
+
+# --- Lark Trigger ---
+tmux new-window -t "$SESSION" -n "LarkTrigger" \
+  "$ENV_CMD; echo '=== Lark Trigger ==='; '$PYTHON' -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

@@ -68,6 +68,7 @@ class ModuleLoader:
     # These modules are independent of the database Instance mechanism and are always auto-loaded
     ALWAYS_LOAD_MODULES = [
         "SkillModule",
+        "LarkModule",
     ]
 
     def __init__(
