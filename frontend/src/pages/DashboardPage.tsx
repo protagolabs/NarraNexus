@@ -110,8 +110,6 @@ export function DashboardPage() {
                 setExpandedId(expandedId === a.agent_id ? null : a.agent_id)
               }
             />
-            {/* AgentCardExpanded is intentionally NOT rendered: AgentCard now
-                handles its own expand state with full sections inline. */}
           </div>
         ))}
       </div>
