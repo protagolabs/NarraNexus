@@ -1,0 +1,84 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-14  # Apple Silicon runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+      - name: Download standalone Python
+        run: |
+          mkdir -p tauri/src-tauri/resources/python
+          curl -L -o python.tar.gz \
+            "https://github.com/astral-sh/python-build-standalone/releases/download/20260325/cpython-3.13.12%2B20260325-aarch64-apple-darwin-install_only.tar.gz"
+          tar xzf python.tar.gz -C tauri/src-tauri/resources/python --strip-components=1
+          rm python.tar.gz
+
+      - name: Install Python dependencies (no venv, direct into standalone)
+        run: |
+          tauri/src-tauri/resources/python/bin/python3 -m pip install --no-cache-dir -e .
+
+      - name: Copy project source to resources
+        run: |
+          mkdir -p tauri/src-tauri/resources/project
+          rsync -a --exclude='node_modules' --exclude='.venv' --exclude='.git' \
+            --exclude='desktop' --exclude='tauri' --exclude='__pycache__' \
+            --exclude='*.pyc' --exclude='.env' --exclude='logs' \
+            --exclude='.claude' --exclude='.codex' \
+            . tauri/src-tauri/resources/project/
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build Tauri app (unsigned)
+        run: cd tauri && cargo tauri build
+        env:
+          CI: true
+          APPLE_SIGNING_IDENTITY: '-'
+
+      - name: Upload DMG to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            tauri/src-tauri/target/release/bundle/dmg/*.dmg
+            tauri/src-tauri/target/release/bundle/macos/*.app.tar.gz
+          tag_name: ${{ github.ref_name }}
+          name: 'NarraNexus ${{ github.ref_name }}'
+          body: 'Unsigned development build. On macOS, right-click the app → Open to bypass Gatekeeper.'
+          draft: true
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

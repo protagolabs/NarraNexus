@@ -42,12 +42,12 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def to_user_timezone(dt: Optional[datetime], user_tz: str = DEFAULT_TIMEZONE) -> Optional[datetime]:
+def to_user_timezone(dt, user_tz: str = DEFAULT_TIMEZONE) -> Optional[datetime]:
     """
     Convert UTC time to user timezone
 
     Args:
-        dt: UTC datetime object (can be naive or aware)
+        dt: UTC datetime object or ISO 8601 string (SQLite returns strings)
         user_tz: User timezone string (IANA format, e.g., 'Asia/Shanghai')
 
     Returns:
@@ -57,6 +57,14 @@ def to_user_timezone(dt: Optional[datetime], user_tz: str = DEFAULT_TIMEZONE) ->
         return None
 
     try:
+        # SQLite returns timestamps as strings — parse them first
+        if isinstance(dt, str):
+            cleaned = dt.rstrip("Z")
+            try:
+                dt = datetime.fromisoformat(cleaned)
+            except ValueError:
+                return None
+
         # If naive datetime, assume it is UTC
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
@@ -71,7 +79,7 @@ def to_user_timezone(dt: Optional[datetime], user_tz: str = DEFAULT_TIMEZONE) ->
 
 # ===== Formatting Functions =====
 
-def format_for_api(dt: Optional[datetime]) -> Optional[str]:
+def format_for_api(dt) -> Optional[str]:
     """
     Format as ISO 8601 UTC format for API responses
 
@@ -80,7 +88,7 @@ def format_for_api(dt: Optional[datetime]) -> Optional[str]:
     Format: YYYY-MM-DDTHH:MM:SSZ
 
     Args:
-        dt: datetime object (UTC or naive; naive will be assumed to be UTC)
+        dt: datetime object or ISO 8601 string (SQLite returns strings)
 
     Returns:
         ISO 8601 format string (with Z suffix), e.g., "2025-01-15T14:30:00Z"
@@ -90,6 +98,14 @@ def format_for_api(dt: Optional[datetime]) -> Optional[str]:
         return None
 
     try:
+        # SQLite returns timestamps as strings — parse them first
+        if isinstance(dt, str):
+            cleaned = dt.rstrip("Z")
+            try:
+                dt = datetime.fromisoformat(cleaned).replace(tzinfo=timezone.utc)
+            except ValueError:
+                return dt  # Already formatted or unparseable, return as-is
+
         # If naive datetime, assume it is UTC
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)

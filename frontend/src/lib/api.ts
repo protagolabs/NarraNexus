@@ -45,30 +45,41 @@ import type {
   SkillEnvConfigResponse,
   EmbeddingStatusResponse,
   EmbeddingRebuildResponse,
+  DashboardResponse,
 } from '@/types';
 
-// In development, use relative paths (Vite proxy handles it)
-// In production, can be configured via environment variable
-const getBaseUrl = () => {
-  if (import.meta.env.DEV) {
-    return ''; // Empty = relative path, Vite proxy will handle /api/*
-  }
-  return import.meta.env.VITE_API_BASE_URL || '';
-};
+// Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
+// every request picks up the CURRENT mode/cloudApiUrl. See runtimeStore.ts
+// for resolution order. This export is kept for backwards compatibility.
+export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
+import { getApiBaseUrl } from '@/stores/runtimeStore';
 
 class ApiClient {
-  private baseUrl: string;
-
-  constructor() {
-    this.baseUrl = getBaseUrl();
+  private getAuthHeaders(): Record<string, string> {
+    // Read JWT token from configStore (localStorage)
+    try {
+      const raw = localStorage.getItem('narra-nexus-config');
+      if (raw) {
+        const config = JSON.parse(raw);
+        const token = config?.state?.token;
+        if (token) {
+          return { 'Authorization': `Bearer ${token}` };
+        }
+      }
+    } catch {}
+    return {};
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
+    // Resolve baseUrl fresh on every call — no caching, so mode switches
+    // take effect immediately without requiring a page reload.
+    const baseUrl = getApiBaseUrl();
+    const url = `${baseUrl}${endpoint}`;
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
         ...options?.headers,
       },
     });
@@ -105,7 +116,7 @@ class ApiClient {
     });
   }
 
-  // Agent Inbox API (Matrix channel messages)
+  // Agent Inbox API (MessageBus channel messages)
   async getAgentInbox(agentId: string, isRead?: boolean, limit?: number): Promise<AgentInboxListResponse> {
     let url = `/api/agent-inbox?agent_id=${encodeURIComponent(agentId)}`;
     if (isRead !== undefined) url += `&is_read=${isRead}`;
@@ -194,10 +205,22 @@ class ApiClient {
   }
 
   // Auth API
-  async login(userId: string): Promise<LoginResponse> {
+  async login(userId: string, password?: string): Promise<LoginResponse> {
     return this.request<LoginResponse>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ user_id: userId, password: password || undefined }),
+    });
+  }
+
+  async register(userId: string, password: string, inviteCode: string, displayName?: string): Promise<LoginResponse> {
+    return this.request<LoginResponse>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        password: password,
+        invite_code: inviteCode,
+        display_name: displayName || undefined,
+      }),
     });
   }
 
@@ -272,10 +295,11 @@ class ApiClient {
     const formData = new FormData();
     formData.append('file', file);
 
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(agentId)}/files?user_id=${encodeURIComponent(userId)}`;
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/files?user_id=${encodeURIComponent(userId)}`;
     const response = await fetch(url, {
       method: 'POST',
       body: formData,
+      headers: this.getAuthHeaders(),
       // Don't set Content-Type header - browser will set it with boundary for FormData
     });
 
@@ -352,10 +376,11 @@ class ApiClient {
     const formData = new FormData();
     formData.append('file', file);
 
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(agentId)}/rag-files?user_id=${encodeURIComponent(userId)}`;
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/rag-files?user_id=${encodeURIComponent(userId)}`;
     const response = await fetch(url, {
       method: 'POST',
       body: formData,
+      headers: this.getAuthHeaders(),
       // Don't set Content-Type header - browser will set it with boundary for FormData
     });
 
@@ -406,9 +431,10 @@ class ApiClient {
     formData.append('url', url);
     formData.append('branch', branch);
 
-    const response = await fetch(`${this.baseUrl}/api/skills/install`, {
+    const response = await fetch(`${getApiBaseUrl()}/api/skills/install`, {
       method: 'POST',
       body: formData,
+      headers: this.getAuthHeaders(),
     });
 
     if (!response.ok) {
@@ -430,9 +456,10 @@ class ApiClient {
     formData.append('source', 'zip');
     formData.append('file', file);
 
-    const response = await fetch(`${this.baseUrl}/api/skills/install`, {
+    const response = await fetch(`${getApiBaseUrl()}/api/skills/install`, {
       method: 'POST',
       body: formData,
+      headers: this.getAuthHeaders(),
     });
 
     if (!response.ok) {
@@ -569,6 +596,45 @@ class ApiClient {
     return this.request<EmbeddingRebuildResponse>('/api/providers/embeddings/rebuild', {
       method: 'POST',
     });
+  }
+
+  /**
+   * Fetch aggregated agent status for the Dashboard page (v2).
+   *
+   * Viewer identity is derived server-side from the session (JWT in cloud
+   * mode, local singleton user in local mode). The client MUST NOT pass a
+   * `user_id` param — the backend rejects it with 400 (TDR-12).
+   */
+  async getDashboardStatus(): Promise<DashboardResponse> {
+    return this.request<DashboardResponse>('/api/dashboard/agents-status');
+  }
+
+  // ── v2.1: lazy-loaded detail endpoints + job mutations ────────────────
+
+  async getAgentSparkline(agentId: string, hours = 24): Promise<{ success: boolean; buckets: number[]; hours: number }> {
+    return this.request(`/api/dashboard/agents/${encodeURIComponent(agentId)}/sparkline?hours=${hours}`);
+  }
+
+  async getJobDetail(jobId: string): Promise<{ success: boolean; job: unknown }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}`);
+  }
+
+  async getSessionDetail(sessionId: string, agentId: string): Promise<{ success: boolean; session: unknown }> {
+    return this.request(
+      `/api/dashboard/sessions/${encodeURIComponent(sessionId)}?agent_id=${encodeURIComponent(agentId)}`,
+    );
+  }
+
+  async retryJob(jobId: string): Promise<{ success: boolean; job_id: string; new_status: string }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
+  }
+
+  async pauseJob(jobId: string): Promise<{ success: boolean; job_id: string; new_status: string }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/pause`, { method: 'POST' });
+  }
+
+  async resumeJob(jobId: string): Promise<{ success: boolean; job_id: string; new_status: string }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST' });
   }
 }
 

@@ -39,11 +39,66 @@ Usage examples:
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Optional, TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
     from xyz_agent_context.utils.database import AsyncDatabaseClient
+
+
+# =============================================================================
+# URL-based Backend Detection
+# =============================================================================
+
+def detect_backend_type(url: str) -> str:
+    """
+    Detect the database backend type from a URL scheme.
+
+    Args:
+        url: Database URL (e.g., 'sqlite:///path/to/db', 'mysql://user:pass@host/db').
+
+    Returns:
+        'sqlite' or 'mysql'.
+
+    Raises:
+        ValueError: If the URL scheme is not recognized.
+    """
+    scheme = url.split("://", 1)[0].lower() if "://" in url else ""
+    if scheme == "sqlite":
+        return "sqlite"
+    if scheme in ("mysql", "mysql+mysqlconnector"):
+        return "mysql"
+    raise ValueError(
+        f"Unsupported database URL scheme '{scheme}'. "
+        "Use 'sqlite:///path' or 'mysql://user:pass@host/db'."
+    )
+
+
+def parse_sqlite_url(url: str) -> str:
+    """
+    Extract the file path from a sqlite:// URL.
+
+    Supports both sqlite:///absolute/path and sqlite:///relative/path.
+    A special case sqlite:///:memory: returns ':memory:'.
+
+    Args:
+        url: A sqlite:// URL.
+
+    Returns:
+        The database file path.
+
+    Raises:
+        ValueError: If the URL does not start with 'sqlite://'.
+    """
+    prefix = "sqlite://"
+    if not url.lower().startswith(prefix):
+        raise ValueError(f"Not a sqlite URL: {url}")
+    # Everything after 'sqlite://' is the path (including leading slash for absolute)
+    path = url[len(prefix):]
+    if not path:
+        raise ValueError("sqlite URL must include a path (e.g., sqlite:///path/to/db)")
+    return path
 
 
 # =============================================================================
@@ -105,8 +160,38 @@ async def get_db_client() -> "AsyncDatabaseClient":
                     _shared_async_client = None
 
                 from xyz_agent_context.utils.database import AsyncDatabaseClient
-                logger.info("Creating shared AsyncDatabaseClient instance")
-                _shared_async_client = await AsyncDatabaseClient.create()
+                from xyz_agent_context.settings import settings
+
+                db_url = getattr(settings, 'database_url', None) or ''
+
+                if db_url.startswith('sqlite'):
+                    proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
+
+                    if proxy_url:
+                        from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+
+                        logger.info(f"Creating shared AsyncDatabaseClient with SQLite Proxy backend (proxy={proxy_url})")
+                        backend = SQLiteProxyBackend(proxy_url)
+                        await backend.initialize()
+                        _shared_async_client = await AsyncDatabaseClient.create_with_backend(backend)
+                    else:
+                        from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+
+                        db_path = parse_sqlite_url(db_url)
+                        logger.info(f"Creating shared AsyncDatabaseClient with SQLite backend (path={db_path})")
+                        backend = SQLiteBackend(db_path)
+                        await backend.initialize()
+                        _shared_async_client = await AsyncDatabaseClient.create_with_backend(backend)
+                else:
+                    from xyz_agent_context.utils.db_backend_mysql import MySQLBackend
+                    from xyz_agent_context.utils.database import load_db_config
+
+                    db_config = load_db_config()
+                    logger.info(f"Creating shared AsyncDatabaseClient with MySQL backend (host={db_config.get('host')})")
+                    backend = MySQLBackend(db_config)
+                    await backend.initialize()
+                    _shared_async_client = await AsyncDatabaseClient.create_with_backend(backend)
+
                 _client_event_loop = current_loop
                 logger.success("Shared AsyncDatabaseClient created successfully")
 

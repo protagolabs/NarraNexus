@@ -11,8 +11,8 @@
 
 .PHONY: help lint lint-backend lint-frontend typecheck typecheck-backend typecheck-frontend \
         test test-backend build build-frontend \
-        dev-backend dev-frontend dev-mcp dev-poller \
-        db-sync db-sync-dry clean
+        dev-db-proxy dev-backend dev-frontend dev-mcp dev-poller \
+        clean
 
 # Default target
 help:
@@ -36,14 +36,15 @@ help:
 	@echo "    make build-frontend     Build frontend for production"
 	@echo ""
 	@echo "  Dev Servers (run in separate terminals):"
+	@echo "    make dev-db-proxy       SQLite proxy (start first, port 8100)"
 	@echo "    make dev-backend        FastAPI server (port 8000)"
 	@echo "    make dev-frontend       Vite dev server"
 	@echo "    make dev-mcp            MCP servers"
 	@echo "    make dev-poller         Module poller service"
 	@echo ""
 	@echo "  Database:"
-	@echo "    make db-sync-dry        Preview table schema changes"
-	@echo "    make db-sync            Apply table schema changes"
+	@echo "    Schema auto-migrates on startup (schema_registry.py)"
+	@echo ""
 	@echo ""
 	@echo "  Cleanup:"
 	@echo "    make clean              Remove generated artifacts"
@@ -83,8 +84,11 @@ build-frontend:
 
 # ── Dev Servers ─────────────────────────────────────────────────────────────
 
+dev-db-proxy:
+	uv run python -m xyz_agent_context.utils.sqlite_proxy_server
+
 dev-backend:
-	uv run uvicorn backend.main:app --reload --port 8000
+	DASHBOARD_BIND_HOST=127.0.0.1 uv run uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 
 dev-frontend:
 	cd frontend && npm run dev
@@ -96,12 +100,12 @@ dev-poller:
 	uv run python -m xyz_agent_context.services.module_poller
 
 # ── Database ────────────────────────────────────────────────────────────────
+# Schema is auto-migrated on startup via schema_registry.auto_migrate().
+# No manual sync needed. To add tables/columns, edit schema_registry.py.
 
-db-sync-dry:
-	cd src/xyz_agent_context/utils/database_table_management && uv run python sync_all_tables.py --dry-run
-
-db-sync:
-	cd src/xyz_agent_context/utils/database_table_management && uv run python sync_all_tables.py
+# ── MindFlow (doc tooling moved to MindFlow plugin) ────────────────────────
+# Doc check/scaffold/audit commands are now in the MindFlow plugin CLI.
+# Install MindFlow plugin for doc management: bash related_project/MindFlow/install.sh
 
 # ── Cleanup ─────────────────────────────────────────────────────────────────
 

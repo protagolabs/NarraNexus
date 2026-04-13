@@ -382,30 +382,6 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         for channel_name in check_list:
             channel_update = {"channel": channel_name, "status": "connected"}
 
-            # Channel-specific status checks
-            if channel_name == "matrix":
-                try:
-                    from xyz_agent_context.module.matrix_module._matrix_credential_manager import (
-                        MatrixCredentialManager,
-                    )
-                    from xyz_agent_context.module.matrix_module.matrix_client import NexusMatrixClient
-
-                    db = await get_db_client_fn()
-                    cred_mgr = MatrixCredentialManager(db)
-                    cred = await cred_mgr.get_credential(agent_id)
-                    if cred and cred.is_active:
-                        client = NexusMatrixClient(server_url=cred.server_url)
-                        try:
-                            rooms = await client.list_rooms(api_key=cred.api_key)
-                            channel_update["rooms_count"] = len(rooms) if rooms else 0
-                            channel_update["matrix_user_id"] = cred.matrix_user_id
-                        finally:
-                            await client.close()
-                    else:
-                        channel_update["status"] = "no credentials"
-                except Exception as e:
-                    channel_update["status"] = f"error: {str(e)[:50]}"
-
             updates.append(channel_update)
 
         return {
@@ -791,17 +767,6 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
             awareness_repo = InstanceAwarenessRepository(db)
             await awareness_repo.upsert(awareness_instance_id, awareness)
             logger.info(f"Set awareness for {new_agent_id}: {len(awareness)} chars")
-
-            # 4. Register on NexusMatrix (non-fatal)
-            try:
-                from xyz_agent_context.module.matrix_module._matrix_credential_manager import (
-                    ensure_agent_registered,
-                )
-                cred = await ensure_agent_registered(db=db, agent_id=new_agent_id)
-                if cred:
-                    logger.info(f"Agent {new_agent_id} registered on NexusMatrix: {cred.matrix_user_id}")
-            except Exception as e:
-                logger.warning(f"Matrix registration for {new_agent_id} failed (non-fatal): {e}")
 
             return {
                 "success": True,

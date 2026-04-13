@@ -68,21 +68,21 @@ WORKSPACE_RULES = (
 )
 
 SKILL_INSTRUCTIONS_TEMPLATE = """\
-## Available Skills
+#### Available Skills
 
 Your skills directory: `skills/` (relative to your current working directory)
 
 {skills_table}
 
-### 1. Using Skills
+##### 1. Using Skills
 - When a task matches a Skill, read its `SKILL.md` using `cat`
 - Follow the instructions; access referenced files (guides, scripts) as needed
 - For scripts, execute them and use the output (don't read the source code)
 
-### 2. Workspace & File Storage Rules
+##### 2. Workspace & File Storage Rules
 """ + WORKSPACE_RULES + """
 
-### 3. Skill Configuration Tools
+##### 3. Skill Configuration Tools
 | Tool | Purpose |
 |------|---------|
 | `skill_save_config(agent_id, user_id, skill_name, env_key, env_value)` | Save a credential for a skill |
@@ -93,7 +93,7 @@ Your skills directory: `skills/` (relative to your current working directory)
 `skill_save_config` — even if you also saved it to a local file as the SKILL.md instructed. \
 The local file is for the skill's own use; `skill_save_config` is for the system to track and inject it.
 
-### 4. Installing Skills
+##### 4. Installing Skills
 **General rule**: Always install to `skills/<skill-name>/`. Never to `~/` or other paths.
 
 **From ClawHub URL** (e.g. `https://clawhub.ai/author/skill-name`):
@@ -104,7 +104,7 @@ The local file is for the skill's own use; `skill_save_config` is for the system
 
 **From GitHub or other URL**: Clone/download to `skills/<skill-name>/`
 
-### 5. When User Asks You to Learn a Skill (in conversation)
+##### 5. When User Asks You to Learn a Skill (in conversation)
 If a user sends a skill URL and asks you to learn/study it:
 1. Install the skill (see §4 above)
 2. Read SKILL.md to understand it
@@ -114,7 +114,7 @@ If a user sends a skill URL and asks you to learn/study it:
 6. Call `skill_save_study_summary` with a Markdown summary
 7. Report to the user what you did
 
-### 6. Human Assistance
+##### 6. Human Assistance
 Some skills require human intervention to activate (e.g., Twitter/X verification, \
 email confirmation, OAuth browser login). When the SKILL.md describes a step that \
 **only a human can complete**, you MUST use `send_message_to_user_directly` to:

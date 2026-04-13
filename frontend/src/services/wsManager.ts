@@ -6,6 +6,8 @@
  */
 
 import { useChatStore } from '@/stores/chatStore';
+import { useConfigStore } from '@/stores/configStore';
+import { getWsBaseUrl } from '@/stores/runtimeStore';
 import type { RuntimeMessage } from '@/types';
 
 interface ConnectionEntry {
@@ -37,8 +39,11 @@ class WebSocketManager {
     }
 
     const agentName = options?.agentName;
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/agent/run`;
+    // Resolve WebSocket URL from the single source of truth (runtimeStore).
+    // Local mode: ws://localhost:8000/ws/...  Cloud mode: ws://<cloud-host>/ws/...
+    // Both derive from the same base URL as REST API calls, so if the
+    // mode switches between turns the next connection picks up the new host.
+    const wsUrl = `${getWsBaseUrl()}/ws/agent/run`;
     const ws = new WebSocket(wsUrl);
 
     const entry: ConnectionEntry = { ws, completed: false };
@@ -47,11 +52,16 @@ class WebSocketManager {
     const store = useChatStore.getState;
 
     ws.onopen = () => {
+      // Include JWT token in first message — cloud mode requires it,
+      // local mode ignores it. Browser WebSocket API can't set custom
+      // headers, so auth piggy-backs on the existing request payload.
+      const token = useConfigStore.getState().token;
       ws.send(JSON.stringify({
         agent_id: agentId,
         user_id: userId,
         input_content: inputContent,
         working_source: 'chat',
+        token: token || undefined,
       }));
     };
 

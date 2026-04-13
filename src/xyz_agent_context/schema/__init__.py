@@ -108,6 +108,8 @@ from .api_schema import (
     # Auth
     LoginRequest,
     LoginResponse,
+    RegisterRequest,
+    RegisterResponse,
     AgentInfo,
     AgentListResponse,
     CreateAgentRequest,
@@ -306,6 +308,8 @@ __all__ = [
     # Auth
     "LoginRequest",
     "LoginResponse",
+    "RegisterRequest",
+    "RegisterResponse",
     "AgentInfo",
     "AgentListResponse",
     "CreateAgentRequest",

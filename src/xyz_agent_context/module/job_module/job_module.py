@@ -134,14 +134,14 @@ class JobModule(XYZBaseModule):
         agent_id_note = f"""**IMPORTANT**: Your agent_id is `{agent_id}`. When calling job tools, ALWAYS pass `agent_id="{agent_id}"` as the first parameter."""
 
         self.instructions = """
-## Job Module · Background Task Management
+#### Job Module · Background Task Management
 
-### What is a Job?
+##### What is a Job?
 A Job is an abstraction for background tasks, used to execute work that requires delay, scheduling, or continuous operation. Each Job has explicit trigger conditions and execution logic.
 
 ---
 
-### Job Types (Common Knowledge)
+##### Job Types (Common Knowledge)
 
 | Type | Description | Trigger Condition | Use Case |
 |------|-------------|-------------------|----------|
@@ -150,7 +150,7 @@ A Job is an abstraction for background tasks, used to execute work that requires
 | **RECURRING** | Recurring task | Repeats by interval_seconds | Daily reports, periodic checks |
 | **ONGOING** | Continuous task | Checks by interval_seconds until end_condition is met | Sales follow-up, goal achievement monitoring |
 
-#### ONGOING Type Details
+**ONGOING Type Details**:
 ONGOING type is designed for continuous tasks (e.g., sales follow-up), features:
 - **Continuous execution**: Does not complete after one run, but keeps checking until condition is met
 - **End condition**: Describes the task completion criteria via `end_condition`
@@ -159,7 +159,7 @@ ONGOING type is designed for continuous tasks (e.g., sales follow-up), features:
 
 ---
 
-### Job Status Flow
+##### Job Status Flow
 
 ```
 PENDING --after creation--> ACTIVE --after execution--+--> COMPLETED (success)
@@ -170,13 +170,13 @@ PENDING --after creation--> ACTIVE --after execution--+--> COMPLETED (success)
 
 ---
 
-## Current Job Status
+##### Current Job Status
 
 {jobs_information}
 
 ---
 
-### Job Creation Rules
+##### Job Creation Rules
 
 **1. Existing Jobs**
 If there are jobs listed above:
@@ -225,14 +225,14 @@ Optional context parameters:
 
 ---
 
-### Job Capabilities
+##### Job Capabilities
 - **Retrieve**: job_retrieval_semantic, job_retrieval_by_id, job_retrieval_by_keywords
 - **Create**: job_create (check for duplicates before creating)
 - **Modify**: job_update, job_pause, job_cancel
 
 ---
 
-### 🔐 Job Modification Permissions
+##### Job Modification Permissions
 
 **CRITICAL: Only the Job CREATOR can modify a Job!**
 
@@ -250,14 +250,9 @@ Each Job has a `user_id` field that records who created it (the creator). Only t
 - If mismatch, politely decline: "This task was created by [creator]. Only they can modify it."
 - The target user (related_entity_id) has **NO** modification rights - they are only the subject of the task
 
-**Examples**:
-- ✅ Sales manager created "Follow up with customer Xiaoming" → Manager can pause/modify/cancel
-- ❌ Customer Xiaoming wants to cancel this follow-up task → Decline, Xiaoming is not the creator
-- ❌ Another colleague wants to modify task parameters → Decline, they are not the creator
-
 ---
 
-### Context Loading
+##### Context Loading
 When a job executes with context parameters, JobTrigger automatically loads:
 
 1. **Target User Context** (if related_entity_id provided):
@@ -276,15 +271,13 @@ When a job executes with context parameters, JobTrigger automatically loads:
 
 ---
 
-### ONGOING Job and CHAT Interaction
+##### ONGOING Job and CHAT Interaction
 When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
 1. System automatically detects ONGOING Jobs associated with the user
 2. Analyzes whether conversation content satisfies the Job's `end_condition`
 3. Updates Job status based on analysis:
    - Condition met -> Job marked as COMPLETED
    - Not met -> Continue follow-up, record progress
-
-Example: A sales follow-up task's end_condition is "customer shows purchase intent". When the customer says "I'll buy it", the system automatically completes the Job.
 
 """
         # Replace placeholders
@@ -406,7 +399,7 @@ Example: A sales follow-up task's end_condition is "customer shows purchase inte
 
         if newly_created:
             rows = [await self._format_job_row(j) for j in newly_created]
-            sections.append(f"""### New Jobs ({len(newly_created)})
+            sections.append(f"""###### New Jobs ({len(newly_created)})
 
 | Title | ID | Status | Trigger |
 |-------|-----|--------|---------|
@@ -414,7 +407,7 @@ Example: A sales follow-up task's end_condition is "customer shows purchase inte
 
         if existing:
             rows = [await self._format_job_row(j) for j in existing]
-            sections.append(f"""### Active Jobs ({len(existing)})
+            sections.append(f"""###### Active Jobs ({len(existing)})
 
 | Title | ID | Status | Trigger |
 |-------|-----|--------|---------|
@@ -451,7 +444,7 @@ Example: A sales follow-up task's end_condition is "customer shows purchase inte
                 entity_name = ctx_data.extra_data.get("current_entity_name", "this user")
                 ctx_data.jobs_information += f"""
 
-### 🎯 Related Sales Tasks for {entity_name}
+###### Related Tasks for {entity_name}
 
 **Note: This user is a target of the following sales tasks. Keep this context in mind during the conversation.**
 

@@ -25,8 +25,21 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
+import { useConfigStore } from '@/stores'
+import { getApiBaseUrl } from '@/stores/runtimeStore'
 
-const API_BASE = ''  // Relative — Vite proxy handles /api/*
+/** fetch wrapper that injects JWT auth header when available (cloud mode) */
+function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers)
+  try {
+    const raw = localStorage.getItem('narra-nexus-config')
+    if (raw) {
+      const token = JSON.parse(raw)?.state?.token
+      if (token) headers.set('Authorization', `Bearer ${token}`)
+    }
+  } catch {}
+  return fetch(input, { ...init, headers })
+}
 
 // =============================================================================
 // Types
@@ -166,6 +179,19 @@ function SectionHeader({ step, title, subtitle }: { step: number; title: string;
 // =============================================================================
 
 export function ProviderSettings() {
+  const userId = useConfigStore((s) => s.userId)
+
+  /** Build a provider API URL with user_id query param.
+   *
+   * IMPORTANT: getApiBaseUrl() is called INSIDE the callback (not captured at
+   * component mount), so it always reflects the current mode. When the user
+   * switches between local and cloud, every fresh call returns the right host
+   * without needing to re-mount this component. */
+  const providerUrl = useCallback((path: string = '') => {
+    const sep = path.includes('?') ? '&' : '?'
+    return `${getApiBaseUrl()}/api/providers${path}${sep}user_id=${encodeURIComponent(userId)}`
+  }, [userId])
+
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({})
   const [slots, setSlots] = useState<Record<string, SlotData>>({})
   const [knownModels, setKnownModels] = useState<Record<string, KnownModelMeta>>({})
@@ -203,9 +229,9 @@ export function ProviderSettings() {
   const refreshConfig = useCallback(async () => {
     try {
       const [cfgRes, catRes, claudeRes] = await Promise.all([
-        fetch(`${API_BASE}/api/providers`).then((r) => r.json()),
-        fetch(`${API_BASE}/api/providers/catalog`).then((r) => r.json()),
-        fetch(`${API_BASE}/api/providers/claude-status`).then((r) => r.json()).catch(() => null),
+        authFetch(providerUrl()).then((r) => r.json()),
+        authFetch(providerUrl('/catalog')).then((r) => r.json()),
+        authFetch(providerUrl('/claude-status')).then((r) => r.json()).catch(() => null),
       ])
       if (claudeRes?.success) setClaudeStatus(claudeRes.data)
       if (cfgRes.success) {
@@ -219,7 +245,7 @@ export function ProviderSettings() {
         if (catRes.official_base_urls) setOfficialBaseUrls(catRes.official_base_urls)
       }
     } catch {}
-  }, [])
+  }, [providerUrl])
 
   useEffect(() => { refreshConfig() }, [refreshConfig])
 
@@ -247,7 +273,7 @@ export function ProviderSettings() {
   const addProvider = async (body: Record<string, unknown>) => {
     setError('')
     try {
-      const res = await fetch(`${API_BASE}/api/providers`, {
+      const res = await authFetch(providerUrl(), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }).then((r) => r.json())
@@ -287,7 +313,7 @@ export function ProviderSettings() {
   }
 
   const handleDelete = async (id: string) => {
-    await fetch(`${API_BASE}/api/providers/${id}`, { method: 'DELETE' })
+    await authFetch(providerUrl(`/${id}`), { method: 'DELETE' })
     setPendingSlots((prev) => {
       const next = { ...prev }
       for (const [k, v] of Object.entries(next)) {
@@ -301,7 +327,7 @@ export function ProviderSettings() {
   const handleTest = async (id: string) => {
     setTesting(id)
     try {
-      const res = await fetch(`${API_BASE}/api/providers/${id}/test`, { method: 'POST' }).then((r) => r.json())
+      const res = await authFetch(providerUrl(`/${id}/test`), { method: 'POST' }).then((r) => r.json())
       setTestResults((p) => ({ ...p, [id]: { ok: res.success, msg: res.message } }))
     } catch {
       setTestResults((p) => ({ ...p, [id]: { ok: false, msg: 'Network error' } }))
@@ -320,7 +346,7 @@ export function ProviderSettings() {
     setError('')
     try {
       for (const [slot, cfg] of Object.entries(pendingSlots)) {
-        const res = await fetch(`${API_BASE}/api/providers/slots/${slot}`, {
+        const res = await authFetch(providerUrl(`/slots/${slot}`), {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ provider_id: cfg.provider_id, model: cfg.model }),
         }).then((r) => r.json())

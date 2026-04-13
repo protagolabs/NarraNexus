@@ -153,7 +153,7 @@ class ClaudeAgentSDK:
             cwd=self.working_path,
             mcp_servers=claude_agent_mcp_dict,
             permission_mode="bypassPermissions",
-            max_turns=100,  # Safety limit to prevent infinite agent loops
+            max_turns=0,  # 0 = unlimited turns
             max_buffer_size=50 * 1024 * 1024,  # 50MB buffer size for large MCP responses (PDF parsing etc.)
             include_partial_messages=True,  # Enable token-level streaming via StreamEvent
             stderr=_on_cli_stderr,  # 捕获 CLI 错误输出
@@ -166,7 +166,7 @@ class ClaudeAgentSDK:
 
         # Step 2: Create a ClaudeSDKClient instance, send the user message, and receive the response
         # Idle timeout: if no message is received within this duration, assume CLI is stuck
-        IDLE_TIMEOUT_SECONDS = 120
+        IDLE_TIMEOUT_SECONDS = 1200
 
         client = None
         message_count = 0

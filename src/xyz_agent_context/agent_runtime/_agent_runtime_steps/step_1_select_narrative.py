@@ -177,7 +177,7 @@ async def step_1_select_narrative(
         ctx.cancellation.raise_if_cancelled()
 
     # ========== Check if there is a forced Narrative (used for Job triggers) ==========
-    selection_result = None  # May not be set if forced narrative loads successfully
+    selection_result = None  # Set when going through select() path; None when forced
     is_new = False  # Default to not newly created
     retrieval_method = ""  # Default empty, will be set in subsequent branches
     if ctx.forced_narrative_id:
@@ -243,7 +243,8 @@ async def step_1_select_narrative(
 
     # Use similarity scores already computed during Narrative selection
     # (carried through NarrativeSelectionResult.scores, avoiding redundant
-    # embedding loading and cosine similarity re-computation)
+    # embedding loading and cosine similarity re-computation).
+    # Forced Narrative path skips selection — no scores available.
     scores: Dict[str, float] = selection_result.scores if selection_result else {}
 
     # Format for developer-friendly display

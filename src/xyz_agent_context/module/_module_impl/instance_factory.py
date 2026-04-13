@@ -5,7 +5,7 @@
 @description: Instance creation factory
 
 Uses different creation strategies based on Module type:
-- Agent level: Automatically created when creating an Agent (AwarenessModule, SocialNetworkModule, BasicInfoModule, GeminiRAGModule, MatrixModule)
+- Agent level: Automatically created when creating an Agent (AwarenessModule, SocialNetworkModule, BasicInfoModule, GeminiRAGModule, MessageBusModule)
 - Narrative level: Created when creating a Narrative (ChatModule)
 - Task level: Created each time a task is created (JobModule)
 
@@ -87,7 +87,7 @@ class InstanceFactory:
         - SocialNetworkModule instance (is_public=True)
         - BasicInfoModule instance (is_public=True)
         - GeminiRAGModule instance (is_public=True)
-        - MatrixModule instance (is_public=True)
+        - MessageBusModule instance (is_public=True)
 
         Args:
             agent_id: Agent ID
@@ -119,10 +119,13 @@ class InstanceFactory:
         if rag_instance:
             instances.append(rag_instance)
 
-        # 5. Create MatrixModule instance
-        matrix_instance = await self._create_matrix_instance(agent_id)
-        if matrix_instance:
-            instances.append(matrix_instance)
+        # 5. Create MessageBusModule instance (replaces MessageBusModule)
+        bus_instance = await self._create_message_bus_instance(agent_id)
+        if bus_instance:
+            instances.append(bus_instance)
+
+        # 6. Auto-register agent in MessageBus registry
+        await self._register_agent_in_bus(agent_id)
 
         logger.info(f"Created {len(instances)} agent-level instances")
         return instances
@@ -243,34 +246,63 @@ class InstanceFactory:
         logger.info(f"Created GeminiRAGModule instance: {instance.instance_id}")
         return instance
 
-    async def _create_matrix_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
-        """Create MatrixModule Instance"""
-        # Check if already exists
+    async def _create_message_bus_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
+        """Create MessageBusModule Instance"""
         existing = await self._instance_repo.get_by_agent(
             agent_id=agent_id,
-            module_class="MatrixModule",
+            module_class="MessageBusModule",
             is_public=True
         )
         if existing:
-            logger.debug(f"MatrixModule instance already exists for agent {agent_id}")
+            logger.debug(f"MessageBusModule instance already exists for agent {agent_id}")
             return existing[0]
 
         instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("matrix"),
-            module_class="MatrixModule",
+            instance_id=generate_instance_id("bus"),
+            module_class="MessageBusModule",
             agent_id=agent_id,
             user_id=None,
             is_public=True,
             status=InstanceStatus.ACTIVE,
-            description="Matrix communication channel for inter-Agent messaging",
-            keywords=["matrix", "communication", "messaging", "agent"],
-            topic_hint="Inter-agent messaging via Matrix protocol",
+            description="Agent-to-agent communication via message bus",
+            keywords=["message_bus", "communication", "messaging", "agent"],
+            topic_hint="Inter-agent messaging via message bus",
             created_at=utc_now(),
         )
 
         await self._instance_repo.create_instance(instance)
-        logger.info(f"Created MatrixModule instance: {instance.instance_id}")
+        logger.info(f"Created MessageBusModule instance: {instance.instance_id}")
         return instance
+
+    async def _register_agent_in_bus(self, agent_id: str) -> None:
+        """Register agent in MessageBus agent registry for discovery by other agents."""
+        try:
+            # Get agent info
+            agent_row = await self._db.get_one("agents", {"agent_id": agent_id})
+            if not agent_row:
+                return
+
+            owner = agent_row.get("created_by", "")
+            name = agent_row.get("agent_name", "")
+            desc = agent_row.get("agent_description", "")
+            is_public = agent_row.get("is_public", 0)
+
+            # Upsert into bus_agent_registry
+            import json
+            from datetime import datetime, timezone as dt_tz
+            now = datetime.now(dt_tz.utc).isoformat()
+            await self._db.upsert("bus_agent_registry", {
+                "agent_id": agent_id,
+                "owner_user_id": owner,
+                "capabilities": json.dumps([]),
+                "description": f"{name}: {desc}" if desc else name,
+                "visibility": "public" if is_public else "private",
+                "registered_at": now,
+                "last_seen_at": now,
+            }, "agent_id")
+            logger.info(f"Registered agent {agent_id} ({name}) in MessageBus registry")
+        except Exception as e:
+            logger.warning(f"Failed to register agent {agent_id} in MessageBus: {e}")
 
     async def get_agent_level_instances(self, agent_id: str) -> List[ModuleInstanceRecord]:
         """
@@ -449,7 +481,7 @@ class InstanceFactory:
         Ensure Agent-level Instances exist
 
         Creates all missing instances. When new module types are added
-        (e.g. MatrixModule), existing agents will get them on next load.
+        (e.g. MessageBusModule), existing agents will get them on next load.
 
         Args:
             agent_id: Agent ID
@@ -468,7 +500,7 @@ class InstanceFactory:
             "SocialNetworkModule": self._create_social_network_instance,
             "BasicInfoModule": self._create_basic_info_instance,
             "GeminiRAGModule": self._create_rag_instance,
-            "MatrixModule": self._create_matrix_instance,
+            "MessageBusModule": self._create_message_bus_instance,
         }
         for module_class, creator_fn in creators.items():
             if module_class not in existing_classes:

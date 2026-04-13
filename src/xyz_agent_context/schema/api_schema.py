@@ -22,14 +22,33 @@ from pydantic import BaseModel
 # ===== Auth Schemas =====
 
 class LoginRequest(BaseModel):
-    """Request model for login"""
+    """Request model for login (local: user_id only, cloud: user_id + password)"""
     user_id: str
+    password: Optional[str] = None  # Required in cloud mode, optional in local
 
 
 class LoginResponse(BaseModel):
     """Response model for login"""
     success: bool
     user_id: Optional[str] = None
+    token: Optional[str] = None  # JWT token (cloud mode only)
+    role: Optional[str] = None  # User role (cloud mode only)
+    error: Optional[str] = None
+
+
+class RegisterRequest(BaseModel):
+    """Request model for cloud user registration"""
+    user_id: str
+    password: str
+    invite_code: str
+    display_name: Optional[str] = None
+
+
+class RegisterResponse(BaseModel):
+    """Response model for registration"""
+    success: bool
+    user_id: Optional[str] = None
+    token: Optional[str] = None
     error: Optional[str] = None
 
 

@@ -27,7 +27,9 @@ export function generateId(): string {
 function parseUTCTimestamp(timestamp: number | string): Date {
   if (typeof timestamp === 'number') return new Date(timestamp);
   const s = timestamp.trim();
-  if (/[Z+-]\d{0,4}$/.test(s)) return new Date(s);
+  // Already has timezone info: Z, +HHMM, -HHMM, +HH:MM, -HH:MM
+  if (/(Z|[+-]\d{2}:?\d{2})$/.test(s)) return new Date(s);
+  // No timezone — assume UTC
   return new Date(s.replace(' ', 'T') + 'Z');
 }
 

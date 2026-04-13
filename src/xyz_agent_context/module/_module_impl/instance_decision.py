@@ -90,7 +90,7 @@ class InstanceDict(BaseModel):
     Dictionary representation of a single Instance (LLM output format)
 
     Module Categories:
-    - Capability Modules: ChatModule, AwarenessModule, GeminiRAGModule, SocialNetworkModule, BasicInfoModule, MatrixModule
+    - Capability Modules: ChatModule, AwarenessModule, GeminiRAGModule, SocialNetworkModule, BasicInfoModule
       These are Agent capabilities, do NOT set depends_on
     - Task Modules: JobModule
       Represents a task to be executed, only JobModule can set depends_on

@@ -75,7 +75,7 @@ Architecture
 
 import asyncio
 import multiprocessing
-from typing import List, Optional, Type, Union
+from typing import Any, List, Optional, Type, Union
 
 from loguru import logger
 
@@ -103,7 +103,7 @@ DEFAULT_MCP_MODULES = [
     "JobModule",            # port: 7803
     "GeminiRAGModule",      # port: 7805
     "SkillModule",          # port: 7806
-    "MatrixModule",         # port: 7810
+    "MessageBusModule",     # port: 7820
 ]
 
 # Port reference (for documentation only - actual ports are set in each module)
@@ -114,7 +114,7 @@ MODULE_PORTS = {
     "JobModule": 7803,
     "GeminiRAGModule": 7805,
     "SkillModule": 7806,
-    "MatrixModule": 7810,
+    "MessageBusModule": 7820,
 }
 
 
@@ -363,6 +363,11 @@ class ModuleRunner:
         user = user_id or agent_id
         db = await get_db_client()
 
+        # Ensure all tables exist (MCP runs as separate process)
+        from xyz_agent_context.utils.schema_registry import auto_migrate
+        await auto_migrate(db._backend)
+        logger.info("Schema auto-migration complete")
+
         logger.info("=" * 60)
         logger.info("🚀 Starting MCP Servers (async mode)")
         logger.info(f"   Agent ID: {agent_id}")
@@ -386,12 +391,42 @@ class ModuleRunner:
 
         logger.info(f"\n✅ {len(instances)} MCP servers ready to start")
 
-        # Run all servers concurrently
-        # Note: FastMCP.run() is blocking, so we need to run them in threads
-        # For true async, FastMCP would need async support
-        # Here we use multiprocessing as fallback
-        logger.warning("Note: Running in multiprocessing mode for compatibility")
-        self.run_all_mcp_servers(agent_id, user_id, modules)
+        # Run all MCP servers in threads within a single process.
+        # This shares one SQLite connection, avoiding cross-process write lock contention.
+        import threading
+
+        threads: list[threading.Thread] = []
+        for module_name, mcp_server in instances:
+            port = MODULE_PORTS.get(module_name, 7800 + len(threads))
+            logger.info(f"  🚀 {module_name} → http://localhost:{port}/sse")
+
+            t = threading.Thread(
+                target=self._run_mcp_in_thread,
+                args=(mcp_server, module_name, port),
+                daemon=True,
+            )
+            t.start()
+            threads.append(t)
+
+        logger.info(f"\n✅ {len(threads)} MCP servers running (single-process, threaded)")
+
+        try:
+            for t in threads:
+                t.join()
+        except KeyboardInterrupt:
+            logger.info("Stopping MCP servers...")
+
+    @staticmethod
+    def _run_mcp_in_thread(mcp_server: Any, module_name: str, port: int) -> None:
+        """Run a single MCP server in its own thread with a fresh event loop."""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            mcp_server.settings.port = port
+            mcp_server.run(transport="sse")
+        except Exception as e:
+            logger.error(f"MCP server {module_name} crashed: {e}")
 
     # ============================================================================= A2A API Server
     @staticmethod
@@ -566,6 +601,13 @@ class ModuleRunner:
         return DEFAULT_MCP_MODULES.copy()
 
 
+def _is_sqlite_mode() -> bool:
+    """Check if the current DATABASE_URL points to SQLite."""
+    import os
+    url = os.environ.get("DATABASE_URL", "")
+    return url.startswith("sqlite") or not url
+
+
 if __name__ == "__main__":
     import sys
     from xyz_agent_context.utils.service_logger import setup_service_logger
@@ -643,8 +685,13 @@ Supported JSON-RPC Methods:
             # A2A API Server only
             runner.run_api_server()
         elif command == "mcp" or command == "all":
-            # All MCP servers
-            runner.run_all_mcp_servers()
+            # All MCP servers — use async (single-process) mode for SQLite
+            # to avoid multi-process write lock contention
+            if _is_sqlite_mode():
+                import asyncio
+                asyncio.run(runner.run_mcp_servers_async())
+            else:
+                runner.run_all_mcp_servers()
         elif command == "list":
             # List available modules
             print("\n📦 Available Modules:")
@@ -661,4 +708,8 @@ Supported JSON-RPC Methods:
         # Default: run all MCP servers
         print("🚀 Starting default MCP servers...")
         print("   (Use 'module' command for full deployment with A2A API)\n")
-        runner.run_all_mcp_servers()
+        if _is_sqlite_mode():
+            import asyncio
+            asyncio.run(runner.run_mcp_servers_async())
+        else:
+            runner.run_all_mcp_servers()

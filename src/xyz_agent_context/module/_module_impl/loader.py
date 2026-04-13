@@ -61,7 +61,7 @@ class ModuleLoader:
         "SocialNetworkModule",
         "JobModule",
         "GeminiRAGModule",
-        "MatrixModule",
+        "MessageBusModule",
     ]
 
     # Always-loaded modules (no Instance record needed, loaded directly)
@@ -424,7 +424,7 @@ class ModuleLoader:
             return []
 
         try:
-            # Ensure agent-level instances exist (auto-creates missing ones like MatrixModule)
+            # Ensure agent-level instances exist (auto-creates missing ones like MessageBusModule)
             await self.instance_factory.ensure_agent_instances_exist(self.agent_id)
 
             # Attempt to load from database

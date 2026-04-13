@@ -123,17 +123,19 @@ function ProgressRing({ progress, size = 48 }: { progress: number; size?: number
 
 export function RuntimePanel() {
   const [activeTab, setActiveTab] = useState<RuntimeTab>('execution');
-  const { currentSteps, isStreaming, totalSteps } = useChatStore();
+  const { currentSteps, isStreaming } = useChatStore();
   const { chatHistoryNarratives, chatHistoryEvents, chatHistoryLoading, refreshChatHistory } = usePreloadStore();
   const { agentId, userId } = useConfigStore();
 
-  // Only count the 6 main steps (0, 1, 2, 3, 4, 5), excluding substeps
-  const MAIN_STEP_IDS = new Set(['0', '1', '2', '3', '4', '5']);
-  const mainSteps = currentSteps.filter((s) => MAIN_STEP_IDS.has(s.step));
+  // Count main steps (integer IDs: '0','1','2',...), use max step ID + 1 as total
+  const mainSteps = currentSteps.filter((s) => /^\d+$/.test(s.step));
   const completedCount = mainSteps.filter((s) => s.status === 'completed').length;
-  const totalCount = totalSteps;
+  const maxStepId = mainSteps.reduce((max, s) => Math.max(max, parseInt(s.step, 10)), -1);
+  const totalCount = maxStepId >= 0 ? maxStepId + 1 : 1;
   const inProgressCount = mainSteps.filter((s) => s.status === 'running').length;
-  const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const progress = isStreaming
+    ? Math.min(99, Math.round((completedCount / totalCount) * 100))
+    : (completedCount > 0 ? 100 : 0);
 
   // Calculate narrative metrics
   const narrativeMetrics = useMemo(() => {
