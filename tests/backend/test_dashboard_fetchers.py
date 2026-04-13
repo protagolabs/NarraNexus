@@ -74,8 +74,12 @@ async def test_fetch_instances_only_in_progress(tmp_empty_db):
         "agent_id": agent_a, "status": "completed",
     })
     out = await fetch_instances([agent_a, f"agent_none_{suffix}"])
-    assert len(out[agent_a]) == 1 and out[agent_a][0]["instance_id"] == f"i1_{suffix}"
-    assert out[f"agent_none_{suffix}"] == []
+    # v2.2 G3: fetch_instances now buckets {active: [...], stale: [...]}.
+    # ChatModule with fresh updated_at goes to active; completed never returns.
+    assert len(out[agent_a]["active"]) == 1
+    assert out[agent_a]["active"][0]["instance_id"] == f"i1_{suffix}"
+    assert out[agent_a]["stale"] == []
+    assert out[f"agent_none_{suffix}"] == {"active": [], "stale": []}
 
 
 @pytest.mark.asyncio
