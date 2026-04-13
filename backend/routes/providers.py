@@ -257,24 +257,36 @@ async def get_claude_status(request: Request):
         return {"success": True, "data": {**result, "allowed": False}}
 
     import shutil
+    import subprocess
     if shutil.which("claude"):
         result["cli_installed"] = True
 
-    creds_file = Path.home() / ".claude" / ".credentials.json"
-    if creds_file.is_file():
-        try:
-            data = _json.loads(creds_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                for key in ("accessToken", "oauthToken", "claudeAiOauth"):
-                    if data.get(key):
-                        result["logged_in"] = True
-                        result["expires_at"] = data.get("expiresAt")
-                        break
-                if not result["logged_in"] and data.get("oauth"):
-                    result["logged_in"] = True
-                    result["expires_at"] = data["oauth"].get("expiresAt")
-        except Exception:
-            pass
+    # Preferred: use `claude auth status` (Claude Code v2.x+)
+    try:
+        auth_out = subprocess.run(
+            ["claude", "auth", "status"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if auth_out.returncode == 0 and auth_out.stdout.strip():
+            auth_data = _json.loads(auth_out.stdout)
+            if auth_data.get("loggedIn"):
+                result["logged_in"] = True
+    except Exception:
+        pass
+
+    # Fallback: check legacy credentials file (Claude Code v1.x)
+    if not result["logged_in"]:
+        creds_file = Path.home() / ".claude" / ".credentials.json"
+        if creds_file.is_file():
+            try:
+                data = _json.loads(creds_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    for key in ("accessToken", "oauthToken", "claudeAiOauth", "oauth"):
+                        if data.get(key):
+                            result["logged_in"] = True
+                            break
+            except Exception:
+                pass
 
     return {"success": True, "data": result}
 
