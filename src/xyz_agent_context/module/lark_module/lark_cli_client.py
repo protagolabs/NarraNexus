@@ -180,7 +180,7 @@ class LarkCLIClient:
 
     async def get_user(self, profile: str, user_id: str = "") -> dict:
         """Get user info. Omit user_id to get bot's own info."""
-        args = ["contact", "+get-user"]
+        args = ["contact", "+get-user", "--as", "bot"]
         if user_id:
             args.extend(["--user-id", user_id])
         return await self._run(args, profile)
@@ -224,7 +224,7 @@ class LarkCLIClient:
         limit: int = 20,
     ) -> dict:
         """List recent messages in a chat or P2P conversation."""
-        args = ["im", "+chat-messages-list"]
+        args = ["im", "+chat-messages-list", "--as", "bot"]
         if chat_id:
             args.extend(["--chat-id", chat_id])
         elif user_id:
@@ -245,7 +245,7 @@ class LarkCLIClient:
         self, profile: str, name: str, user_ids: Optional[list[str]] = None
     ) -> dict:
         """Create a group chat."""
-        args = ["im", "+chat-create", "--name", name]
+        args = ["im", "+chat-create", "--as", "bot", "--name", name]
         if user_ids:
             for uid in user_ids:
                 args.extend(["--user-ids", uid])
@@ -254,7 +254,7 @@ class LarkCLIClient:
     async def search_chat(self, profile: str, query: str) -> dict:
         """Search group chats by keyword."""
         return await self._run(
-            ["im", "+chat-search", "--query", query],
+            ["im", "+chat-search", "--as", "bot", "--query", query],
             profile,
         )
 
@@ -265,7 +265,7 @@ class LarkCLIClient:
     async def create_document(self, profile: str, title: str, markdown: str) -> dict:
         """Create a new Lark document with Markdown content."""
         return await self._run(
-            ["docs", "+create", "--title", title, "--markdown", markdown],
+            ["docs", "+create", "--as", "bot", "--title", title, "--markdown", markdown],
             profile,
         )
 
@@ -274,7 +274,7 @@ class LarkCLIClient:
         if not _validate_lark_url(doc_url):
             return {"success": False, "error": "Invalid document URL. Must be a Lark/Feishu domain."}
         return await self._run(
-            ["docs", "+fetch", "--url", doc_url],
+            ["docs", "+fetch", "--as", "bot", "--url", doc_url],
             profile,
         )
 
@@ -283,14 +283,14 @@ class LarkCLIClient:
         if not _validate_lark_url(doc_url):
             return {"success": False, "error": "Invalid document URL. Must be a Lark/Feishu domain."}
         return await self._run(
-            ["docs", "+update", "--url", doc_url, "--markdown", markdown],
+            ["docs", "+update", "--as", "bot", "--url", doc_url, "--markdown", markdown],
             profile,
         )
 
     async def search_documents(self, profile: str, query: str) -> dict:
         """Search documents, Wiki pages, and spreadsheets."""
         return await self._run(
-            ["docs", "+search", "--query", query],
+            ["docs", "+search", "--as", "bot", "--query", query],
             profile,
         )
 
