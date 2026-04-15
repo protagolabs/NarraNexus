@@ -6,11 +6,17 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useTheme, useTimezoneSync } from '@/hooks';
-import { useConfigStore } from '@/stores';
-import { api } from '@/lib/api';
+import { useConfigStore, useRuntimeStore } from '@/stores';
+import { api, getBaseUrl } from '@/lib/api';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
+const RegisterPage = lazy(() => import('@/pages/RegisterPage'));
+const ModeSelectPage = lazy(() => import('@/pages/ModeSelectPage'));
+const SetupPage = lazy(() => import('@/pages/SetupPage'));
+const SystemPage = lazy(() => import('@/pages/SystemPage'));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -23,6 +29,7 @@ function PageFallback() {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, userId, logout } = useConfigStore();
+  const mode = useRuntimeStore((s) => s.mode);
   const [validating, setValidating] = useState(true);
 
   useEffect(() => {
@@ -30,8 +37,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       setValidating(false);
       return;
     }
-    // Validate that the user still exists in the backend DB
-    api.login(userId)
+    // Validate that the session is still valid (JWT token accepted by backend)
+    api.getAgents(userId)
       .then(res => {
         if (!res.success) logout();
       })
@@ -41,6 +48,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       .finally(() => setValidating(false));
   }, [isLoggedIn, userId]);
 
+  // Order matters: check mode BEFORE isLoggedIn.
+  //
+  // When the user clicks "Switch Mode" in the sidebar, handleSwitchMode
+  // clears both `mode` (to null) and `isLoggedIn` (to false) in a single
+  // Zustand batch. Zustand updates commit synchronously, but the imperative
+  // navigate('/mode-select') goes through React Router's transition queue,
+  // which has lower priority. That means ProtectedRoute re-renders against
+  // the NEW store state while still matched to the OLD /app/* location —
+  // and if we checked isLoggedIn first, we'd redirect to /login before the
+  // mode-select transition lands, stranding the user on a stale-mode
+  // login form backed by the wrong API URL.
+  //
+  // By checking `!mode` first, we route "mode cleared" through /mode-select
+  // regardless of who wins the race.
+  if (!mode) return <Navigate to="/mode-select" replace />;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
   if (validating) return <PageFallback />;
   return <>{children}</>;
@@ -48,8 +70,67 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useConfigStore();
+  const mode = useRuntimeStore((s) => s.mode);
   if (isLoggedIn) return <Navigate to="/" replace />;
+  // Login/register need a resolved mode to know whether to render the
+  // local (user_id only) or cloud (user_id + password) form and which
+  // backend to hit. If we got here with mode=null (e.g. via a stale
+  // persisted route after a mode switch), punt to mode-select first.
+  if (!mode) return <Navigate to="/mode-select" replace />;
   return <>{children}</>;
+}
+
+/** Redirect root based on runtime state */
+function RootRedirect() {
+  const { isLoggedIn, userId } = useConfigStore();
+  const { mode, setMode, initialize } = useRuntimeStore();
+  const [checking, setChecking] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
+
+  // Cloud web deployment: force cloud-web mode, skip mode select
+  const forceCloud = import.meta.env.VITE_FORCE_CLOUD === 'true';
+  if (forceCloud && !mode) {
+    setMode('cloud-web');
+    initialize();
+  }
+
+  useEffect(() => {
+    if (!isLoggedIn || !userId) {
+      setChecking(false);
+      return;
+    }
+    // Check if user has any providers configured
+    const checkProviders = async () => {
+      try {
+        const baseUrl = getBaseUrl();
+        const res = await fetch(`${baseUrl}/api/providers?user_id=${encodeURIComponent(userId)}`);
+        const data = await res.json();
+        if (data.success && data.data?.providers) {
+          const count = Object.keys(data.data.providers).length;
+          setNeedsSetup(count === 0);
+        }
+      } catch {
+        // Backend not ready — don't block, just go to chat
+        setNeedsSetup(false);
+      }
+      setChecking(false);
+    };
+    checkProviders();
+  }, [isLoggedIn, userId]);
+
+  if (!mode) {
+    return <Navigate to="/mode-select" replace />;
+  }
+  if (!isLoggedIn) {
+    return <Navigate to="/login" replace />;
+  }
+  if (checking) {
+    return <PageFallback />;
+  }
+  if (needsSetup) {
+    return <Navigate to="/setup" replace />;
+  }
+  return <Navigate to="/app/chat" replace />;
 }
 
 function App() {
@@ -63,14 +144,37 @@ function App() {
   return (
     <Suspense fallback={<PageFallback />}>
       <Routes>
+        {/* Public routes */}
+        <Route path="/mode-select" element={<ModeSelectPage />} />
         <Route
           path="/login"
           element={<PublicRoute><LoginPage /></PublicRoute>}
         />
         <Route
-          path="/"
-          element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
+          path="/register"
+          element={<PublicRoute><RegisterPage /></PublicRoute>}
         />
+
+        {/* Setup — requires login */}
+        <Route
+          path="/setup"
+          element={<ProtectedRoute><SetupPage /></ProtectedRoute>}
+        />
+
+        {/* Protected app routes */}
+        <Route
+          path="/app"
+          element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
+        >
+          <Route index element={<Navigate to="chat" replace />} />
+          <Route path="chat" element={null} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="system" element={<SystemPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+
+        {/* Root redirect + catch-all */}
+        <Route path="/" element={<RootRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

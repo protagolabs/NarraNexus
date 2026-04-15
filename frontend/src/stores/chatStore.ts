@@ -20,10 +20,8 @@ import type {
 } from '@/types';
 import { generateId } from '@/lib/utils';
 
-// Total AgentRuntime pipeline steps: 0 (init), 1 (narrative), 2 (modules),
-// 3 (agent loop), 4 (persist), 5 (background hooks — completes instantly).
-// Steps 5-6 (hooks + callbacks) run in background and don't block the UI.
-const TOTAL_PIPELINE_STEPS = 5;
+// Pipeline step count is determined dynamically from the steps received
+// during streaming. No hardcoded total — adapts to backend changes.
 
 /** Per-agent independent chat state */
 export interface AgentChatState {
@@ -35,7 +33,7 @@ export interface AgentChatState {
   currentAssistantMessage: string;
   isStreaming: boolean;
   history: ConversationRound[];
-  totalSteps: number;
+
 }
 
 /** Toast notification for background-completed agents */
@@ -55,7 +53,7 @@ const DEFAULT_AGENT_STATE: AgentChatState = Object.freeze({
   currentAssistantMessage: '',
   isStreaming: false,
   history: Object.freeze([]) as unknown as ConversationRound[],
-  totalSteps: TOTAL_PIPELINE_STEPS,
+
 });
 
 /** Create a fresh mutable state for a new agent session */
@@ -69,7 +67,7 @@ function createDefaultAgentState(): AgentChatState {
     currentAssistantMessage: '',
     isStreaming: false,
     history: [],
-    totalSteps: TOTAL_PIPELINE_STEPS,
+  
   };
 }
 
@@ -91,7 +89,7 @@ interface ChatState {
   currentAssistantMessage: string;
   isStreaming: boolean;
   history: ConversationRound[];
-  totalSteps: number;
+
 
   getUserVisibleResponse: () => string | null;
 
@@ -143,7 +141,6 @@ function deriveFlatFields(state: { agentSessions: Record<string, AgentChatState>
     currentAssistantMessage: session.currentAssistantMessage,
     isStreaming: session.isStreaming,
     history: session.history,
-    totalSteps: session.totalSteps,
   };
 }
 

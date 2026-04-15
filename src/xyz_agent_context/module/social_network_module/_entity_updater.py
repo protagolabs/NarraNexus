@@ -31,6 +31,7 @@ from xyz_agent_context.module.social_network_module.prompts import (
     DESCRIPTION_COMPRESSION_INSTRUCTIONS,
     PERSONA_INFERENCE_INSTRUCTIONS,
     BATCH_ENTITY_EXTRACTION_INSTRUCTIONS,
+    DEDUP_MERGE_DECISION_INSTRUCTIONS,
 )
 
 
@@ -55,11 +56,13 @@ class PersonaOutput(BaseModel):
 
 
 class ExtractedEntity(BaseModel):
-    """A single entity mentioned in the conversation"""
+    """A single social entity mentioned in the conversation (human, agent, or group only)"""
     name: str = Field(..., description="Entity name as mentioned in the conversation")
-    entity_type: str = Field(default="user", description="Entity type: user | agent | organization")
+    entity_type: str = Field(default="user", description="Entity type: user | agent | group")
     summary: str = Field(default="", description="Brief summary of what was said about this entity")
-    tags: List[str] = Field(default_factory=list, description="0-2 tags only when clearly evidenced (e.g. expert:ML, engineer). Prefer empty list.")
+    keywords: List[str] = Field(default_factory=list, description="0-3 contextual keywords (topics, domains, platforms associated with this person)")
+    aliases: List[str] = Field(default_factory=list, description="System IDs and alternate names (e.g. Matrix IDs, platform agent IDs)")
+    familiarity: str = Field(default="known_of", description="direct (participating in conversation) | known_of (only referenced)")
 
 
 class BatchExtractionOutput(BaseModel):
@@ -70,6 +73,102 @@ class BatchExtractionOutput(BaseModel):
     )
 
 
+class DedupDecision(BaseModel):
+    """Dedup merge decision output"""
+    decision: str = Field(description="MERGE or CREATE_NEW")
+    merge_target_index: Optional[int] = Field(default=None, description="Index of the existing entity to merge with (0-based). Required if decision is MERGE.")
+    reason: str = Field(default="", description="One-line explanation for the decision")
+
+
+# ── Dedup Pipeline ──────────────────────────────────────────────────────────
+
+# Similarity threshold for vector-based dedup candidate retrieval
+DEDUP_SIMILARITY_THRESHOLD = 0.6
+DEDUP_TOP_K = 3
+
+
+async def decide_merge_or_create(
+    candidate_name: str,
+    candidate_summary: str,
+    candidate_aliases: List[str],
+    existing_entities: List[SocialNetworkEntity],
+) -> tuple[str, Optional[SocialNetworkEntity]]:
+    """
+    Use LLM to decide if a candidate entity matches any of the existing entities.
+    All candidates are presented in one call so the LLM can compare across them.
+
+    Args:
+        candidate_name: Name of the newly extracted entity
+        candidate_summary: Summary of what was said about this entity
+        candidate_aliases: System IDs and alternate names
+        existing_entities: List of potential matches from Stage 1 or Stage 2
+
+    Returns:
+        Tuple of (decision, matched_entity):
+        - ("MERGE", entity) if LLM decides it matches one of the existing entities
+        - ("CREATE_NEW", None) if LLM decides it's a new entity
+    """
+    if not existing_entities:
+        return "CREATE_NEW", None
+
+    try:
+        candidate_aliases_str = ", ".join(candidate_aliases) if candidate_aliases else "None"
+
+        # Build description of all existing candidates
+        existing_lines = []
+        for i, e in enumerate(existing_entities):
+            desc = (e.entity_description or "No description")[:200]
+            aliases = ", ".join(e.aliases) if e.aliases else "None"
+            keywords = ", ".join(e.keywords) if e.keywords else "None"
+            existing_lines.append(
+                f"[{i}] Name: {e.entity_name or 'Unknown'} | ID: {e.entity_id} | "
+                f"Aliases: {aliases} | Keywords: {keywords} | "
+                f"Interactions: {e.interaction_count} | Desc: {desc}"
+            )
+
+        user_input = f"""**Candidate (newly extracted):**
+- Name: {candidate_name}
+- Summary: {candidate_summary or 'No summary'}
+- Aliases: {candidate_aliases_str}
+
+**Existing entities in database ({len(existing_entities)} candidates):**
+{chr(10).join(existing_lines)}
+
+Does the candidate match any existing entity? If yes, return MERGE with the index. If no match, return CREATE_NEW:"""
+
+        sdk = OpenAIAgentsSDK()
+        result = await sdk.llm_function(
+            instructions=DEDUP_MERGE_DECISION_INSTRUCTIONS,
+            user_input=user_input,
+            output_type=DedupDecision,
+        )
+        output: DedupDecision = result.final_output
+        decision = output.decision.strip().upper()
+
+        if decision == "MERGE":
+            idx = output.merge_target_index
+            if idx is not None and 0 <= idx < len(existing_entities):
+                matched = existing_entities[idx]
+                logger.info(
+                    f"            Dedup decision for '{candidate_name}': MERGE → "
+                    f"{matched.entity_name} ({matched.entity_id}) — {output.reason}"
+                )
+                return "MERGE", matched
+            else:
+                logger.warning(
+                    f"            Dedup MERGE but invalid index {idx} "
+                    f"(max {len(existing_entities)-1}), defaulting to CREATE_NEW"
+                )
+                return "CREATE_NEW", None
+
+        logger.info(f"            Dedup decision for '{candidate_name}': CREATE_NEW — {output.reason}")
+        return "CREATE_NEW", None
+
+    except Exception as e:
+        logger.warning(f"            Dedup LLM call failed, defaulting to CREATE_NEW: {e}")
+        return "CREATE_NEW", None
+
+
 # ── Batch Entity Extraction Pipeline ────────────────────────────────────────
 
 
@@ -77,9 +176,11 @@ async def extract_mentioned_entities(
     input_content: str,
     final_output: str,
     primary_entity_name: str = "",
+    agent_name: str = "",
+    agent_id: str = "",
 ) -> List[ExtractedEntity]:
     """
-    Extract all entities mentioned in a conversation (besides the primary speaker).
+    Extract all entities mentioned in a conversation (besides the primary speaker and the agent itself).
 
     Uses LLM to detect mentions of other people, agents, or organizations
     in the conversation, so SocialNetworkModule can auto-create or update them.
@@ -88,18 +189,35 @@ async def extract_mentioned_entities(
         input_content: User input
         final_output: Agent output
         primary_entity_name: Name of the primary interaction entity (excluded from results)
+        agent_name: The agent's own name (excluded from results to prevent self-extraction)
+        agent_id: The agent's own ID (excluded from results)
 
     Returns:
         List of extracted entities (may be empty if no others are mentioned)
     """
     try:
+        # Build exclusion list for the LLM prompt
+        exclusions = [primary_entity_name or 'unknown']
+        if agent_name:
+            exclusions.append(agent_name)
+        if agent_id:
+            exclusions.append(agent_id)
+        exclusion_str = ", ".join(exclusions)
+
         user_input = f"""Conversation:
 User: {input_content}
 Agent: {final_output}
 
-Primary speaker name (EXCLUDE from results): {primary_entity_name or 'unknown'}
+Names to EXCLUDE from results (these are the conversation participants): {exclusion_str}
 
-Extract all OTHER entities mentioned:"""
+Extract all OTHER social entities mentioned:"""
+
+        logger.debug(
+            f"[SocialExtraction] LLM input:\n"
+            f"  Excluded names: {exclusion_str}\n"
+            f"  User msg preview: {input_content[:200]}...\n"
+            f"  Agent msg preview: {final_output[:200]}..."
+        )
 
         sdk = OpenAIAgentsSDK()
         result = await sdk.llm_function(
@@ -109,15 +227,34 @@ Extract all OTHER entities mentioned:"""
         )
         output: BatchExtractionOutput = result.final_output
 
-        # Filter out empty or primary entity matches
+        logger.info(
+            f"[SocialExtraction] LLM returned {len(output.entities)} raw entities: "
+            f"{[e.name for e in output.entities]}"
+        )
+
+        # Build exclusion set for post-filter (case-insensitive)
+        exclude_lower = {n.lower() for n in exclusions if n}
+        if agent_id:
+            exclude_lower.add(agent_id.lower())
+
+        # Filter out empty, primary entity, and self-references
         filtered = [
             e for e in output.entities
             if e.name.strip()
-            and e.name.lower() != primary_entity_name.lower()
+            and e.name.lower() not in exclude_lower
         ]
 
         if filtered:
-            logger.info(f"Batch extraction found {len(filtered)} mentioned entities")
+            logger.info(f"[SocialExtraction] After filtering: {len(filtered)} entities")
+            for e in filtered:
+                logger.info(
+                    f"[SocialExtraction]   → {e.name} (type={e.entity_type}, "
+                    f"familiarity={e.familiarity}, keywords={e.keywords}, "
+                    f"aliases={e.aliases}, summary={e.summary[:80]}...)"
+                )
+        else:
+            logger.debug("[SocialExtraction] No entities after filtering")
+
         return filtered
 
     except Exception as e:
@@ -148,7 +285,9 @@ Summary (one line only):"""
             output_type=SummaryOutput,
         )
         output: SummaryOutput = result.final_output
-        return output.summary.strip()
+        summary = output.summary.strip()
+        logger.info(f"[SocialSummary] Result: '{summary[:120]}'" if summary else "[SocialSummary] No significant info")
+        return summary
 
     except Exception as e:
         logger.error(f"Error summarizing entity info: {e}")
@@ -208,8 +347,8 @@ async def update_entity_embedding(
             text_parts.append(f"Name: {entity.entity_name}")
         if entity.entity_description:
             text_parts.append(f"Description: {entity.entity_description}")
-        if entity.tags:
-            text_parts.append(f"Tags: {', '.join(entity.tags)}")
+        if entity.keywords:
+            text_parts.append(f"Keywords: {', '.join(entity.keywords)}")
 
         embedding_text = "\n".join(text_parts)
         if not embedding_text.strip():
@@ -313,7 +452,7 @@ async def infer_persona(
 - Name: {entity.entity_name or 'Unknown'}
 - Type: {entity.entity_type}
 - Description: {entity.entity_description or 'No description yet'}
-- Tags: {', '.join(entity.tags) if entity.tags else 'None'}
+- Keywords: {', '.join(entity.keywords) if entity.keywords else 'None'}
 - Interaction count: {entity.interaction_count}"""
 
         if entity.identity_info:

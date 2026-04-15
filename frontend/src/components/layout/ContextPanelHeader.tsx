@@ -13,12 +13,9 @@
  * The settings button opens a full-screen Settings modal (replaces the old popover).
  */
 
-import { useState } from 'react';
-import { Activity, Settings, Inbox, ListTodo, Puzzle, Cpu } from 'lucide-react';
+import { Activity, Settings, Inbox, ListTodo, Puzzle } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui';
 import { CostPopover } from '@/components/cost/CostPopover';
-import { SettingsModal } from '@/components/settings/SettingsModal';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn } from '@/lib/utils';
 
@@ -42,7 +39,6 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
   const { agentId, awarenessUpdatedAgents } = useConfigStore();
   const hasAwarenessUpdate = awarenessUpdatedAgents.includes(agentId);
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <div className="flex items-center justify-between mb-3 px-1">
@@ -98,19 +94,8 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
 
       {/* Utility buttons */}
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          title="Settings"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Cpu className="w-5 h-5" />
-        </Button>
         <CostPopover />
       </div>
-
-      {/* Settings Modal */}
-      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

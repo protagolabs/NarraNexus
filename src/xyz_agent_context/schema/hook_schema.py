@@ -80,6 +80,7 @@ class WorkingSource(str, Enum):
     CALLBACK = "callback"  # Callback triggered after Job completion
     SKILL_STUDY = "skill_study"  # Skill study trigger
     MATRIX = "matrix"  # Triggered by Matrix message (MatrixTrigger)
+    MESSAGE_BUS = "message_bus"  # Triggered by MessageBus message
 
     @classmethod
     def from_string(cls, value: str) -> "WorkingSource":
@@ -111,7 +112,7 @@ class WorkingSource(str, Enum):
         Returns:
             True if triggered by JOB, A2A, or CALLBACK
         """
-        return self in (WorkingSource.JOB, WorkingSource.A2A, WorkingSource.CALLBACK, WorkingSource.MATRIX)
+        return self in (WorkingSource.JOB, WorkingSource.A2A, WorkingSource.CALLBACK, WorkingSource.MATRIX, WorkingSource.MESSAGE_BUS)
 
     def is_user_initiated(self) -> bool:
         """

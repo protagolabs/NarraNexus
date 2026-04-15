@@ -76,16 +76,23 @@ class OpenAIAgentsSDK:
 
         3. Non-official endpoint → always use slot config model, because the
            endpoint may not support OpenAI model names.
+
+        "default" is never a real model name — it's a UI sentinel meaning
+        "use the system preset". This method guarantees the return value
+        is always a concrete model identifier.
         """
         is_official = openai_config.base_url in _OFFICIAL_OPENAI_BASE_URLS
         is_default = openai_config.model == "default"
 
-        if is_official and is_default and requested_model:
-            # Mode 1: let each call site pick its best model
-            return requested_model
+        if is_default:
+            # "default" → use per-call-site model if provided, otherwise
+            # fall back to the system preset (OpenAIConfig dataclass default)
+            from xyz_agent_context.agent_framework.api_config import OpenAIConfig
+            fallback = requested_model or OpenAIConfig.model
+            return fallback
 
-        if is_official and not is_default:
-            # Mode 2: user forced a specific model
+        if is_official:
+            # Mode 2: user forced a specific model on official endpoint
             return openai_config.model
 
         # Mode 3: non-official endpoint, use slot config

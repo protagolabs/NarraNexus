@@ -191,7 +191,7 @@ async def load_social_network_context(
                         "entity_name": entity.entity_name,
                         "entity_type": entity.entity_type,
                         "description": description,
-                        "tags": entity.tags[:10],
+                        "keywords": entity.keywords[:10],
                         "persona": persona,
                         "expertise_domains": entity.expertise_domains[:5] if entity.expertise_domains else [],
                     })

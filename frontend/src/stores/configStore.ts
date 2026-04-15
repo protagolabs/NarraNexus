@@ -14,6 +14,8 @@ interface ConfigState {
   // Auth state
   isLoggedIn: boolean;
   userId: string;
+  token: string;  // JWT token (cloud mode only)
+  role: string;   // 'user' | 'staff'
 
   // Agent state
   agentId: string;
@@ -23,7 +25,7 @@ interface ConfigState {
   awarenessUpdatedAgents: string[];
 
   // Actions
-  login: (userId: string) => void;
+  login: (userId: string, token?: string, role?: string) => void;
   logout: () => void;
   setAgentId: (id: string) => void;
   setAgents: (agents: AgentInfo[]) => void;
@@ -38,16 +40,25 @@ export const useConfigStore = create<ConfigState>()(
       // Default values
       isLoggedIn: false,
       userId: '',
+      token: '',
+      role: '',
       agentId: '',
       agents: [],
       awarenessUpdatedAgents: [],
 
       // Actions
-      login: (userId) => set({ isLoggedIn: true, userId }),
+      login: (userId, token?, role?) => set({
+        isLoggedIn: true,
+        userId,
+        token: token || '',
+        role: role || '',
+      }),
 
       logout: () => set({
         isLoggedIn: false,
         userId: '',
+        token: '',
+        role: '',
         agentId: '',
         agents: [],
         awarenessUpdatedAgents: [],

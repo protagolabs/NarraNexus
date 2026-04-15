@@ -59,7 +59,7 @@ export interface CancelJobResponse extends ApiResponse {
   previous_status?: string;
 }
 
-// Agent Inbox types (Matrix channel messages, room-grouped)
+// Agent Inbox types (MessageBus channels, room-grouped)
 
 export interface MarkReadResponse extends ApiResponse {
   marked_count: number;
@@ -67,7 +67,7 @@ export interface MarkReadResponse extends ApiResponse {
 export interface RoomMember {
   agent_id: string;
   agent_name: string;
-  matrix_user_id: string;
+  matrix_user_id: string;  // compat alias — contains agent_id
 }
 
 export interface RoomMessage {
@@ -111,11 +111,14 @@ export interface ClearHistoryResponse extends ApiResponse {
 export interface SocialNetworkEntity {
   entity_id: string;
   entity_name?: string;
+  aliases?: string[];              // Cross-system IDs and alternate names
   entity_description?: string;
   entity_type: string;
+  familiarity?: string;            // "direct" | "known_of"
   identity_info: Record<string, unknown>;
   contact_info: Record<string, unknown>;
-  tags: string[];
+  tags: string[];                  // Backward compat
+  keywords?: string[];             // Same data, new name
   relationship_strength: number;
   interaction_count: number;
   last_interaction_time?: string;
@@ -240,6 +243,8 @@ export interface AgentInfo {
 // Auth types
 export interface LoginResponse extends ApiResponse {
   user_id?: string;
+  token?: string;  // JWT token (cloud mode)
+  role?: string;   // 'user' | 'staff' (cloud mode)
 }
 
 export interface CreateUserResponse extends ApiResponse {
@@ -447,4 +452,195 @@ export interface EmbeddingStatusResponse extends ApiResponse {
 
 export interface EmbeddingRebuildResponse extends ApiResponse {
   message?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard v2 types (T19)
+//
+// Discriminated union via `owned_by_viewer`. Public-variant lacks owner-only
+// fields at the type level — TS users cannot accidentally read sessions or
+// action_line on a public agent.
+// ---------------------------------------------------------------------------
+
+export type AgentKind =
+  | 'idle'
+  | 'CHAT'
+  | 'JOB'
+  | 'MESSAGE_BUS'
+  | 'A2A'
+  | 'CALLBACK'
+  | 'SKILL_STUDY'
+  | 'MATRIX';
+
+export interface MessageBusDetails {
+  src_channel?: string | null;
+  dst_channel?: string | null;
+}
+
+export interface StatusCommon {
+  kind: AgentKind;
+  last_activity_at: string | null;
+  started_at: string | null;
+}
+
+export interface StatusWithDetails extends StatusCommon {
+  details?: MessageBusDetails | null;
+}
+
+export interface JobProgress {
+  current_step: number;
+  total_steps: number;
+  stage_name?: string | null;
+  estimated_pct?: number | null;
+}
+
+export type JobQueueStatus = 'pending' | 'active' | 'blocked' | 'paused' | 'failed';
+
+export interface SessionInfoResp {
+  session_id: string;
+  user_display: string;
+  channel: string;
+  started_at: string;
+  /** v2.1: preview of latest user input in this session */
+  user_last_message_preview?: string | null;
+}
+
+export interface DashboardRunningJob {
+  job_id: string;
+  title: string;
+  job_type: string;
+  started_at: string | null;
+  /** v2.1 */
+  description?: string | null;
+  progress?: JobProgress | null;
+}
+
+export interface DashboardPendingJob {
+  job_id: string;
+  title: string;
+  job_type: string;
+  next_run_time: string | null;
+  /** v2.1 */
+  description?: string | null;
+  /** v2.1: which live state this queued job is in */
+  queue_status?: JobQueueStatus;
+}
+
+export interface EnhancedSignals {
+  recent_errors_1h: number;
+  token_rate_1h: number | null;
+  active_narratives: number;
+  unread_bus_messages: number;
+}
+
+// v2.1 — rich card types
+
+export interface QueueCounts {
+  running: number;
+  active: number;
+  pending: number;
+  blocked: number;
+  paused: number;
+  failed: number;
+  total: number;
+}
+
+export type RecentEventKind = 'completed' | 'running' | 'failed' | 'chat' | 'other';
+
+export interface RecentEvent {
+  event_id: string;
+  kind: RecentEventKind;
+  verb: string;
+  target?: string | null;
+  duration_ms?: number | null;
+  created_at: string;
+}
+
+export type MetricsTrend = 'up' | 'down' | 'flat' | 'unknown';
+
+export interface MetricsToday {
+  runs_ok: number;
+  errors: number;
+  avg_duration_ms: number | null;
+  avg_duration_trend: MetricsTrend;
+  token_cost_cents: number | null;
+}
+
+export interface AttentionBannerAction {
+  label: string;
+  endpoint: string;
+  method?: 'POST' | 'GET';
+}
+
+export type AttentionBannerKind =
+  | 'job_failed'
+  | 'job_blocked'
+  | 'jobs_paused'
+  | 'slow_response';
+
+export type AttentionBannerLevel = 'error' | 'warning' | 'info';
+
+export interface AttentionBanner {
+  level: AttentionBannerLevel;
+  kind: AttentionBannerKind;
+  message: string;
+  action?: AttentionBannerAction | null;
+}
+
+export type AgentHealth =
+  | 'healthy_running'
+  | 'healthy_idle'
+  | 'idle_long'
+  | 'warning'
+  | 'error'
+  | 'paused'
+  | 'acknowledged'; // v2.2 G2: error fully-dismissed visual (slate rail + red ack dot)
+
+/** v2.2 G3: a module instance stuck in_progress past the stale threshold. */
+export interface StaleInstance {
+  instance_id: string;
+  module_class: string;
+  description: string | null;
+}
+
+export interface OwnedAgentStatus {
+  agent_id: string;
+  name: string;
+  description: string | null;
+  is_public: boolean;
+  owned_by_viewer: true;
+  status: StatusWithDetails;
+  running_count: number;
+  /** null → frontend must render "—" */
+  action_line: string | null;
+  /** v2.1: human verb ("Serving 3 users" / "Running: weekly-report" / "Idle · last active 4m ago") */
+  verb_line: string | null;
+  sessions: SessionInfoResp[];
+  running_jobs: DashboardRunningJob[];
+  pending_jobs: DashboardPendingJob[];
+  enhanced: EnhancedSignals;
+  // v2.1 rich fields
+  queue: QueueCounts;
+  recent_events: RecentEvent[];
+  metrics_today: MetricsToday;
+  attention_banners: AttentionBanner[];
+  health: AgentHealth;
+  // v2.2 G3: zombie module instances (in_progress past stale threshold)
+  stale_instances: StaleInstance[];
+}
+
+export interface PublicAgentStatus {
+  agent_id: string;
+  name: string;
+  description: string | null;
+  is_public: true;
+  owned_by_viewer: false;
+  status: StatusCommon;
+  running_count_bucket: '0' | '1-2' | '3-5' | '6-10' | '10+';
+}
+
+export type AgentStatus = OwnedAgentStatus | PublicAgentStatus;
+
+export interface DashboardResponse extends ApiResponse {
+  agents: AgentStatus[];
 }

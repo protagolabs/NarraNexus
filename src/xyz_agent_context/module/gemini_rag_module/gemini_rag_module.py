@@ -164,25 +164,24 @@ class GeminiRAGModule(XYZBaseModule):
         # Note: English is used here because it's for the LLM
         # {rag_keywords} will be replaced with actual keywords during hook_data_gathering
         self.instructions_template = """
-## RAG Module - Document Search Capability
+#### RAG Module - Document Search Capability
 
 You have access to a personal knowledge base (RAG system) for storing and retrieving documents.
 
-### Knowledge Base Content Summary (Keywords)
+##### Knowledge Base Content Summary (Keywords)
 
 {rag_keywords}
 
-### When to Use RAG
+##### When to Use RAG
 
 - When the user's question is related to the knowledge base keywords.
 - When the user explicitly asks to search documents or use RAG to answer the question.
 
-If any of the above conditions are met, you must call the `rag_query` tool to perform the search，otherwise, you can't call the `rag_query` tool.
+If any of the above conditions are met, you must call the `rag_query` tool to perform the search, otherwise, you can't call the `rag_query` tool.
 
+Note: Your query should combine the user's question with the existing keywords and any keywords likely to appear in the answer. Optimize and expand the query to improve its comprehensiveness, accuracy, and relevance.
 
-note: Your query should combine the user's question with the existing keywords and any keywords likely to appear in the answer. Optimize and expand the query to improve its comprehensiveness, accuracy, and relevance.
-
-### Available Tools
+##### Available Tools
 
 1. **rag_query** - Search documents with natural language
     - Returns relevant text chunks with source info

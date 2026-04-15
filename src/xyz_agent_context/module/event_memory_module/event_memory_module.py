@@ -329,6 +329,9 @@ class EventMemoryModule(XYZBaseModule):
         This table is used by Modules to report their status to the Narrative,
         helping the Narrative decide whether to activate a certain Module.
 
+        The table is normally created by auto_migrate (schema_registry).
+        This method serves as a fallback safety net.
+
         Returns:
             bool: Whether the table is available
         """
@@ -338,38 +341,63 @@ class EventMemoryModule(XYZBaseModule):
         if table_name in self._checked_tables:
             return True
 
-        # Check if table exists
-        query = """
-            SELECT COUNT(*) as cnt
-            FROM information_schema.tables
-            WHERE table_schema = DATABASE()
-            AND table_name = %s
-        """
+        # Check if table exists (dialect-aware)
+        is_sqlite = getattr(getattr(self.db, '_backend', None), 'dialect', None) == 'sqlite'
+
+        if is_sqlite:
+            query = "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?"
+        else:
+            query = """
+                SELECT COUNT(*) as cnt
+                FROM information_schema.tables
+                WHERE table_schema = DATABASE()
+                AND table_name = %s
+            """
         result = await self.db.execute(query, params=(table_name,), fetch=True)
 
         if result and len(result) > 0 and result[0].get("cnt", 0) > 0:
             self._checked_tables.add(table_name)
             return True
 
-        # Create table
-        create_sql = """
-            CREATE TABLE IF NOT EXISTS `module_report_memory` (
-                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                `narrative_id` VARCHAR(128) NOT NULL COMMENT 'Narrative ID',
-                `module_name` VARCHAR(128) NOT NULL COMMENT 'Module name',
-                `report_memory` TEXT COMMENT 'Status information reported by Module to Narrative',
-                `created_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6),
-                `updated_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-                PRIMARY KEY (`id`),
-                UNIQUE INDEX `idx_narrative_module` (`narrative_id`, `module_name`),
-                INDEX `idx_narrative` (`narrative_id`),
-                INDEX `idx_module` (`module_name`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            COMMENT='Module status report table, used for Narrative orchestration decisions';
-        """
+        # Create table (dialect-aware fallback)
+        if is_sqlite:
+            create_sql = """
+                CREATE TABLE IF NOT EXISTS module_report_memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    narrative_id TEXT NOT NULL,
+                    module_name TEXT NOT NULL,
+                    report_memory TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """
+        else:
+            create_sql = """
+                CREATE TABLE IF NOT EXISTS `module_report_memory` (
+                    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `narrative_id` VARCHAR(128) NOT NULL COMMENT 'Narrative ID',
+                    `module_name` VARCHAR(128) NOT NULL COMMENT 'Module name',
+                    `report_memory` TEXT COMMENT 'Status information reported by Module to Narrative',
+                    `created_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6),
+                    `updated_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                    PRIMARY KEY (`id`),
+                    UNIQUE INDEX `idx_narrative_module` (`narrative_id`, `module_name`),
+                    INDEX `idx_narrative` (`narrative_id`),
+                    INDEX `idx_module` (`module_name`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                COMMENT='Module status report table, used for Narrative orchestration decisions';
+            """
 
         try:
             await self.db.execute(create_sql, fetch=False)
+            if is_sqlite:
+                # Create indexes separately for SQLite
+                for idx_sql in [
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_narrative_module ON module_report_memory(narrative_id, module_name)",
+                    "CREATE INDEX IF NOT EXISTS idx_report_narrative ON module_report_memory(narrative_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_report_module ON module_report_memory(module_name)",
+                ]:
+                    await self.db.execute(idx_sql, fetch=False)
             self._checked_tables.add(table_name)
             logger.info(f"EventMemoryModule: created table {table_name} successfully")
             return True

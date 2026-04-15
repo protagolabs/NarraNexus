@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Bot,
   RefreshCw,
@@ -34,6 +35,8 @@ export function AgentList({ collapsed }: AgentListProps) {
   const [savingName, setSavingName] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
 
+  const navigate = useNavigate();
+  const location = useLocation();
   const { userId, agentId, agents, setAgentId, setAgents, refreshAgents } = useConfigStore();
   const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds } = useChatStore();
 
@@ -61,6 +64,10 @@ export function AgentList({ collapsed }: AgentListProps) {
     if (id !== agentId) {
       setAgentId(id);
       setActiveAgent(id); // Also clears completion badge for this agent
+    }
+    // Always navigate back to chat when selecting an agent
+    if (location.pathname !== '/app/chat' && location.pathname !== '/app') {
+      navigate('/app/chat');
     }
   };
 

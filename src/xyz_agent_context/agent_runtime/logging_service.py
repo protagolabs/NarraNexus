@@ -141,7 +141,7 @@ class LoggingService:
         return self._current_log_file
 
     def cleanup(self) -> None:
-        """Clean up log handlers"""
+        """Clean up log handlers. Use async_cleanup() from async contexts for proper queue flush."""
         if self._handler_id is not None:
             try:
                 logger.remove(self._handler_id)
@@ -150,6 +150,25 @@ class LoggingService:
                 pass
             except OSError:
                 # Log file may have been deleted before compression could run
+                pass
+            self._handler_id = None
+            self._current_log_file = None
+
+    async def async_cleanup(self) -> None:
+        """Clean up log handlers with async queue flush.
+
+        Awaits logger.complete() to ensure all enqueued log records
+        (including background hook logs) are written to disk before
+        removing the handler. Use this from async contexts (e.g.,
+        the background hook task's finally block).
+        """
+        if self._handler_id is not None:
+            try:
+                await logger.complete()
+                logger.remove(self._handler_id)
+            except ValueError:
+                pass
+            except OSError:
                 pass
             self._handler_id = None
             self._current_log_file = None

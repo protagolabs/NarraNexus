@@ -42,16 +42,20 @@ async def get_agent_costs(
 
         # Fetch records within the time window
         # Special agent_id "_all" returns all agents' records
+        # Calculate cutoff date in Python (works for both MySQL and SQLite)
+        from datetime import datetime, timedelta, timezone as dt_tz
+        cutoff = (datetime.now(dt_tz.utc) - timedelta(days=days)).isoformat()
+
         if agent_id == "_all":
             rows = await db.execute(
                 """
                 SELECT id, agent_id, event_id, call_type, model,
                        input_tokens, output_tokens, total_cost_usd, created_at
                 FROM cost_records
-                WHERE created_at >= DATE_SUB(NOW(), INTERVAL %s DAY)
+                WHERE created_at >= %s
                 ORDER BY created_at DESC
                 """,
-                (days,),
+                (cutoff,),
             )
         else:
             rows = await db.execute(
@@ -60,10 +64,10 @@ async def get_agent_costs(
                        input_tokens, output_tokens, total_cost_usd, created_at
                 FROM cost_records
                 WHERE agent_id = %s
-                  AND created_at >= DATE_SUB(NOW(), INTERVAL %s DAY)
+                  AND created_at >= %s
                 ORDER BY created_at DESC
                 """,
-                (agent_id, days),
+                (agent_id, cutoff),
             )
 
         if not rows:
@@ -100,7 +104,13 @@ async def get_agent_costs(
             by_model[model]["call_count"] += 1
 
             # Daily aggregation
-            day_str = row["created_at"].strftime("%Y-%m-%d") if row["created_at"] else "unknown"
+            ca = row["created_at"]
+            if ca is None:
+                day_str = "unknown"
+            elif isinstance(ca, str):
+                day_str = ca[:10]  # "2026-04-03T..." -> "2026-04-03"
+            else:
+                day_str = ca.strftime("%Y-%m-%d")
             if day_str not in daily_map:
                 daily_map[day_str] = {"input_tokens": 0, "output_tokens": 0}
             daily_map[day_str]["input_tokens"] += inp
@@ -137,7 +147,7 @@ async def get_agent_costs(
                 input_tokens=r["input_tokens"],
                 output_tokens=r["output_tokens"],
                 total_cost_usd=float(r["total_cost_usd"]),
-                created_at=r["created_at"].isoformat() if r["created_at"] else None,
+                created_at=r["created_at"].isoformat() if hasattr(r.get("created_at"), "isoformat") else r.get("created_at"),
             )
             for r in recent
         ]

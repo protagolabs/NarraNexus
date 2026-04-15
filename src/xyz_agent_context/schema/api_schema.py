@@ -22,14 +22,33 @@ from pydantic import BaseModel
 # ===== Auth Schemas =====
 
 class LoginRequest(BaseModel):
-    """Request model for login"""
+    """Request model for login (local: user_id only, cloud: user_id + password)"""
     user_id: str
+    password: Optional[str] = None  # Required in cloud mode, optional in local
 
 
 class LoginResponse(BaseModel):
     """Response model for login"""
     success: bool
     user_id: Optional[str] = None
+    token: Optional[str] = None  # JWT token (cloud mode only)
+    role: Optional[str] = None  # User role (cloud mode only)
+    error: Optional[str] = None
+
+
+class RegisterRequest(BaseModel):
+    """Request model for cloud user registration"""
+    user_id: str
+    password: str
+    invite_code: str
+    display_name: Optional[str] = None
+
+
+class RegisterResponse(BaseModel):
+    """Response model for registration"""
+    success: bool
+    user_id: Optional[str] = None
+    token: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -138,11 +157,14 @@ class SocialNetworkEntityInfo(BaseModel):
     """Social network entity info"""
     entity_id: str
     entity_name: Optional[str] = None
+    aliases: List[str] = []                    # Cross-system IDs and alternate names
     entity_description: Optional[str] = None
     entity_type: str
+    familiarity: str = "known_of"              # direct | known_of
     identity_info: Dict[str, Any] = {}
     contact_info: Dict[str, Any] = {}
-    tags: List[str] = []
+    tags: List[str] = []                       # Kept for backward compat
+    keywords: List[str] = []                   # Same data as tags, new name
     relationship_strength: float = 0.0
     interaction_count: int = 0
     last_interaction_time: Optional[str] = None

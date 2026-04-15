@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   User,
   LogOut,
@@ -12,26 +12,102 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  Sliders,
+  Server,
+  Monitor,
+  Cloud,
+  RotateCcw,
+  LayoutDashboard,
 } from 'lucide-react';
 import { Button, ThemeToggle } from '@/components/ui';
-import { useConfigStore, useChatStore } from '@/stores';
+import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+// v2.2 G1: prefetch the lazy DashboardPage chunk on hover/focus so click
+// arrives to a warm cache. Static literal -> Vite resolves at build time,
+// no injection risk.
+const prefetchDashboard = () => {
+  void import('@/pages/DashboardPage');
+};
 import { AgentList } from './AgentList';
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [showModePopup, setShowModePopup] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { userId, agentId, logout } = useConfigStore();
-  const { clearAll } = useChatStore();
+  const { clearAll: clearChat } = useChatStore();
+  const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
+  const clearPreload = usePreloadStore((s) => s.clearAll);
+
+  /**
+   * Wipe all session + cached data before leaving the current mode.
+   *
+   * This is deliberately aggressive. We do NOT trust Zustand's persist
+   * middleware to have flushed to localStorage by the time the subsequent
+   * window.location.href reload happens — so we also manually
+   * `removeItem()` every known persisted key. After the reload each store
+   * will re-hydrate from whatever is (or is not) in localStorage, so
+   * removed keys mean default-state stores.
+   *
+   * Keys wiped:
+   *   - narra-nexus-config  → configStore (userId, token, agents, ...)
+   *   - narranexus-runtime  → runtimeStore (mode, cloudApiUrl, ...)
+   *   - lastSeenAwarenessTime:*  → written directly by configStore, not
+   *                                 covered by any store's clearAll
+   */
+  const wipeAllSessionData = () => {
+    // 1. Reset in-memory store state via each store's clearAll/logout.
+    //    This updates the UI immediately and invokes persist middleware
+    //    to sync localStorage (best-effort — we do not rely on it).
+    logout();           // configStore
+    clearChat();        // chatStore
+    clearPreload();     // preloadStore
+
+    // 2. Directly nuke every key in localStorage that could carry
+    //    session state. This is the authoritative clear, independent
+    //    of whatever Zustand persist may or may not have flushed yet.
+    try {
+      localStorage.removeItem('narra-nexus-config');
+      localStorage.removeItem('narranexus-runtime');
+
+      const auxKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('lastSeenAwarenessTime:')) {
+          auxKeys.push(k);
+        }
+      }
+      auxKeys.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // Safari private mode / other storage exceptions — ignore.
+    }
+  };
+
+  const handleSwitchMode = () => {
+    wipeAllSessionData();
+    setCloudApiUrl('');
+    setMode(null);
+    setShowModePopup(false);
+
+    // Hard reload, NOT React Router navigate. Soft navigation keeps the
+    // React tree, closure-captured store snapshots, in-flight fetches,
+    // and module-level caches from the previous mode alive — which is
+    // exactly how cloud data was bleeding into a subsequent local
+    // session. A full document reload tears everything down.
+    //
+    // Combined with the localStorage.removeItem() calls above, the next
+    // page load starts from true factory defaults.
+    window.location.href = '/mode-select';
+  };
 
   const handleLogout = () => {
-    if (confirm('Are you sure you want to logout?')) {
-      logout();
-      clearAll();
-      navigate('/login');
-    }
+    if (!confirm('Are you sure you want to logout?')) return;
+    wipeAllSessionData();
+    window.location.href = '/login';
   };
 
   const handleClearHistory = async () => {
@@ -48,7 +124,7 @@ export function Sidebar() {
       }
     }
 
-    clearAll();
+    clearChat();
   };
 
   return (
@@ -121,6 +197,148 @@ export function Sidebar() {
       {/* Agents List */}
       <div className="flex-1 overflow-y-auto">
         <AgentList collapsed={collapsed} />
+      </div>
+
+      {/* Navigation Items */}
+      <div className="px-3 py-2 border-t border-[var(--border-subtle)] space-y-1">
+        {!collapsed ? (
+          <>
+            {/* Mode Switcher */}
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowModePopup(!showModePopup)}
+                className="w-full justify-start gap-2 text-[var(--text-secondary)]"
+              >
+                {mode === 'local' ? (
+                  <Monitor className="w-4 h-4" />
+                ) : (
+                  <Cloud className="w-4 h-4" />
+                )}
+                {mode === 'local' ? 'Local' : 'Cloud'}
+              </Button>
+              {showModePopup && (
+                <div className="absolute bottom-full left-0 mb-1 w-full p-3 rounded-lg border shadow-lg z-50"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    borderColor: 'var(--border-default)',
+                  }}>
+                  <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                    Current: {mode === 'local' ? 'Local Mode' : 'Cloud Mode'}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleSwitchMode}
+                  >
+                    <RotateCcw className="w-3 h-3 mr-1" />
+                    Switch to {mode === 'local' ? 'Cloud' : 'Local'}
+                  </Button>
+                </div>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/app/dashboard')}
+              onMouseEnter={prefetchDashboard}
+              onFocus={prefetchDashboard}
+              className={cn(
+                'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                location.pathname === '/app/dashboard' &&
+                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+              )}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              Dashboard
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/app/settings')}
+              className={cn(
+                'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                location.pathname === '/app/settings' &&
+                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+              )}
+            >
+              <Sliders className="w-4 h-4" />
+              Settings
+            </Button>
+            {features.showSystemPage && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/app/system')}
+                className={cn(
+                  'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                  location.pathname === '/app/system' &&
+                    'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                )}
+              >
+                <Server className="w-4 h-4" />
+                System
+              </Button>
+            )}
+          </>
+        ) : (
+          <div className="flex flex-col items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowModePopup(!showModePopup)}
+              title={mode === 'local' ? 'Local Mode' : 'Cloud Mode'}
+            >
+              {mode === 'local' ? (
+                <Monitor className="w-4 h-4" />
+              ) : (
+                <Cloud className="w-4 h-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/app/dashboard')}
+              onMouseEnter={prefetchDashboard}
+              onFocus={prefetchDashboard}
+              title="Dashboard"
+              className={cn(
+                location.pathname === '/app/dashboard' &&
+                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+              )}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/app/settings')}
+              title="Settings"
+              className={cn(
+                location.pathname === '/app/settings' &&
+                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+              )}
+            >
+              <Sliders className="w-4 h-4" />
+            </Button>
+            {features.showSystemPage && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate('/app/system')}
+                title="System"
+                className={cn(
+                  location.pathname === '/app/system' &&
+                    'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                )}
+              >
+                <Server className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Footer Actions */}

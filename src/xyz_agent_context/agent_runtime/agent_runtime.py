@@ -289,6 +289,63 @@ class AgentRuntime:
         ):
             yield msg
 
+        # Load LLM config based on the AGENT OWNER (not user_id).
+        #
+        # user_id passed here may be: the chat user, a sender agent_id from
+        # bus_trigger, a related_entity_id from job_trigger, etc. — it's used
+        # for narrative/context identity, NOT for LLM billing.
+        #
+        # LLM API keys always come from the agent's owner (agents.created_by).
+        # This lookup + set_user_config() uses ContextVar, so concurrent
+        # agent turns from different owners are isolated from each other.
+        #
+        # Fail fast: if the owner has not configured all required slots,
+        # raise immediately so the user sees a clear error instead of the
+        # turn silently running with wrong credentials or failing later
+        # with a cryptic Claude/OpenAI error.
+        from xyz_agent_context.agent_framework.api_config import (
+            get_agent_owner_llm_configs,
+            set_user_config,
+            LLMConfigNotConfigured,
+        )
+        try:
+            owner_claude, owner_openai, owner_embedding = await get_agent_owner_llm_configs(agent_id)
+            set_user_config(owner_claude, owner_openai, owner_embedding)
+        except LLMConfigNotConfigured as e:
+            logger.error(f"LLM config missing for agent {agent_id}: {e}")
+            # Surface the error to the WebSocket / caller as a structured message
+            from xyz_agent_context.schema import ErrorMessage
+            yield ErrorMessage(
+                error_message=str(e),
+                error_type="LLMConfigNotConfigured",
+            )
+            return
+
+        # =============================================================================
+        # Launch EverMemOS episode search in parallel (decoupled from narrative selection)
+        # Runs concurrently with Steps 1, 1.5, 2. Awaited before Step 3.2.
+        # =============================================================================
+        import asyncio
+        import time as _time
+
+        async def _fetch_evermemos_episodes():
+            from xyz_agent_context.narrative import config as narrative_config
+            if not narrative_config.EVERMEMOS_ENABLED:
+                return []
+            try:
+                from xyz_agent_context.utils.evermemos import get_evermemos_client
+                _start = _time.monotonic()
+                client = get_evermemos_client(agent_id, user_id)
+                episodes = await client.search_episodes(query=input_content, top_k=20)
+                elapsed = _time.monotonic() - _start
+                logger.info(f"[EverMemOS-Search] {len(episodes)} episodes retrieved in {elapsed:.1f}s")
+                return episodes
+            except Exception as e:
+                logger.warning(f"[EverMemOS-Search] Failed (non-fatal): {e}")
+                return []
+
+        ctx.evermemos_task = asyncio.create_task(_fetch_evermemos_episodes())
+
         # =============================================================================
         # Step 1: Select Narrative
         # =============================================================================
@@ -577,7 +634,8 @@ class AgentRuntime:
                 clear_cost_context()
                 # Clean up the agent log file handler AFTER background work finishes,
                 # so all [BG] log lines are captured in the agent's .log file.
-                _logging_service.cleanup()
+                # Use async_cleanup() to flush the enqueue buffer before removing.
+                await _logging_service.async_cleanup()
 
         asyncio.create_task(_run_hooks_background())
         logger.info(f"[BG] Steps 5-6 dispatched to background for {_agent_id}")
@@ -673,14 +731,16 @@ class AgentRuntime:
         """
         Clean up AgentRuntime resources
 
-        Main cleanup:
-        - AsyncDatabaseClient connection pool (if we created it)
+        NOTE: We intentionally do NOT close the database client here.
+        The client is a global singleton from get_db_client(), shared across
+        all requests and background tasks (hooks). Closing it here would
+        break background hook_after_event_execution tasks that are still
+        writing chat history, awareness updates, etc.
+
+        The database connection is managed by the application lifecycle
+        (FastAPI lifespan) via close_db_client().
         """
-        if self._owns_db_client and self._database_client is not None:
-            if isinstance(self._database_client, AsyncDatabaseClient):
-                logger.info("Closing AsyncDatabaseClient connection pool")
-                await self._database_client.close()
-            self._database_client = None
+        self._database_client = None
 
     async def __aenter__(self) -> "AgentRuntime":
         """Support async with syntax"""

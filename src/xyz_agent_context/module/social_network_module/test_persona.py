@@ -190,7 +190,7 @@ async def test_infer_persona_llm():
             recent_conversation="User asked about system architecture and latency requirements"
         )
         print(f"  Entity: {entity.entity_name}")
-        print(f"  Tags: {entity.tags}")
+        print(f"  Keywords: {entity.keywords}")
         print(f"  Inferred Persona: {persona}")
         if persona:
             print("  ✅ PASSED - Persona was inferred successfully")

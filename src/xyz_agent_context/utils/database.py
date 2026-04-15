@@ -2,28 +2,28 @@
 @file_name: database.py
 @author: NetMind.AI
 @date: 2025-11-28
-@description: Truly asynchronous database client (using aiomysql)
+@description: Truly asynchronous database client with pluggable backend support
 
-This is the project's main database client, using aiomysql for native async I/O.
+This is the project's main database client. It supports two modes:
+1. Direct aiomysql mode (legacy) - uses aiomysql for native async I/O
+2. Backend-delegated mode - delegates all operations to a DatabaseBackend instance
+   (e.g., SQLiteBackend for local/desktop, MySQLBackend for cloud)
 
-Features:
-- Native async using aiomysql, no need for asyncio.to_thread()
-- Supports high-concurrency scenarios (not limited by thread pool)
-- Interface is fully compatible with the old DatabaseClient
-
-Performance comparison:
-- Synchronous driver + asyncio.to_thread(): limited by thread pool (default 40 threads)
-- aiomysql: can support thousands of concurrent connections
+When a DatabaseBackend is provided via create_with_backend(), all CRUD and
+transaction operations are delegated to it. When no backend is provided,
+the client falls back to the original aiomysql code path.
 
 Usage examples:
-    # Create client
+    # Legacy MySQL mode
     db = await AsyncDatabaseClient.create()
 
-    # Or use context manager
-    async with AsyncDatabaseClient.create() as db:
-        results = await db.get("users", {"agent_id": "agent_1"})
+    # Backend-delegated mode (SQLite)
+    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+    backend = SQLiteBackend("/path/to/db.sqlite")
+    await backend.initialize()
+    db = await AsyncDatabaseClient.create_with_backend(backend)
 
-    # Interface is identical to the old DatabaseClient
+    # Interface is identical regardless of mode
     await db.insert("chat_history", {"message": "Hello"})
     await db.get("chat_history", {"agent_id": "agent_1"})
 """
@@ -34,12 +34,15 @@ import json
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, Dict, List, Optional, Type, TypeVar, TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
 import aiomysql
 from loguru import logger
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from xyz_agent_context.utils.db_backend import DatabaseBackend
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -132,6 +135,184 @@ def validate_identifier(identifier: str) -> str:
     return identifier
 
 
+def _get_unique_cols_for_table(table_name: str) -> list[str]:
+    """
+    Look up the unique index columns for a table from schema_registry.
+    Falls back to the first column if no unique index is found.
+    """
+    try:
+        from xyz_agent_context.utils.schema_registry import TABLES
+        table_def = TABLES.get(table_name)
+        if table_def:
+            for idx in table_def.indexes:
+                if idx.unique:
+                    return idx.columns
+            # No unique index found — use primary key columns
+            pk_cols = [c.name for c in table_def.columns if c.primary_key]
+            if pk_cols:
+                return pk_cols
+    except ImportError:
+        pass
+    # Fallback: first column
+    return [table_name]
+
+
+def _mysql_to_sqlite_sql(query: str) -> str:
+    """
+    Translate MySQL-specific SQL syntax to SQLite-compatible syntax.
+
+    Covers DDL (CREATE TABLE) and DML (SELECT/INSERT/UPDATE/DELETE).
+    """
+    q = query
+
+    # information_schema.tables → SQLite sqlite_master
+    # Handles: SELECT COUNT(*) [as cnt] FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = %s
+    if re.search(r'information_schema\.tables', q, flags=re.IGNORECASE):
+        q = "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?"
+        return q
+
+    # %s -> ?
+    q = q.replace("%s", "?")
+    # Remove BINARY keyword
+    q = re.sub(r'\bBINARY\s+', '', q)
+    # Backticks -> double quotes
+    q = q.replace('`', '"')
+    # CURRENT_TIMESTAMP(6) -> datetime('now')
+    q = re.sub(r"CURRENT_TIMESTAMP\(\d+\)", "datetime('now')", q)
+    # DATETIME(6) -> TEXT
+    q = re.sub(r'\bDATETIME\(\d+\)', 'TEXT', q)
+    # BIGINT UNSIGNED NOT NULL AUTO_INCREMENT -> INTEGER PRIMARY KEY AUTOINCREMENT
+    q = re.sub(r'\bBIGINT\s+UNSIGNED\s+NOT\s+NULL\s+AUTO_INCREMENT', 'INTEGER', q, flags=re.IGNORECASE)
+    # VARCHAR(N) -> TEXT
+    q = re.sub(r'\bVARCHAR\(\d+\)', 'TEXT', q)
+    # MEDIUMTEXT / LONGTEXT / TINYTEXT -> TEXT
+    q = re.sub(r'\b(MEDIUM|LONG|TINY)TEXT\b', 'TEXT', q, flags=re.IGNORECASE)
+    # TINYINT(1) -> INTEGER
+    q = re.sub(r'\bTINYINT\(\d+\)', 'INTEGER', q, flags=re.IGNORECASE)
+    # Remove ON UPDATE CURRENT_TIMESTAMP / ON UPDATE datetime('now')
+    q = re.sub(r"\bON\s+UPDATE\s+(CURRENT_TIMESTAMP\(\d+\)|datetime\('now'\))", '', q, flags=re.IGNORECASE)
+    # Remove ENGINE=... (to end of statement or next comma)
+    q = re.sub(r"\)\s*ENGINE\s*=\s*\w+[^;]*", ')', q, flags=re.IGNORECASE)
+    # Remove COMMENT='...' or COMMENT "..."
+    q = re.sub(r"\bCOMMENT\s*=?\s*'[^']*'", '', q, flags=re.IGNORECASE)
+    q = re.sub(r'\bCOMMENT\s*=?\s*"[^"]*"', '', q, flags=re.IGNORECASE)
+    # Remove DEFAULT CHARSET=... COLLATE=...
+    q = re.sub(r'\bDEFAULT\s+CHARSET\s*=\s*\w+', '', q, flags=re.IGNORECASE)
+    q = re.sub(r'\bCOLLATE\s*=?\s*\w+', '', q, flags=re.IGNORECASE)
+    # Remove UNSIGNED
+    q = re.sub(r'\bUNSIGNED\b', '', q, flags=re.IGNORECASE)
+    # Remove AUTO_INCREMENT (standalone, after we already handled BIGINT combo)
+    q = re.sub(r'\bAUTO_INCREMENT\b', '', q, flags=re.IGNORECASE)
+    # ── MySQL UPSERT (Pattern A): INSERT ... AS alias ON DUPLICATE KEY UPDATE alias.col ──
+    # MySQL 8.0.20+ syntax → SQLite ON CONFLICT DO UPDATE SET col = excluded.col
+    mysql_upsert_alias = re.search(
+        r'INSERT\s+INTO\s+"?(\w+)"?\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)\s*AS\s+(\w+)\s+'
+        r'ON\s+DUPLICATE\s+KEY\s+UPDATE\s+(.*)',
+        q, flags=re.IGNORECASE | re.DOTALL
+    )
+    if mysql_upsert_alias:
+        table = mysql_upsert_alias.group(1)
+        cols = mysql_upsert_alias.group(2)
+        vals = mysql_upsert_alias.group(3)
+        alias = mysql_upsert_alias.group(4)
+        update_clause = mysql_upsert_alias.group(5).strip().rstrip(';')
+        update_clause = re.sub(
+            rf'{alias}\."?(\w+)"?',
+            r'excluded."\1"',
+            update_clause
+        )
+        conflict_cols = _get_unique_cols_for_table(table)
+        conflict_target = ", ".join(f'"{c}"' for c in conflict_cols)
+        q = f'INSERT INTO "{table}" ({cols}) VALUES ({vals}) ON CONFLICT({conflict_target}) DO UPDATE SET {update_clause}'
+
+    # ── MySQL UPSERT (Pattern B): INSERT ... ON DUPLICATE KEY UPDATE col = VALUES(col) ──
+    # Legacy MySQL syntax → SQLite ON CONFLICT DO UPDATE SET col = excluded.col
+    elif re.search(r'ON\s+DUPLICATE\s+KEY\s+UPDATE', q, flags=re.IGNORECASE):
+        mysql_upsert_values = re.search(
+            r'(INSERT\s+INTO\s+"?(\w+)"?\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\))\s+'
+            r'ON\s+DUPLICATE\s+KEY\s+UPDATE\s+(.*)',
+            q, flags=re.IGNORECASE | re.DOTALL
+        )
+        if mysql_upsert_values:
+            insert_part = mysql_upsert_values.group(1)
+            table = mysql_upsert_values.group(2)
+            cols = mysql_upsert_values.group(3)
+            update_clause = mysql_upsert_values.group(5).strip().rstrip(';')
+            # VALUES(col) -> excluded."col"
+            update_clause = re.sub(
+                r'VALUES\("?(\w+)"?\)',
+                r'excluded."\1"',
+                update_clause, flags=re.IGNORECASE
+            )
+            # Find the correct unique key from schema_registry
+            conflict_cols = _get_unique_cols_for_table(table)
+            conflict_target = ", ".join(f'"{c}"' for c in conflict_cols)
+            q = f'{insert_part} ON CONFLICT({conflict_target}) DO UPDATE SET {update_clause}'
+
+    # INSERT IGNORE -> INSERT OR IGNORE
+    q = re.sub(r'\bINSERT\s+IGNORE\b', 'INSERT OR IGNORE', q, flags=re.IGNORECASE)
+
+    # JSON_ARRAY_APPEND(col, '$', val) -> json_insert(col, '$[#]', val)
+    # SQLite json_insert with '$[#]' appends to end of array
+    q = re.sub(
+        r"JSON_ARRAY_APPEND\s*\(\s*(\w+)\s*,\s*'\$'\s*,",
+        r"json_insert(\1, '$[#]',",
+        q, flags=re.IGNORECASE
+    )
+
+    # Remove FOR UPDATE / FOR UPDATE SKIP LOCKED (MySQL row locking)
+    q = re.sub(r'\bFOR\s+UPDATE(\s+SKIP\s+LOCKED)?\b', '', q, flags=re.IGNORECASE)
+
+    # NOW() -> datetime('now')
+    q = re.sub(r'\bNOW\(\)', "datetime('now')", q, flags=re.IGNORECASE)
+    # DATE_SUB(datetime('now'), INTERVAL ? DAY) -> datetime('now', '-' || ? || ' days')
+    q = re.sub(
+        r"DATE_SUB\s*\(\s*datetime\('now'\)\s*,\s*INTERVAL\s+\?\s+DAY\s*\)",
+        "datetime('now', '-' || ? || ' days')",
+        q, flags=re.IGNORECASE
+    )
+
+    # JSON_UNQUOTE(JSON_EXTRACT(col, path)) -> json_extract(col, path)
+    # SQLite's json_extract already returns unquoted strings
+    q = re.sub(
+        r'JSON_UNQUOTE\s*\(\s*JSON_EXTRACT\s*\(([^)]+),\s*([^)]+)\)\s*\)',
+        r'json_extract(\1, \2)',
+        q, flags=re.IGNORECASE
+    )
+
+    # JSON_SEARCH(col, 'one', val) IS NOT NULL -> EXISTS(SELECT 1 FROM json_each(col) WHERE value = val)
+    q = re.sub(
+        r"JSON_SEARCH\s*\(\s*(\w+)\s*,\s*'one'\s*,\s*(\?)\s*\)\s*IS\s+NOT\s+NULL",
+        r'EXISTS(SELECT 1 FROM json_each(\1) WHERE value = \2)',
+        q, flags=re.IGNORECASE
+    )
+
+    # JSON_CONTAINS(JSON_EXTRACT(col, path), JSON_OBJECT('id', ?, 'type', 'participant'))
+    # -> EXISTS(SELECT 1 FROM json_each(json_extract(col, path)) WHERE json_extract(value, '$.id') = ? AND json_extract(value, '$.type') = 'participant')
+    json_contains_match = re.search(
+        r"JSON_CONTAINS\s*\(\s*JSON_EXTRACT\s*\(\s*(\w+)\s*,\s*'([^']+)'\s*\)\s*,\s*"
+        r"JSON_OBJECT\s*\(\s*'(\w+)'\s*,\s*(\?)\s*,\s*'(\w+)'\s*,\s*'(\w+)'\s*\)\s*\)",
+        q, flags=re.IGNORECASE
+    )
+    if json_contains_match:
+        col = json_contains_match.group(1)
+        path = json_contains_match.group(2)
+        key1 = json_contains_match.group(3)
+        val1 = json_contains_match.group(4)
+        key2 = json_contains_match.group(5)
+        val2 = json_contains_match.group(6)
+        replacement = (
+            f"EXISTS(SELECT 1 FROM json_each(json_extract({col}, '{path}')) "
+            f"WHERE json_extract(value, '$.{key1}') = {val1} "
+            f"AND json_extract(value, '$.{key2}') = '{val2}')"
+        )
+        q = q[:json_contains_match.start()] + replacement + q[json_contains_match.end():]
+
+    # Clean up extra whitespace
+    q = re.sub(r'  +', ' ', q)
+    return q
+
+
 class AsyncDatabaseClient:
     """
     Truly asynchronous database client
@@ -167,55 +348,97 @@ class AsyncDatabaseClient:
         pool_size: int = 10,
         pool_recycle: int = 3600,
         _pool: Optional[aiomysql.Pool] = None,
+        _backend: Optional["DatabaseBackend"] = None,
     ):
         """
         Initialize AsyncDatabaseClient
 
-        Supports two methods:
+        Supports three methods:
         1. Direct instantiation (lazy init, recommended): db = AsyncDatabaseClient()
         2. Using create() factory method (immediate init): db = await AsyncDatabaseClient.create()
+        3. Using create_with_backend() factory method: db = await AsyncDatabaseClient.create_with_backend(backend)
+
+        When _backend is provided, all CRUD and transaction operations are delegated
+        to the backend. The aiomysql pool is not used in this mode.
 
         Args:
             db_config: Database configuration, None to load from environment variables
             pool_size: Connection pool size (default 10)
             pool_recycle: Connection recycle time in seconds (default 3600)
             _pool: Internal use, for passing a pre-created pool from create() method
+            _backend: Optional DatabaseBackend instance for delegated mode
         """
         self._db_config = db_config
         self._pool_size = pool_size
         self._pool_recycle = pool_recycle
         self._pool: Optional[aiomysql.Pool] = _pool
         self._transaction_connection: Optional[aiomysql.Connection] = None
-        self._initialized = _pool is not None
+        self._initialized = _pool is not None or _backend is not None
+        self._backend: Optional["DatabaseBackend"] = _backend
+        self._owns_backend: bool = _backend is not None  # Only close if we own it
 
     async def _ensure_pool(self) -> aiomysql.Pool:
         """
         Ensure the connection pool is initialized (lazy loading)
 
         If the connection pool is not initialized, create it.
+        If DATABASE_URL is sqlite://, uses the shared SQLiteBackend from db_factory.
         Supports calling methods after direct DatabaseClient() instantiation.
 
         Returns:
-            aiomysql connection pool
+            aiomysql connection pool (or None if using SQLite backend)
         """
+        if self._backend:
+            return None  # Using backend delegation, no pool needed
+
         if self._pool is None:
+            # Check if we should use SQLite instead of MySQL
+            from xyz_agent_context.settings import settings
+            url = getattr(settings, 'database_url', None) or ''
+            if url.startswith('sqlite'):
+                # Use the shared singleton from db_factory to avoid multiple connections
+                from xyz_agent_context.utils.db_factory import get_db_client
+                shared = await get_db_client()
+                if shared._backend:
+                    self._backend = shared._backend  # Share the same backend
+                    self._owns_backend = False  # Don't close it on our close()
+                    self._initialized = True
+                    return None
+                # Fallback: create own backend (respects proxy if configured)
+                import os
+                proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
+                if proxy_url:
+                    from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+                    backend = SQLiteProxyBackend(proxy_url)
+                    await backend.initialize()
+                    self._backend = backend
+                    self._owns_backend = True
+                    self._initialized = True
+                    logger.info(f"AsyncDatabaseClient auto-switched to SQLite Proxy: {proxy_url}")
+                    return None
+                else:
+                    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+                    from xyz_agent_context.utils.db_factory import parse_sqlite_url
+                    db_path = parse_sqlite_url(url)
+                    backend = SQLiteBackend(db_path)
+                    await backend.initialize()
+                    self._backend = backend
+                    self._owns_backend = True
+                    self._initialized = True
+                    logger.info(f"AsyncDatabaseClient auto-switched to SQLite backend: {db_path}")
+                    return None
+
             if self._db_config is None:
                 self._db_config = load_db_config()
 
-            self._pool = await aiomysql.create_pool(
-                host=self._db_config['host'],
-                port=self._db_config.get('port', 3306),
-                user=self._db_config['user'],
-                password=self._db_config['password'],
-                db=self._db_config['database'],
-                minsize=1,
-                maxsize=self._pool_size,
-                pool_recycle=self._pool_recycle,
-                autocommit=True,
-                charset='utf8mb4',
-            )
+            # Use MySQLBackend (unified backend interface)
+            from xyz_agent_context.utils.db_backend_mysql import MySQLBackend
+            backend = MySQLBackend(self._db_config, pool_size=self._pool_size, pool_recycle=self._pool_recycle)
+            await backend.initialize()
+            self._backend = backend
+            self._owns_backend = True
             self._initialized = True
-            logger.debug(f"AsyncDatabaseClient pool lazily initialized (pool_size={self._pool_size})")
+            logger.debug(f"AsyncDatabaseClient lazily initialized with MySQL backend (pool_size={self._pool_size})")
 
         return self._pool
 
@@ -242,25 +465,56 @@ class AsyncDatabaseClient:
             # or
             db = await AsyncDatabaseClient.create(pool_size=20)
         """
+        # Check if we should use SQLite backend instead of MySQL
         if db_config is None:
+            from xyz_agent_context.settings import settings
+            url = getattr(settings, 'database_url', None) or ''
+            if url.startswith('sqlite'):
+                import os
+                proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
+                if proxy_url:
+                    from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+                    backend = SQLiteProxyBackend(proxy_url)
+                    await backend.initialize()
+                    logger.info(f"AsyncDatabaseClient.create() auto-switched to SQLite Proxy: {proxy_url}")
+                    return cls(_backend=backend)
+                else:
+                    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+                    from xyz_agent_context.utils.db_factory import parse_sqlite_url
+                    db_path = parse_sqlite_url(url)
+                    backend = SQLiteBackend(db_path)
+                    await backend.initialize()
+                    logger.info(f"AsyncDatabaseClient.create() auto-switched to SQLite: {db_path}")
+                    return cls(_backend=backend)
             db_config = load_db_config()
 
-        # Create aiomysql connection pool
-        pool = await aiomysql.create_pool(
-            host=db_config['host'],
-            port=db_config.get('port', 3306),
-            user=db_config['user'],
-            password=db_config['password'],
-            db=db_config['database'],
-            minsize=1,
-            maxsize=pool_size,
-            pool_recycle=pool_recycle,
-            autocommit=True,
-            charset='utf8mb4',
-        )
+        # Use MySQLBackend (unified backend interface)
+        from xyz_agent_context.utils.db_backend_mysql import MySQLBackend
+        backend = MySQLBackend(db_config, pool_size=pool_size, pool_recycle=pool_recycle)
+        await backend.initialize()
+        logger.info(f"AsyncDatabaseClient created with MySQL backend (pool_size={pool_size})")
+        return cls(_backend=backend)
 
-        logger.info(f"AsyncDatabaseClient created with pool_size={pool_size}")
-        return cls(db_config=db_config, pool_size=pool_size, pool_recycle=pool_recycle, _pool=pool)
+    @classmethod
+    async def create_with_backend(cls, backend: "DatabaseBackend") -> 'AsyncDatabaseClient':
+        """
+        Create an AsyncDatabaseClient that delegates all operations to a DatabaseBackend.
+
+        The backend must already be initialized (initialize() called) before passing it here.
+
+        Args:
+            backend: An initialized DatabaseBackend instance (e.g., SQLiteBackend, MySQLBackend).
+
+        Returns:
+            AsyncDatabaseClient instance in backend-delegated mode.
+
+        Example:
+            backend = SQLiteBackend("/path/to/db.sqlite")
+            await backend.initialize()
+            db = await AsyncDatabaseClient.create_with_backend(backend)
+        """
+        logger.info(f"AsyncDatabaseClient created with {backend.dialect} backend")
+        return cls(_backend=backend)
 
     # ===== Basic CRUD Operations =====
 
@@ -281,7 +535,25 @@ class AsyncDatabaseClient:
         Returns:
             List of query results
         """
-        pool = await self._ensure_pool()
+        if self._backend:
+            # Auto-translate MySQL SQL dialect to backend dialect
+            q = query
+            p = params
+            if self._backend.dialect == "sqlite":
+                q = _mysql_to_sqlite_sql(q)
+                p = tuple(p) if p else ()
+            if fetch:
+                return await self._backend.execute(q, p)
+            else:
+                return await self._backend.execute_write(q, p)
+
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             # Use transaction connection
@@ -320,6 +592,9 @@ class AsyncDatabaseClient:
         Returns:
             List of query results
         """
+        if self._backend:
+            return await self._backend.get(table, filters, limit, offset, order_by)
+
         safe_table = validate_identifier(table)
         query = f"SELECT * FROM `{safe_table}`"
         params = []
@@ -353,6 +628,9 @@ class AsyncDatabaseClient:
         filters: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Query a single record"""
+        if self._backend:
+            return await self._backend.get_one(table, filters)
+
         logger.debug(f"              → DB.get_one('{table}', filters={filters})")
         results = await self.get(table, filters, limit=1)
         logger.debug(f"              ← DB.get_one: {'Found' if results else 'Not found'}")
@@ -385,6 +663,9 @@ class AsyncDatabaseClient:
             # After (batch):
             events = await db.get_by_ids("events", "event_id", event_ids)
         """
+        if self._backend:
+            return await self._backend.get_by_ids(table, id_field, ids)
+
         if not ids:
             return []
 
@@ -421,6 +702,13 @@ class AsyncDatabaseClient:
         Returns:
             Auto-increment ID of the inserted row
         """
+        if self._backend:
+            # Filter out None values (same as MySQL path below)
+            filtered = {k: v for k, v in data.items() if v is not None}
+            if not filtered:
+                raise ValueError("Insert data cannot be empty (no valid fields after filtering None values)")
+            return await self._backend.insert(table, filtered)
+
         if not data:
             raise ValueError("Insert data cannot be empty")
 
@@ -441,7 +729,13 @@ class AsyncDatabaseClient:
         query = f"INSERT INTO `{safe_table}` ({columns}) VALUES ({placeholders})"
         params = tuple(data.values())
 
-        pool = await self._ensure_pool()
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             async with self._transaction_connection.cursor() as cursor:
@@ -473,6 +767,9 @@ class AsyncDatabaseClient:
         Returns:
             Number of rows updated
         """
+        if self._backend:
+            return await self._backend.update(table, filters, data)
+
         if not data:
             raise ValueError("Update data cannot be empty")
         if not filters:
@@ -501,7 +798,13 @@ class AsyncDatabaseClient:
             f"WHERE {' AND '.join(where_clauses)}"
         )
 
-        pool = await self._ensure_pool()
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             async with self._transaction_connection.cursor() as cursor:
@@ -531,6 +834,9 @@ class AsyncDatabaseClient:
         Returns:
             Number of rows deleted
         """
+        if self._backend:
+            return await self._backend.delete(table, filters)
+
         if not filters:
             raise ValueError("Delete operation must specify filter conditions")
 
@@ -545,7 +851,13 @@ class AsyncDatabaseClient:
 
         query = f"DELETE FROM `{safe_table}` WHERE {' AND '.join(where_clauses)}"
 
-        pool = await self._ensure_pool()
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             async with self._transaction_connection.cursor() as cursor:
@@ -587,6 +899,9 @@ class AsyncDatabaseClient:
                 "narrative_id"
             )
         """
+        if self._backend:
+            return await self._backend.upsert(table, data, id_field)
+
         if not data:
             raise ValueError("Insert data cannot be empty")
 
@@ -613,7 +928,13 @@ class AsyncDatabaseClient:
 
         params = tuple(data.values())
 
-        pool = await self._ensure_pool()
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             async with self._transaction_connection.cursor() as cursor:
@@ -698,6 +1019,9 @@ class AsyncDatabaseClient:
 
     async def begin_transaction(self) -> None:
         """Begin a transaction"""
+        if self._backend:
+            return await self._backend.begin_transaction()
+
         if self._transaction_connection:
             raise RuntimeError("Already in a transaction")
 
@@ -707,6 +1031,9 @@ class AsyncDatabaseClient:
 
     async def commit(self) -> None:
         """Commit the transaction"""
+        if self._backend:
+            return await self._backend.commit()
+
         if not self._transaction_connection:
             raise RuntimeError("No active transaction")
 
@@ -717,6 +1044,9 @@ class AsyncDatabaseClient:
 
     async def rollback(self) -> None:
         """Rollback the transaction"""
+        if self._backend:
+            return await self._backend.rollback()
+
         if not self._transaction_connection:
             raise RuntimeError("No active transaction")
 
@@ -870,7 +1200,16 @@ class AsyncDatabaseClient:
             return False
 
     async def close(self) -> None:
-        """Close the connection pool"""
+        """Close the connection pool or backend"""
+        if self._backend:
+            if self._owns_backend:
+                await self._backend.close()
+                logger.info("AsyncDatabaseClient (backend-delegated) closed")
+            else:
+                logger.debug("AsyncDatabaseClient detached from shared backend (not closing)")
+            self._backend = None
+            return
+
         if self._pool is None:
             # Connection pool not initialized, no need to close
             return

@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import {
   User, Tag, Clock, ChevronDown, ChevronRight, Mail, Phone,
-  Building, Activity, Briefcase, UserCircle, Star,
+  Building, Activity, Briefcase, UserCircle, Star, Link,
 } from 'lucide-react';
 import { Badge, Markdown } from '@/components/ui';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -74,6 +74,19 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
             <span>{entity.entity_type}</span>
             <span className="w-1 h-1 rounded-full bg-[var(--text-tertiary)]" />
             <span>{actualChatCount} chats</span>
+            {entity.familiarity && (
+              <>
+                <span className="w-1 h-1 rounded-full bg-[var(--text-tertiary)]" />
+                <span className={cn(
+                  'px-1.5 py-0 rounded-full text-[8px] font-medium uppercase tracking-wider',
+                  entity.familiarity === 'direct'
+                    ? 'bg-[var(--color-success)]/15 text-[var(--color-success)] border border-[var(--color-success)]/30'
+                    : 'bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] border border-[var(--border-subtle)]'
+                )}>
+                  {entity.familiarity === 'direct' ? 'Direct' : 'Known of'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -147,7 +160,22 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
             </div>
           )}
 
-          {/* Tags */}
+          {/* Aliases */}
+          {entity.aliases && entity.aliases.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {entity.aliases.map((alias, index) => (
+                <span
+                  key={index}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-[9px] rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] border border-[var(--border-subtle)] font-mono"
+                >
+                  <Link className="w-2.5 h-2.5" />
+                  {alias}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Tags / Keywords */}
           {entity.tags && entity.tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {entity.tags.map((tag, index) => (

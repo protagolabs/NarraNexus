@@ -24,6 +24,8 @@ from xyz_agent_context.repository import AgentRepository, UserRepository
 from xyz_agent_context.schema import (
     LoginRequest,
     LoginResponse,
+    RegisterRequest,
+    RegisterResponse,
     AgentInfo,
     AgentListResponse,
     CreateAgentRequest,
@@ -36,6 +38,13 @@ from xyz_agent_context.schema import (
     UpdateTimezoneRequest,
     UpdateTimezoneResponse,
 )
+from backend.auth import (
+    hash_password,
+    verify_password,
+    create_token,
+    _is_cloud_mode,
+    INVITE_CODE,
+)
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.settings import settings as app_settings
 
@@ -46,8 +55,10 @@ router = APIRouter()
 @router.post("/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
     """
-    Login with user_id
-    Only allows users that exist in the database users table to login
+    Login with user_id (+ password in cloud mode).
+
+    - Local mode: user_id only, no password required
+    - Cloud mode: user_id + password, returns JWT token
     """
     logger.info(f"Login attempt for user: {request.user_id}")
 
@@ -55,31 +66,115 @@ async def login(request: LoginRequest):
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
 
-        # Verify user exists in the users table
         user = await user_repo.get_user(request.user_id)
 
-        if user:
-            # Update last login time
+        if not user:
+            logger.warning(f"User {request.user_id} not found")
+            return LoginResponse(
+                success=False,
+                error="User not found. Please register first." if _is_cloud_mode()
+                    else "User not found. Please contact administrator to create an account."
+            )
+
+        if _is_cloud_mode():
+            # Cloud mode: verify password and return JWT
+            if not request.password:
+                return LoginResponse(success=False, error="Password is required")
+
+            password_hash = user.password_hash if hasattr(user, 'password_hash') else None
+            if not password_hash:
+                # Legacy user without password — check raw DB row
+                user_row = await db_client.get_one("users", {"user_id": request.user_id})
+                password_hash = user_row.get("password_hash") if user_row else None
+
+            if not password_hash:
+                return LoginResponse(success=False, error="Account not set up for cloud login. Please register.")
+
+            if not verify_password(request.password, password_hash):
+                return LoginResponse(success=False, error="Invalid password")
+
+            # Get role
+            user_row = await db_client.get_one("users", {"user_id": request.user_id})
+            role = (user_row.get("role") if user_row else None) or "user"
+
             await user_repo.update_last_login(request.user_id)
-            logger.info(f"User {request.user_id} logged in successfully")
+            token = create_token(request.user_id, role)
+            logger.info(f"User {request.user_id} logged in (cloud, role={role})")
+            return LoginResponse(
+                success=True,
+                user_id=request.user_id,
+                token=token,
+                role=role,
+            )
+        else:
+            # Local mode: user_id only
+            await user_repo.update_last_login(request.user_id)
+            logger.info(f"User {request.user_id} logged in (local)")
             return LoginResponse(
                 success=True,
                 user_id=request.user_id,
             )
-        else:
-            # User does not exist, deny login
-            logger.warning(f"User {request.user_id} not found in users table")
-            return LoginResponse(
-                success=False,
-                error="User not found. Please contact administrator to create an account."
-            )
 
     except Exception as e:
         logger.error(f"Error during login: {e}")
-        return LoginResponse(
-            success=False,
-            error=str(e)
+        return LoginResponse(success=False, error=str(e))
+
+
+@router.post("/register", response_model=RegisterResponse)
+async def register(request: RegisterRequest):
+    """
+    Register a new user (cloud mode only). Requires invite code.
+    """
+    logger.info(f"Registration attempt for user: {request.user_id}")
+
+    try:
+        if not _is_cloud_mode():
+            return RegisterResponse(success=False, error="Registration is only available in cloud mode")
+
+        # Validate invite code
+        if request.invite_code != INVITE_CODE:
+            return RegisterResponse(success=False, error="Invalid invite code")
+
+        # Validate password length
+        if len(request.password) < 6:
+            return RegisterResponse(success=False, error="Password must be at least 6 characters")
+
+        # Validate user_id
+        if len(request.user_id) < 2 or len(request.user_id) > 32:
+            return RegisterResponse(success=False, error="Username must be 2-32 characters")
+
+        db_client = await get_db_client()
+        user_repo = UserRepository(db_client)
+
+        # Check if user already exists
+        existing = await user_repo.get_user(request.user_id)
+        if existing:
+            return RegisterResponse(success=False, error="Username already taken")
+
+        # Create user with password
+        password_hash = hash_password(request.password)
+        await db_client.insert("users", {
+            "user_id": request.user_id,
+            "password_hash": password_hash,
+            "role": "user",
+            "user_type": "individual",
+            "display_name": request.display_name or request.user_id,
+            "status": "active",
+        })
+
+        # Generate token
+        token = create_token(request.user_id, "user")
+        logger.info(f"User {request.user_id} registered successfully")
+
+        return RegisterResponse(
+            success=True,
+            user_id=request.user_id,
+            token=token,
         )
+
+    except Exception as e:
+        logger.error(f"Error during registration: {e}")
+        return RegisterResponse(success=False, error=str(e))
 
 
 @router.get("/agents", response_model=AgentListResponse)
@@ -215,25 +310,16 @@ async def create_agent(request: CreateAgentRequest):
             # Non-fatal: agent is already created, bootstrap is best-effort
             logger.warning(f"Failed to write Bootstrap.md: {bootstrap_err}")
 
-        # Register agent on NexusMatrix Server (non-fatal)
-        try:
-            from xyz_agent_context.module.matrix_module._matrix_credential_manager import (
-                ensure_agent_registered,
-            )
-            cred = await ensure_agent_registered(db=db_client, agent_id=agent_id)
-            if cred:
-                logger.info(f"Agent {agent_id} registered on NexusMatrix: {cred.matrix_user_id}")
-            else:
-                logger.warning(f"Agent {agent_id} Matrix registration failed (NexusMatrix may be down)")
-        except Exception as matrix_err:
-            logger.warning(f"Matrix registration error (non-fatal): {matrix_err}")
-
         # Return the created agent info
+        # Re-fetch from DB to get server-generated fields (created_at)
+        agent_row = await db_client.get_one("agents", {"agent_id": agent_id})
         agent_info = AgentInfo(
             agent_id=agent_id,
             name=agent_name,
             description=agent_description,
             status='active',
+            created_at=format_for_api(agent_row.get("agent_create_time")) if agent_row else None,
+            created_by=request.created_by,
             bootstrap_active=True,
         )
 
@@ -290,6 +376,14 @@ async def update_agent(agent_id: str, request: UpdateAgentRequest):
         if affected_rows > 0:
             # Get the updated agent info
             updated_agent = await repo.get_agent(agent_id)
+            # Check bootstrap_active (Bootstrap.md exists in workspace)
+            from xyz_agent_context.settings import settings
+            workspace_path = os.path.join(
+                settings.base_working_path,
+                f"{agent_id}_{updated_agent.created_by}"
+            )
+            bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
+
             agent_info = AgentInfo(
                 agent_id=updated_agent.agent_id,
                 name=updated_agent.agent_name,
@@ -298,39 +392,9 @@ async def update_agent(agent_id: str, request: UpdateAgentRequest):
                 created_at=format_for_api(updated_agent.agent_create_time),
                 is_public=updated_agent.is_public,
                 created_by=updated_agent.created_by,
+                bootstrap_active=bootstrap_active,
             )
             logger.info(f"Agent {agent_id} updated successfully")
-
-            # Sync profile to NexusMatrix (non-blocking, don't fail the request)
-            if request.agent_name is not None or request.agent_description is not None:
-                try:
-                    from xyz_agent_context.module.matrix_module._matrix_credential_manager import MatrixCredentialManager
-                    from xyz_agent_context.module.matrix_module.matrix_client import NexusMatrixClient
-
-                    cred_mgr = MatrixCredentialManager(db_client)
-                    cred = await cred_mgr.get_credential(agent_id)
-                    if cred:
-                        # Get NexusMatrix agent_id from profile
-                        client = NexusMatrixClient(server_url=cred.server_url)
-                        try:
-                            profile = await client.get_my_profile(api_key=cred.api_key)
-                            nexus_agent_id = profile.get("agent_id", "") if profile else ""
-                            if nexus_agent_id:
-                                matrix_updates = {}
-                                if request.agent_name is not None:
-                                    matrix_updates["agent_name"] = request.agent_name
-                                if request.agent_description is not None:
-                                    matrix_updates["description"] = request.agent_description
-                                await client.update_agent_profile(
-                                    api_key=cred.api_key,
-                                    agent_id=nexus_agent_id,
-                                    updates=matrix_updates,
-                                )
-                                logger.info(f"Synced agent profile to NexusMatrix: {nexus_agent_id}")
-                        finally:
-                            await client.close()
-                except Exception as e:
-                    logger.warning(f"Failed to sync profile to NexusMatrix (non-critical): {e}")
 
             return UpdateAgentResponse(
                 success=True,
@@ -412,17 +476,30 @@ async def delete_agent(
         )
         narrative_ids = [r["narrative_id"] for r in nar_rows] if nar_rows else []
 
-        # 4. Discover dynamic Memory tables
-        mem_rows = await db_client.execute(
-            """
-            SELECT TABLE_NAME AS tbl FROM information_schema.tables
-            WHERE table_schema = DATABASE()
-              AND (TABLE_NAME LIKE 'json_format_event_memory_%%'
-                   OR TABLE_NAME LIKE 'instance_json_format_memory_%%')
-            """,
-            params=(),
-            fetch=True,
-        )
+        # 4. Discover dynamic Memory tables (compatible with both MySQL and SQLite)
+        is_sqlite = hasattr(db_client, '_backend') and db_client._backend and db_client._backend.dialect == "sqlite"
+        if is_sqlite:
+            mem_rows = await db_client.execute(
+                """
+                SELECT name AS tbl FROM sqlite_master
+                WHERE type='table'
+                  AND (name LIKE 'json_format_event_memory_%'
+                       OR name LIKE 'instance_json_format_memory_%')
+                """,
+                params=(),
+                fetch=True,
+            )
+        else:
+            mem_rows = await db_client.execute(
+                """
+                SELECT TABLE_NAME AS tbl FROM information_schema.tables
+                WHERE table_schema = DATABASE()
+                  AND (TABLE_NAME LIKE 'json_format_event_memory_%%'
+                       OR TABLE_NAME LIKE 'instance_json_format_memory_%%')
+                """,
+                params=(),
+                fetch=True,
+            )
         memory_tables = [r["tbl"] for r in mem_rows] if mem_rows else []
 
         # ========== Delete from leaf to root ==========
@@ -554,38 +631,7 @@ async def delete_agent(
         except Exception:
             pass
 
-        # 13. Matrix credentials + NexusMatrix Server deregistration
-        try:
-            from xyz_agent_context.module.matrix_module._matrix_credential_manager import MatrixCredentialManager
-            from xyz_agent_context.module.matrix_module.matrix_client import NexusMatrixClient
-
-            cred_mgr = MatrixCredentialManager(db_client)
-            cred = await cred_mgr.get_credential(agent_id)
-            if cred:
-                # Deactivate on NexusMatrix Server (best-effort)
-                try:
-                    client = NexusMatrixClient(server_url=cred.server_url)
-                    try:
-                        profile = await client.get_my_profile(api_key=cred.api_key)
-                        if profile and profile.get("agent_id"):
-                            await client.update_agent_profile(
-                                api_key=cred.api_key,
-                                agent_id=profile["agent_id"],
-                                updates={"status": "inactive"},
-                            )
-                            logger.info(f"Deactivated agent on NexusMatrix: {profile['agent_id']}")
-                    finally:
-                        await client.close()
-                except Exception as e:
-                    logger.warning(f"Failed to deactivate on NexusMatrix (non-critical): {e}")
-
-                # Delete local credentials
-                await cred_mgr.delete(agent_id)
-                stats["matrix_credentials"] = 1
-        except Exception as e:
-            logger.warning(f"Matrix credential cleanup failed (non-critical): {e}")
-
-        # 14. Workspace directory
+        # 13. Workspace directory
         try:
             import os
             import shutil
