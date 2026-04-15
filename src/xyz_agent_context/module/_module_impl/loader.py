@@ -52,7 +52,12 @@ class ModuleLoader:
     - Fallback mechanism: uses narrative.active_instances when database loading fails
     """
 
-    # Default static module list
+    # Default static module list.
+    # GeminiRAGModule is temporarily disabled — per-user Gemini config is
+    # not yet wired through the ContextVar system (api_config.gemini_config
+    # has no ctx_var), so cloud multi-tenant switching of the Gemini key
+    # does not take effect. Re-add it here once per-user Gemini support
+    # lands.
     DEFAULT_MODULE_LIST = [
         "MemoryModule",
         "AwarenessModule",
@@ -60,7 +65,6 @@ class ModuleLoader:
         "BasicInfoModule",
         "SocialNetworkModule",
         "JobModule",
-        "GeminiRAGModule",
         "MessageBusModule",
     ]
 

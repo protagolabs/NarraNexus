@@ -114,10 +114,11 @@ class InstanceFactory:
         if basic_info_instance:
             instances.append(basic_info_instance)
 
-        # 4. Create GeminiRAGModule instance
-        rag_instance = await self._create_rag_instance(agent_id)
-        if rag_instance:
-            instances.append(rag_instance)
+        # 4. GeminiRAGModule instance creation is temporarily disabled —
+        # see module_runner.DEFAULT_MCP_MODULES for rationale (per-user
+        # Gemini config not yet routed through ContextVar). Existing RAG
+        # instances in the database are left untouched; no new ones will
+        # be provisioned until multi-tenant Gemini support lands.
 
         # 5. Create MessageBusModule instance (replaces MessageBusModule)
         bus_instance = await self._create_message_bus_instance(agent_id)

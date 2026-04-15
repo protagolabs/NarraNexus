@@ -94,14 +94,17 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client, get_db_client
 # Default Configuration
 # =============================================================================
 
-# Modules that have MCP servers and their fixed ports
-# Note: Each module defines its own port internally
+# Modules that have MCP servers and their fixed ports.
+# GeminiRAGModule is temporarily excluded — its per-user Gemini API key
+# is not yet routed through the ContextVar system (api_config.gemini_config
+# lacks a ctx_var), so in a multi-tenant cloud deploy all agents would
+# share the global GOOGLE_API_KEY. Keep the code intact; just don't spin
+# up its MCP server until multi-tenant Gemini support lands.
 DEFAULT_MCP_MODULES = [
     "AwarenessModule",      # port: 7801
     "ChatModule",           # port: 7804
     "SocialNetworkModule",  # port: 7802
     "JobModule",            # port: 7803
-    "GeminiRAGModule",      # port: 7805
     "SkillModule",          # port: 7806
     "MessageBusModule",     # port: 7820
 ]
@@ -112,7 +115,7 @@ MODULE_PORTS = {
     "ChatModule": 7804,
     "SocialNetworkModule": 7802,
     "JobModule": 7803,
-    "GeminiRAGModule": 7805,
+    "GeminiRAGModule": 7805,  # reserved; module currently disabled
     "SkillModule": 7806,
     "MessageBusModule": 7820,
 }
