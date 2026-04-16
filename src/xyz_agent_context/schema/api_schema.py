@@ -50,6 +50,13 @@ class RegisterResponse(BaseModel):
     user_id: Optional[str] = None
     token: Optional[str] = None
     error: Optional[str] = None
+    # Populated only when the system-default free-tier quota feature is
+    # enabled and a quota row was successfully seeded for the new user.
+    # The frontend uses these to render a welcome toast on successful
+    # cloud registration.
+    has_system_quota: bool = False
+    initial_input_tokens: int = 0
+    initial_output_tokens: int = 0
 
 
 class AgentInfo(BaseModel):

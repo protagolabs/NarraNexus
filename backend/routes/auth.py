@@ -15,7 +15,7 @@ Provides endpoints for:
 
 import os
 from uuid import uuid4
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
@@ -121,7 +121,7 @@ async def login(request: LoginRequest):
 
 
 @router.post("/register", response_model=RegisterResponse)
-async def register(request: RegisterRequest):
+async def register(request: RegisterRequest, http_request: Request):
     """
     Register a new user (cloud mode only). Requires invite code.
     """
@@ -166,10 +166,31 @@ async def register(request: RegisterRequest):
         token = create_token(request.user_id, "user")
         logger.info(f"User {request.user_id} registered successfully")
 
+        # Seed the system-default free-tier quota row for the new user.
+        # Failures here must NOT fail the registration itself — the user
+        # still gets their account, they just don't get the free tier
+        # this run (staff can fix post-hoc via /api/admin/quota/init).
+        quota_row = None
+        quota_service = getattr(http_request.app.state, "quota_service", None)
+        if quota_service is not None:
+            try:
+                quota_row = await quota_service.init_for_user(request.user_id)
+            except Exception as e:
+                logger.error(
+                    f"register: failed to init quota for {request.user_id}: {e}"
+                )
+
         return RegisterResponse(
             success=True,
             user_id=request.user_id,
             token=token,
+            has_system_quota=quota_row is not None,
+            initial_input_tokens=(
+                quota_row.initial_input_tokens if quota_row else 0
+            ),
+            initial_output_tokens=(
+                quota_row.initial_output_tokens if quota_row else 0
+            ),
         )
 
     except Exception as e:
