@@ -11,7 +11,7 @@ Before this file, table schemas lived only as raw `CREATE TABLE` SQL strings in 
 **Consumed by:**
 - `database.py` — `_get_unique_cols_for_table()` reads `TABLES` to resolve conflict columns for `ON DUPLICATE KEY UPDATE` translation.
 - `database_table_management/auto_migrate.py` and the `create_*` scripts — iterate `TABLES` to create missing tables and add missing columns.
-- Any tooling or test that needs to enumerate the project schema without touching a live database.
+- Tests and tooling that call `get_registered_tables()` — the public accessor returns `list(TABLES.values())` so callers don't need to import the private `TABLES` dict directly.
 
 **Depends on:** nothing inside the application. Pure-Python dataclasses; the only runtime import is `loguru`.
 

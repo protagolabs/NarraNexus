@@ -71,6 +71,11 @@ def _register(table: TableDef) -> None:
     TABLES[table.name] = table
 
 
+def get_registered_tables() -> List[TableDef]:
+    """Return all registered table definitions."""
+    return list(TABLES.values())
+
+
 # ============================================================================
 # Table Definitions
 # ============================================================================
@@ -735,6 +740,30 @@ _register(
         indexes=[
             Index("idx_lark_cred_agent_id", ["agent_id"], unique=True),
             Index("idx_lark_cred_profile", ["profile_name"], unique=True),
+        ],
+    )
+)
+
+
+# 28. user_quotas (system-default free-tier token quota per user)
+_register(
+    TableDef(
+        name="user_quotas",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("initial_input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False),
+            Column("initial_output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False),
+            Column("used_input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("used_output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("granted_input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("granted_output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("status", "TEXT", "VARCHAR(32)", nullable=False, default="'active'"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_user_quotas_user", ["user_id"], unique=True),
         ],
     )
 )
