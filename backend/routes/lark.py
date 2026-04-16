@@ -38,7 +38,7 @@ _cli = LarkCLIClient()
 # Pattern for safe agent_id / app_id values (alphanumeric + underscore + hyphen)
 _SAFE_ID_PATTERN = r"^[a-zA-Z0-9_\-]+$"
 # Device code pattern (alphanumeric + common separators)
-_DEVICE_CODE_PATTERN = r"^[a-zA-Z0-9_\-]{1,256}$"
+_DEVICE_CODE_PATTERN = r"^[a-zA-Z0-9_\-\.]{1,256}$"
 
 
 # =========================================================================
@@ -173,7 +173,8 @@ async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dic
 
     # Update auth status on success
     if result.get("success"):
-        await mgr.update_auth_status(body.agent_id, "logged_in")
+        from xyz_agent_context.module.lark_module._lark_credential_manager import AUTH_STATUS_USER_LOGGED_IN
+        await mgr.update_auth_status(body.agent_id, AUTH_STATUS_USER_LOGGED_IN)
 
         # Try to get bot name
         bot_info = await _cli.get_user(cred.profile_name)

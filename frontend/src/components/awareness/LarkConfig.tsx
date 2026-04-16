@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { MessageSquare, Link, Unlink, ExternalLink, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { MessageSquare, Link, Unlink, ExternalLink, Loader2, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -42,6 +42,7 @@ export function LarkConfig() {
     if (!agentId) return;
     try {
       setLoading(true);
+      setError('');
       const res = await api.getLarkCredential(agentId);
       if (!mountedRef.current) return;
       if (res.success) {
@@ -78,7 +79,7 @@ export function LarkConfig() {
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
       if (pollingTimeoutRef.current) clearTimeout(pollingTimeoutRef.current);
     };
-  }, []);
+  }, [fetchCredential]);
 
   // Bind bot
   const handleBind = async () => {
@@ -200,6 +201,14 @@ export function LarkConfig() {
           <MessageSquare className="w-4 h-4" />
           Lark / Feishu
         </CardTitle>
+        <button
+          onClick={() => fetchCredential()}
+          disabled={loading}
+          className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          title="Refresh"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+        </button>
       </CardHeader>
       <CardContent className="space-y-3">
         {error && (
@@ -284,17 +293,36 @@ export function LarkConfig() {
           </div>
         )}
 
-        {/* State 2: Bot bound, not logged in */}
-        {credential && credential.auth_status !== 'logged_in' && (
+        {/* State 2: Bot bound, bot_ready (Bot works, OAuth not done) */}
+        {credential && credential.auth_status === 'bot_ready' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-sm">
-                <span className="text-[var(--text-primary)]">{credential.app_id}</span>
-                <span className="text-[var(--text-secondary)] ml-2">({credential.brand})</span>
+                <span className="text-[var(--text-primary)] font-medium">
+                  {credential.bot_name || credential.app_id}
+                </span>
+                <span className="text-[var(--text-secondary)] ml-2">
+                  ({credential.brand === 'feishu' ? 'Feishu' : 'Lark'})
+                </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-yellow-400">
-                <AlertCircle className="w-3 h-3" aria-hidden="true" /> Not logged in
+              <span className="flex items-center gap-1 text-xs text-green-400">
+                <CheckCircle className="w-3 h-3" aria-hidden="true" /> Bot Connected
               </span>
+            </div>
+
+            {credential.owner_name && (
+              <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-2 rounded">
+                <CheckCircle className="w-3 h-3 text-green-400 flex-shrink-0" aria-hidden="true" />
+                Linked as: <span className="text-[var(--text-primary)] font-medium">{credential.owner_name}</span>
+              </div>
+            )}
+
+            <div className="text-xs text-[var(--text-secondary)]">
+              App ID: {credential.app_id}
+            </div>
+
+            <div className="text-xs text-[var(--text-secondary)] bg-yellow-400/10 p-2 rounded">
+              Complete OAuth to unlock search features (contacts by name, messages, documents)
             </div>
 
             {polling ? (
@@ -320,8 +348,8 @@ export function LarkConfig() {
           </div>
         )}
 
-        {/* State 3: Bot bound and logged in */}
-        {credential && credential.auth_status === 'logged_in' && (
+        {/* State 3: Bot bound, user_logged_in (fully connected) */}
+        {credential && credential.auth_status === 'user_logged_in' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-sm">
@@ -333,7 +361,7 @@ export function LarkConfig() {
                 </span>
               </div>
               <span className="flex items-center gap-1 text-xs text-green-400">
-                <CheckCircle className="w-3 h-3" aria-hidden="true" /> Connected
+                <CheckCircle className="w-3 h-3" aria-hidden="true" /> Fully Connected
               </span>
             </div>
 
@@ -350,6 +378,25 @@ export function LarkConfig() {
 
             <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-red-400 hover:text-red-300">
               <Unlink className="w-4 h-4 mr-2" /> Unbind
+            </Button>
+          </div>
+        )}
+
+        {/* State 4: Bot bound, expired or not_logged_in */}
+        {credential && (credential.auth_status === 'expired' || credential.auth_status === 'not_logged_in') && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm">
+                <span className="text-[var(--text-primary)]">{credential.app_id}</span>
+                <span className="text-[var(--text-secondary)] ml-2">({credential.brand})</span>
+              </div>
+              <span className="flex items-center gap-1 text-xs text-yellow-400">
+                <AlertCircle className="w-3 h-3" aria-hidden="true" /> {credential.auth_status === 'expired' ? 'Expired' : 'Not active'}
+              </span>
+            </div>
+
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-red-400 hover:text-red-300">
+              <Unlink className="w-4 h-4 mr-2" /> Unbind & Re-bind
             </Button>
           </div>
         )}

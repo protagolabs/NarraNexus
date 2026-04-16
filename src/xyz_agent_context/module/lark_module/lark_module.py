@@ -123,20 +123,22 @@ class LarkModule(XYZBaseModule):
         if not lark_info:
             return (
                 "## Lark/Feishu Integration\n\n"
-                "No Lark bot is bound to this agent. To enable Lark features, "
-                "use the `lark_bind_bot` tool with an App ID and Secret from the "
-                "Feishu/Lark Open Platform."
+                "No Lark bot is bound to this agent. If the user asks how to "
+                "setup or connect Lark, call `lark_setup_guide` to show the "
+                "complete setup guide. To bind directly, use `lark_bind_bot` "
+                "with an App ID and Secret."
             )
 
         brand_display = "Feishu" if lark_info.get("brand") == "feishu" else "Lark"
         bot_name = lark_info.get("bot_name", "Unknown Bot")
         auth = lark_info.get("auth_status", "not_logged_in")
 
-        if auth != "logged_in":
+        if auth in ("not_logged_in", "expired"):
             return (
                 f"## Lark/Feishu Integration\n\n"
-                f"Bot **{bot_name}** ({brand_display}) is bound but not logged in. "
-                f"Use `lark_auth_login` to complete OAuth authorization."
+                f"Bot **{bot_name}** ({brand_display}) is bound but credentials are "
+                f"{'expired' if auth == 'expired' else 'not active'}. "
+                f"The user may need to re-bind the bot in the Config panel."
             )
 
         owner_section = ""
@@ -149,41 +151,74 @@ class LarkModule(XYZBaseModule):
                 f"it refers to this person (open_id: `{owner_id}`).\n"
             )
 
+        # Common tools section (shown for both bot_ready and user_logged_in)
+        bot_tools = (
+            f"### Bot identity tools (work after admin enables app permissions):\n"
+            f"- **lark_send_message**: Send messages (`im:message:send_as_bot`)\n"
+            f"- **lark_reply_message**: Reply to messages (`im:message:send_as_bot`)\n"
+            f"- **lark_search_contacts**: Search by email/phone (`contact:user.id:readonly`)\n"
+            f"- **lark_get_user_info**: Get user profile (`contact:user.base:readonly`)\n"
+            f"- **lark_create_chat**: Create group chats (`im:chat`)\n"
+            f"- **lark_list_chat_messages**: List messages (`im:message:readonly`)\n"
+            f"- **lark_search_chat**: Search chats (`im:chat:readonly`)\n"
+            f"- **lark_create_document**: Create docs (`docx:document`)\n"
+            f"- **lark_fetch_document**: Read docs (`docx:document`)\n"
+            f"- **lark_update_document**: Edit docs (`docx:document`)\n"
+            f"- **lark_get_agenda**: View calendar (`calendar:calendar.event:read`)\n"
+            f"- **lark_create_event**: Create events (`calendar:calendar.event:create`)\n"
+            f"- **lark_check_freebusy**: Check availability (`calendar:calendar.free_busy:read`)\n\n"
+        )
+
+        # OAuth section (different for bot_ready vs user_logged_in)
+        if auth == "bot_ready":
+            oauth_section = (
+                f"### User identity tools (NOT YET AVAILABLE — OAuth needed):\n"
+                f"The following tools require the user to complete OAuth login first:\n"
+                f"- **lark_search_contacts** (by name)\n"
+                f"- **lark_search_messages**\n"
+                f"- **lark_search_documents**\n\n"
+                f"To unlock these, call `lark_auth_login` when the user requests one of "
+                f"these features or asks to complete OAuth.\n\n"
+            )
+        else:  # user_logged_in
+            oauth_section = (
+                f"### User identity tools (AVAILABLE — OAuth completed):\n"
+                f"- **lark_search_contacts** (by name): `contact:user:search`\n"
+                f"- **lark_search_messages**: `search:message`\n"
+                f"- **lark_search_documents**: `search:docs:read`\n\n"
+            )
+
+        rules = (
+            f"**CRITICAL RULES:**\n"
+            f"- Only call `lark_auth_login` when a user-identity tool fails OR the user "
+            f"explicitly asks for OAuth login. NEVER call it proactively.\n"
+            f"- OAuth is a TWO-STEP process:\n"
+            f"  1. Call `lark_auth_login` → get verification URL + device_code\n"
+            f"  2. Send the URL to the user. Explain:\n"
+            f"     - If they see 'authorize' → click it, then tell you 'done'\n"
+            f"     - If they see 'submit for approval' → click it, wait for admin approval, "
+            f"then come back and tell you. You will send a NEW link.\n"
+            f"  3. When user says done, call `lark_auth_complete` with the device_code\n"
+            f"  IMPORTANT: Do NOT use Bash to run lark-cli commands. Use MCP tools only.\n"
+            f"- When a Bot-identity tool fails with 'permission denied', tell the user which "
+            f"app permission to enable in the Lark Open Platform admin console. Do NOT call "
+            f"lark_auth_login for this — it's an app permission issue, not OAuth.\n"
+            f"- When replying on Lark, call `lark_send_message` **exactly ONCE**.\n"
+            f"- Do NOT reply to acknowledgments like 'ok', 'thanks', 'got it'.\n"
+            f"- Use `text` parameter (plain text), NOT `markdown`.\n"
+            f"- Keep replies concise. Use bullet points with emoji, not tables.\n"
+            f"- If the user asks how to setup/connect Lark, call `lark_setup_guide`.\n\n"
+            f"Use the lark_* tools to interact with {brand_display}."
+        )
+
+        status_label = "Bot Connected" if auth == "bot_ready" else "Fully Connected"
         return (
             f"## Lark/Feishu Integration\n\n"
-            f"Connected as **{bot_name}** ({brand_display}).\n"
+            f"**{status_label}** as **{bot_name}** ({brand_display}).\n"
             f"{owner_section}\n"
-            f"### Always available (Bot identity):\n"
-            f"- **lark_search_contacts**: Search by email or phone (name search needs OAuth)\n"
-            f"- **lark_get_user_info**: Get user profile details\n"
-            f"- **lark_send_message**: Send messages to chats or users\n"
-            f"- **lark_reply_message**: Reply to a specific message\n"
-            f"- **lark_create_chat**: Create group chats\n\n"
-            f"### Require app permissions (admin must enable in Lark Open Platform):\n"
-            f"- **lark_list_chat_messages**: Needs `im:message:readonly`\n"
-            f"- **lark_search_chat**: Needs `im:chat:readonly`\n"
-            f"- **lark_create_document / lark_fetch_document / lark_update_document**: Needs `docx:document`\n"
-            f"- **lark_search_documents**: Needs `docx:document:readonly`\n"
-            f"- **lark_get_agenda**: Needs `calendar:calendar.event:read`\n"
-            f"- **lark_create_event**: Needs `calendar:calendar.event:create`\n"
-            f"- **lark_check_freebusy**: Needs `calendar:calendar.free_busy:read`\n"
-            f"- **lark_create_task**: Needs `task:task:write`\n\n"
-            f"### Require user OAuth login:\n"
-            f"- **lark_get_my_tasks**: Only works with user identity\n"
-            f"- **lark_search_messages**: Only works with user identity\n"
-            f"- **lark_search_contacts** (by name): Only works with user identity\n\n"
-            f"**CRITICAL: Do NOT call lark_auth_login or lark_auth_status.** These tools do not exist.\n"
-            f"OAuth login is managed by the user via the frontend settings, not by the Agent.\n"
-            f"If a tool returns a permission error, simply tell the user which permission "
-            f"needs to be enabled in the Lark Open Platform admin console.\n\n"
-            f"**IMPORTANT Lark reply rules:**\n"
-            f"- When replying to a Lark message, call `lark_send_message` **exactly ONCE**.\n"
-            f"- Do NOT send multiple messages for the same reply.\n"
-            f"- Do NOT reply to simple acknowledgments like 'ok', 'thanks', 'got it'.\n"
-            f"- Keep replies concise and direct.\n"
-            f"- Use `text` parameter (plain text), NOT `markdown`.\n"
-            f"- For lists, use simple bullet points with emoji, not tables.\n\n"
-            f"Use the lark_* tools to interact with {brand_display}."
+            f"{bot_tools}"
+            f"{oauth_section}"
+            f"{rules}"
         )
 
     # =========================================================================

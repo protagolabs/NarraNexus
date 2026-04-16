@@ -305,89 +305,184 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             return {"success": False, "error": "Must provide at least one user_id."}
         return await _cli.freebusy(cred.profile_name, uid_list, start, end)
 
+    # NOTE: Task tools (lark_create_task, lark_get_my_tasks, lark_complete_task)
+    # are removed — requires task:task:write/read permissions not commonly enabled.
+
     # =====================================================================
-    # Task (3 tools)
+    # System — Setup & Bot Management
     # =====================================================================
 
     @mcp.tool()
-    async def lark_create_task(
-        agent_id: str, summary: str, due: str = "", description: str = ""
-    ) -> dict:
+    async def lark_setup_guide(agent_id: str) -> dict:
         """
-        Create a task.
-
-        Args:
-            agent_id: The agent performing this action.
-            summary: Task title/summary.
-            due: Due date, e.g. "2026-04-15 17:00". Optional.
-            description: Task description. Optional.
-        """
-        cred = await _get_credential(agent_id)
-        if not cred:
-            return {"success": False, "error": "No Lark bot bound to this agent."}
-        return await _cli.create_task(cred.profile_name, summary, due=due, description=description)
-
-    @mcp.tool()
-    async def lark_get_my_tasks(agent_id: str) -> dict:
-        """
-        List all tasks assigned to the logged-in user.
+        Return the complete Lark/Feishu setup guide for new users.
+        Call this when the user asks how to connect/bind/setup Lark.
 
         Args:
             agent_id: The agent performing this action.
         """
-        cred = await _get_credential(agent_id)
-        if not cred:
-            return {"success": False, "error": "No Lark bot bound to this agent."}
-        return await _cli.get_my_tasks(cred.profile_name)
+        guide = """# Lark/Feishu Bot Setup Guide
 
-    @mcp.tool()
-    async def lark_complete_task(agent_id: str, task_id: str) -> dict:
-        """
-        Mark a task as complete.
+## Step 1: Create Application
+1. Go to Lark Open Platform: https://open.larksuite.com/app (International) or https://open.feishu.cn/app (China)
+2. Click "Create Custom App"
+3. Fill in app name and description
+4. Note down your **App ID** (cli_xxx) and **App Secret**
 
-        Args:
-            agent_id: The agent performing this action.
-            task_id: The task ID to complete.
-        """
-        cred = await _get_credential(agent_id)
-        if not cred:
-            return {"success": False, "error": "No Lark bot bound to this agent."}
-        return await _cli.complete_task(cred.profile_name, task_id)
+## Step 2: Enable Bot
+1. In your app settings → Features → Bot → Enable
 
-    # =====================================================================
-    # System — Bot Management (3 tools)
-    # =====================================================================
+## Step 3: Add App Permissions (Application Identity)
+Go to Permissions Management → search and enable these under **Application Identity**:
+
+**Required (core messaging):**
+- `im:message:send_as_bot` — Send messages as bot
+- `contact:user.id:readonly` — Look up users by email/phone
+- `contact:user.base:readonly` — Get user profile info
+
+**Recommended (full features):**
+- `im:message:readonly` — Read chat messages
+- `im:chat:readonly` — Search/view group chats
+- `im:chat` — Create group chats
+- `docx:document` — Create/read/edit documents
+- `calendar:calendar.event:read` — View calendar
+- `calendar:calendar.event:create` — Create events
+- `calendar:calendar.free_busy:read` — Check availability
+
+## Step 4: Add User Permissions (User Identity)
+These enable features that require acting as a specific user:
+- `contact:user:search` — Search colleagues by name
+- `search:message` — Search message history
+- `search:docs:read` — Search documents
+- `offline_access` — Keep authorization active
+
+## Step 5: Subscribe to Events
+1. Go to Events & Callbacks → Event Configuration
+2. Select **Long Connection** (WebSocket) mode
+3. Add event: `im.message.receive_v1` (Receive messages)
+4. Enable: "Read direct messages sent to bot"
+
+## Step 6: Set App Availability
+1. Go to App Availability / Availability
+2. Change from "specific members" to "all employees" (or add specific people)
+
+## Step 7: Publish & Approve
+1. Go to Version Management → Create Version
+2. Fill in version number and update notes
+3. Submit for approval
+4. Wait for admin to approve
+
+## Step 8: Bind to NarraNexus
+After approval, tell your Agent ALL 4 pieces of info (all are required):
+1. **App ID** (starts with cli_)
+2. **App Secret**
+3. **Your Lark/Feishu email** (REQUIRED — without this the Agent won't know who you are)
+4. **Platform**: **Feishu** (China, feishu.cn) or **Lark** (International, larksuite.com)
+
+Example: "Bind my Lark bot: App ID cli_xxx, Secret xxx, email xxx@company.com, platform Lark"
+
+⚠️ The email MUST be provided — it links your Lark identity to the Agent so it knows "me" = you.
+
+## Step 9: User OAuth (for user-identity features)
+Some features (search by name, search messages, search documents) need user authorization.
+Ask your Agent: "Help me complete Lark OAuth login"
+- If you see "authorize" → just click to complete. Done!
+- If you see "submit for approval" → click it to request permissions, wait for admin approval.
+  After approval, come back and ask the Agent again — it will send a new link for authorization.
+
+That's it! Your Agent can now use Lark/Feishu."""
+
+        return {"success": True, "data": {"guide": guide}}
 
     @mcp.tool()
     async def lark_bind_bot(
-        agent_id: str, app_id: str, app_secret: str, brand: str = "feishu"
+        agent_id: str, app_id: str, app_secret: str,
+        brand: str = "feishu", owner_email: str = ""
     ) -> dict:
         """
         Bind a Lark/Feishu bot to this agent. This registers a CLI profile
         and stores the credential.
+
+        IMPORTANT: Always ask the user for their email so the Agent knows
+        who the owner is. Without email, features like "check my calendar"
+        won't know whose calendar to check.
 
         Args:
             agent_id: The agent to bind.
             app_id: Feishu/Lark App ID (e.g. "cli_xxx").
             app_secret: App Secret from Feishu Open Platform.
             brand: "feishu" (China, default) or "lark" (International).
+            owner_email: Owner's Lark/Feishu email to link their identity.
         """
         if brand not in ("feishu", "lark"):
             return {"success": False, "error": "brand must be 'feishu' or 'lark'."}
+
+        if not owner_email:
+            return {
+                "success": False,
+                "error": "owner_email is required. Ask the user for their Lark/Feishu email so the Agent knows who they are."
+            }
 
         db = await XYZBaseModule.get_mcp_db_client()
         mgr = LarkCredentialManager(db)
 
         # Reuse shared bind logic from service layer
         from ._lark_service import do_bind
-        result = await do_bind(mgr, agent_id, app_id, app_secret, brand)
+        result = await do_bind(mgr, agent_id, app_id, app_secret, brand, owner_email)
 
         if result.get("success"):
-            logger.info(f"Lark bot bound via MCP: agent={agent_id}, app_id={app_id}, brand={brand}")
+            logger.info(f"Lark bot bound via MCP: agent={agent_id}, app_id={app_id}, brand={brand}, owner={owner_email}")
 
         return result
 
-    # NOTE: lark_auth_login and lark_auth_status are intentionally NOT exposed
-    # as MCP tools. OAuth login should be managed via the frontend UI / backend
-    # API, not initiated by the Agent. Exposing them causes the Agent to
-    # repeatedly trigger OAuth flows which confuses users.
+    @mcp.tool()
+    async def lark_auth_login(agent_id: str) -> dict:
+        """
+        Initiate OAuth login for the bound Lark bot. Returns an authorization
+        URL that the user must open in a browser to complete login.
+
+        ONLY call this when:
+        - A user-identity tool fails with 'needs OAuth' or 'missing scope'
+        - The user explicitly asks to complete Lark OAuth login
+
+        Do NOT call this proactively or repeatedly. This uses safe scopes
+        that won't trigger re-approval.
+
+        Args:
+            agent_id: The agent whose bot to log in.
+        """
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"success": False, "error": "No Lark bot bound to this agent. Use lark_bind_bot first."}
+        result = await _cli.auth_login(cred.profile_name)
+        if result.get("success"):
+            data = result.get("data", {})
+            device_code = data.get("device_code", "")
+            if device_code:
+                result["data"]["next_step"] = (
+                    "After user completes authorization in browser, "
+                    "call lark_auth_complete with this device_code to finish login."
+                )
+        return result
+
+    @mcp.tool()
+    async def lark_auth_complete(agent_id: str, device_code: str) -> dict:
+        """
+        Complete OAuth login after user has authorized in browser.
+        Call this AFTER the user confirms they clicked the authorization link.
+
+        Args:
+            agent_id: The agent whose bot is being authorized.
+            device_code: The device_code returned by lark_auth_login.
+        """
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"success": False, "error": "No Lark bot bound to this agent."}
+        result = await _cli.auth_login_complete(cred.profile_name, device_code)
+        if result.get("success"):
+            # Update auth status in DB
+            db = await XYZBaseModule.get_mcp_db_client()
+            mgr = LarkCredentialManager(db)
+            from ._lark_credential_manager import AUTH_STATUS_USER_LOGGED_IN
+            await mgr.update_auth_status(agent_id, AUTH_STATUS_USER_LOGGED_IN)
+        return result

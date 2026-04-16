@@ -123,8 +123,14 @@ class LarkCLIClient:
         )
 
     async def auth_login(self, profile: str, no_wait: bool = True) -> dict:
-        """Initiate OAuth login. Returns auth URL when no_wait=True."""
-        args = ["auth", "login", "--domain", "im", "--json"]
+        """Initiate OAuth login with --recommend (requests all recommended scopes).
+
+        If some permissions aren't enabled yet, the user will see a
+        'submit for approval' page — this is expected and lets them
+        request all needed permissions in one step.
+        After approval, clicking the link again will just authorize.
+        """
+        args = ["auth", "login", "--recommend", "--json"]
         if no_wait:
             args.append("--no-wait")
         return await self._run(args, profile, timeout=60.0)

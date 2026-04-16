@@ -22,6 +22,11 @@ async def main():
     # Ensure tables exist
     await auto_migrate(db._backend)
 
+    # Migrate legacy auth_status="logged_in" → "bot_ready" (one-time, idempotent)
+    from xyz_agent_context.module.lark_module._lark_credential_manager import LarkCredentialManager
+    mgr = LarkCredentialManager(db)
+    await mgr.migrate_legacy_auth_status()
+
     trigger = LarkTrigger(max_workers=3)
     await trigger.start(db)
 
