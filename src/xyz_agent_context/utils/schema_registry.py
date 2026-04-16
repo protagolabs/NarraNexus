@@ -761,8 +761,9 @@ _register(
             Column("status", "TEXT", "VARCHAR(32)", nullable=False, default="'active'"),
             # User-choice toggle: when 1, force routing to the system-default
             # provider even if the user has configured their own. Respects the
-            # same quota gating as the no-config fallback path.
-            Column("prefer_system_override", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            # same quota gating as the no-config fallback path. Defaults to 1
+            # so newly registered users get the free tier on first chat.
+            Column("prefer_system_override", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

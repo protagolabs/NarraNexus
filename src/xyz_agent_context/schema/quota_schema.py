@@ -31,11 +31,16 @@ class Quota(BaseModel):
     granted_input_tokens: int = Field(default=0, ge=0)
     granted_output_tokens: int = Field(default=0, ge=0)
     status: QuotaStatus = QuotaStatus.ACTIVE
-    # When True, the user has opted in to routing LLM calls through the
-    # system-default free-tier provider even when they have their own
-    # provider configured. Respects the same quota gating as the
-    # no-config fallback path — running out still raises / returns 402.
-    prefer_system_override: bool = False
+    # When True, LLM calls route through the system-default free-tier
+    # provider even when the user has their own provider configured. Same
+    # quota gating as the no-config fallback path — running out still
+    # raises / returns 402.
+    #
+    # Default: True. Newly registered users get the free tier by default
+    # so they can start chatting immediately. If they later configure
+    # their own provider in Settings and uncheck the toggle, they will
+    # consume their own key from that point on.
+    prefer_system_override: bool = True
     created_at: datetime
     updated_at: datetime
 
