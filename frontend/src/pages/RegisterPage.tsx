@@ -17,6 +17,10 @@ export function RegisterPage() {
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [welcomeQuota, setWelcomeQuota] = useState<{
+    input: number
+    output: number
+  } | null>(null);
 
   const navigate = useNavigate();
   const { login, setAgents, setAgentId } = useConfigStore();
@@ -78,7 +82,19 @@ export function RegisterPage() {
         }
       } catch {}
 
-      navigate('/');
+      // If the backend seeded a free-tier quota for this user, show a
+      // brief inline welcome banner before navigating so the user knows
+      // they have starter credits. Cloud-web / cloud modes only; local
+      // never seeds so the flag is always false there.
+      if (mode === 'cloud' && res.has_system_quota) {
+        setWelcomeQuota({
+          input: res.initial_input_tokens ?? 0,
+          output: res.initial_output_tokens ?? 0,
+        });
+        setTimeout(() => navigate('/'), 1800);
+      } else {
+        navigate('/');
+      }
     } catch (err) {
       setError('Connection failed. Please try again.');
       console.error('Register error:', err);
@@ -198,6 +214,19 @@ export function RegisterPage() {
               <span className="w-1 h-1 rounded-full bg-[var(--color-error)]" />
               {error}
             </p>
+          )}
+
+          {welcomeQuota && (
+            <div className="rounded-md border border-[var(--accent-primary)] bg-[var(--surface-1)] p-3 animate-slide-up">
+              <div className="text-sm font-medium text-[var(--text-primary)] mb-1">
+                Welcome! You've got starter credits.
+              </div>
+              <div className="text-xs text-[var(--text-secondary)]">
+                {welcomeQuota.input.toLocaleString()} input tokens ·{' '}
+                {welcomeQuota.output.toLocaleString()} output tokens on
+                the system provider. Taking you to the dashboard…
+              </div>
+            </div>
           )}
 
           <Button
