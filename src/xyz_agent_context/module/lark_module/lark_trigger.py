@@ -518,15 +518,8 @@ class LarkTrigger:
                 raw = response.raw
                 if isinstance(raw, dict):
                     item = raw.get("item", {})
-                    if (item.get("type") == "tool_call_item"
-                            and "lark_send_message" in item.get("tool_name", "")):
-                        args = item.get("arguments", {})
-                        if isinstance(args, str):
-                            try:
-                                args = json.loads(args)
-                            except Exception:
-                                args = {}
-                        sent_text = args.get("text", "") or args.get("markdown", "")
+                    if item.get("type") == "tool_call_item":
+                        sent_text = self._extract_lark_reply(item)
                         if sent_text:
                             lark_replies.append(sent_text)
 
@@ -541,6 +534,47 @@ class LarkTrigger:
             f"LarkTrigger [{cred.profile_name}] agent responded: {output_text[:200]}"
         )
         return output_text
+
+    @staticmethod
+    def _extract_lark_reply(item: dict) -> str:
+        """Extract sent text from a tool call item (supports V1 and V2 tools).
+
+        V1: tool_name="lark_send_message", arguments={"text": "...", "markdown": "..."}
+        V2: tool_name="lark_cli", arguments={"command": "im +messages-send ... --text ..."}
+        """
+        tool_name = item.get("tool_name", "")
+        args = item.get("arguments", {})
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                args = {}
+        if not isinstance(args, dict):
+            return ""
+
+        # V1 pattern: direct lark_send_message tool
+        if "lark_send_message" in tool_name:
+            return args.get("text", "") or args.get("markdown", "")
+
+        # V2 pattern: lark_cli with a messaging command
+        if "lark_cli" in tool_name:
+            command = args.get("command", "")
+            if "+messages-send" in command or "+messages-reply" in command:
+                # Extract --text value from command string
+                import shlex
+                try:
+                    parts = shlex.split(command)
+                except ValueError:
+                    parts = command.split()
+                for i, part in enumerate(parts):
+                    if part == "--text" and i + 1 < len(parts):
+                        return parts[i + 1]
+                    if part == "--markdown" and i + 1 < len(parts):
+                        return parts[i + 1]
+                # Couldn't parse text but it IS a send command
+                return "(sent via lark_cli)"
+
+        return ""
 
     # ------------------------------------------------------------------
     # Inbox writing

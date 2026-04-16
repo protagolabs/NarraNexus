@@ -27,7 +27,6 @@ from xyz_agent_context.module.lark_module._lark_credential_manager import (
 )
 from xyz_agent_context.module.lark_module._lark_service import (
     do_bind,
-    resolve_owner,
     determine_auth_status,
 )
 from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
@@ -116,25 +115,8 @@ async def bind_lark_bot(request: Request, body: BindRequest) -> dict[str, Any]:
     if not bind_result["success"]:
         return bind_result
 
-    profile_name = bind_result["data"]["profile_name"]
-
-    # Resolve owner Lark identity from email (route-only extra step)
-    owner_open_id, owner_name = await resolve_owner(
-        profile_name, body.owner_email
-    )
-    if owner_open_id:
-        await mgr.update_owner(body.agent_id, owner_open_id, owner_name)
-        logger.info(f"Lark owner resolved: {owner_name} ({owner_open_id})")
-
     logger.info(f"Lark bot bound: agent={body.agent_id}, app_id={body.app_id}")
-    return {
-        "success": True,
-        "data": {
-            **bind_result["data"],
-            "owner_open_id": owner_open_id,
-            "owner_name": owner_name,
-        },
-    }
+    return bind_result
 
 
 @router.post("/auth/login")
@@ -151,7 +133,12 @@ async def lark_auth_login(request: Request, body: AgentRequest) -> dict[str, Any
     if not cred:
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    result = await _cli.auth_login(cred.profile_name, no_wait=True)
+    # V2: use workspace-based runner
+    result = await _cli._run_v2(
+        ["auth", "login", "--recommend", "--json", "--no-wait"],
+        agent_id=body.agent_id,
+        timeout=60.0,
+    )
     return result
 
 
@@ -169,7 +156,12 @@ async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dic
     if not cred:
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    result = await _cli.auth_login_complete(cred.profile_name, body.device_code)
+    # V2: use workspace-based runner
+    result = await _cli._run_v2(
+        ["auth", "login", "--device-code", body.device_code, "--json"],
+        agent_id=body.agent_id,
+        timeout=60.0,
+    )
 
     # Update auth status on success
     if result.get("success"):
@@ -177,7 +169,7 @@ async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dic
         await mgr.update_auth_status(body.agent_id, AUTH_STATUS_USER_LOGGED_IN)
 
         # Try to get bot name
-        bot_info = await _cli.get_user(cred.profile_name)
+        bot_info = await _cli._run_v2(["contact", "+get-user", "--as", "bot"], agent_id=body.agent_id)
         if bot_info.get("success"):
             data = bot_info.get("data", {})
             name = data.get("name", data.get("en_name", ""))
@@ -201,7 +193,7 @@ async def lark_auth_status(request: Request, agent_id: str) -> dict[str, Any]:
     if not cred:
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    result = await _cli.auth_status(cred.profile_name)
+    result = await _cli._run_v2(["auth", "status"], agent_id=agent_id)
 
     # Sync auth status to DB
     if result.get("success"):
@@ -228,7 +220,7 @@ async def test_lark_connection(request: Request, body: AgentRequest) -> dict[str
     if not cred:
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    return await _cli.get_user(cred.profile_name)
+    return await _cli._run_v2(["contact", "+get-user", "--as", "bot"], agent_id=body.agent_id)
 
 
 @router.delete("/unbind")
@@ -245,8 +237,13 @@ async def unbind_lark_bot(request: Request, body: AgentRequest) -> dict[str, Any
     if not cred:
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    # Remove CLI profile
-    await _cli.profile_remove(cred.profile_name)
+    # Remove CLI profile (V1) and workspace (V2)
+    try:
+        await _cli.profile_remove(cred.profile_name)
+    except Exception:
+        pass  # Profile may not exist in V2
+    from xyz_agent_context.module.lark_module._lark_workspace import cleanup_workspace
+    cleanup_workspace(body.agent_id)
 
     # Remove DB record
     await mgr.delete_credential(body.agent_id)

@@ -54,7 +54,12 @@ class LarkContextBuilder(ChannelContextBuilderBase):
             "timestamp": self.event.get("create_time", ""),
             "my_channel_id": self.credential.app_id,
             "message_body": self.event.get("content", ""),
-            "send_tool_name": "lark_send_message",
+            "send_tool_name": "lark_cli",
+            "reply_instruction": (
+                'call `lark_cli(agent_id="{agent_id}", command="im +messages-send '
+                '--chat-id {chat_id} --text YOUR_REPLY")`. '
+                "Send exactly ONE message. Use `--text`, not `--markdown`."
+            ).format(agent_id=self.agent_id, chat_id=self.event.get("chat_id", "")),
         }
 
     async def get_conversation_history(self, limit: int) -> List[Dict]:

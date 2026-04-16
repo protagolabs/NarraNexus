@@ -62,7 +62,7 @@ async def do_bind(
             ),
         }
 
-    # Register CLI profile
+    # Register CLI profile (--profile based isolation, works on all platforms)
     result = await _cli.config_init(profile_name, app_id, app_secret, brand)
     if not result.get("success"):
         return result
@@ -79,8 +79,8 @@ async def do_bind(
     )
     await mgr.save_credential(cred)
 
-    # Try to get bot name
-    bot_info = await _cli.get_user(profile_name)
+    # Try to get bot name (use V2 runner)
+    bot_info = await _cli._run_v2(["contact", "+get-user", "--as", "bot"], agent_id)
     if bot_info.get("success"):
         data = bot_info.get("data", {})
         name = data.get("name", data.get("en_name", ""))
@@ -91,7 +91,7 @@ async def do_bind(
     owner_open_id = ""
     owner_name = ""
     if owner_email:
-        owner_open_id, owner_name = await resolve_owner(profile_name, owner_email)
+        owner_open_id, owner_name = await resolve_owner(agent_id, owner_email)
         if owner_open_id:
             await mgr.update_owner(agent_id, owner_open_id, owner_name)
 
@@ -108,18 +108,21 @@ async def do_bind(
     }
 
 
-async def resolve_owner(profile_name: str, owner_email: str) -> tuple[str, str]:
-    """Resolve owner Lark identity from email. Returns (open_id, name)."""
+async def resolve_owner(agent_id: str, owner_email: str) -> tuple[str, str]:
+    """Resolve owner Lark identity from email. Returns (open_id, name).
+
+    Uses V2 runner (HOME isolation) with fallback to --profile.
+    """
     if not owner_email:
         return "", ""
 
     owner_open_id = ""
     owner_name = ""
 
-    lookup = await _cli._run(
+    lookup = await _cli._run_v2(
         ["api", "POST", "/open-apis/contact/v3/users/batch_get_id",
          "--data", json.dumps({"emails": [owner_email]})],
-        profile=profile_name,
+        agent_id=agent_id,
     )
     if lookup.get("success"):
         user_list = lookup.get("data", {}).get("data", {}).get("user_list", [])
@@ -127,7 +130,10 @@ async def resolve_owner(profile_name: str, owner_email: str) -> tuple[str, str]:
             owner_open_id = user_list[0].get("user_id", "")
 
     if owner_open_id:
-        user_info = await _cli.get_user(profile_name, user_id=owner_open_id)
+        user_info = await _cli._run_v2(
+            ["contact", "+get-user", "--as", "bot", "--user-id", owner_open_id],
+            agent_id=agent_id,
+        )
         if user_info.get("success"):
             udata = user_info.get("data", {})
             user_obj = udata.get("user", udata)

@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-04-14
+last_verified: 2026-04-16
 ---
 
 ## Why it exists
@@ -27,7 +27,7 @@ modules can send Lark messages on behalf of an agent.
 ## Upstream / downstream
 
 - **Upstream**: `module/__init__.py` (MODULE_MAP), `module_service.py`.
-- **Downstream**: `_lark_mcp_tools.py` (MCP tools), `_lark_credential_manager.py`
+- **Downstream**: `_lark_mcp_tools_v2.py` (V2 MCP tools), `_lark_credential_manager.py`
   (hook_data_gathering), `ChannelSenderRegistry` (send function).
 
 ## Gotchas

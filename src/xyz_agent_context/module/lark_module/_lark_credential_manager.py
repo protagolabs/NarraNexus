@@ -62,6 +62,7 @@ class LarkCredential:
     app_secret_ref: str  # Keychain reference, e.g. "appsecret:cli_xxx"
     brand: str  # "feishu" or "lark"
     profile_name: str  # CLI profile name, e.g. "agent_{agent_id}"
+    workspace_path: str = ""  # V2: HOME-based workspace directory
     bot_name: str = ""
     app_secret_encoded: str = ""  # Base64-encoded secret for SDK use (NOT encrypted)
     owner_open_id: str = ""  # Lark open_id of the agent's owner
@@ -91,6 +92,7 @@ class LarkCredentialManager:
             app_secret_ref=row.get("app_secret_ref", ""),
             brand=row.get("brand", "feishu"),
             profile_name=row.get("profile_name", ""),
+            workspace_path=row.get("workspace_path", ""),
             bot_name=row.get("bot_name", ""),
             app_secret_encoded=row.get("app_secret_encrypted", ""),
             owner_open_id=row.get("owner_open_id", ""),
@@ -154,6 +156,7 @@ class LarkCredentialManager:
             "app_secret_encrypted": cred.app_secret_encoded,
             "brand": cred.brand,
             "profile_name": cred.profile_name,
+            "workspace_path": cred.workspace_path,
             "bot_name": cred.bot_name,
             "owner_open_id": cred.owner_open_id,
             "owner_name": cred.owner_name,

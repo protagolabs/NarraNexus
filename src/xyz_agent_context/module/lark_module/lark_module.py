@@ -103,8 +103,8 @@ class LarkModule(XYZBaseModule):
             mcp = FastMCP("LarkModule MCP")
             mcp.settings.port = LARK_MCP_PORT
 
-            from ._lark_mcp_tools import register_lark_mcp_tools
-            register_lark_mcp_tools(mcp)
+            from ._lark_mcp_tools_v2 import register_lark_mcp_tools_v2
+            register_lark_mcp_tools_v2(mcp)
 
             logger.info(f"LarkModule MCP server created on port {LARK_MCP_PORT}")
             return mcp
@@ -124,9 +124,8 @@ class LarkModule(XYZBaseModule):
             return (
                 "## Lark/Feishu Integration\n\n"
                 "No Lark bot is bound to this agent. If the user asks how to "
-                "setup or connect Lark, call `lark_setup_guide` to show the "
-                "complete setup guide. To bind directly, use `lark_bind_bot` "
-                "with an App ID and Secret."
+                "setup or connect Lark, call `lark_setup` to create a new app — "
+                "the user just needs to click a link.\n"
             )
 
         brand_display = "Feishu" if lark_info.get("brand") == "feishu" else "Lark"
@@ -138,7 +137,28 @@ class LarkModule(XYZBaseModule):
                 f"## Lark/Feishu Integration\n\n"
                 f"Bot **{bot_name}** ({brand_display}) is bound but credentials are "
                 f"{'expired' if auth == 'expired' else 'not active'}. "
-                f"The user may need to re-bind the bot in the Config panel."
+                f"The user may need to re-bind via frontend Config panel or `lark_setup`."
+            )
+
+        # Determine if this execution is from a Lark channel message
+        ws = ctx_data.working_source
+        is_lark_channel = (
+            ws == WorkingSource.LARK
+            or (isinstance(ws, str) and ws == WorkingSource.LARK.value)
+        )
+        logger.info(f"LarkModule.get_instructions: working_source={ws!r}, is_lark_channel={is_lark_channel}")
+
+        # Mode indicator — this is the FIRST thing the Agent sees
+        if is_lark_channel:
+            mode_section = (
+                "**Mode: LARK CHANNEL** — You are handling an incoming Lark message. "
+                "Reply using `lark_cli im +messages-send`.\n\n"
+            )
+        else:
+            mode_section = (
+                "**Mode: OWNER CHAT** — You are in the owner's direct chat window. "
+                "Reply normally as text. Do NOT use `im +messages-send` — that sends "
+                "to Lark users, not to the owner's chat.\n\n"
             )
 
         owner_section = ""
@@ -146,77 +166,86 @@ class LarkModule(XYZBaseModule):
         owner_name = lark_info.get("owner_name", "")
         if owner_id:
             owner_section = (
-                f"\n**Owner identity**: {owner_name} (open_id: `{owner_id}`)\n"
-                f"When the user says \"me\", \"my\", \"I\" in the context of Lark, "
-                f"it refers to this person (open_id: `{owner_id}`).\n"
+                f"\n**Owner**: {owner_name} (open_id: `{owner_id}`)\n"
+                f"When user says \"me/my/I\" in Lark context → this person.\n"
             )
 
-        # Common tools section (shown for both bot_ready and user_logged_in)
-        bot_tools = (
-            f"### Bot identity tools (work after admin enables app permissions):\n"
-            f"- **lark_send_message**: Send messages (`im:message:send_as_bot`)\n"
-            f"- **lark_reply_message**: Reply to messages (`im:message:send_as_bot`)\n"
-            f"- **lark_search_contacts**: Search by email/phone (`contact:user.id:readonly`)\n"
-            f"- **lark_get_user_info**: Get user profile (`contact:user.base:readonly`)\n"
-            f"- **lark_create_chat**: Create group chats (`im:chat`)\n"
-            f"- **lark_list_chat_messages**: List messages (`im:message:readonly`)\n"
-            f"- **lark_search_chat**: Search chats (`im:chat:readonly`)\n"
-            f"- **lark_create_document**: Create docs (`docx:document`)\n"
-            f"- **lark_fetch_document**: Read docs (`docx:document`)\n"
-            f"- **lark_update_document**: Edit docs (`docx:document`)\n"
-            f"- **lark_get_agenda**: View calendar (`calendar:calendar.event:read`)\n"
-            f"- **lark_create_event**: Create events (`calendar:calendar.event:create`)\n"
-            f"- **lark_check_freebusy**: Check availability (`calendar:calendar.free_busy:read`)\n\n"
-        )
+        # Skill resources — list available skills for self-learning
+        try:
+            from ._lark_skill_loader import get_available_skills
+            available = get_available_skills()
+        except Exception:
+            available = []
 
-        # OAuth section (different for bot_ready vs user_logged_in)
+        if available:
+            skill_list = ", ".join(f"`lark://skills/{s}`" for s in available)
+            skill_section = (
+                f"### How to use `lark_cli`\n\n"
+                f"All commands run via `lark_cli(agent_id, command=\"...\")`. "
+                f"Do NOT add `--profile` or `--format json`.\n\n"
+                f"**Before using a Lark domain you haven't used before**, read its "
+                f"skill doc to learn the available commands and correct syntax:\n"
+                f"- Available skill resources: {skill_list}\n"
+                f"- Example: read `lark://skills/lark-im` to learn messaging commands\n"
+                f"- You can also run `<domain> +<command> --help` for quick help "
+                f"(e.g. `im +messages-send --help`)\n"
+                f"- Use `schema <resource>` to check API parameters "
+                f"(e.g. `schema im.messages.create`)\n\n"
+            )
+        else:
+            skill_section = (
+                f"### How to use `lark_cli`\n\n"
+                f"All commands run via `lark_cli(agent_id, command=\"...\")`. "
+                f"Do NOT add `--profile` or `--format json`.\n\n"
+                f"Run `<domain> +<command> --help` to discover available commands "
+                f"(e.g. `im +messages-send --help`).\n"
+                f"Use `schema <resource>` to check API parameters.\n\n"
+            )
+
+        # OAuth section
         if auth == "bot_ready":
             oauth_section = (
-                f"### User identity tools (NOT YET AVAILABLE — OAuth needed):\n"
-                f"The following tools require the user to complete OAuth login first:\n"
-                f"- **lark_search_contacts** (by name)\n"
-                f"- **lark_search_messages**\n"
-                f"- **lark_search_documents**\n\n"
-                f"To unlock these, call `lark_auth_login` when the user requests one of "
-                f"these features or asks to complete OAuth.\n\n"
+                f"### OAuth Status: NOT completed\n"
+                f"Some commands that require user identity won't work yet.\n"
+                f"Only call `lark_auth` when a command fails with permission errors "
+                f"or the user explicitly asks for OAuth.\n\n"
             )
-        else:  # user_logged_in
+        else:
             oauth_section = (
-                f"### User identity tools (AVAILABLE — OAuth completed):\n"
-                f"- **lark_search_contacts** (by name): `contact:user:search`\n"
-                f"- **lark_search_messages**: `search:message`\n"
-                f"- **lark_search_documents**: `search:docs:read`\n\n"
+                f"### OAuth Status: Completed\n"
+                f"All commands including user-identity features are available.\n\n"
             )
 
         rules = (
-            f"**CRITICAL RULES:**\n"
-            f"- Only call `lark_auth_login` when a user-identity tool fails OR the user "
-            f"explicitly asks for OAuth login. NEVER call it proactively.\n"
-            f"- OAuth is a TWO-STEP process:\n"
-            f"  1. Call `lark_auth_login` → get verification URL + device_code\n"
-            f"  2. Send the URL to the user. Explain:\n"
-            f"     - If they see 'authorize' → click it, then tell you 'done'\n"
-            f"     - If they see 'submit for approval' → click it, wait for admin approval, "
-            f"then come back and tell you. You will send a NEW link.\n"
-            f"  3. When user says done, call `lark_auth_complete` with the device_code\n"
-            f"  IMPORTANT: Do NOT use Bash to run lark-cli commands. Use MCP tools only.\n"
-            f"- When a Bot-identity tool fails with 'permission denied', tell the user which "
-            f"app permission to enable in the Lark Open Platform admin console. Do NOT call "
-            f"lark_auth_login for this — it's an app permission issue, not OAuth.\n"
-            f"- When replying on Lark, call `lark_send_message` **exactly ONCE**.\n"
-            f"- Do NOT reply to acknowledgments like 'ok', 'thanks', 'got it'.\n"
-            f"- Use `text` parameter (plain text), NOT `markdown`.\n"
-            f"- Keep replies concise. Use bullet points with emoji, not tables.\n"
-            f"- If the user asks how to setup/connect Lark, call `lark_setup_guide`.\n\n"
-            f"Use the lark_* tools to interact with {brand_display}."
+            f"### Rules\n\n"
+            f"**Permission error handling:**\n"
+            f"1. Extract the missing scope(s) from the error (e.g. `im:chat:create`)\n"
+            f"2. Call `lark_auth(agent_id, scopes=\"im:chat im:chat:create\")` with the specific scopes\n"
+            f"3. Send the verification URL to the user and explain:\n"
+            f"   - 'Authorize' button → click it, done\n"
+            f"   - 'Submit for approval' → click to request, wait for admin, then come back\n"
+            f"4. When user confirms → call `lark_auth_complete` with the device_code\n\n"
+            f"**Identity:**\n"
+            f"- ALWAYS add `--as bot` when sending messages, creating docs, or performing actions.\n"
+            f"  The CLI defaults to user identity when OAuth is completed — you must NOT impersonate the user.\n"
+            f"  Example: `im +messages-send --as bot --user-id ou_xxx --text \"hello\"`\n"
+            f"- Only use `--as user` for search/read operations that explicitly require user identity "
+            f"(e.g. `contact +search-user`, `im +messages-search`, `docs +search`).\n\n"
+            f"**General:**\n"
+            f"- Do NOT use Bash for lark-cli. Use `lark_cli` MCP tool only.\n"
+            f"- Do NOT add `--format json` to Shortcut commands (commands with `+`)\n"
+            f"- Only call `lark_auth` when commands fail or user asks — not preemptively.\n"
+            f"- `im +messages-send` sends a message to a Lark user/chat. It is NOT how you\n"
+            f"  reply to the owner. Only use it when the owner asks to send something to someone.\n"
         )
 
         status_label = "Bot Connected" if auth == "bot_ready" else "Fully Connected"
         return (
             f"## Lark/Feishu Integration\n\n"
+            f"{mode_section}"
             f"**{status_label}** as **{bot_name}** ({brand_display}).\n"
             f"{owner_section}\n"
-            f"{bot_tools}"
+            f"{skill_section}"
             f"{oauth_section}"
             f"{rules}"
         )

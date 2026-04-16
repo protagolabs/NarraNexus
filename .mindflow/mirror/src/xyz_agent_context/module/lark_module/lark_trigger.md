@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-04-14
+last_verified: 2026-04-16
 ---
 
 ## Why it exists
@@ -49,3 +49,7 @@ respond to Lark messages.
 - `_subscribe_loop` patches `lark_oapi.ws.client.loop` — a fragile
   workaround for the SDK's module-level event loop capture.  May break
   on SDK updates.
+- **Reply detection** (`_extract_lark_reply`) supports both V1
+  (`lark_send_message` tool) and V2 (`lark_cli` with `+messages-send`/
+  `+messages-reply` in command string). Uses `shlex.split` to extract
+  `--text` value from the V2 command string.
