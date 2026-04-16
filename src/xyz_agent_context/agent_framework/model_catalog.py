@@ -53,11 +53,12 @@ def _register(*models: ModelMeta) -> None:
 
 # --- NetMind models ---
 _register(
-    ModelMeta("minimax/minimax-m2.5", "MiniMax M2.5", max_output_tokens=58982),
+    ModelMeta("minimax/minimax-m2.7", "MiniMax M2.7", max_output_tokens=58982),
     ModelMeta("google/gemini-3.1-pro-preview", "Gemini 3.1 Pro", max_output_tokens=58982),
     ModelMeta("google/gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite", max_output_tokens=58982),
     ModelMeta("moonshotai/Kimi-K2.5", "Kimi K2.5", max_output_tokens=58981),
     ModelMeta("zai-org/GLM-5", "GLM-5", max_output_tokens=117964),
+    ModelMeta("zai-org/GLM-5.1", "GLM-5.1", max_output_tokens=117964),
     ModelMeta("deepseek-ai/DeepSeek-V3", "DeepSeek V3", max_output_tokens=7200),
     ModelMeta("BAAI/bge-m3", "BGE-M3 (Multilingual)", dimensions=1024),
     ModelMeta("nvidia/NV-Embed-v2", "NV-Embed-v2", dimensions=4096),
@@ -86,15 +87,16 @@ _register(
 _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
     # NetMind Anthropic protocol → agent models
     ("netmind", "anthropic"): [
-        "minimax/minimax-m2.5",
+        "minimax/minimax-m2.7",
     ],
     # NetMind OpenAI protocol → helper_llm + embedding models
     ("netmind", "openai"): [
-        "minimax/minimax-m2.5",
+        "minimax/minimax-m2.7",
         "google/gemini-3.1-pro-preview",
         "google/gemini-3.1-flash-lite-preview",
         "moonshotai/Kimi-K2.5",
         "zai-org/GLM-5",
+        "zai-org/GLM-5.1",
         "deepseek-ai/DeepSeek-V3",
         "BAAI/bge-m3",
         "nvidia/NV-Embed-v2",
