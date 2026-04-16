@@ -211,6 +211,32 @@ async def auth_middleware(request: Request, call_next):
     except jwt.InvalidTokenError:
         return _json_response(401, {"detail": "Invalid token"})
 
+    # System-default quota routing. Tag current_user_id on the ContextVar
+    # (consumed by cost_tracker to attribute usage) and dispatch the
+    # resolver to decide user-vs-system routing + quota gating. Resolver
+    # itself short-circuits when SystemProviderService.is_enabled()==False,
+    # so local mode / feature-off is a no-op end-to-end.
+    from xyz_agent_context.agent_framework.api_config import set_current_user_id
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        QuotaExceededError,
+    )
+
+    set_current_user_id(request.state.user_id)
+    resolver = getattr(request.app.state, "provider_resolver", None)
+    if resolver is not None:
+        try:
+            await resolver.resolve_and_set(request.state.user_id)
+        except QuotaExceededError:
+            return _json_response(402, {
+                "success": False,
+                "error": "quota_exceeded",
+                "error_code": "QUOTA_EXCEEDED_NO_USER_PROVIDER",
+                "message": (
+                    "Free quota exhausted. Configure your own "
+                    "provider to continue."
+                ),
+            })
+
     response = await call_next(request)
     return response
 
