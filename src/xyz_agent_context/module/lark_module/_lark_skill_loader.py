@@ -1,7 +1,7 @@
 """
 @file_name: _lark_skill_loader.py
 @date: 2026-04-16
-@description: Load Lark CLI Skill docs (SKILL.md) for MCP Resource exposure.
+@description: Load Lark CLI Skill docs (SKILL.md) for the lark_skill MCP tool.
 
 Skills are installed via `npx skills add larksuite/cli -y -g` and live at
 ~/.claude/skills/lark-*/SKILL.md. The Agent reads these on-demand to learn

@@ -178,28 +178,31 @@ class LarkModule(XYZBaseModule):
             available = []
 
         if available:
-            skill_list = ", ".join(f"`lark://skills/{s}`" for s in available)
+            skill_list = ", ".join(f"`{s}`" for s in available)
             skill_section = (
                 f"### How to use `lark_cli`\n\n"
                 f"All commands run via `lark_cli(agent_id, command=\"...\")`. "
                 f"Do NOT add `--profile` or `--format json`.\n\n"
-                f"**Before using a Lark domain you haven't used before**, read its "
-                f"skill doc to learn the available commands and correct syntax:\n"
-                f"- Available skill resources: {skill_list}\n"
-                f"- Example: read `lark://skills/lark-im` to learn messaging commands\n"
-                f"- You can also run `<domain> +<command> --help` for quick help "
-                f"(e.g. `im +messages-send --help`)\n"
-                f"- Use `schema <resource>` to check API parameters "
-                f"(e.g. `schema im.messages.create`)\n\n"
+                f"**Before using a Lark domain you haven't used this session**, "
+                f"call `lark_skill(agent_id, name=\"<domain>\")` to load that "
+                f"domain's SKILL.md — it teaches syntax, identity rules, and "
+                f"gotchas. Skipping this step wastes turns on trial-and-error.\n"
+                f"- Recommended FIRST call: `lark_skill(agent_id, \"lark-shared\")` "
+                f"(auth + permissions + --as rules that apply everywhere).\n"
+                f"- Available skills: {skill_list}\n"
+                f"- Example: `lark_skill(agent_id, \"lark-im\")` before any `im +...`.\n"
+                f"- Quick runtime help: `<domain> +<command> --help` via `lark_cli`.\n"
+                f"- API field lookup: `schema <resource>` via `lark_cli` "
+                f"(e.g. `schema im.messages.create`).\n\n"
             )
         else:
             skill_section = (
                 "### How to use `lark_cli`\n\n"
                 "All commands run via `lark_cli(agent_id, command=\"...\")`. "
                 "Do NOT add `--profile` or `--format json`.\n\n"
-                "Run `<domain> +<command> --help` to discover available commands "
-                "(e.g. `im +messages-send --help`).\n"
-                "Use `schema <resource>` to check API parameters.\n\n"
+                "Run `<domain> +<command> --help` via `lark_cli` to discover "
+                "commands (e.g. `im +messages-send --help`).\n"
+                "Use `schema <resource>` via `lark_cli` to check API parameters.\n\n"
             )
 
         # OAuth section

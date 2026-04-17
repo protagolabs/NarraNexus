@@ -7,8 +7,9 @@ last_verified: 2026-04-16
 ## Why it exists
 
 Discovers and loads Lark CLI Skill documentation files (SKILL.md) from the
-filesystem. These are registered as MCP Resources so the Agent can read
-them on demand (e.g., `lark://skills/lark-im`).
+filesystem. Their content is returned by the `lark_skill` MCP tool in
+`_lark_mcp_tools.py`, so the Agent can read them on demand before using a
+new Lark domain.
 
 ## Design decisions
 
@@ -24,12 +25,14 @@ them on demand (e.g., `lark://skills/lark-im`).
 ## Upstream / downstream
 
 - **Upstream**: `_lark_mcp_tools.py` calls `get_available_skills()` and
-  `load_skill_content()` to register MCP Resources.
+  `load_skill_content()` from inside the `lark_skill` MCP tool.
+- **Upstream**: `lark_module.py` calls `get_available_skills()` in
+  `get_instructions()` to enumerate them in the system prompt.
 - **Downstream**: filesystem (reads SKILL.md files).
 
 ## Gotchas
 
-- Skills installed after the MCP server starts are not picked up. A server
-  restart is required.
-- If no skills are found, a warning is logged. The Agent can still use
-  `lark_cli` but won't have on-demand Skill docs.
+- Skills are re-discovered on every `lark_skill` tool call; no caching.
+  Installing new skills at runtime takes effect without a restart.
+- If no skills are found, `get_instructions()` renders the no-skill
+  fallback; the Agent can still use `lark_cli` but has no domain docs.
