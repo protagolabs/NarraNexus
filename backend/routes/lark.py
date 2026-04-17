@@ -237,11 +237,12 @@ async def unbind_lark_bot(request: Request, body: AgentRequest) -> dict[str, Any
     if not cred:
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    # Remove CLI profile (V1) and workspace (V2)
+    # Remove CLI profile (keychain entry + workspace config.json) then
+    # nuke the workspace directory itself.
     try:
-        await _cli.profile_remove(cred.profile_name)
+        await _cli.profile_remove(body.agent_id)
     except Exception:
-        pass  # Profile may not exist in V2
+        pass  # Best-effort — workspace may already be gone
     from xyz_agent_context.module.lark_module._lark_workspace import cleanup_workspace
     cleanup_workspace(body.agent_id)
 

@@ -371,9 +371,9 @@ class LarkTrigger:
         # Lazy-load bot open_id per credential
         if cred.profile_name not in self._bot_open_ids:
             try:
-                bot_info = await self._cli._run(
+                bot_info = await self._cli._run_with_agent_id(
                     ["api", "GET", "/open-apis/bot/v3/info"],
-                    profile=cred.profile_name,
+                    cred.agent_id,
                 )
                 if bot_info.get("success"):
                     bot_oid = bot_info.get("data", {}).get("bot", {}).get("open_id", "")
@@ -384,10 +384,10 @@ class LarkTrigger:
         bot_oid = self._bot_open_ids.get(cred.profile_name, "")
         return bool(bot_oid and sender_id == bot_oid)
 
-    async def _resolve_sender_name(self, profile_name: str, sender_id: str) -> str:
+    async def _resolve_sender_name(self, agent_id: str, sender_id: str) -> str:
         """Resolve a Lark user's display name from their open_id."""
         try:
-            user_info = await self._cli.get_user(profile_name, user_id=sender_id)
+            user_info = await self._cli.get_user(agent_id, user_id=sender_id)
             if user_info.get("success"):
                 outer = user_info.get("data", {})
                 inner = outer.get("data", outer)
@@ -439,7 +439,7 @@ class LarkTrigger:
 
         # Resolve sender name if unknown
         if sender_name == "Unknown" and sender_id:
-            sender_name = await self._resolve_sender_name(cred.profile_name, sender_id)
+            sender_name = await self._resolve_sender_name(cred.agent_id, sender_id)
 
         # Sanitize for safe storage
         sender_name = self._sanitize_display_name(sender_name)

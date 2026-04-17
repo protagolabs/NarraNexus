@@ -194,6 +194,20 @@ class LarkCredentialManager:
             {"owner_open_id": open_id, "owner_name": name},
         )
 
+    async def update_workspace_path(self, agent_id: str, workspace_path: str) -> None:
+        """Set the DB's workspace_path for an agent.
+
+        Used for lazy migration: pre-refactor manual binds had
+        workspace_path="" and relied on shared ~/.lark-cli/ config. On
+        first agent-scoped lark-cli call after the refactor, we compute
+        the workspace path, persist it, and hydrate the workspace.
+        """
+        await self.db.update(
+            self.TABLE,
+            {"agent_id": agent_id},
+            {"workspace_path": workspace_path},
+        )
+
     async def set_app_secret_encoded(self, agent_id: str, plain_secret: str) -> None:
         """Store a base64-encoded copy of the plain app secret.
 

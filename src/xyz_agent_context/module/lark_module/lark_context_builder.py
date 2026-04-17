@@ -67,7 +67,7 @@ class LarkContextBuilder(ChannelContextBuilderBase):
         if not chat_id:
             return []
         result = await self.cli.list_chat_messages(
-            self.credential.profile_name,
+            self.credential.agent_id,
             chat_id=chat_id,
             limit=limit,
         )

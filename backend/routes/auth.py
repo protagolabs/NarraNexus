@@ -667,20 +667,22 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"Workspace cleanup failed (non-critical): {e}")
 
-        # 14. Lark credentials + CLI profile + inbox data
+        # 14. Lark credentials + CLI profile + workspace + inbox data
         try:
             lark_cred = await db_client.get_one("lark_credentials", {"agent_id": agent_id})
             if lark_cred:
-                # Remove CLI profile
-                profile_name = lark_cred.get("profile_name", "")
-                if profile_name:
-                    import asyncio
-                    proc = await asyncio.create_subprocess_exec(
-                        "lark-cli", "profile", "remove", profile_name,
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                    )
-                    await proc.wait()
+                # Remove CLI profile via the shared client — it handles HOME
+                # override and keychain cleanup regardless of which bind path
+                # created this credential.
+                from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
+                from xyz_agent_context.module.lark_module._lark_workspace import cleanup_workspace
+                try:
+                    await LarkCLIClient().profile_remove(agent_id)
+                except Exception as e:
+                    logger.debug(f"profile_remove best-effort failed for {agent_id}: {e}")
+                # Blow away the workspace directory (idempotent)
+                cleanup_workspace(agent_id)
+
                 # Clean up lark inbox channels
                 all_members = await db_client.get("bus_channel_members", {"agent_id": agent_id})
                 for m in all_members:

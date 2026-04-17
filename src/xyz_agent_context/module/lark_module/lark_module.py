@@ -49,7 +49,7 @@ async def _lark_send_to_agent(
     cred = await mgr.get_credential(agent_id)
     if not cred:
         return {"success": False, "error": "No Lark bot bound to this agent."}
-    return await _cli.send_message(cred.profile_name, user_id=target_id, text=message)
+    return await _cli.send_message(agent_id, user_id=target_id, text=message)
 
 
 class LarkModule(XYZBaseModule):

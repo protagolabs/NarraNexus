@@ -41,9 +41,14 @@ async def do_bind(
 ) -> dict[str, Any]:
     """Core bind logic shared between HTTP route and MCP tool.
 
+    DB-first flow: save the credential (including workspace_path) upfront
+    so `_run_with_agent_id` can find it, then verify by triggering a
+    bot-info lookup which hydrates the workspace via `config init`.
+    Rollback if verification fails — that keeps DB and workspace consistent.
+
     Returns {"success": True, "data": {...}} or {"success": False, "error": ...}.
     """
-    profile_name = f"agent_{agent_id}"
+    from ._lark_workspace import build_profile_name, ensure_workspace
 
     # Check if this agent already has a bot
     existing = await mgr.get_credential(agent_id)
@@ -62,12 +67,15 @@ async def do_bind(
             ),
         }
 
-    # Register CLI profile (--profile based isolation, works on all platforms)
-    result = await _cli.config_init(profile_name, app_id, app_secret, brand)
-    if not result.get("success"):
-        return result
+    # Fetch agent_name for a human-readable profile name (best-effort)
+    agent_row = await mgr.db.get_one("agents", {"agent_id": agent_id})
+    agent_name = (agent_row or {}).get("agent_name", "") or agent_id
+    profile_name = build_profile_name(agent_name, agent_id)
 
-    # Save credential — bot identity works immediately, no OAuth needed
+    # Pre-create workspace so the first agent-scoped call can hydrate
+    workspace = ensure_workspace(agent_id)
+
+    # Save DB row BEFORE verification — _run_with_agent_id needs it to exist
     cred = LarkCredential(
         agent_id=agent_id,
         app_id=app_id,
@@ -75,17 +83,26 @@ async def do_bind(
         app_secret_encoded=_encode_secret(app_secret),
         brand=brand,
         profile_name=profile_name,
+        workspace_path=str(workspace),
         auth_status=AUTH_STATUS_BOT_READY,
     )
     await mgr.save_credential(cred)
 
-    # Try to get bot name
+    # Verify by hitting bot info (triggers hydrate which runs config init)
     bot_info = await _cli._run_with_agent_id(["contact", "+get-user", "--as", "bot"], agent_id)
-    if bot_info.get("success"):
-        data = bot_info.get("data", {})
-        name = data.get("name", data.get("en_name", ""))
-        if name:
-            await mgr.update_bot_name(agent_id, name)
+    if not bot_info.get("success"):
+        # Credentials invalid → rollback so the user can retry with correct values
+        await mgr.delete_credential(agent_id)
+        return {
+            "success": False,
+            "error": bot_info.get("error", "Credential verification failed. Check app_id and app_secret."),
+        }
+
+    # Capture bot name from verification response
+    data = bot_info.get("data", {})
+    name = data.get("name", data.get("en_name", ""))
+    if name:
+        await mgr.update_bot_name(agent_id, name)
 
     # Resolve owner identity from email
     owner_open_id = ""
