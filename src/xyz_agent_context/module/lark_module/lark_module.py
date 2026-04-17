@@ -98,7 +98,12 @@ class LarkModule(XYZBaseModule):
 
     def create_mcp_server(self) -> Optional[Any]:
         try:
-            from fastmcp import FastMCP
+            # Use the official mcp SDK's FastMCP — same as every other module
+            # in this project. The standalone `fastmcp` v2 package has a
+            # different Settings schema (no transport_security field), which
+            # made module_runner._run_mcp_in_thread crash the LarkModule MCP
+            # thread at startup and silently disable the whole lark flow.
+            from mcp.server.fastmcp import FastMCP
 
             mcp = FastMCP("LarkModule MCP")
             mcp.settings.port = LARK_MCP_PORT
