@@ -67,6 +67,7 @@ class ModuleLoader:
     ALWAYS_LOAD_MODULES = [
         "SkillModule",
         "LarkModule",
+        "CommonToolsModule",
     ]
 
     def __init__(
