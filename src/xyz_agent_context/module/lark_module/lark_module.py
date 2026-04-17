@@ -218,6 +218,15 @@ class LarkModule(XYZBaseModule):
             "URL with `--recommend` makes Lark auto-grant the scopes to the "
             "app AND auto-publish a new version in one shot. You should not "
             "need to send the user into the dev console for scopes.\n\n"
+            "**Self-healing**: this matrix is updated not only by explicit "
+            "lifecycle tools (`lark_auth_complete`, `lark_mark_console_done`), "
+            "but ALSO by observable success. If you make a `lark_cli` call "
+            "with `--as user` and it succeeds, the state flips to ✅ "
+            "automatically — the user doesn't have to say \"done\" and you "
+            "don't have to call anything extra. If you suspect the matrix is "
+            "stale (e.g. OAuth shows ❌ but commands might actually work), "
+            "call `lark_status(agent_id)` to force a re-sync from the CLI's "
+            "own auth store.\n\n"
         )
 
         # --- Next-step coach -----------------------------------------------

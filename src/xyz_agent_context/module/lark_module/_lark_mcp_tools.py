@@ -54,6 +54,19 @@ async def _get_agent_name(agent_id: str) -> str:
     return (row or {}).get("agent_name", "") or agent_id
 
 
+def _command_uses_user_identity(args: list[str]) -> bool:
+    """True iff the lark-cli args explicitly request `--as user`.
+
+    We only treat EXPLICIT user identity as an observable success signal.
+    `--as auto` / no flag / `--as bot` don't count, since those might route
+    through the bot token even for commands that happen to support user id.
+    """
+    for i, tok in enumerate(args):
+        if tok == "--as" and i + 1 < len(args) and args[i + 1] == "user":
+            return True
+    return False
+
+
 def _dev_console_url(brand: str, app_id: str) -> str:
     """Build the direct URL to the app's page in the Lark/Feishu dev console.
 
@@ -291,7 +304,44 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             return {"success": False, "error": str(e)}
 
         # Execute with HOME isolation
-        return await _cli._run_with_agent_id(args, agent_id)
+        result = await _cli._run_with_agent_id(args, agent_id)
+
+        # Self-healing state inference: if the user's lark-cli interaction
+        # succeeded via user identity, that's direct proof user OAuth is
+        # active — even if lark_auth_complete was never explicitly called
+        # or if the state was stuck as False from some earlier hiccup.
+        # Flip the matrix so Agent and user see reality.
+        try:
+            if result.get("success") and _command_uses_user_identity(args):
+                from datetime import datetime, timezone
+                ps = cred.permission_state or {}
+                if not ps.get("user_oauth_completed_at"):
+                    now = datetime.now(timezone.utc).isoformat()
+                    db = await XYZBaseModule.get_mcp_db_client()
+                    # Observable fact: a --as user call succeeded → the user
+                    # OAuth token is valid, and Lark had the scope published
+                    # for the app (otherwise the call would return missing-
+                    # scope). Flip both OAuth + bot-scope milestones.
+                    await LarkCredentialManager(db).patch_permission_state(agent_id, {
+                        "user_oauth_completed_at": now,
+                        "user_oauth_url": None,
+                        "user_oauth_device_code": None,
+                        "user_oauth_mode": None,
+                        "bot_scopes_confirmed": True,
+                        "console_setup_done_at": ps.get("console_setup_done_at") or now,
+                    })
+                    await LarkCredentialManager(db).update_auth_status(
+                        agent_id, AUTH_STATUS_USER_LOGGED_IN
+                    )
+                    logger.info(
+                        f"lark_cli: self-healed OAuth state for {agent_id} "
+                        f"(observed successful --as user call)"
+                    )
+        except Exception as e:
+            # Self-heal is best-effort; never fail the actual call.
+            logger.debug(f"lark_cli self-heal skipped: {e}")
+
+        return result
 
     # =====================================================================
     # Lifecycle: lark_setup
@@ -987,6 +1037,10 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             to know whether the bot itself is healthy.
           - When the user asks "is Lark working?", "what bot am I using?",
             "am I logged in?", etc.
+          - When the status matrix shows Step 2 (OAuth) as ❌ but you
+            suspect it actually worked — this tool queries the CLI's
+            auth store directly and self-heals the DB state if the CLI
+            says the user is logged in. Useful after a messy OAuth flow.
 
         **DO NOT CALL PREEMPTIVELY**: never before every `lark_cli` — that
         wastes a round-trip. Trust the normal error paths in typical use.
@@ -1015,6 +1069,40 @@ def register_lark_mcp_tools(mcp: Any) -> None:
 
         auth = await _cli._run_with_agent_id(["auth", "status"], agent_id)
         doctor = await _cli._run_with_agent_id(["doctor"], agent_id)
+
+        # Self-healing: if the CLI says a user token is valid but our DB
+        # still has user_oauth_completed_at=None (because auth_complete was
+        # never called or the call landed on an already-consumed code),
+        # trust the CLI and flip the state forward.
+        auth_data = auth.get("data", {}) if auth.get("success") else {}
+        cli_user_logged_in = (
+            auth_data.get("identity") == "user"
+            or auth_data.get("tokenType") == "user"
+            or auth_data.get("tokenStatus") == "valid"
+            or bool(auth_data.get("users"))
+        )
+        if cli_user_logged_in and not cred.user_oauth_ok():
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            ps = cred.permission_state or {}
+            db = await XYZBaseModule.get_mcp_db_client()
+            await LarkCredentialManager(db).patch_permission_state(agent_id, {
+                "user_oauth_completed_at": now,
+                "user_oauth_url": None,
+                "user_oauth_device_code": None,
+                "user_oauth_mode": None,
+                "bot_scopes_confirmed": True,
+                "console_setup_done_at": ps.get("console_setup_done_at") or now,
+            })
+            await LarkCredentialManager(db).update_auth_status(
+                agent_id, AUTH_STATUS_USER_LOGGED_IN
+            )
+            logger.info(
+                f"lark_status: self-healed OAuth state for {agent_id} "
+                f"(CLI confirms user token is valid)"
+            )
+            # Re-read cred so the response reflects reality
+            cred = await _get_credential(agent_id)
 
         return {
             "success": True,
