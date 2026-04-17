@@ -248,6 +248,20 @@ impl ServiceDef {
                 order: 5,
                 startup_delay_ms: None,
             },
+            ServiceDef {
+                id: "lark_trigger".to_string(),
+                label: "Lark Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.module.lark_module.run_lark_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 6,
+                startup_delay_ms: None,
+            },
         ]
     }
 
@@ -354,6 +368,22 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 5,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "lark_trigger".to_string(),
+                label: "Lark Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.module.lark_module.run_lark_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 6,
                 startup_delay_ms: None,
             },
         ]

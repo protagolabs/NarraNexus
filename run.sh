@@ -92,6 +92,12 @@ check_deps() {
     fi
   fi
 
+  # Install Lark CLI Skills (Agent knowledge docs for lark-cli usage)
+  if ! ls ~/.claude/skills/lark-shared/SKILL.md &>/dev/null 2>&1; then
+    echo -e "${Y}Installing Lark CLI Skills...${R}"
+    npx skills add larksuite/cli -y -g 2>&1 | tail -1
+  fi
+
   # Check Python version (>=3.13 required)
   local py_version
   py_version=$(uv python find 2>/dev/null | xargs -I{} {} -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "")

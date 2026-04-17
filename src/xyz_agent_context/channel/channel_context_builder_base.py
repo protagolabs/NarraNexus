@@ -160,6 +160,14 @@ class ChannelContextBuilderBase(ABC):
         # Step 1: Message metadata
         info = await self.get_message_info()
 
+        # Default reply_instruction if channel didn't provide one
+        if "reply_instruction" not in info:
+            tool = info.get("send_tool_name", "send_message")
+            room = info.get("room_id", "")
+            info["reply_instruction"] = (
+                f"use the `{tool}` tool with room_id=`{room}`"
+            )
+
         # Step 2: Sender profile
         sender_profile_section = await self._build_sender_profile(info)
 

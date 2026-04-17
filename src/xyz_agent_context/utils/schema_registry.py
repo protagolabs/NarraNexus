@@ -729,6 +729,7 @@ _register(
             Column("app_secret_encrypted", "TEXT", "VARCHAR(512)"),
             Column("brand", "TEXT", "VARCHAR(16)", nullable=False),
             Column("profile_name", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("workspace_path", "TEXT", "VARCHAR(512)"),
             Column("bot_name", "TEXT", "VARCHAR(255)"),
             Column("owner_open_id", "TEXT", "VARCHAR(64)"),
             Column("owner_name", "TEXT", "VARCHAR(255)"),

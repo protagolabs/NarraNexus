@@ -667,6 +667,41 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"Workspace cleanup failed (non-critical): {e}")
 
+        # 14. Lark credentials + CLI profile + inbox data
+        try:
+            lark_cred = await db_client.get_one("lark_credentials", {"agent_id": agent_id})
+            if lark_cred:
+                # Remove CLI profile
+                profile_name = lark_cred.get("profile_name", "")
+                if profile_name:
+                    import asyncio
+                    proc = await asyncio.create_subprocess_exec(
+                        "lark-cli", "profile", "remove", profile_name,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    await proc.wait()
+                # Clean up lark inbox channels
+                all_members = await db_client.get("bus_channel_members", {"agent_id": agent_id})
+                for m in all_members:
+                    cid = m.get("channel_id", "")
+                    if cid.startswith("lark_"):
+                        await db_client.delete("bus_channel_members", {"channel_id": cid, "agent_id": agent_id})
+                        remaining = await db_client.get("bus_channel_members", {"channel_id": cid})
+                        if not remaining:
+                            await db_client.delete("bus_messages", {"channel_id": cid})
+                            await db_client.delete("bus_channels", {"channel_id": cid})
+                # Delete credential
+                result = await db_client.execute(
+                    "DELETE FROM lark_credentials WHERE agent_id = %s",
+                    (agent_id,), fetch=False,
+                )
+                cnt = result if isinstance(result, int) else 0
+                if cnt > 0:
+                    stats["lark_credentials"] = cnt
+        except Exception as e:
+            logger.warning(f"Lark cleanup failed (non-critical): {e}")
+
         # 15. The Agent itself
         result = await db_client.execute(
             "DELETE FROM agents WHERE agent_id = %s",

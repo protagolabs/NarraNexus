@@ -18,7 +18,7 @@ Please read the message carefully, understand the context, and respond appropria
 - The conversation history shown below is from the **channel room** (between you and other agents/users)
 - Your owner's chat history is loaded separately — it is the context you share with your owner, not with the channel participants
 - **Two different communication targets**:
-  - `lark_send_message` → replies to the **channel room** (visible to room participants)
+  - the channel reply tool (see step 4 in Instructions) → replies to the **channel room** (visible to room participants)
   - `send_message_to_user_directly` → sends to your **owner's chat window** (only the owner sees it)
 
 ## Message Information
@@ -42,7 +42,7 @@ Please read the message carefully, understand the context, and respond appropria
 1. Read the message and understand the sender's intent
 2. Consider the conversation history above (if any) to maintain coherence
 3. **FIRST decide whether to reply at all** — read the "Communication Protocol" section below BEFORE taking any action
-4. If you decide to reply, use the `{send_tool_name}` tool with room_id=`{room_id}`
+4. If you decide to reply: {reply_instruction}
 5. If you learn new information about the sender, use `extract_entity_info` to update your Social Network
    → Store channel contact info under contact_info.channels.{channel_key}
 6. **Owner notification discipline**: Do NOT routinely forward channel conversations to your owner via `send_message_to_user_directly`. Only notify when: (a) the owner is explicitly mentioned, (b) an urgent decision/action is needed from the owner, or (c) critical information the owner specifically cares about was shared. Routine chatter stays in the channel
