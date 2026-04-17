@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-04-10
+last_verified: 2026-04-17
 ---
 
 # module_runner.py — MCP 服务器部署与 A2A API 管理
@@ -12,7 +12,7 @@ last_verified: 2026-04-10
 ## 上下游关系
 
 - **被谁用**：`run.sh` / `Makefile` 通过 `python -m xyz_agent_context.module.module_runner mcp` 直接调用；`Tauri desktop` 通过 sidecar 启动；`backend/main.py` 在启动时可选调用
-- **依赖谁**：`MODULE_MAP`（`__init__.py`）提供可用模块；`MODULE_PORTS` 字典持有各模块的固定端口；`chat_module/chat_trigger.py` 提供 A2A API Server；`utils/db_factory.get_db_client_sync()` 和 `get_db_client()` 按模式选择同步/异步初始化
+- **依赖谁**：`MODULE_MAP`（`__init__.py`）提供可用模块；`MODULE_PORTS` 字典持有各模块的固定端口；`chat_module/chat_trigger.py` 提供 A2A API Server；MCP 子进程不再同步初始化 DB（见下方 gotcha），统一由 `XYZBaseModule.get_mcp_db_client()` 在 MCP 事件循环里 lazy 创建
 
 ## 设计决策
 
@@ -27,7 +27,7 @@ last_verified: 2026-04-10
 ## Gotcha / 边界情况
 
 - **Tauri sidecar 必须使用异步模式**：桌面端打包的 dmg 强制 SQLite，sidecar 启动的进程如果用多进程模式会立即死锁。`_is_sqlite_mode()` 的检测是保护机制，不要绕过它。
-- **`get_db_client_sync()` 在 `__init__` 里调用**：`ModuleRunner.__init__` 同步创建 db client，但这在异步服务器里可能导致事件循环问题。`run_mcp_servers_async()` 里用 `await get_db_client()` 重新创建了一个异步连接。
+- **MCP 子进程绝不能同步初始化 DB**：`_run_single_mcp` 和 `ModuleRunner.__init__` 故意不调用 `get_db_client_sync()`，因为它内部用 `asyncio.run()` 建池子，`asyncio.run()` 退出时会把临时 loop 关掉，aiomysql Pool 绑在那个死 loop 上。MCP 服务器（FastMCP / uvicorn / anyio）起来的是一个全新的 loop，任何跨 loop 调用都会报 "Future attached to a different loop"。MCP 工具里的 `await XYZBaseModule.get_mcp_db_client()` 会在 MCP 自己的 loop 里 lazy 建池，是对的路径，不要在子进程入口里抢先同步初始化。
 
 ## 新人易踩的坑
 

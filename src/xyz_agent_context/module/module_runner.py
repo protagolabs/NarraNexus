@@ -145,7 +145,14 @@ class ModuleRunner:
     """
 
     def __init__(self):
-        self.db = get_db_client_sync()
+        # Do not eagerly call get_db_client_sync() here: it runs
+        # asyncio.run(AsyncDatabaseClient.create()), which tears down the
+        # temporary loop and leaves the aiomysql pool bound to a dead loop.
+        # Any later async call from a different event loop (MCP's anyio
+        # TaskGroup in particular) blows up with "Future attached to a
+        # different loop". MCP tools use XYZBaseModule.get_mcp_db_client(),
+        # which lazy-creates the pool inside the MCP server's own loop.
+        pass
 
     # =========================================================================
     # Module Resolution
@@ -251,10 +258,20 @@ class ModuleRunner:
 
     @staticmethod
     def _run_single_mcp(module_class, agent_id: str, user_id: Optional[str] = None):
-        """Run a single MCP server in an independent process."""
-        db = get_db_client_sync()
+        """Run a single MCP server in an independent process.
+
+        The module is constructed with database_client=None on purpose: in
+        the MCP subprocess, MCP tools obtain the pool via
+        XYZBaseModule.get_mcp_db_client() (which calls `await get_db_client()`
+        inside the MCP event loop), so the aiomysql pool binds to that loop.
+        Eagerly calling get_db_client_sync() here used to build the pool in
+        a temporary asyncio.run() loop that was torn down before MCP even
+        started, leaving the singleton attached to a dead loop and every
+        subsequent MCP tool call crashing with "Future attached to a
+        different loop".
+        """
         user = user_id or agent_id
-        module = module_class(agent_id=agent_id, user_id=user, database_client=db)
+        module = module_class(agent_id=agent_id, user_id=user, database_client=None)
         runner = ModuleRunner()
         runner.run_mcp_server(module)
 
