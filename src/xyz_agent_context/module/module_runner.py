@@ -100,6 +100,7 @@ DEFAULT_MCP_MODULES = [
     "SocialNetworkModule",  # port: 7802
     "JobModule",            # port: 7803
     "SkillModule",          # port: 7806
+    "CommonToolsModule",    # port: 7807
     "MessageBusModule",     # port: 7820
     "LarkModule",           # port: 7830
 ]
@@ -111,6 +112,7 @@ MODULE_PORTS = {
     "SocialNetworkModule": 7802,
     "JobModule": 7803,
     "SkillModule": 7806,
+    "CommonToolsModule": 7807,
     "MessageBusModule": 7820,
     "LarkModule": 7830,
 }
@@ -683,6 +685,7 @@ MCP Servers (default ports):
   - JobModule:           http://localhost:7803/sse
   - ChatModule:          http://localhost:7804/sse
   - SkillModule:         http://localhost:7806/sse
+  - CommonToolsModule:   http://localhost:7807/sse
   - MessageBusModule:    http://localhost:7820/sse
   - LarkModule:          http://localhost:7830/sse
 
