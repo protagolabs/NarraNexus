@@ -326,28 +326,40 @@ class MessageBusTrigger:
         try:
             from xyz_agent_context.agent_runtime import AgentRuntime
             from xyz_agent_context.agent_runtime.logging_service import LoggingService
-            from xyz_agent_context.schema import MessageType, WorkingSource
+            from xyz_agent_context.agent_runtime.run_collector import collect_run
+            from xyz_agent_context.schema import WorkingSource
         except ImportError as e:
             raise RuntimeError(
                 f"Cannot import AgentRuntime dependencies: {e}"
             ) from e
 
         runtime = AgentRuntime(logging_service=LoggingService(enabled=False))
-        final_output: list[str] = []
-
-        async for response in runtime.run(
+        collection = await collect_run(
+            runtime,
             agent_id=agent_id,
             user_id=sender_agent_id,
             input_content=prompt,
             working_source=WorkingSource.MESSAGE_BUS,
             trigger_extra_data={"bus_channel_id": channel_id},
-        ):
-            if hasattr(response, "message_type"):
-                if response.message_type == MessageType.AGENT_RESPONSE:
-                    if hasattr(response, "delta") and response.delta:
-                        final_output.append(response.delta)
+        )
 
-        return "".join(final_output)
+        # Error path (Bug 2): previously the loop only checked
+        # AGENT_RESPONSE; if the agent run errored (e.g. owner removed
+        # their provider, system default exhausted) the sender agent got
+        # an empty string and had to guess why. Now we surface the error
+        # inline so the sender sees what went wrong.
+        if collection.is_error:
+            logger.warning(
+                f"[MessageBusTrigger] agent {agent_id} run failed in "
+                f"channel {channel_id}: {collection.error.error_type}: "
+                f"{collection.error.error_message}"
+            )
+            return (
+                f"⚠️ I couldn't process your message right now "
+                f"({collection.error.error_type}). {collection.error.error_message}"
+            )
+
+        return collection.output_text
 
     async def _write_to_inbox(
         self, agent_id: str, channel_id: str,

@@ -73,10 +73,8 @@ from xyz_agent_context.schema.job_schema import (
     JobType,
     TriggerConfig,
 )
-from xyz_agent_context.schema.runtime_message import (
-    MessageType,
-)
 from xyz_agent_context.schema.hook_schema import WorkingSource
+from xyz_agent_context.agent_runtime.run_collector import collect_run
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client, utc_now, format_for_llm
@@ -560,12 +558,7 @@ class JobTrigger:
 
             logger.info(f"[JobTrigger] Starting AgentRuntime for job {job.job_id}")
 
-            # Create AgentRuntime instance
             runtime = AgentRuntime()
-
-            # Collect text output from streaming response
-            final_output = []
-            tool_calls = []
 
             # Execution identity: use related_entity_id (if available) as user_id, otherwise use job.user_id
             # This way Job executes in the target user's context, loading their Narrative and related info
@@ -575,28 +568,40 @@ class JobTrigger:
                 f"(related_entity_id={job.related_entity_id}, job.user_id={job.user_id})"
             )
 
-            async for response in runtime.run(
+            collection = await collect_run(
+                runtime,
                 agent_id=job.agent_id,
-                user_id=execution_user_id,  # Execute as target user identity
+                user_id=execution_user_id,
                 input_content=prompt,
-                working_source=WorkingSource.JOB,  # Identifies this as Job-triggered execution (using enum type)
-                job_instance_id=job.instance_id,  # Pass instance_id for Hook to locate current Instance
-                forced_narrative_id=job.narrative_id,  # Force use of Job-associated Narrative
-            ):
-                # Collect text deltas (AgentTextDelta)
-                if hasattr(response, 'message_type'):
-                    if response.message_type == MessageType.AGENT_RESPONSE:
-                        if hasattr(response, 'delta') and response.delta:
-                            final_output.append(response.delta)
+                working_source=WorkingSource.JOB,
+                job_instance_id=job.instance_id,
+                forced_narrative_id=job.narrative_id,
+            )
 
-                    # Log tool calls for debugging
-                    elif response.message_type == MessageType.TOOL_CALL:
-                        if hasattr(response, 'tool_name'):
-                            tool_calls.append(response.tool_name)
-                            logger.debug(f"[JobTrigger] Tool called: {response.tool_name}")
+            # Error path (Bug 2): previously the trigger swallowed the
+            # ERROR message and surfaced a misleading "Task executed but
+            # produced no text output" note. Now the job result carries
+            # success=False + the structured error so the Job status
+            # downstream (_finalize_job_execution / job.last_error) can
+            # record it.
+            if collection.is_error:
+                logger.warning(
+                    f"[JobTrigger] Job {job.job_id} failed: "
+                    f"{collection.error.error_type}: {collection.error.error_message}"
+                )
+                return {
+                    "event_id": event_id,
+                    "content": (
+                        f"⚠️ Scheduled task failed: {collection.error.error_message}"
+                    ),
+                    "success": False,
+                    "error": collection.error.error_message,
+                    "error_type": collection.error.error_type,
+                    "tool_calls": collection.tool_calls,
+                }
 
-            # Combine all text chunks
-            content = "".join(final_output)
+            content = collection.output_text
+            tool_calls = collection.tool_calls
 
             # Add execution metadata if content is empty
             if not content.strip():

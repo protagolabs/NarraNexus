@@ -32,10 +32,41 @@ from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
 from xyz_agent_context.module.lark_module.lark_context_builder import LarkContextBuilder
 from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
 from xyz_agent_context.agent_runtime.logging_service import LoggingService
+from xyz_agent_context.agent_runtime.run_collector import (
+    RunError,
+    collect_run,
+)
 from xyz_agent_context.channel.channel_context_builder_base import ChannelHistoryConfig
-from xyz_agent_context.schema.runtime_message import MessageType
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
+
+
+def format_lark_error_reply(error: RunError) -> str:
+    """Render an AgentRuntime failure as a Lark-friendly message.
+
+    The sender in a Lark chat is often not the agent's owner (e.g. a
+    colleague messaging a team bot). Showing them the raw developer
+    error ("'agent' slot is not configured, go to Settings → Providers")
+    is useless — they can't fix it. Instead we tell them what happened
+    in plain language and point them at the owner.
+    """
+    etype = error.error_type
+    if etype == "SystemDefaultUnavailable":
+        return (
+            "⚠️ I can't reply right now: the owner's free-quota tier is "
+            "unavailable (disabled or exhausted). Please contact the "
+            "bot's owner."
+        )
+    if etype == "LLMConfigNotConfigured":
+        return (
+            "⚠️ I can't reply right now: the owner hasn't finished "
+            "configuring me. Please contact the bot's owner to set up "
+            "an LLM provider or enable the free-quota tier in Settings."
+        )
+    return (
+        "⚠️ I hit an internal error and can't reply to this message. "
+        "Please try again in a bit, or contact the bot's owner."
+    )
 
 
 class LarkTrigger:
@@ -553,30 +584,50 @@ class LarkTrigger:
         owner_user_id = (agent_row or {}).get("created_by", "") or cred.agent_id
 
         runtime = AgentRuntime(logging_service=LoggingService(enabled=False))
-        final_output: list[str] = []
-        lark_replies: list[str] = []
-
-        async for response in runtime.run(
+        result = await collect_run(
+            runtime,
             agent_id=cred.agent_id,
             user_id=owner_user_id,
             input_content=tagged_prompt,
             working_source=WorkingSource.LARK,
             trigger_extra_data={"channel_tag": channel_tag.to_dict()},
-        ):
-            if response.message_type == MessageType.AGENT_RESPONSE:
-                final_output.append(response.delta)
-            if hasattr(response, "raw") and response.raw:
-                raw = response.raw
-                if isinstance(raw, dict):
-                    item = raw.get("item", {})
-                    if item.get("type") == "tool_call_item":
-                        sent_text = self._extract_lark_reply(item)
-                        if sent_text:
-                            lark_replies.append(sent_text)
+        )
+
+        # Error path (Bug 2): the old loop ignored MessageType.ERROR so
+        # the sender saw radio silence. Surface a friendly IM message so
+        # they know the bot got their text but can't act on it, and
+        # return the same text so the inbox row reflects reality.
+        if result.is_error:
+            friendly = format_lark_error_reply(result.error)
+            logger.warning(
+                f"LarkTrigger [{cred.profile_name}] runtime error "
+                f"({result.error.error_type}): {result.error.error_message}"
+            )
+            try:
+                await self._cli.send_message(
+                    cred.agent_id, chat_id=chat_id, text=friendly
+                )
+            except Exception as send_err:
+                logger.warning(
+                    f"LarkTrigger [{cred.profile_name}] failed to deliver "
+                    f"error reply to Lark: {send_err}"
+                )
+            return friendly
+
+        # Happy path: extract the text the agent itself sent via
+        # `lark_cli im +messages-send` from the tool_call raw payloads.
+        lark_replies: list[str] = []
+        for raw in result.raw_items:
+            if isinstance(raw, dict):
+                item = raw.get("item", {})
+                if item.get("type") == "tool_call_item":
+                    sent_text = self._extract_lark_reply(item)
+                    if sent_text:
+                        lark_replies.append(sent_text)
 
         if lark_replies:
             output_text = "\n".join(lark_replies)
-        elif "".join(final_output).strip():
+        elif result.output_text.strip():
             output_text = "(Replied on Lark)"
         else:
             output_text = ""
