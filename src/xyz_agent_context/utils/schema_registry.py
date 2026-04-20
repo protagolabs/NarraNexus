@@ -776,6 +776,36 @@ _register(
 )
 
 
+# ----------------------------------------------------------------------------
+# lark_seen_messages — persistent dedup of incoming Lark events (Bug 27)
+#
+# Lark's event delivery is at-least-once: WebSocket reconnects or missed
+# acks cause the server to re-push the same `message_id`. Without a durable
+# record the trigger's in-memory set is wiped on every process restart,
+# and the agent answers the same message twice (observed: same message_id
+# re-processed about an hour apart, once before container restart and once
+# after).
+#
+# The trigger checks this table on every incoming event: INSERT-or-skip
+# on `message_id` acts as the atomic "have we seen this before" gate.
+# Rows older than 7 days are cleaned up on startup.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="lark_seen_messages",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("message_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("seen_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_lark_seen_messages_message_id", ["message_id"], unique=True),
+            Index("idx_lark_seen_messages_seen_at", ["seen_at"]),
+        ],
+    )
+)
+
+
 # ============================================================================
 # DDL Generation
 # ============================================================================

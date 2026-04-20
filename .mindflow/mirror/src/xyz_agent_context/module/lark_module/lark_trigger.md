@@ -4,6 +4,38 @@ stub: false
 last_verified: 2026-04-20
 ---
 
+## 2026-04-20 change — durable dedup + startup filter (Bug 27)
+
+Lark delivers events at-least-once: WebSocket reconnects, missed acks,
+or process restarts cause the server to re-push the same `message_id`.
+The previous design (in-memory `dict` with 60s TTL) could not survive
+either scenario — Xiong observed the agent answering the same user
+message twice, once right away and once ~an hour later after a restart.
+
+Three-layer defence replacing the single in-memory check:
+
+  1. **Startup-time filter** (`HISTORY_BUFFER_MS = 5 min`): events whose
+     Lark `create_time` is older than `startup_time - HISTORY_BUFFER_MS`
+     are replays from before this process started. Dropped outright
+     without touching the DB. 5-min buffer keeps "user sent right
+     before restart" traffic flowing.
+  2. **In-memory hot cache** (now `DEDUP_TTL_SECONDS = 600`, was 60):
+     unchanged contract but with a longer window, so routine bursts of
+     Lark re-deliveries within a single WS session never need to go
+     to DB.
+  3. **Durable DB gate** via `LarkSeenMessageRepository.mark_seen`:
+     atomic INSERT on the `lark_seen_messages` table — survives
+     process restart. See `repository/lark_seen_message_repository.py`.
+
+The full check lives in `_should_process_event`; the SDK callback
+(`on_message`) now only converts the event to a dict and hands it to
+`_dedup_and_enqueue`, which runs the full chain on the asyncio loop.
+This refactor keeps the SDK thread fast and centralises the dedup
+policy for tests.
+
+`start()` also runs `cleanup_older_than_days(DEDUP_RETENTION_DAYS=7)`
+once on startup to bound table growth.
+
 ## 2026-04-20 change — uses `collect_run` + surfaces runtime errors (Bug 2)
 
 `_build_and_run_agent` used to iterate `runtime.run()` directly and only

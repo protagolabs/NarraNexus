@@ -37,6 +37,9 @@ from xyz_agent_context.agent_runtime.run_collector import (
     collect_run,
 )
 from xyz_agent_context.channel.channel_context_builder_base import ChannelHistoryConfig
+from xyz_agent_context.repository.lark_seen_message_repository import (
+    LarkSeenMessageRepository,
+)
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
 
@@ -84,8 +87,24 @@ class LarkTrigger:
     # Never exceed this cap
     MAX_WORKERS = 50
 
-    # Dedup window: ignore message_ids seen within this many seconds
-    DEDUP_TTL_SECONDS = 60
+    # Memory dedup window. The durable dedup lives in `lark_seen_messages`
+    # DB table (see `LarkSeenMessageRepository`) and survives restarts;
+    # this in-memory layer is a hot cache that keeps the common case off
+    # the DB. 10 min is comfortably longer than any observed burst of
+    # Lark re-deliveries during a single WebSocket session.
+    DEDUP_TTL_SECONDS = 600
+
+    # Startup-time filter: events whose Lark-side `create_time` is older
+    # than (startup_time - HISTORY_BUFFER_MS) are replays of messages
+    # sent before this process started and are dropped outright. 5 min
+    # of buffer keeps "user sent a message right before restart" traffic
+    # flowing, while still cutting off the hour-old-event replays Xiong
+    # reported.
+    HISTORY_BUFFER_MS = 5 * 60 * 1000
+
+    # Durable-dedup retention: the `lark_seen_messages` table is cleaned
+    # of rows older than this many days once per trigger startup.
+    DEDUP_RETENTION_DAYS = 7
 
     def __init__(self, max_workers: int = 3):
         self._base_workers = max(max_workers, self.MIN_WORKERS)
@@ -102,12 +121,33 @@ class LarkTrigger:
         # Thread-safe dedup: message_id -> timestamp
         self._seen_messages: dict[str, float] = {}
         self._seen_lock = threading.Lock()  # Protects _seen_messages
+        # Set in `start()`. Kept per-instance so a test can inject a
+        # controlled time without monkey-patching module state.
+        self._startup_time_ms: int = 0
+        # Durable dedup store, also initialised in `start()` when the db
+        # handle becomes available.
+        self._seen_repo: "LarkSeenMessageRepository | None" = None
 
     async def start(self, db) -> None:
         """Start workers and credential watcher."""
         self.running = True
         self._db = db
         self._loop = asyncio.get_running_loop()
+        self._startup_time_ms = int(time.time() * 1000)
+        self._seen_repo = LarkSeenMessageRepository(db)
+
+        # Purge old dedup rows so the table doesn't grow without bound.
+        try:
+            deleted = await self._seen_repo.cleanup_older_than_days(
+                self.DEDUP_RETENTION_DAYS
+            )
+            if deleted:
+                logger.info(
+                    f"LarkTrigger: cleaned {deleted} dedup rows older than "
+                    f"{self.DEDUP_RETENTION_DAYS} days"
+                )
+        except Exception as e:  # noqa: BLE001 — best-effort startup hygiene
+            logger.warning(f"LarkTrigger: dedup cleanup failed: {e}")
 
         # Start baseline workers
         self._adjust_workers(self._base_workers)
@@ -278,29 +318,20 @@ class LarkTrigger:
             cred = fresh_cred  # use fresh cred throughout this iteration
 
             try:
-                # SDK callback: runs in SDK's thread, puts event into main async queue
+                # SDK callback: runs in SDK's thread. Instead of doing the
+                # dedup inline (which needs to await the DB layer for
+                # durable checks), we hand the event off to an async
+                # coroutine on the main loop; that coroutine runs
+                # `_should_process_event` (memory hot cache + startup
+                # filter + DB persistence) and only enqueues the event
+                # for workers when the checks clear it.
                 def on_message(data):
                     try:
                         event_dict = self._sdk_event_to_dict(data)
                         if not event_dict:
                             return
-                        # Dedup: skip if we've seen this message_id recently
-                        msg_id = event_dict.get("message_id", "")
-                        if msg_id:
-                            now = time.time()
-                            with self._seen_lock:
-                                if msg_id in self._seen_messages:
-                                    logger.debug(f"LarkTrigger: dedup skipping {msg_id}")
-                                    return
-                                self._seen_messages[msg_id] = now
-                                # Clean old entries periodically
-                                cutoff = now - self.DEDUP_TTL_SECONDS
-                                self._seen_messages = {
-                                    k: v for k, v in self._seen_messages.items()
-                                    if v > cutoff
-                                }
                         asyncio.run_coroutine_threadsafe(
-                            self._task_queue.put((cred, event_dict)),
+                            self._dedup_and_enqueue(cred, event_dict),
                             self._loop,
                         )
                     except Exception as e:
@@ -365,6 +396,96 @@ class LarkTrigger:
 
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, max_backoff)
+
+    async def _dedup_and_enqueue(self, cred, event_dict: dict) -> None:
+        """Check dedup; enqueue only if this is a genuinely new event."""
+        if await self._should_process_event(event_dict):
+            await self._task_queue.put((cred, event_dict))
+        else:
+            msg_id = event_dict.get("message_id", "")
+            logger.info(
+                f"LarkTrigger: dedup skipping message_id={msg_id!r} "
+                f"(already processed or pre-startup replay)"
+            )
+
+    async def _should_process_event(self, event_dict: dict) -> bool:
+        """
+        Return True if the event should be handed to a worker, False if it
+        should be dropped as a duplicate / historic replay.
+
+        Three layers, cheapest-first:
+
+          1. Startup-time filter (O(1), no I/O) — Lark events whose
+             `create_time` is older than ``startup_time - HISTORY_BUFFER_MS``
+             are replays from before this process started. Drop without
+             any further check. This alone kills most of the restart-
+             induced duplication because Lark re-delivers many minutes-
+             to-hours-old events on reconnect.
+
+          2. In-memory hot cache (O(1) with lock) — dedup within the
+             current process lifetime. TTL-bounded so the dict doesn't
+             grow without bound.
+
+          3. Durable DB gate (one round-trip, atomic) — via
+             ``LarkSeenMessageRepository.mark_seen``. Survives process
+             restarts: a message recorded in a prior process lifetime
+             will still be flagged as "seen". The unique constraint on
+             ``message_id`` makes this atomic under concurrent workers.
+
+        Fail-open on I/O error (return True) so that a transient DB
+        issue doesn't silence the bot — double-processing is annoying
+        but silent loss is worse.
+        """
+        msg_id = event_dict.get("message_id", "")
+
+        # Layer 1: startup-time filter. Applies only when the Lark event
+        # carries a create_time we can compare; if we can't tell the age
+        # of the event, fall through to the other layers.
+        create_time_raw = event_dict.get("create_time", "")
+        if create_time_raw and self._startup_time_ms > 0:
+            try:
+                create_time_ms = int(create_time_raw)
+                cutoff = self._startup_time_ms - self.HISTORY_BUFFER_MS
+                if create_time_ms < cutoff:
+                    age_min = (self._startup_time_ms - create_time_ms) / 60000.0
+                    logger.info(
+                        f"LarkTrigger: dropping historic event {msg_id!r} "
+                        f"(created {age_min:.1f} min before startup, past "
+                        f"{self.HISTORY_BUFFER_MS / 60000:.0f} min buffer)"
+                    )
+                    return False
+            except (ValueError, TypeError):
+                # Non-numeric create_time — fall through to other layers.
+                pass
+
+        if not msg_id:
+            # No id → can't dedup; process defensively. Lark's SDK should
+            # always populate this, so this is belt-and-braces.
+            return True
+
+        # Layer 2: in-memory hot cache.
+        now = time.time()
+        with self._seen_lock:
+            if msg_id in self._seen_messages:
+                return False
+            self._seen_messages[msg_id] = now
+            cutoff = now - self.DEDUP_TTL_SECONDS
+            self._seen_messages = {
+                k: v for k, v in self._seen_messages.items() if v > cutoff
+            }
+
+        # Layer 3: durable DB gate. Skipped only when no repo is wired —
+        # tests may run without one.
+        if self._seen_repo is not None:
+            try:
+                newly_inserted = await self._seen_repo.mark_seen(msg_id)
+                return newly_inserted
+            except Exception as e:  # noqa: BLE001 — fail-open on I/O
+                logger.warning(
+                    f"LarkTrigger: DB dedup check failed for {msg_id}: "
+                    f"{type(e).__name__}: {e}; processing anyway"
+                )
+        return True
 
     @staticmethod
     def _sdk_event_to_dict(data) -> dict:
