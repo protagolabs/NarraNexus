@@ -316,6 +316,30 @@ class AgentRuntime:
                 f"LLM config resolution failed for agent {agent_id}: "
                 f"{type(e).__name__}: {e}"
             )
+
+            # Bug 18 — persist the error as event.final_output so the DB
+            # record is complete. Without this the Event row sits with
+            # final_output=None forever (Step 4 is skipped on the early
+            # return below), which makes the failed turn invisible to
+            # audits and to UIs that render history from the events
+            # table. The user's input_content is already saved by Step 0
+            # in `events.env_context.input`, so writing the error here
+            # closes the loop.
+            error_marker = f"[ERROR:{type(e).__name__}] {e}"
+            try:
+                if ctx.event and ctx.event.id:
+                    await self.event_service.update_event_in_db(
+                        event_id=ctx.event.id,
+                        final_output=error_marker,
+                        generate_embedding=False,
+                    )
+                    ctx.event.final_output = error_marker
+            except Exception as persist_err:  # noqa: BLE001 — best-effort
+                logger.warning(
+                    f"Failed to persist error marker on event "
+                    f"{getattr(ctx.event, 'id', '?')}: {persist_err}"
+                )
+
             # Surface the error to every consumer (WS route / LarkTrigger /
             # JobTrigger / MessageBusTrigger / ChatTrigger A2A) as a
             # structured ErrorMessage. The error_type string preserves the
