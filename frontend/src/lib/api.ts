@@ -611,15 +611,18 @@ class ApiClient {
       }
     );
   }
-  // Embedding Status API
-  async getEmbeddingStatus(): Promise<EmbeddingStatusResponse> {
-    return this.request<EmbeddingStatusResponse>('/api/providers/embeddings/status');
+  // Embedding Status API (per-user)
+  async getEmbeddingStatus(userId: string): Promise<EmbeddingStatusResponse> {
+    const qs = `?user_id=${encodeURIComponent(userId)}`;
+    return this.request<EmbeddingStatusResponse>(`/api/providers/embeddings/status${qs}`);
   }
 
-  async rebuildEmbeddings(): Promise<EmbeddingRebuildResponse> {
-    return this.request<EmbeddingRebuildResponse>('/api/providers/embeddings/rebuild', {
-      method: 'POST',
-    });
+  async rebuildEmbeddings(userId: string): Promise<EmbeddingRebuildResponse> {
+    const qs = `?user_id=${encodeURIComponent(userId)}`;
+    return this.request<EmbeddingRebuildResponse>(
+      `/api/providers/embeddings/rebuild${qs}`,
+      { method: 'POST' },
+    );
   }
 
   /**

@@ -311,7 +311,9 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
         Uses cosine similarity to search for the most relevant instances of an agent.
 
         Args:
-            query_embedding: Query vector (1536 dimensions)
+            query_embedding: Query vector (dimension depends on the active
+                embedding model — compared against stored vectors of the
+                same dimension; mismatched rows are skipped defensively).
             agent_id: Agent ID
             top_k: Number of results to return
             status_filter: Optional, filter by status

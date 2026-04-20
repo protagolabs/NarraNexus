@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm_api/embedding.py
-last_verified: 2026-04-10
+last_verified: 2026-04-20
 stub: false
 ---
 # embedding.py — OpenAI-compatible 文本向量化客户端
@@ -22,6 +22,13 @@ Narrative 选择、Job 语义检索、实体相似度匹配等功能都需要把
 **每次调用创建新 `EmbeddingClient`**：之前有全局缓存客户端，导致 `set_user_config()` 切换 ContextVar 后，已经缓存的客户端仍使用旧 API key。现在 `_make_client()` 直接 `return EmbeddingClient()`，每次读取最新 ContextVar 值。`AsyncOpenAI` 客户端创建代价低（只是初始化 HTTP client），性能可接受。`reset_global_client()` 保留为 no-op 向后兼容。
 
 **不传 `dimensions` 参数给 API**：`EmbeddingConfig.dimensions` 只用于 UI 展示和存储预估，真正的请求不带该参数，避免切换模型时 400 错误（不同模型原生维度不同，API 会拒绝非原生维度）。
+
+**`self.dimensions` 只用于日志**：构造时用 `model_catalog.get_embedding_dimensions(model)`
+作为权威真源（覆盖 bge-m3 1024d、nv-embed-v2 4096d 等），fallback 到文件内
+`MODEL_DIMENSIONS` dict（仅 OpenAI 三款），再 fallback 到平台默认 1536。实际存储
+用 `len(vector)` 动态读真实维度，这里的 `self.dimensions` 只用于初始化日志
+`[Embedding] Initialized: model=..., dims=...`。2026-04-20 之前 fallback 写 1536
+导致 bge-m3 场景日志显示 1536（cosmetic 错误，不影响存储/检索）。
 
 **in-memory 缓存只在单次 `EmbeddingClient` 实例生命周期内有效**：由于每次 `get_embedding()` 都创建新实例，模块级别的重复查询不走缓存。如果某个场景需要批量缓存应直接使用 `EmbeddingClient` 实例并复用。
 

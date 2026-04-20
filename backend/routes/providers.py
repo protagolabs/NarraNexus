@@ -296,23 +296,52 @@ async def get_claude_status(request: Request):
 # =============================================================================
 
 @router.get("/embeddings/status")
-async def get_embedding_status():
+async def get_embedding_status(user_id: str = Query(..., description="User ID to scope the status")):
+    """
+    Per-user embedding migration status.
+
+    Returns counts of entities (narrative / event / job / entity) that
+    belong to `user_id` and whether each has an embedding for that user's
+    active model. Concurrent status checks by different users do not
+    interfere with each other.
+    """
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.services.embedding_migration_service import EmbeddingMigrationService
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
     db = await get_db_client()
-    service = EmbeddingMigrationService(db)
+    service = EmbeddingMigrationService(db, user_id=user_id)
     status = await service.get_status()
     return {"success": True, "data": status}
 
 
 @router.post("/embeddings/rebuild")
-async def rebuild_embeddings(background_tasks: BackgroundTasks):
+async def rebuild_embeddings(
+    background_tasks: BackgroundTasks,
+    user_id: str = Query(..., description="User ID whose entities to rebuild"),
+):
+    """
+    Kick off a background rebuild of this user's missing embeddings.
+
+    Each user has an independent `MigrationProgress`; starting a rebuild
+    for user A does not block user B. If the same user already has a
+    rebuild running, the request is a no-op.
+    """
     from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.services.embedding_migration_service import EmbeddingMigrationService, get_migration_progress
-    progress = get_migration_progress()
+    from xyz_agent_context.services.embedding_migration_service import (
+        EmbeddingMigrationService,
+        get_migration_progress,
+    )
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    progress = get_migration_progress(user_id)
     if progress.is_running:
-        return {"success": False, "error": "Migration already in progress", "data": progress.to_dict()}
+        return {
+            "success": False,
+            "error": "Migration already in progress",
+            "data": progress.to_dict(),
+        }
     db = await get_db_client()
-    service = EmbeddingMigrationService(db)
+    service = EmbeddingMigrationService(db, user_id=user_id)
     background_tasks.add_task(service.rebuild_all)
     return {"success": True, "message": "Embedding rebuild started"}
