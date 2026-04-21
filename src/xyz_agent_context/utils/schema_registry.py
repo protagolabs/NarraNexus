@@ -933,11 +933,20 @@ def generate_mysql_ddl(table: TableDef) -> List[str]:
                 parts.append("NOT NULL")
 
         if col.default is not None and not col.auto_increment:
-            # Translate SQLite default expressions to MySQL equivalents
-            default_val = col.default
-            if default_val == "(datetime('now'))":
-                default_val = "CURRENT_TIMESTAMP(6)"
-            parts.append(f"DEFAULT {default_val}")
+            # MySQL rejects non-NULL DEFAULT on TEXT / BLOB / JSON / GEOMETRY
+            # columns (error 1101). Skip the DEFAULT clause on those types;
+            # the application layer must supply values at insert time.
+            mysql_type_upper = (col.mysql_type or "").upper()
+            is_lob = any(
+                tok in mysql_type_upper
+                for tok in ("TEXT", "BLOB", "JSON", "GEOMETRY")
+            )
+            if not is_lob:
+                # Translate SQLite default expressions to MySQL equivalents
+                default_val = col.default
+                if default_val == "(datetime('now'))":
+                    default_val = "CURRENT_TIMESTAMP(6)"
+                parts.append(f"DEFAULT {default_val}")
 
         col_defs.append(" ".join(parts))
 
@@ -1054,7 +1063,20 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
                         default_val = col.default
                         if dialect == "mysql" and default_val == "(datetime('now'))":
                             default_val = "CURRENT_TIMESTAMP(6)"
-                        default = f" DEFAULT {default_val}"
+                        # MySQL rejects non-NULL DEFAULT on TEXT/BLOB/JSON/GEOMETRY
+                        # (error 1101). Only emit DEFAULT when the target type
+                        # allows it.
+                        if dialect == "mysql":
+                            mysql_type_upper = (col.mysql_type or "").upper()
+                            if any(
+                                tok in mysql_type_upper
+                                for tok in ("TEXT", "BLOB", "JSON", "GEOMETRY")
+                            ):
+                                default = ""
+                            else:
+                                default = f" DEFAULT {default_val}"
+                        else:
+                            default = f" DEFAULT {default_val}"
                     null_clause = "" if col.nullable else " NOT NULL"
                     # SQLite cannot add NOT NULL without default
                     if dialect == "sqlite" and not col.nullable and col.default is None:
