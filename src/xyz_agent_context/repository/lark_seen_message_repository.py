@@ -65,11 +65,11 @@ class LarkSeenMessageRepository:
             )
             return True
         except Exception as e:
-            # Both aiomysql (IntegrityError 1062) and aiosqlite (IntegrityError
-            # "UNIQUE constraint failed") raise their own class hierarchies;
-            # distinguishing without importing both drivers is noisy, so we
-            # match on the error text. A non-uniqueness insert failure is
-            # rare; we log loudly and treat it as "seen" to be safe (drop).
+            # Distinguish UNIQUE-constraint violations (genuine duplicate) from
+            # everything else (transient DB trouble). Both aiomysql
+            # (IntegrityError 1062) and aiosqlite ("UNIQUE constraint failed")
+            # have their own class hierarchies; we match on the error text so
+            # we don't have to import either driver here.
             msg = str(e)
             if (
                 "UNIQUE constraint failed" in msg         # sqlite
@@ -77,11 +77,18 @@ class LarkSeenMessageRepository:
                 or "1062" in msg                           # mysql err code
             ):
                 return False
+            # Non-UNIQUE failures (connection lost, disk full, etc.) MUST
+            # propagate. The trigger's `_should_process_event` catches this
+            # and chooses fail-open (process once more, log loudly), which
+            # matches the documented intent: silent loss is worse than a
+            # rare double-reply. Previously this branch returned False,
+            # which fail-closed the message — the OPPOSITE of intent.
+            # See H-3 in the 2026-04-21 audit.
             logger.warning(
                 f"LarkSeenMessageRepository.mark_seen({message_id}): "
-                f"unexpected error {type(e).__name__}: {e}; dropping as safe default"
+                f"propagating {type(e).__name__}: {e} so caller can fail-open"
             )
-            return False
+            raise
 
     async def cleanup_older_than_days(self, days: int) -> int:
         """
