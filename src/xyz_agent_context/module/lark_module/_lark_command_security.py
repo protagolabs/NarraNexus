@@ -55,10 +55,26 @@ BLOCKED_FLAGS = [
     "--app-secret-stdin",
 ]
 
-# Shell metacharacters that indicate injection attempts.
-# Note: {} and [] are allowed because JSON data uses them (e.g. --data '{"emails":["x@y.com"]}')
-# This is safe because subprocess uses shell=False — these are literal args, not shell syntax.
-_SHELL_CHARS = re.compile(r"[|;&`$()]")
+# NOTE: an earlier version of this file maintained a denylist of shell
+# metacharacters ( | ; & ` $ ( ) ) and rejected any command containing
+# them. That defense was aimed at shell=True command injection — but the
+# executor (lark_cli_client._exec_lark_cli) uses asyncio.create_subprocess_exec
+# with an argv list, which goes straight to execve() without a shell. Those
+# characters therefore have no special meaning in our path; they're just
+# literal bytes in the arg string.
+#
+# The denylist had a real cost: legitimate message content like "S&P 500",
+# "$76,000", markdown tables with "|", or parenthetical prose would fail
+# validation. Agents composing a financial report would get blocked, fall
+# back to probing (sending "test"/simplified messages to figure out which
+# char triggered the block), and end up spamming the recipient with
+# incomplete drafts.
+#
+# The defenses that actually matter are preserved:
+#   - ALLOWED_DOMAINS whitelist (only known lark-cli subcommands)
+#   - BLOCKED_PATTERNS (auth login/logout, config init — use dedicated tools)
+#   - BLOCKED_FLAGS (--app-secret-stdin, --profile — secrets / isolation bypass)
+#   - shlex.split + array-arg subprocess (true injection defense)
 
 
 def validate_command(command: str) -> Tuple[bool, str]:
@@ -72,10 +88,6 @@ def validate_command(command: str) -> Tuple[bool, str]:
         return False, "Empty command"
 
     stripped = command.strip()
-
-    # Check for shell metacharacters
-    if _SHELL_CHARS.search(stripped):
-        return False, "Command contains shell metacharacters"
 
     # Check blocked patterns
     lower = stripped.lower()
@@ -141,11 +153,12 @@ def sanitize_command(command: str) -> list[str]:
     if not allowed:
         raise ValueError(reason)
 
-    # Strip shell metacharacters (defense in depth)
-    clean = _SHELL_CHARS.sub("", command.strip())
-
+    # shlex.split with array-arg subprocess (shell=False) is the real defense
+    # against injection; no character-level stripping needed. See the NOTE
+    # at the top of this file for why the previous _SHELL_CHARS.sub()
+    # defense-in-depth was removed.
     try:
-        args = shlex.split(clean)
+        args = shlex.split(command.strip())
     except ValueError as e:
         raise ValueError(f"Failed to parse command: {e}")
 
