@@ -250,4 +250,9 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # ws_ping_interval / ws_ping_timeout override uvicorn's 20s/20s defaults
+    # that were hanging WS streams on long LLM turns — see BUG_FIX_LOG Bug 32.
+    uvicorn.run(
+        app, host="0.0.0.0", port=8000,
+        ws_ping_interval=30, ws_ping_timeout=60,
+    )

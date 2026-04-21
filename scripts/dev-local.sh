@@ -161,7 +161,7 @@ done
 
 # --- Backend ---
 tmux new-window -t "$SESSION" -n "Backend" \
-  "$ENV_CMD; echo '=== Backend API :8000 ==='; DASHBOARD_BIND_HOST=127.0.0.1 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000; echo 'Backend stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Backend API :8000 ==='; DASHBOARD_BIND_HOST=127.0.0.1 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60; echo 'Backend stopped. Press Enter to close.'; read"
 
 # --- MCP Server ---
 tmux new-window -t "$SESSION" -n "MCP" \

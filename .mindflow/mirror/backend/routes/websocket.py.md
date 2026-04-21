@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 stub: false
 ---
+
+## 2026-04-21 更新 — WS 中途挂掉 + disconnect 诊断（Bug 32）
+
+用户在 Web 端聊天时反馈 "工具调用到一半挂了，显示 not response"。根因不在这个文件——是 `stacks/narranexus-app/compose.yml` 的 uvicorn 启动命令**没设** `--ws-ping-interval` / `--ws-ping-timeout`，走默认 20s/20s。高密度 delta 推送时 pong 可能错过 20s 窗口，uvicorn 以 close_code=1011 硬断。
+
+本文件侧相关调整：
+- `_listen_for_stop` 在捕获 `WebSocketDisconnect` 时记录 `code` + `reason`，docstring 罗列 1000 / 1001 / 1006 / 1011 各自含义。下次再有类似 issue，运维从后端 log 一眼就能看出是浏览器关、代理砍、还是服务端 ping_timeout，不用再从前端反查。
+- 修复的具体 uvicorn 参数改在 compose.yml / deploy-cloud.sh / dev-local.sh / main.py 四处同步（iron rule #7 双运行方式对齐）。
+
+详见 BUG_FIX_LOG Bug 32。
 
 # routes/websocket.py — Agent 运行时 WebSocket 流式通信
 
