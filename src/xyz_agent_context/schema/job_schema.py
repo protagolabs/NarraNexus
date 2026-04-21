@@ -280,6 +280,31 @@ class JobModel(BaseModel):
         description="Next execution time (calculated by JobTrigger)"
     )
 
+    next_run_at_local: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "Next fire time in user-local naive ISO 8601 "
+            "(e.g. '2026-05-01T08:00:00'). Pair with next_run_tz. "
+            "LLM- and UI-facing view. Never use next_run_time (UTC) for display."
+        ),
+    )
+    next_run_tz: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="IANA timezone associated with next_run_at_local (frozen at job creation)",
+    )
+    last_run_at_local: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description="Most recent fire time in user-local naive ISO 8601",
+    )
+    last_run_tz: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="IANA timezone associated with last_run_at_local",
+    )
+
     last_error: Optional[str] = Field(
         default=None,
         description="Error message from the most recent execution"
@@ -342,6 +367,10 @@ class JobModel(BaseModel):
         default=10,
         description="Return count limit"
     )
+
+
+# Public alias — downstream code and tests use "Job" as the canonical short name
+Job = JobModel
 
 
 # =============================================================================

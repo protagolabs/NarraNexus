@@ -57,3 +57,13 @@ class TestTriggerConfigIANAValid:
     def test_rejects_empty_timezone(self):
         with pytest.raises(ValidationError):
             TriggerConfig(cron="0 8 * * *", timezone="")
+
+
+class TestJobEntityNewFields:
+    def test_job_has_beta_fields(self):
+        from xyz_agent_context.schema.job_schema import Job
+        fields = Job.model_fields
+        assert "next_run_at_local" in fields
+        assert "next_run_tz" in fields
+        assert "last_run_at_local" in fields
+        assert "last_run_tz" in fields
