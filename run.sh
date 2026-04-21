@@ -79,16 +79,72 @@ check_deps() {
     exit 1
   fi
 
-  # Install or update lark-cli (needed for Lark/Feishu integration, requires >= 1.0.12)
+  # Install or update lark-cli (optional — only needed for Lark/Feishu).
+  # The previous version silently piped `npm install` output to tail and had
+  # no timeout, so a slow npm registry, EACCES on a system-wide install, or
+  # blocked network would hang "Installing lark-cli..." forever with no
+  # feedback. Three safeties now:
+  #   1. Hard timeout (120s) so we never wedge startup.
+  #   2. Output streams live so the user sees progress, not a frozen line.
+  #   3. If install fails/times out we warn and continue — Lark features
+  #      degrade gracefully; the rest of NarraNexus still works.
   _LARK_CLI_MIN="1.0.12"
+  _LARK_CLI_TIMEOUT=120
+
+  _try_install_lark_cli() {
+    local action="$1"  # "Installing" or "Updating" (display label, pre-capitalized
+    # — avoids bash 3.2 lacking ${var^})
+    echo -e "${Y}${action} lark-cli (timeout ${_LARK_CLI_TIMEOUT}s)...${R}"
+    # Use a subshell + background + wait-with-timeout pattern. `timeout`
+    # isn't on stock macOS; this works everywhere with just sh primitives.
+    (npm install -g @larksuite/cli) &
+    local npm_pid=$!
+    local elapsed=0
+    while kill -0 "$npm_pid" 2>/dev/null; do
+      if [ "$elapsed" -ge "$_LARK_CLI_TIMEOUT" ]; then
+        echo -e "${RED}npm install hung > ${_LARK_CLI_TIMEOUT}s — killing.${R}"
+        kill -9 "$npm_pid" 2>/dev/null
+        wait "$npm_pid" 2>/dev/null
+        return 124
+      fi
+      sleep 1
+      elapsed=$((elapsed + 1))
+    done
+    wait "$npm_pid"
+    return $?
+  }
+
+  _warn_lark_skipped() {
+    echo -e "${Y}⚠ lark-cli not available — Lark/Feishu features will be disabled.${R}"
+    echo "  Common causes + fixes:"
+    echo "    • Slow registry (China users): npm config set registry https://registry.npmmirror.com"
+    echo "    • Permission denied: use nvm (https://github.com/nvm-sh/nvm) or sudo"
+    echo "    • Network blocked: check your connection to registry.npmjs.org"
+    echo "  Then retry: npm install -g @larksuite/cli"
+    echo ""
+  }
+
   if ! command -v lark-cli &>/dev/null; then
-    echo -e "${Y}Installing lark-cli...${R}"
-    npm install -g @larksuite/cli 2>&1 | tail -1
+    if ! _try_install_lark_cli "Installing"; then
+      _warn_lark_skipped
+    fi
   else
     _lark_ver=$(lark-cli --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0")
     if [ "$(printf '%s\n' "${_LARK_CLI_MIN}" "$_lark_ver" | sort -V | head -1)" != "${_LARK_CLI_MIN}" ]; then
-      echo -e "${Y}Updating lark-cli (${_lark_ver} -> latest, min required ${_LARK_CLI_MIN})...${R}"
-      npm install -g @larksuite/cli 2>&1 | tail -1
+      if ! _try_install_lark_cli "Updating"; then
+        echo -e "${Y}⚠ lark-cli update failed; continuing with ${_lark_ver}.${R}"
+      fi
+    fi
+  fi
+
+  # Post-install / post-upgrade verification. npm can "succeed" but leave
+  # the binary outside $PATH (classic ~/.npm-global/bin not exported case).
+  if ! command -v lark-cli &>/dev/null; then
+    _npm_prefix=$(npm config get prefix 2>/dev/null || echo "")
+    if [ -n "$_npm_prefix" ] && [ -x "$_npm_prefix/bin/lark-cli" ]; then
+      echo -e "${Y}lark-cli installed at $_npm_prefix/bin but missing from \$PATH.${R}"
+      echo "  Add to your shell rc: export PATH=\"$_npm_prefix/bin:\$PATH\""
+      echo ""
     fi
   fi
 
