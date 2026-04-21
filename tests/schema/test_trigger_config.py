@@ -35,6 +35,11 @@ class TestTriggerConfigTimezoneRequired:
         tc = TriggerConfig(cron="0 8 * * *", timezone="America/New_York")
         assert tc.timezone == "America/New_York"
 
+    def test_valid_interval(self):
+        tc = TriggerConfig(interval_seconds=3600, timezone="UTC")
+        assert tc.timezone == "UTC"
+        assert tc.interval_seconds == 3600
+
 
 class TestTriggerConfigRunAtNaive:
     def test_rejects_aware_run_at(self):
@@ -46,7 +51,7 @@ class TestTriggerConfigRunAtNaive:
 
 class TestTriggerConfigIANAValid:
     def test_rejects_invalid_iana(self):
-        with pytest.raises(ValidationError, match="timezone"):
+        with pytest.raises(ValidationError, match="not a valid IANA"):
             TriggerConfig(cron="0 8 * * *", timezone="CST")
 
     def test_rejects_empty_timezone(self):

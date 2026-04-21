@@ -142,11 +142,11 @@ class TriggerConfig(BaseModel):
             raise ValueError("timezone must be a non-empty IANA name")
         try:
             ZoneInfo(v)
-        except (ZoneInfoNotFoundError, Exception) as e:
+        except (ZoneInfoNotFoundError, KeyError) as e:
             raise ValueError(
                 f"timezone '{v}' is not a valid IANA name "
                 f"(e.g. 'Asia/Shanghai', 'America/New_York'): {e}"
-            )
+            ) from e
         return v
 
     @model_validator(mode="after")
