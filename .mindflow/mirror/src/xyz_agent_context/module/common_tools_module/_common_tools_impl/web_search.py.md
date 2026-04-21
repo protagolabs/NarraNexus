@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/web_search.py
-last_verified: 2026-04-20
+last_verified: 2026-04-21
 stub: false
 ---
 
@@ -12,7 +12,7 @@ stub: false
 
 ## 上下游关系
 
-- **被谁用**：`_common_tools_mcp_tools.py:web_search` MCP tool handler（注册在 CommonToolsModule MCP server，端口 7807）
+- **被谁用**：从 2026-04-21 (Bug 24) 开始，**不再**被 MCP 主进程直接调用。`_common_tools_impl.web_search_runner` 子进程 import 本模块、在子进程里调 `search_many`，跑完就退出。主进程的 `_common_tools_mcp_tools.py` 只调 `format_results`（纯函数渲染）。
 - **依赖谁**：`ddgs` pypi 库（内部用 primp/libcurl 发请求）
 
 ## 三层 timeout 防御（Bug 20 · 2026-04-20）
@@ -29,14 +29,13 @@ stub: false
 
 外层 MCP handler 还有第四层 45s（见 `_common_tools_mcp_tools.py` 的 `with_mcp_timeout`）。Idle timeout 从 1200s 降到 600s（`xyz_claude_agent_sdk.py`）做最终兜底。
 
-## 已知残留问题
+## 历史残留问题（已由 Bug 24 subprocess 隔离彻底解决）
 
-**线程泄漏。** `asyncio.wait_for(asyncio.to_thread(...), timeout=15)` 超时时，Python worker thread 还在 primp 底层 socket 里阻塞——**没有安全的从外部杀线程的机制**。asyncio 继续走但物理线程漏了。DDGS 内部 `ThreadPoolExecutor` 一样，它的 worker 也漏。
+**原问题：线程泄漏 + FD 泄漏。** `asyncio.wait_for(asyncio.to_thread(...), timeout=15)` 超时时，Python worker thread 还在 primp 底层 socket 里阻塞——**没有安全的从外部杀线程的机制**。asyncio 继续走但物理线程漏了，被泄漏的 primp socket 停在 CLOSE_WAIT 不释放 FD。泄漏累积 → FD 表耗尽 → 整个 MCP 容器进不来新连接。
 
-- 默认 asyncio thread pool ≥32 workers，一两次泄漏不致命
-- 只影响 `web_search` 一个工具，pool 满了之后该工具报错，其他 MCP 工具不受影响
+**2026-04-21 解法：subprocess 隔离。** 本文件所有代码现在都在一个 **per-invocation 子进程**里跑（见 `web_search_runner.py`）。`_common_tools_mcp_tools.py::_spawn_runner` 超时时 `proc.kill()` 发 SIGKILL，Linux 强制回收该子进程的**所有** FD / socket / 线程。本文件里的三层 timeout 现在是 subprocess 内部**先自救**的机制，主进程的 subprocess timeout (`_SUBPROCESS_TIMEOUT_S=25s`) 是子进程没自救成功时的**硬刀**。
 
-**彻底方案：** 把 `_search_sync` 搬到 subprocess 里跑（能 `proc.kill()`）。记录在 `reference/self_notebook/todo/waiting/web_search_subprocess_isolation.md`，优先级 P4。
+即使 primp 再出 CLOSE_WAIT bug，泄漏都困在那个临时子进程里——它 SIGKILL 死了就全清理。**主进程不可能再被拖垮**。
 
 ## 设计决策
 

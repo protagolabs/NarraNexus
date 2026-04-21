@@ -151,6 +151,99 @@ async def test_empty_run_returns_empty_collection():
     )
 
 
+def _progress_tool(tool_name: str, arguments: dict) -> SimpleNamespace:
+    """A ProgressMessage-shaped tool_call event (what response_processor emits).
+
+    Key property: NO `raw` attribute. collect_run used to rely on `raw` being
+    populated, which made it silently drop every tool call — breaking Lark's
+    inbox extraction (Bug 10 regression).
+    """
+    return SimpleNamespace(
+        message_type=MessageType.PROGRESS,
+        details={"tool_name": tool_name, "arguments": arguments},
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_call_progress_message_synthesizes_raw_item():
+    """Regression: Bug 10 kept showing `(Replied on Lark)` in the inbox because
+    `raw_items` was always empty — tool call events arrive as ProgressMessage
+    with `details.tool_name`, not as typed TOOL_CALL messages with `.raw`.
+    Collector must synthesize the raw item shape Lark's extractor expects."""
+    runtime = _FakeRuntime([
+        _progress_tool(
+            "mcp__lark_module__lark_cli",
+            {"command": "im +messages-send --chat-id oc_x --markdown hello"},
+        ),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="lark",
+    )
+    assert len(result.raw_items) == 1
+    item = result.raw_items[0]["item"]
+    assert item["type"] == "tool_call_item"
+    assert item["tool_name"] == "mcp__lark_module__lark_cli"
+    assert item["arguments"]["command"].endswith("hello")
+    assert "mcp__lark_module__lark_cli" in result.tool_calls
+
+
+@pytest.mark.asyncio
+async def test_duplicate_tool_call_events_are_deduped():
+    """With include_partial_messages=True, the same ToolUseBlock can surface
+    across multiple AssistantMessage frames. Observed symptom: Lark inbox
+    row showed the reply text twice. Collector must dedup by (name, args)."""
+    args = {"command": "im +messages-send --chat-id oc_x --markdown ok"}
+    runtime = _FakeRuntime([
+        _progress_tool("mcp__lark_module__lark_cli", args),
+        _progress_tool("mcp__lark_module__lark_cli", args),
+        _progress_tool("mcp__lark_module__lark_cli", args),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="lark",
+    )
+    assert len(result.raw_items) == 1
+    assert result.tool_calls == ["mcp__lark_module__lark_cli"]
+
+
+@pytest.mark.asyncio
+async def test_distinct_tool_calls_are_kept_separate():
+    """Dedup must not collapse genuinely different calls (different args)."""
+    runtime = _FakeRuntime([
+        _progress_tool(
+            "mcp__lark_module__lark_cli",
+            {"command": "im +messages-send --chat-id oc_x --text first"},
+        ),
+        _progress_tool(
+            "mcp__lark_module__lark_cli",
+            {"command": "im +messages-send --chat-id oc_x --text second"},
+        ),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="lark",
+    )
+    assert len(result.raw_items) == 2
+
+
+@pytest.mark.asyncio
+async def test_progress_message_without_tool_name_is_not_a_tool_call():
+    """ProgressMessage is also used for every step/phase banner. Must not
+    synthesize raw_items for those — only when details.tool_name is present."""
+    step_banner = SimpleNamespace(
+        message_type=MessageType.PROGRESS,
+        details={"status": "running"},
+    )
+    runtime = _FakeRuntime([step_banner])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="lark",
+    )
+    assert result.raw_items == []
+    assert result.tool_calls == []
+
+
 @pytest.mark.asyncio
 async def test_kwargs_forwarded_to_runtime_run():
     """Triggers pass trigger_extra_data / job_instance_id / forced_narrative_id

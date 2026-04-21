@@ -101,6 +101,13 @@ async def collect_run(
     tool_calls: list[str] = []
     raw_items: list[Any] = []
     error: Optional[RunError] = None
+    # Dedup synthesized tool_call_items by (tool_name, arguments_json). With
+    # include_partial_messages=True the same ToolUseBlock can surface across
+    # multiple AssistantMessage frames — the SDK dedups by tool_call_id, but
+    # that id isn't propagated into the ProgressMessage we observe here.
+    # Dedup defensively so Lark doesn't echo the same reply twice in the inbox.
+    import json as _json
+    seen_tool_calls: set[str] = set()
 
     async for msg in runtime.run(
         agent_id=agent_id,
@@ -126,11 +133,38 @@ async def collect_run(
                 error_type=getattr(msg, "error_type", "unknown"),
                 error_message=getattr(msg, "error_message", str(msg)),
             )
+
         # Raw payload on any message type (Lark needs it from TOOL_CALL
         # events; other triggers simply ignore the list).
         raw = getattr(msg, "raw", None)
         if raw is not None:
             raw_items.append(raw)
+        else:
+            # Tool calls arrive as ProgressMessage with details.tool_name;
+            # there's no raw attribute. Synthesize one in the shape Lark's
+            # extractor expects so inbox rows get the real reply instead of
+            # the "(Replied on Lark)" fallback.
+            details = getattr(msg, "details", None)
+            if isinstance(details, dict) and details.get("tool_name"):
+                tool_name = details["tool_name"]
+                arguments = details.get("arguments", {})
+                try:
+                    args_key = _json.dumps(arguments, sort_keys=True, default=str)
+                except Exception:
+                    args_key = repr(arguments)
+                dedup_key = f"{tool_name}::{args_key}"
+                if dedup_key in seen_tool_calls:
+                    continue
+                seen_tool_calls.add(dedup_key)
+                raw_items.append({
+                    "item": {
+                        "type": "tool_call_item",
+                        "tool_name": tool_name,
+                        "arguments": arguments,
+                    }
+                })
+                if tool_name not in tool_calls:
+                    tool_calls.append(tool_name)
 
     return RunCollection(
         output_text="".join(text_parts),

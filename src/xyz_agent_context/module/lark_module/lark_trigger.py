@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 import time
 import uuid
@@ -40,8 +41,65 @@ from xyz_agent_context.channel.channel_context_builder_base import ChannelHistor
 from xyz_agent_context.repository.lark_seen_message_repository import (
     LarkSeenMessageRepository,
 )
+from xyz_agent_context.repository.lark_trigger_audit_repository import (
+    LarkTriggerAuditRepository,
+    EVENT_HEARTBEAT,
+    EVENT_SUBSCRIBER_STARTED,
+    EVENT_SUBSCRIBER_STOPPED,
+    EVENT_WS_CONNECTED,
+    EVENT_WS_DISCONNECTED,
+    EVENT_WS_BACKOFF,
+    EVENT_WORKER_ERROR,
+    EVENT_WORKER_TIMEOUT,
+    EVENT_INGRESS_PROCESSED,
+    EVENT_INGRESS_DROPPED_DEDUP,
+    EVENT_INGRESS_DROPPED_HISTORIC,
+    EVENT_INGRESS_DROPPED_ECHO,
+    EVENT_INGRESS_DROPPED_UNBOUND,
+    EVENT_DEDUP_FAIL_OPEN,
+    EVENT_INBOX_WRITE_FAILED,
+)
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
+
+
+# M-9: the lark_oapi SDK captures a module-level `loop` at import time.
+# `_subscribe_loop` overwrites it before each `ws_client.start()` so the
+# SDK uses a fresh loop on the new thread. With several bots reconnecting
+# in parallel, two threads could race on this assignment. Serialise here.
+_WS_LOOP_PATCH_LOCK = threading.Lock()
+
+
+# L-12: characters that must not survive into a sanitised display name.
+# Newlines and control bytes can smuggle fake prompt instructions into
+# the rendered channel tag; tabs collide with log parsers; nulls and
+# escape sequences mess with terminals and downstream serializers.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _compute_next_backoff(
+    current: int,
+    ran_seconds: float,
+    *,
+    base: int = 5,
+    max_backoff: int = 120,
+    healthy_threshold_seconds: int = 60,
+) -> int:
+    """Pick the next WS-reconnect backoff (H-1 fix).
+
+    The previous loop had a dead `backoff = 5` line (no "ran > 60s"
+    gate as its comment claimed) followed by an unconditional double,
+    so backoff compounded toward the 120s cap after every disconnect
+    — even after hours of healthy session.
+
+    Now: if the session that just ended lasted at least
+    ``healthy_threshold_seconds``, we treat it as a real connection
+    and reset to ``base``. Otherwise we double, clamped to
+    ``max_backoff``.
+    """
+    if ran_seconds >= healthy_threshold_seconds:
+        return base
+    return min(max(current, base) * 2, max_backoff)
 
 
 def format_lark_error_reply(error: RunError) -> str:
@@ -106,6 +164,29 @@ class LarkTrigger:
     # of rows older than this many days once per trigger startup.
     DEDUP_RETENTION_DAYS = 7
 
+    # Audit-table retention (M-7 / observability): 30 d is comfortably
+    # longer than the incident-review windows we've needed in practice.
+    AUDIT_RETENTION_DAYS = 30
+
+    # M-7 per-message total timeout. `collect_run` internally idle-times
+    # out in 600 s (see Bug 20), but that's per-idle-stream not total
+    # wall-clock. 30 min is a generous cap for any realistic agent turn
+    # and prevents a single stuck message from permanently occupying a
+    # worker slot.
+    PROCESS_MESSAGE_TIMEOUT_SECONDS = 1800
+
+    # L-13: cleanup used to run once at startup only. A long-running
+    # container (weeks) would let the tables grow forever. The watcher
+    # re-runs cleanup when this many seconds elapse since the last run.
+    CLEANUP_INTERVAL_SECONDS = 24 * 3600
+
+    # Heartbeat cadence for the audit table — a "trigger was alive at
+    # T+N min" record lets post-incident reviewers tell "silent but
+    # healthy" apart from "crashed and nobody noticed". 10 min is short
+    # enough to catch multi-minute outages, long enough to not flood
+    # the table (6 rows/hour).
+    HEARTBEAT_INTERVAL_SECONDS = 600
+
     def __init__(self, max_workers: int = 3):
         self._base_workers = max(max_workers, self.MIN_WORKERS)
         self._subscriber_tasks: dict[str, asyncio.Task] = {}  # app_id -> subscribe_loop task
@@ -116,8 +197,12 @@ class LarkTrigger:
         self.running = False
         self._cli = LarkCLIClient()  # Still used for get_user, bot info lookups
         self._loop: asyncio.AbstractEventLoop | None = None  # Set in start()
-        # profile_name -> bot open_id, ensures each bot's echo is filtered
-        self._bot_open_ids: dict[str, str] = {}
+        # (agent_id, app_id) -> bot open_id, ensures each bot's echo is
+        # filtered correctly. M-6 fix: keying by profile_name meant that
+        # a rebind to a different app under the same profile_name would
+        # reuse the old bot's open_id; the tuple key rules that out and
+        # `_stop_subscriber` clears stale entries explicitly.
+        self._bot_open_ids: dict[tuple[str, str], str] = {}
         # Thread-safe dedup: message_id -> timestamp
         self._seen_messages: dict[str, float] = {}
         self._seen_lock = threading.Lock()  # Protects _seen_messages
@@ -127,6 +212,24 @@ class LarkTrigger:
         # Durable dedup store, also initialised in `start()` when the db
         # handle becomes available.
         self._seen_repo: "LarkSeenMessageRepository | None" = None
+        # H-5: baseline for the historic-replay filter. After a long WS
+        # disconnect the WS reconnect can release backlogged events that
+        # are newer than our process startup but older than our current
+        # reconnect — those are still "historic" from the bot's POV and
+        # must be filtered, not processed. Updated every time
+        # `_subscribe_loop` starts a fresh `ws_client.start()`.
+        self._last_ws_connected_monotonic: float = 0.0
+        self._last_ws_connected_wallclock_ms: int = 0
+        # L-13: monotonic time of the most recent dedup/audit cleanup.
+        # The watcher re-triggers cleanup every CLEANUP_INTERVAL_SECONDS.
+        self._last_cleanup_monotonic: float = 0.0
+        # Heartbeat cadence: watcher emits one audit row every
+        # HEARTBEAT_INTERVAL_SECONDS so post-incident reviewers can tell
+        # the difference between "silent + healthy" and "crashed".
+        self._last_heartbeat_monotonic: float = 0.0
+        # Audit repo (set in start()) records every lifecycle event so
+        # post-incident triage doesn't depend on container log access.
+        self._audit_repo: "LarkTriggerAuditRepository | None" = None
 
     async def start(self, db) -> None:
         """Start workers and credential watcher."""
@@ -135,19 +238,11 @@ class LarkTrigger:
         self._loop = asyncio.get_running_loop()
         self._startup_time_ms = int(time.time() * 1000)
         self._seen_repo = LarkSeenMessageRepository(db)
+        self._audit_repo = LarkTriggerAuditRepository(db)
 
-        # Purge old dedup rows so the table doesn't grow without bound.
-        try:
-            deleted = await self._seen_repo.cleanup_older_than_days(
-                self.DEDUP_RETENTION_DAYS
-            )
-            if deleted:
-                logger.info(
-                    f"LarkTrigger: cleaned {deleted} dedup rows older than "
-                    f"{self.DEDUP_RETENTION_DAYS} days"
-                )
-        except Exception as e:  # noqa: BLE001 — best-effort startup hygiene
-            logger.warning(f"LarkTrigger: dedup cleanup failed: {e}")
+        # Run cleanup once at startup + let the watcher re-trigger on
+        # L-13's CLEANUP_INTERVAL_SECONDS cadence afterwards.
+        await self._run_cleanup()
 
         # Start baseline workers
         self._adjust_workers(self._base_workers)
@@ -156,6 +251,14 @@ class LarkTrigger:
         watcher = asyncio.create_task(self._credential_watcher())
         self._monitor_tasks.append(watcher)
 
+        # Bring up the /healthz endpoint so operators can curl from inside
+        # the container during incidents. Best-effort — trigger still runs
+        # if the health server can't bind.
+        from ._health_server import start_health_server
+        health_task = await start_health_server(self)
+        if health_task is not None:
+            self._monitor_tasks.append(health_task)
+
         logger.info(f"LarkTrigger started: {len(self._workers)} workers, watching for credentials")
 
     def _desired_worker_count(self) -> int:
@@ -163,6 +266,96 @@ class LarkTrigger:
         sub_count = len(self._subscriber_tasks)
         desired = self._base_workers + sub_count * self.WORKERS_PER_SUBSCRIBER
         return min(desired, self.MAX_WORKERS)
+
+    async def _audit(self, event_type: str, **kwargs) -> None:
+        """Best-effort audit write. Silent no-op before repo is wired.
+
+        `LarkTriggerAuditRepository.append` already swallows backend
+        errors so the trigger hot path never pays for audit failures.
+        """
+        if self._audit_repo is None:
+            return
+        await self._audit_repo.append(event_type, **kwargs)
+
+    async def _maybe_heartbeat(self) -> None:
+        """Emit a heartbeat audit row every ``HEARTBEAT_INTERVAL_SECONDS``.
+
+        The row records queue depth, worker count, subscriber count and
+        the monotonic uptime of the process. Absence of heartbeats in
+        the audit table for N intervals = the trigger was down / stuck.
+        """
+        if self._audit_repo is None:
+            return
+        now = time.monotonic()
+        if now - self._last_heartbeat_monotonic < self.HEARTBEAT_INTERVAL_SECONDS:
+            return
+        self._last_heartbeat_monotonic = now
+        details = {
+            "queue_depth": self._task_queue.qsize(),
+            "worker_count": len(self._workers),
+            "subscriber_count": len(self._subscriber_tasks),
+            "uptime_seconds": (
+                (int(time.time() * 1000) - self._startup_time_ms) / 1000.0
+                if self._startup_time_ms > 0 else 0.0
+            ),
+            "last_ws_connected_ms": self._last_ws_connected_wallclock_ms,
+        }
+        await self._audit_repo.append(EVENT_HEARTBEAT, details=details)
+
+    async def _run_cleanup(self) -> None:
+        """Purge aged rows from `lark_seen_messages` and `lark_trigger_audit`.
+
+        Called once at startup and again from the watcher every
+        ``CLEANUP_INTERVAL_SECONDS``. Failures are best-effort — the
+        trigger must keep serving traffic even if hygiene fails.
+        """
+        self._last_cleanup_monotonic = time.monotonic()
+        try:
+            if self._seen_repo is not None:
+                deleted = await self._seen_repo.cleanup_older_than_days(
+                    self.DEDUP_RETENTION_DAYS
+                )
+                if deleted:
+                    logger.info(
+                        f"LarkTrigger: cleaned {deleted} dedup rows older than "
+                        f"{self.DEDUP_RETENTION_DAYS} days"
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"LarkTrigger: dedup cleanup failed: {e}")
+        try:
+            if self._audit_repo is not None:
+                deleted = await self._audit_repo.cleanup_older_than_days(
+                    self.AUDIT_RETENTION_DAYS
+                )
+                if deleted:
+                    logger.info(
+                        f"LarkTrigger: cleaned {deleted} audit rows older than "
+                        f"{self.AUDIT_RETENTION_DAYS} days"
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"LarkTrigger: audit cleanup failed: {e}")
+
+    def _prune_dead_workers(self) -> int:
+        """Drop workers whose task has finished (success or error).
+
+        H-4: `_worker` catches per-message exceptions, but a bug in the
+        outer poll (e.g. `asyncio.wait_for(queue.get())` oddity, a
+        cancellation leaking out) could end the task. If we never
+        prune, `_adjust_workers` stops scheduling new workers because
+        it thinks the pool is already at target size — queue then
+        grows unbounded with no consumer.
+
+        Called from the watcher loop. Returns the number pruned.
+        """
+        alive = [w for w in self._workers if not w.done()]
+        pruned = len(self._workers) - len(alive)
+        if pruned:
+            logger.warning(
+                f"LarkTrigger: pruned {pruned} dead worker task(s); "
+                f"_adjust_workers will re-create them on the next tick"
+            )
+        self._workers = alive
+        return pruned
 
     def _adjust_workers(self, target: int) -> None:
         """Scale workers up or down to match target count."""
@@ -234,6 +427,15 @@ class LarkTrigger:
                             self._subscriber_tasks[app_id] = task
                             self._subscriber_creds[app_id] = cred
                             logger.info(f"LarkTrigger: started SDK subscriber for {cred.profile_name}")
+                            await self._audit(
+                                EVENT_SUBSCRIBER_STARTED,
+                                agent_id=cred.agent_id,
+                                app_id=cred.app_id,
+                                details={
+                                    "profile_name": cred.profile_name,
+                                    "brand": cred.brand,
+                                },
+                            )
                         else:
                             # Two possible causes — point the user at the right fix
                             if cred.workspace_path:
@@ -251,8 +453,24 @@ class LarkTrigger:
                                     f"LarkConfig panel to fix."
                                 )
 
-                # Adjust worker pool based on active subscriber count
+                # Replace any worker tasks that died (H-4) before computing
+                # the desired size; otherwise a dead-but-still-counted worker
+                # keeps the pool at target and no fresh worker is scheduled.
+                self._prune_dead_workers()
                 self._adjust_workers(self._desired_worker_count())
+
+                # L-13: periodic retention cleanup. Runs once a day to
+                # bound table growth on long-lived containers.
+                if (
+                    time.monotonic() - self._last_cleanup_monotonic
+                    >= self.CLEANUP_INTERVAL_SECONDS
+                ):
+                    await self._run_cleanup()
+
+                # Heartbeat + audit snapshot every ~10 min so a silent
+                # process is distinguishable from a healthy one when a
+                # user looks at the audit table after the fact.
+                await self._maybe_heartbeat()
 
             except Exception as e:
                 logger.warning(f"LarkTrigger credential watcher error: {e}")
@@ -269,7 +487,19 @@ class LarkTrigger:
         if task and not task.done():
             task.cancel()
 
+        # M-6: clear the bot_open_id cache for this cred so a later
+        # rebind of the same agent to a different app doesn't reuse
+        # stale identity.
+        if cred is not None:
+            self._bot_open_ids.pop((cred.agent_id, cred.app_id), None)
+
         logger.info(f"LarkTrigger: stopped subscriber for {profile} (app_id={app_id})")
+        await self._audit(
+            EVENT_SUBSCRIBER_STOPPED,
+            agent_id=cred.agent_id if cred else "",
+            app_id=app_id,
+            details={"profile_name": profile},
+        )
 
     async def _subscribe_loop(self, cred: LarkCredential) -> None:
         """
@@ -291,6 +521,7 @@ class LarkTrigger:
         app_id_initial = cred.app_id
         backoff = 5
         max_backoff = 120
+        ws_start_monotonic: float = 0.0
 
         while self.running:
             # Refresh the credential from DB each iteration
@@ -358,18 +589,38 @@ class LarkTrigger:
                     try:
                         # SDK's ws/client.py uses a module-level `loop` variable
                         # captured at import time. Replace it with a fresh loop
-                        # so start() can call loop.run_until_complete() without conflict.
+                        # so start() can call loop.run_until_complete() without
+                        # conflict. With multiple bots reconnecting in parallel,
+                        # two threads racing on `ws_mod.loop = ...` could stomp
+                        # on each other; serialise under the module-level lock
+                        # (M-9). The lock only covers the assignment — we drop
+                        # it before the blocking `start()` call.
                         import lark_oapi.ws.client as ws_mod
                         fresh_loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(fresh_loop)
-                        ws_mod.loop = fresh_loop
-                        ws_client._lock = asyncio.Lock()  # Lock must belong to the new loop
+                        with _WS_LOOP_PATCH_LOCK:
+                            ws_mod.loop = fresh_loop
+                            ws_client._lock = asyncio.Lock()  # belongs to new loop
                         ws_client.start()
                     except Exception as e:
                         thread_error.append(e)
 
                 t = threading.Thread(target=run_ws, daemon=True)
+                ws_start_monotonic = time.monotonic()
                 t.start()
+
+                # Note the moment the WS is considered "up" from our POV —
+                # H-5 uses this as the baseline for the historic-replay
+                # filter, so a long disconnect followed by reconnect won't
+                # silently let Lark's backlog of old events through.
+                self._last_ws_connected_monotonic = ws_start_monotonic
+                self._last_ws_connected_wallclock_ms = int(time.time() * 1000)
+                await self._audit(
+                    EVENT_WS_CONNECTED,
+                    agent_id=cred.agent_id,
+                    app_id=cred.app_id,
+                    details={"profile_name": cred.profile_name, "brand": cred.brand},
+                )
 
                 # Wait for thread to finish (poll so we can check self.running)
                 while t.is_alive() and self.running:
@@ -378,82 +629,172 @@ class LarkTrigger:
                 if thread_error:
                     raise thread_error[0]
 
+                ran_seconds = time.monotonic() - ws_start_monotonic
                 if not t.is_alive():
-                    logger.warning(
-                        f"LarkTrigger SDK WebSocket disconnected for {cred.profile_name}, "
-                        f"restarting in {backoff}s"
+                    backoff = _compute_next_backoff(
+                        current=backoff, ran_seconds=ran_seconds,
+                        max_backoff=max_backoff,
                     )
-                    # Reset backoff on successful long connection (ran > 60s)
-                    backoff = 5
+                    logger.warning(
+                        f"LarkTrigger SDK WebSocket disconnected for {cred.profile_name} "
+                        f"after {ran_seconds:.1f}s; restarting in {backoff}s"
+                    )
+                    await self._audit(
+                        EVENT_WS_DISCONNECTED,
+                        agent_id=cred.agent_id,
+                        app_id=cred.app_id,
+                        details={
+                            "ran_seconds": ran_seconds,
+                            "next_backoff_seconds": backoff,
+                        },
+                    )
             except asyncio.CancelledError:
                 logger.info(f"LarkTrigger: subscriber cancelled for {cred.profile_name}")
                 return
             except Exception as e:
-                logger.error(f"LarkTrigger SDK error for {cred.profile_name}: {e}")
+                ran_seconds = (
+                    time.monotonic() - ws_start_monotonic
+                    if ws_start_monotonic > 0 else 0.0
+                )
+                backoff = _compute_next_backoff(
+                    current=backoff, ran_seconds=ran_seconds,
+                    max_backoff=max_backoff,
+                )
+                logger.error(
+                    f"LarkTrigger SDK error for {cred.profile_name} "
+                    f"after {ran_seconds:.1f}s (next backoff {backoff}s): {e}"
+                )
+                await self._audit(
+                    EVENT_WS_DISCONNECTED,
+                    agent_id=cred.agent_id,
+                    app_id=cred.app_id,
+                    details={
+                        "ran_seconds": ran_seconds,
+                        "next_backoff_seconds": backoff,
+                        "error": f"{type(e).__name__}: {e}",
+                    },
+                )
 
             if not self.running:
                 break
 
+            await self._audit(
+                EVENT_WS_BACKOFF,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                details={"sleep_seconds": backoff},
+            )
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, max_backoff)
 
     async def _dedup_and_enqueue(self, cred, event_dict: dict) -> None:
         """Check dedup; enqueue only if this is a genuinely new event."""
-        if await self._should_process_event(event_dict):
+        decision = await self._check_and_classify_event(event_dict)
+        msg_id = event_dict.get("message_id", "")
+        if decision["accept"]:
+            await self._audit(
+                EVENT_INGRESS_PROCESSED,
+                message_id=msg_id,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                chat_id=event_dict.get("chat_id", ""),
+                sender_id=event_dict.get("sender_id", ""),
+                details={"dedup_layer": decision["layer"]},
+            )
+            if decision["layer"] == "db_fail_open":
+                # Fail-open traversed the DB layer but the DB rejected
+                # us; record a separate audit row so reviewers can spot
+                # DB-driven double-processing after the fact.
+                await self._audit(
+                    EVENT_DEDUP_FAIL_OPEN,
+                    message_id=msg_id,
+                    agent_id=cred.agent_id,
+                    app_id=cred.app_id,
+                    details={"error": decision.get("error", "")},
+                )
             await self._task_queue.put((cred, event_dict))
         else:
-            msg_id = event_dict.get("message_id", "")
+            event_name = {
+                "historic": EVENT_INGRESS_DROPPED_HISTORIC,
+                "memory_dedup": EVENT_INGRESS_DROPPED_DEDUP,
+                "db_dedup": EVENT_INGRESS_DROPPED_DEDUP,
+            }.get(decision["layer"], EVENT_INGRESS_DROPPED_DEDUP)
+            await self._audit(
+                event_name,
+                message_id=msg_id,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                chat_id=event_dict.get("chat_id", ""),
+                sender_id=event_dict.get("sender_id", ""),
+                details={"layer": decision["layer"]},
+            )
             logger.info(
                 f"LarkTrigger: dedup skipping message_id={msg_id!r} "
-                f"(already processed or pre-startup replay)"
+                f"(layer={decision['layer']})"
             )
 
     async def _should_process_event(self, event_dict: dict) -> bool:
+        """Compat shim over ``_check_and_classify_event``.
+
+        Keeps the simple True/False contract that callers / tests use;
+        the richer dict is consumed by ``_dedup_and_enqueue`` for audit.
         """
-        Return True if the event should be handed to a worker, False if it
-        should be dropped as a duplicate / historic replay.
+        decision = await self._check_and_classify_event(event_dict)
+        return decision["accept"]
+
+    async def _check_and_classify_event(self, event_dict: dict) -> dict:
+        """
+        Classify an incoming event as ``process`` / ``drop`` and record
+        WHICH layer decided, so the audit log can tell a reviewer
+        exactly why any given message survived or was rejected.
 
         Three layers, cheapest-first:
 
-          1. Startup-time filter (O(1), no I/O) — Lark events whose
-             `create_time` is older than ``startup_time - HISTORY_BUFFER_MS``
-             are replays from before this process started. Drop without
-             any further check. This alone kills most of the restart-
-             induced duplication because Lark re-delivers many minutes-
-             to-hours-old events on reconnect.
+          1. Historic-replay filter (O(1), no I/O) — events whose
+             ``create_time`` is older than ``baseline - HISTORY_BUFFER_MS``
+             are replays from before the current WS session. Baseline =
+             ``max(startup_time, last_ws_connected)`` (H-5 fix).
 
-          2. In-memory hot cache (O(1) with lock) — dedup within the
-             current process lifetime. TTL-bounded so the dict doesn't
-             grow without bound.
+          2. In-memory hot cache (O(1) with lock) — TTL-bounded.
 
-          3. Durable DB gate (one round-trip, atomic) — via
-             ``LarkSeenMessageRepository.mark_seen``. Survives process
-             restarts: a message recorded in a prior process lifetime
-             will still be flagged as "seen". The unique constraint on
-             ``message_id`` makes this atomic under concurrent workers.
+          3. Durable DB gate (one round-trip, atomic). Survives process
+             restarts via ``LarkSeenMessageRepository.mark_seen``.
 
-        Fail-open on I/O error (return True) so that a transient DB
-        issue doesn't silence the bot — double-processing is annoying
-        but silent loss is worse.
+        Fail-open on backend I/O error: layer=``db_fail_open`` is
+        recorded so post-incident reviewers can spot DB-driven
+        double-processing.
         """
         msg_id = event_dict.get("message_id", "")
 
-        # Layer 1: startup-time filter. Applies only when the Lark event
+        # Layer 1: historic-replay filter. Applies only when the Lark event
         # carries a create_time we can compare; if we can't tell the age
         # of the event, fall through to the other layers.
+        #
+        # Baseline is the MAX of process-startup and last WS-reconnect
+        # (H-5 fix). A long WS disconnect followed by reconnect can
+        # release Lark's server-side backlog — events that were created
+        # AFTER process startup but BEFORE the current WS session should
+        # still be treated as historic replays, not fresh traffic. Using
+        # only startup_time here meant those backlog bursts slipped
+        # through all layers (Layer 2 memory TTL is only 10 min), and
+        # the user saw "agent replies to 5 old messages an hour later".
+        baseline_ms = max(
+            self._startup_time_ms,
+            self._last_ws_connected_wallclock_ms,
+        )
         create_time_raw = event_dict.get("create_time", "")
-        if create_time_raw and self._startup_time_ms > 0:
+        if create_time_raw and baseline_ms > 0:
             try:
                 create_time_ms = int(create_time_raw)
-                cutoff = self._startup_time_ms - self.HISTORY_BUFFER_MS
+                cutoff = baseline_ms - self.HISTORY_BUFFER_MS
                 if create_time_ms < cutoff:
-                    age_min = (self._startup_time_ms - create_time_ms) / 60000.0
+                    age_min = (baseline_ms - create_time_ms) / 60000.0
                     logger.info(
                         f"LarkTrigger: dropping historic event {msg_id!r} "
-                        f"(created {age_min:.1f} min before startup, past "
+                        f"(created {age_min:.1f} min before baseline, past "
                         f"{self.HISTORY_BUFFER_MS / 60000:.0f} min buffer)"
                     )
-                    return False
+                    return {"accept": False, "layer": "historic",
+                            "age_min": age_min}
             except (ValueError, TypeError):
                 # Non-numeric create_time — fall through to other layers.
                 pass
@@ -461,13 +802,13 @@ class LarkTrigger:
         if not msg_id:
             # No id → can't dedup; process defensively. Lark's SDK should
             # always populate this, so this is belt-and-braces.
-            return True
+            return {"accept": True, "layer": "no_msg_id"}
 
         # Layer 2: in-memory hot cache.
         now = time.time()
         with self._seen_lock:
             if msg_id in self._seen_messages:
-                return False
+                return {"accept": False, "layer": "memory_dedup"}
             self._seen_messages[msg_id] = now
             cutoff = now - self.DEDUP_TTL_SECONDS
             self._seen_messages = {
@@ -479,13 +820,21 @@ class LarkTrigger:
         if self._seen_repo is not None:
             try:
                 newly_inserted = await self._seen_repo.mark_seen(msg_id)
-                return newly_inserted
+                return {
+                    "accept": bool(newly_inserted),
+                    "layer": "db_new" if newly_inserted else "db_dedup",
+                }
             except Exception as e:  # noqa: BLE001 — fail-open on I/O
                 logger.warning(
                     f"LarkTrigger: DB dedup check failed for {msg_id}: "
                     f"{type(e).__name__}: {e}; processing anyway"
                 )
-        return True
+                return {
+                    "accept": True,
+                    "layer": "db_fail_open",
+                    "error": f"{type(e).__name__}: {e}",
+                }
+        return {"accept": True, "layer": "no_repo"}
 
     @staticmethod
     def _sdk_event_to_dict(data) -> dict:
@@ -523,12 +872,55 @@ class LarkTrigger:
             except asyncio.TimeoutError:
                 continue
 
+            # M-7: cap the wall-clock any one message can consume so a
+            # stuck LLM / tool call cannot permanently occupy this worker.
+            # `collect_run` has its own idle timeout (~10 min) but that
+            # gates only stream silence, not total run time.
             try:
-                await self._process_message(cred, event, worker_id)
+                await asyncio.wait_for(
+                    self._process_message(cred, event, worker_id),
+                    timeout=self.PROCESS_MESSAGE_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                message_id = (
+                    event.get("message_id", "")
+                    if isinstance(event, dict) else ""
+                )
+                logger.error(
+                    f"LarkTrigger worker {worker_id} message {message_id!r} "
+                    f"exceeded {self.PROCESS_MESSAGE_TIMEOUT_SECONDS}s "
+                    f"— cancelling"
+                )
+                await self._audit(
+                    EVENT_WORKER_TIMEOUT,
+                    message_id=message_id,
+                    agent_id=getattr(cred, "agent_id", ""),
+                    app_id=getattr(cred, "app_id", ""),
+                    chat_id=event.get("chat_id", "") if isinstance(event, dict) else "",
+                    details={
+                        "worker_id": worker_id,
+                        "timeout_seconds": self.PROCESS_MESSAGE_TIMEOUT_SECONDS,
+                    },
+                )
             except Exception as e:
                 logger.error(
                     f"LarkTrigger worker {worker_id} error: {e}",
                     exc_info=True,
+                )
+                message_id = (
+                    event.get("message_id", "")
+                    if isinstance(event, dict) else ""
+                )
+                await self._audit(
+                    EVENT_WORKER_ERROR,
+                    message_id=message_id,
+                    agent_id=getattr(cred, "agent_id", ""),
+                    app_id=getattr(cred, "app_id", ""),
+                    chat_id=event.get("chat_id", "") if isinstance(event, dict) else "",
+                    details={
+                        "worker_id": worker_id,
+                        "error": f"{type(e).__name__}: {e}",
+                    },
                 )
 
     # ------------------------------------------------------------------
@@ -557,12 +949,20 @@ class LarkTrigger:
         }
 
     async def _is_echo(self, cred: LarkCredential, event: dict, sender_id: str) -> bool:
-        """Check if message was sent by the bot itself (prevents echo loops)."""
+        """Check if message was sent by the bot itself (prevents echo loops).
+
+        Two-layer defence:
+          1. Raw SDK event sender_type == bot|app — cheap, always tried.
+          2. open_id equality against this bot's cached open_id — requires
+             an API lookup which is cached per (agent_id, app_id).
+        """
         sender_type = event.get("sender_type", "")
         if sender_type in ("bot", "app"):
             return True
-        # Lazy-load bot open_id per credential
-        if cred.profile_name not in self._bot_open_ids:
+        # Lazy-load bot open_id. Key is (agent_id, app_id) — same agent
+        # rebound to a different app must NOT reuse old identity (M-6).
+        cache_key = (cred.agent_id, cred.app_id)
+        if cache_key not in self._bot_open_ids:
             try:
                 bot_info = await self._cli._run_with_agent_id(
                     ["api", "GET", "/open-apis/bot/v3/info"],
@@ -571,10 +971,10 @@ class LarkTrigger:
                 if bot_info.get("success"):
                     bot_oid = bot_info.get("data", {}).get("bot", {}).get("open_id", "")
                     if bot_oid:
-                        self._bot_open_ids[cred.profile_name] = bot_oid
+                        self._bot_open_ids[cache_key] = bot_oid
             except Exception:
                 logger.debug(f"Failed to fetch bot open_id for {cred.profile_name}")
-        bot_oid = self._bot_open_ids.get(cred.profile_name, "")
+        bot_oid = self._bot_open_ids.get(cache_key, "")
         return bool(bot_oid and sender_id == bot_oid)
 
     async def _resolve_sender_name(self, agent_id: str, sender_id: str) -> str:
@@ -608,13 +1008,49 @@ class LarkTrigger:
 
     @staticmethod
     def _sanitize_display_name(name: str) -> str:
-        """Truncate and sanitize a display name for safe DB storage."""
-        return (name or "Unknown")[:128]
+        """Truncate + strip control characters from a display name.
+
+        Lark nicknames are user-controlled strings. Embedding raw ones
+        into the prompt via ChannelTag opens a prompt-injection seam
+        (newlines + fake 'SYSTEM:' prefixes). We:
+          1. Replace all C0/C1 control characters (incl. \\r \\n \\t
+             \\x00 ESC) with a single space.
+          2. Collapse whitespace runs.
+          3. Truncate to 128 chars for safe DB storage.
+        """
+        if not name:
+            return "Unknown"
+        cleaned = _CONTROL_CHARS_RE.sub(" ", name)
+        cleaned = " ".join(cleaned.split())
+        return cleaned[:128] or "Unknown"
 
     async def _process_message(
         self, cred: LarkCredential, event: dict, worker_id: int
     ) -> None:
         """Process a single incoming message event."""
+        # H-2: cred gatekeeper. The SDK daemon thread keeps running even
+        # after we cancel its subscribe_loop task (no portable way to
+        # stop `ws_client.start()` from outside), so events from a bot
+        # that has been unbound can still reach the queue. Reject them
+        # here before running the agent.
+        if cred.app_id not in self._subscriber_creds:
+            msg_id_unbound = (
+                event.get('message_id', '') if isinstance(event, dict) else ''
+            )
+            logger.info(
+                f"LarkTrigger worker {worker_id}: dropping event from "
+                f"unbound credential (agent_id={cred.agent_id}, "
+                f"app_id={cred.app_id}); msg_id={msg_id_unbound!r}"
+            )
+            await self._audit(
+                EVENT_INGRESS_DROPPED_UNBOUND,
+                message_id=msg_id_unbound,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                details={"worker_id": worker_id},
+            )
+            return
+
         fields = self._parse_event_fields(event)
         chat_id = fields["chat_id"]
         sender_id = fields["sender_id"]
@@ -623,6 +1059,14 @@ class LarkTrigger:
 
         # Filter bot echoes
         if await self._is_echo(cred, event, sender_id):
+            await self._audit(
+                EVENT_INGRESS_DROPPED_ECHO,
+                message_id=message_id,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                chat_id=chat_id,
+                sender_id=sender_id,
+            )
             return
 
         # Parse content
@@ -849,6 +1293,22 @@ class LarkTrigger:
             logger.info(f"Wrote Lark messages to inbox channel {channel_id}")
         except Exception as e:
             logger.warning(f"Failed to write to inbox: {e}")
+            # M-10: preserve a record of the lost inbox row in the audit
+            # table so the content isn't silently gone forever. Operators
+            # can replay / inspect it after the fact.
+            await self._audit(
+                EVENT_INBOX_WRITE_FAILED,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                chat_id=chat_id,
+                sender_id=sender_id,
+                details={
+                    "error": f"{type(e).__name__}: {e}",
+                    "sender_name": sender_name,
+                    "original_message": original_message[:500],
+                    "agent_response": (agent_response or "")[:500],
+                },
+            )
 
     @staticmethod
     async def _ensure_inbox_entities(
