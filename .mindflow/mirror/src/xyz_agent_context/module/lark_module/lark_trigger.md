@@ -4,6 +4,31 @@ stub: false
 last_verified: 2026-04-21
 ---
 
+## 2026-04-21 follow-up — enriched ingress logging ("who sent what to whom")
+
+After another incident review where we needed to know "did Xiong's
+message actually reach the bot?" and the only audit evidence was
+`event_type=ingress_processed` (no content, no sender info), we
+expanded the ingress path so every incoming Lark message leaves a
+scannable breadcrumb BEFORE the dedup decision fires.
+
+- **`_dedup_and_enqueue` now emits a single loguru INFO line at entry**
+  of the form `LarkTrigger ingress | agent=... app=... <- from=...
+  chat=...(chat_type) msg_id=... type=... preview='...'`. This runs
+  regardless of whether the message is later accepted, deduped, or
+  dropped as historic replay, so operators can tell "the message
+  arrived but was filtered" apart from "the message never arrived".
+- **Audit rows for `ingress_processed` / `ingress_dropped_*` carry
+  `message_type`, `chat_type`, and `content_preview` in `details`**,
+  so the `lark_trigger_audit` table is itself enough to answer "what
+  did the user actually send?" without scraping container logs.
+- **New static helper `_preview_message_content(raw_content,
+  message_type)`** knows the shape of Lark's per-type JSON payloads
+  (text, post, file/image, and a generic fallback), pulls out the
+  most-useful text field, collapses whitespace, and truncates to 160
+  chars. Test coverage lives in
+  `tests/lark_module/test_lark_audit_trail.py`.
+
 ## 2026-04-21 hardening pass — reliability + observability
 
 After a user-reported incident ("bot went silent for hours, then

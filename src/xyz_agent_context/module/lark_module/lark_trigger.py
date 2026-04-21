@@ -687,18 +687,52 @@ class LarkTrigger:
             await asyncio.sleep(backoff)
 
     async def _dedup_and_enqueue(self, cred, event_dict: dict) -> None:
-        """Check dedup; enqueue only if this is a genuinely new event."""
-        decision = await self._check_and_classify_event(event_dict)
+        """Check dedup; enqueue only if this is a genuinely new event.
+
+        Emits a structured "who sent what to whom" INFO log at entry, BEFORE
+        the dedup decision, so operators can correlate a user's "I sent X but
+        agent never replied" report against what actually hit the bot (even
+        when the event is subsequently dropped as a replay / duplicate).
+        Audit rows carry the same enriched payload for post-incident review.
+        """
         msg_id = event_dict.get("message_id", "")
+        chat_id = event_dict.get("chat_id", "")
+        chat_type = event_dict.get("chat_type", "")
+        sender_id = event_dict.get("sender_id", "")
+        message_type = event_dict.get("message_type", "")
+        content_preview = self._preview_message_content(
+            event_dict.get("content", ""), message_type
+        )
+
+        logger.info(
+            "LarkTrigger ingress | agent={agent} app={app} <- from={sender} "
+            "chat={chat}({chat_type}) msg_id={msg_id} type={msg_type} preview={preview!r}",
+            agent=cred.agent_id,
+            app=cred.app_id,
+            sender=sender_id or "<unknown>",
+            chat=chat_id or "<unknown>",
+            chat_type=chat_type or "<unknown>",
+            msg_id=msg_id or "<unknown>",
+            msg_type=message_type or "<unknown>",
+            preview=content_preview,
+        )
+
+        ingress_details = {
+            "message_type": message_type,
+            "chat_type": chat_type,
+            "content_preview": content_preview,
+        }
+
+        decision = await self._check_and_classify_event(event_dict)
         if decision["accept"]:
             await self._audit(
                 EVENT_INGRESS_PROCESSED,
                 message_id=msg_id,
                 agent_id=cred.agent_id,
                 app_id=cred.app_id,
-                chat_id=event_dict.get("chat_id", ""),
-                sender_id=event_dict.get("sender_id", ""),
-                details={"dedup_layer": decision["layer"]},
+                chat_id=chat_id,
+                sender_id=sender_id,
+                details={"dedup_layer": decision["layer"], **ingress_details},
             )
             if decision["layer"] == "db_fail_open":
                 # Fail-open traversed the DB layer but the DB rejected
@@ -723,14 +757,71 @@ class LarkTrigger:
                 message_id=msg_id,
                 agent_id=cred.agent_id,
                 app_id=cred.app_id,
-                chat_id=event_dict.get("chat_id", ""),
-                sender_id=event_dict.get("sender_id", ""),
-                details={"layer": decision["layer"]},
+                chat_id=chat_id,
+                sender_id=sender_id,
+                details={"layer": decision["layer"], **ingress_details},
             )
             logger.info(
                 f"LarkTrigger: dedup skipping message_id={msg_id!r} "
                 f"(layer={decision['layer']})"
             )
+
+    @staticmethod
+    def _preview_message_content(raw_content: str, message_type: str) -> str:
+        """
+        Render a short, log-safe preview of a Lark message payload.
+
+        Lark stores message content as a JSON-encoded string whose shape
+        depends on `message_type` (text → {"text": "..."}, post → rich
+        segments, file → {"file_key": "...", "file_name": "..."}, etc.).
+        For observability we want the human-readable gist, not the raw
+        envelope. We pull the most-useful textual field per type, strip
+        newlines, and cap at 160 chars so audit rows and logs stay scannable.
+        """
+        if not raw_content:
+            return ""
+        try:
+            payload = json.loads(raw_content)
+        except Exception:
+            payload = None
+
+        text = ""
+        if isinstance(payload, dict):
+            if message_type == "text":
+                text = payload.get("text", "") or ""
+            elif message_type == "post":
+                # Post payloads nest {"zh_cn": {"title": "...", "content": [[...]]}}
+                for lang_block in payload.values():
+                    if isinstance(lang_block, dict):
+                        title = lang_block.get("title", "") or ""
+                        body_bits = []
+                        for line in lang_block.get("content", []) or []:
+                            if isinstance(line, list):
+                                for seg in line:
+                                    if isinstance(seg, dict):
+                                        body_bits.append(seg.get("text", "") or "")
+                        text = (title + " " + " ".join(body_bits)).strip()
+                        if text:
+                            break
+            elif message_type in ("file", "image", "audio", "media"):
+                text = (
+                    payload.get("file_name")
+                    or payload.get("image_key")
+                    or payload.get("file_key")
+                    or ""
+                )
+            else:
+                # Fallback: take the first string-valued field we find so
+                # unknown types still leave a human-useful breadcrumb.
+                for v in payload.values():
+                    if isinstance(v, str) and v:
+                        text = v
+                        break
+        if not text:
+            text = raw_content
+
+        flattened = " ".join(text.split())
+        return flattened[:160]
 
     async def _should_process_event(self, event_dict: dict) -> bool:
         """Compat shim over ``_check_and_classify_event``.

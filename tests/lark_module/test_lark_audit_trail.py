@@ -159,3 +159,57 @@ async def test_audit_records_subscriber_stopped(db_client):
     rows = await t._audit_repo.recent(limit=5)
     types = [r["event_type"] for r in rows]
     assert EVENT_SUBSCRIBER_STOPPED in types
+
+
+@pytest.mark.asyncio
+async def test_ingress_audit_carries_preview_and_type(db_client):
+    """Accepted ingress must record message_type, chat_type, and a
+    human-readable content preview so operators can answer
+    'who sent what to whom' from the audit table alone."""
+    import json as _json
+
+    t = _make_trigger(db_client)
+    cred = _Cred()
+
+    event = {
+        "message_id": "om_preview",
+        "create_time": str(t._startup_time_ms + 1),
+        "chat_id": "oc_1",
+        "chat_type": "p2p",
+        "sender_id": "ou_alice",
+        "message_type": "text",
+        "content": '{"text": "你 lark 上都认识谁?"}',
+    }
+    await t._dedup_and_enqueue(cred, event)
+
+    rows = await t._audit_repo.recent(limit=5)
+    ingress = next(r for r in rows if r["event_type"] == EVENT_INGRESS_PROCESSED)
+    details_raw = ingress["details"]
+    details = _json.loads(details_raw) if isinstance(details_raw, str) else details_raw
+    assert details["message_type"] == "text"
+    assert details["chat_type"] == "p2p"
+    assert "你 lark 上都认识谁" in details["content_preview"]
+
+
+def test_preview_message_content_handles_shapes():
+    preview = LarkTrigger._preview_message_content
+
+    assert preview('{"text": "hello world"}', "text") == "hello world"
+    assert preview(
+        '{"file_key": "f_123", "file_name": "news_content.md"}', "file"
+    ) == "news_content.md"
+    assert preview('{"image_key": "img_abc"}', "image") == "img_abc"
+
+    post_raw = (
+        '{"zh_cn": {"title": "T", "content": '
+        '[[{"tag": "text", "text": "first"}, {"tag": "text", "text": " second"}]]}}'
+    )
+    assert "first" in preview(post_raw, "post")
+    assert "second" in preview(post_raw, "post")
+
+    # Non-JSON input must fall through safely rather than raise.
+    assert preview("not-json", "text") == "not-json"
+    assert preview("", "text") == ""
+
+    long_text = "a" * 500
+    assert len(preview(f'{{"text": "{long_text}"}}', "text")) == 160
