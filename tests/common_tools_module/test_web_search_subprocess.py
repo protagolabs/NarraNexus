@@ -23,7 +23,10 @@ import time
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module import _common_tools_mcp_tools as tools
+from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    web_search_ddgs_tool as tools,
+)
+from xyz_agent_context.module.common_tools_module import _common_tools_mcp_tools as factory
 
 
 def _fake_runner_script(body: str) -> list[str]:
@@ -275,7 +278,7 @@ async def test_mcp_handler_returns_error_string_when_all_retries_fail(monkeypatc
     # handler's error-propagation contract, not retry mechanics.
     monkeypatch.setattr(tools, "_web_search_with_retry", always_fail)
 
-    mcp = tools.create_common_tools_mcp_server(port=0)
+    mcp = factory.create_common_tools_mcp_server(port=0)
     result = await mcp.call_tool(
         "web_search", {"queries": ["x"], "max_results_per_query": 3}
     )
@@ -306,7 +309,7 @@ async def test_mcp_handler_formats_bundles_on_success(monkeypatch):
 
     monkeypatch.setattr(tools, "_web_search_with_retry", spawn_success)
 
-    mcp = tools.create_common_tools_mcp_server(port=0)
+    mcp = factory.create_common_tools_mcp_server(port=0)
     result = await mcp.call_tool(
         "web_search", {"queries": ["asyncio"], "max_results_per_query": 3}
     )
