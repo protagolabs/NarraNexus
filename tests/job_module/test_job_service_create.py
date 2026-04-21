@@ -1,0 +1,56 @@
+"""
+@file_name: test_job_service_create.py
+@author: Bin Liang
+@date: 2026-04-21
+@description: Integration tests for JobInstanceService.create_job_with_instance
+post-v2 (compute_next_run + beta fields populated on creation).
+"""
+from unittest.mock import patch, AsyncMock
+
+import pytest
+
+from xyz_agent_context.module.job_module.job_service import JobInstanceService
+
+
+@pytest.mark.asyncio
+async def test_create_job_populates_beta_fields(db_client):
+    service = JobInstanceService(db_client)
+    # Patch embedding paths to avoid external LLM calls
+    with patch(
+        "xyz_agent_context.agent_framework.llm_api.embedding.get_embedding",
+        new=AsyncMock(return_value=[0.0] * 8),
+    ), patch(
+        "xyz_agent_context.agent_framework.llm_api.embedding_store_bridge.store_embedding",
+        new=AsyncMock(return_value=None),
+    ):
+        result = await service.create_job_with_instance(
+            agent_id="agent_1",
+            user_id="user_1",
+            title="Daily 8am reminder",
+            description="d",
+            job_type="scheduled",
+            trigger_config={"cron": "0 8 * * *", "timezone": "Asia/Shanghai"},
+            payload="Remind me",
+        )
+    assert result["success"], result
+    row = await db_client.get_one("instance_jobs", {"job_id": result["job_id"]})
+    assert row["next_run_tz"] == "Asia/Shanghai"
+    assert row["next_run_at_local"] is not None
+    assert row["next_run_time"] is not None
+
+
+@pytest.mark.asyncio
+async def test_create_job_missing_timezone_returns_structured_error(db_client):
+    service = JobInstanceService(db_client)
+    result = await service.create_job_with_instance(
+        agent_id="agent_1",
+        user_id="user_1",
+        title="bad",
+        description="d",
+        job_type="scheduled",
+        trigger_config={"cron": "0 8 * * *"},  # missing timezone
+        payload="p",
+    )
+    assert result["success"] is False
+    assert "timezone" in result.get("error", "").lower()
+    assert "Invalid trigger_config" in result["error"]
