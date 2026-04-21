@@ -22,8 +22,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import ClassVar, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # =============================================================================
@@ -62,20 +63,21 @@ class TriggerConfig(BaseModel):
     - ONGOING: Uses interval_seconds + end_condition / max_iterations
 
     Examples:
-        # One-time task: Execute tomorrow morning at 8am
-        TriggerConfig(run_at=datetime(2025, 1, 16, 8, 0, 0))
+        # One-time task: Execute tomorrow morning at 8am (Asia/Shanghai)
+        TriggerConfig(run_at=datetime(2025, 1, 16, 8, 0, 0), timezone="Asia/Shanghai")
 
-        # Periodic task: Every day at 8am
-        TriggerConfig(cron="0 8 * * *")
+        # Periodic task: Every day at 8am (America/New_York)
+        TriggerConfig(cron="0 8 * * *", timezone="America/New_York")
 
         # Periodic task: Every hour
-        TriggerConfig(interval_seconds=3600)
+        TriggerConfig(interval_seconds=3600, timezone="Asia/Shanghai")
 
         # Ongoing task: Check every hour until customer completes purchase, max 10 iterations
         TriggerConfig(
             interval_seconds=3600,
             end_condition="Customer completes purchase or explicitly expresses disinterest",
-            max_iterations=10
+            max_iterations=10,
+            timezone="Asia/Shanghai",
         )
     """
 
@@ -91,7 +93,7 @@ class TriggerConfig(BaseModel):
         description="Cron expression, e.g., '0 8 * * *' means every day at 8am"
     )
 
-    # 上限 90 天 = 7776000 秒，防止 LLM 生成不合理的超大值
+    # Upper limit 90 days = 7776000 seconds, prevents LLM from generating unreasonably large values
     MAX_INTERVAL_SECONDS: ClassVar[int] = 7_776_000
 
     interval_seconds: Optional[int] = Field(
@@ -99,13 +101,68 @@ class TriggerConfig(BaseModel):
         description="Execution interval (seconds), e.g., 3600 means every hour. Max 7776000 (90 days)."
     )
 
+    # === Timezone (required for all time-bearing triggers) ===
+    timezone: Optional[str] = Field(
+        default=None,
+        description=(
+            "IANA timezone name (e.g. 'Asia/Shanghai', 'America/New_York'). "
+            "Required for one_off / scheduled / ongoing jobs. "
+            "The job's fire time is frozen to this timezone at creation; "
+            "later changes to the user's timezone do NOT affect this job."
+        ),
+        max_length=64,
+    )
+
     @field_validator("interval_seconds")
     @classmethod
     def clamp_interval_seconds(cls, v: Optional[int]) -> Optional[int]:
-        """将 interval_seconds 限制在合理范围内"""
+        """Clamp interval_seconds to a reasonable upper bound."""
         if v is not None and v > cls.MAX_INTERVAL_SECONDS:
             v = cls.MAX_INTERVAL_SECONDS
         return v
+
+    @field_validator("run_at")
+    @classmethod
+    def run_at_must_be_naive(cls, v: Optional[datetime]) -> Optional[datetime]:
+        """Reject timezone-aware run_at; timezone must be specified via the timezone field."""
+        if v is not None and v.tzinfo is not None:
+            raise ValueError(
+                "run_at must be naive (no tzinfo). Use the `timezone` field to "
+                "declare timezone; do not attach offset or tzinfo to run_at."
+            )
+        return v
+
+    @field_validator("timezone")
+    @classmethod
+    def timezone_must_be_iana(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that timezone is a recognised IANA name via zoneinfo."""
+        if v is None:
+            return v
+        if not v.strip():
+            raise ValueError("timezone must be a non-empty IANA name")
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, Exception) as e:
+            raise ValueError(
+                f"timezone '{v}' is not a valid IANA name "
+                f"(e.g. 'Asia/Shanghai', 'America/New_York'): {e}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def timezone_required_for_time_bearing_triggers(self) -> "TriggerConfig":
+        """Require timezone whenever any time-bearing field is set."""
+        has_time_field = (
+            self.run_at is not None
+            or self.cron is not None
+            or self.interval_seconds is not None
+        )
+        if has_time_field and self.timezone is None:
+            raise ValueError(
+                "timezone is required when run_at / cron / interval_seconds "
+                "is set. Use IANA name like 'Asia/Shanghai'."
+            )
+        return self
 
     # === ONGOING Configuration (added 2026-01-21) ===
     end_condition: Optional[str] = Field(
