@@ -44,6 +44,31 @@ from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
 
 
+def _compute_next_backoff(
+    current: int,
+    ran_seconds: float,
+    *,
+    base: int = 5,
+    max_backoff: int = 120,
+    healthy_threshold_seconds: int = 60,
+) -> int:
+    """Pick the next WS-reconnect backoff (H-1 fix).
+
+    The previous loop had a dead `backoff = 5` line (no "ran > 60s"
+    gate as its comment claimed) followed by an unconditional double,
+    so backoff compounded toward the 120s cap after every disconnect
+    — even after hours of healthy session.
+
+    Now: if the session that just ended lasted at least
+    ``healthy_threshold_seconds``, we treat it as a real connection
+    and reset to ``base``. Otherwise we double, clamped to
+    ``max_backoff``.
+    """
+    if ran_seconds >= healthy_threshold_seconds:
+        return base
+    return min(max(current, base) * 2, max_backoff)
+
+
 def format_lark_error_reply(error: RunError) -> str:
     """Render an AgentRuntime failure as a Lark-friendly message.
 
@@ -127,6 +152,14 @@ class LarkTrigger:
         # Durable dedup store, also initialised in `start()` when the db
         # handle becomes available.
         self._seen_repo: "LarkSeenMessageRepository | None" = None
+        # H-5: baseline for the historic-replay filter. After a long WS
+        # disconnect the WS reconnect can release backlogged events that
+        # are newer than our process startup but older than our current
+        # reconnect — those are still "historic" from the bot's POV and
+        # must be filtered, not processed. Updated every time
+        # `_subscribe_loop` starts a fresh `ws_client.start()`.
+        self._last_ws_connected_monotonic: float = 0.0
+        self._last_ws_connected_wallclock_ms: int = 0
 
     async def start(self, db) -> None:
         """Start workers and credential watcher."""
@@ -291,6 +324,7 @@ class LarkTrigger:
         app_id_initial = cred.app_id
         backoff = 5
         max_backoff = 120
+        ws_start_monotonic: float = 0.0
 
         while self.running:
             # Refresh the credential from DB each iteration
@@ -369,7 +403,15 @@ class LarkTrigger:
                         thread_error.append(e)
 
                 t = threading.Thread(target=run_ws, daemon=True)
+                ws_start_monotonic = time.monotonic()
                 t.start()
+
+                # Note the moment the WS is considered "up" from our POV —
+                # H-5 uses this as the baseline for the historic-replay
+                # filter, so a long disconnect followed by reconnect won't
+                # silently let Lark's backlog of old events through.
+                self._last_ws_connected_monotonic = ws_start_monotonic
+                self._last_ws_connected_wallclock_ms = int(time.time() * 1000)
 
                 # Wait for thread to finish (poll so we can check self.running)
                 while t.is_alive() and self.running:
@@ -378,24 +420,37 @@ class LarkTrigger:
                 if thread_error:
                     raise thread_error[0]
 
+                ran_seconds = time.monotonic() - ws_start_monotonic
                 if not t.is_alive():
-                    logger.warning(
-                        f"LarkTrigger SDK WebSocket disconnected for {cred.profile_name}, "
-                        f"restarting in {backoff}s"
+                    backoff = _compute_next_backoff(
+                        current=backoff, ran_seconds=ran_seconds,
+                        max_backoff=max_backoff,
                     )
-                    # Reset backoff on successful long connection (ran > 60s)
-                    backoff = 5
+                    logger.warning(
+                        f"LarkTrigger SDK WebSocket disconnected for {cred.profile_name} "
+                        f"after {ran_seconds:.1f}s; restarting in {backoff}s"
+                    )
             except asyncio.CancelledError:
                 logger.info(f"LarkTrigger: subscriber cancelled for {cred.profile_name}")
                 return
             except Exception as e:
-                logger.error(f"LarkTrigger SDK error for {cred.profile_name}: {e}")
+                ran_seconds = (
+                    time.monotonic() - ws_start_monotonic
+                    if ws_start_monotonic > 0 else 0.0
+                )
+                backoff = _compute_next_backoff(
+                    current=backoff, ran_seconds=ran_seconds,
+                    max_backoff=max_backoff,
+                )
+                logger.error(
+                    f"LarkTrigger SDK error for {cred.profile_name} "
+                    f"after {ran_seconds:.1f}s (next backoff {backoff}s): {e}"
+                )
 
             if not self.running:
                 break
 
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, max_backoff)
 
     async def _dedup_and_enqueue(self, cred, event_dict: dict) -> None:
         """Check dedup; enqueue only if this is a genuinely new event."""
@@ -438,19 +493,32 @@ class LarkTrigger:
         """
         msg_id = event_dict.get("message_id", "")
 
-        # Layer 1: startup-time filter. Applies only when the Lark event
+        # Layer 1: historic-replay filter. Applies only when the Lark event
         # carries a create_time we can compare; if we can't tell the age
         # of the event, fall through to the other layers.
+        #
+        # Baseline is the MAX of process-startup and last WS-reconnect
+        # (H-5 fix). A long WS disconnect followed by reconnect can
+        # release Lark's server-side backlog — events that were created
+        # AFTER process startup but BEFORE the current WS session should
+        # still be treated as historic replays, not fresh traffic. Using
+        # only startup_time here meant those backlog bursts slipped
+        # through all layers (Layer 2 memory TTL is only 10 min), and
+        # the user saw "agent replies to 5 old messages an hour later".
+        baseline_ms = max(
+            self._startup_time_ms,
+            self._last_ws_connected_wallclock_ms,
+        )
         create_time_raw = event_dict.get("create_time", "")
-        if create_time_raw and self._startup_time_ms > 0:
+        if create_time_raw and baseline_ms > 0:
             try:
                 create_time_ms = int(create_time_raw)
-                cutoff = self._startup_time_ms - self.HISTORY_BUFFER_MS
+                cutoff = baseline_ms - self.HISTORY_BUFFER_MS
                 if create_time_ms < cutoff:
-                    age_min = (self._startup_time_ms - create_time_ms) / 60000.0
+                    age_min = (baseline_ms - create_time_ms) / 60000.0
                     logger.info(
                         f"LarkTrigger: dropping historic event {msg_id!r} "
-                        f"(created {age_min:.1f} min before startup, past "
+                        f"(created {age_min:.1f} min before baseline, past "
                         f"{self.HISTORY_BUFFER_MS / 60000:.0f} min buffer)"
                     )
                     return False
