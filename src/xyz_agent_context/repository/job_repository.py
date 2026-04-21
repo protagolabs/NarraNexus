@@ -848,11 +848,9 @@ class JobRepository(BaseRepository[JobModel]):
                         tc = TriggerConfig(**trigger_config) if isinstance(trigger_config, dict) else trigger_config
                         job_type_enum = JobType(job_type_str)
                         # Calculate next execution time (based on current time + interval)
-                        next_run_time = calculate_next_run_time(
-                            job_type=job_type_enum,
-                            trigger_config=tc,
-                            last_run_time=now
-                        )
+                        from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+                        tup = compute_next_run(job_type_enum, tc, last_run_utc=now)
+                        next_run_time = tup.utc if tup else None
                 except Exception as e:
                     logger.warning(f"Failed to calculate next_run_time for {job_id}: {e}")
                     # Fallback: set to 1 hour later
@@ -1386,9 +1384,3 @@ class JobRepository(BaseRepository[JobModel]):
                 return default
 
         return value
-
-
-def calculate_next_run_time(*args, **kwargs):
-    """Re-export shim (moved to _job_scheduling.py). Lazy import to avoid circular dependency."""
-    from xyz_agent_context.module.job_module._job_scheduling import calculate_next_run_time as _impl
-    return _impl(*args, **kwargs)
