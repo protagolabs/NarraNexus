@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 import time
 import uuid
@@ -40,8 +41,40 @@ from xyz_agent_context.channel.channel_context_builder_base import ChannelHistor
 from xyz_agent_context.repository.lark_seen_message_repository import (
     LarkSeenMessageRepository,
 )
+from xyz_agent_context.repository.lark_trigger_audit_repository import (
+    LarkTriggerAuditRepository,
+    EVENT_HEARTBEAT,
+    EVENT_SUBSCRIBER_STARTED,
+    EVENT_SUBSCRIBER_STOPPED,
+    EVENT_WS_CONNECTED,
+    EVENT_WS_DISCONNECTED,
+    EVENT_WS_BACKOFF,
+    EVENT_WORKER_ERROR,
+    EVENT_WORKER_TIMEOUT,
+    EVENT_INGRESS_PROCESSED,
+    EVENT_INGRESS_DROPPED_DEDUP,
+    EVENT_INGRESS_DROPPED_HISTORIC,
+    EVENT_INGRESS_DROPPED_ECHO,
+    EVENT_INGRESS_DROPPED_UNBOUND,
+    EVENT_DEDUP_FAIL_OPEN,
+    EVENT_INBOX_WRITE_FAILED,
+)
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
+
+
+# M-9: the lark_oapi SDK captures a module-level `loop` at import time.
+# `_subscribe_loop` overwrites it before each `ws_client.start()` so the
+# SDK uses a fresh loop on the new thread. With several bots reconnecting
+# in parallel, two threads could race on this assignment. Serialise here.
+_WS_LOOP_PATCH_LOCK = threading.Lock()
+
+
+# L-12: characters that must not survive into a sanitised display name.
+# Newlines and control bytes can smuggle fake prompt instructions into
+# the rendered channel tag; tabs collide with log parsers; nulls and
+# escape sequences mess with terminals and downstream serializers.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def _compute_next_backoff(
@@ -142,6 +175,18 @@ class LarkTrigger:
     # worker slot.
     PROCESS_MESSAGE_TIMEOUT_SECONDS = 1800
 
+    # L-13: cleanup used to run once at startup only. A long-running
+    # container (weeks) would let the tables grow forever. The watcher
+    # re-runs cleanup when this many seconds elapse since the last run.
+    CLEANUP_INTERVAL_SECONDS = 24 * 3600
+
+    # Heartbeat cadence for the audit table — a "trigger was alive at
+    # T+N min" record lets post-incident reviewers tell "silent but
+    # healthy" apart from "crashed and nobody noticed". 10 min is short
+    # enough to catch multi-minute outages, long enough to not flood
+    # the table (6 rows/hour).
+    HEARTBEAT_INTERVAL_SECONDS = 600
+
     def __init__(self, max_workers: int = 3):
         self._base_workers = max(max_workers, self.MIN_WORKERS)
         self._subscriber_tasks: dict[str, asyncio.Task] = {}  # app_id -> subscribe_loop task
@@ -175,6 +220,16 @@ class LarkTrigger:
         # `_subscribe_loop` starts a fresh `ws_client.start()`.
         self._last_ws_connected_monotonic: float = 0.0
         self._last_ws_connected_wallclock_ms: int = 0
+        # L-13: monotonic time of the most recent dedup/audit cleanup.
+        # The watcher re-triggers cleanup every CLEANUP_INTERVAL_SECONDS.
+        self._last_cleanup_monotonic: float = 0.0
+        # Heartbeat cadence: watcher emits one audit row every
+        # HEARTBEAT_INTERVAL_SECONDS so post-incident reviewers can tell
+        # the difference between "silent + healthy" and "crashed".
+        self._last_heartbeat_monotonic: float = 0.0
+        # Audit repo (set in start()) records every lifecycle event so
+        # post-incident triage doesn't depend on container log access.
+        self._audit_repo: "LarkTriggerAuditRepository | None" = None
 
     async def start(self, db) -> None:
         """Start workers and credential watcher."""
@@ -183,19 +238,11 @@ class LarkTrigger:
         self._loop = asyncio.get_running_loop()
         self._startup_time_ms = int(time.time() * 1000)
         self._seen_repo = LarkSeenMessageRepository(db)
+        self._audit_repo = LarkTriggerAuditRepository(db)
 
-        # Purge old dedup rows so the table doesn't grow without bound.
-        try:
-            deleted = await self._seen_repo.cleanup_older_than_days(
-                self.DEDUP_RETENTION_DAYS
-            )
-            if deleted:
-                logger.info(
-                    f"LarkTrigger: cleaned {deleted} dedup rows older than "
-                    f"{self.DEDUP_RETENTION_DAYS} days"
-                )
-        except Exception as e:  # noqa: BLE001 — best-effort startup hygiene
-            logger.warning(f"LarkTrigger: dedup cleanup failed: {e}")
+        # Run cleanup once at startup + let the watcher re-trigger on
+        # L-13's CLEANUP_INTERVAL_SECONDS cadence afterwards.
+        await self._run_cleanup()
 
         # Start baseline workers
         self._adjust_workers(self._base_workers)
@@ -211,6 +258,64 @@ class LarkTrigger:
         sub_count = len(self._subscriber_tasks)
         desired = self._base_workers + sub_count * self.WORKERS_PER_SUBSCRIBER
         return min(desired, self.MAX_WORKERS)
+
+    async def _maybe_heartbeat(self) -> None:
+        """Emit a heartbeat audit row every ``HEARTBEAT_INTERVAL_SECONDS``.
+
+        The row records queue depth, worker count, subscriber count and
+        the monotonic uptime of the process. Absence of heartbeats in
+        the audit table for N intervals = the trigger was down / stuck.
+        """
+        if self._audit_repo is None:
+            return
+        now = time.monotonic()
+        if now - self._last_heartbeat_monotonic < self.HEARTBEAT_INTERVAL_SECONDS:
+            return
+        self._last_heartbeat_monotonic = now
+        details = {
+            "queue_depth": self._task_queue.qsize(),
+            "worker_count": len(self._workers),
+            "subscriber_count": len(self._subscriber_tasks),
+            "uptime_seconds": (
+                (int(time.time() * 1000) - self._startup_time_ms) / 1000.0
+                if self._startup_time_ms > 0 else 0.0
+            ),
+            "last_ws_connected_ms": self._last_ws_connected_wallclock_ms,
+        }
+        await self._audit_repo.append(EVENT_HEARTBEAT, details=details)
+
+    async def _run_cleanup(self) -> None:
+        """Purge aged rows from `lark_seen_messages` and `lark_trigger_audit`.
+
+        Called once at startup and again from the watcher every
+        ``CLEANUP_INTERVAL_SECONDS``. Failures are best-effort — the
+        trigger must keep serving traffic even if hygiene fails.
+        """
+        self._last_cleanup_monotonic = time.monotonic()
+        try:
+            if self._seen_repo is not None:
+                deleted = await self._seen_repo.cleanup_older_than_days(
+                    self.DEDUP_RETENTION_DAYS
+                )
+                if deleted:
+                    logger.info(
+                        f"LarkTrigger: cleaned {deleted} dedup rows older than "
+                        f"{self.DEDUP_RETENTION_DAYS} days"
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"LarkTrigger: dedup cleanup failed: {e}")
+        try:
+            if self._audit_repo is not None:
+                deleted = await self._audit_repo.cleanup_older_than_days(
+                    self.AUDIT_RETENTION_DAYS
+                )
+                if deleted:
+                    logger.info(
+                        f"LarkTrigger: cleaned {deleted} audit rows older than "
+                        f"{self.AUDIT_RETENTION_DAYS} days"
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"LarkTrigger: audit cleanup failed: {e}")
 
     def _prune_dead_workers(self) -> int:
         """Drop workers whose task has finished (success or error).
@@ -327,6 +432,19 @@ class LarkTrigger:
                 self._prune_dead_workers()
                 self._adjust_workers(self._desired_worker_count())
 
+                # L-13: periodic retention cleanup. Runs once a day to
+                # bound table growth on long-lived containers.
+                if (
+                    time.monotonic() - self._last_cleanup_monotonic
+                    >= self.CLEANUP_INTERVAL_SECONDS
+                ):
+                    await self._run_cleanup()
+
+                # Heartbeat + audit snapshot every ~10 min so a silent
+                # process is distinguishable from a healthy one when a
+                # user looks at the audit table after the fact.
+                await self._maybe_heartbeat()
+
             except Exception as e:
                 logger.warning(f"LarkTrigger credential watcher error: {e}")
 
@@ -438,12 +556,18 @@ class LarkTrigger:
                     try:
                         # SDK's ws/client.py uses a module-level `loop` variable
                         # captured at import time. Replace it with a fresh loop
-                        # so start() can call loop.run_until_complete() without conflict.
+                        # so start() can call loop.run_until_complete() without
+                        # conflict. With multiple bots reconnecting in parallel,
+                        # two threads racing on `ws_mod.loop = ...` could stomp
+                        # on each other; serialise under the module-level lock
+                        # (M-9). The lock only covers the assignment — we drop
+                        # it before the blocking `start()` call.
                         import lark_oapi.ws.client as ws_mod
                         fresh_loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(fresh_loop)
-                        ws_mod.loop = fresh_loop
-                        ws_client._lock = asyncio.Lock()  # Lock must belong to the new loop
+                        with _WS_LOOP_PATCH_LOCK:
+                            ws_mod.loop = fresh_loop
+                            ws_client._lock = asyncio.Lock()  # belongs to new loop
                         ws_client.start()
                     except Exception as e:
                         thread_error.append(e)
@@ -747,8 +871,21 @@ class LarkTrigger:
 
     @staticmethod
     def _sanitize_display_name(name: str) -> str:
-        """Truncate and sanitize a display name for safe DB storage."""
-        return (name or "Unknown")[:128]
+        """Truncate + strip control characters from a display name.
+
+        Lark nicknames are user-controlled strings. Embedding raw ones
+        into the prompt via ChannelTag opens a prompt-injection seam
+        (newlines + fake 'SYSTEM:' prefixes). We:
+          1. Replace all C0/C1 control characters (incl. \\r \\n \\t
+             \\x00 ESC) with a single space.
+          2. Collapse whitespace runs.
+          3. Truncate to 128 chars for safe DB storage.
+        """
+        if not name:
+            return "Unknown"
+        cleaned = _CONTROL_CHARS_RE.sub(" ", name)
+        cleaned = " ".join(cleaned.split())
+        return cleaned[:128] or "Unknown"
 
     async def _process_message(
         self, cred: LarkCredential, event: dict, worker_id: int
