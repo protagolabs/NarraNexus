@@ -167,44 +167,41 @@ async def test_overall_search_many_bounded_even_if_per_query_misses(monkeypatch)
 async def test_mcp_tool_handler_has_outer_timeout(monkeypatch):
     """The MCP tool registered as ``web_search`` in
     ``_common_tools_mcp_tools.create_common_tools_mcp_server`` must
-    itself wrap ``search_many`` in ``asyncio.wait_for``. Even if ALL
-    inner layers fail to bound themselves, this final decorator
-    ensures the MCP handler always returns to the caller, preventing
-    the Bug 20 "whole shared MCP container wedges" behaviour."""
+    itself wrap its coroutine in ``asyncio.wait_for``. Even if the
+    subprocess layer + retry loop fail to bound themselves (shouldn't
+    be possible, but defense in depth), this final decorator ensures
+    the MCP handler always returns to the caller.
+
+    Bug 24 refactor: the handler now calls ``_web_search_with_retry``
+    (which spawns subprocesses) instead of ``search_many`` directly.
+    We patch that single entry point to simulate a hang.
+    """
     from xyz_agent_context.module.common_tools_module import _common_tools_mcp_tools as tools
 
-    # Replace search_many so it hangs arbitrarily long.
-    async def _hang_search_many(queries, max_results_per_query):
-        await asyncio.sleep(45)
+    # Shrink the outer handler timeout so the test completes in a few
+    # seconds instead of waiting out the production 110s cap. The
+    # decorator reads this constant at create-server time, so monkeypatch
+    # it BEFORE create_common_tools_mcp_server runs.
+    monkeypatch.setattr(tools, "_WEB_SEARCH_HANDLER_TIMEOUT_S", 2.0)
+
+    async def _hang_forever(queries, max_results):
+        await asyncio.sleep(60)
         return []
 
-    monkeypatch.setattr(tools, "search_many", _hang_search_many, raising=False)
-
-    # Also patch the copy imported inside the tool function's closure
-    # (it does `from ...web_search import search_many` at call time).
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
-        web_search as ws_impl,
-    )
-    monkeypatch.setattr(ws_impl, "search_many", _hang_search_many)
+    monkeypatch.setattr(tools, "_web_search_with_retry", _hang_forever)
 
     mcp = tools.create_common_tools_mcp_server(port=0)
-    # FastMCP stores tools in an internal registry; retrieve via list_tools()
-    # and then call the underlying function. We need the raw handler — go
-    # through the FastMCP API.
     tool_entries = await mcp.list_tools()
     ws_entry = next((t for t in tool_entries if t.name == "web_search"), None)
     assert ws_entry is not None, "web_search tool must be registered"
 
-    # Invoke the handler with a stuck search_many. It must return within
-    # a reasonable bound (outer timeout + a bit), not hang.
     start = time.monotonic()
     result = await mcp.call_tool("web_search", {"queries": ["x"], "max_results_per_query": 3})
     elapsed = time.monotonic() - start
 
-    assert elapsed < 60, (
-        f"MCP handler took {elapsed:.1f}s; outer wait_for missing — "
-        "this is the exact pattern that wedged the shared MCP container on prod"
+    # Handler timeout is 2s; allow a small margin for asyncio scheduling.
+    assert elapsed < 5.0, (
+        f"MCP handler took {elapsed:.1f}s with a 2s outer timeout — "
+        "with_mcp_timeout is missing or misbehaving"
     )
-    # Result shape: FastMCP's call_tool returns a list of content blocks;
-    # we don't care about shape, just that it returned something.
     assert result is not None

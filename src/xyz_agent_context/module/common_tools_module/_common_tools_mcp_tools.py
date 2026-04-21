@@ -9,19 +9,33 @@ Tools exposed:
 
 Stateless — tools take plain arguments, no agent_id / user_id bookkeeping.
 
-Handler-level hard timeout (Bug 20, 2026-04-20)
-------------------------------------------------
+Subprocess isolation for web_search (Bug 24, 2026-04-21)
+---------------------------------------------------------
+Bug 20 (three-layer asyncio timeouts) stopped the 33-hour whole-
+container wedge but couldn't reclaim the leaked threads / FDs from
+stuck DDGS calls. Over enough leaks, FD table exhaustion kills *every*
+MCP tool on the same process (all MCPs share the Python FD table in
+local SQLite mode; even in cloud multi-process mode the CommonTools
+process itself becomes permanently broken).
+
+This file now spawns a dedicated subprocess per invocation. Timeout →
+``SIGKILL`` → OS reclaims every resource the subprocess held. Retries
+kick in automatically for timeouts, crashes, or malformed output. The
+only way web_search can permanently fail is if DDG / the network is
+legitimately unreachable for all K+1 attempts — at which point the
+LLM gets a clean error message, not a hang.
+
+Handler-level hard timeout still present
+----------------------------------------
 Every tool registered here is wrapped with ``with_mcp_timeout`` so no
-single tool invocation can wedge the shared MCP container. Triple
-defense: web_search.py has internal per-query + overall wait_for, and
-this decorator is the final outer bound. The 2026-04-18 incident
-showed that "one sync library hanging at the C layer" can cascade into
-the whole event loop if NO layer has a timeout — this decorator
-ensures there is always one.
+single tool invocation can wedge the shared MCP container even if the
+subprocess layer somehow fails. Defense in depth.
 """
 
 import asyncio
 import functools
+import json
+import sys
 from typing import Any, Callable, Awaitable
 
 from loguru import logger
@@ -46,8 +60,9 @@ def with_mcp_timeout(
             ...
 
     Note: this only bounds the *awaiting* coroutine, not any worker
-    threads it spawned. Leaked threads are a residual Python limit —
-    see web_search.py header comment.
+    threads it spawned. For tools that wrap sync network libraries,
+    prefer subprocess isolation (see web_search) instead of relying
+    on this wrapper alone.
     """
 
     def _deco(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
@@ -75,9 +90,153 @@ def with_mcp_timeout(
     return _deco
 
 
-# Outer handler cap. Must exceed web_search.OVERALL_TIMEOUT_S (30s) by
-# enough to let the inner layer report its own timeouts cleanly.
-_WEB_SEARCH_HANDLER_TIMEOUT_S = 45.0
+# =============================================================================
+# Subprocess-isolated web_search runner
+# =============================================================================
+
+# Module path for the runner script. Spawned via `python -m <module>` so we
+# don't depend on filesystem paths — works inside Docker, pyinstaller, etc.
+_RUNNER_MODULE = "xyz_agent_context.module.common_tools_module._common_tools_impl.web_search_runner"
+
+# Default command to spawn the runner. Module-level so tests can monkeypatch
+# with a fake (e.g. `python -c "..."`) to simulate hang / crash / malformed
+# output without touching the real runner or the real DDG network.
+_RUNNER_CMD: list[str] = [sys.executable, "-m", _RUNNER_MODULE]
+
+# Per-attempt hard cap. If the subprocess's internal asyncio timeouts
+# (5 / 15 / 30 s inside web_search.py) all fail to terminate, we SIGKILL
+# at this point. 25s gives inner layers (30s overall cap) a chance... wait:
+# the inner OVERALL is 30s which is GREATER than 25s. This is intentional —
+# when we hit 25s the subprocess is pathologically stuck (primp spinning in
+# C, GIL held, whatever) and inner timeouts can't self-fire. We don't want
+# to wait 30s+ "just in case" — at 25s the subprocess has earned a SIGKILL.
+_SUBPROCESS_TIMEOUT_S: float = 25.0
+
+# K=3 retries → 4 total attempts. Chosen so transient DDG issues (rate
+# limits, CDN hiccups) get multiple shots while hard outages fail cleanly.
+_MAX_ATTEMPTS: int = 4
+
+# Fixed short backoff between attempts. Exponential buys nothing here —
+# the per-attempt timeout is already long; we just want a tiny breather
+# so we don't retry mid-rate-limit.
+_RETRY_BACKOFF_S: float = 1.0
+
+# Outermost MCP handler timeout. Must cover worst case:
+#   _MAX_ATTEMPTS * _SUBPROCESS_TIMEOUT_S + (_MAX_ATTEMPTS-1) * _RETRY_BACKOFF_S
+# = 4 * 25 + 3 * 1 = 103s. Add small buffer for process startup / I/O.
+_WEB_SEARCH_HANDLER_TIMEOUT_S: float = 110.0
+
+
+class _RunnerFailure(Exception):
+    """Raised when a single subprocess attempt fails in a retry-eligible way."""
+
+
+async def _spawn_runner(queries: list[str], max_results: int) -> list[dict[str, Any]]:
+    """One attempt: spawn the runner subprocess, feed queries, parse output.
+
+    Returns the ``bundles`` list on success. Raises:
+      - ``asyncio.TimeoutError`` if the subprocess exceeds
+        ``_SUBPROCESS_TIMEOUT_S``. The subprocess is SIGKILL'd before the
+        exception propagates so no zombie / leaked FDs survive.
+      - ``_RunnerFailure`` if the subprocess exits non-zero or stdout is
+        not valid JSON in the expected shape.
+
+    Both exception types signal "retry this".
+    """
+    payload = json.dumps({
+        "queries": queries,
+        "max_results_per_query": max_results,
+    }).encode("utf-8")
+
+    proc = await asyncio.create_subprocess_exec(
+        *_RUNNER_CMD,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=payload),
+            timeout=_SUBPROCESS_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        # SIGKILL: Linux unconditionally reaps the process, closing every
+        # socket / FD / thread the subprocess held. This is the whole
+        # reason subprocess isolation exists — the guarantee we can't get
+        # from threads.
+        try:
+            proc.kill()
+            await proc.wait()
+        except (ProcessLookupError, OSError):
+            pass
+        raise
+
+    if proc.returncode != 0:
+        raise _RunnerFailure(
+            f"runner exited with code {proc.returncode}; "
+            f"stderr={stderr.decode('utf-8', errors='replace')[:500]!r}"
+        )
+
+    try:
+        data = json.loads(stdout.decode("utf-8"))
+        bundles = data["bundles"]
+        if not isinstance(bundles, list):
+            raise TypeError(f"bundles is not a list: {type(bundles).__name__}")
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise _RunnerFailure(
+            f"runner stdout malformed: {e}; "
+            f"got first 200 bytes={stdout[:200]!r}"
+        ) from e
+
+    return bundles
+
+
+async def _web_search_with_retry(
+    queries: list[str],
+    max_results: int,
+) -> list[dict[str, Any]]:
+    """Spawn the runner subprocess with retry-on-failure.
+
+    Retries are triggered by:
+      - subprocess timeout (SIGKILL'd, inner resources reclaimed)
+      - subprocess crash (non-zero exit)
+      - malformed subprocess output (not valid JSON)
+
+    Successful subprocess returns with per-query ``error`` fields in the
+    bundles are NOT retried — those are legitimate search failures that
+    the LLM can see and act on (e.g. "DDG returned no results for query
+    X"). Retrying at the subprocess level won't resolve them.
+
+    Raises ``RuntimeError`` if all ``_MAX_ATTEMPTS`` attempts fail.
+    """
+    last_error: str = ""
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            return await _spawn_runner(queries, max_results)
+        except asyncio.TimeoutError:
+            last_error = f"subprocess timed out after {_SUBPROCESS_TIMEOUT_S}s (killed)"
+            logger.warning(
+                f"web_search attempt {attempt}/{_MAX_ATTEMPTS} "
+                f"hit subprocess timeout; killed and will retry"
+            )
+        except _RunnerFailure as e:
+            last_error = str(e)
+            logger.warning(
+                f"web_search attempt {attempt}/{_MAX_ATTEMPTS} failed: {e}"
+            )
+
+        if attempt < _MAX_ATTEMPTS:
+            await asyncio.sleep(_RETRY_BACKOFF_S)
+
+    raise RuntimeError(
+        f"web_search failed after {_MAX_ATTEMPTS} attempts; last error: {last_error}"
+    )
+
+
+# =============================================================================
+# MCP server factory
+# =============================================================================
 
 
 def create_common_tools_mcp_server(port: int) -> FastMCP:
@@ -115,14 +274,13 @@ def create_common_tools_mcp_server(port: int) -> FastMCP:
             error is reported inline without breaking the other queries.
         """
         from xyz_agent_context.module.common_tools_module._common_tools_impl.web_search import (
-            search_many,
             format_results,
         )
 
         try:
-            bundles = await search_many(queries, max_results_per_query)
-        except Exception as e:  # defensive — search_many already swallows per-query errors
-            logger.error(f"CommonToolsMCP: web_search top-level crash: {e}")
+            bundles = await _web_search_with_retry(queries, max_results_per_query)
+        except RuntimeError as e:
+            logger.error(f"CommonToolsMCP: web_search gave up: {e}")
             return f"web_search failed: {e}"
 
         logger.info(
