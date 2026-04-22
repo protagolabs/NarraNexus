@@ -107,6 +107,27 @@ _IDENTITY_GUIDE = (
     "allowed and mints a verification URL for the user to click.\n\n"
 )
 
+_CONTENT_DELIVERY_GUIDE = (
+    "### Delivering content in Lark messages\n"
+    "`im +messages-send --markdown \"...\"` takes the message body **inline** "
+    "as a string argument — **not a file path**. Passing `./report.md` or "
+    "`/tmp/foo.md` literally sends that path string to the recipient, and "
+    "they have no way to open any local path (it's your container, not theirs).\n"
+    "- **Short content** (answer, small table, code snippet) → paste inline "
+    "via `--markdown`. Lark renders headings / bullets / code blocks correctly.\n"
+    "- **Long content, reports, 报告, 汇报, summaries, anything worth "
+    "revisiting later** → do NOT dump it into a chat bubble. Create a Lark "
+    "doc and share the URL:\n"
+    "    1. `lark_cli(command=\"docs +create --title '<title>' --markdown "
+    "'<full report body>' --as bot\")`\n"
+    "    2. Take the returned doc URL and send a short message pointing to it:\n"
+    "       `lark_cli(command=\"im +messages-send --chat-id <id> --markdown "
+    "'已生成报告，请查阅：<URL>' --as bot\")`\n"
+    "- **Binary content** (images, PDFs, files) → use the file-upload flow; "
+    "see `lark_skill(agent_id, \"lark-im\")` for the exact send-file "
+    "subcommand for that channel.\n\n"
+)
+
 _IRON_RULES = (
     "### Iron rules (non-negotiable)\n\n"
     "1. **MCP only.** Never use Bash to run `lark-cli`, `npm install`, "
@@ -429,10 +450,11 @@ class LarkModule(XYZBaseModule):
         # --- Three-click background only while configuring ----------------
         background = _THREE_CLICK_BACKGROUND if stage != "completed" else ""
 
-        # --- Identity guide: only when we can actually do lark_cli writes
-        # (i.e. stage=completed). During configuration Agent isn't composing
-        # im +messages-send commands, so the guidance is just noise.
+        # --- Identity guide + content delivery: only when we can actually do
+        # lark_cli writes (stage=completed). During configuration, Agent isn't
+        # composing im +messages-send commands, so this guidance is just noise.
         identity_guide = _IDENTITY_GUIDE if stage == "completed" else ""
+        delivery_guide = _CONTENT_DELIVERY_GUIDE if stage == "completed" else ""
 
         return (
             "## Lark/Feishu Integration\n\n"
@@ -443,6 +465,7 @@ class LarkModule(XYZBaseModule):
             f"{matrix}"
             f"{coach}"
             f"{identity_guide}"
+            f"{delivery_guide}"
             f"{skill_section}"
             f"{_IRON_RULES}"
         )
