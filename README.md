@@ -48,6 +48,13 @@ An agent in isolation is a tool. An agent with persistent memory, social identit
 
 ## Quick Start
 
+### Download the App
+You can find the latest version here (ending with .dmg) https://github.com/protagolabs/NarraNexus/releases
+
+### Cloud Verion
+Online play with NarraNexus Agent
+https://agent.narra.nexus
+
 ### Prerequisites
 
 **Windows users**: WSL2 is **required**. Install it first in PowerShell (Admin): `wsl --install`, then run all commands below inside the WSL2 terminal.
@@ -101,11 +108,11 @@ bash run.sh
 
 The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, `.env` configuration, and LLM provider setup. Just follow the prompts.
 
-After install, select **Run** to start all services, then open `http://localhost:5173`.
+After install, open `http://localhost:5173`.
 
 <br/>
 
-![Install Interface](docs/images/install-interface.png)
+![Install Interface](docs/images/install-interface-v2.png)
 <p align="center"><em>First-run experience</em></p>
 
 ### Configure EverMemOS (Long-term Memory)
