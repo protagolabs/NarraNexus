@@ -21,23 +21,44 @@
 
 Most agent frameworks focus on making agents *smarter*. NarraNexus focuses on making agents *connected*.
 
-An agent in isolation is a tool. An agent with persistent memory, social identity, relationships, and goals becomes a participant in a **nexus** -- a network where intelligence is a collective property, not a model property. NarraNexus provides the infrastructure for this: narrative structure that accumulates across conversations, a social graph that tracks entities and relationships, task systems with dependency chains, and modular capabilities that can be composed at runtime.
+An agent in isolation is a tool. An agent with persistent memory, social identity, relationships, and goals becomes a participant in a **nexus** -- a network where intelligence is a collective property, not a model property.
 
+NarraNexus provides the infrastructure for this: narrative memory that grows across conversations, a social graph that tracks real-world relationships, task scheduling with dependency chains, and modular capabilities that can be composed at runtime.
+
+## What Makes NarraNexus Different
+
+### Narrative Memory
+
+Unlike traditional chatbots that treat conversations as isolated sessions, NarraNexus organizes every conversation into **Narratives** -- semantic storylines that persist and grow over time. When you return to a topic days later, the agent picks up right where you left off by matching topic similarity, not timestamps.
+
+### Modular & Extensible
+
+Every capability -- chat, social graph, knowledge base, job scheduling, skills -- runs as an independent **Module**. Modules can be added, removed, or swapped at runtime without affecting the rest of the system. Each module manages its own data, tools, and lifecycle.
+
+### Agent-to-Agent Communication
+
+Agents don't just talk to users -- they talk to each other. Via the Matrix protocol, agents can create rooms, send messages, @mention peers, and coordinate in group chats, all through natural language.
+
+### Framework Agnostic
+
+NarraNexus is designed to work with multiple LLM providers (Claude, OpenAI, Gemini) through a unified adapter layer. No single framework or model is a hard dependency.
 
 ## Key Features
 
-- **Inter-Agent Communication** -- Agents talk to each other via Matrix protocol: create rooms, send messages, @mention specific agents, and coordinate in group chats — all through natural language
-- **Narrative Structure** -- Conversations are routed into semantic storylines maintained across sessions, retrieved by topic similarity rather than chronological order
-- **Hot-Swappable Modules** -- Each capability (chat, social graph, RAG, jobs, skills, Matrix, memory) is a standalone module with its own DB tables, MCP tools, and lifecycle hooks
-- **Skill Marketplace** -- Browse and install skills from ClawHub via chat: describe what you need, get recommendations, install with one click
-- **Social Network** -- Entity graph tracking people, relationships, expertise, and interaction history with semantic search
-- **Job Scheduling** -- One-shot, cron, periodic, and continuous tasks with dependency DAGs
-- **RAG Knowledge Base** -- Document indexing and semantic retrieval via Gemini File Search
-- **Semantic Memory** -- Long-term episodic memory powered by EverMemOS (MongoDB + Elasticsearch + Milvus)
-- **Cost Tracking** -- Real-time metering of every LLM and embedding call with per-model cost breakdowns
-- **Execution Transparency** -- Every pipeline step visible in real time: what the Agent decided, why, and what changed
-- **Multi-LLM Support** -- Claude, OpenAI, and Gemini via unified adapter layer
-- **Desktop App** -- Electron-based desktop application with auto-updater and one-click service orchestration
+| Feature | Description |
+|---------|-------------|
+| **Narrative Memory** | Conversations routed into semantic storylines, retrieved by topic similarity across sessions |
+| **Hot-Swappable Modules** | Standalone capabilities (chat, social graph, RAG, jobs, skills) with their own DB, tools, and hooks |
+| **Inter-Agent Communication** | Agents coordinate via Matrix protocol -- rooms, messages, @mentions, group chats |
+| **Skill Marketplace** | Browse and install skills from ClawHub via natural language |
+| **Social Network** | Entity graph tracking people, relationships, expertise, and interaction history |
+| **Job Scheduling** | One-shot, cron, periodic, and continuous tasks with dependency DAGs |
+| **RAG Knowledge Base** | Document indexing and semantic retrieval via Gemini File Search |
+| **Long-term Memory** | Episodic memory powered by EverMemOS (MongoDB + Elasticsearch + Milvus) |
+| **Cost Tracking** | Real-time metering of every LLM call with per-model cost breakdowns |
+| **Execution Transparency** | Every pipeline step visible in real time -- what the agent decided, why, and what changed |
+| **Multi-LLM Support** | Claude, OpenAI, and Gemini via unified adapter layer |
+| **Desktop App** | Desktop application with auto-updater and one-click service orchestration |
 
 <br/>
 
@@ -46,59 +67,36 @@ An agent in isolation is a tool. An agent with persistent memory, social identit
 
 <br/>
 
+## How It Works
+
+Under the hood, every user message flows through a **7-step pipeline**:
+
+```
+User Message
+  → Initialize session & load agent config
+    → Activate modules & gather context via hooks
+      → Select or create the right Narrative
+        → Build prompt with full context (memory, social graph, tools)
+          → Execute LLM reasoning with MCP tools
+            → Persist results (events, state, tokens)
+              → Run post-execution hooks (notifications, integrations)
+```
+
+Each module enriches the context independently through **lifecycle hooks** -- no module knows about any other. This keeps the system clean, testable, and easy to extend.
+
 ## Quick Start
 
 ### Download the App
-You can find the latest version here (ending with .dmg) https://github.com/protagolabs/NarraNexus/releases
 
-### Cloud Verion
-Online play with NarraNexus Agent
-https://agent.narra.nexus
+You can find the latest version here (ending with .dmg): https://github.com/protagolabs/NarraNexus/releases
 
-### Prerequisites
+### Online Version
 
-**Windows users**: WSL2 is **required**. Install it first in PowerShell (Admin): `wsl --install`, then run all commands below inside the WSL2 terminal.
+Try NarraNexus online with **one click**, claim free credits here: https://agent.narra.nexus
 
-**macOS users**: Install the following tools before running the script (Linux users: handled automatically by `run.sh`):
+## Development Guide
 
-| Tool | How to install |
-|------|---------------|
-| [Homebrew](https://brew.sh/) | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Download from official site and launch |
-| [Node.js](https://nodejs.org/) (v20) | Install via [nvm](https://github.com/nvm-sh/nvm) (recommended): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
-
-### LLM Provider Configuration
-
-NarraNexus uses a **three-slot** architecture for LLM access. Each slot serves a different purpose and requires a specific API protocol:
-
-| Slot | Protocol | Purpose | Why it's needed |
-|------|----------|---------|-----------------|
-| **Agent** | Anthropic | Core dialogue — the main Agent reasoning loop | Powers the Agent's thinking, tool use, and multi-turn conversations via Claude Code CLI |
-| **Embedding** | OpenAI | Vector embedding generation | Converts text to vectors for Narrative topic matching and Social Network semantic search |
-| **Helper LLM** | OpenAI | Auxiliary LLM calls | Handles lightweight tasks: entity extraction, narrative summarization, module decisions — cheaper and faster than the Agent model |
-
-You can configure providers in several ways:
-
-| Option | What you need | Result |
-|--------|--------------|--------|
-| **[NetMind.AI Power](https://www.netmind.ai/)** | One API key | Covers all 3 slots (Anthropic + OpenAI protocol endpoints). Quickest setup, limited model selection. |
-| **Claude Code Login + OpenAI** | Claude Code CLI login + OpenAI API key | Agent slot via OAuth (free tier available), Embedding + Helper via OpenAI |
-| **Anthropic + OpenAI** | Anthropic API key + OpenAI API key | Full control over both providers |
-| **Custom endpoints** | Any Anthropic/OpenAI compatible URL | For proxies, self-hosted models, or alternative providers |
-
-> **Note on Embedding**: Currently only **OpenAI official API** and **NetMind.AI Power** are supported for embedding. More providers will be added in the future.
-
-Configuration is done through the setup wizard (desktop app) or the LLM Providers panel (web UI, click the CPU icon in the header). The config is stored at `~/.nexusagent/llm_config.json`.
-
-**Other API Keys**:
-
-| Dependency | Required | How to get |
-|------------|----------|------------|
-| **Google Gemini API Key** | Optional | Get from [aistudio.google.com](https://aistudio.google.com/apikey) -- enables RAG Knowledge Base (Gemini File Search) |
-| **EverMemOS LLM API Key** | Optional | For long-term memory (boundary detection & episode extraction). Default config uses [OpenRouter](https://openrouter.ai/). **If not configured**: memory extraction is disabled; Agent still works but without long-term memory. |
-| **EverMemOS Embedding/Rerank API Key** | Optional | For semantic search & reranking over memories. Default config uses [DeepInfra](https://deepinfra.com/). **If not configured**: defaults to local vLLM mode -- requires self-hosted GPU inference to function. |
-
-### Install & Run
+### Install from Source
 
 ```bash
 git clone https://github.com/NetMindAI-Open/NarraNexus.git
@@ -106,87 +104,107 @@ cd NarraNexus
 bash run.sh
 ```
 
-The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, `.env` configuration, and LLM provider setup. Just follow the prompts.
+The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, and configuration. Just follow the prompts.
 
-After install, open `http://localhost:5173`.
-
+After setup, open `http://localhost:5173` in your browser. 
 <br/>
 
 ![Install Interface](docs/images/install-interface-v2.png)
-<p align="center"><em>First-run experience</em></p>
+<p align="center"><em>Setup complete — ready to open the interface</em></p>
 
-### Configure EverMemOS (Long-term Memory)
+## LLM Provider Configuration
 
-EverMemOS provides long-term memory capabilities for the Agent (conversation boundary detection, episode extraction, and semantic retrieval). When you run `bash run.sh` → **Run** for the first time, the script will automatically guide you through an interactive configuration wizard. **All options can be skipped** -- the system will still start, but with different capabilities depending on what you configure:
+NarraNexus uses a **three-slot** architecture for LLM access:
+
+| Slot | Protocol | Purpose |
+|------|----------|---------|
+| **Agent** | Anthropic | Core reasoning -- powers the agent's thinking, tool use, and multi-turn conversations |
+| **Embedding** | OpenAI | Converts text to vectors for narrative matching and semantic search |
+| **Helper LLM** | OpenAI | Lightweight tasks -- entity extraction, summarization, module decisions |
+
+### Setup Options
+
+| Option | What you need | Result |
+|--------|--------------|--------|
+| **[NetMind.AI Power](https://www.netmind.ai/)** | One API key | Covers all 3 slots. Quickest setup. |
+| **Claude Code Login + OpenAI** | Claude Code CLI login + OpenAI API key | Agent via OAuth (free tier available), rest via OpenAI |
+| **Anthropic + OpenAI** | Anthropic API key + OpenAI API key | Full control over both providers |
+| **Custom endpoints** | Any Anthropic/OpenAI compatible URL | For proxies, self-hosted models, or alternatives |
+
+> **Note**: Currently only **OpenAI official API** and **NetMind.AI Power** are supported for embedding. More providers coming soon.
+
+Configure through the setup wizard (desktop app) or the LLM Providers panel (web UI, click the CPU icon in the header). Config is stored at `~/.nexusagent/llm_config.json`.
+
+### Optional API Keys
+
+| Dependency | Purpose | How to get |
+|------------|---------|------------|
+| **Google Gemini** | RAG Knowledge Base (Gemini File Search) | [aistudio.google.com](https://aistudio.google.com/apikey) |
+| **EverMemOS LLM** | Long-term memory extraction | [OpenRouter](https://openrouter.ai/) (default) |
+| **EverMemOS Embedding/Rerank** | Semantic search over memories | [DeepInfra](https://deepinfra.com/) (default) |
+
+If not configured, the agent still works -- just without long-term memory features.
+
+## Configure Long-term Memory (EverMemOS)
+
+EverMemOS gives the agent long-term episodic memory. On first run, `bash run.sh` walks you through an interactive setup wizard. All options are skippable:
 
 | What you configure | Result |
 |--------------------|--------|
-| **Nothing (skip all)** | Defaults to local vLLM mode. The Agent works normally but **memory features are disabled** until you either deploy local vLLM GPU services or fill in cloud API keys later in `.evermemos/.env`. |
-| **LLM API Key only** | Memory extraction (boundary detection, episode summarization) is enabled via OpenRouter. Embedding/Rerank still need local vLLM or cloud keys to enable semantic search. |
-| **All keys (LLM + Embedding + Rerank)** | Full long-term memory functionality -- cloud-based, no GPU required. **(Recommended for quick start)** |
+| **Nothing** | Agent works normally, memory features disabled |
+| **LLM key only** | Memory extraction enabled, semantic search needs additional keys |
+| **All keys** | Full long-term memory -- cloud-based, no GPU required **(recommended)** |
 
-You can also manually edit `.evermemos/.env` at any time. The key variables are:
+You can also edit `.evermemos/.env` manually at any time. See the [EverMemOS documentation](https://github.com/EverMind-AI/EverMemOS) for details.
 
-```bash
-# LLM -- used for boundary detection and episode extraction
-LLM_API_KEY=sk-or-v1-your-openrouter-key   # Get from https://openrouter.ai/
+## Potential Missing Dependencies
 
-# Embedding & Rerank -- used for semantic search over memories
-# Option A: Use DeepInfra cloud (recommended, no local GPU needed)
-VECTORIZE_PROVIDER=deepinfra
-VECTORIZE_API_KEY=your-deepinfra-key        # Get from https://deepinfra.com/
-VECTORIZE_BASE_URL=https://api.deepinfra.com/v1/openai
-RERANK_PROVIDER=deepinfra
-RERANK_API_KEY=your-deepinfra-key
-RERANK_BASE_URL=https://api.deepinfra.com/v1/inference
+**Windows users**: WSL2 is **required**. Install it first in PowerShell (Admin): `wsl --install`, then run all commands inside WSL2.
 
-# Option B: Use self-hosted vLLM (requires local GPU)
-# VECTORIZE_PROVIDER=vllm
-# VECTORIZE_API_KEY=EMPTY
-# VECTORIZE_BASE_URL=http://localhost:8000/v1
-# RERANK_PROVIDER=vllm
-# RERANK_API_KEY=EMPTY
-# RERANK_BASE_URL=http://localhost:12000/v1/rerank
-```
+**macOS users**:  Following tools might be missing:
+| Tool | How to install |
+|------|---------------|
+| [Homebrew](https://brew.sh/) | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Download from official site and launch |
+| [Node.js](https://nodejs.org/) (v20) | Install via [nvm](https://github.com/nvm-sh/nvm): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
 
-All other settings (MongoDB, Redis, Elasticsearch, Milvus) use Docker defaults and don't need changes.
-
-> For development workflows and project documentation, see [`.nac_doc/_overview.md`](./.nac_doc/_overview.md) and `CLAUDE.md`.
-
-## UI Guide
-
-## Data Directory (`~/.narranexus/`)
-
-NarraNexus stores runtime logs in a user-level directory at `~/.narranexus/`. This directory is created automatically on first run and does not contain any user data or secrets -- only service logs.
+## Architecture Overview
 
 ```
-~/.narranexus/
-└── logs/
-    ├── agents/              # Per-agent execution logs (one file per run)
-    │   ├── agent_<id>_<timestamp>.log.zip
-    │   └── ...
-    ├── job_trigger/         # Job scheduler logs (daily rotation)
-    │   └── job_trigger_YYYYMMDD.log
-    ├── matrix_trigger/      # Matrix communication trigger logs
-    │   └── matrix_trigger_YYYYMMDD.log
-    ├── mcp/                 # MCP server logs
-    │   └── mcp_YYYYMMDD.log
-    └── module_poller/       # Module poller logs
-        └── module_poller_YYYYMMDD.log
+┌─────────────────────────────────────────────────┐
+│              API Layer (FastAPI)                 │  ← HTTP / WebSocket endpoints
+├─────────────────────────────────────────────────┤
+│           AgentRuntime (Orchestrator)            │  ← 7-step pipeline
+├─────────────────────────────────────────────────┤
+│     Services (Narrative, Module, Context)        │  ← Business logic coordination
+├──────────────┬──────────────────────────────────┤
+│   Modules    │    Narrative    │   Social Graph  │  ← Independent capabilities
+├──────────────┴──────────────────────────────────┤
+│            Repository (Data Access)              │  ← Database abstraction
+├─────────────────────────────────────────────────┤
+│         Database (SQLite / MySQL)                │  ← Persistent storage
+└─────────────────────────────────────────────────┘
 ```
 
-- **Rotation**: logs rotate daily at midnight; old logs are compressed (`.zip`) and retained for 7 days
-- **Safe to delete**: the entire `~/.narranexus/` directory can be safely removed at any time -- it will be recreated on next run
-- **Desktop app**: uses the same `~/.narranexus/` path (on macOS: `~/.narranexus/`, not inside `~/Library/Application Support/`)
+**Core design principles:**
+- **Modules are independent** -- no module references or depends on another
+- **Hooks, not imports** -- modules communicate through lifecycle hooks (`hook_data_gathering`, `hook_after_event_execution`), not direct calls
+- **Multi-channel** -- Web, Desktop, Matrix, and future IM integrations all flow through the same pipeline
+- **Shared triggers** -- background services (job scheduler, message bus, module poller) use shared infrastructure with routing, never one-listener-per-agent
+
+## Data Directory
+
+NarraNexus stores runtime logs at `~/.narranexus/`. Created automatically, contains only service logs (no user data or secrets). Safe to delete at any time.
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [`.nac_doc/_overview.md`](./.nac_doc/_overview.md) | Documentation system entry point with project overview and reading path |
-| `CLAUDE.md` | Ironclad rules, architecture, module creation steps, coding standards |
-| [`.nac_doc/README.md`](./.nac_doc/README.md) | NAC Doc methodology (three-tier documentation system) |
-| [`.nac_doc/project/`](./.nac_doc/project/) | Deep references and task playbooks (Tier-3) |
+| [`.mindflow/_overview.md`](./.mindflow/_overview.md) | Project overview and architecture reading path |
+| `CLAUDE.md` | Development rules, architecture details, coding standards |
+| [`.mindflow/project/references/`](./.mindflow/project/references/) | Deep-dive references (architecture, module system, narrative system) |
+| [`.mindflow/project/playbooks/`](./.mindflow/project/playbooks/) | Step-by-step guides for common tasks |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Development setup, commit conventions, how to add modules |
 
 ## Star History
 
@@ -217,10 +235,6 @@ If you find NarraNexus useful, please cite it as:
   license      = {CC-BY-NC-4.0}
 }
 ```
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, commit conventions, and how to add new modules.
 
 ## License
 
