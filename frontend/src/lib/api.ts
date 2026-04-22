@@ -721,4 +721,30 @@ class ApiClient {
   }
 }
 
-export const api = new ApiClient();
+// ─────────────────────────────────────────────────────────────────────────
+// Mock layer — when enabled (?mock=1 or localStorage), calls fall through
+// to hand-authored fixtures instead of the backend. The real ApiClient
+// instance is preserved and used for any method the mock doesn't override
+// so the UI never 404s in mock mode. See src/lib/mock/index.ts.
+// ─────────────────────────────────────────────────────────────────────────
+import { MOCK_ENABLED, mockApi } from './mock';
+
+const _realApi = new ApiClient();
+
+export const api: ApiClient = MOCK_ENABLED
+  ? (() => {
+      // eslint-disable-next-line no-console
+      console.info(
+        '%c[MOCK]',
+        'background:#111214;color:#fff;padding:2px 6px;border-radius:0;',
+        'API mock layer active. Toggle off with ?mock=0 or the dev banner.'
+      );
+      return new Proxy(_realApi, {
+        get(target, prop, receiver) {
+          const mocked = (mockApi as unknown as Record<string | symbol, unknown>)[prop];
+          if (typeof mocked === 'function') return mocked.bind(mockApi);
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+    })()
+  : _realApi;
