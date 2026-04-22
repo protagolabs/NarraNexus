@@ -114,11 +114,13 @@ class ClaudeAgentSDK:
                 
         logger.debug(f"System prompt length: {len(system_prompt):,} chars")
         logger.debug(f"Your MCP: {claude_agent_mcp_dict}")
+        _is_claude_native = (claude_config.model or "").startswith("claude-")
         logger.info(
             f"[ClaudeAgentSDK] Provider config: "
             f"model={claude_config.model or '(default)'}, "
             f"base_url={claude_config.base_url or '(official)'}, "
-            f"auth_type={claude_config.auth_type}"
+            f"auth_type={claude_config.auth_type}, "
+            f"tool_search={'auto' if _is_claude_native else 'disabled (non-Claude model)'}"
         )
         logger.info(f"  [FULL_SYSTEM_PROMPT]\n{system_prompt}")
         logger.info(f"  [USER_PROMPT]\n{this_turn_user_message}")
@@ -144,6 +146,22 @@ class ClaudeAgentSDK:
         # 清除 CLAUDECODE 环境变量，避免嵌套会话检测导致子进程拒绝启动。
         # 当后端从 Claude Code 终端内启动时，子进程会继承此变量。
         cli_env["CLAUDECODE"] = ""
+
+        # Disable Claude Code's deferred tool loading for non-Claude models.
+        # Context: when the tool set exceeds the CLI's char threshold, Claude
+        # Code returns ``tool_reference`` blocks from its built-in ToolSearch
+        # tool instead of fully-expanded schemas. Those reference blocks are a
+        # Claude Sonnet-4+/Opus-4+ protocol extension. Non-Claude backends
+        # (e.g. MiniMax served via NetMind's Anthropic-compatible proxy) do not
+        # understand them, which surfaces as "the tool registry is not finding
+        # the chat module send_message tool" in the model's thinking and the
+        # session ends with no ``send_message_to_user_directly`` invocation.
+        # Forcing ENABLE_TOOL_SEARCH=false pins the CLI to the non-deferred
+        # (always-expanded) tool list on those sessions. Claude models keep
+        # the default (auto) behavior so they still benefit from deferred
+        # loading. See TODO-2026-04-22 T7 / BUG_FIX_LOG Bug 33.
+        if not _is_claude_native:
+            cli_env["ENABLE_TOOL_SEARCH"] = "false"
 
         # Inject skill-configured env vars (e.g., TAVILY_API_KEY, GOG_ACCOUNT)
         if extra_env:

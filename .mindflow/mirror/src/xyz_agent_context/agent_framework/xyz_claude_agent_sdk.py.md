@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-04-20
+last_verified: 2026-04-22
 stub: false
 ---
 
@@ -30,6 +30,8 @@ Claude Code CLI 是一个独立的命令行工具，通过 `claude_agent_sdk` Py
 
 **600 秒 idle timeout**（Bug 20, 2026-04-20 从 1200s 下调）：用 `asyncio.wait_for` 包装每次 `__anext__()`，超过 10 分钟 CLI 静默则抛 TimeoutError。原来 1200s 是基于"给 MCP tool call 足够空间"的保守估计；事故后每个 MCP 工具 handler 通过 `with_mcp_timeout` 自限在 ≤60s，Claude CLI 内置 tool 自己有更短 timeout，**真实工作下 600s 静默 = 一定出 bug**，早点 TimeoutError 让错误更快现形。
 
+**按模型名决定是否启用 ToolSearch / deferred tool loading**（2026-04-22 引入）：Claude Code CLI 在工具总量超过 `ToolSearchCharThreshold` 时自动启用 deferred tool loading —— 给 LLM 一个工具索引，具体 schema 通过 `ToolSearch(select:X)` 按需加载并以 `tool_reference` block 返回。这个协议是 Claude Sonnet-4+ / Opus-4+ 的扩展，**非 Claude 模型（MiniMax / GPT / Gemini 等）通过 Anthropic-compatible 代理调用时看不懂 `tool_reference`**，表现为 LLM thinking 里抱怨 "the tool registry is not finding the chat module send_message tool"、整段 turn 静默结束（Pattern A 的硬证据见 TODO-2026-04-22 T7）。现在根据 `claude_config.model` 是否以 `claude-` 开头在 `cli_env` 组装时做决策：Claude 原生模型走 CLI 默认 `auto` 模式继续享受 deferred 省 token 收益；非 Claude 模型显式 `ENABLE_TOOL_SEARCH=false`，CLI 把所有工具全量暴露给 LLM、不再依赖 `tool_reference`，MiniMax 等模型可稳定 invoke。决策同步写进 `Provider config` 日志行的 `tool_search=` 字段，方便事后 grep。
+
 **`build_tool_policy_guard` 注入 PreToolUse hook 做沙箱**：CLI 本身没有工作空间隔离概念，也不知道 WebSearch 需要 Anthropic 服务端工具。我们在这里装一个 hook（`_tool_policy_guard.py`），在云端部署下强制 Read/Glob/Grep 只能访问 workspace、Bash 不允许全局安装（brew/npm -g/apt/sudo/裸 pip），在任何模式下把 `lark-cli` shell-out 重定向到 MCP、把无 server-tool 的 provider 调 WebSearch 拦下来改用 WebFetch。hook 在 `permission_mode="bypassPermissions"` 之前触发，所以即使 bypass 也生效。`HookMatcher` 的 `matcher` 必须覆盖 `Read|Glob|Grep|WebSearch|Bash`。
 
 ## Gotcha / 边界情况
@@ -37,6 +39,7 @@ Claude Code CLI 是一个独立的命令行工具，通过 `claude_agent_sdk` Py
 - `include_partial_messages=True` 导致 partial 和 complete `AssistantMessage` 都携带 `ToolUseBlock`，同一 `tool_call_id` 会出现两次。去重通过 `seen_tool_call_ids` set 在这里处理，`output_transfer.py` 不处理去重。
 - 0 条消息收到时 log error 但不抛出异常——调用方会收到一个空 `final_output` 的 `PathExecutionResult`。这是静默降级，可能让用户看到空回复而不是错误提示。
 - `client.disconnect()` 在 cancel scope 错误时被静默忽略（anyio cancel scope 兼容性问题），正常 RuntimeError 仍会抛出。
+- **ToolSearch 判断依赖 `claude_config.model` 非 None 且以小写 `claude-` 开头**。如果某调用路径没给 model（slot 配置缺失 / 默认 fallback），`(claude_config.model or "")` 为空 → `startswith("claude-")` 为 False → 走非 Claude 分支禁用 ToolSearch。这是安全方向 fallback：宁可多烧一点 token 也要保证工具可调用。若未来接了大写写法或别名的 provider，需扩展这条判断而不是简单复制。
 
 ## 新人易踩的坑
 
