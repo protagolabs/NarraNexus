@@ -223,37 +223,72 @@ done
 # We install to a tempdir (HOME-redirect) so we don't pollute the build
 # machine's own ~/.agents/skills/, then cp -RL into the bundle so any
 # skills-CLI-created symlinks are dereferenced into self-contained files.
-echo ""
-echo "  Pre-installing Lark skill pack into bundle..."
+#
+# Escape hatch: `SKIP_LARK_SKILLS=1 bash scripts/build-desktop.sh` skips
+# this step entirely — useful when the build machine can't reach npm
+# registry / GitHub (China users behind an unreliable VPN). The v1
+# fallback in sidecar/lark_preflight.rs will install at first launch
+# via bundled npx (still needs network on the END-USER machine, but
+# the dmg itself builds). Timeout here is 5 minutes — npx first-run
+# fetches the `skills` package from npm AND the lark skill content
+# from GitHub, both of which can be slow on cold caches.
 SKILL_BUNDLE_DIR="$RESOURCES_DIR/lark-skills"
 rm -rf "$SKILL_BUNDLE_DIR"
 mkdir -p "$SKILL_BUNDLE_DIR"
 
-SKILL_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/lark-skills-stage.XXXXXX")
-(
-    cd "$SKILL_STAGE"
-    HOME="$SKILL_STAGE" PATH="$NODE_DIR/bin:$PATH" \
-        "$NODE_DIR/bin/npx" skills add larksuite/cli -y -g 2>&1 | tail -5
-) || echo "  (skills add exited non-zero; will check output below)"
-
-if [ -d "$SKILL_STAGE/.agents/skills" ]; then
-    # cp -RL dereferences any symlinks skills-CLI may have created
-    # (e.g. ~/.claude/skills/* symlinks back into ~/.agents/skills/)
-    # so the bundled directory is fully self-contained.
-    for dir in "$SKILL_STAGE/.agents/skills/"lark-*; do
-        [ -e "$dir" ] || continue
-        cp -RL "$dir" "$SKILL_BUNDLE_DIR/"
-    done
-    rm -rf "$SKILL_STAGE"
-    skill_count=$(find "$SKILL_BUNDLE_DIR" -maxdepth 1 -type d -name 'lark-*' | wc -l | tr -d ' ')
-    if [ "$skill_count" -eq 0 ]; then
-        echo "  WARN: skill pack install produced no lark-* directories — fallback network install will trigger at first launch"
-    else
-        echo "  Bundled $skill_count lark-* skills ($(du -sh "$SKILL_BUNDLE_DIR" | cut -f1))"
-    fi
+if [ -n "${SKIP_LARK_SKILLS:-}" ]; then
+    echo ""
+    echo "  SKIP_LARK_SKILLS=1 set — skipping skill pack bundle."
+    echo "  End users will need network on first launch for lark features"
+    echo "  (sidecar/lark_preflight.rs v1 npx fallback kicks in)."
 else
-    echo "  WARN: skill pack install failed ($SKILL_STAGE/.agents/skills missing); users will need network on first launch"
-    rm -rf "$SKILL_STAGE"
+    echo ""
+    echo "  Pre-installing Lark skill pack into bundle (5 min timeout)..."
+    SKILL_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/lark-skills-stage.XXXXXX")
+    # Wrap the install in a bash-native timeout. macOS doesn't ship GNU
+    # `timeout`, so we use & + wait + kill. 300s is enough for the
+    # typical "cold npm cache + cold GitHub clone" path; longer than
+    # that almost always indicates the network is fully blocked.
+    (
+        cd "$SKILL_STAGE"
+        HOME="$SKILL_STAGE" PATH="$NODE_DIR/bin:$PATH" \
+            "$NODE_DIR/bin/npx" skills add larksuite/cli -y -g 2>&1 | tail -10
+    ) &
+    SKILL_PID=$!
+    SKILL_ELAPSED=0
+    while kill -0 "$SKILL_PID" 2>/dev/null; do
+        if [ "$SKILL_ELAPSED" -ge 300 ]; then
+            echo "  skill pack install timed out after 300s — killing."
+            kill -9 "$SKILL_PID" 2>/dev/null
+            wait "$SKILL_PID" 2>/dev/null
+            break
+        fi
+        sleep 2
+        SKILL_ELAPSED=$((SKILL_ELAPSED + 2))
+    done
+    wait "$SKILL_PID" 2>/dev/null || true
+
+    if [ -d "$SKILL_STAGE/.agents/skills" ]; then
+        # cp -RL dereferences any symlinks skills-CLI may have created
+        # (e.g. ~/.claude/skills/* symlinks back into ~/.agents/skills/)
+        # so the bundled directory is fully self-contained.
+        for dir in "$SKILL_STAGE/.agents/skills/"lark-*; do
+            [ -e "$dir" ] || continue
+            cp -RL "$dir" "$SKILL_BUNDLE_DIR/"
+        done
+        rm -rf "$SKILL_STAGE"
+        skill_count=$(find "$SKILL_BUNDLE_DIR" -maxdepth 1 -type d -name 'lark-*' | wc -l | tr -d ' ')
+        if [ "$skill_count" -eq 0 ]; then
+            echo "  WARN: skill pack install produced no lark-* directories — runtime fallback will trigger at first launch"
+        else
+            echo "  Bundled $skill_count lark-* skills ($(du -sh "$SKILL_BUNDLE_DIR" | cut -f1))"
+        fi
+    else
+        echo "  WARN: skill pack install failed — users will need network on first launch"
+        echo "        To skip this step permanently on poor-network build machines:"
+        echo "        SKIP_LARK_SKILLS=1 bash scripts/build-desktop.sh"
+        rm -rf "$SKILL_STAGE"
+    fi
 fi
 
 # Replace the npm-generated `.bin/lark-cli` wrapper with a bash shim.
