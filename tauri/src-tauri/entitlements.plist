@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Entitlements for Developer ID signing + notarization.
+      Tuned for an app whose main binary spawns:
+        - a bundled standalone Python 3.13 (resources/python/bin/python3)
+        - a bundled Node.js 22 (resources/nodejs/bin/node)
+      plus the @anthropic-ai/claude-code CLI those Python subprocesses launch.
+      Without these three entitlements, hardened runtime kills the Python
+      interpreter the moment it dlopens a C extension with non-matching
+      signature (numpy, aiosqlite, cryptography, …) and kills node the
+      moment V8 allocates JIT pages.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <!--
+      Needed so the bundled Python can pick up PYTHONPATH /
+      DYLD_FALLBACK_LIBRARY_PATH et al when process_manager.rs passes them
+      through to subprocesses. Without this, hardened runtime strips the
+      vars at exec time and the children fall back to system defaults.
+    -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+</dict>
+</plist>

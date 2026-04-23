@@ -30,8 +30,19 @@ use crate::state::{resolve_bundled_node_bins, resolve_resource_dir};
 const LARK_SKILLS_INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Entry point — spawn as a detached task in setup(). Non-blocking.
+///
+/// IMPORTANT: we use `tauri::async_runtime::spawn`, NOT `tokio::spawn`.
+/// Tauri's `setup()` callback fires from the Cocoa main thread during
+/// `NSApplicationDidFinishLaunching`, where no tokio runtime handle is bound
+/// to the current thread. A bare `tokio::spawn` panics with "there is no
+/// reactor running", and because this path is inside an Objective-C → Rust
+/// FFI callback, the panic cannot unwind and the process aborts immediately
+/// on launch (observed as SIGABRT at `panic_cannot_unwind` in
+/// `tao::app_delegate::did_finish_launching`). `tauri::async_runtime::spawn`
+/// schedules onto Tauri's managed runtime so we're safe regardless of which
+/// thread drove setup().
 pub fn run_preflight() {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         if lark_skills_present() {
             log::info!("lark preflight: skill pack already installed");
             return;

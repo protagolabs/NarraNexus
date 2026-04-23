@@ -201,12 +201,38 @@ echo "xattr cleaned"
 # then the .app directory is already assembled, so step 7 can clean xattrs
 # and sign manually.
 #
-# APPLE_SIGNING_IDENTITY='-' = ad-hoc. An empty string causes tauri to
-# report "no identity found" and bail before the .app is in a usable state.
+# Signing modes driven by the APPLE_SIGNING_IDENTITY env var:
+#   unset / empty   → default to '-' (ad-hoc). Self-distribution only; users
+#                     get a Gatekeeper warning and need right-click → Open.
+#   '-'             → ad-hoc. Same as above, just explicit.
+#   "Developer ID Application: Name (TEAMID)"
+#                   → real Developer ID signing. Hardened runtime +
+#                     entitlements kick in automatically in step 7. If
+#                     APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+#                     are also set, step 8 will notarize.
+#   "Apple Development: …"
+#                   → development-team signing. Works on the machines in the
+#                     team's provisioning profile; NOT notarizable.
+#
+# An empty string causes tauri to report "no identity found" and bail before
+# the .app is in a usable state, so we always fall back to '-'.
 echo ""
 echo "--- Step 6: Building Tauri app (sign may fail — fallback in step 7) ---"
 cd "$TAURI_DIR"
-export APPLE_SIGNING_IDENTITY='-'
+
+if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+    export APPLE_SIGNING_IDENTITY='-'
+    echo "  APPLE_SIGNING_IDENTITY unset → using ad-hoc ('-')"
+else
+    echo "  APPLE_SIGNING_IDENTITY='${APPLE_SIGNING_IDENTITY}'"
+fi
+
+# Real-sign detection: any identity that isn't '-' gets hardened runtime +
+# entitlements + (if notarization creds present) notarization.
+case "$APPLE_SIGNING_IDENTITY" in
+    '-'|'')  IS_REAL_SIGN=0 ;;
+    *)       IS_REAL_SIGN=1 ;;
+esac
 
 # Temporarily disable -e so a signing failure here doesn't kill the script.
 # We only need the .app directory to exist for step 7 to succeed.
@@ -258,12 +284,59 @@ xattr -cr "$STAGE_APP" 2>/dev/null || true
 find "$STAGE_APP" -name '._*' -delete 2>/dev/null || true
 find "$STAGE_APP" -name '.DS_Store' -delete 2>/dev/null || true
 
-# Ad-hoc sign (no Apple Developer identity required; recipients need to
-# right-click → Open on first launch to bypass Gatekeeper).
-echo "  Signing staged .app..."
-codesign --force --deep --sign - "$STAGE_APP"
-codesign --verify --verbose=2 "$STAGE_APP" 2>&1 | head -3 || true
-echo "  Signing OK"
+# Sign the staged .app. Two code paths:
+#
+# 1. Ad-hoc ('-') — no Developer ID required; recipients get a Gatekeeper
+#    warning and must right-click → Open on first launch.
+# 2. Developer ID — full hardened-runtime sign with entitlements. This is
+#    what notarization needs. We sign inner Mach-O binaries first (Python
+#    interpreter, bundled node, dylibs) then the outer .app, otherwise
+#    codesign rejects it with "resource envelope is obsolete".
+#
+# `--timestamp` is required for notarization; `--options runtime` enables
+# hardened runtime; `--entitlements` applies the plist. `--force` + `--deep`
+# together handle the case where cargo tauri already tried (and failed) to
+# sign and left partial signatures in place.
+ENTITLEMENTS_PLIST="$SRC_TAURI/entitlements.plist"
+
+if [ "$IS_REAL_SIGN" -eq 1 ]; then
+    echo "  Developer-ID signing staged .app with identity:"
+    echo "    $APPLE_SIGNING_IDENTITY"
+
+    # Sign inner Mach-O files first. find -perm +111 catches every
+    # executable (Python, node, codesign hates when a parent is signed
+    # before its children for hardened runtime).
+    while IFS= read -r -d '' target; do
+        # Skip symlinks (codesign follows them and may double-sign).
+        [ -L "$target" ] && continue
+        # Only try to sign Mach-O binaries / dylibs; text scripts and
+        # data files are covered by the outer bundle seal.
+        if file "$target" 2>/dev/null | grep -qE 'Mach-O|dynamically linked'; then
+            codesign --force --timestamp --options runtime \
+                --entitlements "$ENTITLEMENTS_PLIST" \
+                --sign "$APPLE_SIGNING_IDENTITY" "$target" \
+                2>/dev/null || echo "    (warn) could not sign $target"
+        fi
+    done < <(find "$STAGE_APP/Contents/Resources" -type f -print0 2>/dev/null)
+
+    # Seal the outer bundle.
+    codesign --force --deep --timestamp --options runtime \
+        --entitlements "$ENTITLEMENTS_PLIST" \
+        --sign "$APPLE_SIGNING_IDENTITY" "$STAGE_APP"
+
+    codesign --verify --verbose=2 "$STAGE_APP" 2>&1 | head -5 || true
+    # `spctl` checks Gatekeeper's view of the signature. Expected to fail
+    # until notarization runs ("source=No Matching DeveloperID"); that's
+    # just information, not a build failure.
+    spctl --assess --verbose=4 --type execute "$STAGE_APP" 2>&1 | head -2 || true
+    echo "  Developer-ID signing OK"
+else
+    # Ad-hoc sign.
+    echo "  Ad-hoc signing staged .app..."
+    codesign --force --deep --sign - "$STAGE_APP"
+    codesign --verify --verbose=2 "$STAGE_APP" 2>&1 | head -3 || true
+    echo "  Ad-hoc signing OK"
+fi
 
 # Create DMG from the staged .app
 echo ""
@@ -285,6 +358,49 @@ STAGE_ZIP="$STAGE_DIR/NarraNexus.zip"
 (cd "$STAGE_DIR" && ditto -c -k --keepParent "NarraNexus.app" "NarraNexus.zip")
 cp "$STAGE_ZIP" "$ZIP_PATH"
 echo "ZIP created: $ZIP_PATH"
+
+# Step 8: Notarization (opt-in via env vars).
+#
+# Fires only when all three credentials are set AND we ran a real Developer
+# ID sign in step 7. Otherwise this is a no-op.
+#
+# Required env vars:
+#   APPLE_ID                      — Apple ID email
+#   APPLE_APP_SPECIFIC_PASSWORD   — app-specific password from appleid.apple.com
+#                                   (NOT your Apple ID login password)
+#   APPLE_TEAM_ID                 — 10-char team identifier from developer.apple.com
+#
+# We submit the DMG (not the .app) because notarytool accepts both but DMGs
+# are what end users download. Stapling attaches the notarization ticket to
+# the DMG so Gatekeeper can verify offline on first open.
+if [ "$IS_REAL_SIGN" -eq 1 ] \
+   && [ -n "${APPLE_ID:-}" ] \
+   && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] \
+   && [ -n "${APPLE_TEAM_ID:-}" ]; then
+    echo ""
+    echo "--- Step 8: Notarizing DMG ---"
+    echo "  Submitting $STAGE_DMG to Apple notary service..."
+    # --wait blocks until notarization finishes (typ. 1-5 min). --output-format
+    # json would let us machine-parse, but for human-driven builds the plain
+    # output is more informative when things go wrong.
+    xcrun notarytool submit "$STAGE_DMG" \
+        --apple-id "$APPLE_ID" \
+        --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+        --team-id "$APPLE_TEAM_ID" \
+        --wait
+    echo "  Stapling ticket to DMG..."
+    xcrun stapler staple "$STAGE_DMG"
+    xcrun stapler validate "$STAGE_DMG"
+    # Copy stapled DMG back over the unstapled one.
+    cp "$STAGE_DMG" "$DMG_PATH"
+    echo "  Notarization + stapling OK"
+elif [ "$IS_REAL_SIGN" -eq 1 ]; then
+    echo ""
+    echo "--- Step 8: Notarization skipped ---"
+    echo "  Developer-ID signed but APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID not set."
+    echo "  DMG will work on signing machine but end users will see Gatekeeper warnings."
+    echo "  To notarize, export those vars and re-run this script."
+fi
 
 # Also overwrite the .app under src-tauri with the signed-clean copy so
 # `cargo tauri build` artifacts are consistent with the DMG contents.
