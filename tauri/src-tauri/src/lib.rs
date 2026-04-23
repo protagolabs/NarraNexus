@@ -29,6 +29,19 @@ pub fn run() {
             commands::tray::set_tray_badge,
         ])
         .setup(|app| {
+            // Port-conflict preflight. Must run before anything else: if a
+            // required port (8000 / 8100 / 7801 / 7830) is held by another
+            // process, spawning the Python sidecars will silently fail
+            // (bind error → child exits → black screen forever with no
+            // visible log). The preflight shows a native dialog explaining
+            // which port is stuck on which process and exits cleanly.
+            // See sidecar/port_preflight.rs for the 3-step plan this is
+            // the first iteration of.
+            let port_conflicts = sidecar::port_preflight::check_required_ports();
+            if !port_conflicts.is_empty() {
+                sidecar::port_preflight::show_conflict_dialog_and_exit(&port_conflicts);
+            }
+
             // Set DATABASE_URL so the Python backend picks up the correct SQLite path
             let db_path = resolve_db_path();
             if let Some(parent) = db_path.parent() {

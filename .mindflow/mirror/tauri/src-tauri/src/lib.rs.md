@@ -13,6 +13,10 @@ Tauri builder configuration lives.
 1. `AppState::default()` resolves paths, detects bundled vs dev mode,
    creates `ServiceDef` list.
 2. `setup()` callback:
+   - Runs `sidecar::port_preflight::check_required_ports()` FIRST — if any
+     required port (8000 / 8100 / 7801 / 7830) is held by another process,
+     show a native `osascript` dialog and exit. This prevents the
+     "black screen forever" UX when a user has another backend on :8000.
    - Sets `DATABASE_URL` env var pointing to `~/.narranexus/nexus.db`
    - Sets `SQLITE_PROXY_URL=http://localhost:8100` and `SQLITE_PROXY_PORT=8100`
    - Creates the system tray
