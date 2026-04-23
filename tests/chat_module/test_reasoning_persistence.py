@@ -146,11 +146,12 @@ async def test_hook_after_event_persists_final_output_to_meta_reasoning(
 
 
 @pytest.mark.asyncio
-async def test_long_reasoning_is_truncated_when_persisted(chat_module):
-    """A very long `final_output` must be truncated on write to keep the
-    persisted row bounded. Truncation marker must be visible so future
-    readers know something was cut."""
-    long_reasoning = "A" * 5000  # well above any sensible cap
+async def test_long_reasoning_is_preserved_full_on_persist(chat_module):
+    """Reasoning is stored as-is, no truncation. The Agent authored the
+    text itself, so it's already self-limited; cutting it risks cutting
+    exactly the long opaque value (device_code, file token, etc.) the
+    Agent was trying to carry to the next turn."""
+    long_reasoning = "A" * 5000
     reply = _reply_progress("reply body")
     params = _hook_params(
         agent_loop_response=[reply],
@@ -165,10 +166,9 @@ async def test_long_reasoning_is_truncated_when_persisted(chat_module):
     assistants = [m for m in memory.get("messages", []) if m.get("role") == "assistant"]
     stored = assistants[0]["meta_data"].get("reasoning", "")
 
-    assert len(stored) < len(long_reasoning), "reasoning must be truncated"
-    assert "truncated" in stored.lower(), (
-        "truncation must leave a visible marker so downstream readers "
-        "know some of the text was cut."
+    assert stored == long_reasoning, (
+        "reasoning must be persisted verbatim; truncation would risk "
+        "cutting the value the Agent wanted to carry across turns."
     )
 
 

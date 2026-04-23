@@ -642,18 +642,13 @@ class ChatModule(XYZBaseModule):
         # the one channel that can carry machine-readable values (device
         # codes, job ids, freshly minted URLs) into the next turn. Capture
         # it on assistant meta_data so hook_data_gathering can splice it
-        # back into content when building next turn's chat history. Cap
-        # length to keep the JSON row bounded; long tool outputs the Agent
-        # wanted to remember should be summarised by the Agent itself in
-        # its reasoning, not blindly persisted in full.
-        _MAX_REASONING_CHARS = 2000
-        _raw_reasoning = params.io_data.final_output if params.io_data else ""
-        if _raw_reasoning and len(_raw_reasoning) > _MAX_REASONING_CHARS:
-            assistant_reasoning: str = (
-                _raw_reasoning[:_MAX_REASONING_CHARS] + "…[reasoning truncated]"
-            )
-        else:
-            assistant_reasoning = _raw_reasoning or ""
+        # back into content when building next turn's chat history. Stored
+        # full — truncation was explored and rejected: (a) the Agent writes
+        # the reasoning itself, so it's already self-limited; (b) a cap
+        # risks cutting exactly the value the Agent wanted to carry across.
+        assistant_reasoning: str = (
+            (params.io_data.final_output if params.io_data else "") or ""
+        )
         assistant_meta = (
             {**shared_meta, "reasoning": assistant_reasoning}
             if assistant_reasoning
