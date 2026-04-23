@@ -541,15 +541,27 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         forbidden by shortcut commands.
 
         On failure:
-          - "missing_scope: X" (bot or user scope missing): call this tool
-            with `"auth login --scope \\"X\\" --json --no-wait"`. The response
-            includes a verification URL — send it to the user and wait for
-            them to click. This is the sanctioned increment-scope path.
-          - "Command blocked: `auth login` without --scope ...": you tried a
-            bare `auth login` — that's reserved for `lark_permission_advance`.
-            Re-issue with `--scope <missing>` instead.
-          - "Command blocked" (other): the command hit the lifecycle whitelist.
-            Use the dedicated tool (lark_setup / lark_permission_advance / ...).
+          - "missing_scope: X" (bot or user scope missing): this is a
+            TWO-STEP, TWO-TURN recovery — see the "Incremental scope
+            authorization" section of the Lark module prompt for the full
+            rules. Summary: (1) THIS turn, call `auth login --scope \\"X\\"
+            --json --no-wait`, send the `verification_uri` to the user,
+            and STOP. (2) NEXT turn, when the user confirms they clicked,
+            call `auth login --device-code <D>` using the `device_code`
+            from Step 1's response. Never poll `--device-code` in the
+            same turn as the mint (user hasn't clicked yet → Lark returns
+            `authorization_pending`). Never re-mint while a URL is already
+            in flight for the scope.
+          - "authorization_pending" from `auth login --device-code`: the
+            user has not clicked yet. Do NOT mint a new URL; ask them to
+            click the one already sent.
+          - "Command blocked: `auth login` without --scope ...": you tried
+            a bare `auth login` — that's reserved for
+            `lark_permission_advance`. Re-issue with `--scope <missing>`
+            instead.
+          - "Command blocked" (other): the command hit the lifecycle
+            whitelist. Use the dedicated tool (lark_setup /
+            lark_permission_advance / ...).
           - "No Lark bot bound": run lark_setup or lark_bind first.
         """
         cred = await _get_credential(agent_id)

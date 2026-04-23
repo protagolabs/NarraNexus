@@ -1,8 +1,37 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-04-22
+last_verified: 2026-04-23
 ---
+
+## 2026-04-23 update — incremental scope authorization guide
+
+Added `_INCREMENTAL_AUTH_GUIDE` constant and wired it into the
+`stage=="completed"` branch of `get_instructions`. Motivated by the
+xinyao_test_v1 prod incident 2026-04-22 where the agent minted 6
+separate `auth login --scope X --no-wait` URLs inside 13 minutes
+without ever polling the device_code from any of them.
+
+Why a new prompt block instead of reworking state/flow: the CLI
+primitives (`--no-wait` + `--device-code`) already support the correct
+two-step flow. What was missing was the agent-side discipline to
+(a) poll with the previous turn's device_code instead of re-minting,
+and (b) not poll inside the same turn as the mint. Both were absent
+from `_IDENTITY_GUIDE`'s one-line missing_scope bullet. The new guide
+explicitly scripts Step 1 (this turn: mint, send URL, stop), Step 2
+(next turn: poll with the prior device_code, retry original command),
+the "do not mint while a URL is in flight" rule, and the
+`authorization_pending` error translation. Pins the two-turn
+boundary into the prompt so future LLMs / prompt edits can't regress
+it silently; the pinning is enforced by
+`tests/lark_module/test_incremental_auth_guide.py`.
+
+Gated on `stage == "completed"` for the same reason `_IDENTITY_GUIDE`
+is — during onboarding the three-click flow handles authorization
+end-to-end and this guidance would be confusing noise.
+
+The `lark_cli` tool docstring in `_lark_mcp_tools.py` was updated to
+point at this section rather than restate the incomplete one-liner.
 
 ## 2026-04-22 update — C-mini redesign (three-click authorization)
 

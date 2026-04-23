@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
-last_verified: 2026-04-22
+last_verified: 2026-04-23
 ---
+
+## 2026-04-23 — lark_cli "On failure" rewrite for missing_scope
+
+The `missing_scope` recovery bullet in the `lark_cli` tool docstring
+previously taught only `auth login --scope X --no-wait` with no mention
+of the follow-up `auth login --device-code D` poll. Agents therefore
+kept re-minting on every turn (xinyao_test_v1 incident 2026-04-22).
+Rewrote the bullet to (a) reference the fuller "Incremental scope
+authorization" section rendered by `lark_module.get_instructions` and
+(b) summarize the two-step, two-turn rule inline for agents that read
+tool docstrings before prompts. Also added an explicit translation for
+`authorization_pending` so agents don't mistake it for a generic
+failure that warrants a fresh mint.
+
+No logic changed inside `lark_cli` itself — still a passthrough after
+`validate_command` + `sanitize_command`. Intentionally kept pure prompt
+fix, per decision "trust LLMs to get smarter given clearer prompts
+before adding state-machine scaffolding".
 
 ## Why it exists
 

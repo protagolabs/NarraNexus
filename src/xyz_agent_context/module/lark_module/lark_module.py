@@ -102,9 +102,52 @@ _IDENTITY_GUIDE = (
     "`user` whenever a user token exists — that triggers `missing_scope: "
     "im:message:send_as_user` on send commands. Always write `--as bot` "
     "(or `--as user` where justified), never let it default.\n"
-    "- If a command does error with `missing_scope: X`, the recovery is "
-    "`lark_cli(\"auth login --scope \\\"X\\\" --json --no-wait\")` — this is "
-    "allowed and mints a verification URL for the user to click.\n\n"
+    "- If a command errors with `missing_scope: X`, recover via the "
+    "**Incremental scope authorization** flow below — do NOT naively call "
+    "`auth login --scope X --no-wait` again if a URL for that scope is "
+    "already in flight.\n\n"
+)
+
+_INCREMENTAL_AUTH_GUIDE = (
+    "### Incremental scope authorization (two-step, two-turn)\n"
+    "When `lark_cli` fails with `missing_scope: X`, recovering the scope "
+    "is a **conversation spanning two of your turns**, not a single tool "
+    "call. Getting this wrong (polling too early, or re-minting on every "
+    "turn) orphans device codes and traps the user in an authorization "
+    "loop. Follow the pattern exactly:\n\n"
+    "**Step 1 — THIS turn: mint and send, then stop.**\n"
+    "  1. Call `lark_cli(\"auth login --scope \\\"X\\\" --json --no-wait\")`.\n"
+    "  2. The response contains `device_code`, `user_code`, and "
+    "`verification_uri`. **Keep the `device_code` value in mind; you will "
+    "use it next turn.**\n"
+    "  3. Send `verification_uri` to the user in one Lark message and ask "
+    "them to reply after clicking (e.g. 'tell me when you've clicked').\n"
+    "  4. **End your turn.** Do NOT call `auth login --device-code` in the "
+    "same turn as the mint — the user has not had time to click yet, Lark "
+    "will return `authorization_pending`, and you will be tempted to mint "
+    "a fresh code. Resist that. Just stop.\n\n"
+    "**Step 2 — NEXT turn, when the user confirms they clicked:**\n"
+    "  1. Call `lark_cli(\"auth login --device-code <D>\")` where `<D>` is "
+    "the `device_code` from the previous turn's `--no-wait` response. "
+    "This polls Lark briefly and writes the new token into the agent "
+    "workspace.\n"
+    "  2. Retry the original command that failed with `missing_scope`.\n\n"
+    "**Do NOT mint a new URL if:**\n"
+    "- You already sent a `--no-wait` URL for the same scope earlier in "
+    "this conversation AND the user has not reported that it doesn't "
+    "work. Minting again invalidates nothing on Lark's side but leaves "
+    "the old URL dangling — the user's click on either URL still works, "
+    "but seeing a second link is confusing.\n"
+    "- The user just said 'done / clicked / 完成了 / 我点了' — this is the "
+    "Step 2 trigger, go poll with `--device-code`, do NOT re-mint.\n\n"
+    "**Mint a fresh URL only when:**\n"
+    "- The user reports the previous link is broken, expired, shows an "
+    "error page, or they closed it without clicking.\n"
+    "- You have no record of a `--no-wait` for this scope in the current "
+    "conversation.\n\n"
+    "**If `--device-code` returns `authorization_pending`:** the user has "
+    "not clicked yet. Do NOT re-mint. Ask them to click the URL you "
+    "already sent (or remind them which one).\n\n"
 )
 
 _CONTENT_DELIVERY_GUIDE = (
@@ -468,10 +511,15 @@ class LarkModule(XYZBaseModule):
         # --- Three-click background only while configuring ----------------
         background = _THREE_CLICK_BACKGROUND if stage != "completed" else ""
 
-        # --- Identity guide + content delivery: only when we can actually do
-        # lark_cli writes (stage=completed). During configuration, Agent isn't
-        # composing im +messages-send commands, so this guidance is just noise.
+        # --- Identity guide + incremental auth + content delivery: only when
+        # we can actually do lark_cli writes (stage=completed). During
+        # configuration, the three-click flow handles authorization entirely,
+        # so incremental scope guidance would be misleading; and the agent
+        # isn't composing im +messages-send commands yet, so that's noise too.
         identity_guide = _IDENTITY_GUIDE if stage == "completed" else ""
+        incremental_auth_guide = (
+            _INCREMENTAL_AUTH_GUIDE if stage == "completed" else ""
+        )
         delivery_guide = _CONTENT_DELIVERY_GUIDE if stage == "completed" else ""
 
         return (
@@ -483,6 +531,7 @@ class LarkModule(XYZBaseModule):
             f"{matrix}"
             f"{coach}"
             f"{identity_guide}"
+            f"{incremental_auth_guide}"
             f"{delivery_guide}"
             f"{skill_section}"
             f"{_IRON_RULES}"
