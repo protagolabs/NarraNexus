@@ -5,25 +5,31 @@
 @description: Per-request routing between a user's own LLM config and the
 system-default NetMind config, with quota gating on the system branch.
 
-Wired into backend.auth.auth_middleware. Four branches:
+Wired into backend.auth.auth_middleware. Decision tree (aligned with
+business-layer `api_config.get_user_llm_configs` so the two entry points
+cannot disagree):
 
-  A. SystemProviderService.is_enabled() == False
+  0. SystemProviderService.is_enabled() == False
      -> strict no-op; local mode / disabled env leaves every ContextVar
         untouched. Agent code paths continue to use the existing
         llm_config.json global fallback.
 
-  B. User has a complete own config (all three slots + active providers)
-     -> convert LLMConfig to the three dataclasses set_user_config expects,
-        set_user_config(claude, openai, embedding), tag provider_source="user".
-        Quota is NOT consulted on this branch.
+  1. quota row exists AND prefer_system_override=True (the default for
+     newly registered users — they start on the free tier):
+     1a. quota has budget  -> route "system" (cost_tracker deducts post-call)
+     1b. no budget + has complete own config -> FreeTierExhaustedError
+         (user can uncheck the Settings toggle to switch to their own key)
+     1c. no budget + no own provider         -> QuotaExceededError
+         (user must add a provider before the app becomes usable again)
 
-  C. User incomplete AND system enabled AND quota available
-     -> convert SystemProviderService's LLMConfig to three dataclasses,
-        set_user_config, tag provider_source="system". cost_tracker will
-        deduct quota post-call.
+  2. prefer_system_override=False, OR no quota row at all (implicit opt-out):
+     2a. has complete own config -> route "user" (quota NOT consulted)
+     2b. own config missing / incomplete -> NoProviderConfiguredError
+         (no silent fallback to the free tier: opt-out must be honoured)
 
-  D. User incomplete AND system enabled AND no quota
-     -> raise QuotaExceededError; auth_middleware translates to HTTP 402.
+All three exceptions carry a stable `error_code` class attribute that
+auth_middleware returns verbatim to the client; the frontend
+pattern-matches on this string to decide which remediation UI to show.
 """
 from __future__ import annotations
 
@@ -48,12 +54,57 @@ from xyz_agent_context.schema.provider_schema import (
 _REQUIRED_SLOTS = ("agent", "embedding", "helper_llm")
 
 
-class QuotaExceededError(Exception):
-    """Raised when the system-default branch is required but budget is gone."""
+class ProviderResolverError(Exception):
+    """Base for resolver-side LLM routing errors. auth_middleware catches
+    this base class once, reads `error_code` + message, returns HTTP 402."""
+
+    error_code: str = "PROVIDER_RESOLVER_ERROR"
+
+    def __init__(self, user_id: str, message: str | None = None):
+        super().__init__(message or f"{self.error_code} for {user_id}")
+        self.user_id = user_id
+
+
+class QuotaExceededError(ProviderResolverError):
+    """Opted in to the free tier but the budget is gone AND the user has no
+    own provider configured — they must add one to continue."""
+
+    error_code = "QUOTA_EXCEEDED_NO_USER_PROVIDER"
 
     def __init__(self, user_id: str):
-        super().__init__(f"quota exceeded for {user_id}")
-        self.user_id = user_id
+        super().__init__(
+            user_id,
+            "Free quota exhausted. Configure your own provider to continue.",
+        )
+
+
+class FreeTierExhaustedError(ProviderResolverError):
+    """Opted in to the free tier but the budget is gone; the user HAS a
+    complete own provider they could switch to by unchecking the 'Use
+    free quota' toggle in Settings."""
+
+    error_code = "FREE_TIER_EXHAUSTED_DISABLE_TOGGLE"
+
+    def __init__(self, user_id: str):
+        super().__init__(
+            user_id,
+            "Free quota exhausted. Disable 'Use free quota' in Settings "
+            "to switch to your own provider.",
+        )
+
+
+class NoProviderConfiguredError(ProviderResolverError):
+    """Opted out of the free tier but own provider is missing or incomplete.
+    No silent fallback to the free tier — the user's opt-out must stand."""
+
+    error_code = "NO_PROVIDER_CONFIGURED"
+
+    def __init__(self, user_id: str):
+        super().__init__(
+            user_id,
+            "No provider configured. Add a provider in Settings, or enable "
+            "'Use free quota' to use the free tier.",
+        )
 
 
 class ProviderResolver:
@@ -70,28 +121,35 @@ class ProviderResolver:
         self.quota_svc = quota_svc
 
     async def resolve_and_set(self, user_id: str) -> None:
-        # Branch A: feature disabled (local mode or env not set).
-        # Strict no-op — must not query user_providers, must not touch any
-        # ContextVar. AgentRuntime's own set_user_config path handles
-        # local-mode provider loading via llm_config.json.
+        # Branch 0: feature disabled (local mode or env not set).
         if not self.system_provider_svc.is_enabled():
             return
 
+        quota = await self.quota_svc.get(user_id)
+        prefer_system = quota is not None and quota.prefer_system_override
+
         user_cfg = await self.user_provider_svc.get_user_config(user_id)
-        if _is_user_config_complete(user_cfg):
+        has_own = _is_user_config_complete(user_cfg)
+
+        if prefer_system:
+            # Branch 1: user opted in to free tier.
+            if await self.quota_svc.check(user_id):
+                sys_cfg = self.system_provider_svc.get_config()
+                claude, openai, embedding = _llm_config_to_dataclasses(sys_cfg)
+                set_user_config(claude, openai, embedding)
+                set_provider_source("system")
+                return
+            if has_own:
+                raise FreeTierExhaustedError(user_id)
+            raise QuotaExceededError(user_id)
+
+        # Branch 2: opted out (or no quota row).
+        if has_own:
             claude, openai, embedding = _llm_config_to_dataclasses(user_cfg)
             set_user_config(claude, openai, embedding)
             set_provider_source("user")
             return
-
-        if await self.quota_svc.check(user_id):
-            sys_cfg = self.system_provider_svc.get_config()
-            claude, openai, embedding = _llm_config_to_dataclasses(sys_cfg)
-            set_user_config(claude, openai, embedding)
-            set_provider_source("system")
-            return
-
-        raise QuotaExceededError(user_id)
+        raise NoProviderConfiguredError(user_id)
 
 
 def _is_user_config_complete(cfg: LLMConfig | None) -> bool:

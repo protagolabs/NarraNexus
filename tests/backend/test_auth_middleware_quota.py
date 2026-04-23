@@ -1,0 +1,198 @@
+"""
+@file_name: test_auth_middleware_quota.py
+@author: Bin Liang
+@date: 2026-04-23
+@description: auth_middleware's quota gate must (a) leave config-class
+paths reachable so a quota-exhausted user can still add a provider or
+flip the Settings toggle, and (b) map the three ProviderResolver errors
+to distinct 402 error_codes the frontend can switch on.
+"""
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from backend import auth as auth_mod
+from backend.auth import auth_middleware, create_token
+from xyz_agent_context.agent_framework.provider_resolver import (
+    FreeTierExhaustedError,
+    NoProviderConfiguredError,
+    QuotaExceededError,
+)
+
+
+def _build_app(resolver) -> FastAPI:
+    """Minimal app with auth_middleware + a handful of stub routes covering
+    both bypass and non-bypass paths."""
+    app = FastAPI()
+    app.middleware("http")(auth_middleware)
+    app.state.provider_resolver = resolver
+
+    @app.post("/api/providers")
+    async def add_provider():
+        return {"ok": True, "route": "add_provider"}
+
+    @app.get("/api/quota/me")
+    async def get_quota():
+        return {"ok": True, "route": "get_quota"}
+
+    @app.patch("/api/quota/me/preference")
+    async def set_pref():
+        return {"ok": True, "route": "set_pref"}
+
+    @app.post("/api/chat")
+    async def chat():
+        return {"ok": True, "route": "chat"}
+
+    @app.get("/api/providers/slots/validate")
+    async def validate_slots():
+        return {"ok": True, "route": "validate_slots"}
+
+    return app
+
+
+@pytest.fixture
+def force_cloud_mode(monkeypatch):
+    monkeypatch.setattr(auth_mod, "_is_cloud_mode", lambda: True)
+
+
+@pytest.fixture
+def jwt_headers():
+    token = create_token(user_id="alice", role="user")
+    return {"Authorization": f"Bearer {token}"}
+
+
+# --------- Bypass: config-class paths reachable despite quota state ------
+
+def test_add_provider_reachable_when_resolver_would_raise_quota_exceeded(
+    force_cloud_mode, jwt_headers,
+):
+    """Core regression: a user with quota=0 and no own provider must still
+    be able to POST /api/providers — otherwise they're permanently locked
+    out."""
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
+
+    client = TestClient(_build_app(resolver))
+    r = client.post("/api/providers", json={}, headers=jwt_headers)
+
+    assert r.status_code == 200
+    assert r.json()["route"] == "add_provider"
+    # Resolver must NOT have been invoked for the bypassed path.
+    resolver.resolve_and_set.assert_not_called()
+
+
+def test_quota_me_reachable_when_resolver_would_raise(force_cloud_mode, jwt_headers):
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock(side_effect=FreeTierExhaustedError("alice"))
+
+    client = TestClient(_build_app(resolver))
+    r = client.get("/api/quota/me", headers=jwt_headers)
+
+    assert r.status_code == 200
+    resolver.resolve_and_set.assert_not_called()
+
+
+def test_quota_preference_patch_reachable(force_cloud_mode, jwt_headers):
+    """The endpoint that flips 'Use free quota' — must never be blocked by
+    the quota gate, or the user can't opt out of the dead free tier."""
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock(side_effect=FreeTierExhaustedError("alice"))
+
+    client = TestClient(_build_app(resolver))
+    r = client.patch(
+        "/api/quota/me/preference",
+        json={"prefer_system_override": False},
+        headers=jwt_headers,
+    )
+
+    assert r.status_code == 200
+    resolver.resolve_and_set.assert_not_called()
+
+
+def test_provider_sub_path_also_bypassed(force_cloud_mode, jwt_headers):
+    """/api/providers/slots/validate is config-related — bypass still applies."""
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
+
+    client = TestClient(_build_app(resolver))
+    r = client.get("/api/providers/slots/validate", headers=jwt_headers)
+
+    assert r.status_code == 200
+    resolver.resolve_and_set.assert_not_called()
+
+
+# --------- Non-bypass: LLM-calling paths still go through resolver -------
+
+def test_chat_route_runs_resolver(force_cloud_mode, jwt_headers):
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock()  # resolves cleanly
+
+    client = TestClient(_build_app(resolver))
+    r = client.post("/api/chat", json={}, headers=jwt_headers)
+
+    assert r.status_code == 200
+    resolver.resolve_and_set.assert_awaited_once_with("alice")
+
+
+# --------- Error-code mapping on non-bypassed paths ----------------------
+
+def test_chat_quota_exceeded_returns_402_with_quota_exceeded_code(
+    force_cloud_mode, jwt_headers,
+):
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
+
+    client = TestClient(_build_app(resolver))
+    r = client.post("/api/chat", json={}, headers=jwt_headers)
+
+    assert r.status_code == 402
+    body = r.json()
+    assert body["error_code"] == "QUOTA_EXCEEDED_NO_USER_PROVIDER"
+    assert body["success"] is False
+
+
+def test_chat_free_tier_exhausted_returns_402_with_disable_toggle_code(
+    force_cloud_mode, jwt_headers,
+):
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock(side_effect=FreeTierExhaustedError("alice"))
+
+    client = TestClient(_build_app(resolver))
+    r = client.post("/api/chat", json={}, headers=jwt_headers)
+
+    assert r.status_code == 402
+    body = r.json()
+    assert body["error_code"] == "FREE_TIER_EXHAUSTED_DISABLE_TOGGLE"
+    assert "Settings" in body["message"]
+
+
+def test_chat_no_provider_configured_returns_402_with_no_provider_code(
+    force_cloud_mode, jwt_headers,
+):
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock(side_effect=NoProviderConfiguredError("alice"))
+
+    client = TestClient(_build_app(resolver))
+    r = client.post("/api/chat", json={}, headers=jwt_headers)
+
+    assert r.status_code == 402
+    body = r.json()
+    assert body["error_code"] == "NO_PROVIDER_CONFIGURED"
+
+
+# --------- JWT still enforced on bypassed paths --------------------------
+
+def test_bypassed_path_still_requires_jwt(force_cloud_mode):
+    """Bypass skips provider_resolver, NOT JWT. Unauthenticated requests to
+    /api/providers must still 401."""
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock()
+
+    client = TestClient(_build_app(resolver))
+    r = client.post("/api/providers", json={})  # no Authorization header
+
+    assert r.status_code == 401
