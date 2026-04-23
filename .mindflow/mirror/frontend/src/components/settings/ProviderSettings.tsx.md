@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-04-10
+last_verified: 2026-04-23
 ---
 
 # ProviderSettings.tsx — LLM provider CRUD and model-slot assignment
@@ -50,3 +50,10 @@ from accidentally assigning a chat model to the embedding slot.
   provider). Caching is local state — refreshing the page re-fetches.
 - `getApiBaseUrl()` from `runtimeStore` ensures the correct backend URL is
   used whether running locally or in Tauri mode.
+- **`ModelBubbleInput` commit trap** — text typed in the tag input is only
+  pushed into `formModels` on Enter / `+` click. If the user types a model
+  name and clicks "Add Provider" without committing, the text is silently
+  lost and the backend autopopulates defaults (2 Claude models for
+  `anthropic` card_type). As of 2026-04-23 the input shows a warning hint
+  and pulses the `+` button while uncommitted text exists, to make the
+  commit step visible. A stronger fix (auto-flush on submit) was deferred.

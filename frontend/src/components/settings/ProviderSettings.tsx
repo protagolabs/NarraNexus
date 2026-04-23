@@ -129,30 +129,48 @@ function ModelBubbleInput({
   models: string[]; onChange: (m: string[]) => void; placeholder?: string
 }) {
   const [input, setInput] = useState('')
+  const hasPending = input.trim().length > 0
   const addModel = () => {
     const v = input.trim()
     if (v && !models.includes(v)) onChange([...models, v])
     setInput('')
   }
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {models.map((m) => (
-        <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 whitespace-nowrap">
-          {m}
-          <button onClick={() => onChange(models.filter((x) => x !== m))} className="text-[var(--accent-primary)]/50 hover:text-[var(--accent-primary)]">&times;</button>
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {models.map((m) => (
+          <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 whitespace-nowrap">
+            {m}
+            <button onClick={() => onChange(models.filter((x) => x !== m))} className="text-[var(--accent-primary)]/50 hover:text-[var(--accent-primary)]">&times;</button>
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1">
+          <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel() } }}
+            placeholder={placeholder}
+            style={{ width: Math.max(100, (input.length + 1) * 8) }}
+            className={cn(
+              'px-2.5 py-1 text-sm rounded-full border bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none',
+              hasPending
+                ? 'border-[var(--color-warning)] focus:border-[var(--color-warning)]'
+                : 'border-[var(--border-default)] focus:border-[var(--accent-primary)]'
+            )} />
+          <button onClick={addModel} disabled={!hasPending}
+            className={cn(
+              'px-2 py-1 text-sm rounded-full border transition-all disabled:opacity-30',
+              hasPending
+                ? 'bg-[var(--accent-primary)] text-white border-[var(--accent-primary)] shadow-sm shadow-[var(--accent-primary)]/40 hover:bg-[var(--accent-primary)]/90 animate-pulse'
+                : 'bg-[var(--accent-primary)]/5 text-[var(--accent-primary)] border-[var(--accent-primary)]/20 hover:bg-[var(--accent-primary)]/10'
+            )}>
+            +
+          </button>
         </span>
-      ))}
-      <span className="inline-flex items-center gap-1">
-        <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel() } }}
-          placeholder={placeholder}
-          style={{ width: Math.max(100, (input.length + 1) * 8) }}
-          className="px-2.5 py-1 text-sm rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-        <button onClick={addModel} disabled={!input.trim()}
-          className="px-2 py-1 text-sm rounded-full border border-[var(--accent-primary)]/20 text-[var(--accent-primary)] bg-[var(--accent-primary)]/5 hover:bg-[var(--accent-primary)]/10 disabled:opacity-30">
-          +
-        </button>
-      </span>
+      </div>
+      {hasPending && (
+        <p className="text-xs text-[var(--color-warning)]">
+          Press Enter or click + to add &ldquo;{input.trim()}&rdquo; — otherwise it will be discarded.
+        </p>
+      )}
     </div>
   )
 }
