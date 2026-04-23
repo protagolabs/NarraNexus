@@ -178,6 +178,11 @@ impl ServiceDef {
                 // Dashboard v2 TDR-12: local mode MUST bind loopback.
                 // lifespan in backend/main.py also asserts via DASHBOARD_BIND_HOST env
                 // (set in process_manager.rs for id=="backend").
+                //
+                // --ws-ping-interval / --ws-ping-timeout mirror scripts/dev-local.sh:
+                // uvicorn defaults (20s/20s) prematurely drop the chat SSE/WS stream
+                // while an Agent loop is waiting on an LLM call. 30s/60s keeps the
+                // connection alive across slower model turns. Iron rule #7 alignment.
                 args: vec![
                     "-m".to_string(),
                     "uvicorn".to_string(),
@@ -186,6 +191,10 @@ impl ServiceDef {
                     "127.0.0.1".to_string(),
                     "--port".to_string(),
                     "8000".to_string(),
+                    "--ws-ping-interval".to_string(),
+                    "30".to_string(),
+                    "--ws-ping-timeout".to_string(),
+                    "60".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8000),
@@ -291,7 +300,7 @@ impl ServiceDef {
                 id: "backend".to_string(),
                 label: "Backend API".to_string(),
                 command: "uv".to_string(),
-                // Dashboard v2 TDR-12: see bundled_services() for rationale.
+                // Dashboard v2 TDR-12 + ws-ping rationale: see bundled_services().
                 args: vec![
                     "run".to_string(),
                     "uvicorn".to_string(),
@@ -300,6 +309,10 @@ impl ServiceDef {
                     "127.0.0.1".to_string(),
                     "--port".to_string(),
                     "8000".to_string(),
+                    "--ws-ping-interval".to_string(),
+                    "30".to_string(),
+                    "--ws-ping-timeout".to_string(),
+                    "60".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8000),

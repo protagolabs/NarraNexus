@@ -57,6 +57,12 @@ pub fn run() {
                 }
             }
 
+            // Kick off the lark-cli + lark skill-pack preflight in parallel
+            // with service startup. It is entirely optional — Lark features
+            // degrade gracefully if `npm`/`node` are missing or the install
+            // fails/times out. Mirrors scripts/run.sh `check_deps`.
+            sidecar::lark_preflight::run_preflight();
+
             // Auto-start Python services in local mode (non-blocking)
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

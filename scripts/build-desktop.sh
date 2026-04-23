@@ -47,9 +47,21 @@ rm /tmp/python-standalone.tar.gz
 echo "Python downloaded: $("$PYTHON_DIR/bin/python3" --version)"
 
 # Step 3: Install Python dependencies directly into standalone Python
+#
+# NON-editable install (`pip install .` — no `-e`).
+#
+# Editable installs drop a `.pth` / `__editable__` file into site-packages whose
+# contents are the ABSOLUTE path to the build machine's source tree
+# (e.g. /Users/builder/NarraNexus/src). When the dmg is installed on another
+# machine at /Applications/NarraNexus.app/Contents/..., that path no longer
+# exists and every `import xyz_agent_context` / `import backend` blows up
+# with ModuleNotFoundError. We saw this on fresh-machine installs.
+#
+# A wheel install copies the real files into site-packages, so the bundle is
+# fully relocatable — move the .app anywhere and the imports still resolve.
 echo ""
 echo "--- Step 3: Installing Python dependencies ---"
-"$PYTHON_DIR/bin/python3" -m pip install --no-cache-dir -e "$PROJECT_ROOT" 2>&1 | tail -5
+"$PYTHON_DIR/bin/python3" -m pip install --no-cache-dir "$PROJECT_ROOT" 2>&1 | tail -5
 echo "Python dependencies installed"
 
 # Step 4: Copy project source
