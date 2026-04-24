@@ -56,6 +56,23 @@ echo -e "  ${G}Local Development Server${R}"
 echo -e "  Database: ${Y}$DATABASE_URL${R}"
 echo ""
 
+# --- Ensure venv is fully synced (safety net) ---
+# run.sh already calls `uv sync`, but after branch switches or lockfile
+# changes the venv can be stale (uv reports "Audited" without actually
+# installing new/changed deps). A second `uv sync` here is cheap (no-op
+# when already up-to-date) and prevents the "Failed to spawn: uvicorn"
+# error that bites every new contributor on a fresh checkout.
+echo -e "${Y}Verifying Python environment...${R}"
+(cd "$PROJECT_ROOT" && env -u VIRTUAL_ENV uv sync 2>&1 | tail -1)
+
+# Quick sanity check: if uvicorn still isn't installed, abort early with
+# a clear message instead of letting the Backend tmux window die silently.
+if [ ! -x "$PROJECT_ROOT/.venv/bin/uvicorn" ]; then
+  echo -e "${RED}ERROR: uvicorn not found in .venv after uv sync.${R}"
+  echo -e "  Try: cd $PROJECT_ROOT && rm -rf .venv && uv sync"
+  exit 1
+fi
+
 # --- Common env ---
 SQLITE_PROXY_PORT="${SQLITE_PROXY_PORT:-8100}"
 SQLITE_PROXY_URL="http://localhost:${SQLITE_PROXY_PORT}"
