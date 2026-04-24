@@ -15,9 +15,9 @@ const KIND_ICON: Record<RecentEvent['kind'], string> = {
 };
 
 const KIND_COLOR: Record<RecentEvent['kind'], string> = {
-  completed: 'text-emerald-600',
+  completed: 'text-[var(--color-green-500)]',
   running: 'text-sky-600',
-  failed: 'text-red-600',
+  failed: 'text-[var(--color-red-500)]',
   chat: 'text-gray-600',
   other: 'text-gray-500',
 };
@@ -51,7 +51,7 @@ export function RecentFeed({ agentId, events }: { agentId: string; events: Recen
         Recent ({events.length})
       </button>
       {expanded && (
-        <ul className="mt-1 ml-3 space-y-0.5 border-l-2 border-[var(--border-primary)] pl-2">
+        <ul className="mt-1 ml-3 space-y-0.5 border-l-2 border-[var(--rule)] pl-2">
           {events.map((ev) => (
             <li
               key={ev.event_id}

@@ -19,11 +19,11 @@ interface ChipDef {
 }
 
 const CHIP_ORDER: ChipDef[] = [
-  { health: 'healthy_running', label: 'running',  dotCls: 'bg-emerald-500', textCls: 'text-emerald-600 dark:text-emerald-400' },
+  { health: 'healthy_running', label: 'running',  dotCls: 'bg-[var(--color-green-500)]', textCls: 'text-[var(--color-green-500)]' },
   { health: 'healthy_idle',    label: 'idle',     dotCls: 'bg-sky-500',     textCls: 'text-sky-600 dark:text-sky-400' },
-  { health: 'warning',         label: 'blocked',  dotCls: 'bg-amber-500',   textCls: 'text-amber-600 dark:text-amber-400' },
-  { health: 'paused',          label: 'paused',   dotCls: 'bg-yellow-500',  textCls: 'text-yellow-600 dark:text-yellow-400' },
-  { health: 'error',           label: 'error',    dotCls: 'bg-red-500',     textCls: 'text-red-600 dark:text-red-400' },
+  { health: 'warning',         label: 'blocked',  dotCls: 'bg-[var(--color-yellow-500)]',   textCls: 'text-[var(--color-yellow-500)]' },
+  { health: 'paused',          label: 'paused',   dotCls: 'bg-[var(--color-yellow-500)]',  textCls: 'text-[var(--color-yellow-500)]' },
+  { health: 'error',           label: 'error',    dotCls: 'bg-[var(--color-red-500)]',     textCls: 'text-[var(--color-red-500)]' },
   { health: 'acknowledged',    label: 'ack',      dotCls: 'bg-slate-500',   textCls: 'text-slate-600 dark:text-slate-400' },
   { health: 'idle_long',       label: 'quiet',    dotCls: 'bg-gray-400',    textCls: 'text-gray-500' },
 ];
@@ -59,10 +59,10 @@ export function DashboardSummary({ agents }: { agents: AgentStatus[] }) {
   return (
     <div
       data-testid="dashboard-summary"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs rounded-lg border border-[var(--border-primary)] bg-[var(--bg-glass)] px-3 py-2"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs rounded-lg border border-[var(--rule)] bg-[var(--bg-elevated)] px-3 py-2"
     >
       <span className="font-semibold text-[var(--text-secondary)]">{total} agent{total === 1 ? '' : 's'}</span>
-      <span className="text-[var(--border-primary)]">·</span>
+      <span className="text-[var(--rule)]">·</span>
       {CHIP_ORDER.map((c) => {
         const n = counts[c.health];
         if (n === 0) return null;

@@ -8,6 +8,7 @@
 import { useChatStore } from '@/stores/chatStore';
 import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
+import { MOCK_ENABLED } from '@/lib/mock';
 import type { RuntimeMessage } from '@/types';
 
 interface ConnectionEntry {
@@ -39,6 +40,14 @@ class WebSocketManager {
     }
 
     const agentName = options?.agentName;
+
+    // Mock mode: simulate a simple turn (assistant echoes back) instead of
+    // opening a real socket. Keeps chat UI interactive for visual review.
+    if (MOCK_ENABLED) {
+      this.runMocked(agentId, userId, inputContent);
+      return;
+    }
+
     // Resolve WebSocket URL from the single source of truth (runtimeStore).
     // Local mode: ws://localhost:8000/ws/...  Cloud mode: ws://<cloud-host>/ws/...
     // Both derive from the same base URL as REST API calls, so if the
@@ -113,6 +122,10 @@ class WebSocketManager {
    * entire execution pipeline including killing the Claude CLI subprocess.
    */
   stop(agentId: string): void {
+    if (MOCK_ENABLED) {
+      useChatStore.getState().stopStreaming(agentId);
+      return;
+    }
     const entry = this.connections.get(agentId);
     if (entry && entry.ws.readyState === WebSocket.OPEN) {
       entry.ws.send(JSON.stringify({ action: 'stop' }));
@@ -140,6 +153,50 @@ class WebSocketManager {
   /** Check if an agent has an active connection */
   isRunning(agentId: string): boolean {
     return this.connections.has(agentId);
+  }
+
+  /**
+   * Mock-mode stream simulator — drives the chat store with a fake but
+   * realistic sequence of messages so chat UI renders without a backend.
+   * Fires progress → tool_call → thinking → streaming text → complete.
+   */
+  private runMocked(agentId: string, _userId: string, inputContent: string): void {
+    const store = useChatStore.getState;
+    const push = (msg: RuntimeMessage) => store().processMessage(agentId, msg);
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    const reply =
+      `Got it. You said: "${inputContent.slice(0, 80)}${inputContent.length > 80 ? '…' : ''}".\n\n` +
+      `This is a **mock reply** — the frontend is running with \`?mock=1\`. ` +
+      `You can test message rendering, streaming cursor, markdown, tool-call panels, and long-message wrapping without a live backend.`;
+
+    (async () => {
+      await delay(150);
+      push({ type: 'progress', timestamp: Date.now(), step: '0', title: 'Understand', description: 'Parsing user intent', status: 'running', substeps: [] });
+      await delay(400);
+      push({ type: 'progress', timestamp: Date.now(), step: '0', title: 'Understand', description: 'Parsing user intent', status: 'completed', substeps: [] });
+
+      push({ type: 'progress', timestamp: Date.now(), step: '1', title: 'Plan', description: 'Choosing modules', status: 'running', substeps: [] });
+      await delay(350);
+      push({ type: 'agent_thinking', timestamp: Date.now(), thinking_content: 'Simple echo request — no tools needed. Draft a friendly reply and note mock-mode status.' });
+      await delay(300);
+      push({ type: 'progress', timestamp: Date.now(), step: '1', title: 'Plan', description: 'Choosing modules', status: 'completed', substeps: [] });
+
+      push({ type: 'progress', timestamp: Date.now(), step: '2', title: 'Respond', description: 'Streaming text', status: 'running', substeps: [] });
+      await delay(200);
+      const chunks = reply.match(/.{1,24}/gs) ?? [reply];
+      for (const chunk of chunks) {
+        push({ type: 'agent_response', timestamp: Date.now(), response_type: 'text', delta: chunk });
+        await delay(35);
+      }
+      push({ type: 'progress', timestamp: Date.now(), step: '2', title: 'Respond', description: 'Streaming text', status: 'completed', substeps: [] });
+      await delay(120);
+      push({ type: 'complete', timestamp: Date.now(), message: 'done' });
+
+      const cb = this.onCompleteCallbacks.get(agentId);
+      cb?.(agentId);
+      this.onCompleteCallbacks.delete(agentId);
+    })().catch((e) => console.warn('[wsManager] mock stream error', e));
   }
 }
 

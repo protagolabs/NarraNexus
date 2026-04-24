@@ -144,19 +144,17 @@ export function Sidebar() {
       className={cn(
         'h-full flex flex-col relative',
         'bg-[var(--bg-secondary)]',
-        'border-r border-[var(--border-default)]',
+        'border-r border-[var(--rule)]',
         'transition-all duration-400 ease-out',
         collapsed ? 'w-[72px]' : 'w-72'
       )}
     >
-      {confirmDialog}
-
       {/* Gradient edge glow */}
       <div className="absolute top-0 right-0 bottom-0 w-px bg-gradient-to-b from-transparent via-[var(--accent-primary)]/20 to-transparent" />
 
       {/* Header — full-width logo replaces the old icon-tile + wordmark stack.
           Collapsed state hides the logo and keeps only the toggle button. */}
-      <div className="p-4 border-b border-[var(--border-subtle)]">
+      <div className="p-4 border-b border-[var(--rule)]">
         <div className="flex items-center justify-between gap-2">
           {!collapsed && (
             <img
@@ -180,21 +178,29 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* User Info */}
+      {/* User Info — avatar on the left, two-line stack on the right.
+          Use <div> not <p> to avoid inheriting global typography rules.
+          The online dot inside the "Online" label is the single source of
+          truth for status — no separate corner indicator on the avatar. */}
       {!collapsed && (
-        <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
+        <div className="px-4 py-3 border-b border-[var(--rule)]">
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center border border-[var(--border-default)]">
-                <User className="w-5 h-5 text-[var(--text-secondary)]" />
-              </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[var(--color-success)] border-2 border-[var(--bg-secondary)]" />
+            <div className="w-10 h-10 shrink-0 bg-[var(--bg-tertiary)] flex items-center justify-center border border-[var(--rule)]">
+              <User className="w-4 h-4 text-[var(--text-secondary)]" />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)]">
+            {/* Name + status stacked inside a 40px column matching the avatar,
+                centered vertically so the pair sits on the avatar's midline. */}
+            <div className="flex-1 min-w-0 h-10 flex flex-col justify-center gap-1">
+              <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
                 {userId}
-              </p>
-              <p className="text-[10px] text-[var(--color-success)] uppercase tracking-wider font-medium">Online</p>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px] leading-none text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-[family-name:var(--font-mono)]">
+                <span
+                  className="w-1.5 h-1.5 rounded-full allow-circle bg-[var(--color-green-500)] shrink-0"
+                  aria-hidden
+                />
+                <span>Online</span>
+              </div>
             </div>
           </div>
         </div>
@@ -206,7 +212,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation Items */}
-      <div className="px-3 py-2 border-t border-[var(--border-subtle)] space-y-1">
+      <div className="px-3 py-2 border-t border-[var(--rule)] space-y-1">
         {!collapsed ? (
           <>
             {/* Mode Switcher */}
@@ -348,7 +354,7 @@ export function Sidebar() {
       </div>
 
       {/* Footer Actions */}
-      <div className="p-3 border-t border-[var(--border-subtle)] space-y-2">
+      <div className="p-3 border-t border-[var(--rule)] space-y-2">
         {!collapsed ? (
           <>
             <Button
@@ -369,7 +375,7 @@ export function Sidebar() {
               <LogOut className="w-4 h-4" />
               Logout
             </Button>
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--border-subtle)]">
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--rule)]">
               <ThemeToggle />
               <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
                 Powered by NetMind.AI

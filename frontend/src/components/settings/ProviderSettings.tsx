@@ -239,29 +239,43 @@ function ModelBubbleInput({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
         {models.map((m) => (
-          <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 whitespace-nowrap">
+          <span key={m} className="inline-flex items-center gap-1.5 px-2 py-1 text-[12px] font-[family-name:var(--font-mono)] bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--rule)] whitespace-nowrap">
             {m}
-            <button onClick={() => onChange(models.filter((x) => x !== m))} className="text-[var(--accent-primary)]/50 hover:text-[var(--accent-primary)]">&times;</button>
-          </span>
+            <button
+              onClick={() => onChange(models.filter((x) => x !== m))}
+              className="text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors"
+              aria-label={`Remove ${m}`}
+            >
+              ×
+          </button>
+        </span>
         ))}
         <span className="inline-flex items-center gap-1">
-          <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel() } }}
             placeholder={placeholder}
             style={{ width: Math.max(100, (input.length + 1) * 8) }}
             className={cn(
-              'px-2.5 py-1 text-sm rounded-full border bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none',
+              'px-2 py-1 text-[12px] font-[family-name:var(--font-mono)] border bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none',
               hasPending
                 ? 'border-[var(--color-warning)] focus:border-[var(--color-warning)]'
-                : 'border-[var(--border-default)] focus:border-[var(--accent-primary)]'
-            )} />
-          <button onClick={addModel} disabled={!hasPending}
+                : 'border-[var(--rule)] focus:border-[var(--text-primary)]'
+            )}
+          />
+          <button
+            onClick={addModel}
+            disabled={!hasPending}
             className={cn(
-              'px-2 py-1 text-sm rounded-full border transition-all disabled:opacity-30',
+              'px-2 py-1 text-[12px] font-[family-name:var(--font-mono)] border transition-all disabled:opacity-30',
               hasPending
-                ? 'bg-[var(--accent-primary)] text-white border-[var(--accent-primary)] shadow-sm shadow-[var(--accent-primary)]/40 hover:bg-[var(--accent-primary)]/90 animate-pulse'
-                : 'bg-[var(--accent-primary)]/5 text-[var(--accent-primary)] border-[var(--accent-primary)]/20 hover:bg-[var(--accent-primary)]/10'
-            )}>
+                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] border-[var(--text-primary)] hover:opacity-90 animate-pulse'
+                : 'border-[var(--rule)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+            )}
+            aria-label="Add model"
+          >
             +
           </button>
         </span>
@@ -330,13 +344,15 @@ function ModelSuggestionChips({
 function SectionHeader({ step, title, subtitle }: { step: number; title: string; subtitle: string }) {
   return (
     <div className="mb-4">
-      <div className="flex items-center gap-2.5 mb-1">
-        <span className="w-6 h-6 rounded-full bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] text-sm font-semibold flex items-center justify-center">
-          {step}
+      <div className="flex items-baseline gap-3 mb-1">
+        <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)] tabular-nums">
+          {String(step).padStart(2, '0')}
         </span>
-        <h3 className="text-base font-semibold text-[var(--text-primary)]">{title}</h3>
+        <h3 className="text-base font-[family-name:var(--font-display)] font-semibold text-[var(--text-primary)] tracking-tight">
+          {title}
+        </h3>
       </div>
-      <p className="text-sm text-[var(--text-tertiary)] ml-[34px]">{subtitle}</p>
+      <p className="text-sm text-[var(--text-tertiary)] ml-[44px] leading-relaxed">{subtitle}</p>
     </div>
   )
 }
@@ -792,7 +808,7 @@ export function ProviderSettings() {
                   Get Key
                 </a>
                 <button onClick={handleQuickAdd} disabled={presetAdding}
-                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors">
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
                   {presetAdding ? 'Adding...' : addedPresets.has(selectedPreset) ? 'Update' : 'Add'}
                 </button>
               </div>
@@ -819,7 +835,7 @@ export function ProviderSettings() {
                 </div>
                 {claudeStatus.logged_in && (
                   <button onClick={handleAddClaudeOAuth}
-                    className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 transition-colors">
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
                     Add as Provider
                   </button>
                 )}
@@ -897,7 +913,7 @@ export function ProviderSettings() {
                 />
               </div>
               <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-                className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors">
+                className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
                 {formAdding ? 'Adding...' : 'Add Provider'}
               </button>
             </div>
@@ -967,9 +983,9 @@ export function ProviderSettings() {
                   onClick={handleApply}
                   disabled={applying}
                   className={cn(
-                    'flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors',
-                    'bg-[var(--accent-primary)] text-white',
-                    'hover:bg-[var(--accent-primary)]/90',
+                    'flex-1 py-2.5 text-sm font-medium transition-colors',
+                    'bg-[var(--text-primary)] text-[var(--text-inverse)]',
+                    'hover:opacity-90',
                     'disabled:opacity-40'
                   )}
                 >

@@ -9,6 +9,7 @@ import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { api, getBaseUrl } from '@/lib/api';
 import { getRuntimeConfig, isForcedCloud, isForcedLocal } from '@/lib/runtimeConfig';
+import { MockBanner } from '@/components/ui/MockBanner';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
@@ -203,9 +204,10 @@ function App() {
 
   return (
     <>
+      <MockBanner />
       {quotaExceeded && (
         <div
-          className="fixed top-0 left-0 right-0 z-50 bg-[var(--accent-error)] text-white px-4 py-2 text-sm text-center cursor-pointer"
+          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
           onClick={() => setQuotaExceeded(false)}
           role="alert"
         >

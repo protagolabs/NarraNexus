@@ -8,12 +8,12 @@
 import type { QueueCounts } from '@/types';
 
 const SEGMENT_CLS: Record<keyof Omit<QueueCounts, 'total'>, string> = {
-  running: 'bg-emerald-500',
+  running: 'bg-[var(--color-green-500)]',
   active: 'bg-sky-500',
   pending: 'bg-gray-400',
-  blocked: 'bg-amber-500',
-  paused: 'bg-yellow-500',
-  failed: 'bg-red-500',
+  blocked: 'bg-[var(--color-yellow-500)]',
+  paused: 'bg-[var(--color-yellow-500)]',
+  failed: 'bg-[var(--color-red-500)]',
 };
 
 const ORDER: Array<keyof Omit<QueueCounts, 'total'>> = [
@@ -61,10 +61,10 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
         </div>
         <span>{queue.total}</span>
         {queue.failed > 0 && (
-          <span className="text-red-500" title={`${queue.failed} failed`}>· 🔴 {queue.failed}</span>
+          <span className="text-[var(--color-red-500)]" title={`${queue.failed} failed`}>· 🔴 {queue.failed}</span>
         )}
         {queue.blocked > 0 && (
-          <span className="text-amber-600" title={`${queue.blocked} blocked`}>· 🟠 {queue.blocked}</span>
+          <span className="text-[var(--color-yellow-500)]" title={`${queue.blocked} blocked`}>· 🟠 {queue.blocked}</span>
         )}
       </div>
     );

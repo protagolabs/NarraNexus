@@ -8,7 +8,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Bot,
   RefreshCw,
-  Circle,
   Plus,
   Pencil,
   Check,
@@ -205,7 +204,7 @@ export function AgentList({ collapsed }: AgentListProps) {
 
     if (streaming) {
       return (
-        <Loader2 className="w-5 h-5 animate-spin text-[var(--accent-primary)]" />
+        <Loader2 className="w-5 h-5 animate-spin text-[var(--color-yellow-500)]" />
       );
     }
 
@@ -213,10 +212,10 @@ export function AgentList({ collapsed }: AgentListProps) {
       <Bot className={cn(
         'w-5 h-5 transition-colors',
         isSelected
-          ? 'text-[var(--accent-primary)]'
+          ? 'text-[var(--text-primary)]'
           : completed
-            ? 'text-[var(--accent-primary)]'
-            : 'text-[var(--text-secondary)] group-hover:text-[var(--accent-primary)]'
+            ? 'text-[var(--color-yellow-500)]'
+            : 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
       )} />
     );
   };
@@ -247,11 +246,11 @@ export function AgentList({ collapsed }: AgentListProps) {
               <button
                 onClick={() => handleSelectAgent(agent.agent_id)}
                 className={cn(
-                  'w-full aspect-square rounded-xl flex items-center justify-center transition-all duration-300',
-                  'animate-fade-in',
+                  'w-full aspect-square flex items-center justify-center transition-colors duration-150',
+                  'animate-fade-in border',
                   isSelected
-                    ? 'bg-[var(--accent-primary)]/20 shadow-[0_0_20px_var(--accent-glow)]'
-                    : 'bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--accent-primary)]/50 hover:shadow-[0_0_15px_var(--accent-glow)]'
+                    ? 'bg-[var(--bg-elevated)] border-[var(--border-strong)]'
+                    : 'bg-[var(--bg-tertiary)] border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
                 )}
                 style={{ animationDelay: `${index * 50}ms` }}
                 title={agent.agent_id}
@@ -260,7 +259,7 @@ export function AgentList({ collapsed }: AgentListProps) {
               </button>
               {/* Completion badge dot */}
               {completed && !isSelected && (
-                <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--accent-primary)] border-2 border-[var(--bg-deep)] shadow-[0_0_6px_var(--accent-primary)]" />
+                <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
               )}
             </div>
           );
@@ -330,36 +329,33 @@ export function AgentList({ collapsed }: AgentListProps) {
                 key={agent.agent_id}
                 onClick={() => handleSelectAgent(agent.agent_id)}
                 className={cn(
-                  'w-full text-left p-3 rounded-xl transition-all duration-300 cursor-pointer',
-                  'hover:bg-[var(--bg-tertiary)] group relative',
+                  'w-full text-left p-3 transition-colors duration-150 cursor-pointer',
+                  'group relative border border-transparent',
                   'animate-slide-up',
-                  isSelected && [
-                    'bg-[var(--accent-primary)]/10',
-                    'border border-[var(--accent-primary)]/30',
-                    'shadow-[0_0_30px_var(--accent-glow),inset_0_0_20px_var(--accent-glow)]',
-                  ],
-                  !isSelected && 'border border-transparent'
+                  isSelected
+                    ? 'bg-[var(--bg-elevated)] border-[var(--rule)]'
+                    : 'hover:bg-[var(--bg-secondary)]'
                 )}
                 style={{ animationDelay: `${index * 50}ms` }}
               >
-                {/* Active indicator bar */}
+                {/* Active indicator: 2px ink rail on the left edge. No glow. */}
                 {isSelected && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-8 bg-[var(--accent-primary)] rounded-r-full shadow-[0_0_10px_var(--accent-primary)]" />
+                  <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--text-primary)]" />
                 )}
 
                 <div className="flex items-start gap-3">
                   <div
                     className={cn(
-                      'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300 relative',
+                      'w-10 h-10 flex items-center justify-center shrink-0 transition-colors duration-150 relative border',
                       isSelected
-                        ? 'bg-[var(--accent-primary)]/20 shadow-[0_0_20px_var(--accent-glow)]'
-                        : 'bg-[var(--bg-tertiary)] border border-[var(--border-default)] group-hover:border-[var(--accent-primary)]/50 group-hover:shadow-[0_0_15px_var(--accent-glow)]'
+                        ? 'bg-[var(--bg-tertiary)] border-[var(--border-strong)]'
+                        : 'bg-[var(--bg-tertiary)] border-[var(--rule)] group-hover:border-[var(--border-strong)]'
                     )}
                   >
                     {renderAgentStatusIcon(agent.agent_id, isSelected)}
                     {/* Completion badge dot */}
                     {completed && !isSelected && (
-                      <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[var(--accent-primary)] border-2 border-[var(--bg-deep)] shadow-[0_0_6px_var(--accent-primary)]" />
+                      <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0 pt-0.5">
@@ -370,7 +366,7 @@ export function AgentList({ collapsed }: AgentListProps) {
                           type="text"
                           value={editingName}
                           onChange={e => setEditingName(e.target.value)}
-                          className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--accent-primary)]/50 rounded focus:outline-none focus:border-[var(--accent-primary)]"
+                          className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--text-primary)] focus:outline-none"
                           autoFocus
                           onKeyDown={e => {
                             if (e.key === 'Enter') handleSaveEdit(agent.agent_id, e as any);
@@ -380,17 +376,17 @@ export function AgentList({ collapsed }: AgentListProps) {
                         <button
                           onClick={(e) => handleSaveEdit(agent.agent_id, e)}
                           disabled={savingName}
-                          className="p-1 shrink-0 hover:bg-[var(--color-success)]/20 rounded transition-colors"
+                          className="p-1 shrink-0 hover:bg-[var(--bg-tertiary)] transition-colors"
                           title="Save (Enter)"
                         >
-                          <Check className={cn('w-3.5 h-3.5 text-[var(--color-success)]', savingName && 'animate-pulse')} />
+                          <Check className={cn('w-3.5 h-3.5 text-[var(--color-green-500)]', savingName && 'animate-pulse')} />
                         </button>
                         <button
                           onClick={handleCancelEdit}
-                          className="p-1 shrink-0 hover:bg-[var(--color-error)]/20 rounded transition-colors"
+                          className="p-1 shrink-0 hover:bg-[var(--bg-tertiary)] transition-colors"
                           title="Cancel (Esc)"
                         >
-                          <X className="w-3.5 h-3.5 text-[var(--color-error)]" />
+                          <X className="w-3.5 h-3.5 text-[var(--color-red-500)]" />
                         </button>
                       </div>
                     ) : (
@@ -401,8 +397,8 @@ export function AgentList({ collapsed }: AgentListProps) {
                             className={cn(
                               'font-mono text-sm truncate transition-colors',
                               isSelected
-                                ? 'text-[var(--accent-primary)] font-semibold'
-                                : 'text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]'
+                                ? 'text-[var(--text-primary)] font-semibold'
+                                : 'text-[var(--text-primary)]'
                             )}
                           >
                             {agent.name || agent.agent_id}
@@ -414,46 +410,42 @@ export function AgentList({ collapsed }: AgentListProps) {
                           )}
                           {/* Running indicator */}
                           {streaming && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] font-medium uppercase tracking-wider">
+                            <span className="text-[9px] px-1.5 py-0.5 text-[var(--color-yellow-500)] border border-[var(--color-yellow-500)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]">
                               Running
                             </span>
                           )}
-                          {/* Selected indicator (only when not streaming) */}
-                          {isSelected && !streaming && (
-                            <Circle className="w-2 h-2 shrink-0 fill-[var(--color-success)] text-[var(--color-success)] animate-pulse" />
-                          )}
                         </div>
                         {isSelected && (
-                          <div className="flex items-center gap-0.5 mt-1">
+                          <div className="flex items-center gap-0.5 mt-1.5">
                             {agent.created_by === userId && (
                               <button
                                 onClick={(e) => handleTogglePublic(agent, e)}
-                                className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-all"
+                                className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"
                                 title={agent.is_public ? 'Set to Private' : 'Set to Public'}
                               >
                                 {agent.is_public ? (
-                                  <Globe className="w-3 h-3 text-[var(--accent-primary)]" />
+                                  <Globe className="w-3 h-3 text-[var(--text-primary)]" />
                                 ) : (
-                                  <Lock className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]" />
+                                  <Lock className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors" />
                                 )}
                               </button>
                             )}
                             <button
                               onClick={(e) => handleStartEdit(agent, e)}
-                              className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-all"
+                              className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"
                               title="Edit name"
                             >
-                              <Pencil className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]" />
+                              <Pencil className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors" />
                             </button>
                             {agent.created_by === userId && (
                               <button
                                 onClick={(e) => handleDeleteAgent(agent, e)}
                                 disabled={deletingAgentId === agent.agent_id}
-                                className="p-1 hover:bg-[var(--color-error)]/10 rounded transition-all"
+                                className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"
                                 title="Delete agent"
                               >
                                 <Trash2 className={cn(
-                                  'w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--color-error)]',
+                                  'w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors',
                                   deletingAgentId === agent.agent_id && 'animate-pulse'
                                 )} />
                               </button>

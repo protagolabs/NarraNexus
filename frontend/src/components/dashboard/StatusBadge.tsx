@@ -21,12 +21,12 @@ const ICON_MAP: Record<
   { Icon: typeof Moon; label: string; cls: string }
 > = {
   idle:        { Icon: Moon,           label: 'Idle',         cls: 'text-[var(--text-secondary)]' },
-  CHAT:        { Icon: MessageCircle,  label: 'Chat',         cls: 'text-emerald-500' },
-  JOB:         { Icon: Briefcase,      label: 'Job',          cls: 'text-amber-500' },
+  CHAT:        { Icon: MessageCircle,  label: 'Chat',         cls: 'text-[var(--color-green-500)]' },
+  JOB:         { Icon: Briefcase,      label: 'Job',          cls: 'text-[var(--color-yellow-500)]' },
   MESSAGE_BUS: { Icon: Radio,          label: 'Bus',          cls: 'text-sky-500' },
   A2A:         { Icon: ArrowLeftRight, label: 'A2A',          cls: 'text-violet-500' },
   CALLBACK:    { Icon: PhoneCall,      label: 'Callback',     cls: 'text-rose-500' },
-  SKILL_STUDY: { Icon: GraduationCap,  label: 'Skill',        cls: 'text-blue-500' },
+  SKILL_STUDY: { Icon: GraduationCap,  label: 'Skill',        cls: 'text-[var(--color-blue-500)]' },
   LARK:        { Icon: FlaskConical,   label: 'Lark',         cls: 'text-fuchsia-500' },
 };
 

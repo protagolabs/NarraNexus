@@ -22,12 +22,12 @@ const STATE_META: Record<
   JobQueueStatus | 'running',
   { icon: string; label: string; cls: string }
 > = {
-  running:  { icon: '⚙️', label: 'running', cls: 'text-emerald-600' },
+  running:  { icon: '⚙️', label: 'running', cls: 'text-[var(--color-green-500)]' },
   active:   { icon: '🔵', label: 'active',  cls: 'text-sky-600' },
   pending:  { icon: '⚪️', label: 'pending', cls: 'text-gray-500' },
-  blocked:  { icon: '🟠', label: 'blocked', cls: 'text-amber-600' },
-  paused:   { icon: '🟡', label: 'paused',  cls: 'text-yellow-600' },
-  failed:   { icon: '🔴', label: 'failed',  cls: 'text-red-600' },
+  blocked:  { icon: '🟠', label: 'blocked', cls: 'text-[var(--color-yellow-500)]' },
+  paused:   { icon: '🟡', label: 'paused',  cls: 'text-[var(--color-yellow-500)]' },
+  failed:   { icon: '🔴', label: 'failed',  cls: 'text-[var(--color-red-500)]' },
 };
 
 export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
@@ -46,11 +46,11 @@ export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
         <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
         <span>⚙️ Jobs ({total})</span>
         {runningJobs.length > 0 && (
-          <span className="text-emerald-600">· {runningJobs.length} running</span>
+          <span className="text-[var(--color-green-500)]">· {runningJobs.length} running</span>
         )}
       </button>
       {expanded && (
-        <ul className="mt-1 ml-3 space-y-1 border-l-2 border-[var(--border-primary)] pl-2">
+        <ul className="mt-1 ml-3 space-y-1 border-l-2 border-[var(--rule)] pl-2">
           {runningJobs.map((j) => (
             <JobItem
               key={j.job_id}
@@ -148,10 +148,10 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
         <span className={`ml-auto transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
       </button>
       {expanded && (
-        <div className="ml-7 mt-1 rounded border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-2 space-y-1.5">
+        <div className="ml-7 mt-1 rounded border border-[var(--rule)] bg-[var(--bg-tertiary)] p-2 space-y-1.5">
           {subtitle && <div className="text-[var(--text-secondary)]">{subtitle}</div>}
           {loading && <div className="text-[var(--text-secondary)]">Loading…</div>}
-          {err && <div className="text-red-500">Failed: {err}</div>}
+          {err && <div className="text-[var(--color-red-500)]">Failed: {err}</div>}
           {detail !== null && <JobDetailBody detail={detail} />}
           <div className="flex flex-wrap gap-1.5 pt-1">
             {state === 'failed' && (
@@ -184,7 +184,7 @@ function ActionBtn({ label, onClick }: { label: string; onClick: (e: React.Mouse
     <button
       type="button"
       onClick={onClick}
-      className="rounded bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-medium hover:bg-[var(--accent-primary)] hover:text-white"
+      className="rounded bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-medium hover:bg-[var(--text-primary)] hover:text-[var(--text-inverse)]"
     >
       {label}
     </button>
@@ -204,7 +204,7 @@ function JobDetailBody({ detail }: { detail: Record<string, unknown> }) {
       {iter > 0 && <div>Iterations: {iter}</div>}
       {trigger && <div className="truncate">Trigger: <span className="font-mono">{trigger}</span></div>}
       {lastErr && (
-        <div className="mt-1 rounded border border-red-500/40 bg-red-500/5 p-1.5 text-red-600">
+        <div className="mt-1 rounded border border-[var(--color-red-500)] bg-[var(--color-red-500)]/5 p-1.5 text-[var(--color-red-500)]">
           <div className="font-semibold">Last error</div>
           <div className="font-mono text-[10px] whitespace-pre-wrap">{lastErr}</div>
         </div>
