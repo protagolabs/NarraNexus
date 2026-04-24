@@ -151,6 +151,8 @@ export function Sidebar() {
         collapsed ? 'w-[72px]' : 'w-72'
       )}
     >
+      {confirmDialog}
+
       {/* Gradient edge glow */}
       <div className="absolute top-0 right-0 bottom-0 w-px bg-gradient-to-b from-transparent via-[var(--accent-primary)]/20 to-transparent" />
 
