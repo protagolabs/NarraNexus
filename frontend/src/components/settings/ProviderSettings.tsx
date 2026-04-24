@@ -27,6 +27,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { QuotaPanel } from './QuotaPanel'
 
 /** fetch wrapper that injects JWT auth header when available (cloud mode) */
@@ -120,13 +121,119 @@ const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[
 ]
 
 // =============================================================================
+// Model Name Suggestions
+// =============================================================================
+//
+// UX affordance for users who don't know the exact model IDs off the top
+// of their head. Rendered as dimmed chips below the ModelBubbleInput —
+// click a chip and it moves into the selected-models bubble row.
+//
+// Protocol note: the backend only knows two protocols (openai, anthropic).
+// Almost every third-party provider here (Gemini / GLM / Kimi / Qwen /
+// MiniMax / DeepSeek) is consumed through an OpenAI-compatible proxy, so
+// they all live under 'openai'. If a future provider genuinely speaks
+// the Anthropic wire format, add it to the 'anthropic' group instead.
+//
+// List curation rules the user signed off on:
+//   - OpenAI: 10 newest text / chat / reasoning models
+//   - Anthropic: all current models
+//   - Gemini: all current text models, exclude deprecated / embedding /
+//     audio / live / TTS / image / computer-use
+//   - Chinese vendors (Zhipu, Kimi, Qwen, MiniMax, DeepSeek): top 3
+//     newest text models each (Kimi has only 1 listed)
+//   - DeepSeek compatibility aliases (deepseek-chat, deepseek-reasoner)
+//     excluded — users who want them can still type them in manually.
+
+interface ModelSuggestionGroup {
+  label: string
+  protocol: 'anthropic' | 'openai'
+  models: string[]
+}
+
+const MODEL_SUGGESTION_GROUPS: ModelSuggestionGroup[] = [
+  {
+    label: 'Anthropic',
+    protocol: 'anthropic',
+    models: [
+      'claude-opus-4-7',
+      'claude-sonnet-4-6',
+      'claude-haiku-4-5',
+      'claude-haiku-4-5-20251001',
+    ],
+  },
+  {
+    label: 'OpenAI',
+    protocol: 'openai',
+    models: [
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.4-nano',
+      'gpt-5.2',
+      'gpt-5.2-mini',
+      'gpt-5.1',
+      'gpt-5',
+      'gpt-4.1',
+      'o4-mini',
+      'o3',
+    ],
+  },
+  {
+    label: 'Google Gemini',
+    protocol: 'openai',
+    models: [
+      'gemini-3.1-pro-preview',
+      'gemini-3.1-pro-preview-customtools',
+      'gemini-3-flash-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-deep-research-preview',
+      'gemini-deep-research-max-preview',
+    ],
+  },
+  {
+    label: 'Zhipu / GLM',
+    protocol: 'openai',
+    models: ['glm-5.1', 'glm-5', 'glm-5-turbo'],
+  },
+  {
+    label: 'Kimi (Moonshot)',
+    protocol: 'openai',
+    models: ['kimi-k2.6'],
+  },
+  {
+    label: 'Qwen (DashScope)',
+    protocol: 'openai',
+    models: ['qwen3.6-max-preview', 'qwen3.6-plus', 'qwen3.6-flash'],
+  },
+  {
+    label: 'MiniMax',
+    protocol: 'openai',
+    models: ['MiniMax-M2.7', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.5'],
+  },
+  {
+    label: 'DeepSeek',
+    protocol: 'openai',
+    models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+  },
+]
+
+function suggestionsFor(protocol: 'anthropic' | 'openai'): ModelSuggestionGroup[] {
+  return MODEL_SUGGESTION_GROUPS.filter((g) => g.protocol === protocol)
+}
+
+// =============================================================================
 // Model Bubble Tag Input
 // =============================================================================
 
 function ModelBubbleInput({
-  models, onChange, placeholder = 'model name'
+  models, onChange, placeholder = 'model name', suggestions
 }: {
-  models: string[]; onChange: (m: string[]) => void; placeholder?: string
+  models: string[]
+  onChange: (m: string[]) => void
+  placeholder?: string
+  suggestions?: ModelSuggestionGroup[]
 }) {
   const [input, setInput] = useState('')
   const hasPending = input.trim().length > 0
@@ -135,8 +242,11 @@ function ModelBubbleInput({
     if (v && !models.includes(v)) onChange([...models, v])
     setInput('')
   }
+  const addSuggestion = (m: string) => {
+    if (!models.includes(m)) onChange([...models, m])
+  }
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
         {models.map((m) => (
           <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 whitespace-nowrap">
@@ -171,6 +281,54 @@ function ModelBubbleInput({
           Press Enter or click + to add &ldquo;{input.trim()}&rdquo; — otherwise it will be discarded.
         </p>
       )}
+      {suggestions && suggestions.length > 0 && (
+        <ModelSuggestionChips
+          groups={suggestions}
+          selected={models}
+          onPick={addSuggestion}
+        />
+      )}
+    </div>
+  )
+}
+
+function ModelSuggestionChips({
+  groups, selected, onPick
+}: {
+  groups: ModelSuggestionGroup[]
+  selected: string[]
+  onPick: (m: string) => void
+}) {
+  const visibleGroups = groups
+    .map((g) => ({ ...g, models: g.models.filter((m) => !selected.includes(m)) }))
+    .filter((g) => g.models.length > 0)
+  if (visibleGroups.length === 0) return null
+  return (
+    <div className="pt-2 border-t border-[var(--border-subtle)] space-y-2">
+      <p className="text-xs text-[var(--text-tertiary)]">
+        Suggestions &mdash; click to add. You can still type custom model names above.
+      </p>
+      {visibleGroups.map((g) => (
+        <div key={g.label} className="space-y-1">
+          <span className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] font-medium">
+            {g.label}
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {g.models.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onPick(m)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full border border-dashed border-[var(--border-default)] bg-[var(--bg-tertiary)]/50 text-[var(--text-tertiary)] opacity-70 hover:opacity-100 hover:bg-[var(--accent-primary)]/10 hover:text-[var(--accent-primary)] hover:border-[var(--accent-primary)]/50 transition-all whitespace-nowrap"
+                title={`Add ${m}`}
+              >
+                <span className="text-[var(--text-tertiary)]">+</span>
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -243,6 +401,14 @@ export function ProviderSettings() {
   // Testing
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
+
+  // Edit-models dialog. We only support editing the models list (backend has
+  // PUT /{id}/models) — name / url / key changes aren't exposed, so the
+  // dialog deliberately only shows the ModelBubbleInput + suggestions.
+  const [editingProviderId, setEditingProviderId] = useState<string | null>(null)
+  const [editModels, setEditModels] = useState<string[]>([])
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
   // ---- Data loading ----
   const refreshConfig = useCallback(async () => {
@@ -341,6 +507,38 @@ export function ProviderSettings() {
       return next
     })
     await refreshConfig()
+  }
+
+  const openEditModels = (prov: ProviderSummary) => {
+    setEditingProviderId(prov.provider_id)
+    setEditModels([...prov.models])
+    setEditError('')
+  }
+  const closeEditModels = () => {
+    setEditingProviderId(null)
+    setEditModels([])
+    setEditError('')
+  }
+  const saveEditModels = async () => {
+    if (!editingProviderId) return
+    setEditSaving(true)
+    setEditError('')
+    try {
+      const res = await authFetch(providerUrl(`/${editingProviderId}/models`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ models: editModels }),
+      }).then((r) => r.json())
+      if (res.success) {
+        await refreshConfig()
+        closeEditModels()
+      } else {
+        setEditError(res.detail || 'Failed to update models')
+      }
+    } catch {
+      setEditError('Network error')
+    }
+    setEditSaving(false)
   }
 
   const handleTest = async (id: string) => {
@@ -702,7 +900,11 @@ export function ProviderSettings() {
               </div>
               <div>
                 <label className="block text-sm text-[var(--text-tertiary)] mb-1">Available Models</label>
-                <ModelBubbleInput models={formModels} onChange={setFormModels} />
+                <ModelBubbleInput
+                  models={formModels}
+                  onChange={setFormModels}
+                  suggestions={suggestionsFor(showForm)}
+                />
               </div>
               <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
                 className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors">
@@ -732,6 +934,10 @@ export function ProviderSettings() {
                     <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
                       className="px-3 py-1.5 text-sm text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded-lg disabled:opacity-40 transition-colors">
                       {testing === prov.provider_id ? '...' : 'Test'}
+                    </button>
+                    <button onClick={() => openEditModels(prov)}
+                      className="px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
+                      Edit
                     </button>
                     <button onClick={() => handleDelete(prov.provider_id)}
                       className="px-3 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded-lg transition-colors">
@@ -799,6 +1005,56 @@ export function ProviderSettings() {
           </div>
         </div>
       )}
+
+      {/* ================================================================= */}
+      {/* Edit-models dialog                                                 */}
+      {/* ================================================================= */}
+      {(() => {
+        const prov = editingProviderId ? providers[editingProviderId] : null
+        if (!prov) return null
+        const proto = prov.protocol === 'anthropic' || prov.protocol === 'openai'
+          ? prov.protocol
+          : null
+        return (
+          <Dialog
+            isOpen={!!prov}
+            onClose={editSaving ? () => { /* block close while saving */ } : closeEditModels}
+            title={`Edit models — ${prov.name}`}
+            size="2xl"
+          >
+            <DialogContent>
+              <p className="text-sm text-[var(--text-tertiary)] mb-3">
+                Add or remove the models this provider can serve. The provider&rsquo;s
+                key and URL stay the same.
+              </p>
+              <ModelBubbleInput
+                models={editModels}
+                onChange={setEditModels}
+                suggestions={proto ? suggestionsFor(proto) : undefined}
+              />
+              {editError && (
+                <p className="mt-3 text-sm text-[var(--color-error)]">{editError}</p>
+              )}
+            </DialogContent>
+            <DialogFooter>
+              <button
+                onClick={closeEditModels}
+                disabled={editSaving}
+                className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEditModels}
+                disabled={editSaving}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors"
+              >
+                {editSaving ? 'Saving...' : 'Save'}
+              </button>
+            </DialogFooter>
+          </Dialog>
+        )
+      })()}
     </div>
   )
 }
