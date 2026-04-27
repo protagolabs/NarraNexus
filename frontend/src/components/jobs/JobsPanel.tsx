@@ -28,7 +28,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, KPICard, StatStrip, useConfirm } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, StatStrip, useConfirm } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';

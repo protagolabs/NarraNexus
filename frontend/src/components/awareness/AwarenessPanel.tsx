@@ -6,7 +6,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { RefreshCw, Brain, Clock, Users, Sparkles, Edit3, Save, X, MessageSquare, Network, TrendingUp, Search, Loader2 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input, StatStrip } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input, StatStrip } from '@/components/ui';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';

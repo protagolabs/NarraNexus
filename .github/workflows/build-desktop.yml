@@ -3,6 +3,9 @@ name: Build Desktop App
 on:
   push:
     tags: ['v*']
+    # TEMP: signing pipeline test — remove this branches block before
+    # merging fix/20260427-signing to main.
+    branches: ['fix/20260427-signing']
   workflow_dispatch:
 
 permissions:
@@ -91,7 +94,20 @@ jobs:
           cp "$APP_DIR"/*.app.tar.gz dist/NarraNexus.app.tar.gz
           ls -la dist
 
+      # Always upload as artifact so branch builds (signing tests) can be
+      # downloaded and verified locally.
+      - name: Upload DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NarraNexus-dmg
+          path: |
+            dist/NarraNexus.dmg
+            dist/NarraNexus.app.tar.gz
+          retention-days: 14
+
+      # Only attach to GitHub Release on tag push (skip on branch test runs).
       - name: Upload DMG to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |

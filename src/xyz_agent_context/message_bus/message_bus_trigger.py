@@ -356,7 +356,7 @@ class MessageBusTrigger:
             lines.append("")
             lines.append("**What to do this turn:**")
             lines.append(
-                f"1. Understand the peer reply above."
+                "1. Understand the peer reply above."
             )
             lines.append(
                 "2. If the peer's reply answers / progresses the owner's "

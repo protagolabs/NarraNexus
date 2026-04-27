@@ -430,7 +430,7 @@ class LarkModule(XYZBaseModule):
 
         header = f"**Bot**: **{bot_name}** ({brand_display}, app `{app_id}`)."
         if app_pending:
-            header = f"**Bot**: creating… (app_id will appear after Click 1 completes)"
+            header = "**Bot**: creating… (app_id will appear after Click 1 completes)"
 
         # Owner / sender trust signal
         owner_id = lark_info.get("owner_open_id", "")

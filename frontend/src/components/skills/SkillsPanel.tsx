@@ -24,7 +24,7 @@ import {
   KeyRound,
   CircleAlert,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, useConfirm } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, useConfirm } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores/configStore';
