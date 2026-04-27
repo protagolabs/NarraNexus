@@ -700,13 +700,23 @@ if [ "$IS_REAL_SIGN" -eq 1 ] \
     echo ""
     echo "--- Step 8: Notarizing DMG ---"
 
-    # Final pre-submit xattr audit of the DMG. hdiutil / cp can reintroduce
-    # xattrs on the DMG even when the source was clean. Non-empty → abort.
+    # Final pre-submit xattr cleanup on the DMG container itself.
+    #
+    # hdiutil writes com.apple.FinderInfo (value "deviddsk" — the disk-image
+    # file-type marker) onto every DMG it produces. cp can also reintroduce
+    # xattrs while moving the staged DMG around. Apple's notary service
+    # rejects any non-empty xattr on the submitted artifact with the cryptic
+    # "resource fork, Finder information, or similar detritus not allowed"
+    # message, so we strip them defensively right before submission.
+    #
+    # `xattr -c` is safe here: these are Finder presentation hints, not part
+    # of the DMG payload. The volume contents (the .app inside) are untouched.
+    xattr -c "$STAGE_DMG" 2>/dev/null || true
+    # Sanity check: refuse to submit if anything persists after the strip.
     DMG_XATTR=$(xattr -lr "$STAGE_DMG" 2>/dev/null | grep -v '^$' || true)
     if [ -n "$DMG_XATTR" ]; then
-        echo "  ERROR: STAGE_DMG carries extended attributes — Apple will reject."
+        echo "  ERROR: xattrs persist on STAGE_DMG after xattr -c — refusing to submit."
         echo "$DMG_XATTR" | head -10 | sed 's/^/    /'
-        echo "  Aborting before submission."
         exit 1
     fi
 
