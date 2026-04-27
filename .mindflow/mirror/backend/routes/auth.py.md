@@ -1,8 +1,23 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-04-10
+last_verified: 2026-04-16
 stub: false
 ---
+
+## 2026-04-16 addition — quota seeding on register
+
+Successful `/api/auth/register` in cloud mode now calls
+`app.state.quota_service.init_for_user(user_id)` after the user row is
+inserted. The call is defensive:
+- QuotaService disabled (local / feature off) → returns None, response
+  still succeeds with `has_system_quota: false`
+- DB failure during quota insert → logged, registration still succeeds
+  so the user doesn't lose their account over a quota-subsystem bug
+
+The response shape gained `has_system_quota`, `initial_input_tokens`,
+and `initial_output_tokens` fields. The frontend RegisterPage uses them
+to render a one-shot welcome toast on successful cloud-mode registration
+— skipped silently in local mode where the flag is false.
 
 # routes/auth.py — 用户认证与 Agent CRUD 路由
 

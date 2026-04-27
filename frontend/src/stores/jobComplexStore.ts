@@ -187,7 +187,7 @@ function jobToJobNode(job: Job): JobNode {
     description: job.description,
     status: job.status as JobNodeStatus,
     depends_on,
-    started_at: job.last_run_time,
+    started_at: job.last_run_at,
     completed_at: job.status === 'completed' ? job.updated_at : undefined,
     output: job.process?.join('\n'),
   };

@@ -139,7 +139,16 @@ class EmbeddingClient:
             )
 
         self.model = model or embedding_config.model
-        self.dimensions = MODEL_DIMENSIONS.get(self.model, 1536)
+        # Prefer the canonical catalog (covers bge-m3, nv-embed-v2, stella,
+        # etc.); fall back to the legacy OpenAI-only dict, then to the
+        # platform-wide default when the model is unknown.
+        from xyz_agent_context.agent_framework.model_catalog import (
+            get_embedding_dimensions as _catalog_dims,
+        )
+        self.dimensions = (
+            _catalog_dims(self.model)
+            or MODEL_DIMENSIONS.get(self.model, 1536)
+        )
         self.enable_cache = enable_cache
 
         # Initialize OpenAI client; only pass base_url when configured

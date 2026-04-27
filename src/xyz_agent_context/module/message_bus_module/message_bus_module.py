@@ -4,12 +4,12 @@
 @date: 2026-04-02
 @description: MessageBusModule - Agent-to-agent communication via MessageBus
 
-Replaces MatrixModule with a protocol-agnostic message bus. Provides MCP tools
-for sending/receiving messages, managing channels, and discovering agents.
+Protocol-agnostic message bus for agent-to-agent communication. Provides MCP
+tools for sending/receiving messages, managing channels, and discovering agents.
 
 Instance level: Agent-level (one per Agent, is_public=True).
 
-Behavior design (ported from MatrixModule):
+Behavior design:
 - Reply Discipline: prevent infinite trigger loops between agents
 - Selective mark_read: messages the agent ignores stay unread (resurface next turn)
 - Context caps: unread/channels/known_agents all bounded to prevent pollution
@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule
+from xyz_agent_context.module.base import XYZBaseModule, mcp_host
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -77,15 +77,21 @@ class MessageBusModule(XYZBaseModule):
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(
             server_name="message_bus_module",
-            server_url=f"http://localhost:{MESSAGE_BUS_MCP_PORT}/sse",
+            server_url=f"http://{mcp_host()}:{MESSAGE_BUS_MCP_PORT}/sse",
             type="sse",
         )
 
     def create_mcp_server(self) -> Optional[Any]:
         try:
-            from fastmcp import FastMCP
+            # Use the official mcp SDK's FastMCP (same as every other module)
+            # so FASTMCP_HOST, TransportSecuritySettings, and the shared
+            # module_runner._run_mcp_in_thread configuration all apply
+            # uniformly. The standalone `fastmcp` v2 package has a different
+            # API and does not honour those settings, which caused this MCP
+            # to silently fail cross-container reachability.
+            from mcp.server.fastmcp import FastMCP
 
-            mcp = FastMCP("MessageBusModule MCP")
+            mcp = FastMCP("message_bus_module")
             mcp.settings.port = MESSAGE_BUS_MCP_PORT
 
             from ._message_bus_mcp_tools import register_message_bus_mcp_tools
@@ -347,7 +353,7 @@ class MessageBusModule(XYZBaseModule):
         Selective mark_read: only mark messages as read if the agent actually
         replied to them. Messages the agent ignored stay unread and will
         resurface on the next turn — this is the "silence is acceptable"
-        mechanism from Matrix.
+        mechanism.
 
         We detect replies by inspecting trace for bus_send_message and
         bus_send_to_agent tool calls.

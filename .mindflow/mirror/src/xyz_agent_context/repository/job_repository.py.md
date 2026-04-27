@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/job_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 stub: false
 ---
 
@@ -13,6 +13,21 @@ stub: false
 ## Upstream / Downstream
 
 `JobTrigger` (background service) calls `get_due_jobs()` on a polling loop and fires each returned job through `AgentRuntime`. `JobModule.hook_after_event_execution()` calls `update_job()` after execution to record the LLM's `JobExecutionResult` (new status, process entries, next_run_time). The job management API routes in `backend/routes/` call `create_job()`, `get_jobs_by_agent()`, and `delete_job()` to serve the frontend job panel.
+
+## v2 时区协议（2026-04-21）
+
+`instance_jobs` 表现在有 α + β 两套 next/last run 字段：
+
+- α：`next_run_time` / `last_run_time`（UTC aware，物理瞬间）——**仅 poller 的 `get_due_jobs()` 用**
+- β：`next_run_at_local` / `next_run_tz` / `last_run_at_local` / `last_run_tz`（用户本地 naive ISO + IANA）——**所有面向 LLM / UI 的读取路径都用这套**
+
+对 α+β 的更新**必须走这三个专用方法**，不能直接拼 SQL 更新：
+
+- `update_next_run(job_id, NextRunTuple)`：原子写 α + β 下次运行
+- `update_last_run(job_id, utc, local, tz)`：原子写 α + β 最后运行
+- `clear_next_run(job_id)`：one_off 触发完、ongoing 达到终止条件时清空下次运行
+
+违反原子性（只更新 α 不更新 β 或反之）会产生"显示时间和实际触发时间不一致"的幽灵 bug。
 
 ## Design decisions
 

@@ -27,14 +27,14 @@ const TREND_ARROW = {
 
 export function MetricsRow({ metrics }: { metrics: MetricsToday }) {
   const errorCls = metrics.errors > 0
-    ? 'text-red-600 dark:text-red-400 font-semibold'
+    ? 'text-[var(--color-red-500)] font-semibold'
     : 'text-[var(--text-secondary)]';
   return (
     <div
       data-testid="metrics-row"
       className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-mono text-[var(--text-secondary)]"
     >
-      <span className="text-emerald-600">✓ {metrics.runs_ok}</span>
+      <span className="text-[var(--color-green-500)]">✓ {metrics.runs_ok}</span>
       <span className={errorCls}>⚠ {metrics.errors}</span>
       <span>
         ⏱ {formatAvg(metrics.avg_duration_ms)} {TREND_ARROW[metrics.avg_duration_trend]}

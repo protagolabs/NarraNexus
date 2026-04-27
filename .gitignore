@@ -18,6 +18,9 @@
 AGENT.md
 /deploy/synapse/
 
+# ── Superpowers worktrees (must remain untracked) ─────────────────────────
+/.worktrees/
+
 # ── Python bytecode & cache ────────────────────────────────────────────────
 __pycache__/
 *.py[codz]

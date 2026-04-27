@@ -106,10 +106,11 @@ class JobInstanceService:
         """
         from xyz_agent_context.schema.job_schema import JobType, TriggerConfig, JobStatus
         from xyz_agent_context.repository import JobRepository, InstanceRepository, NarrativeRepository
-        from xyz_agent_context.repository.job_repository import calculate_next_run_time
+        from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
         from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding, prepare_job_text_for_embedding
         from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
         from xyz_agent_context.narrative.models import NarrativeActorType, NarrativeActor
+        from pydantic import ValidationError
 
         try:
             # 0. Creator permission check: if narrative_id is specified, check if current user is Creator
@@ -173,8 +174,16 @@ class JobInstanceService:
                     "error": f"Invalid job_type: {job_type}. Must be 'one_off', 'scheduled', or 'ongoing'"
                 }
 
-            # 2. Parse trigger_config
-            trigger = TriggerConfig(**trigger_config)
+            # 2. Parse trigger_config (surface Pydantic errors as structured LLM-friendly messages)
+            try:
+                trigger = TriggerConfig(**trigger_config)
+            except ValidationError as ve:
+                first = ve.errors()[0]
+                loc = ".".join(str(p) for p in first.get("loc", ()))
+                return {
+                    "success": False,
+                    "error": f"Invalid trigger_config ({loc}): {first['msg']}",
+                }
 
             # 3. Validate trigger_config
             if job_type_enum == JobType.ONE_OFF and not trigger.run_at:
@@ -208,8 +217,8 @@ class JobInstanceService:
                 instance_id = f"job_{uuid4().hex[:8]}"
             job_id = f"job_{uuid4().hex[:12]}"
 
-            # 5. Calculate next_run_time
-            next_run_time = calculate_next_run_time(job_type_enum, trigger)
+            # 5. Compute next_run (atomic α+β triple)
+            next_run = compute_next_run(job_type_enum, trigger)
 
             # 6. Generate embedding vector
             embedding_text = prepare_job_text_for_embedding(title, description, payload)
@@ -258,7 +267,9 @@ class JobInstanceService:
                 payload=payload,
                 instance_id=instance_id,
                 notification_method=notification_method,
-                next_run_time=next_run_time,
+                next_run_time=next_run.utc if next_run else None,
+                next_run_at_local=next_run.local if next_run else None,
+                next_run_tz=next_run.tz if next_run else None,
                 embedding=embedding,
                 related_entity_id=related_entity_id,  # Feature 2.2.1 (single value)
                 narrative_id=narrative_id,  # Feature 3.1
@@ -607,8 +618,9 @@ class JobInstanceService:
                 {"append_to_payload": "Emphasize after-sales service advantages"}
             )
 
-            # Type B: Execute immediately
-            await service.update_job(job_id, {"next_run_time": utc_now()})
+            # Type B: Execute immediately — do NOT set "next_run_time" here alone;
+            # that bypasses the atomic alpha+beta invariant (v2 timezone protocol).
+            # Use JobRepository.update_next_run(job_id, NextRunTuple(...)) instead.
 
             # Type C: Pause
             await service.update_job(job_id, {"status": JobStatus.PAUSED})

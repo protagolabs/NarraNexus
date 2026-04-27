@@ -27,6 +27,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
+import { QuotaPanel } from './QuotaPanel'
 
 /** fetch wrapper that injects JWT auth header when available (cloud mode) */
 function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -119,39 +121,218 @@ const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[
 ]
 
 // =============================================================================
+// Model Name Suggestions
+// =============================================================================
+//
+// UX affordance for users who don't know the exact model IDs off the top
+// of their head. Rendered as dimmed chips below the ModelBubbleInput —
+// click a chip and it moves into the selected-models bubble row.
+//
+// Why we DON'T filter by the form's protocol: in practice almost all of
+// our users hit providers through a forwarding platform (Yunwu /
+// OpenRouter / NetMind / custom proxies) that does its own protocol
+// translation. A Custom Anthropic endpoint may be fronting GPT, Gemini,
+// or MiniMax; a Custom OpenAI endpoint may be fronting Claude. Hiding
+// suggestions based on the form's declared protocol would steer users
+// away from valid model names. Always show the full set and let the
+// user pick — they know what their forwarder exposes.
+//
+// List curation rules:
+//   - OpenAI: 10 newest text / chat / reasoning models
+//   - Anthropic: all current models
+//   - Gemini: all current text models, exclude deprecated / embedding /
+//     audio / live / TTS / image / computer-use
+//   - Chinese vendors (Zhipu, Kimi, Qwen, MiniMax, DeepSeek): top 3
+//     newest text models each (Kimi has only 1 listed)
+//   - DeepSeek compatibility aliases (deepseek-chat, deepseek-reasoner)
+//     excluded — users who want them can still type them in manually.
+
+interface ModelSuggestionGroup {
+  label: string
+  models: string[]
+}
+
+const MODEL_SUGGESTION_GROUPS: ModelSuggestionGroup[] = [
+  {
+    label: 'Anthropic',
+    models: [
+      'claude-opus-4-7',
+      'claude-sonnet-4-6',
+      'claude-haiku-4-5',
+      'claude-haiku-4-5-20251001',
+    ],
+  },
+  {
+    label: 'OpenAI',
+    models: [
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.4-nano',
+      'gpt-5.2',
+      'gpt-5.2-mini',
+      'gpt-5.1',
+      'gpt-5',
+      'gpt-4.1',
+      'o4-mini',
+      'o3',
+    ],
+  },
+  {
+    label: 'Google Gemini',
+    models: [
+      'gemini-3.1-pro-preview',
+      'gemini-3.1-pro-preview-customtools',
+      'gemini-3-flash-preview',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-deep-research-preview',
+      'gemini-deep-research-max-preview',
+    ],
+  },
+  {
+    label: 'Zhipu / GLM',
+    models: ['glm-5.1', 'glm-5', 'glm-5-turbo'],
+  },
+  {
+    label: 'Kimi (Moonshot)',
+    models: ['kimi-k2.6'],
+  },
+  {
+    label: 'Qwen (DashScope)',
+    models: ['qwen3.6-max-preview', 'qwen3.6-plus', 'qwen3.6-flash'],
+  },
+  {
+    label: 'MiniMax',
+    models: ['MiniMax-M2.7', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.5'],
+  },
+  {
+    label: 'DeepSeek',
+    models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+  },
+]
+
+// =============================================================================
 // Model Bubble Tag Input
 // =============================================================================
 
 function ModelBubbleInput({
-  models, onChange, placeholder = 'model name'
+  models, onChange, placeholder = 'model name', suggestions
 }: {
-  models: string[]; onChange: (m: string[]) => void; placeholder?: string
+  models: string[]
+  onChange: (m: string[]) => void
+  placeholder?: string
+  suggestions?: ModelSuggestionGroup[]
 }) {
   const [input, setInput] = useState('')
+  const hasPending = input.trim().length > 0
   const addModel = () => {
     const v = input.trim()
     if (v && !models.includes(v)) onChange([...models, v])
     setInput('')
   }
+  const addSuggestion = (m: string) => {
+    if (!models.includes(m)) onChange([...models, m])
+  }
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {models.map((m) => (
-        <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 whitespace-nowrap">
-          {m}
-          <button onClick={() => onChange(models.filter((x) => x !== m))} className="text-[var(--accent-primary)]/50 hover:text-[var(--accent-primary)]">&times;</button>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {models.map((m) => (
+          <span key={m} className="inline-flex items-center gap-1.5 px-2 py-1 text-[12px] font-[family-name:var(--font-mono)] bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--rule)] whitespace-nowrap">
+            {m}
+            <button
+              onClick={() => onChange(models.filter((x) => x !== m))}
+              className="text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors"
+              aria-label={`Remove ${m}`}
+            >
+              ×
+          </button>
         </span>
+        ))}
+        <span className="inline-flex items-center gap-1">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel() } }}
+            placeholder={placeholder}
+            style={{ width: Math.max(100, (input.length + 1) * 8) }}
+            className={cn(
+              'px-2 py-1 text-[12px] font-[family-name:var(--font-mono)] border bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none',
+              hasPending
+                ? 'border-[var(--color-warning)] focus:border-[var(--color-warning)]'
+                : 'border-[var(--rule)] focus:border-[var(--text-primary)]'
+            )}
+          />
+          <button
+            onClick={addModel}
+            disabled={!hasPending}
+            className={cn(
+              'px-2 py-1 text-[12px] font-[family-name:var(--font-mono)] border transition-all disabled:opacity-30',
+              hasPending
+                ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] border-[var(--text-primary)] hover:opacity-90 animate-pulse'
+                : 'border-[var(--rule)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+            )}
+            aria-label="Add model"
+          >
+            +
+          </button>
+        </span>
+      </div>
+      {hasPending && (
+        <p className="text-xs text-[var(--color-warning)]">
+          Press Enter or click + to add &ldquo;{input.trim()}&rdquo; — otherwise it will be discarded.
+        </p>
+      )}
+      {suggestions && suggestions.length > 0 && (
+        <ModelSuggestionChips
+          groups={suggestions}
+          selected={models}
+          onPick={addSuggestion}
+        />
+      )}
+    </div>
+  )
+}
+
+function ModelSuggestionChips({
+  groups, selected, onPick
+}: {
+  groups: ModelSuggestionGroup[]
+  selected: string[]
+  onPick: (m: string) => void
+}) {
+  const visibleGroups = groups
+    .map((g) => ({ ...g, models: g.models.filter((m) => !selected.includes(m)) }))
+    .filter((g) => g.models.length > 0)
+  if (visibleGroups.length === 0) return null
+  return (
+    <div className="pt-2 border-t border-[var(--border-subtle)] space-y-2">
+      <p className="text-xs text-[var(--text-tertiary)]">
+        Suggestions &mdash; click to add. You can still type custom model names above.
+      </p>
+      {visibleGroups.map((g) => (
+        <div key={g.label} className="space-y-1">
+          <span className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] font-medium">
+            {g.label}
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {g.models.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onPick(m)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full border border-dashed border-[var(--border-default)] bg-[var(--bg-tertiary)]/50 text-[var(--text-tertiary)] opacity-70 hover:opacity-100 hover:bg-[var(--accent-primary)]/10 hover:text-[var(--accent-primary)] hover:border-[var(--accent-primary)]/50 transition-all whitespace-nowrap"
+                title={`Add ${m}`}
+              >
+                <span className="text-[var(--text-tertiary)]">+</span>
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
       ))}
-      <span className="inline-flex items-center gap-1">
-        <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel() } }}
-          placeholder={placeholder}
-          style={{ width: Math.max(100, (input.length + 1) * 8) }}
-          className="px-2.5 py-1 text-sm rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-        <button onClick={addModel} disabled={!input.trim()}
-          className="px-2 py-1 text-sm rounded-full border border-[var(--accent-primary)]/20 text-[var(--accent-primary)] bg-[var(--accent-primary)]/5 hover:bg-[var(--accent-primary)]/10 disabled:opacity-30">
-          +
-        </button>
-      </span>
     </div>
   )
 }
@@ -163,13 +344,15 @@ function ModelBubbleInput({
 function SectionHeader({ step, title, subtitle }: { step: number; title: string; subtitle: string }) {
   return (
     <div className="mb-4">
-      <div className="flex items-center gap-2.5 mb-1">
-        <span className="w-6 h-6 rounded-full bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] text-sm font-semibold flex items-center justify-center">
-          {step}
+      <div className="flex items-baseline gap-3 mb-1">
+        <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)] tabular-nums">
+          {String(step).padStart(2, '0')}
         </span>
-        <h3 className="text-base font-semibold text-[var(--text-primary)]">{title}</h3>
+        <h3 className="text-base font-[family-name:var(--font-display)] font-semibold text-[var(--text-primary)] tracking-tight">
+          {title}
+        </h3>
       </div>
-      <p className="text-sm text-[var(--text-tertiary)] ml-[34px]">{subtitle}</p>
+      <p className="text-sm text-[var(--text-tertiary)] ml-[44px] leading-relaxed">{subtitle}</p>
     </div>
   )
 }
@@ -224,6 +407,14 @@ export function ProviderSettings() {
   // Testing
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
+
+  // Edit-models dialog. We only support editing the models list (backend has
+  // PUT /{id}/models) — name / url / key changes aren't exposed, so the
+  // dialog deliberately only shows the ModelBubbleInput + suggestions.
+  const [editingProviderId, setEditingProviderId] = useState<string | null>(null)
+  const [editModels, setEditModels] = useState<string[]>([])
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
   // ---- Data loading ----
   const refreshConfig = useCallback(async () => {
@@ -322,6 +513,38 @@ export function ProviderSettings() {
       return next
     })
     await refreshConfig()
+  }
+
+  const openEditModels = (prov: ProviderSummary) => {
+    setEditingProviderId(prov.provider_id)
+    setEditModels([...prov.models])
+    setEditError('')
+  }
+  const closeEditModels = () => {
+    setEditingProviderId(null)
+    setEditModels([])
+    setEditError('')
+  }
+  const saveEditModels = async () => {
+    if (!editingProviderId) return
+    setEditSaving(true)
+    setEditError('')
+    try {
+      const res = await authFetch(providerUrl(`/${editingProviderId}/models`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ models: editModels }),
+      }).then((r) => r.json())
+      if (res.success) {
+        await refreshConfig()
+        closeEditModels()
+      } else {
+        setEditError(res.detail || 'Failed to update models')
+      }
+    } catch {
+      setEditError('Network error')
+    }
+    setEditSaving(false)
   }
 
   const handleTest = async (id: string) => {
@@ -532,6 +755,9 @@ export function ProviderSettings() {
   return (
     <div className="space-y-8">
 
+      {/* System free-tier quota — renders only in cloud mode + feature on */}
+      <QuotaPanel />
+
       {/* ================================================================= */}
       {/* SECTION 1: Add Providers                                          */}
       {/* ================================================================= */}
@@ -582,7 +808,7 @@ export function ProviderSettings() {
                   Get Key
                 </a>
                 <button onClick={handleQuickAdd} disabled={presetAdding}
-                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors">
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
                   {presetAdding ? 'Adding...' : addedPresets.has(selectedPreset) ? 'Update' : 'Add'}
                 </button>
               </div>
@@ -609,7 +835,7 @@ export function ProviderSettings() {
                 </div>
                 {claudeStatus.logged_in && (
                   <button onClick={handleAddClaudeOAuth}
-                    className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 transition-colors">
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
                     Add as Provider
                   </button>
                 )}
@@ -680,10 +906,14 @@ export function ProviderSettings() {
               </div>
               <div>
                 <label className="block text-sm text-[var(--text-tertiary)] mb-1">Available Models</label>
-                <ModelBubbleInput models={formModels} onChange={setFormModels} />
+                <ModelBubbleInput
+                  models={formModels}
+                  onChange={setFormModels}
+                  suggestions={MODEL_SUGGESTION_GROUPS}
+                />
               </div>
               <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-                className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors">
+                className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
                 {formAdding ? 'Adding...' : 'Add Provider'}
               </button>
             </div>
@@ -710,6 +940,10 @@ export function ProviderSettings() {
                     <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
                       className="px-3 py-1.5 text-sm text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded-lg disabled:opacity-40 transition-colors">
                       {testing === prov.provider_id ? '...' : 'Test'}
+                    </button>
+                    <button onClick={() => openEditModels(prov)}
+                      className="px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
+                      Edit
                     </button>
                     <button onClick={() => handleDelete(prov.provider_id)}
                       className="px-3 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded-lg transition-colors">
@@ -749,9 +983,9 @@ export function ProviderSettings() {
                   onClick={handleApply}
                   disabled={applying}
                   className={cn(
-                    'flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors',
-                    'bg-[var(--accent-primary)] text-white',
-                    'hover:bg-[var(--accent-primary)]/90',
+                    'flex-1 py-2.5 text-sm font-medium transition-colors',
+                    'bg-[var(--text-primary)] text-[var(--text-inverse)]',
+                    'hover:opacity-90',
                     'disabled:opacity-40'
                   )}
                 >
@@ -777,6 +1011,53 @@ export function ProviderSettings() {
           </div>
         </div>
       )}
+
+      {/* ================================================================= */}
+      {/* Edit-models dialog                                                 */}
+      {/* ================================================================= */}
+      {(() => {
+        const prov = editingProviderId ? providers[editingProviderId] : null
+        if (!prov) return null
+        return (
+          <Dialog
+            isOpen={!!prov}
+            onClose={editSaving ? () => { /* block close while saving */ } : closeEditModels}
+            title={`Edit models — ${prov.name}`}
+            size="2xl"
+          >
+            <DialogContent>
+              <p className="text-sm text-[var(--text-tertiary)] mb-3">
+                Add or remove the models this provider can serve. The provider&rsquo;s
+                key and URL stay the same.
+              </p>
+              <ModelBubbleInput
+                models={editModels}
+                onChange={setEditModels}
+                suggestions={MODEL_SUGGESTION_GROUPS}
+              />
+              {editError && (
+                <p className="mt-3 text-sm text-[var(--color-error)]">{editError}</p>
+              )}
+            </DialogContent>
+            <DialogFooter>
+              <button
+                onClick={closeEditModels}
+                disabled={editSaving}
+                className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEditModels}
+                disabled={editSaving}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors"
+              >
+                {editSaving ? 'Saving...' : 'Save'}
+              </button>
+            </DialogFooter>
+          </Dialog>
+        )
+      })()}
     </div>
   )
 }

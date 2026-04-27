@@ -4,8 +4,9 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, ArrowRight, ArrowLeft, Sparkles, UserPlus, Zap, Cloud } from 'lucide-react';
+import { Loader2, ArrowRight, ArrowLeft, Sparkles, UserPlus, Cloud } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
+import { useTheme } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -19,6 +20,7 @@ export function LoginPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const { login, setAgents, setAgentId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const setMode = useRuntimeStore((s) => s.setMode);
@@ -95,27 +97,33 @@ export function LoginPage() {
           </button>
         )}
 
-        {/* Logo / Header */}
-        <div className="text-center mb-10">
-          <div className="relative inline-block mb-5">
-            <div className="relative w-20 h-20 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center">
-              {isCloudMode ? (
-                <Cloud className="w-10 h-10 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
-              ) : (
-                <Zap className="w-10 h-10 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
-              )}
-            </div>
+        {/* Document header — archive style */}
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-6">
+            <img src={isDark ? '/logo-dark.png' : '/logo-light.png'} alt="NarraNexus" className="h-8 w-auto object-contain" />
+            <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.22em] text-[var(--text-tertiary)]">
+              NetMind · Access
+            </span>
           </div>
-
-          <h1 className="text-3xl font-bold font-[family-name:var(--font-display)] text-[var(--text-primary)] mb-2 tracking-tight">
-            Narra<span className="text-[var(--accent-primary)]">Nexus</span>
+          <h1
+            className="font-[family-name:var(--font-display)] font-bold text-[var(--text-primary)] mb-3"
+            style={{ fontSize: 'clamp(2rem, 6vw, 2.75rem)', lineHeight: 1.02, letterSpacing: '-0.025em' }}
+          >
+            NarraNexus
           </h1>
-          <p className="text-[var(--text-secondary)] text-sm">
-            {isCloudMode ? 'Cloud Platform' : 'Intelligent Agent Platform'}
+          <hr className="archive-rule-thick" style={{ margin: '0 0 1rem 0' }} />
+          <p className="text-[var(--text-secondary)] text-sm font-light">
+            {isCloudMode ? 'Cloud platform · ' : 'Intelligent agent platform · '}
+            <span className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">
+              {isCloudMode ? '01 · Sign in' : '01 · Credentials'}
+            </span>
           </p>
-          <p className="text-[10px] text-[var(--text-tertiary)] font-mono tracking-[0.2em] uppercase mt-1">
-            {isCloudMode ? 'Sign in to your account' : 'Enter credentials to continue'}
-          </p>
+          {isCloudMode && (
+            <div className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--text-tertiary)] border border-[var(--rule)] px-2 py-1">
+              <Cloud className="w-3 h-3" />
+              Cloud mode
+            </div>
+          )}
         </div>
 
         {/* Login Form */}
@@ -216,10 +224,13 @@ export function LoginPage() {
         </div>
 
         {/* Footer */}
-        <div className="mt-10 pt-6 border-t border-[var(--border-subtle)]">
-          <div className="flex items-center justify-center gap-2 text-xs text-[var(--text-tertiary)]">
-            <Sparkles className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-            <span>Powered by NarraNexus</span>
+        <div className="mt-10 pt-5 border-t border-[var(--rule)]">
+          <div className="flex items-center justify-between text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)]">
+            <span className="flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3" />
+              NetMind.AI
+            </span>
+            <span>v1.0.0</span>
           </div>
         </div>
       </div>

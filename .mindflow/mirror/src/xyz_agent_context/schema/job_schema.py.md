@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/job_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 stub: false
 ---
 
@@ -9,6 +9,8 @@ stub: false
 ## Why it exists
 
 Background tasks (Jobs) are a first-class concept in NexusAgent — they allow the agent to do work on the user's behalf on a schedule or with a delay, without blocking real-time conversation. This file defines the entire data contract for that system: how jobs are described (`JobModel`), how triggers are configured (`TriggerConfig`), and how the LLM reports back what happened after each execution (`JobExecutionResult`, `OngoingExecutionResult`).
+
+**v2 timezone protocol (2026-04-21):** `TriggerConfig` now enforces a `timezone` field for all time-bearing triggers. `run_at` is strictly naive (no tzinfo). IANA validation is performed via `zoneinfo.ZoneInfo`. This is the v2 timezone protocol per spec `2026-04-21-job-timezone-redesign-design.md`.
 
 ## Upstream / Downstream
 
@@ -33,6 +35,12 @@ Background tasks (Jobs) are a first-class concept in NexusAgent — they allow t
 **`JobStatus.RUNNING`** is set by `JobTrigger` at execution start and should be cleared to `ACTIVE` or `COMPLETED` when execution finishes. If the process dies mid-execution, the job stays `RUNNING` forever. There is a `started_at` field intended for timeout detection, but as of this writing no automatic stuck-job recovery is implemented.
 
 **`TriggerConfig.cron`** is a standard 5-field cron expression but there is no validation of the expression format. An invalid cron string (e.g., `"0 8 * * * *"` with 6 fields) will be stored successfully and then silently fail to parse at execution time.
+
+**`TriggerConfig.timezone` is now required for all time-bearing triggers**: When you construct a `TriggerConfig` with `run_at`, `cron`, or `interval_seconds` without a `timezone`, Pydantic raises a `ValidationError`. The error message says "timezone is required when run_at / cron / interval_seconds is set." This catches LLM-generated tool calls that omit the timezone field; the MCP agentic loop will retry.
+
+**`TriggerConfig.run_at` must be naive (no tzinfo)**: When you pass a timezone-aware `datetime` (e.g., `datetime(..., tzinfo=timezone.utc)`) as `run_at`, Pydantic raises a `ValidationError` with "naive" in the message. The IANA timezone must be declared separately via the `timezone` field.
+
+**`TriggerConfig.timezone` rejects abbreviations like `"CST"` or `"EST"`**: `zoneinfo.ZoneInfo("CST")` raises `ZoneInfoNotFoundError` because abbreviations are ambiguous. Always use full IANA names like `"America/Chicago"` or `"Asia/Shanghai"`.
 
 ## New-joiner traps
 

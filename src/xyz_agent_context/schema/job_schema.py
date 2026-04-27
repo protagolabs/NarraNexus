@@ -22,8 +22,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import ClassVar, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # =============================================================================
@@ -62,20 +63,21 @@ class TriggerConfig(BaseModel):
     - ONGOING: Uses interval_seconds + end_condition / max_iterations
 
     Examples:
-        # One-time task: Execute tomorrow morning at 8am
-        TriggerConfig(run_at=datetime(2025, 1, 16, 8, 0, 0))
+        # One-time task: Execute tomorrow morning at 8am (Asia/Shanghai)
+        TriggerConfig(run_at=datetime(2025, 1, 16, 8, 0, 0), timezone="Asia/Shanghai")
 
-        # Periodic task: Every day at 8am
-        TriggerConfig(cron="0 8 * * *")
+        # Periodic task: Every day at 8am (America/New_York)
+        TriggerConfig(cron="0 8 * * *", timezone="America/New_York")
 
         # Periodic task: Every hour
-        TriggerConfig(interval_seconds=3600)
+        TriggerConfig(interval_seconds=3600, timezone="Asia/Shanghai")
 
         # Ongoing task: Check every hour until customer completes purchase, max 10 iterations
         TriggerConfig(
             interval_seconds=3600,
             end_condition="Customer completes purchase or explicitly expresses disinterest",
-            max_iterations=10
+            max_iterations=10,
+            timezone="Asia/Shanghai",
         )
     """
 
@@ -91,7 +93,7 @@ class TriggerConfig(BaseModel):
         description="Cron expression, e.g., '0 8 * * *' means every day at 8am"
     )
 
-    # 上限 90 天 = 7776000 秒，防止 LLM 生成不合理的超大值
+    # Upper limit 90 days = 7776000 seconds, prevents LLM from generating unreasonably large values
     MAX_INTERVAL_SECONDS: ClassVar[int] = 7_776_000
 
     interval_seconds: Optional[int] = Field(
@@ -99,13 +101,68 @@ class TriggerConfig(BaseModel):
         description="Execution interval (seconds), e.g., 3600 means every hour. Max 7776000 (90 days)."
     )
 
+    # === Timezone (required for all time-bearing triggers) ===
+    timezone: Optional[str] = Field(
+        default=None,
+        description=(
+            "IANA timezone name (e.g. 'Asia/Shanghai', 'America/New_York'). "
+            "Required for one_off / scheduled / ongoing jobs. "
+            "The job's fire time is frozen to this timezone at creation; "
+            "later changes to the user's timezone do NOT affect this job."
+        ),
+        max_length=64,
+    )
+
     @field_validator("interval_seconds")
     @classmethod
     def clamp_interval_seconds(cls, v: Optional[int]) -> Optional[int]:
-        """将 interval_seconds 限制在合理范围内"""
+        """Clamp interval_seconds to a reasonable upper bound."""
         if v is not None and v > cls.MAX_INTERVAL_SECONDS:
             v = cls.MAX_INTERVAL_SECONDS
         return v
+
+    @field_validator("run_at")
+    @classmethod
+    def run_at_must_be_naive(cls, v: Optional[datetime]) -> Optional[datetime]:
+        """Reject timezone-aware run_at; timezone must be specified via the timezone field."""
+        if v is not None and v.tzinfo is not None:
+            raise ValueError(
+                "run_at must be naive (no tzinfo). Use the `timezone` field to "
+                "declare timezone; do not attach offset or tzinfo to run_at."
+            )
+        return v
+
+    @field_validator("timezone")
+    @classmethod
+    def timezone_must_be_iana(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that timezone is a recognised IANA name via zoneinfo."""
+        if v is None:
+            return v
+        if not v.strip():
+            raise ValueError("timezone must be a non-empty IANA name")
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, KeyError) as e:
+            raise ValueError(
+                f"timezone '{v}' is not a valid IANA name "
+                f"(e.g. 'Asia/Shanghai', 'America/New_York'): {e}"
+            ) from e
+        return v
+
+    @model_validator(mode="after")
+    def timezone_required_for_time_bearing_triggers(self) -> "TriggerConfig":
+        """Require timezone whenever any time-bearing field is set."""
+        has_time_field = (
+            self.run_at is not None
+            or self.cron is not None
+            or self.interval_seconds is not None
+        )
+        if has_time_field and self.timezone is None:
+            raise ValueError(
+                "timezone is required when run_at / cron / interval_seconds "
+                "is set. Use IANA name like 'Asia/Shanghai'."
+            )
+        return self
 
     # === ONGOING Configuration (added 2026-01-21) ===
     end_condition: Optional[str] = Field(
@@ -223,6 +280,31 @@ class JobModel(BaseModel):
         description="Next execution time (calculated by JobTrigger)"
     )
 
+    next_run_at_local: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "Next fire time in user-local naive ISO 8601 "
+            "(e.g. '2026-05-01T08:00:00'). Pair with next_run_tz. "
+            "LLM- and UI-facing view. Never use next_run_time (UTC) for display."
+        ),
+    )
+    next_run_tz: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="IANA timezone associated with next_run_at_local (frozen at job creation)",
+    )
+    last_run_at_local: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description="Most recent fire time in user-local naive ISO 8601",
+    )
+    last_run_tz: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="IANA timezone associated with last_run_at_local",
+    )
+
     last_error: Optional[str] = Field(
         default=None,
         description="Error message from the most recent execution"
@@ -287,6 +369,10 @@ class JobModel(BaseModel):
     )
 
 
+# Public alias — downstream code and tests use "Job" as the canonical short name
+Job = JobModel
+
+
 # =============================================================================
 # Job Execution Result (Agent Output after execution)
 # =============================================================================
@@ -327,32 +413,10 @@ class JobExecutionResult(BaseModel):
         )
     )
 
-    # === Next Execution Time (intelligently determined by LLM) ===
-    # 上限 7 天，防止 LLM 返回远未来的时间
-    MAX_NEXT_RUN_DAYS: ClassVar[int] = 90
-
-    next_run_time: Optional[datetime] = Field(
-        default=None,
-        description=(
-            "Next execution time in UTC (ISO 8601 format with Z suffix, e.g. 2026-03-17T09:13:00Z). "
-            "completed/failed -> null; "
-            "active -> default is current_time + interval_seconds, may adjust slightly based on context"
-        )
-    )
-
-    @field_validator("next_run_time")
-    @classmethod
-    def clamp_next_run_time(cls, v: Optional[datetime]) -> Optional[datetime]:
-        """将 next_run_time 限制在当前时间 + MAX_NEXT_RUN_DAYS 以内"""
-        if v is not None:
-            from xyz_agent_context.utils import utc_now
-            max_time = utc_now() + timedelta(days=cls.MAX_NEXT_RUN_DAYS)
-            # 比较前统一去掉 timezone 信息（LLM 可能返回 naive datetime）
-            v_naive = v.replace(tzinfo=None) if v.tzinfo else v
-            max_naive = max_time.replace(tzinfo=None) if max_time.tzinfo else max_time
-            if v_naive > max_naive:
-                v = max_time
-        return v
+    # v2 timezone protocol: next_run_time is NO LONGER LLM-decided.
+    # Scheduling is computed deterministically from trigger_config by
+    # _job_lifecycle after the LLM returns. The LLM only decides status
+    # (active / completed / failed), process, and notification intent.
 
     # === Error Information ===
     last_error: Optional[str] = Field(
@@ -421,26 +485,8 @@ class OngoingExecutionResult(BaseModel):
         description="Action records for this execution, 2-5 step descriptions"
     )
 
-    # === Next Execution ===
-    MAX_NEXT_RUN_DAYS: ClassVar[int] = 90
-
-    next_run_time: Optional[datetime] = Field(
-        default=None,
-        description="Next execution time (if should_continue=True)"
-    )
-
-    @field_validator("next_run_time")
-    @classmethod
-    def clamp_next_run_time(cls, v: Optional[datetime]) -> Optional[datetime]:
-        """将 next_run_time 限制在当前时间 + MAX_NEXT_RUN_DAYS 以内"""
-        if v is not None:
-            from xyz_agent_context.utils import utc_now
-            max_time = utc_now() + timedelta(days=cls.MAX_NEXT_RUN_DAYS)
-            v_naive = v.replace(tzinfo=None) if v.tzinfo else v
-            max_naive = max_time.replace(tzinfo=None) if max_time.tzinfo else max_time
-            if v_naive > max_naive:
-                v = max_time
-        return v
+    # v2 timezone protocol: next_run_time is NO LONGER LLM-decided here
+    # either. Scheduling is derived from trigger_config in _job_lifecycle.
 
     # === Notification Related ===
     should_notify: bool = Field(

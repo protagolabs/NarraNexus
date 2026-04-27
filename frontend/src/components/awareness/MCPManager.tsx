@@ -22,7 +22,7 @@ import {
   Power,
   AlertCircle,
 } from 'lucide-react';
-import { Button, Badge } from '@/components/ui';
+import { Button, Badge, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -44,9 +44,9 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
 
     switch (mcp.connection_status) {
       case 'connected':
-        return <CheckCircle className="w-3 h-3 text-green-500" />;
+        return <CheckCircle className="w-3 h-3 text-[var(--color-green-500)]" />;
       case 'failed':
-        return <XCircle className="w-3 h-3 text-red-500" />;
+        return <XCircle className="w-3 h-3 text-[var(--color-red-500)]" />;
       default:
         return <Circle className="w-3 h-3 text-[var(--text-tertiary)]" />;
     }
@@ -105,7 +105,7 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
           className="w-6 h-6"
           title={mcp.is_enabled ? 'Disable' : 'Enable'}
         >
-          <Power className={cn('w-3 h-3', mcp.is_enabled ? 'text-green-500' : 'text-[var(--text-tertiary)]')} />
+          <Power className={cn('w-3 h-3', mcp.is_enabled ? 'text-[var(--color-green-500)]' : 'text-[var(--text-tertiary)]')} />
         </Button>
         <Button
           variant="ghost"
@@ -192,6 +192,7 @@ export function MCPManager() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Fetch MCPs on mount
   const fetchMCPs = useCallback(async () => {
@@ -289,7 +290,13 @@ export function MCPManager() {
   // Delete MCP
   const handleDelete = async (mcpId: string) => {
     if (!agentId || !userId) return;
-    if (!confirm('Delete this MCP?')) return;
+    const ok = await confirm({
+      title: 'Delete MCP',
+      message: 'Delete this MCP?',
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
 
     try {
       const res = await api.deleteMCP(agentId, userId, mcpId);
@@ -364,6 +371,7 @@ export function MCPManager() {
 
   return (
     <section className="space-y-2">
+      {confirmDialog}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] font-medium uppercase tracking-wider">
           <Server className="w-3 h-3" />
@@ -406,7 +414,7 @@ export function MCPManager() {
 
       {/* Error Message */}
       {error && (
-        <div className="flex items-center gap-1.5 text-xs text-[var(--color-error)] p-2 bg-red-500/10 rounded">
+        <div className="flex items-center gap-1.5 text-xs text-[var(--color-error)] p-2 border border-[var(--color-red-500)]">
           <AlertCircle className="w-3 h-3 shrink-0" />
           {error}
         </div>
@@ -448,11 +456,11 @@ export function MCPManager() {
       {mcps.length > 0 && (
         <div className="flex items-center gap-3 text-[9px] text-[var(--text-tertiary)] pt-1">
           <span className="flex items-center gap-1">
-            <CheckCircle className="w-2.5 h-2.5 text-green-500" />
+            <CheckCircle className="w-2.5 h-2.5 text-[var(--color-green-500)]" />
             Connected
           </span>
           <span className="flex items-center gap-1">
-            <XCircle className="w-2.5 h-2.5 text-red-500" />
+            <XCircle className="w-2.5 h-2.5 text-[var(--color-red-500)]" />
             Failed
           </span>
           <span className="flex items-center gap-1">

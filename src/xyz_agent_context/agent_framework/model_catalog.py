@@ -53,11 +53,12 @@ def _register(*models: ModelMeta) -> None:
 
 # --- NetMind models ---
 _register(
-    ModelMeta("minimax/minimax-m2.5", "MiniMax M2.5", max_output_tokens=58982),
+    ModelMeta("minimax/minimax-m2.7", "MiniMax M2.7", max_output_tokens=58982),
     ModelMeta("google/gemini-3.1-pro-preview", "Gemini 3.1 Pro", max_output_tokens=58982),
     ModelMeta("google/gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite", max_output_tokens=58982),
     ModelMeta("moonshotai/Kimi-K2.5", "Kimi K2.5", max_output_tokens=58981),
     ModelMeta("zai-org/GLM-5", "GLM-5", max_output_tokens=117964),
+    ModelMeta("zai-org/GLM-5.1", "GLM-5.1", max_output_tokens=117964),
     ModelMeta("deepseek-ai/DeepSeek-V3", "DeepSeek V3", max_output_tokens=7200),
     ModelMeta("BAAI/bge-m3", "BGE-M3 (Multilingual)", dimensions=1024),
     ModelMeta("nvidia/NV-Embed-v2", "NV-Embed-v2", dimensions=4096),
@@ -65,14 +66,29 @@ _register(
 )
 
 # --- Anthropic / Claude models ---
+# max_output_tokens left None for models whose official limits we haven't
+# independently verified; callers fall back to the provider's own cap.
 _register(
-    ModelMeta("claude-opus-4-6", "Claude Opus 4.6", max_output_tokens=115200),
+    ModelMeta("claude-opus-4-7", "Claude Opus 4.7", max_output_tokens=115200),
     ModelMeta("claude-sonnet-4-6", "Claude Sonnet 4.6", max_output_tokens=115200),
+    ModelMeta("claude-haiku-4-5", "Claude Haiku 4.5"),
+    ModelMeta("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (2025-10-01)"),
 )
 
 # --- OpenAI models ---
+# Text / chat / reasoning models surfaced as in-UI suggestions. Embeddings
+# stay alongside because the embedding slot filters by dimensions != None.
 _register(
-    ModelMeta("gpt-5.1-2025-11-13", "GPT-5.1", max_output_tokens=115200),
+    ModelMeta("gpt-5.4", "GPT-5.4"),
+    ModelMeta("gpt-5.4-mini", "GPT-5.4 Mini"),
+    ModelMeta("gpt-5.4-nano", "GPT-5.4 Nano"),
+    ModelMeta("gpt-5.2", "GPT-5.2"),
+    ModelMeta("gpt-5.2-mini", "GPT-5.2 Mini"),
+    ModelMeta("gpt-5.1", "GPT-5.1"),
+    ModelMeta("gpt-5", "GPT-5"),
+    ModelMeta("gpt-4.1", "GPT-4.1"),
+    ModelMeta("o4-mini", "o4-mini (reasoning)"),
+    ModelMeta("o3", "o3 (reasoning)"),
     ModelMeta("text-embedding-3-small", "Embedding 3 Small", dimensions=1536),
     ModelMeta("text-embedding-3-large", "Embedding 3 Large", dimensions=3072),
 )
@@ -86,15 +102,16 @@ _register(
 _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
     # NetMind Anthropic protocol → agent models
     ("netmind", "anthropic"): [
-        "minimax/minimax-m2.5",
+        "minimax/minimax-m2.7",
     ],
     # NetMind OpenAI protocol → helper_llm + embedding models
     ("netmind", "openai"): [
-        "minimax/minimax-m2.5",
+        "minimax/minimax-m2.7",
         "google/gemini-3.1-pro-preview",
         "google/gemini-3.1-flash-lite-preview",
         "moonshotai/Kimi-K2.5",
         "zai-org/GLM-5",
+        "zai-org/GLM-5.1",
         "deepseek-ai/DeepSeek-V3",
         "BAAI/bge-m3",
         "nvidia/NV-Embed-v2",
@@ -102,41 +119,75 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
     ],
     # Yunwu Anthropic protocol → Claude models (Yunwu proxies official Claude)
     ("yunwu", "anthropic"): [
+        "claude-opus-4-7",
         "claude-sonnet-4-6",
-        "claude-opus-4-6",
+        "claude-haiku-4-5",
     ],
     # Yunwu OpenAI protocol → OpenAI models (Yunwu proxies official OpenAI)
     ("yunwu", "openai"): [
-        "gpt-5.1-2025-11-13",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.2",
+        "gpt-5.1",
         "text-embedding-3-small",
         "text-embedding-3-large",
     ],
     # OpenRouter Anthropic protocol → Claude models (OpenRouter proxies official Claude)
     ("openrouter", "anthropic"): [
+        "claude-opus-4-7",
         "claude-sonnet-4-6",
-        "claude-opus-4-6",
+        "claude-haiku-4-5",
     ],
     # OpenRouter OpenAI protocol → OpenAI models (OpenRouter proxies official OpenAI)
     ("openrouter", "openai"): [
-        "gpt-5.1-2025-11-13",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.2",
+        "gpt-5.1",
         "text-embedding-3-small",
         "text-embedding-3-large",
     ],
     # Claude OAuth → agent models
     ("claude_oauth", "anthropic"): [
-        "claude-opus-4-6",
+        "claude-opus-4-7",
         "claude-sonnet-4-6",
+        "claude-haiku-4-5",
     ],
 }
 
-# Suggested models when user adds a generic Anthropic/OpenAI provider
+# Suggested models when user adds a generic Anthropic / OpenAI provider.
+#
+# These are the "official channel" pre-populated lists. They feed:
+#   - /api/providers/catalog → frontend Section 2 assignment dropdowns
+#     (when a custom provider points at api.openai.com / api.anthropic.com)
+#   - get_official_models() for the same purpose on the server side
+#
+# The richer per-vendor chip suggestions (Gemini, GLM, Kimi, Qwen, MiniMax,
+# DeepSeek, …) live in the frontend as MODEL_SUGGESTION_GROUPS — those are
+# UI affordances for the create form, not authoritative capability data,
+# and every vendor we include there is accessed via OpenAI-compatible proxy,
+# so they all fall under the "openai" protocol too.
 _SUGGESTED_MODELS: dict[str, list[str]] = {
     "anthropic": [
-        "claude-opus-4-6",
+        "claude-opus-4-7",
         "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+        "claude-haiku-4-5-20251001",
     ],
     "openai": [
-        "gpt-5.1-2025-11-13",
+        # Top-10 most recent text / chat / reasoning models.
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.2",
+        "gpt-5.2-mini",
+        "gpt-5.1",
+        "gpt-5",
+        "gpt-4.1",
+        "o4-mini",
+        "o3",
+        # Embeddings — not text models, kept here because the embedding
+        # slot filters this list by `dimensions != None`.
         "text-embedding-3-small",
         "text-embedding-3-large",
     ],

@@ -21,7 +21,7 @@ function colorForSeed(seed: string): string {
     hash = (hash * 31 + seed.charCodeAt(i)) | 0;
   }
   const palette = [
-    'bg-emerald-500', 'bg-sky-500', 'bg-amber-500', 'bg-rose-500',
+    'bg-[var(--color-green-500)]', 'bg-sky-500', 'bg-[var(--color-yellow-500)]', 'bg-rose-500',
     'bg-violet-500', 'bg-fuchsia-500', 'bg-teal-500', 'bg-indigo-500',
   ];
   return palette[Math.abs(hash) % palette.length];
@@ -77,7 +77,7 @@ export function SessionSection({ agentId, sessions }: Props) {
         <span className="text-[var(--text-secondary)] truncate">· on {channels.join(' · ')}</span>
       </button>
       {expanded && (
-        <ul className="mt-1 ml-3 space-y-1 border-l-2 border-[var(--border-primary)] pl-2">
+        <ul className="mt-1 ml-3 space-y-1 border-l-2 border-[var(--rule)] pl-2">
           {sessions.map((s) => (
             <SessionItem key={s.session_id} agentId={agentId} session={s} />
           ))}
@@ -131,9 +131,9 @@ function SessionItem({ agentId, session }: { agentId: string; session: SessionIn
         <span className={`ml-auto transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
       </button>
       {expanded && (
-        <div className="ml-7 mt-1 rounded border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-2 space-y-1">
+        <div className="ml-7 mt-1 rounded border border-[var(--rule)] bg-[var(--bg-tertiary)] p-2 space-y-1">
           {loading && <div className="text-[var(--text-secondary)]">Loading…</div>}
-          {err && <div className="text-red-500">Failed: {err}</div>}
+          {err && <div className="text-[var(--color-red-500)]">Failed: {err}</div>}
           {detail !== null && (
             <>
               <div className="text-[var(--text-secondary)]">

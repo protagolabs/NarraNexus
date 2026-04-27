@@ -1,33 +1,26 @@
 ---
 code_file: frontend/src/hooks/useTheme.ts
-last_verified: 2026-04-10
+last_verified: 2026-04-24
 stub: false
 ---
 
-# useTheme.ts — Light/dark/system theme toggle
+# useTheme.ts — Thin selector wrapper over useThemeStore
 
 ## Why it exists
 
-The app supports three theme choices: `light`, `dark`, and `system` (follows OS preference). Theme state must persist across sessions without requiring a Zustand store or backend round-trip. `useTheme` handles this with a simple localStorage key and a media query listener, keeping theme logic completely isolated from the rest of the state management system.
+Keeps the familiar `{ theme, effectiveTheme, setTheme, toggleTheme, isDark }` shape used across 5+ call sites while sourcing state from the shared Zustand store. The derived `isDark` boolean is the main value-add — components choosing between light/dark asset variants (e.g. `logo-light.png` vs `logo-dark.png`) read it directly.
 
 ## Upstream / Downstream
 
-Self-contained — reads and writes `localStorage` under `narra-nexus-theme`. Applies theme by toggling the `dark` class on `document.documentElement`.
-
-Used by `App.tsx` (`effectiveTheme` drives the `dark` class toggle in a `useEffect`) and `ThemeToggle.tsx` (displays current theme, calls `toggleTheme`).
+- **Upstream**: `@/stores/themeStore` holds the actual state.
+- **Downstream**: `App.tsx`, `ThemeToggle`, `Sidebar`, `LoginPage`, `RegisterPage`, `ModeSelectPage`.
 
 ## Design decisions
 
-**Three-way toggle.** `toggleTheme` cycles `light → dark → system`. This differs from most apps that only toggle light/dark. The `system` option is included so users who rely on OS night mode don't have to manually switch twice a day.
+**Zustand-backed, not useState.** An earlier implementation used `useState` inside this hook. Every call site got its own independent state copy — the toggle updated the toggle's state but Sidebar/Login/Register/ModeSelect instances stayed frozen, so `isDark`-driven image swaps broke after the first toggle. Moving state into `useThemeStore` makes all subscribers re-render on change.
 
-**`effectiveTheme` vs `theme`.** `theme` can be `'system'`, which is not a renderable value. `effectiveTheme` is always `'light'` or `'dark'` — the resolved actual appearance. Components that need to know which variant to render use `isDark` (derived from `effectiveTheme`) rather than comparing `theme`.
-
-**Not in Zustand.** Theme is purely a local UI preference with no backend relevance. Putting it in Zustand would add serialization overhead for a value that is simpler to keep in a hook + localStorage.
-
-**Media query listener.** When `theme === 'system'`, the hook subscribes to `prefers-color-scheme: dark` changes. If the user changes their OS theme at runtime, the app immediately follows. The listener is cleaned up on unmount.
+**Hook kept (not replaced by direct store use).** Call sites could import `useThemeStore` directly, but keeping `useTheme` as a one-file wrapper centralizes the `isDark` derivation and preserves a stable surface if the store internals change.
 
 ## Gotchas
 
-**`useTheme` is called once in `App.tsx` and once in `ThemeToggle.tsx`.** React hook calls are independent — they each read from and write to the same `localStorage` key, but they hold separate React state. A theme change triggered by `ThemeToggle` updates its own state and writes to `localStorage`. `App.tsx`'s `useTheme` instance does NOT automatically re-render unless something forces it. In practice the `document.documentElement.classList` is the real source of truth (applied in a `useEffect`), so the visual result is correct; but the `App.tsx` instance's `effectiveTheme` state may lag by one render cycle.
-
-**SSR / non-browser environments.** Both `getSystemTheme` and `getStoredTheme` guard against `window === undefined`. The hook is safe to call in a test environment without a DOM, though the theme will always be `'dark'` (system fallback) and `'system'` (stored fallback) respectively.
+**DOM side effect lives in App.tsx.** This hook does NOT toggle `document.documentElement.classList`. `App.tsx` owns that `useEffect`, driven by `effectiveTheme` from the store. Do not re-add DOM mutations here — one owner avoids double-apply races.

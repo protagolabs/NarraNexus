@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/jobs/JobsPanel.tsx
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 ---
 
 # JobsPanel.tsx — Root orchestrator for the Jobs panel

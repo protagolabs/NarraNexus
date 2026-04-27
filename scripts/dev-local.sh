@@ -37,7 +37,8 @@ pkill -f "module_runner.py mcp" 2>/dev/null || true
 pkill -f "module_poller" 2>/dev/null || true
 pkill -f "job_trigger" 2>/dev/null || true
 pkill -f "message_bus_trigger" 2>/dev/null || true
-for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805; do
+pkill -f "run_lark_trigger" 2>/dev/null || true
+for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -54,6 +55,23 @@ echo ""
 echo -e "  ${G}Local Development Server${R}"
 echo -e "  Database: ${Y}$DATABASE_URL${R}"
 echo ""
+
+# --- Ensure venv is fully synced (safety net) ---
+# run.sh already calls `uv sync`, but after branch switches or lockfile
+# changes the venv can be stale (uv reports "Audited" without actually
+# installing new/changed deps). A second `uv sync` here is cheap (no-op
+# when already up-to-date) and prevents the "Failed to spawn: uvicorn"
+# error that bites every new contributor on a fresh checkout.
+echo -e "${Y}Verifying Python environment...${R}"
+(cd "$PROJECT_ROOT" && env -u VIRTUAL_ENV uv sync 2>&1 | tail -1)
+
+# Quick sanity check: if uvicorn still isn't installed, abort early with
+# a clear message instead of letting the Backend tmux window die silently.
+if [ ! -x "$PROJECT_ROOT/.venv/bin/uvicorn" ]; then
+  echo -e "${RED}ERROR: uvicorn not found in .venv after uv sync.${R}"
+  echo -e "  Try: cd $PROJECT_ROOT && rm -rf .venv && uv sync"
+  exit 1
+fi
 
 # --- Common env ---
 SQLITE_PROXY_PORT="${SQLITE_PROXY_PORT:-8100}"
@@ -76,12 +94,38 @@ status_line() {
   fi
 }
 
+detect_frontend_url() {
+  if lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null 2>&1; then
+    echo "http://localhost:5173"
+  elif lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null 2>&1; then
+    echo "http://localhost:5174"
+  else
+    echo ""
+  fi
+}
+
 draw_panel() {
   clear
   echo ""
   echo -e "${C}  ╔═══════════════════════════════════════╗${R}"
   echo -e "${C}  ║       NarraNexus Control Panel        ║${R}"
   echo -e "${C}  ╚═══════════════════════════════════════╝${R}"
+  echo ""
+  echo -e "  ${Y}Open in Browser${R}         ${DIM}(Ctrl/Cmd + click the link)${R}"
+  echo ""
+  local fe_url
+  fe_url="$(detect_frontend_url)"
+  if [ -n "$fe_url" ]; then
+    echo -e "  ${G}▸${R} Frontend  ${C}${fe_url}${R}"
+  else
+    echo -e "  ${DIM}▸ Frontend  starting up... (check Frontend window)${R}"
+  fi
+  if lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null 2>&1; then
+    echo -e "  ${G}▸${R} Backend   ${C}http://localhost:8000${R}"
+    echo -e "  ${G}▸${R} API Docs  ${C}http://localhost:8000/docs${R}"
+  else
+    echo -e "  ${DIM}▸ Backend   starting up... (check Backend window)${R}"
+  fi
   echo ""
   echo -e "  ${Y}Service Status${R}          ${DIM}(updates every 3s)${R}"
   echo ""
@@ -92,10 +136,11 @@ draw_panel() {
   status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
   status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
   status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
+  status_line "Lark Trigger"        "pgrep -f 'run_lark_trigger' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
-  echo -e "  ${C}Ctrl+B N${R}  Next window       ${C}Ctrl+B 1-7${R}  Jump to service"
+  echo -e "  ${C}Ctrl+B N${R}  Next window       ${C}Ctrl+B 1-8${R}  Jump to service"
   echo -e "  ${C}Ctrl+B P${R}  Previous window   ${C}Ctrl+B D${R}    Detach"
   echo ""
   echo -e "  Press ${RED}q${R} to stop all services and exit"
@@ -116,13 +161,14 @@ while true; do
       pkill -f "module_poller" 2>/dev/null || true
       pkill -f "job_trigger" 2>/dev/null || true
       pkill -f "message_bus_trigger" 2>/dev/null || true
+      pkill -f "run_lark_trigger" 2>/dev/null || true
       # Kill processes on known ports
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805; do
+      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
       done
       sleep 1
       # Force-kill any stragglers
-      for port in 8100 8000 5173 5174 7801; do
+      for port in 8100 8000 5173 5174 7801 7830; do
         lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
       done
       echo -e "  ${G}All services stopped.${R}"
@@ -145,11 +191,20 @@ tmux new-window -t "$SESSION" -n "DB Proxy" \
   "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; uv run python -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
 
 # Wait for proxy to be ready before starting other services
-sleep 3
+echo -n "Waiting for DB Proxy..."
+for _i in $(seq 1 20); do
+  if curl -sf "http://localhost:${SQLITE_PROXY_PORT}/health" >/dev/null 2>&1 || \
+     lsof -iTCP:"${SQLITE_PROXY_PORT}" -sTCP:LISTEN -P -n >/dev/null 2>&1; then
+    echo " ready"
+    break
+  fi
+  echo -n "."
+  sleep 1
+done
 
 # --- Backend ---
 tmux new-window -t "$SESSION" -n "Backend" \
-  "$ENV_CMD; echo '=== Backend API :8000 ==='; DASHBOARD_BIND_HOST=127.0.0.1 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000; echo 'Backend stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Backend API :8000 ==='; DASHBOARD_BIND_HOST=127.0.0.1 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60; echo 'Backend stopped. Press Enter to close.'; read"
 
 # --- MCP Server ---
 tmux new-window -t "$SESSION" -n "MCP" \
@@ -167,6 +222,10 @@ tmux new-window -t "$SESSION" -n "Jobs" \
 tmux new-window -t "$SESSION" -n "BusTrigger" \
   "$ENV_CMD; echo '=== Bus Trigger ==='; uv run python -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
 
+# --- Lark Trigger ---
+tmux new-window -t "$SESSION" -n "LarkTrigger" \
+  "$ENV_CMD; echo '=== Lark Trigger ==='; uv run python -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
+
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \
   "cd '$PROJECT_ROOT/frontend'; echo '=== Frontend Dev Server ==='; npm run dev; echo 'Frontend stopped. Press Enter to close.'; read"
@@ -181,4 +240,27 @@ echo -e "  Backend:   ${C}http://localhost:8000${R}"
 echo ""
 
 # --- Attach ---
-tmux attach -t "$SESSION"
+# tmux attach needs a real interactive terminal. Three conditions must hold:
+#   1. stdin and stdout are TTYs ([ -t 0 ] && [ -t 1 ])
+#   2. TERM is set to something other than "dumb"
+#   3. tmux itself thinks attach is viable (probed via a dry-run below)
+# In non-interactive contexts (CI, agent shells, Claude Code's Bash tool),
+# `tmux attach` crashes with "open terminal failed: not a terminal". In that
+# case we leave the session detached and print clear manual instructions.
+_can_attach=false
+if [ -t 0 ] && [ -t 1 ] && [ -n "${TERM:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+  # Final probe: try a no-op tmux command against the current $TERM. If tmux
+  # can't open a terminal here, the attach would fail the same way.
+  if tmux display-message -p "" >/dev/null 2>&1; then
+    _can_attach=true
+  fi
+fi
+
+if [ "$_can_attach" = "true" ]; then
+  exec tmux attach -t "$SESSION"
+else
+  echo -e "  ${Y}No interactive terminal — services running in detached tmux session.${R}"
+  echo -e "  Attach manually:  ${C}tmux attach -t ${SESSION}${R}"
+  echo -e "  Stop all:         ${C}bash $(dirname "$SCRIPT_DIR")/run.sh stop${R}"
+  echo ""
+fi

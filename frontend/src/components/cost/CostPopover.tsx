@@ -149,7 +149,7 @@ export function CostPopover() {
         <Button variant="ghost" size="icon" className="relative" title="Token Usage">
           <Activity className="w-5 h-5" />
           {totalTokens > 0 && (
-            <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 flex items-center justify-center text-[9px] font-medium bg-[var(--accent-primary)] text-white rounded-full">
+            <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 flex items-center justify-center text-[9px] font-medium bg-[var(--color-red-500)] text-white rounded-full allow-circle">
               {formatTokens(totalTokens)}
             </span>
           )}

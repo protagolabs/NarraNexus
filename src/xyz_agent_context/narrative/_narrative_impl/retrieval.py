@@ -241,13 +241,34 @@ class NarrativeRetrieval:
         # Step 2.5 (P0-4): Add PARTICIPANT Narratives to candidate list (if not already in search results)
         # This is key: participant_narratives come from Narratives created by other users; vector search won't return them
         existing_narrative_ids = {r.narrative_id for r in search_results}
+        # Resolve vectors against the currently-active embedding model so we
+        # never cosine_similarity across mismatched dimensions (which used to
+        # crash with `shapes (1024,) and (1536,) not aligned` when the DB
+        # held narratives embedded under an older model).
+        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
+            use_embedding_store,
+            get_stored_embedding,
+        )
+        _new_system = use_embedding_store()
         for narrative in participant_narratives:
             if narrative.id not in existing_narrative_ids:
-                # Calculate similarity score
-                if narrative.routing_embedding:
-                    score = cosine_similarity(query_embedding, narrative.routing_embedding)
-                else:
-                    score = 0.5  # Give a medium score when no embedding exists
+                # Score defaults to 0.5 (neutral) when we can't produce a
+                # dimension-matched vector — same behaviour as before for
+                # narratives with no embedding at all.
+                score = 0.5
+                candidate_vec: Optional[List[float]] = None
+                if _new_system:
+                    candidate_vec = await get_stored_embedding("narrative", narrative.id)
+                if candidate_vec is None:
+                    candidate_vec = narrative.routing_embedding
+                if candidate_vec and len(candidate_vec) == len(query_embedding):
+                    score = cosine_similarity(query_embedding, candidate_vec)
+                elif candidate_vec:
+                    logger.warning(
+                        f"  Skipping PARTICIPANT Narrative {narrative.id} cosine "
+                        f"(stored dim={len(candidate_vec)}, query dim={len(query_embedding)}); "
+                        f"using neutral score 0.5"
+                    )
 
                 # rank will be recalculated after resorting; use 999 as placeholder
                 search_results.append(NarrativeSearchResult(

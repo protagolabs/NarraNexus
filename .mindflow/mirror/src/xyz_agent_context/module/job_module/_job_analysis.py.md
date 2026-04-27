@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_analysis.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 ---
 
 # _job_analysis.py — Job 执行结果分析提示词构建

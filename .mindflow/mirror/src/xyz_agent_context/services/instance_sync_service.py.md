@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/services/instance_sync_service.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 stub: false
 ---
 

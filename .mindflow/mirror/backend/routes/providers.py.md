@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-04-10
+last_verified: 2026-04-20
 stub: false
 ---
 
@@ -45,4 +45,12 @@ user_id 优先从 `request.state.user_id`（云模式下由 auth 中间件注入
 
 ## 新人易踩的坑
 
-`/embeddings/rebuild` 接口触发后台任务，任务完成前多次调用会被拒绝（`is_running=True`）。重建进度通过 `get_migration_progress()` 全局状态跟踪，这是进程级的单例状态，在多进程部署下每个进程有独立的状态，不同步。
+`/embeddings/rebuild` 和 `/embeddings/status` **都接受 `?user_id=...` 查询参数**
+且必填。`EmbeddingMigrationService(db, user_id=user_id)` 按该 user 过滤所有
+entity。`get_migration_progress(user_id)` 是 per-user 字典，用户 A 的 rebuild
+不会阻塞用户 B 的状态查询或 rebuild。2026-04-20 之前这两个端点无 user_id 参数，
+migration service 全局单例对云端多用户是错的。
+
+多进程部署下，per-user 进度仍然是"当前处理这次请求的进程"内的状态；不同进程不
+共享。前端轮询时若请求 load-balance 到不同进程，会看到进度波动。未来可考虑把
+进度落到 DB 或 Redis，但本轮修复不包括。

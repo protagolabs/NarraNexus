@@ -1170,6 +1170,13 @@ class AsyncDatabaseClient:
             if not embedding:
                 continue
 
+            # Dim guard: a column that mixes multiple embedding models
+            # would otherwise crash numpy with `shapes not aligned`.
+            # Silently skip mismatches — callers wanting a proper
+            # multi-model view should use embeddings_store instead.
+            if len(embedding) != len(query_embedding):
+                continue
+
             # Calculate cosine similarity
             row_vec = np.array(embedding)
             row_norm = np.linalg.norm(row_vec)

@@ -9,7 +9,7 @@
 import asyncio
 
 from loguru import logger
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
 from claude_agent_sdk._errors import MessageParseError
 from claude_agent_sdk._internal import message_parser as _message_parser_module
 from claude_agent_sdk.types import SystemMessage
@@ -19,9 +19,11 @@ from typing import Any, AsyncGenerator
 try:
     from .output_transfer import output_transfer
     from .api_config import claude_config
+    from ._tool_policy_guard import build_tool_policy_guard
 except ImportError:
     from output_transfer import output_transfer
     from api_config import claude_config
+    from _tool_policy_guard import build_tool_policy_guard
 
 # Monkey-patch claude_agent_sdk's parse_message to handle unknown message types gracefully.
 # The SDK v0.1.6 raises MessageParseError for unrecognized types like "rate_limit_event",
@@ -66,10 +68,24 @@ class ClaudeAgentSDK:
         # Step 0-2: Build system prompt. Currently the Claude Agent SDK does not support multi-turn conversations,
         # so we need to manually append the conversation history to the system prompt.
         # Limit the maximum length of the system prompt to avoid "Argument list too long" errors.
-        # Linux command-line argument limit is about 2MB, but the Claude SDK internally adds other arguments.
-        # Use conservative settings to avoid "Argument list too long" errors.
-        MAX_SYSTEM_PROMPT_LENGTH = 60000  # Approximately 60KB
-        MAX_HISTORY_LENGTH = 30000  # Maximum history length 30KB
+        #
+        # The Python SDK (see claude_agent_sdk/_internal/transport/subprocess_cli.py)
+        # passes system_prompt via `--system-prompt <str>` argv. Linux limits a
+        # single argv entry to MAX_ARG_STRLEN = PAGE_SIZE * 32 = 128 KiB on
+        # typical x86_64 kernels. A naive char-count limit is unsafe when the
+        # prompt contains multi-byte (e.g. Chinese) content — 1 char can be 3
+        # UTF-8 bytes — so we apply two limits: a char-count ceiling (for
+        # readability and predictability) and a byte-count ceiling (hard
+        # enforcement against E2BIG).
+        #
+        # History: agents often run 10+ turns; 50K keeps 3-5 full turns.
+        # System prompt: T8 (ENABLE_TOOL_SEARCH=false for non-Claude models)
+        # forces the full MCP tool schemas (~40 tools) into the base prompt,
+        # typically 60-80K chars; 100K gives headroom without hitting the
+        # 128 KiB argv byte ceiling for mixed-language content.
+        MAX_SYSTEM_PROMPT_LENGTH = 100_000  # chars
+        MAX_SYSTEM_PROMPT_BYTES = 120 * 1024  # ~120 KiB, leaves 8 KiB for argv overhead
+        MAX_HISTORY_LENGTH = 50_000  # chars
 
         system_prompt = ""
         for msg in messages:
@@ -105,18 +121,39 @@ class ClaudeAgentSDK:
             system_prompt += history_text
             system_prompt += "\n=== Chat History End ===\n These are the chat history between you and the user. This time please make the response by user input in this turn."
 
-        # Final check on the total length of system_prompt
+        # Final check on the total length of system_prompt — two-pass bound.
+        #   Pass 1: char count. Caps human-readable size.
+        #   Pass 2: UTF-8 byte count. Hard guard against the Linux 128 KiB
+        #           argv limit when the prompt contains multi-byte content.
         if len(system_prompt) > MAX_SYSTEM_PROMPT_LENGTH:
-            logger.warning(f"System prompt too long ({len(system_prompt)} chars), truncating to {MAX_SYSTEM_PROMPT_LENGTH} chars")
+            logger.warning(
+                f"System prompt too long ({len(system_prompt)} chars), "
+                f"truncating to {MAX_SYSTEM_PROMPT_LENGTH} chars"
+            )
             system_prompt = system_prompt[:MAX_SYSTEM_PROMPT_LENGTH] + "\n\n[...truncated due to length limit...]"
+
+        _encoded = system_prompt.encode("utf-8")
+        if len(_encoded) > MAX_SYSTEM_PROMPT_BYTES:
+            logger.warning(
+                f"System prompt exceeds byte ceiling "
+                f"({len(_encoded)} bytes > {MAX_SYSTEM_PROMPT_BYTES}), "
+                f"truncating at UTF-8 boundary"
+            )
+            # decode('utf-8', errors='ignore') drops any partial multi-byte
+            # sequence introduced by the byte slice, so the result is always
+            # valid UTF-8.
+            system_prompt = _encoded[:MAX_SYSTEM_PROMPT_BYTES].decode("utf-8", errors="ignore")
+            system_prompt += "\n\n[...truncated due to byte limit...]"
                 
         logger.debug(f"System prompt length: {len(system_prompt):,} chars")
         logger.debug(f"Your MCP: {claude_agent_mcp_dict}")
+        _is_claude_native = (claude_config.model or "").startswith("claude-")
         logger.info(
             f"[ClaudeAgentSDK] Provider config: "
             f"model={claude_config.model or '(default)'}, "
             f"base_url={claude_config.base_url or '(official)'}, "
-            f"auth_type={claude_config.auth_type}"
+            f"auth_type={claude_config.auth_type}, "
+            f"tool_search={'auto' if _is_claude_native else 'disabled (non-Claude model)'}"
         )
         logger.info(f"  [FULL_SYSTEM_PROMPT]\n{system_prompt}")
         logger.info(f"  [USER_PROMPT]\n{this_turn_user_message}")
@@ -143,9 +180,52 @@ class ClaudeAgentSDK:
         # 当后端从 Claude Code 终端内启动时，子进程会继承此变量。
         cli_env["CLAUDECODE"] = ""
 
+        # Disable Claude Code's deferred tool loading for non-Claude models.
+        # Context: when the tool set exceeds the CLI's char threshold, Claude
+        # Code returns ``tool_reference`` blocks from its built-in ToolSearch
+        # tool instead of fully-expanded schemas. Those reference blocks are a
+        # Claude Sonnet-4+/Opus-4+ protocol extension. Non-Claude backends
+        # (e.g. MiniMax served via NetMind's Anthropic-compatible proxy) do not
+        # understand them, which surfaces as "the tool registry is not finding
+        # the chat module send_message tool" in the model's thinking and the
+        # session ends with no ``send_message_to_user_directly`` invocation.
+        # Forcing ENABLE_TOOL_SEARCH=false pins the CLI to the non-deferred
+        # (always-expanded) tool list on those sessions. Claude models keep
+        # the default (auto) behavior so they still benefit from deferred
+        # loading. See TODO-2026-04-22 T7 / BUG_FIX_LOG Bug 33.
+        if not _is_claude_native:
+            cli_env["ENABLE_TOOL_SEARCH"] = "false"
+
         # Inject skill-configured env vars (e.g., TAVILY_API_KEY, GOG_ACCOUNT)
         if extra_env:
             cli_env.update(extra_env)
+
+        # Install the tool-policy guard:
+        #  • Cloud mode: Read/Glob/Grep must stay inside the per-agent
+        #    workspace, and global-install Bash commands (brew, npm -g,
+        #    apt, sudo, bare pip install) are blocked.
+        #  • Local mode: only the always-on gates (lark-cli shell-out
+        #    redirection + WebSearch fallback) apply; the user owns the
+        #    host.
+        #  • WebSearch is denied in both modes when the provider doesn't
+        #    run Anthropic's server-side tools (e.g. NetMind / OpenRouter
+        #    just hang 45s).
+        # Hooks run before the permission-mode check, so they fire even under
+        # bypassPermissions. See agent_framework/_tool_policy_guard.py.
+        supports_server_tools = claude_config.supports_anthropic_server_tools
+        policy_guard = build_tool_policy_guard(
+            workspace=self.working_path,
+            supports_server_tools=supports_server_tools,
+        )
+
+        # Defense-in-depth: when the provider doesn't speak the server-tool
+        # protocol, also disallow WebSearch at the CLI level. Hooks cover
+        # the main session but do NOT propagate into Task-spawned subagent
+        # subprocesses; the CLI flag does. Without this, a subagent could
+        # still call WebSearch and hang the whole run.
+        disallowed_tools: list[str] = []
+        if not supports_server_tools:
+            disallowed_tools.append("WebSearch")
 
         # Build ClaudeAgentOptions; only pass model when explicitly configured
         options_kwargs: dict[str, Any] = dict(
@@ -158,6 +238,15 @@ class ClaudeAgentSDK:
             include_partial_messages=True,  # Enable token-level streaming via StreamEvent
             stderr=_on_cli_stderr,  # 捕获 CLI 错误输出
             env=cli_env,  # 传递 Anthropic API Key 等环境变量给 Claude CLI
+            hooks={
+                "PreToolUse": [
+                    # Match the union of tools this guard cares about. The
+                    # guard itself is cheap (string check + path resolve)
+                    # so running it on every listed tool call is fine.
+                    HookMatcher(matcher="Read|Glob|Grep|WebSearch|Bash", hooks=[policy_guard]),
+                ],
+            },
+            disallowed_tools=disallowed_tools,
         )
         if claude_config.model:
             options_kwargs["model"] = claude_config.model
@@ -165,8 +254,15 @@ class ClaudeAgentSDK:
 
 
         # Step 2: Create a ClaudeSDKClient instance, send the user message, and receive the response
-        # Idle timeout: if no message is received within this duration, assume CLI is stuck
-        IDLE_TIMEOUT_SECONDS = 1200
+        # Idle timeout: if no message is received within this duration, assume CLI is stuck.
+        # Bug 20 (2026-04-20): lowered from 1200s → 600s. Every MCP tool handler now
+        # self-caps at ≤60s via `with_mcp_timeout` (see common_tools_module), and
+        # Claude CLI built-in tools (WebFetch/Bash) have their own short internal
+        # timeouts. 1200s was "20 minutes of complete silence" — that length of
+        # idle means something deeper is broken; 10 minutes gives reasonable
+        # margin for a legitimately long LLM thinking pass while surfacing true
+        # hangs an order of magnitude faster.
+        IDLE_TIMEOUT_SECONDS = 600
 
         client = None
         message_count = 0
@@ -217,6 +313,25 @@ class ClaudeAgentSDK:
                 # 检测 AssistantMessage 的 error 字段（认证失败、额度不足等）
                 if msg_type == "AssistantMessage" and hasattr(message, 'error') and message.error:
                     logger.error(f"[ClaudeAgentSDK] Claude API 返回错误: {message.error}")
+                    # Dump CLI stderr + full message repr so we can see which
+                    # field the upstream rejected. Without this the 'error' is
+                    # just 'invalid_request' with no way to diagnose.
+                    if cli_stderr_lines:
+                        logger.error(
+                            "[ClaudeAgentSDK] CLI stderr (last 30 lines):\n"
+                            + "\n".join(cli_stderr_lines[-30:])
+                        )
+                    else:
+                        logger.error(
+                            "[ClaudeAgentSDK] CLI stderr: empty (error came "
+                            "inline via AssistantMessage, not via CLI stderr)"
+                        )
+                    try:
+                        logger.error(
+                            f"[ClaudeAgentSDK] Full message repr: {message!r}"
+                        )
+                    except Exception:
+                        pass
 
                 # output_transfer 返回事件列表（一条消息可能产生多个事件）
                 events = output_transfer(message, transfer_type="claude_agent_sdk", streaming=streaming)

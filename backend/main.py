@@ -20,6 +20,10 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from loguru import logger
 
+# Configure loguru stderr level from LOG_LEVEL env var (default: INFO)
+logger.remove()
+logger.add(sys.stderr, level=os.environ.get("LOG_LEVEL", "INFO").upper())
+
 from xyz_agent_context.utils.db_factory import get_db_client, close_db_client
 from backend.config import settings
 from backend.auth import _is_cloud_mode
@@ -103,6 +107,53 @@ async def lifespan(app: FastAPI):
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")
 
+    # One-shot data migrations (idempotent; run after schema migration)
+    from xyz_agent_context.utils.one_shot_migrations import (
+        migrate_jobs_protocol_v2_timezone,
+    )
+    migration_stats = await migrate_jobs_protocol_v2_timezone(db)
+    if migration_stats.get("cancelled"):
+        logger.warning(
+            f"[migration] Cancelled {migration_stats['cancelled']} pre-v2 jobs "
+            f"lacking timezone field; users will need to recreate them."
+        )
+
+    # Wire system-default quota services. SystemProviderService is a
+    # module-level singleton that reads env once; in local mode or when
+    # env is incomplete its is_enabled() returns False and every downstream
+    # call is a no-op. Expose each piece on app.state for routes to consume.
+    from xyz_agent_context.agent_framework.system_provider_service import (
+        SystemProviderService,
+    )
+    from xyz_agent_context.agent_framework.quota_service import QuotaService
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        ProviderResolver,
+    )
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        UserProviderService,
+    )
+    from xyz_agent_context.repository.quota_repository import QuotaRepository
+    from xyz_agent_context.repository.user_repository import UserRepository
+
+    system_provider = SystemProviderService.instance()
+    quota_service = QuotaService(
+        repo=QuotaRepository(db),
+        system_provider=system_provider,
+    )
+    QuotaService.set_default(quota_service)  # cost_tracker hook reaches it
+
+    app.state.system_provider = system_provider
+    app.state.quota_service = quota_service
+    app.state.user_repository = UserRepository(db)
+    app.state.provider_resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=system_provider,
+        quota_svc=quota_service,
+    )
+    logger.info(
+        f"Quota subsystem wired (enabled={system_provider.is_enabled()})"
+    )
+
     yield
 
     # Shutdown
@@ -141,6 +192,9 @@ from backend.routes.skills import router as skills_router
 from backend.routes.providers import router as providers_router
 from backend.routes.inbox import router as inbox_router
 from backend.routes.dashboard import router as dashboard_router
+from backend.routes.lark import router as lark_router
+from backend.routes.quota import router as quota_router
+from backend.routes.admin_quota import router as admin_quota_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -150,6 +204,9 @@ app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
+app.include_router(quota_router, tags=["Quota"])
+app.include_router(admin_quota_router, tags=["AdminQuota"])
 
 
 @app.get("/health")
@@ -193,4 +250,9 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # ws_ping_interval / ws_ping_timeout override uvicorn's 20s/20s defaults
+    # that were hanging WS streams on long LLM turns — see BUG_FIX_LOG Bug 32.
+    uvicorn.run(
+        app, host="0.0.0.0", port=8000,
+        ws_ping_interval=30, ws_ping_timeout=60,
+    )

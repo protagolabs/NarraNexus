@@ -22,12 +22,12 @@ const STATE_META: Record<
   JobQueueStatus | 'running',
   { icon: string; label: string; cls: string }
 > = {
-  running:  { icon: '⚙️', label: 'running', cls: 'text-emerald-600' },
+  running:  { icon: '⚙️', label: 'running', cls: 'text-[var(--color-green-500)]' },
   active:   { icon: '🔵', label: 'active',  cls: 'text-sky-600' },
   pending:  { icon: '⚪️', label: 'pending', cls: 'text-gray-500' },
-  blocked:  { icon: '🟠', label: 'blocked', cls: 'text-amber-600' },
-  paused:   { icon: '🟡', label: 'paused',  cls: 'text-yellow-600' },
-  failed:   { icon: '🔴', label: 'failed',  cls: 'text-red-600' },
+  blocked:  { icon: '🟠', label: 'blocked', cls: 'text-[var(--color-yellow-500)]' },
+  paused:   { icon: '🟡', label: 'paused',  cls: 'text-[var(--color-yellow-500)]' },
+  failed:   { icon: '🔴', label: 'failed',  cls: 'text-[var(--color-red-500)]' },
 };
 
 export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
@@ -46,11 +46,11 @@ export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
         <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
         <span>⚙️ Jobs ({total})</span>
         {runningJobs.length > 0 && (
-          <span className="text-emerald-600">· {runningJobs.length} running</span>
+          <span className="text-[var(--color-green-500)]">· {runningJobs.length} running</span>
         )}
       </button>
       {expanded && (
-        <ul className="mt-1 ml-3 space-y-1 border-l-2 border-[var(--border-primary)] pl-2">
+        <ul className="mt-1 ml-3 space-y-1 border-l-2 border-[var(--rule)] pl-2">
           {runningJobs.map((j) => (
             <JobItem
               key={j.job_id}
@@ -70,22 +70,13 @@ export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
               title={j.title}
               subtitle={j.description}
               state={j.queue_status ?? 'pending'}
-              extraRight={j.next_run_time ? `next ${formatTime(j.next_run_time)}` : null}
+              extraRight={j.next_run_at ? `next ${j.next_run_at}${j.next_run_timezone ? ` (${j.next_run_timezone})` : ''}` : null}
             />
           ))}
         </ul>
       )}
     </div>
   );
-}
-
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return iso;
-  }
 }
 
 interface JobItemProps {
@@ -157,10 +148,10 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
         <span className={`ml-auto transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
       </button>
       {expanded && (
-        <div className="ml-7 mt-1 rounded border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-2 space-y-1.5">
+        <div className="ml-7 mt-1 rounded border border-[var(--rule)] bg-[var(--bg-tertiary)] p-2 space-y-1.5">
           {subtitle && <div className="text-[var(--text-secondary)]">{subtitle}</div>}
           {loading && <div className="text-[var(--text-secondary)]">Loading…</div>}
-          {err && <div className="text-red-500">Failed: {err}</div>}
+          {err && <div className="text-[var(--color-red-500)]">Failed: {err}</div>}
           {detail !== null && <JobDetailBody detail={detail} />}
           <div className="flex flex-wrap gap-1.5 pt-1">
             {state === 'failed' && (
@@ -193,7 +184,7 @@ function ActionBtn({ label, onClick }: { label: string; onClick: (e: React.Mouse
     <button
       type="button"
       onClick={onClick}
-      className="rounded bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-medium hover:bg-[var(--accent-primary)] hover:text-white"
+      className="rounded bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-medium hover:bg-[var(--text-primary)] hover:text-[var(--text-inverse)]"
     >
       {label}
     </button>
@@ -203,16 +194,17 @@ function ActionBtn({ label, onClick }: { label: string; onClick: (e: React.Mouse
 function JobDetailBody({ detail }: { detail: Record<string, unknown> }) {
   const d = detail;
   const trigger = String(d.trigger_config ?? '(manual)');
-  const nextRun = d.next_run_time ? String(d.next_run_time) : null;
+  const nextRun = d.next_run_at ? String(d.next_run_at) : null;
+  const nextRunTz = d.next_run_timezone ? String(d.next_run_timezone) : null;
   const iter = typeof d.iteration_count === 'number' ? d.iteration_count : 0;
   const lastErr = d.last_error ? String(d.last_error) : null;
   return (
     <div className="text-[var(--text-secondary)] space-y-0.5">
-      {nextRun && <div>Next run: <span className="font-mono">{nextRun}</span></div>}
+      {nextRun && <div>Next run: <span className="font-mono">{nextRun}{nextRunTz ? ` (${nextRunTz})` : ''}</span></div>}
       {iter > 0 && <div>Iterations: {iter}</div>}
       {trigger && <div className="truncate">Trigger: <span className="font-mono">{trigger}</span></div>}
       {lastErr && (
-        <div className="mt-1 rounded border border-red-500/40 bg-red-500/5 p-1.5 text-red-600">
+        <div className="mt-1 rounded border border-[var(--color-red-500)] bg-[var(--color-red-500)]/5 p-1.5 text-[var(--color-red-500)]">
           <div className="font-semibold">Last error</div>
           <div className="font-mono text-[10px] whitespace-pre-wrap">{lastErr}</div>
         </div>

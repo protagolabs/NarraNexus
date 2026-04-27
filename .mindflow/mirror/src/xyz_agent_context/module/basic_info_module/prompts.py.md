@@ -1,6 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-04-10
+last_verified: 2026-04-23
+---
+
+## 2026-04-23 — 新增 "Working Memory Across Turns" 段
+
+`BASIC_INFO_MODULE_INSTRUCTIONS` 在 Runtime Environment 段**前**新增一个
+"Working Memory Across Turns" 说明段。告诉 Agent 两件事：
+
+1. 它的 reasoning（tool call 之外写的文字）**跨 turn 保留**；
+2. tool call 的 arguments 和 outputs **单 turn 后消失**，下一轮看不到。
+
+配套要求：当 tool 结果里有 Agent 下一轮需要用的值（device_code、job_id、
+刚建的 url、file token、session id 等），必须在 ending turn 之前把那个值
+**明文 restate 到自己的 reasoning 里**。附了一段 Lark 增量授权的 concrete
+example 演示正确动作。
+
+**为什么放在 BasicInfo 而不是 ChatModule**：这条规则对所有 trigger source
+都适用（Chat / Lark / Job / Bus / A2A / Callback / Skill），不是对话场景
+专属。BasicInfo 是每个 Agent run 都加载的 always-on 模块，最合适。
+
+**Curly-brace escaping gotcha**：`BASIC_INFO_MODULE_INSTRUCTIONS` 是
+`str.format(**ctx)` 渲染模板，`{key}` 被当占位符。示例里出现
+`{device_code: ABC…}` 或 JSON 示例都必须双写 `{{...}}`。遗忘会导致
+`KeyError: 'device_code'` 抛在 `get_instructions()` 里——首次部署这个修改
+时就踩过这个坑，被 `tests/basic_info_module/test_deployment_context.py`
+的 integration 测试兜住了。
+
 ---
 
 # prompts.py — BasicInfoModule 指令定义

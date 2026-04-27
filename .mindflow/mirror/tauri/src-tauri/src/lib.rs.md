@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-04-10
+last_verified: 2026-04-23
 ---
 
 # lib.rs — Tauri app bootstrap: registers commands, wires setup, handles close
@@ -13,9 +13,16 @@ Tauri builder configuration lives.
 1. `AppState::default()` resolves paths, detects bundled vs dev mode,
    creates `ServiceDef` list.
 2. `setup()` callback:
+   - Runs `sidecar::port_preflight::check_required_ports()` FIRST — if any
+     required port (8000 / 8100 / 7801 / 7830) is held by another process,
+     show a native `osascript` dialog and exit. This prevents the
+     "black screen forever" UX when a user has another backend on :8000.
    - Sets `DATABASE_URL` env var pointing to `~/.narranexus/nexus.db`
    - Sets `SQLITE_PROXY_URL=http://localhost:8100` and `SQLITE_PROXY_PORT=8100`
    - Creates the system tray
+   - Fires `sidecar::lark_preflight::run_preflight()` — detached best-effort
+     task that installs `@larksuite/cli` and its skill pack if missing
+     (mirrors `scripts/run.sh` `check_deps`). Failures never block startup.
    - Spawns `pm.start_all(&defs, &project_root_str)` as a detached tokio task
 3. `on_window_event` CloseRequested: calls `pm.stop_all()` synchronously on
    a new tokio Runtime (blocking, so all child processes are killed before

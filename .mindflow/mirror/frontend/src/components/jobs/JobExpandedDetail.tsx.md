@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/jobs/JobExpandedDetail.tsx
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 ---
 
 # JobExpandedDetail.tsx — Full field inspector for a list-view job row

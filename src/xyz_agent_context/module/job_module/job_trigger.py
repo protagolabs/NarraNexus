@@ -73,17 +73,16 @@ from xyz_agent_context.schema.job_schema import (
     JobType,
     TriggerConfig,
 )
-from xyz_agent_context.schema.runtime_message import (
-    MessageType,
-)
 from xyz_agent_context.schema.hook_schema import WorkingSource
+from xyz_agent_context.agent_runtime.run_collector import collect_run
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client, utc_now, format_for_llm
 
 # Repository
-from xyz_agent_context.repository import JobRepository, UserRepository
-from xyz_agent_context.module.job_module._job_scheduling import calculate_next_run_time
+from xyz_agent_context.repository import JobRepository
+from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+from zoneinfo import ZoneInfo
 
 # Context builder (extracted: dependency outputs, social network, narrative, prompt assembly)
 from xyz_agent_context.module.job_module._job_context_builder import build_execution_prompt
@@ -158,23 +157,6 @@ class JobTrigger:
             self._job_repo = JobRepository(self.db)
         return self._job_repo
 
-    async def _get_user_timezone(self, user_id: str) -> str:
-        """
-        Get user's timezone setting
-
-        Args:
-            user_id: User ID
-
-        Returns:
-            User timezone string (IANA format), returns "UTC" if user does not exist
-        """
-        try:
-            user_repo = UserRepository(self.db)
-            return await user_repo.get_user_timezone(user_id)
-        except Exception as e:
-            logger.warning(f"Failed to get user timezone (user_id={user_id}): {e}, using default UTC")
-            return "UTC"
-
     # =========================================================================
     # Lifecycle Management
     # =========================================================================
@@ -198,6 +180,13 @@ class JobTrigger:
         from xyz_agent_context.utils.schema_registry import auto_migrate
         await auto_migrate(self._db._backend)
         logger.info("Schema auto-migration complete")
+
+        # Initialise system-default quota so jobs run by agents whose
+        # owners have no personal provider fall back to the free tier.
+        from xyz_agent_context.agent_framework.quota_service import (
+            bootstrap_quota_subsystem,
+        )
+        await bootstrap_quota_subsystem(self._db)
 
         logger.info("=" * 60)
         logger.info("🚀 JobTrigger starting (Worker Pool mode)...")
@@ -513,7 +502,9 @@ class JobTrigger:
                 await self._update_instance_for_execution(job.instance_id)
 
             # 2. Build execution Prompt (including dependency Job outputs)
-            user_tz = await self._get_user_timezone(job.user_id)
+            # Use job's own timezone (frozen at creation); do NOT read users.timezone
+            # which may have changed since the job was scheduled.
+            user_tz = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
             prompt = await build_execution_prompt(self.db, job, user_tz)
             logger.debug(f"Built prompt for job {job.job_id}: {prompt[:100]}...")
 
@@ -553,12 +544,7 @@ class JobTrigger:
 
             logger.info(f"[JobTrigger] Starting AgentRuntime for job {job.job_id}")
 
-            # Create AgentRuntime instance
             runtime = AgentRuntime()
-
-            # Collect text output from streaming response
-            final_output = []
-            tool_calls = []
 
             # Execution identity: use related_entity_id (if available) as user_id, otherwise use job.user_id
             # This way Job executes in the target user's context, loading their Narrative and related info
@@ -568,33 +554,45 @@ class JobTrigger:
                 f"(related_entity_id={job.related_entity_id}, job.user_id={job.user_id})"
             )
 
-            async for response in runtime.run(
+            collection = await collect_run(
+                runtime,
                 agent_id=job.agent_id,
-                user_id=execution_user_id,  # Execute as target user identity
+                user_id=execution_user_id,
                 input_content=prompt,
-                working_source=WorkingSource.JOB,  # Identifies this as Job-triggered execution (using enum type)
-                job_instance_id=job.instance_id,  # Pass instance_id for Hook to locate current Instance
-                forced_narrative_id=job.narrative_id,  # Force use of Job-associated Narrative
-            ):
-                # Collect text deltas (AgentTextDelta)
-                if hasattr(response, 'message_type'):
-                    if response.message_type == MessageType.AGENT_RESPONSE:
-                        if hasattr(response, 'delta') and response.delta:
-                            final_output.append(response.delta)
+                working_source=WorkingSource.JOB,
+                job_instance_id=job.instance_id,
+                forced_narrative_id=job.narrative_id,
+            )
 
-                    # Log tool calls for debugging
-                    elif response.message_type == MessageType.TOOL_CALL:
-                        if hasattr(response, 'tool_name'):
-                            tool_calls.append(response.tool_name)
-                            logger.debug(f"[JobTrigger] Tool called: {response.tool_name}")
+            # Error path (Bug 2): previously the trigger swallowed the
+            # ERROR message and surfaced a misleading "Task executed but
+            # produced no text output" note. Now the job result carries
+            # success=False + the structured error so the Job status
+            # downstream (_finalize_job_execution / job.last_error) can
+            # record it.
+            if collection.is_error:
+                logger.warning(
+                    f"[JobTrigger] Job {job.job_id} failed: "
+                    f"{collection.error.error_type}: {collection.error.error_message}"
+                )
+                return {
+                    "event_id": event_id,
+                    "content": (
+                        f"⚠️ Scheduled task failed: {collection.error.error_message}"
+                    ),
+                    "success": False,
+                    "error": collection.error.error_message,
+                    "error_type": collection.error.error_type,
+                    "tool_calls": collection.tool_calls,
+                }
 
-            # Combine all text chunks
-            content = "".join(final_output)
+            content = collection.output_text
+            tool_calls = collection.tool_calls
 
             # Add execution metadata if content is empty
             if not content.strip():
-                # Get user timezone, format execution time
-                user_tz = await self._get_user_timezone(job.user_id)
+                # Use job's frozen timezone, not users.timezone
+                user_tz = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
                 executed_at_str = format_for_llm(utc_now(), user_tz)
 
                 content = f"""## Task Completed: {job.title}
@@ -665,7 +663,13 @@ The task was executed but produced no text output.
 
             # Handle based on job type
             if job.job_type == JobType.ONE_OFF:
-                # One-off job: mark as completed
+                # One-off job: mark completed, record last run, clear next run.
+                # All three writes together honor the alpha+beta atomic invariant
+                # (v2 timezone protocol).
+                tz_name = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
+                last_run_local = now.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
+                await repo.update_last_run(job.job_id, now, last_run_local, tz_name)
+                await repo.clear_next_run(job.job_id)
                 await repo.update_job_status(
                     job_id=job.job_id,
                     status=JobStatus.COMPLETED
@@ -676,18 +680,20 @@ The task was executed but produced no text output.
                 logger.info(f"Job {job.job_id} completed (one_off)")
 
             elif job.job_type == JobType.SCHEDULED:
-                # Scheduled job: calculate next run time and mark as active
-                next_run = calculate_next_run_time(
+                # Scheduled job: compute atomic alpha+beta triple and mark active
+                tz_name = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
+                last_run_local = now.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
+                await repo.update_last_run(job.job_id, now, last_run_local, tz_name)
+
+                next_run = compute_next_run(
                     job_type=job.job_type,
                     trigger_config=job.trigger_config,
-                    last_run_time=now,
+                    last_run_utc=now,
                 )
-
-                await repo.update_next_run_time(
-                    job_id=job.job_id,
-                    next_run_time=next_run,
-                    last_run_time=now
-                )
+                if next_run:
+                    await repo.update_next_run(job.job_id, next_run)
+                else:
+                    await repo.clear_next_run(job.job_id)
 
                 await repo.update_job_status(
                     job_id=job.job_id,
@@ -698,8 +704,8 @@ The task was executed but produced no text output.
                 if job.instance_id:
                     await self._update_instance_completed(job.instance_id)
 
-                next_run_str = next_run.strftime("%Y-%m-%d %H:%M") if next_run else "N/A"
-                logger.info(f"Job {job.job_id} rescheduled, next run: {next_run_str}")
+                next_run_str = next_run.local if next_run else "N/A"
+                logger.info(f"Job {job.job_id} rescheduled, next run: {next_run_str} ({tz_name})")
 
             elif job.job_type == JobType.ONGOING:
                 # ONGOING job: execute continuously until end_condition is met or max_iterations reached
@@ -718,13 +724,18 @@ The task was executed but produced no text output.
                 if job.trigger_config:
                     max_iterations = job.trigger_config.max_iterations
 
+                # Update last_run atomically (alpha + beta) for all ONGOING branches
+                tz_name = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
+                last_run_local = now.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
+                await repo.update_last_run(job.job_id, now, last_run_local, tz_name)
+
                 if max_iterations and new_iteration >= max_iterations:
                     # Reached max iterations, mark as COMPLETED
                     await repo.update_job(job.job_id, {
                         "status": JobStatus.COMPLETED.value,
                         "iteration_count": new_iteration,
-                        "last_run_time": now,
                     })
+                    await repo.clear_next_run(job.job_id)
                     if job.instance_id:
                         await self._update_instance_completed(job.instance_id)
                     logger.info(
@@ -736,35 +747,34 @@ The task was executed but produced no text output.
                     current_job = await repo.get_job(job.job_id)
                     current_status = current_job.status if current_job else JobStatus.RUNNING
 
-                    # Basic update: iteration_count and last_run_time (entry point 2 exclusive)
-                    updates = {
-                        "iteration_count": new_iteration,
-                        "last_run_time": now,
-                    }
+                    # iteration_count is entry point 2 exclusive
+                    await repo.update_job(job.job_id, {"iteration_count": new_iteration})
 
-                    # Only update status and next_run_time when status is still RUNNING (means entry point 1 failed)
+                    # Only recompute next_run and set status when hook didn't (status still RUNNING)
+                    next_run_str = "N/A (set by hook)"
                     if current_status == JobStatus.RUNNING:
                         logger.warning(
                             f"Job {job.job_id}: status still RUNNING after hook, "
                             f"hook may have failed. Falling back to mechanical update."
                         )
-                        next_run = calculate_next_run_time(
+                        next_run = compute_next_run(
                             job_type=job.job_type,
                             trigger_config=job.trigger_config,
-                            last_run_time=now,
+                            last_run_utc=now,
                         )
-                        updates["status"] = JobStatus.ACTIVE.value
-                        updates["next_run_time"] = next_run
+                        if next_run:
+                            await repo.update_next_run(job.job_id, next_run)
+                            next_run_str = f"{next_run.local} ({next_run.tz})"
+                        else:
+                            await repo.clear_next_run(job.job_id)
+                            next_run_str = "N/A"
+                        await repo.update_job_status(job.job_id, JobStatus.ACTIVE)
                     else:
                         logger.info(
                             f"Job {job.job_id}: status={current_status.value} (updated by hook), "
                             f"respecting hook's decision."
                         )
 
-                    await repo.update_job(job.job_id, updates)
-
-                    next_run_str = updates.get("next_run_time")
-                    next_run_str = next_run_str.strftime("%Y-%m-%d %H:%M") if next_run_str else "N/A (set by hook)"
                     logger.info(
                         f"Job {job.job_id} ongoing, iteration={new_iteration}"
                         f"{f'/{max_iterations}' if max_iterations else ''}, next run: {next_run_str}"

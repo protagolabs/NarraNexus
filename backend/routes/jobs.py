@@ -124,10 +124,13 @@ def job_row_to_response(row: dict, depends_on: List[str] = None) -> JobResponse:
         payload=row.get("payload"),
         trigger_config=trigger_config,
         process=process,
-        # Use format_for_api to return ISO 8601 UTC format (with Z suffix)
-        # Ensure frontend JavaScript new Date() correctly recognizes it as UTC time
-        next_run_time=format_for_api(row.get("next_run_time")),
-        last_run_time=format_for_api(row.get("last_run_time")),
+        # v2: expose user-local beta fields only; frontend renders them verbatim
+        # (no Date() coercion) so the timezone label shown matches the job's
+        # frozen timezone regardless of the viewer's browser timezone.
+        next_run_at=row.get("next_run_at_local"),
+        next_run_timezone=row.get("next_run_tz"),
+        last_run_at=row.get("last_run_at_local"),
+        last_run_timezone=row.get("last_run_tz"),
         last_error=row.get("last_error"),
         notification_method=row.get("notification_method"),
         created_at=format_for_api(row.get("created_at")),

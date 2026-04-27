@@ -34,6 +34,12 @@ class VectorStore:
         self._embeddings: Dict[str, List[float]] = {}
         self._metadata: Dict[str, Dict[str, str]] = {}
         self._loaded_filters: set = set()
+        # Track which embedding model produced the cached vectors so we
+        # can evict on a hot-swap (e.g. user switches from
+        # text-embedding-3-small 1536d -> bge-m3 1024d). Without this the
+        # cached vectors would silently mismatch the dim of new queries
+        # and trigger numpy `shapes not aligned`.
+        self._loaded_model: Optional[str] = None
 
         # Try to import numpy
         self._use_numpy = False
@@ -66,6 +72,22 @@ class VectorStore:
         Returns:
             Number of loaded items
         """
+        # Evict cache if the active embedding model changed since last load.
+        # This covers the model-hot-swap path where per-user provider
+        # config flips the embedding model (e.g. 1536d -> 1024d). We
+        # can't reuse cached vectors across dims.
+        from xyz_agent_context.agent_framework.api_config import embedding_config
+        current_model = embedding_config.model
+        if self._loaded_model is not None and self._loaded_model != current_model:
+            logger.info(
+                f"VectorStore: embedding model changed "
+                f"({self._loaded_model} -> {current_model}); evicting cache"
+            )
+            self._embeddings.clear()
+            self._metadata.clear()
+            self._loaded_filters.clear()
+        self._loaded_model = current_model
+
         filter_key = (agent_id, user_id or "")
         if filter_key in self._loaded_filters:
             return 0
@@ -211,6 +233,11 @@ class VectorStore:
 
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity"""
+        # Dim guard: the cache may briefly hold stale-dim vectors if a
+        # model swap races with an in-flight search. Returning 0.0 lets
+        # the search fall through to LLM judgement instead of crashing.
+        if not vec1 or not vec2 or len(vec1) != len(vec2):
+            return 0.0
         if self._use_numpy:
             v1 = self._np.array(vec1)
             v2 = self._np.array(vec2)

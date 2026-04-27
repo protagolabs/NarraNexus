@@ -173,7 +173,7 @@ UNIT
 }
 
 create_service "backend" "Backend API" \
-    "${UV_BIN} run uvicorn backend.main:app --host 127.0.0.1 --port 8000"
+    "${UV_BIN} run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60"
 
 create_service "mcp" "MCP Server" \
     "${UV_BIN} run python src/xyz_agent_context/module/module_runner.py mcp"

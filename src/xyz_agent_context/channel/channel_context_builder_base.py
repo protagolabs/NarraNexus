@@ -68,8 +68,8 @@ class ChannelContextBuilderBase(ABC):
         Return message metadata.
 
         Must include these keys:
-            channel_display_name: str  — e.g. "Matrix"
-            channel_key: str           — e.g. "matrix"
+            channel_display_name: str  — e.g. "Lark"
+            channel_key: str           — e.g. "lark"
             room_name: str
             room_id: str
             room_type: str             — "Direct Message" or "Group Room"
@@ -114,7 +114,7 @@ class ChannelContextBuilderBase(ABC):
         Channel-specific extra sender profile info.
 
         Returns empty string by default. Subclasses may override.
-        E.g. MatrixModule fetches capabilities from Registry.
+        E.g. LarkModule may fetch Bot capabilities.
 
         Returns:
             Additional sender profile text
@@ -159,6 +159,14 @@ class ChannelContextBuilderBase(ABC):
         """
         # Step 1: Message metadata
         info = await self.get_message_info()
+
+        # Default reply_instruction if channel didn't provide one
+        if "reply_instruction" not in info:
+            tool = info.get("send_tool_name", "send_message")
+            room = info.get("room_id", "")
+            info["reply_instruction"] = (
+                f"use the `{tool}` tool with room_id=`{room}`"
+            )
 
         # Step 2: Sender profile
         sender_profile_section = await self._build_sender_profile(info)

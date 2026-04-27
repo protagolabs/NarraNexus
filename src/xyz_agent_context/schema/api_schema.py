@@ -50,6 +50,13 @@ class RegisterResponse(BaseModel):
     user_id: Optional[str] = None
     token: Optional[str] = None
     error: Optional[str] = None
+    # Populated only when the system-default free-tier quota feature is
+    # enabled and a quota row was successfully seeded for the new user.
+    # The frontend uses these to render a welcome toast on successful
+    # cloud registration.
+    has_system_quota: bool = False
+    initial_input_tokens: int = 0
+    initial_output_tokens: int = 0
 
 
 class AgentInfo(BaseModel):
@@ -265,7 +272,7 @@ class SimpleChatMessage(BaseModel):
     content: str
     timestamp: Optional[str] = None
     narrative_id: Optional[str] = None  # Source Narrative
-    working_source: Optional[str] = None  # "chat" | "job" | "matrix" | etc.
+    working_source: Optional[str] = None  # "chat" | "job" | "lark" | etc.
     message_type: Optional[str] = None  # "chat" (default) | "activity"
     event_id: Optional[str] = None  # Associated Event ID (for loading event_log on demand)
 
@@ -402,7 +409,13 @@ class MCPValidateAllResponse(BaseModel):
 # ===== Job Schemas =====
 
 class JobResponse(BaseModel):
-    """Response model for a single job"""
+    """
+    Response model for a single job.
+
+    v2 timezone protocol (2026-04-21): frontend/UI sees only user-local beta
+    fields (next_run_at + next_run_timezone). UTC alpha fields
+    (next_run_time, last_run_time) are poller-internal and NOT exposed here.
+    """
     job_id: str
     agent_id: str
     user_id: str
@@ -413,8 +426,10 @@ class JobResponse(BaseModel):
     payload: Optional[str] = None
     trigger_config: Optional[dict] = None
     process: Optional[List[str]] = None
-    next_run_time: Optional[str] = None
-    last_run_time: Optional[str] = None
+    next_run_at: Optional[str] = None
+    next_run_timezone: Optional[str] = None
+    last_run_at: Optional[str] = None
+    last_run_timezone: Optional[str] = None
     last_error: Optional[str] = None
     notification_method: Optional[str] = None
     created_at: Optional[str] = None

@@ -120,6 +120,35 @@ pub fn is_bundled() -> bool {
         || resources.join("python/bin/python3").exists()
 }
 
+/// Directories containing bundled Node.js + CLI shims that Python child
+/// processes need on PATH.
+///
+/// Why PATH-prepending matters:
+///   The Python `claude_agent_sdk` package spawns the `claude` CLI as a
+///   subprocess — it looks for `claude` on PATH. A Mac .app launched from
+///   Finder inherits the launchd minimal PATH
+///   (`/usr/bin:/bin:/usr/sbin:/sbin`), which never contains `claude`. Without
+///   this prefix, every chat turn ends with "claude: command not found".
+///
+/// Return order matters: entries earlier in the Vec are earlier on PATH. We
+/// put `bin/` (real `node`) BEFORE `node_modules/.bin/` (shim scripts) so
+/// that when `claude`'s shebang does `#!/usr/bin/env node`, `env` finds our
+/// bundled node, not some other node the user happens to have.
+pub fn resolve_bundled_node_bins() -> Vec<PathBuf> {
+    let resources = resolve_resource_dir();
+    let mut out = Vec::new();
+    for subdir in &["resources/nodejs", "nodejs"] {
+        let root = resources.join(subdir);
+        if !root.exists() {
+            continue;
+        }
+        out.push(root.join("bin"));
+        out.push(root.join("node_modules/.bin"));
+        break;
+    }
+    out
+}
+
 /// Resolve the SQLite database path using platform app-data directory.
 pub fn resolve_db_path() -> PathBuf {
     dirs::home_dir()
@@ -178,6 +207,11 @@ impl ServiceDef {
                 // Dashboard v2 TDR-12: local mode MUST bind loopback.
                 // lifespan in backend/main.py also asserts via DASHBOARD_BIND_HOST env
                 // (set in process_manager.rs for id=="backend").
+                //
+                // --ws-ping-interval / --ws-ping-timeout mirror scripts/dev-local.sh:
+                // uvicorn defaults (20s/20s) prematurely drop the chat SSE/WS stream
+                // while an Agent loop is waiting on an LLM call. 30s/60s keeps the
+                // connection alive across slower model turns. Iron rule #7 alignment.
                 args: vec![
                     "-m".to_string(),
                     "uvicorn".to_string(),
@@ -186,6 +220,10 @@ impl ServiceDef {
                     "127.0.0.1".to_string(),
                     "--port".to_string(),
                     "8000".to_string(),
+                    "--ws-ping-interval".to_string(),
+                    "30".to_string(),
+                    "--ws-ping-timeout".to_string(),
+                    "60".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8000),
@@ -246,6 +284,20 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 5,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "lark_trigger".to_string(),
+                label: "Lark Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.module.lark_module.run_lark_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 6,
                 startup_delay_ms: None,
             },
         ]
@@ -277,7 +329,7 @@ impl ServiceDef {
                 id: "backend".to_string(),
                 label: "Backend API".to_string(),
                 command: "uv".to_string(),
-                // Dashboard v2 TDR-12: see bundled_services() for rationale.
+                // Dashboard v2 TDR-12 + ws-ping rationale: see bundled_services().
                 args: vec![
                     "run".to_string(),
                     "uvicorn".to_string(),
@@ -286,6 +338,10 @@ impl ServiceDef {
                     "127.0.0.1".to_string(),
                     "--port".to_string(),
                     "8000".to_string(),
+                    "--ws-ping-interval".to_string(),
+                    "30".to_string(),
+                    "--ws-ping-timeout".to_string(),
+                    "60".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8000),
@@ -354,6 +410,22 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 5,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "lark_trigger".to_string(),
+                label: "Lark Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.module.lark_module.run_lark_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 6,
                 startup_delay_ms: None,
             },
         ]

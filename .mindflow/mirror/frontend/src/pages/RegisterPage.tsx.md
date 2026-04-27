@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/pages/RegisterPage.tsx
-last_verified: 2026-04-10
+last_verified: 2026-04-16
 stub: false
 ---
+
+## 2026-04-16 addition — system-quota welcome banner
+
+On successful cloud-mode registration, if `response.has_system_quota`
+is true, a brief inline banner appears below the form showing the
+initial token allotment and the page auto-navigates to `/` after
+1.8s. The delay is short enough that the UX remains "fast enough"
+but long enough to make the message readable. Local mode never seeds
+the quota so the flag is always false there and the banner is
+skipped — no layout flash.
 
 # RegisterPage.tsx — Cloud-mode account registration with invite code
 
