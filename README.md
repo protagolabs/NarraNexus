@@ -49,9 +49,10 @@ bash run.sh
 
 The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, and configuration. Just follow the prompts.
 
-After setup, you will see the image below。 Then, 
-1. open `http://localhost:5173` in your browser to enter UI interface, 
-  a. Chooose **Local** or **Cloud** mode to register an account.
+After setup, you will see the image below. Then, 
+1. Open `http://localhost:5173` in your browser to enter UI interface,
+
+    a. Choose **Local** or **Cloud** mode to register an account.
 2. `http://localhost:8000/docs` for API Docs.
 <br/>
 
