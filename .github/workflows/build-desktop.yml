@@ -3,9 +3,6 @@ name: Build Desktop App
 on:
   push:
     tags: ['v*']
-    # TEMP: signing pipeline test — remove this branches block before
-    # merging fix/20260427-signing to main.
-    branches: ['fix/20260427-signing']
   workflow_dispatch:
 
 permissions:
