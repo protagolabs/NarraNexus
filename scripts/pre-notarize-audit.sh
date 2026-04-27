@@ -153,6 +153,13 @@ fi
 
 # ── 7. Inventory (informational) ─────────────────────────────────────
 hdr "7. Inventory (informational — review for unexpected inclusions)"
+# Suspend errexit/pipefail for this purely informational section. Pipelines
+# like `find … | sed … | head -40` provoke SIGPIPE on the upstream `sed`
+# once `head` closes its stdin, which under `pipefail` propagates to the
+# whole script and aborts the audit before submission. Section 7 doesn't
+# touch FAIL anyway — it's purely visual.
+set +e
+set +o pipefail
 echo "— executable files (any +x bit):"
 find "$APP" -type f -perm +111 2>/dev/null | sed "s|$APP/|    |" | head -40
 echo "    (truncated to 40 lines)"
@@ -163,6 +170,8 @@ find "$APP" -type f -print0 2>/dev/null \
     | sort -h \
     | tail -10 \
     | sed "s|$APP/|    |"
+set -e
+set -o pipefail
 
 rm -f "$MACHO_LIST"
 
