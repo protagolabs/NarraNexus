@@ -59,8 +59,6 @@ After setup, you will see the image below. Then,
 ![Install Interface](docs/images/install-interface-v2.png)
 <p align="center"><em>Setup complete — ready to open the interface</em></p>
 
-More options
-
 ## LLM Provider Configuration
 
 NarraNexus uses a **three-slot** architecture for LLM access:
