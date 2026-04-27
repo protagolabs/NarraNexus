@@ -573,11 +573,25 @@ class LarkTrigger:
                     .build()
 
                 domain = lark.LARK_DOMAIN if cred.brand == "lark" else lark.FEISHU_DOMAIN
+                # `auto_reconnect=False` (H-6 fix, 2026-04-27): the SDK's
+                # internal `_reconnect()` does not re-patch
+                # `lark_oapi.ws.client.loop` after a keepalive timeout, so the
+                # second connection's futures get bound to a different loop
+                # than the `_receive_message_loop` task. The result is an
+                # endless `RuntimeError: ... attached to a different loop`
+                # caught silently inside the SDK — `ws_client.start()` never
+                # returns, the daemon thread stays alive, and the bot stops
+                # delivering messages without any audit signal. Letting the
+                # SDK raise on first disconnect lets the outer `while
+                # self.running` loop here own the reconnect (with backoff +
+                # fresh credentials + audit rows) — exactly what M-9 already
+                # built infrastructure for.
                 ws_client = lark.ws.Client(
                     app_id=cred.app_id,
                     app_secret=app_secret,
                     event_handler=handler,
                     domain=domain,
+                    auto_reconnect=False,
                 )
 
                 logger.info(f"LarkTrigger: connecting SDK WebSocket for {cred.profile_name}")

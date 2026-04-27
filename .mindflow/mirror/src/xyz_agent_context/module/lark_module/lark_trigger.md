@@ -1,8 +1,51 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-04-21
+last_verified: 2026-04-27
 ---
+
+## 2026-04-27 — H-6 fix: disable SDK auto_reconnect, let outer loop own reconnects
+
+EC2 production observation: the `narranexus-lark` container had been up
+3 days, processed 0 inbound `im.message.receive_v1` events in the last
+24 h, but the process was still RUNNING and the container `healthy`.
+Logs showed 3 keepalive timeouts followed by 8 cascading
+`RuntimeError: Task got Future <Future pending> attached to a different
+loop` exceptions, all inside `lark_oapi/ws/client.py:170`.
+
+Root cause: `lark.ws.Client` defaults to `auto_reconnect=True`. After a
+keepalive timeout, the SDK's `_receive_message_loop` calls
+`_disconnect()` then `_reconnect()` **internally**, in the same thread.
+The thread's fresh asyncio loop (set up by `_subscribe_loop` and
+documented in M-9) is still current, but the `_reconnect()` path inside
+the SDK does NOT re-patch `lark_oapi.ws.client.loop` — and the new
+connection ends up with futures bound to a different loop than the
+`_receive_message_loop` task. The exception is caught and swallowed
+inside the SDK, so `ws_client.start()` never returns, the daemon thread
+stays alive forever, and the outer `while self.running` loop here never
+gets a chance to restart the subscriber.
+
+Fix: pass `auto_reconnect=False` to `lark.ws.Client(...)` in
+`_subscribe_loop`. On disconnect the SDK now `raise`s instead of
+swallowing — `ws_client.start()` returns, `run_ws` populates
+`thread_error`, the polling loop sees `t.is_alive() == False`, the
+existing `if thread_error: raise thread_error[0]` propagates to the
+outer `except Exception`, and the existing backoff + restart machinery
+takes over. This path was already designed for normal disconnects
+(`H-1`, `H-5`, audit rows for `WS_DISCONNECTED` / `WS_BACKOFF`); it had
+just never been exercised because the SDK's silent retry kept claiming
+ownership of reconnects.
+
+Implications:
+- Reconnects now go through `LarkCredentialManager.get_credential` each
+  iteration, so a re-bind / app-secret rotation no longer requires a
+  process restart to take effect. Net positive over SDK auto-reconnect,
+  which would have kept using the stale credential.
+- Every disconnect now emits `EVENT_WS_DISCONNECTED` and (eventually)
+  `EVENT_WS_BACKOFF` audit rows — the silent failure mode is gone.
+- Reconnect backoff is now driven by `_compute_next_backoff` (5 s base,
+  120 s cap). Slightly slower than the SDK's immediate retry, but the
+  SDK retry was broken anyway.
 
 ## 2026-04-21 follow-up — enriched ingress logging ("who sent what to whom")
 
