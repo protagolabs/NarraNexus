@@ -19,7 +19,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js (system — for frontend build inside the script)
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -36,73 +36,102 @@ jobs:
         with:
           workspaces: tauri/src-tauri
 
-      - name: Install frontend dependencies
-        run: cd frontend && npm ci
-
-      - name: Build frontend
-        run: cd frontend && npm run build
-
-      - name: Download standalone Python
-        run: |
-          mkdir -p tauri/src-tauri/resources/python
-          curl -L -o python.tar.gz \
-            "https://github.com/astral-sh/python-build-standalone/releases/download/20260325/cpython-3.13.12%2B20260325-aarch64-apple-darwin-install_only.tar.gz"
-          tar xzf python.tar.gz -C tauri/src-tauri/resources/python --strip-components=1
-          rm python.tar.gz
-
-      - name: Install Python dependencies (no venv, direct into standalone)
-        run: |
-          tauri/src-tauri/resources/python/bin/python3 -m pip install --no-cache-dir -e .
-
-      - name: Copy project source to resources
-        run: |
-          mkdir -p tauri/src-tauri/resources/project
-          rsync -a --exclude='node_modules' --exclude='.venv' --exclude='.git' \
-            --exclude='desktop' --exclude='tauri' --exclude='__pycache__' \
-            --exclude='*.pyc' --exclude='.env' --exclude='logs' \
-            --exclude='.claude' --exclude='.codex' \
-            . tauri/src-tauri/resources/project/
-
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
 
-      - name: Build Tauri app (signed + notarized)
-        run: cd tauri && cargo tauri build
+      # Import the Developer ID cert into a temp keychain so build-desktop.sh's
+      # `codesign --sign "$APPLE_SIGNING_IDENTITY"` calls can find it.
+      # The script itself doesn't import — it's optimised for local builds on a
+      # Mac where the cert already lives in the user's login keychain. CI has
+      # no such keychain, so we set one up here and tear it down on cleanup.
+      #
+      # `set-key-partition-list` is the macOS 10.12+ ACL that lets codesign
+      # use the imported key without an interactive password prompt.
+      - name: Import Apple Developer ID certificate
+        if: env.APPLE_CERTIFICATE != ''
         env:
-          CI: true
-          # Tauri's macOS bundler reads these env vars to:
-          #   1. import the .p12 into a temp keychain
-          #   2. codesign with Developer ID
-          #   3. submit to Apple notary service and staple the ticket
-          # Configure these as GitHub Repository Secrets (Settings →
-          # Secrets and variables → Actions). If any are missing the
-          # build falls back to ad-hoc unsigned and notarization is skipped.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # Prepend the build keychain to the search list so codesign finds
+          # the identity. We do NOT replace the default keychain — System.keychain
+          # must stay reachable for trust evaluation of Apple's intermediate certs.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
+
+          security import "$CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          rm -f "$CERT_PATH"
+
+          echo "--- codesigning identities found ---"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      # Single source of truth for desktop builds. The script:
+      #   - builds frontend
+      #   - downloads standalone Python (with SHA256 verify) into resources/python/
+      #   - installs project (NON-editable) into that Python so the bundle is relocatable
+      #   - downloads Node.js (with SHA256 verify) into resources/nodejs/
+      #   - npm ci installs claude-code + lark-cli into resources/nodejs/node_modules/
+      #   - rewrites bundled bin shims to bash so Tauri's bundler can't break them
+      #   - npx-installs the Lark skill pack into resources/lark-skills/
+      #   - rsyncs project source into resources/project/ with the correct excludes
+      #   - cargo tauri build (which assembles the .app)
+      #   - manually codesigns inner Mach-O + outer bundle with hardened runtime
+      #   - runs scripts/pre-notarize-audit.sh
+      #   - submits to Apple notary, polls, downloads log, staples ticket to dmg
+      #
+      # Apple env vars are CONSUMED inside step 6/7/8 of the script. If any
+      # signing/notarize var is missing the script falls back to ad-hoc.
+      - name: Build, sign, notarize via canonical script
+        run: bash scripts/build-desktop.sh
+        env:
+          # Cert + cert-password are consumed by the prior keychain-import
+          # step, not by this script — passing them again would make Tauri's
+          # bundler try to re-import into a second temp keychain.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Normalize artifact filenames (stable name across versions)
         run: |
           set -euo pipefail
           DMG_DIR="tauri/src-tauri/target/release/bundle/dmg"
-          APP_DIR="tauri/src-tauri/target/release/bundle/macos"
           mkdir -p dist
-          cp "$DMG_DIR"/*.dmg   dist/NarraNexus.dmg
-          cp "$APP_DIR"/*.app.tar.gz dist/NarraNexus.app.tar.gz
+          cp "$DMG_DIR/NarraNexus.dmg" dist/NarraNexus.dmg
+          cp "$DMG_DIR/NarraNexus.zip" dist/NarraNexus.zip
+          # Preserve the notarization submission ID + log so we can re-query
+          # Apple later if there's a downstream report of "rejected on Mac X".
+          [ -f "$DMG_DIR/notarize-submission-id.txt" ] && cp "$DMG_DIR/notarize-submission-id.txt" dist/ || true
+          [ -f "$DMG_DIR/notarize-latest.log" ]       && cp "$DMG_DIR/notarize-latest.log"       dist/ || true
           ls -la dist
 
       # Always upload as artifact so branch builds (signing tests) can be
-      # downloaded and verified locally.
+      # downloaded and verified locally with codesign / spctl / stapler.
       - name: Upload DMG as artifact
         uses: actions/upload-artifact@v4
         with:
           name: NarraNexus-dmg
           path: |
             dist/NarraNexus.dmg
-            dist/NarraNexus.app.tar.gz
+            dist/NarraNexus.zip
+            dist/notarize-submission-id.txt
+            dist/notarize-latest.log
           retention-days: 14
 
       # Only attach to GitHub Release on tag push (skip on branch test runs).
@@ -112,7 +141,7 @@ jobs:
         with:
           files: |
             dist/NarraNexus.dmg
-            dist/NarraNexus.app.tar.gz
+            dist/NarraNexus.zip
           tag_name: ${{ github.ref_name }}
           name: 'NarraNexus ${{ github.ref_name }}'
           body: |
