@@ -4,7 +4,103 @@ stub: false
 last_verified: 2026-04-27
 ---
 
-## 2026-04-27 — H-6 fix: disable SDK auto_reconnect, let outer loop own reconnects
+## 2026-04-27 — H-6 (part 2): replace SDK module-global `loop` with thread-local proxy
+
+The first H-6 attempt (disable `auto_reconnect`, let outer loop own reconnects)
+turned out to expose — not fix — a deeper bug. EC2 redeploy showed `narranexus-
+lark` falling into a fast-reconnect loop: 10 minutes / 52 reconnects / 164
+"attached to a different loop" errors / 0 inbound messages. The disconnect path
+the SDK had previously been swallowing was actually being triggered on the
+**first** connection of every thread.
+
+### Real root cause: module-global `loop` is a cross-thread race
+
+`lark_oapi/ws/client.py` defines `loop = asyncio.get_event_loop()` once at
+import time on the main thread, then every `Client` method reads this same
+module global on every use:
+
+```python
+loop.run_until_complete(self._connect())     # line 114
+loop.create_task(self._ping_loop())          # line 126
+loop.create_task(self._receive_message_loop())  # line 159
+loop.create_task(self._handle_message(msg))  # line 171
+```
+
+The SDK is implicitly designed for a single Client per process. NarraNexus
+runs N Clients concurrently in N daemon threads.
+
+The previous M-9 patch was `with _WS_LOOP_PATCH_LOCK: ws_mod.loop =
+fresh_loop` per thread. The lock only covered the assignment — not the
+subsequent `ws_client.start()`. After thread A released the lock, thread B
+could overwrite the global with `fresh_loop_B`. Thread A's `start()` then
+read `loop` on every line and intermittently picked up thread B's loop. The
+`_receive_message_loop` task ended up bound to a different loop than the
+websocket future it awaited, producing
+`RuntimeError: Task got Future <Future pending> attached to a different loop`.
+
+This was reproduced cleanly with a 5-thread reproducer
+(`/tmp/lark_loop_race_reproducer.py`) — 28/40 observations saw a foreign
+thread's loop.
+
+### Fix: install a thread-local proxy at module-import time
+
+`asyncio.get_event_loop()` is already thread-local (it reads back whatever
+`asyncio.set_event_loop()` stored on the calling thread). Replacing the SDK's
+module global with a proxy whose `__getattr__` delegates to
+`asyncio.get_event_loop()` makes every SDK call resolve to the calling
+thread's loop — no shared mutable state, no race window.
+
+The patch lives in `lark_trigger.py` at module-import scope:
+
+```python
+class _ThreadLocalLoopProxy:
+    def __getattr__(self, name):
+        return getattr(asyncio.get_event_loop(), name)
+    def __bool__(self):
+        return True
+    def __repr__(self):
+        ...
+
+def _install_lark_oapi_loop_proxy():
+    import lark_oapi.ws.client as _ws_client_mod
+    if not isinstance(_ws_client_mod.loop, _ThreadLocalLoopProxy):
+        _ws_client_mod.loop = _ThreadLocalLoopProxy()
+
+_install_lark_oapi_loop_proxy()
+```
+
+`_subscribe_loop.run_ws()` is reduced to:
+
+```python
+fresh_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(fresh_loop)        # proxy reads this
+ws_client._lock = asyncio.Lock()          # bind to fresh_loop
+ws_client.start()                          # SDK now resolves loop per-thread
+```
+
+`_WS_LOOP_PATCH_LOCK` is removed — there is no longer any per-thread mutation
+of SDK state to serialise.
+
+### Why this is the right level to fix
+
+- One module-import-time install, no per-thread bookkeeping.
+- Survives SDK upgrades that add new `loop.<method>()` call sites: `__getattr__`
+  proxies any new attribute automatically.
+- `auto_reconnect=False` (added in part 1 of H-6) stays — the SDK's internal
+  retry path is no longer load-bearing because the outer `_subscribe_loop`
+  reconnect machinery (H-1 / H-5 / audit rows) now actually works through the
+  whole chain. SDK reconnects had been the dominant failure mode precisely
+  because they used the racing `loop` global without re-patching.
+
+### Verification
+
+- Reproducer pre-patch: 28/40 cross-thread misses (5 threads, 8 iterations).
+- Reproducer post-patch (`/tmp/lark_loop_proxy_test.py`): 40/40 thread-local
+  lookups + 40/40 method bindings correct.
+- EC2 verification pending (apply this commit, redeploy, watch first 10
+  minutes for `attached to a different loop` count → expect 0).
+
+## 2026-04-27 — H-6 (part 1, superseded by part 2): disable SDK auto_reconnect, let outer loop own reconnects
 
 EC2 production observation: the `narranexus-lark` container had been up
 3 days, processed 0 inbound `im.message.receive_v1` events in the last

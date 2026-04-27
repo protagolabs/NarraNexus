@@ -63,11 +63,80 @@ from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
 
 
-# M-9: the lark_oapi SDK captures a module-level `loop` at import time.
-# `_subscribe_loop` overwrites it before each `ws_client.start()` so the
-# SDK uses a fresh loop on the new thread. With several bots reconnecting
-# in parallel, two threads could race on this assignment. Serialise here.
-_WS_LOOP_PATCH_LOCK = threading.Lock()
+# H-6 (2026-04-27): replace lark_oapi.ws.client.loop module global with a
+# thread-local proxy.
+#
+# Background — what the SDK does:
+# `lark_oapi.ws.client` defines a module-level `loop = asyncio.get_event_loop()`
+# captured once at import time on the main thread. Every Client method then
+# reads this global at every use:
+#     loop.run_until_complete(self._connect())
+#     loop.create_task(self._receive_message_loop())
+#     loop.create_task(self._handle_message(msg))
+#     ...
+# The SDK is implicitly designed for one Client per process.
+#
+# Why the previous M-9 patch was insufficient:
+# NarraNexus runs N Client instances concurrently — one daemon thread per bot
+# — and the previous workaround patched `ws_mod.loop = fresh_loop` per thread
+# under `_WS_LOOP_PATCH_LOCK`. The lock only covered the assignment, not the
+# subsequent `ws_client.start()` call. After thread A released the lock,
+# thread B could overwrite the global with `fresh_loop_B`. Thread A's
+# `start()` then reads `loop` on every line, intermittently picking up
+# thread B's loop, and the `_receive_message_loop` task ends up bound to a
+# different loop than the websocket future it awaits. Result:
+# `RuntimeError: Task got Future <Future pending> attached to a different
+# loop`. Reproduced in /tmp/lark_loop_race_reproducer.py: 28/40 observations
+# saw a foreign thread's loop with 5 racing threads.
+#
+# Why the proxy is the correct fix:
+# `asyncio.get_event_loop()` is already thread-local — `asyncio.set_event_loop`
+# stores the loop in the calling thread's slot, and `get_event_loop` reads
+# back the calling thread's slot. By replacing the SDK's module global with a
+# proxy that delegates every attribute access to `asyncio.get_event_loop()`,
+# every SDK call from thread T resolves to thread T's own loop, with no
+# shared mutable state across threads. _subscribe_loop only needs to call
+# `asyncio.set_event_loop(fresh_loop)` once per thread — no module-level
+# patching, no lock, no race window.
+#
+# This patch is applied once at module import time below; threads do nothing.
+class _ThreadLocalLoopProxy:
+    """Drop-in replacement for the lark_oapi SDK's module-level `loop`.
+
+    Resolves every attribute access (run_until_complete, create_task, time,
+    etc.) to the calling thread's current asyncio event loop, eliminating
+    the cross-thread race that caused
+    `RuntimeError: Future attached to a different loop`.
+    """
+
+    def __getattr__(self, name: str):
+        return getattr(asyncio.get_event_loop(), name)
+
+    def __bool__(self) -> bool:
+        # SDK uses `if self._conn is not None` — never tests truthiness on
+        # `loop` directly, but be safe anyway.
+        return True
+
+    def __repr__(self) -> str:
+        try:
+            return f"<_ThreadLocalLoopProxy bound to {asyncio.get_event_loop()!r}>"
+        except RuntimeError:
+            return "<_ThreadLocalLoopProxy (no loop on this thread)>"
+
+
+def _install_lark_oapi_loop_proxy() -> None:
+    """Install the proxy as `lark_oapi.ws.client.loop`.
+
+    Idempotent: if the proxy is already installed (e.g. on test reload), this
+    is a no-op. Imported lazily inside the function so unit tests can monkey-
+    patch the SDK before the proxy is installed.
+    """
+    import lark_oapi.ws.client as _ws_client_mod
+    if not isinstance(_ws_client_mod.loop, _ThreadLocalLoopProxy):
+        _ws_client_mod.loop = _ThreadLocalLoopProxy()
+
+
+_install_lark_oapi_loop_proxy()
 
 
 # L-12: characters that must not survive into a sanitised display name.
@@ -601,20 +670,21 @@ class LarkTrigger:
 
                 def run_ws():
                     try:
-                        # SDK's ws/client.py uses a module-level `loop` variable
-                        # captured at import time. Replace it with a fresh loop
-                        # so start() can call loop.run_until_complete() without
-                        # conflict. With multiple bots reconnecting in parallel,
-                        # two threads racing on `ws_mod.loop = ...` could stomp
-                        # on each other; serialise under the module-level lock
-                        # (M-9). The lock only covers the assignment — we drop
-                        # it before the blocking `start()` call.
-                        import lark_oapi.ws.client as ws_mod
+                        # H-6 (2026-04-27): module-level proxy installed at
+                        # `lark_oapi.ws.client.loop` (see top of file) makes
+                        # every SDK access of `loop` resolve to the calling
+                        # thread's current asyncio loop. So all this thread
+                        # has to do is set its own current loop — no module-
+                        # level patch, no shared lock, no race.
                         fresh_loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(fresh_loop)
-                        with _WS_LOOP_PATCH_LOCK:
-                            ws_mod.loop = fresh_loop
-                            ws_client._lock = asyncio.Lock()  # belongs to new loop
+                        # Recreate ws_client._lock under the fresh loop. The
+                        # Client.__init__ call site ran on the main asyncio
+                        # loop, and even though Python 3.10+ Locks bind
+                        # lazily, rebuilding here keeps the invariant simple:
+                        # every asyncio primitive owned by this Client is
+                        # bound to fresh_loop, the loop that will drive it.
+                        ws_client._lock = asyncio.Lock()
                         ws_client.start()
                     except Exception as e:
                         thread_error.append(e)
