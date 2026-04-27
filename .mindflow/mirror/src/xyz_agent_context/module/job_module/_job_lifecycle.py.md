@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_lifecycle.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 ---
 
 # _job_lifecycle.py — Job 执行后生命周期处理

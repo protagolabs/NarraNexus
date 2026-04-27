@@ -6,13 +6,21 @@
 
 Provides endpoints for:
 - GET /{agent_id}/costs - Get cost summary and recent records
+
+Per-viewer tenancy:
+- Cloud mode: viewer_id from request.state.user_id (JWT middleware populated).
+- Local mode: viewer_id from backend.auth.get_local_user_id().
+- Never trust ?user_id= query param (TDR-12 impersonation vector).
+- Cost rows are scoped to agents the viewer OWNS (agents.created_by = viewer_id).
+  Public agents that the viewer can merely SEE do NOT contribute to their cost
+  view — costs were paid by the owner, exposing them would leak owner spend.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
+from backend.auth import _is_cloud_mode, get_local_user_id
 from xyz_agent_context.utils.db_factory import get_db_client
-from xyz_agent_context.utils.cost_tracker import calculate_cost
 from xyz_agent_context.schema import (
     CostResponse,
     CostSummary,
@@ -25,8 +33,24 @@ from xyz_agent_context.schema import (
 router = APIRouter()
 
 
+async def _resolve_viewer_id(request: Request) -> str:
+    """Resolve viewer_id from session, never from query param."""
+    if "user_id" in request.query_params:
+        raise HTTPException(
+            status_code=400,
+            detail="user_id query param not accepted; viewer identified by session",
+        )
+    if _is_cloud_mode():
+        viewer_id = getattr(request.state, "user_id", None)
+        if not viewer_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        return viewer_id
+    return await get_local_user_id()
+
+
 @router.get("/{agent_id}/costs", response_model=CostResponse)
 async def get_agent_costs(
+    request: Request,
     agent_id: str,
     days: int = Query(default=7, ge=1, le=90, description="Number of days to look back"),
     limit: int = Query(default=50, ge=1, le=200, description="Max recent records to return"),
@@ -36,28 +60,53 @@ async def get_agent_costs(
 
     Returns aggregated stats (total cost, by-model breakdown, daily trend)
     plus the most recent individual records.
+
+    agent_id == "_all" aggregates across every agent the viewer owns.
+    Otherwise, the viewer must own the requested agent or the call 404s.
     """
+    viewer_id = await _resolve_viewer_id(request)
+
     try:
         db = await get_db_client()
 
-        # Fetch records within the time window
-        # Special agent_id "_all" returns all agents' records
-        # Calculate cutoff date in Python (works for both MySQL and SQLite)
+        # Calculate cutoff in Python (works for both MySQL and SQLite).
         from datetime import datetime, timedelta, timezone as dt_tz
         cutoff = (datetime.now(dt_tz.utc) - timedelta(days=days)).isoformat()
 
         if agent_id == "_all":
+            # Aggregate across every agent the viewer owns.
+            owned = await db.execute(
+                "SELECT agent_id FROM agents WHERE created_by=%s",
+                (viewer_id,),
+            )
+            owned_ids = [r["agent_id"] for r in owned]
+            if not owned_ids:
+                return CostResponse(
+                    success=True,
+                    summary=CostSummary(),
+                    records=[],
+                    total_count=0,
+                )
+            placeholders = ",".join(["%s"] * len(owned_ids))
             rows = await db.execute(
-                """
+                f"""
                 SELECT id, agent_id, event_id, call_type, model,
                        input_tokens, output_tokens, total_cost_usd, created_at
                 FROM cost_records
-                WHERE created_at >= %s
+                WHERE agent_id IN ({placeholders})
+                  AND created_at >= %s
                 ORDER BY created_at DESC
                 """,
-                (cutoff,),
+                (*owned_ids, cutoff),
             )
         else:
+            # Single-agent: enforce ownership.
+            owner_row = await db.execute(
+                "SELECT created_by FROM agents WHERE agent_id=%s LIMIT 1",
+                (agent_id,),
+            )
+            if not owner_row or owner_row[0]["created_by"] != viewer_id:
+                raise HTTPException(status_code=404, detail="Agent not found")
             rows = await db.execute(
                 """
                 SELECT id, agent_id, event_id, call_type, model,
@@ -95,7 +144,6 @@ async def get_agent_costs(
             total_input += inp
             total_output += out
 
-            # Per-model breakdown
             if model not in by_model:
                 by_model[model] = {"cost": 0.0, "input_tokens": 0, "output_tokens": 0, "call_count": 0}
             by_model[model]["cost"] += cost
@@ -103,12 +151,11 @@ async def get_agent_costs(
             by_model[model]["output_tokens"] += out
             by_model[model]["call_count"] += 1
 
-            # Daily aggregation
             ca = row["created_at"]
             if ca is None:
                 day_str = "unknown"
             elif isinstance(ca, str):
-                day_str = ca[:10]  # "2026-04-03T..." -> "2026-04-03"
+                day_str = ca[:10]
             else:
                 day_str = ca.strftime("%Y-%m-%d")
             if day_str not in daily_map:
@@ -135,7 +182,6 @@ async def get_agent_costs(
             ),
         )
 
-        # Recent records (limited)
         recent = rows[:limit]
         records = [
             CostRecord(
@@ -159,6 +205,8 @@ async def get_agent_costs(
             total_count=len(rows),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to get costs for agent {agent_id}")
         return CostResponse(success=False, error=str(e))

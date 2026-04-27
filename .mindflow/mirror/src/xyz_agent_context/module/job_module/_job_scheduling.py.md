@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_scheduling.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 ---
 
 # _job_scheduling.py — Job 下次执行时间计算
@@ -9,23 +9,44 @@ last_verified: 2026-04-10
 
 从 `job_repository.py` 分离出来（2026-03-06），把"下次执行时间应该是什么"这条业务规则独立维护。之所以放在 Module 层而不是 Repository 层，是因为这是调度规则（业务逻辑），不是数据访问模式。Repository 不应该包含 cron 解析这类领域知识。
 
-只有一个公开函数：`calculate_next_run_time(job_type, trigger_config, last_run_time)`，对应四种触发模式——ONE_OFF 的固定时刻、SCHEDULED 的 cron 表达式、SCHEDULED 的固定间隔，以及 ONGOING 的固定间隔。
+## 两个公开函数（v2 时区协议之后）
+
+**`compute_next_run(job_type, trigger_config, last_run_utc=None) -> Optional[NextRunTuple]`（v2 新增，推荐用）**
+
+单一真相源：从 `TriggerConfig` 生出一个 `NextRunTuple(local, tz, utc)` 三元组。
+- `local`：naive ISO 8601 字符串（用户本地时间视角）
+- `tz`：IANA 字符串（如 `Asia/Shanghai`）
+- `utc`：aware UTC `datetime`（给 poller 比较用）
+
+`local` 和 `utc` 表达**同一个物理瞬间的两种坐标**，不是独立信息。调用方要么把这三个都原子写进 `instance_jobs`（α+β 字段），要么完全不写——禁止拆开单独更新。
+
+**`calculate_next_run_time(job_type, trigger_config, last_run_time=None) -> Optional[datetime]`（legacy，Task 10 会删）**
+
+旧函数。只返回 naive UTC datetime，不处理时区。Task 10 会一并清掉 `repository/job_repository.py:1331` 的 re-export shim。
 
 ## 上下游关系
 
-- **被谁用**：`job_service.JobInstanceService.create_job_with_instance()` 在创建 Job 时调用（通过 `from xyz_agent_context.repository.job_repository import calculate_next_run_time` 的旧路径，注意这里存在历史遗留的导入路径）；`_job_lifecycle.handle_job_execution_result()` 在更新 SCHEDULED Job 的下次执行时间时调用；`job_trigger._finalize_job_execution()` 作为 fallback 也会调用
-- **依赖谁**：`croniter`（可选依赖，用于解析 cron 表达式）；`xyz_agent_context.utils.utc_now`；`schema.job_schema.JobType` 和 `TriggerConfig`
+- **被谁用（目标状态）**：`job_service.JobInstanceService.create_job_with_instance()`、`job_trigger.JobTrigger._execute_*` 里的 post-execution reschedule、`instance_sync_service.create_jobs_for_instances()`——全部走 `compute_next_run`
+- **依赖谁**：`croniter`（现已 required）、`zoneinfo.ZoneInfo`、`xyz_agent_context.utils.timezone.utc_now`、`schema.job_schema.JobType` / `TriggerConfig`
 
 ## 设计决策
 
-**`croniter` 是软依赖**：如果没有安装 `croniter` 包，cron 类型的 SCHEDULED Job 不会崩溃，而是 fallback 到"当前时间 + 1 小时"执行，并打印 warning。这意味着 cron 调度静默降级，而不是在 Job 创建时报错。如果需要强约束 croniter 必须存在，应该在 `pyproject.toml` 里加为必须依赖。
+**一次算清三种视角**：以前设计是"只返回 UTC datetime，展示时再由消费方转换"。实践发现消费方漏做转换或各自 ad-hoc 做导致 bug——于是改为"一次算清 local + tz + utc，消费方只读不算"。
 
-**`last_run_time` 的含义**：对于 SCHEDULED 和 ONGOING 的 interval 模式，`last_run_time or utc_now()` 作为基准时间。这里的设计意图是：第一次执行时（`last_run_time=None`）从"现在"开始计算间隔，而不是从 Job 创建时刻。如果 Job 在 00:00 创建但 00:30 才首次执行，下次执行是 01:30 而不是 01:00。
+**cron 处理方式**：`croniter` 拿 **naive 本地时间**作为 base_time（`base_utc.astimezone(zi).replace(tzinfo=None)`），步进出的 naive 结果再 `.replace(tzinfo=zi)` 变回 aware，再 `.astimezone(UTC)` 得到 α。这样 DST 过渡正确（因为 zoneinfo 知道何时从 EDT 切 EST，会给 naive 8:00 配上正确的 offset）。不能把 aware 传给 croniter——croniter 对 aware 的支持历史版本行为不一致。
+
+**`last_run_utc` 的含义**：对于 SCHEDULED / ONGOING 的 interval 模式，`last_run_utc or utc_now()` 作为基准时间。第一次执行（`last_run_utc=None`）从"现在"起算，不是从 Job 创建时刻起算——符合"下次执行时间 = 基准 + 间隔"的直觉。
 
 ## Gotcha / 边界情况
 
-**cron 表达式不感知用户时区**：`calculate_next_run_time()` 本身不处理时区——它接受一个 `last_run_time`（UTC datetime），用 `croniter` 计算出下一个 UTC 时间。时区转换的责任在 `job_trigger.py` 里：`JobTrigger._execute_job()` 先获取用户时区，在传给 `build_execution_prompt()` 时做格式化，但 `calculate_next_run_time()` 本身不做时区转换。如果用户期望"每天早上 8 点本地时间执行"，需要在创建 Job 时把 cron 表达式转换成 UTC 的对应值，或者在这里补充时区偏移逻辑。
+**`NextRunTuple` 的 α 与 β 必须原子写**：由调用方（Repository.update_next_run / create_job）保证同时更新 `next_run_time`（α UTC）、`next_run_at_local`、`next_run_tz`（β）三列。任何一个漏更新就会出现"显示一个时间但 poller 按另一个时间触发"的幽灵 bug。
+
+**`timezone is None` 是 bug 不是正常路径**：`compute_next_run` 里显式 `raise ValueError` 兜底，但这应该已经被 `TriggerConfig` 的 validator 挡住。出现 ValueError 说明上游漏校验，而不是用户输入问题。
+
+**`ONE_OFF` 的 post-fire 处理在调用方**：`compute_next_run(ONE_OFF, ...)` 总是返回 `run_at` 的 tuple（因为这是"从 trigger_config 算下次理论触发时刻"的纯函数），不负责判断"这个 job 已经触发过了"。调用方（`job_trigger`）在触发完 ONE_OFF 后要主动 `clear_next_run`。
 
 ## 新人易踩的坑
 
-- `job_service.py` 里通过 `from xyz_agent_context.repository.job_repository import calculate_next_run_time` 导入这个函数——注意这是旧的导入路径（分离前函数在 repository 里），是遗留代码未清理的痕迹。如果你找不到这个函数，去 `_job_scheduling.py` 里找，而不是 `job_repository.py`。
+- 不要再用 `calculate_next_run_time`——它是 Task 10 会删的 legacy。新代码一律 `compute_next_run`。
+- `croniter` 在 Python 3.13 + zoneinfo 组合下，对 aware datetime 的行为不稳定。本函数采用 "naive in, naive out, 调用方补 tzinfo" 的策略规避。
+- `NextRunTuple.local` 是**naive ISO 8601**（如 `2026-05-01T08:00:00`），不带 offset 后缀。展示层如果想显示 `+08:00`，自己拼；但一般直接显示 `local + " " + tz` 更清楚。

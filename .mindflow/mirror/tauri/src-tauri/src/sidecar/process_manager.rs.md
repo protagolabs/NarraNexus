@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-04-10
+last_verified: 2026-04-23
 ---
 
 # process_manager.rs — Child process lifecycle manager with log collection
@@ -56,6 +56,16 @@ Command::new(...).env("DATABASE_URL", &db_url).env("SQLITE_PROXY_URL", &proxy_ur
 tokio thread that calls `start_service` may not see the write. Explicit
 `.env()` bypasses the inheritance path. Without `SQLITE_PROXY_URL` the Python
 side opens SQLite directly, causing multi-process lock contention.
+
+## PATH injection for bundled Node.js CLIs
+
+`start_service` prepends `state::resolve_bundled_node_bins()` to the PATH
+handed to each child. Without this, `claude_agent_sdk` (Python) spawns the
+`claude` binary via `shutil.which`, which under a Finder-launched `.app`
+only sees the launchd minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) and
+fails every chat turn.
+
+Dev mode returns an empty path list → parent PATH is preserved unchanged.
 
 ## Upstream / downstream
 

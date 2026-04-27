@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 ---
 
 # _job_mcp_tools.py — JobModule MCP 工具定义

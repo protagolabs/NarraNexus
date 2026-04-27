@@ -1,5 +1,5 @@
 /**
- * UI components index - Bioluminescent Terminal Design System
+ * UI components — Nordic Archive Design System
  */
 
 export { Button } from './Button';
@@ -10,5 +10,9 @@ export { Badge } from './Badge';
 export { ThemeToggle } from './ThemeToggle';
 export { Markdown, MarkdownPreview } from './Markdown';
 export { Dialog, DialogContent, DialogFooter } from './Dialog';
+export { useConfirm } from './ConfirmDialog';
+export type { ConfirmOptions, AlertOptions } from './ConfirmDialog';
 export { KPICard } from './KPICard';
 export type { KPIColor } from './KPICard';
+export { StatStrip } from './StatStrip';
+export type { StatItem, StatTone } from './StatStrip';

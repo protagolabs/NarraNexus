@@ -156,6 +156,19 @@ AUTH_EXEMPT_PREFIXES = (
     "/ws/",  # WebSocket handles its own auth via message payload
 )
 
+# Prefixes that STILL require JWT auth but must SKIP the provider_resolver
+# quota gate. These routes are pure configuration / self-service CRUD and
+# do not spend quota. Without this list, a user whose free tier is
+# exhausted cannot add a provider or toggle the "Use free quota" switch
+# off — the middleware 402s them before they ever reach the handler,
+# creating a dead-end the user cannot escape.
+QUOTA_BYPASS_PREFIXES = (
+    "/api/providers",  # add / remove / edit provider, set slot model
+    "/api/quota",      # read own quota, flip prefer_system_override
+    "/api/admin",      # staff operations (grant, init)
+    "/api/auth",       # login / register / me / logout
+)
+
 
 async def auth_middleware(request: Request, call_next):
     """
@@ -210,6 +223,38 @@ async def auth_middleware(request: Request, call_next):
         return _json_response(401, {"detail": "Token expired"})
     except jwt.InvalidTokenError:
         return _json_response(401, {"detail": "Invalid token"})
+
+    # System-default quota routing. Tag current_user_id on the ContextVar
+    # (consumed by cost_tracker to attribute usage) and dispatch the
+    # resolver to decide user-vs-system routing + quota gating. Resolver
+    # itself short-circuits when SystemProviderService.is_enabled()==False,
+    # so local mode / feature-off is a no-op end-to-end.
+    #
+    # Config-class paths (QUOTA_BYPASS_PREFIXES) skip the resolver entirely
+    # so users with an exhausted free tier can still reach /api/providers
+    # or flip /api/quota/me/preference to escape the dead-end. JWT auth
+    # above still applies to those paths.
+    from xyz_agent_context.agent_framework.api_config import set_current_user_id
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        ProviderResolverError,
+    )
+
+    set_current_user_id(request.state.user_id)
+
+    if any(path.startswith(p) for p in QUOTA_BYPASS_PREFIXES):
+        return await call_next(request)
+
+    resolver = getattr(request.app.state, "provider_resolver", None)
+    if resolver is not None:
+        try:
+            await resolver.resolve_and_set(request.state.user_id)
+        except ProviderResolverError as exc:
+            return _json_response(402, {
+                "success": False,
+                "error": "quota_gated",
+                "error_code": exc.error_code,
+                "message": str(exc),
+            })
 
     response = await call_next(request)
     return response

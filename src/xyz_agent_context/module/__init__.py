@@ -27,7 +27,7 @@ Usage:
 # =============================================================================
 # Base class (imported from base.py)
 # =============================================================================
-from .base import XYZBaseModule
+from .base import XYZBaseModule, mcp_host
 
 # =============================================================================
 # Concrete Module implementations (must be after XYZBaseModule definition)
@@ -37,12 +37,17 @@ from xyz_agent_context.module.basic_info_module.basic_info_module import BasicIn
 from xyz_agent_context.module.chat_module.chat_module import ChatModule
 from xyz_agent_context.module.social_network_module.social_network_module import SocialNetworkModule
 from xyz_agent_context.module.job_module.job_module import JobModule
-from xyz_agent_context.module.gemini_rag_module.gemini_rag_module import GeminiRAGModule
 from xyz_agent_context.module.skill_module.skill_module import SkillModule
 from xyz_agent_context.module.memory_module.memory_module import MemoryModule
 from xyz_agent_context.module.message_bus_module.message_bus_module import MessageBusModule
+from xyz_agent_context.module.lark_module.lark_module import LarkModule
+from xyz_agent_context.module.common_tools_module.common_tools_module import CommonToolsModule
 
-# Module mapping table
+# Module mapping table.
+# GeminiRAGModule is NOT registered here — its per-user API key is not yet
+# routed through the ContextVar system. The module source code remains in
+# module/gemini_rag_module/ for the RAG file management API
+# (backend/routes/agents_rag.py uses RAGFileService directly).
 MODULE_MAP = {
     "MemoryModule": MemoryModule,  # Highest priority, ensures execution before other modules
     "AwarenessModule": AwarenessModule,
@@ -50,9 +55,10 @@ MODULE_MAP = {
     "ChatModule": ChatModule,
     "SocialNetworkModule": SocialNetworkModule,
     "JobModule": JobModule,
-    "GeminiRAGModule": GeminiRAGModule,
     "SkillModule": SkillModule,
     "MessageBusModule": MessageBusModule,
+    "LarkModule": LarkModule,
+    "CommonToolsModule": CommonToolsModule,
 }
 
 # =============================================================================
@@ -98,9 +104,10 @@ __all__ = [
     "ChatModule",
     "SocialNetworkModule",
     "JobModule",
-    "GeminiRAGModule",
     "SkillModule",
     "MessageBusModule",
+    "LarkModule",
+    "CommonToolsModule",
 
     # ===== Module mapping =====
     "MODULE_MAP",

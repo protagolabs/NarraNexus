@@ -1,8 +1,27 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-04-10
+last_verified: 2026-04-16
 stub: false
 ---
+
+## 2026-04-16 addition — system-default quota routing
+
+`auth_middleware` now, after the JWT has been decoded and
+`request.state.user_id` / `role` are populated:
+
+1. Sets the `current_user_id` ContextVar (consumed by
+   `cost_tracker.record_cost` to attribute token usage without wide
+   parameter threading).
+2. Invokes `app.state.provider_resolver.resolve_and_set(user_id)` to
+   decide whether the request should consume the user's own provider
+   config or fall back to the system-default NetMind key, with quota
+   gating. The resolver itself short-circuits when the feature is
+   disabled (local mode / env off), so this path is transparent.
+3. Catches `QuotaExceededError` and emits HTTP 402 with
+   `error_code: QUOTA_EXCEEDED_NO_USER_PROVIDER`. The frontend
+   interceptor pattern-matches the code, not the message, and
+   surfaces a toast directing the user to configure their own
+   provider.
 
 # auth.py — JWT 认证工具与 HTTP 中间件
 

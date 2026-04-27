@@ -153,7 +153,8 @@ async def agents_status(request: Request, response: Response):
                     "job_id": j["job_id"],
                     "title": j["title"],
                     "job_type": j["job_type"],
-                    "next_run_time": j.get("next_run_time"),
+                    "next_run_at": j.get("next_run_at"),
+                    "next_run_timezone": j.get("next_run_timezone"),
                     "description": j.get("description"),
                     "queue_status": qstate,
                 })
@@ -173,7 +174,7 @@ async def agents_status(request: Request, response: Response):
         )
 
         # v2.1: verb line (human-readable)
-        # v2.1.2: pass instances so CALLBACK/SKILL_STUDY/MATRIX can name
+        # v2.1.2: pass instances so CALLBACK/SKILL_STUDY can name
         # the specific module instead of a generic "Processing callback".
         verb_line = humanize_verb(
             kind=kind, sessions=sessions, running_jobs=running_jobs_raw,
@@ -248,7 +249,7 @@ def _derive_kind(sessions, running_jobs, instances) -> str:
         return "JOB"
     if sessions:
         ch = (sessions[0].channel or "").lower()
-        if ch.startswith(("lark", "slack", "matrix", "message_bus", "bus")):
+        if ch.startswith(("lark", "slack", "message_bus", "bus")):
             return "MESSAGE_BUS"
         return "CHAT"
     if instances:
@@ -331,7 +332,8 @@ async def job_detail(job_id: str, request: Request):
     db = await get_db_client()
     rows = await db.execute(
         "SELECT job_id, agent_id, title, description, job_type, status, "
-        "trigger_config, next_run_time, started_at, last_run_time, "
+        "trigger_config, next_run_at_local, next_run_tz, started_at, "
+        "last_run_at_local, last_run_tz, "
         "last_error, iteration_count, process, monitored_job_ids, "
         "created_at, updated_at "
         "FROM instance_jobs WHERE job_id=%s LIMIT 1",
@@ -374,7 +376,8 @@ async def job_detail(job_id: str, request: Request):
             "job_id": "unknown",
             "title": "(upstream dependency)",
             "status": "active",
-            "next_run_time": None,
+            "next_run_at": None,
+            "next_run_timezone": None,
             "reason": "Waiting for upstream dependencies",
         }]
 
@@ -388,9 +391,11 @@ async def job_detail(job_id: str, request: Request):
             "job_type": job["job_type"],
             "status": job["status"],
             "trigger_config": job.get("trigger_config"),
-            "next_run_time": _iso(job.get("next_run_time")),
+            "next_run_at": job.get("next_run_at_local"),
+            "next_run_timezone": job.get("next_run_tz"),
             "started_at": _iso(job.get("started_at")),
-            "last_run_time": _iso(job.get("last_run_time")),
+            "last_run_at": job.get("last_run_at_local"),
+            "last_run_timezone": job.get("last_run_tz"),
             "iteration_count": job.get("iteration_count") or 0,
             "last_error": job.get("last_error"),
             "recent_history": recent_history,

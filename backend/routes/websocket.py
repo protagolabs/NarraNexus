@@ -66,6 +66,18 @@ async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken
     Runs concurrently with the agent loop. When the client sends
     {"action": "stop"}, triggers the cancellation token which
     propagates through the entire execution pipeline.
+
+    Any WS close — whether truly client-initiated (tab close, navigate),
+    a transport-level drop (network blip), or uvicorn's own ping-timeout
+    hard-close — surfaces here as a ``WebSocketDisconnect`` raised from
+    ``receive_json``. The distinguishing signal is ``exc.code`` + ``exc.reason``:
+
+    - 1000 / "": normal close (user navigated away etc.)
+    - 1001 "going away": tab/page unload
+    - 1006 / "": abnormal (TCP reset / proxy kill / uvicorn ping_timeout)
+    - 1011 / "keepalive ping timeout": uvicorn's own enforcement — the
+      server decided the peer was dead and tore the socket down. Before
+      Bug 32 we hit this on every long LLM turn with uvicorn defaults.
     """
     try:
         while not cancellation.is_cancelled:
@@ -73,12 +85,22 @@ async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken
             if isinstance(data, dict) and data.get("action") == "stop":
                 cancellation.cancel("User clicked stop")
                 return
-    except WebSocketDisconnect:
-        # Client disconnected — treat as implicit cancellation
-        cancellation.cancel("Client disconnected")
-    except Exception:
-        # Any receive error (connection reset, etc.)
-        pass
+    except WebSocketDisconnect as e:
+        reason = (e.reason or "").strip() or "<no reason>"
+        code = getattr(e, "code", None)
+        logger.warning(
+            f"WS closed mid-stream — code={code} reason={reason!r}. "
+            f"Likely causes by code: 1000/1001=user-navigation, "
+            f"1006=transport-reset/proxy-kill, "
+            f"1011=uvicorn ping-timeout (see BUG_FIX_LOG Bug 32)."
+        )
+        cancellation.cancel(f"WS closed (code={code}, reason={reason})")
+    except Exception as e:
+        # Any other receive error — still surface it so incidents leave a trail.
+        logger.warning(
+            f"WS receive failed mid-stream — {type(e).__name__}: {e}. "
+            f"Treating as implicit cancellation."
+        )
 
 
 @router.websocket("/ws/agent/run")

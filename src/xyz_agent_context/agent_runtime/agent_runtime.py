@@ -210,7 +210,7 @@ class AgentRuntime:
         db_client = await self._ensure_database_client()
 
         # Override user_id with agent's creator — all triggers share a single workspace
-        # so that Matrix conversations, Job triggers, etc. see the same narratives/jobs.
+        # so that Lark conversations, Job triggers, etc. see the same narratives/jobs.
         from xyz_agent_context.repository.agent_repository import AgentRepository
         _agent = await AgentRepository(db_client).get_agent(agent_id)
         if _agent and _agent.created_by:
@@ -306,18 +306,51 @@ class AgentRuntime:
         from xyz_agent_context.agent_framework.api_config import (
             get_agent_owner_llm_configs,
             set_user_config,
-            LLMConfigNotConfigured,
+            LLMResolverError,
         )
         try:
             owner_claude, owner_openai, owner_embedding = await get_agent_owner_llm_configs(agent_id)
             set_user_config(owner_claude, owner_openai, owner_embedding)
-        except LLMConfigNotConfigured as e:
-            logger.error(f"LLM config missing for agent {agent_id}: {e}")
-            # Surface the error to the WebSocket / caller as a structured message
+        except LLMResolverError as e:
+            logger.error(
+                f"LLM config resolution failed for agent {agent_id}: "
+                f"{type(e).__name__}: {e}"
+            )
+
+            # Bug 18 — persist the error as event.final_output so the DB
+            # record is complete. Without this the Event row sits with
+            # final_output=None forever (Step 4 is skipped on the early
+            # return below), which makes the failed turn invisible to
+            # audits and to UIs that render history from the events
+            # table. The user's input_content is already saved by Step 0
+            # in `events.env_context.input`, so writing the error here
+            # closes the loop.
+            error_marker = f"[ERROR:{type(e).__name__}] {e}"
+            try:
+                if ctx.event and ctx.event.id:
+                    await self.event_service.update_event_in_db(
+                        event_id=ctx.event.id,
+                        final_output=error_marker,
+                        generate_embedding=False,
+                    )
+                    ctx.event.final_output = error_marker
+            except Exception as persist_err:  # noqa: BLE001 — best-effort
+                logger.warning(
+                    f"Failed to persist error marker on event "
+                    f"{getattr(ctx.event, 'id', '?')}: {persist_err}"
+                )
+
+            # Surface the error to every consumer (WS route / LarkTrigger /
+            # JobTrigger / MessageBusTrigger / ChatTrigger A2A) as a
+            # structured ErrorMessage. The error_type string preserves the
+            # concrete subclass name so consumers can pick UX per type
+            # (e.g. "quota exhausted" vs "user hasn't configured own
+            # provider yet"). Silent drop by consumers = Bug 2 — each
+            # consumer uses ``collect_run`` + its own error display path.
             from xyz_agent_context.schema import ErrorMessage
             yield ErrorMessage(
                 error_message=str(e),
-                error_type="LLMConfigNotConfigured",
+                error_type=type(e).__name__,
             )
             return
 

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_service.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 ---
 
 # job_service.py — Job 统一创建服务

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Entitlements for Developer ID signing + notarization.
+      Applied by scripts/build-desktop.sh step 7 to both the main .app and
+      every inner Mach-O (bundled Python, bundled Node, bundled dylibs).
+
+      Audit rule: every key here MUST carry a one-paragraph rationale. If
+      you can't justify why the Python + Node sidecar runtime needs it,
+      remove the key — Apple's notary is stricter year-over-year and a
+      hardened-runtime exception you don't actually use is pure attack
+      surface.
+    -->
+
+    <!--
+      allow-jit
+      Needed by: bundled Node.js (V8 writes JIT-compiled JS into pages that
+      must be rx), and any Python C extension that runs JIT (numba, torch
+      inductor). Without this, V8 aborts at process start with
+      "EXC_BAD_ACCESS" the moment it tries to patch its ignition bytecode.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!--
+      allow-unsigned-executable-memory
+      Needed by: CPython itself when importing modules whose loader paths
+      the hardened runtime classifies as "executable memory not backed by
+      a signed code page" (notably aiosqlite's SQLite amalgamation on
+      apple-silicon). Also belt-and-suspenders for Node's write-exec
+      transitions that aren't covered by allow-jit alone.
+    -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!--
+      disable-library-validation
+      Needed by: bundled CPython dlopen-ing C extensions (numpy, cryptography,
+      aiosqlite, pydantic-core, tiktoken) whose team identifier doesn't match
+      NarraNexus. With validation enforced, hardened runtime kills the
+      interpreter with "code signature invalid" on the first import.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!--
+      allow-dyld-environment-variables
+      Needed by: process_manager.rs — the Tauri Rust side spawns Python
+      subprocesses with PYTHONPATH / PYTHONHOME / DYLD_FALLBACK_LIBRARY_PATH
+      pointing at the bundle's resources/python/ tree. Hardened runtime
+      normally strips DYLD_* and most PYTHON* vars at exec time, which
+      would cause the children to fall back to system Python (if any) or
+      fail to import anything. This key preserves them.
+    -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+</dict>
+</plist>

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Sparkles, UserPlus, Cloud, ArrowLeft } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
+import { useTheme } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -17,8 +18,13 @@ export function RegisterPage() {
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [welcomeQuota, setWelcomeQuota] = useState<{
+    input: number
+    output: number
+  } | null>(null);
 
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const { login, setAgents, setAgentId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const setMode = useRuntimeStore((s) => s.setMode);
@@ -78,7 +84,20 @@ export function RegisterPage() {
         }
       } catch {}
 
-      navigate('/');
+      // If the backend seeded a free-tier quota for this user, show a
+      // brief inline welcome banner before navigating so the user knows
+      // they have starter credits. cloud-app / cloud-web modes only;
+      // local never seeds so the flag is always false there.
+      const isCloud = mode === 'cloud-app' || mode === 'cloud-web';
+      if (isCloud && res.has_system_quota) {
+        setWelcomeQuota({
+          input: res.initial_input_tokens ?? 0,
+          output: res.initial_output_tokens ?? 0,
+        });
+        setTimeout(() => navigate('/'), 1800);
+      } else {
+        navigate('/');
+      }
     } catch (err) {
       setError('Connection failed. Please try again.');
       console.error('Register error:', err);
@@ -109,8 +128,15 @@ export function RegisterPage() {
         {/* Header */}
         <div className="text-center mb-10">
           <div className="relative inline-block mb-5">
-            <div className="relative w-20 h-20 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center">
-              <Cloud className="w-10 h-10 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
+            <div className="relative w-20 h-20 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center overflow-hidden shadow-[var(--shadow-glow)]">
+              <img
+                src={isDark ? '/logo-dark.png' : '/logo-light.png'}
+                alt="NarraNexus"
+                className="w-14 h-14 object-contain"
+              />
+              <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-[var(--bg-primary)] border-2 border-[var(--accent-primary)] flex items-center justify-center">
+                <Cloud className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+              </div>
             </div>
           </div>
 
@@ -193,6 +219,19 @@ export function RegisterPage() {
             </p>
           )}
 
+          {welcomeQuota && (
+            <div className="rounded-md border border-[var(--accent-primary)] bg-[var(--surface-1)] p-3 animate-slide-up">
+              <div className="text-sm font-medium text-[var(--text-primary)] mb-1">
+                Welcome! You've got starter credits.
+              </div>
+              <div className="text-xs text-[var(--text-secondary)]">
+                {welcomeQuota.input.toLocaleString()} input tokens ·{' '}
+                {welcomeQuota.output.toLocaleString()} output tokens on
+                the system provider. Taking you to the dashboard…
+              </div>
+            </div>
+          )}
+
           <Button
             variant="accent"
             onClick={handleRegister}
@@ -227,7 +266,7 @@ export function RegisterPage() {
         <div className="mt-8 pt-6 border-t border-[var(--border-subtle)]">
           <div className="flex items-center justify-center gap-2 text-xs text-[var(--text-tertiary)]">
             <Sparkles className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-            <span>Powered by NarraNexus</span>
+            <span>Powered by NetMind.AI</span>
           </div>
         </div>
       </div>

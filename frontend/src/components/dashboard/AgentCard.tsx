@@ -62,7 +62,7 @@ function PublicCard({ agent }: { agent: AgentStatus }) {
   return (
     <div
       data-testid={`agent-card-${agent.agent_id}`}
-      className="group flex overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-glass)]"
+      className="group flex overflow-hidden rounded-xl border border-[var(--rule)] bg-[var(--bg-elevated)]"
     >
       <div className={`w-1 shrink-0 ${colors.rail}`} aria-hidden />
       <div className="flex-1 p-3 min-w-0">
@@ -132,7 +132,7 @@ function OwnedCard({
           onToggleExpand();
         }
       }}
-      className={`group relative flex overflow-hidden rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-glass)] backdrop-blur-sm shadow-sm hover:shadow-lg hover:border-[var(--accent-primary)]/60 transition-all duration-200 cursor-pointer ${colors.cardTint} ${agent.health === 'idle_long' ? 'opacity-75' : ''}`}
+      className={`group relative flex overflow-hidden border border-[var(--rule)] bg-[var(--bg-primary)] hover:border-[var(--border-strong)] transition-colors duration-150 cursor-pointer ${colors.cardTint} ${agent.health === 'idle_long' ? 'opacity-75' : ''}`}
     >
       {/* Status rail with optional ack-dot (v2.2 G2 + G4) */}
       <div className="relative shrink-0">
@@ -146,7 +146,7 @@ function OwnedCard({
             data-testid="ack-dot"
             title="Error acknowledged — underlying issue still present"
             aria-label="error acknowledged"
-            className="pointer-events-none absolute -right-[3px] top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-[var(--bg-glass)]"
+            className="pointer-events-none absolute -right-[3px] top-2 h-2 w-2 rounded-full bg-[var(--color-red-500)] ring-2 ring-[var(--bg-elevated)]"
           />
         )}
       </div>
@@ -159,7 +159,7 @@ function OwnedCard({
               {agent.name}
             </span>
             <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-[var(--bg-tertiary,rgba(127,127,127,0.08))] ${colors.text}`}
+              className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] ${colors.text}`}
             >
               <StatusBadge kind={agent.status.kind} />
             </span>
@@ -167,9 +167,9 @@ function OwnedCard({
               <span
                 data-testid="stale-badge"
                 title={`${staleInstances.length} zombie instance(s): ${staleInstances.map((s) => s.module_class).join(', ')}`}
-                className="inline-flex items-center gap-1 rounded-full bg-gray-500/10 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-400"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] text-[var(--text-tertiary)] border border-[var(--rule)]"
               >
-                <span className="h-1.5 w-1.5 rounded-full bg-gray-500" aria-hidden />
+                <span className="h-1 w-1 rounded-full allow-circle bg-[var(--text-tertiary)]" aria-hidden />
                 {staleInstances.length} stale
               </span>
             )}
@@ -205,7 +205,7 @@ function OwnedCard({
           aria-hidden={!expanded}
         >
           <div className="overflow-hidden">
-            <div className="mt-3 space-y-2 border-t border-[var(--border-primary)]/50 pt-3">
+            <div className="mt-3 space-y-2 border-t border-[var(--rule)]/50 pt-3">
               {hasSessions && (
                 <SessionSection agentId={agent.agent_id} sessions={agent.sessions} />
               )}

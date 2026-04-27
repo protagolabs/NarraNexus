@@ -29,6 +29,19 @@ pub fn run() {
             commands::tray::set_tray_badge,
         ])
         .setup(|app| {
+            // Port-conflict preflight. Must run before anything else: if a
+            // required port (8000 / 8100 / 7801 / 7830) is held by another
+            // process, spawning the Python sidecars will silently fail
+            // (bind error → child exits → black screen forever with no
+            // visible log). The preflight shows a native dialog explaining
+            // which port is stuck on which process and exits cleanly.
+            // See sidecar/port_preflight.rs for the 3-step plan this is
+            // the first iteration of.
+            let port_conflicts = sidecar::port_preflight::check_required_ports();
+            if !port_conflicts.is_empty() {
+                sidecar::port_preflight::show_conflict_dialog_and_exit(&port_conflicts);
+            }
+
             // Set DATABASE_URL so the Python backend picks up the correct SQLite path
             let db_path = resolve_db_path();
             if let Some(parent) = db_path.parent() {
@@ -49,13 +62,28 @@ pub fn run() {
 
             // Dashboard v2 (TDR-7): keep the TrayIcon handle in AppState so that
             // `commands::tray::set_tray_badge` can update its title later.
+            //
+            // Intentionally verbose drop order: newer rustc (1.80+) tightened
+            // temporary-scope rules so that `if let Ok(..) = state.tray_handle.lock()`
+            // holds the MutexGuard temporary until the end of the enclosing block,
+            // which outlives the inner `state` binding and produces
+            // "does not live long enough" (E0597). Binding the lock result
+            // explicitly makes the drop sequence trivially correct regardless of
+            // rustc version.
             let tray = tray::create_tray(app)?;
             {
                 let state = app.state::<AppState>();
-                if let Ok(mut guard) = state.tray_handle.lock() {
+                let lock_result = state.tray_handle.lock();
+                if let Ok(mut guard) = lock_result {
                     *guard = Some(tray);
                 }
             }
+
+            // Kick off the lark-cli + lark skill-pack preflight in parallel
+            // with service startup. It is entirely optional — Lark features
+            // degrade gracefully if `npm`/`node` are missing or the install
+            // fails/times out. Mirrors scripts/run.sh `check_deps`.
+            sidecar::lark_preflight::run_preflight();
 
             // Auto-start Python services in local mode (non-blocking)
             let app_handle = app.handle().clone();

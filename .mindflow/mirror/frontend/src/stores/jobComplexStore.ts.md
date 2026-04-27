@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/stores/jobComplexStore.ts
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 stub: false
 ---
 

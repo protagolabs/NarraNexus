@@ -105,22 +105,45 @@ async def handle_job_execution_result(
     # Update database
     job_id = result.job_id
     if job_id:
-        logger.info(f"            Updating job: {job_id}, status={result.status}, next_run={result.next_run_time}")
+        logger.info(f"            Updating job: {job_id}, status={result.status}")
         try:
             existing_job = await repo.get_job(job_id)
             existing_process = existing_job.process if existing_job and existing_job.process else []
 
+            from zoneinfo import ZoneInfo
+            from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+
             now = utc_now()
-            updates = {
+            tz_name = (existing_job.trigger_config.timezone if existing_job and existing_job.trigger_config else None) or "UTC"
+            now_local = now.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
+
+            # 1) Status + process + last_error are LLM-decided (semantic)
+            await repo.update_job(job_id, {
                 "status": result.status.value,
                 "process": existing_process + result.process,
-                "last_run_time": now,
                 "last_error": result.last_error if result.status == JobStatus.FAILED else None,
                 "updated_at": now,
-                "next_run_time": result.next_run_time,
-            }
-            await repo.update_job(job_id, updates)
-            logger.info(f"            Job {job_id} updated: status={result.status.value}")
+            })
+
+            # 2) last_run is atomic alpha+beta in the job's frozen tz
+            await repo.update_last_run(job_id, now, now_local, tz_name)
+
+            # 3) next_run is DETERMINISTIC from trigger_config — LLM does NOT
+            #    set scheduling times. If terminal, clear; otherwise recompute.
+            if result.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+                await repo.clear_next_run(job_id)
+            elif existing_job and existing_job.trigger_config:
+                next_tup = compute_next_run(
+                    existing_job.job_type,
+                    existing_job.trigger_config,
+                    last_run_utc=now,
+                )
+                if next_tup:
+                    await repo.update_next_run(job_id, next_tup)
+                else:
+                    await repo.clear_next_run(job_id)
+
+            logger.info(f"            Job {job_id} updated: status={result.status.value}, tz={tz_name}")
 
             if result.should_notify:
                 logger.info(f"            Should notify user: {result.notification_summary}")
@@ -306,12 +329,15 @@ async def _get_job_info_for_analysis(instance, get_job_by_instance_id) -> Dict[s
         trigger_info = {}
         if job.trigger_config:
             trigger_info = {
+                "timezone": job.trigger_config.timezone,
                 "end_condition": job.trigger_config.end_condition,
                 "interval_seconds": job.trigger_config.interval_seconds,
                 "max_iterations": job.trigger_config.max_iterations,
                 "cron": job.trigger_config.cron,
             }
 
+        # v2 timezone protocol: expose only beta fields (user-local + tz) to
+        # the analysis prompt. UTC alpha never goes near the LLM.
         return {
             "job_id": job.job_id,
             "job_type": job.job_type.value if job.job_type else None,
@@ -322,9 +348,11 @@ async def _get_job_info_for_analysis(instance, get_job_by_instance_id) -> Dict[s
             "iteration_count": job.iteration_count or 0,
             "process": job.process or [],
             "status": job.status.value if job.status else None,
-            "last_run_time": job.last_run_time.strftime("%Y-%m-%dT%H:%M:%SZ") if job.last_run_time else None,
-            "next_run_time": job.next_run_time.strftime("%Y-%m-%dT%H:%M:%SZ") if job.next_run_time else None,
-            "created_at": job.created_at.strftime("%Y-%m-%dT%H:%M:%SZ") if job.created_at else None,
+            "last_run_at_local": job.last_run_at_local,
+            "last_run_tz": job.last_run_tz,
+            "next_run_at_local": job.next_run_at_local,
+            "next_run_tz": job.next_run_tz,
+            "created_at": job.created_at.strftime("%Y-%m-%dT%H:%M:%S") if job.created_at else None,
         }
     except Exception as e:
         logger.error(f"Failed to get job info for analysis: {e}")

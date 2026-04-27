@@ -39,7 +39,7 @@ interface TimelineItem {
   timestamp: number;
   source: 'history' | 'session';  // Where this message came from (for dedup)
   messageType?: string;           // "activity" for background activity records
-  workingSource?: string;         // "chat" | "job" | "matrix"
+  workingSource?: string;         // "chat" | "job" | "lark"
   eventId?: string;               // Associated Event ID (for loading event_log on demand)
   thinking?: string;              // Reasoning content (from session messages)
   toolCalls?: import('@/types').AgentToolCall[];  // Tool calls (from session messages)
@@ -66,6 +66,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
   // Track whether we should auto-scroll (only for new messages, not load-more)
   const shouldAutoScrollRef = useRef(true);
+
+  // Bug 15: initial open (or agent switch) must land at the very bottom
+  // instantly, *after* MessageBubble subtrees (markdown, code blocks,
+  // tool-call UI) have had a frame to lay out. A smooth scrollIntoView
+  // from mount-time position can't catch a container that keeps growing
+  // as async content renders. We raise this flag whenever fresh history
+  // is loaded and consume it in a dedicated rAF-gated effect below.
+  const initialScrollPendingRef = useRef(false);
 
   const {
     messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls,
@@ -105,6 +113,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         setHistoryTotalCount(response.total_count);
         // Re-enable auto-scroll after history loads (onScroll may have disabled it during transition)
         shouldAutoScrollRef.current = true;
+        // Bug 15: request an instant jump-to-bottom once timeline has
+        // rendered. The dedicated rAF-gated effect picks this up.
+        initialScrollPendingRef.current = true;
       }
     } catch (error) {
       console.error('Failed to load chat history:', error);
@@ -195,8 +206,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             return [...olderPortion, ...response.messages];
           });
           setHistoryTotalCount(response.total_count);
-          // New messages arrived → auto-scroll to bottom
+          // New messages arrived → auto-scroll to bottom.
+          // Bug 15: route through initialScrollPendingRef so the
+          // instant-jump effect handles it (smooth scrollIntoView lost
+          // the race against async markdown layout).
           shouldAutoScrollRef.current = true;
+          initialScrollPendingRef.current = true;
         }
       } catch {
         // Silently ignore
@@ -232,16 +247,58 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     }
 
     // 2. Add current session messages (from chatStore)
-    // Dedup by content: if a session message's role+content already exists in history,
-    // it has been persisted to DB and the history version is authoritative — skip it.
-    // This avoids timestamp-based dedup which is unreliable (frontend Date.now() vs backend utc_now()).
-    const historyContentKeys = new Set(
-      items.slice(-30).map((item) => `${item.role}:${item.content}`)
-    );
+    //
+    // Dedup by (role + content) AND timestamp proximity: if a history entry
+    // with identical role+content exists within SAME_MESSAGE_WINDOW_MS of the
+    // session message's timestamp, they are the same message (already
+    // persisted) — drop the session copy.
+    //
+    // Bug 19: the match MUST consume the history timestamp it pairs with,
+    // otherwise a single history row can dedup multiple session messages of
+    // the same role+content. Real-world trigger: user retries the exact
+    // same question after a failed turn — session then has both the
+    // original user message (which legitimately matches history) AND the
+    // retry (which must NOT, because the history row belongs to the first
+    // one). Without consumption, the retry disappears from the UI.
+    //
+    // The window is a safety net for browser/server clock skew. After the
+    // backend fix that stamps user messages at turn-start (Event.created_at)
+    // instead of turn-end (utc_now() after agent finishes), the real diff
+    // between session ts and history ts is just RTT — milliseconds. The
+    // window only needs to cover clock drift now:
+    //   - NTP-synced machine: < 1s drift (any window works)
+    //   - Laptop off-network a while: 10s–1min
+    //   - Neglected / post-sleep laptop: can hit a few minutes
+    // 5 min covers realistic drift without being so loose that repeat-text
+    // edge cases feel weird. Note: short identical content sent twice
+    // (e.g. "好" / "go on") is NOT a false-positive source — the
+    // "consume matched history timestamp" logic pairs them one-to-one.
+    const SAME_MESSAGE_WINDOW_MS = 300_000;
+    const historyByKey = new Map<string, number[]>();
+    for (const item of items) {
+      const key = `${item.role}:${item.content}`;
+      const list = historyByKey.get(key);
+      if (list) {
+        list.push(item.timestamp);
+      } else {
+        historyByKey.set(key, [item.timestamp]);
+      }
+    }
 
     for (const msg of messages) {
       const key = `${msg.role}:${msg.content}`;
-      if (historyContentKeys.has(key)) continue;
+      const historyTimestamps = historyByKey.get(key);
+      const matchIdx = historyTimestamps
+        ? historyTimestamps.findIndex(
+            (ts) => Math.abs(msg.timestamp - ts) < SAME_MESSAGE_WINDOW_MS,
+          )
+        : -1;
+      if (matchIdx >= 0 && historyTimestamps) {
+        // Consume the matched history timestamp so the next session
+        // message of the same role+content doesn't pair against it.
+        historyTimestamps.splice(matchIdx, 1);
+        continue;
+      }
 
       items.push({
         id: msg.id,
@@ -254,18 +311,55 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       });
     }
 
-    // Sort by timestamp to ensure chronological order
-    items.sort((a, b) => a.timestamp - b.timestamp);
+    // Sort by timestamp, with id as tie-breaker so same-ms messages are still
+    // totally ordered (Array.sort is spec-stable but the input order can be
+    // wrong when history and session are interleaved).
+    items.sort((a, b) => {
+      if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
 
     return items;
   }, [historyMessages, messages]);
 
-  // ── Auto-scroll (only for new messages, not load-more) ──
+  // ── Bug 15: initial jump-to-bottom on open / agent switch ──
+  //
+  // After fresh history loads, wait one animation frame for MessageBubble
+  // subtrees (markdown, code highlighting, tool-call UI) to settle, then
+  // snap the chat container straight to the bottom. We operate on
+  // scrollContainerRef directly (not scrollIntoView on a sentinel) so
+  // we don't accidentally scroll ancestor containers. behavior is
+  // instant — smooth animation from the top can't catch a container
+  // that keeps growing as async content renders below the animation.
   useEffect(() => {
-    if (shouldAutoScrollRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [timeline, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
+    if (!initialScrollPendingRef.current) return;
+    if (timeline.length === 0) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      if (cancelled) return;
+      container.scrollTop = container.scrollHeight;
+      initialScrollPendingRef.current = false;
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [timeline]);
+
+  // ── Streaming auto-scroll ──
+  //
+  // During streaming, each delta adds a small amount of content; a smooth
+  // scrollIntoView per update gives the nice "following along" feel.
+  // Gated by isStreaming so it does NOT fire on initial open (that path
+  // is handled by the instant-jump effect above).
+  useEffect(() => {
+    if (!isStreaming) return;
+    if (!shouldAutoScrollRef.current) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [isStreaming, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
 
   // ── Auto-load more if content doesn't fill the container ──
   // When activity messages are small, the initial page may not cause overflow,
@@ -293,6 +387,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     const content = input.trim();
     setInput('');
     shouldAutoScrollRef.current = true;
+    // Bug 15: snap to bottom for the user's freshly-sent bubble before
+    // streaming starts. The streaming effect takes over from there.
+    initialScrollPendingRef.current = true;
 
     if (showBootstrapGreeting) {
       useChatStore.setState((state) => ({
@@ -352,35 +449,31 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
   // ── Render ──────────────────────────────────────────
   return (
-    <Card className="flex flex-col h-full overflow-hidden" glow={isStreaming}>
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-secondary)]/30">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className={cn(
-              'w-2.5 h-2.5 rounded-full transition-colors',
+    <Card className="flex flex-col h-full overflow-hidden">
+      {/* Header — archive document caption */}
+      <div className="px-5 flex items-center justify-between border-b border-[var(--rule)] min-h-[48px]">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span
+            className={cn(
+              'w-1.5 h-1.5 rounded-full allow-circle shrink-0 transition-colors',
               isStreaming
-                ? 'bg-[var(--accent-primary)] animate-pulse'
-                : agentId ? 'bg-[var(--color-success)]' : 'bg-[var(--text-tertiary)]'
-            )} />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold font-[family-name:var(--font-display)] text-[var(--text-primary)]">
-              Agent Interaction
-            </h3>
-            <span className="text-[10px] text-[var(--text-tertiary)] font-mono tracking-wider">
-              {agentId || 'No agent selected'}
-            </span>
-          </div>
+                ? 'bg-[var(--color-yellow-500)] animate-pulse'
+                : agentId ? 'bg-[var(--color-green-500)]' : 'bg-[var(--text-tertiary)]'
+            )}
+          />
+          <span className="text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em] text-[var(--text-primary)]">
+            Interaction
+          </span>
+          <span className="text-[11px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)] truncate">
+            · {agentId || 'no agent'}
+          </span>
         </div>
 
         {isStreaming && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--accent-glow)] border border-[var(--accent-primary)]/30">
-            <Sparkles className="w-3 h-3 text-[var(--accent-primary)] animate-pulse" />
-            <span className="text-[10px] font-medium text-[var(--accent-primary)] uppercase tracking-wider">
-              Processing
-            </span>
-          </div>
+          <span className="flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--color-yellow-500)]">
+            <Sparkles className="w-3 h-3 animate-pulse" />
+            Processing
+          </span>
         )}
       </div>
 
@@ -420,19 +513,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         {/* Empty state */}
         {showEmptyState && (
           <div className="h-full flex flex-col items-center justify-center text-center px-8">
-            <div className="relative mb-6">
-              <div className="w-20 h-20 rounded-2xl bg-[var(--bg-tertiary)] flex items-center justify-center border border-[var(--border-default)]">
-                <MessageSquare className="w-10 h-10 text-[var(--text-tertiary)]" />
-              </div>
-              <div className="absolute -inset-2 rounded-3xl bg-[var(--accent-primary)] opacity-5 blur-xl" />
-            </div>
-            <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">
+            <MessageSquare className="w-8 h-8 text-[var(--text-tertiary)] opacity-40 mb-4" />
+            <p className="text-[var(--text-primary)] text-sm mb-1.5">
               {!agentId ? 'Select an agent to start' : 'Start a conversation'}
             </p>
-            <p className="text-[var(--text-tertiary)] text-xs max-w-[240px]">
+            <p className="text-[var(--text-tertiary)] text-xs max-w-[260px] leading-relaxed">
               {!agentId
-                ? 'Choose an agent from the sidebar to begin your interaction'
-                : 'Send a message to interact with the AI agent'}
+                ? 'Choose an agent from the sidebar to begin your interaction.'
+                : 'Send a message to interact with the AI agent.'}
             </p>
           </div>
         )}
@@ -581,8 +669,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       </div>
 
       {/* Input area */}
-      <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/20">
-        <div className="flex gap-3 items-end">
+      <div className="px-5 py-4 border-t border-[var(--rule)]">
+        <div className="flex gap-2.5 items-stretch">
           <div className="flex-1 relative">
             <Textarea
               value={input}
@@ -591,11 +679,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               onCompositionStart={handleCompositionStart}
               onCompositionUpdate={handleCompositionUpdate}
               onCompositionEnd={handleCompositionEnd}
-              placeholder={!agentId ? 'Select an agent first...' : 'Type your message...'}
+              placeholder={!agentId ? 'Select an agent first…' : 'Type your message…'}
               disabled={isLoading || !agentId}
               className={cn(
-                'min-h-[52px] max-h-[160px] pr-4 resize-none',
-                'text-[var(--text-primary)]',
+                // Flatten to a fixed 52px row by default; multi-line growth
+                // is handled by rows auto-expanding rather than min/max.
+                'h-[52px] min-h-[52px] max-h-[160px] py-[15px] leading-[22px] resize-none',
                 isLoading && 'opacity-60'
               )}
               rows={1}
@@ -603,10 +692,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
           {isStreaming ? (
             <Button
-              variant="accent"
+              variant="danger"
               size="icon"
               onClick={() => agentId && stop(agentId)}
-              className="shrink-0 h-[52px] w-[52px] rounded-xl bg-[var(--color-error)] hover:bg-[var(--color-error)]/80 border-[var(--color-error)]"
+              className="shrink-0 h-[52px] w-[52px]"
               title="Stop generation"
             >
               <Square className="w-4 h-4 fill-current" />
@@ -617,14 +706,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               size="icon"
               onClick={handleSubmit}
               disabled={!input.trim() || isLoading || !agentId}
-              className="shrink-0 h-[52px] w-[52px] rounded-xl"
+              className="shrink-0 h-[52px] w-[52px]"
+              title="Send"
             >
-              <Send className="w-5 h-5" />
+              <Send className="w-4 h-4" />
             </Button>
           )}
         </div>
-        <p className="mt-2 text-[10px] text-[var(--text-tertiary)] text-center">
-          Press <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] font-mono text-[9px]">Enter</kbd> to send, <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] font-mono text-[9px]">Shift + Enter</kbd> for new line
+        <p className="mt-2 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-center">
+          <kbd className="font-[family-name:var(--font-mono)]">Enter</kbd> to send
+          <span className="opacity-40 mx-2">·</span>
+          <kbd className="font-[family-name:var(--font-mono)]">Shift + Enter</kbd> new line
         </p>
       </div>
     </Card>

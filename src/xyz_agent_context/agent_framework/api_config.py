@@ -46,26 +46,65 @@ from xyz_agent_context.schema.provider_schema import (
 
 @dataclass(frozen=True)
 class ClaudeConfig:
-    """Claude API configuration (passed to Claude Code CLI subprocess)"""
+    """Claude API configuration (passed to Claude Code CLI subprocess)."""
     api_key: str = ""
     base_url: str = ""
     model: str = ""          # Empty = let Claude Code CLI use its default model
     auth_type: str = "api_key"  # "api_key" | "bearer_token" | "oauth"
+    # Whether the provider endpoint runs Anthropic's server-side tools
+    # (web_search_20250305, text_editor, computer_use, ...). Only the
+    # official Anthropic API and transparent forward proxies do; most
+    # aggregators (NetMind, OpenRouter, Yunwu, ...) do not. The tool
+    # policy hook reads this to decide whether to permit WebSearch.
+    supports_anthropic_server_tools: bool = False
 
     def to_cli_env(self) -> dict[str, str]:
-        """Build env vars dict for Claude Code CLI subprocess.
+        """Build env vars dict for the Claude Code CLI subprocess.
 
-        Only includes non-empty values to avoid overriding CLI defaults.
-        Uses ANTHROPIC_AUTH_TOKEN for bearer_token auth, ANTHROPIC_API_KEY otherwise.
+        Returns a **complete** dict for every key we care about — including
+        explicit blank strings where we want to suppress an inherited value
+        from the parent process's ``os.environ``. This is critical for
+        multi-tenant concurrency: the SDK merges ``{**os.environ, **options.env}``
+        at subprocess spawn, so any key we omit is inherited. Leaving model
+        overrides (for example) unset could leak tenant A's model into
+        tenant B's agent run when both are active on the same host.
+
+        Each invocation of this method is associated with a ``ClaudeConfig``
+        captured from the current asyncio task's ContextVar, so there is no
+        cross-task mutation of shared state.
         """
-        env: dict[str, str] = {}
+        env: dict[str, str] = {
+            # Auth — exactly one of these should be populated; we blank the
+            # other so a stray env var from the parent process can't leak in.
+            "ANTHROPIC_API_KEY": "",
+            "ANTHROPIC_AUTH_TOKEN": "",
+            "ANTHROPIC_BASE_URL": self.base_url or "",
+        }
         if self.api_key:
             if self.auth_type == "bearer_token":
                 env["ANTHROPIC_AUTH_TOKEN"] = self.api_key
             else:
                 env["ANTHROPIC_API_KEY"] = self.api_key
-        if self.base_url:
-            env["ANTHROPIC_BASE_URL"] = self.base_url
+
+        # Redirect Claude Code's *internal* LLM calls (WebFetch summarizer,
+        # subagent task dispatch, alias-to-model resolution) to the same
+        # provider as the main loop. Without these, those calls fall back
+        # to official Anthropic model names, hit the provider's endpoint
+        # with an unknown model, and either fail or drift off-provider.
+        # Docs: https://code.claude.com/docs/en/model-config
+        if self.model:
+            env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = self.model
+            env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = self.model
+            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = self.model
+            env["CLAUDE_CODE_SUBAGENT_MODEL"] = self.model
+        else:
+            # No explicit model → blank these so a stale inherited value
+            # from os.environ can't steer CLI behavior for this run.
+            env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = ""
+            env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = ""
+            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = ""
+            env["CLAUDE_CODE_SUBAGENT_MODEL"] = ""
+
         return env
 
 
@@ -127,6 +166,9 @@ def _load_from_llm_config() -> Optional[tuple[ClaudeConfig, OpenAIConfig, Embedd
             base_url=agent_provider.base_url,
             model=agent_slot.model,
             auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
+            supports_anthropic_server_tools=bool(
+                getattr(agent_provider, "supports_anthropic_server_tools", False)
+            ),
         )
     else:
         claude = ClaudeConfig()
@@ -171,10 +213,17 @@ def _load_from_settings() -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """
     from xyz_agent_context.settings import settings
 
+    # Heuristic for the .env fallback path: server tools are supported iff
+    # the base URL is empty (defaults to official Anthropic) or explicitly
+    # points at api.anthropic.com. Any third-party host is assumed unable
+    # to serve web_search_20250305 / text_editor / etc.
+    _base = (settings.anthropic_base_url or "").lower()
+    _is_official = not _base or "api.anthropic.com" in _base
     claude = ClaudeConfig(
         api_key=settings.anthropic_api_key,
         base_url=settings.anthropic_base_url,
         model=settings.anthropic_model,
+        supports_anthropic_server_tools=_is_official,
     )
 
     openai_cfg = OpenAIConfig(
@@ -349,6 +398,49 @@ def set_user_config(claude: ClaudeConfig, openai: OpenAIConfig, embedding: Embed
 
 
 # =============================================================================
+# Quota-routing ContextVars (system-default free-tier feature)
+# =============================================================================
+#
+# Two auxiliary ContextVars set by auth_middleware and read by cost_tracker:
+#
+# - provider_source: "user" | "system" | None
+#     Tagged by ProviderResolver to indicate which branch produced the
+#     active user_config. cost_tracker reads this to decide whether to
+#     deduct the system-default quota after an LLM call.
+#
+# - current_user_id:
+#     Tagged by auth_middleware once the JWT is parsed. cost_tracker uses
+#     it to attribute token usage without having to thread user_id through
+#     every layer of the LLM call stack.
+#
+# Both default to None so existing code paths (and local mode) are
+# unaffected — cost_tracker's quota hook is a no-op when either is unset.
+
+_provider_source_ctx: ContextVar[Optional[str]] = ContextVar(
+    "provider_source", default=None
+)
+_current_user_id_ctx: ContextVar[Optional[str]] = ContextVar(
+    "current_user_id", default=None
+)
+
+
+def set_provider_source(src: Optional[str]) -> None:
+    _provider_source_ctx.set(src)
+
+
+def get_provider_source() -> Optional[str]:
+    return _provider_source_ctx.get()
+
+
+def set_current_user_id(uid: Optional[str]) -> None:
+    _current_user_id_ctx.set(uid)
+
+
+def get_current_user_id() -> Optional[str]:
+    return _current_user_id_ctx.get()
+
+
+# =============================================================================
 # Per-user config loading (for cloud multi-tenant mode)
 # =============================================================================
 
@@ -380,13 +472,37 @@ def set_user_config(claude: ClaudeConfig, openai: OpenAIConfig, embedding: Embed
 # get_user_llm_configs, so this is cleanup not a bug fix).
 
 
-class LLMConfigNotConfigured(RuntimeError):
-    """Raised when a user's LLM config is missing or incomplete.
+class LLMResolverError(RuntimeError):
+    """Base class for failures when resolving LLM provider config for a user.
 
-    No silent fallback to global defaults — users MUST configure their
-    own providers via the Settings page. This prevents accidentally
-    billing one user's agent runs to another user (or to the company's
-    default keys).
+    Two concrete subclasses — callers can handle both together via
+    ``except LLMResolverError`` when they want "any resolution failure",
+    or differentiate via ``except LLMConfigNotConfigured``/
+    ``except SystemDefaultUnavailable`` when the UX differs.
+    """
+
+
+class LLMConfigNotConfigured(LLMResolverError):
+    """Raised when a user has opted out of the system-default free tier
+    and their own provider/slot configuration is missing or broken.
+
+    No silent fallback to the system free tier here — the user made an
+    explicit choice in Settings, and we honour it. The error message
+    tells them exactly what to fix (add provider, assign slot) or how
+    to switch back to the free tier.
+    """
+
+
+class SystemDefaultUnavailable(LLMResolverError):
+    """Raised when a user has opted in to the system-default free tier
+    but it can't serve the request — either the operator has disabled
+    it (``SYSTEM_DEFAULT_LLM_ENABLED!=true``) or the user's quota is
+    exhausted.
+
+    No silent fallback to the user's own provider here either — the
+    user's opt-in is a deliberate preference and we don't override it.
+    The error message directs them to either turn the toggle off and
+    configure their own provider, or to ask the operator for more quota.
     """
 
 
@@ -425,16 +541,108 @@ async def get_agent_owner_llm_configs(
 
 async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """
-    Load LLM configs for a specific user from the database.
+    Resolve the LLM config stack for a specific user.
 
-    Reads from user_providers + user_slots tables. Requires all three
-    slots (agent, embedding, helper_llm) to be configured. If ANY slot
-    is missing or its provider is broken, raises LLMConfigNotConfigured
-    with a clear message — no silent fallback to global defaults.
+    Decision tree (deliberately simple, no silent fallback):
+
+      1. ``prefer_system_override = True``  → strictly use the system
+         free tier. If disabled or quota exhausted →
+         ``SystemDefaultUnavailable`` (no fallback to the user's own
+         provider).
+      2. ``prefer_system_override = False`` (or no quota row) → strictly
+         use the user's own providers. If misconfigured →
+         ``LLMConfigNotConfigured`` (no fallback to the free tier).
+
+    The user's Settings toggle is the single source of truth. When they
+    opted in we honour it even if the free tier is broken; when they
+    opted out we honour it even if they forgot to configure their own
+    provider — both error messages direct them to the right place.
+
+    The system branch tags ``provider_source="system"`` and
+    ``current_user_id=user_id`` on the current asyncio task's ContextVars
+    so ``cost_tracker.record_cost`` deducts the quota after the LLM call
+    completes.
+
+    QuotaService is lazily bootstrapped via ``_ensure_quota_service``,
+    so every entry point (backend.main, job_trigger, bus_trigger,
+    run_lark_trigger, standalone MCP runner) works out-of-the-box
+    without each having to call ``bootstrap_quota_subsystem``.
 
     Raises:
-        LLMConfigNotConfigured: if any slot is missing or invalid.
+        SystemDefaultUnavailable: user opted in but free tier unusable.
+        LLMConfigNotConfigured: user opted out but own config missing.
     """
+    quota_service = await _ensure_quota_service()
+    quota = await quota_service.get(user_id)
+
+    if quota is not None and quota.prefer_system_override:
+        return await _use_system_default_strict(user_id, quota_service)
+
+    return await _get_user_llm_configs_strict(user_id)
+
+
+async def _ensure_quota_service():
+    """Return ``QuotaService.default()``, bootstrapping it on first use.
+
+    Every process that calls ``AgentRuntime.run()`` needs a live
+    QuotaService to resolve the free-tier branch. Instead of requiring
+    each entry point to call ``bootstrap_quota_subsystem`` at startup
+    (one was missed: ``run_lark_trigger``), we make the first access
+    self-bootstrap using the shared ``get_db_client()`` factory. The
+    operation is idempotent.
+    """
+    from xyz_agent_context.agent_framework.quota_service import (
+        QuotaService,
+        bootstrap_quota_subsystem,
+    )
+    try:
+        return QuotaService.default()
+    except RuntimeError:
+        from xyz_agent_context.utils.db_factory import get_db_client
+        db = await get_db_client()
+        return await bootstrap_quota_subsystem(db)
+
+
+async def _use_system_default_strict(
+    user_id: str,
+    quota_service,
+) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+    """Strict system-default branch. Raises SystemDefaultUnavailable
+    with an actionable message if the free tier can't serve the request."""
+    from xyz_agent_context.agent_framework.system_provider_service import (
+        SystemProviderService,
+    )
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        _llm_config_to_dataclasses,
+    )
+
+    sys_provider = SystemProviderService.instance()
+    if not sys_provider.is_enabled():
+        raise SystemDefaultUnavailable(
+            f"User {user_id!r} has opted in to the system free tier, but "
+            f"the administrator has disabled it. Either turn off 'Use free "
+            f"quota' in Settings and configure your own provider, or ask "
+            f"the administrator to enable SYSTEM_DEFAULT_LLM_ENABLED."
+        )
+
+    if not await quota_service.check(user_id):
+        raise SystemDefaultUnavailable(
+            f"User {user_id!r}: system free-tier quota exhausted. Either "
+            f"turn off 'Use free quota' in Settings and configure your "
+            f"own provider, or ask the administrator to grant more tokens."
+        )
+
+    # Budget available — tag ContextVars so cost_tracker's deduct hook
+    # attributes the cost correctly when the LLM call completes.
+    set_provider_source("system")
+    set_current_user_id(user_id)
+    return _llm_config_to_dataclasses(sys_provider.get_config())
+
+
+async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+    """Strict version: raises LLMConfigNotConfigured on any missing
+    slot / broken provider. The public `get_user_llm_configs` wraps
+    this with a system-default fallback."""
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
 
@@ -461,6 +669,9 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
         base_url=agent_provider.base_url,
         model=agent_slot.model,
         auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
+        supports_anthropic_server_tools=bool(
+            getattr(agent_provider, "supports_anthropic_server_tools", False)
+        ),
     )
 
     # ─── Helper LLM slot ─────────────────────────────────────────────
@@ -504,3 +715,21 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
     )
 
     return claude, openai_cfg, embedding
+
+
+async def setup_mcp_llm_context(agent_id: str) -> None:
+    """
+    Load the agent owner's LLM config from the database and set it on
+    the current asyncio task's ContextVar.
+
+    Call this at the top of every MCP tool handler that makes embedding
+    or LLM calls. It mirrors what AgentRuntime.run() does in step 0,
+    ensuring per-user API keys are used even when the tool is invoked
+    from a separate MCP process rather than inside an agent turn.
+
+    Raises:
+        LLMConfigNotConfigured: if the owner has not configured their
+            LLM providers. The caller should surface this as a tool error.
+    """
+    claude, openai_cfg, embedding = await get_agent_owner_llm_configs(agent_id)
+    set_user_config(claude, openai_cfg, embedding)

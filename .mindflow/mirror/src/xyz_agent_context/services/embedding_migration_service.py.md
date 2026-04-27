@@ -1,41 +1,92 @@
 ---
 code_file: src/xyz_agent_context/services/embedding_migration_service.py
-last_verified: 2026-04-10
+last_verified: 2026-04-20
 stub: false
 ---
 
-# embedding_migration_service.py — Embedding 模型切换后的向量重建工具
+# embedding_migration_service.py — Per-user embedding 向量重建工具
 
 ## 为什么存在
 
-系统里有四类实体（Narrative、Event、Job、SocialEntity）各自存储了 embedding 向量用于语义检索。当用户在设置里切换 embedding 模型（比如从 `text-embedding-3-small` 换到 `text-embedding-3-large`），历史向量和新模型的向量处于不同的向量空间，混用会导致语义检索完全失效（召回结果完全随机）。`EmbeddingMigrationService` 扫描所有实体、跳过已有新模型向量的记录、为缺失的记录生成并存储新向量，支持进度查询和断点续跑。
+四类实体（Narrative / Event / Job / SocialEntity）各自在 `embeddings_store`
+里按 `(entity_type, entity_id, model)` 维度保存向量。用户切换 embedding
+模型时，历史向量和新模型向量处于不同向量空间，混用会让语义检索失效。
+
+多租户云端场景里，每个用户的 provider 配置独立，切换时机也各自错开：本服务必须按用户
+分片，扫描并只为该用户的实体生成缺失向量。桌面单用户场景同样走这条路径，只是它那
+个用户名通常固定。
 
 ## 上下游关系
 
-**被谁用**：`backend/routes/` 里有专门的 API 端点（`/api/embedding/status` 和 `/api/embedding/rebuild`），前端在设置页面切换模型后会提示用户触发迁移，也可以查看进度。
+**被谁用**：`backend/routes/providers.py` 的两个端点
+`GET /api/providers/embeddings/status?user_id=...`、
+`POST /api/providers/embeddings/rebuild?user_id=...`；前端
+`stores/embeddingStore.ts` 根据 `useConfigStore.userId` 传当前登录用户。
 
-**调用谁**：`repository/embedding_store_repository.EmbeddingStoreRepository` 做向量的批量写入和存在性检查；`agent_framework/llm_api/embedding.get_embedding()` 生成向量；`agent_framework/api_config.embedding_config` 读取当前配置的模型名；直接用原始 SQL 查询四张业务表（`narratives`、`events`、`instance_jobs`、`instance_social_entities`）。
+**调用谁**：`repository/embedding_store_repository.EmbeddingStoreRepository`
+做向量的批量写入 / 存在性检查；`agent_framework/llm_api/embedding.get_embedding()`
+生成向量；`agent_framework/api_config.get_user_llm_configs(user_id)` 解析当前
+用户的 embedding 模型；直接用原始 SQL 查询四张业务表（按 user_id 过滤，narratives
+通过 JOIN `agents.created_by`、entities 通过 JOIN `module_instances.user_id`）。
 
 ## 设计决策
 
-模块级全局单例 `_progress = MigrationProgress()` 记录当前迁移状态，API 的 `get_status()` 直接读这个单例。这意味着同一个进程里只能跑一次迁移，并发调用 `rebuild_all()` 会直接返回（通过 `is_running` 标志检查）。
+**per-user 进度隔离**：`_progress_by_user: Dict[str, MigrationProgress]`
+替代早期的全局单例，`get_migration_progress(user_id)` 按用户隔离。用户 A 的
+rebuild 正在跑时不会影响用户 B 的状态查询。测试辅助函数
+`_reset_progress_for_tests()` 清空注册表。
 
-每类实体的 `_source_text_builder` 函数需要与原始 embedding 生成逻辑完全对齐——这是设计中最脆弱的部分。每个 builder 函数的 docstring 里有交叉引用注释指向原始生成路径，如果那边逻辑改了，这边必须同步修改，否则重建出的向量和历史向量的语义会不一致（但不会崩溃，只会悄悄降低检索质量）。
+**per-user 模型解析**：`_resolve_user_embedding_model(user_id)` 通过
+`get_user_llm_configs(user_id)` 拿到该用户 embedding slot 指定的模型；用户在
+`user_providers` 里还没配 → fallback 到全局 `embedding_config.model`
+（单用户桌面模式继续 work）。
 
-`get_status()` 和 `_rebuild_*()` 里的 SQL WHERE 条件故意保持一致（通过共享的 `_EVENT_WHERE` 等常量），防止"总数"和"实际处理数"不匹配导致进度永远停在"还差 1 个"。
+**SQL 都带 user filter**：`_narrative_count_sql()` JOIN agents on
+`agents.created_by = :user_id`；`_event_count_sql()` / `_job_count_sql()` 直接
+WHERE `user_id = :user_id`；`_entity_count_sql()` JOIN module_instances on
+`module_instances.user_id = :user_id`。共享的 `_EVENT_TEXT_FILTER` /
+`_JOB_TEXT_FILTER` / `_ENTITY_TEXT_FILTER` WHERE 片段同时用于 count 和 rebuild
+查询，确保 "total" 和实际处理数一致。
 
-数据清理（`_cleanup_before_rebuild()`）在迁移开始前和 `get_status()` 前都会运行，清除维度为 0 的哨兵记录和没有任何文字内容的空壳 Entity。
+**per-user 数据清理**：`_cleanup_before_rebuild(model)` 仅删属于当前 user 的
+哨兵行（`dimensions=0`）+ 空壳 entity（通过子查询，兼容 SQLite 和 MySQL，
+不用 MySQL-only 的 `DELETE alias FROM JOIN` 语法）。
+
+每类实体的 `_*_source_text` 构造函数需要和原始 embedding 生成逻辑保持一致——每个
+builder 的 docstring 里有交叉引用。
 
 ## Gotcha / 边界情况
 
-`legacy_mode` 判断：如果系统没有配置 `llm_config.json`（即没有使用独立的 embedding 存储表），`use_embedding_store()` 返回 False，`get_status()` 会直接返回 `all_done: True` 且 `legacy_mode: True`，不做任何实际检查。这是为了兼容只用 Narrative 表原生向量列的旧部署模式。
+**`_should_use_store()` 双 fast-path**：
+- 同步 `_resolve_use_embedding_store(user_id)` 看 `llm_config.json` 文件是否存在
+  （桌面场景）
+- 异步 DB 查询 `user_providers` 是否有该 user 的行（云端场景）
+- 两者都 False 才回退 legacy_mode（极罕见：用户没配过任何 provider）
 
-每批（batch_size=20）处理完后有 `asyncio.sleep(0.1)` 的小延迟，目的是避免对 embedding API 的 rate limiting。如果 API 配额宽裕（比如 Azure OpenAI 或本地模型），可以减小这个值加快迁移速度。
+**`use_embedding_store()` 现在无条件 True**（见 `embedding_store_bridge.py`）：
+这是 Bug 11 真相之一——原先在云端返回 False，让所有读走 legacy 列，多租户多模型
+数据污染。Gate 翻转后 migration service 的 legacy fallback 只在新用户"零配置"
+时生效。
 
-`_rebuild_narratives()` 用了 `JSON_UNQUOTE(JSON_EXTRACT(...))` 的 MySQL 语法来从 JSON 列里提取 `narrative_info.name`——这在 SQLite 里语法不同。如果在 SQLite 模式运行迁移，这个函数会报错。需要检查当前用的是哪个后端。
+**每批（batch_size=20）处理完 asyncio.sleep(0.1)**：防 embedding API rate
+limit。API 配额宽裕时可减小加快速度。
+
+**JSON 提取语法**：`_rebuild_narratives` 用 `JSON_UNQUOTE(JSON_EXTRACT(...))`
+读 `narrative_info` 的 `name` / `current_summary`。数据库层 `_mysql_to_sqlite_sql`
+会把它翻译为 SQLite 的 `json_extract`，所以两种后端都 work。
+
+**rebuild 的进度是进程内**：重启服务后进度归零，但服务本身**支持断点续跑**——每次
+`rebuild_all` 都会跳过已有当前 model 向量的实体。UI 进度条从 0 开始只是视觉显示。
 
 ## 新人易踩的坑
 
-迁移进度是进程内状态，重启服务后进度归零，但迁移实际上支持断点续跑（跳过已有向量的记录），重新触发 `rebuild_all()` 只会处理剩余的记录，不会重复处理。进度显示从 0 开始是 UI 层的缺陷，实际工作量是正确的。
+`EmbeddingMigrationService(db, user_id="")` 直接 raise `ValueError`；构造时必须
+传合法 user_id。API 端点 `?user_id=` 为空会 400。
 
-`EmbeddingMigrationService` 本身不是后台常驻进程，每次请求都是一次性的扫描任务。触发后它会在同一个 HTTP 请求里异步跑完（或在超时前尽量跑），不需要 Celery 或独立工作线程——但这意味着如果数据量很大（几万条记录），HTTP 请求可能超时，需要在调用时设置合理的客户端超时。
+`rebuild_all()` 使用 `BackgroundTasks` 在后台跑（见 `providers.py`）。POST 返回
+"started" 后立刻 200，客户端通过轮询 `status` 端点观察进度。不要在前端 await 长
+耗时 rebuild。
+
+`MigrationProgress` 的 `completed_count` / `total_count` 是所有 entity type 的
+汇总；若单类 entity 在 `rebuild_*` 里抛异常，该类的 `failed` 计数会保留，其他类
+照常跑（每类独立 try 在 `_process_rows` 内）。

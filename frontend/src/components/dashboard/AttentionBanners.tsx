@@ -16,14 +16,14 @@ import { useExpanded, bannerKey } from './expandState';
 
 const LEVEL_STYLE: Record<AttentionBanner['level'], { wrap: string; icon: string; accent: string }> = {
   error: {
-    wrap: 'border-red-500/40 bg-red-500/10',
+    wrap: 'border-[var(--color-red-500)] bg-[var(--color-red-500)]/10',
     icon: '🔴',
-    accent: 'text-red-600 dark:text-red-400',
+    accent: 'text-[var(--color-red-500)]',
   },
   warning: {
-    wrap: 'border-amber-500/40 bg-amber-500/10',
+    wrap: 'border-[var(--color-yellow-500)] bg-[var(--color-yellow-500)]/10',
     icon: '🟠',
-    accent: 'text-amber-600 dark:text-amber-400',
+    accent: 'text-[var(--color-yellow-500)]',
   },
   info: {
     wrap: 'border-sky-500/40 bg-sky-500/10',

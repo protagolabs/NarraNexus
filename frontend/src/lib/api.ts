@@ -35,6 +35,8 @@ import type {
   CreateJobComplexRequest,
   CreateJobComplexResponse,
   LoginResponse,
+  RegisterResponse,
+  QuotaMeResponse,
   AgentListResponse,
   CreateUserResponse,
   UpdateTimezoneResponse,
@@ -46,6 +48,11 @@ import type {
   EmbeddingStatusResponse,
   EmbeddingRebuildResponse,
   DashboardResponse,
+  ApiResponse,
+  LarkCredentialResponse,
+  LarkBindResponse,
+  LarkAuthLoginResponse,
+  LarkAuthCompleteResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -85,6 +92,23 @@ class ApiClient {
     });
 
     if (!response.ok) {
+      // System free-tier quota exhausted: dispatch a global event so
+      // any listener (App shell, dedicated toast, etc.) can surface it.
+      // Using CustomEvent keeps api.ts UI-framework-agnostic.
+      if (response.status === 402) {
+        try {
+          const body = await response.clone().json();
+          if (body?.error_code === 'QUOTA_EXCEEDED_NO_USER_PROVIDER') {
+            window.dispatchEvent(
+              new CustomEvent('narranexus:quota-exceeded', {
+                detail: body,
+              })
+            );
+          }
+        } catch {
+          // ignore parse errors; still throw below
+        }
+      }
       throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
 
@@ -124,9 +148,9 @@ class ApiClient {
     return this.request<AgentInboxListResponse>(url);
   }
 
-  async markAgentMessageRead(messageId: string): Promise<MarkReadResponse> {
+  async markAgentMessageRead(messageId: string, agentId: string): Promise<MarkReadResponse> {
     return this.request<MarkReadResponse>(
-      `/api/agent-inbox/${encodeURIComponent(messageId)}/read`,
+      `/api/agent-inbox/${encodeURIComponent(messageId)}/read?agent_id=${encodeURIComponent(agentId)}`,
       { method: 'PUT' }
     );
   }
@@ -212,8 +236,8 @@ class ApiClient {
     });
   }
 
-  async register(userId: string, password: string, inviteCode: string, displayName?: string): Promise<LoginResponse> {
-    return this.request<LoginResponse>('/api/auth/register', {
+  async register(userId: string, password: string, inviteCode: string, displayName?: string): Promise<RegisterResponse> {
+    return this.request<RegisterResponse>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
         user_id: userId,
@@ -587,15 +611,18 @@ class ApiClient {
       }
     );
   }
-  // Embedding Status API
-  async getEmbeddingStatus(): Promise<EmbeddingStatusResponse> {
-    return this.request<EmbeddingStatusResponse>('/api/providers/embeddings/status');
+  // Embedding Status API (per-user)
+  async getEmbeddingStatus(userId: string): Promise<EmbeddingStatusResponse> {
+    const qs = `?user_id=${encodeURIComponent(userId)}`;
+    return this.request<EmbeddingStatusResponse>(`/api/providers/embeddings/status${qs}`);
   }
 
-  async rebuildEmbeddings(): Promise<EmbeddingRebuildResponse> {
-    return this.request<EmbeddingRebuildResponse>('/api/providers/embeddings/rebuild', {
-      method: 'POST',
-    });
+  async rebuildEmbeddings(userId: string): Promise<EmbeddingRebuildResponse> {
+    const qs = `?user_id=${encodeURIComponent(userId)}`;
+    return this.request<EmbeddingRebuildResponse>(
+      `/api/providers/embeddings/rebuild${qs}`,
+      { method: 'POST' },
+    );
   }
 
   /**
@@ -636,6 +663,88 @@ class ApiClient {
   async resumeJob(jobId: string): Promise<{ success: boolean; job_id: string; new_status: string }> {
     return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST' });
   }
+
+  // Lark / Feishu Integration API
+  async getLarkCredential(agentId: string): Promise<LarkCredentialResponse> {
+    return this.request<LarkCredentialResponse>(`/api/lark/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindLarkBot(agentId: string, appId: string, appSecret: string, brand: string, ownerEmail: string = ''): Promise<LarkBindResponse> {
+    return this.request<LarkBindResponse>('/api/lark/bind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, app_id: appId, app_secret: appSecret, brand, owner_email: ownerEmail }),
+    });
+  }
+
+  async larkAuthLogin(agentId: string): Promise<LarkAuthLoginResponse> {
+    return this.request<LarkAuthLoginResponse>('/api/lark/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async larkAuthComplete(agentId: string, deviceCode: string): Promise<LarkAuthCompleteResponse> {
+    return this.request<LarkAuthCompleteResponse>('/api/lark/auth/complete', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, device_code: deviceCode }),
+    });
+  }
+
+  async getLarkAuthStatus(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>(`/api/lark/auth/status?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async testLarkConnection(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/lark/test', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async unbindLarkBot(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/lark/unbind', {
+      method: 'DELETE',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // System-default free-tier quota
+  async getMyQuota(): Promise<QuotaMeResponse> {
+    return this.request<QuotaMeResponse>('/api/quota/me');
+  }
+
+  async setQuotaPreference(preferSystemOverride: boolean): Promise<QuotaMeResponse> {
+    return this.request<QuotaMeResponse>('/api/quota/me/preference', {
+      method: 'PATCH',
+      body: JSON.stringify({ prefer_system_override: preferSystemOverride }),
+    });
+  }
 }
 
-export const api = new ApiClient();
+// ─────────────────────────────────────────────────────────────────────────
+// Mock layer — when enabled (?mock=1 or localStorage), calls fall through
+// to hand-authored fixtures instead of the backend. The real ApiClient
+// instance is preserved and used for any method the mock doesn't override
+// so the UI never 404s in mock mode. See src/lib/mock/index.ts.
+// ─────────────────────────────────────────────────────────────────────────
+import { MOCK_ENABLED, mockApi } from './mock';
+
+const _realApi = new ApiClient();
+
+export const api: ApiClient = MOCK_ENABLED
+  ? (() => {
+      // eslint-disable-next-line no-console
+      console.info(
+        '%c[MOCK]',
+        'background:#111214;color:#fff;padding:2px 6px;border-radius:0;',
+        'API mock layer active. Toggle off with ?mock=0 or the dev banner.'
+      );
+      return new Proxy(_realApi, {
+        get(target, prop, receiver) {
+          const mocked = (mockApi as unknown as Record<string | symbol, unknown>)[prop];
+          if (typeof mocked === 'function') return mocked.bind(mockApi);
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+    })()
+  : _realApi;

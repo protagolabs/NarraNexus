@@ -160,3 +160,32 @@ async def record_cost(
     except Exception as e:
         # Cost tracking failure should never block the main flow
         logger.error(f"Failed to record cost: {e}")
+
+    # --- System-default quota deduct hook ---
+    # Fires only when the request was routed through the system free-tier
+    # branch (ProviderResolver tagged provider_source="system") AND
+    # auth_middleware tagged current_user_id. Any failure here is logged
+    # and swallowed — cost_tracker is observability, not flow control.
+    try:
+        from xyz_agent_context.agent_framework.api_config import (
+            get_current_user_id,
+            get_provider_source,
+        )
+        if get_provider_source() == "system":
+            uid = get_current_user_id()
+            if uid:
+                from xyz_agent_context.agent_framework.quota_service import (
+                    QuotaService,
+                )
+                try:
+                    svc = QuotaService.default()
+                except RuntimeError:
+                    svc = None
+                if svc is not None:
+                    try:
+                        await svc.deduct(uid, input_tokens, output_tokens)
+                    except Exception as e:
+                        logger.error(f"quota deduct hook failed for {uid}: {e}")
+    except Exception:
+        # Defensive: imports/ContextVar reads must never break cost_tracker.
+        pass

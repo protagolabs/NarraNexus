@@ -71,6 +71,11 @@ def _register(table: TableDef) -> None:
     TABLES[table.name] = table
 
 
+def get_registered_tables() -> List[TableDef]:
+    """Return all registered table definitions."""
+    return list(TABLES.values())
+
+
 # ============================================================================
 # Table Definitions
 # ============================================================================
@@ -369,6 +374,10 @@ _register(
             Column("last_error", "TEXT", "TEXT"),
             Column("notification_method", "TEXT", "VARCHAR(32)", default="'inbox'"),
             Column("next_run_time", "TEXT", "DATETIME(6)"),
+            Column("next_run_at_local", "TEXT", "VARCHAR(32)"),
+            Column("next_run_tz", "TEXT", "VARCHAR(64)"),
+            Column("last_run_at_local", "TEXT", "VARCHAR(32)"),
+            Column("last_run_tz", "TEXT", "VARCHAR(64)"),
             Column("last_run_time", "TEXT", "DATETIME(6)"),
             Column("started_at", "TEXT", "DATETIME(6)"),
             Column("embedding", "TEXT", "MEDIUMTEXT"),
@@ -660,6 +669,13 @@ _register(
             Column("models", "TEXT", "TEXT"),
             Column("linked_group", "TEXT", "VARCHAR(64)"),
             Column("is_active", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            # Capability flag — does this provider's endpoint run Anthropic's
+            # server-side tools (web_search_20250305, text_editor, ...)?
+            # False for aggregators like NetMind/OpenRouter (they hang on
+            # WebSearch); True for official Anthropic and transparent
+            # forward proxies. auto_migrate() will add this column to
+            # pre-existing tables with the default value.
+            Column("supports_anthropic_server_tools", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -701,6 +717,133 @@ _register(
         ],
         primary_key=["message_id", "agent_id"],
         indexes=[],
+    )
+)
+
+
+# --- 27. lark_credentials ---------------------------------------------------
+_register(
+    TableDef(
+        name="lark_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("app_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("app_secret_ref", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("app_secret_encrypted", "TEXT", "VARCHAR(512)"),
+            Column("brand", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("profile_name", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("workspace_path", "TEXT", "VARCHAR(512)"),
+            Column("bot_name", "TEXT", "VARCHAR(255)"),
+            Column("owner_open_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("auth_status", "TEXT", "VARCHAR(32)", nullable=False, default="'not_logged_in'"),
+            Column("is_active", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("permission_state", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_lark_cred_agent_id", ["agent_id"], unique=True),
+            Index("idx_lark_cred_profile", ["profile_name"], unique=True),
+        ],
+    )
+)
+
+
+# 28. user_quotas (system-default free-tier token quota per user)
+_register(
+    TableDef(
+        name="user_quotas",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("initial_input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False),
+            Column("initial_output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False),
+            Column("used_input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("used_output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("granted_input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("granted_output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("status", "TEXT", "VARCHAR(32)", nullable=False, default="'active'"),
+            # User-choice toggle: when 1, force routing to the system-default
+            # provider even if the user has configured their own. Respects the
+            # same quota gating as the no-config fallback path. Defaults to 1
+            # so newly registered users get the free tier on first chat.
+            Column("prefer_system_override", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_user_quotas_user", ["user_id"], unique=True),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# lark_seen_messages — persistent dedup of incoming Lark events (Bug 27)
+#
+# Lark's event delivery is at-least-once: WebSocket reconnects or missed
+# acks cause the server to re-push the same `message_id`. Without a durable
+# record the trigger's in-memory set is wiped on every process restart,
+# and the agent answers the same message twice (observed: same message_id
+# re-processed about an hour apart, once before container restart and once
+# after).
+#
+# The trigger checks this table on every incoming event: INSERT-or-skip
+# on `message_id` acts as the atomic "have we seen this before" gate.
+# Rows older than 7 days are cleaned up on startup.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="lark_seen_messages",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("message_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("seen_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_lark_seen_messages_message_id", ["message_id"], unique=True),
+            Index("idx_lark_seen_messages_seen_at", ["seen_at"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# lark_trigger_audit — append-only lifecycle log for the Lark trigger.
+#
+# Motivation: on EC2 deployments we often cannot pull container logs out.
+# Without a durable record of "what the trigger was doing", post-incident
+# triage degenerates into guessing. This table is the trigger's black box —
+# one row per lifecycle event (ingress, dedup decision, WS connect /
+# disconnect, worker error / timeout, heartbeat). The /healthz endpoint
+# and any future admin UI read from here.
+#
+# `details` is JSON so new fields can be added without migrations.
+# 30-day retention (longer than `lark_seen_messages`) because post-incident
+# review needs wider history than dedup does.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="lark_trigger_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("event_time", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("event_type", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("message_id", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(128)"),
+            Column("app_id", "TEXT", "VARCHAR(128)"),
+            Column("chat_id", "TEXT", "VARCHAR(128)"),
+            Column("sender_id", "TEXT", "VARCHAR(128)"),
+            Column("details", "TEXT", "MEDIUMTEXT"),
+        ],
+        indexes=[
+            Index("idx_lark_trigger_audit_event_time", ["event_time"]),
+            Index("idx_lark_trigger_audit_event_type", ["event_type"]),
+            Index("idx_lark_trigger_audit_agent_id", ["agent_id"]),
+            Index("idx_lark_trigger_audit_message_id", ["message_id"]),
+        ],
     )
 )
 
@@ -790,11 +933,20 @@ def generate_mysql_ddl(table: TableDef) -> List[str]:
                 parts.append("NOT NULL")
 
         if col.default is not None and not col.auto_increment:
-            # Translate SQLite default expressions to MySQL equivalents
-            default_val = col.default
-            if default_val == "(datetime('now'))":
-                default_val = "CURRENT_TIMESTAMP(6)"
-            parts.append(f"DEFAULT {default_val}")
+            # MySQL rejects non-NULL DEFAULT on TEXT / BLOB / JSON / GEOMETRY
+            # columns (error 1101). Skip the DEFAULT clause on those types;
+            # the application layer must supply values at insert time.
+            mysql_type_upper = (col.mysql_type or "").upper()
+            is_lob = any(
+                tok in mysql_type_upper
+                for tok in ("TEXT", "BLOB", "JSON", "GEOMETRY")
+            )
+            if not is_lob:
+                # Translate SQLite default expressions to MySQL equivalents
+                default_val = col.default
+                if default_val == "(datetime('now'))":
+                    default_val = "CURRENT_TIMESTAMP(6)"
+                parts.append(f"DEFAULT {default_val}")
 
         col_defs.append(" ".join(parts))
 
@@ -911,7 +1063,20 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
                         default_val = col.default
                         if dialect == "mysql" and default_val == "(datetime('now'))":
                             default_val = "CURRENT_TIMESTAMP(6)"
-                        default = f" DEFAULT {default_val}"
+                        # MySQL rejects non-NULL DEFAULT on TEXT/BLOB/JSON/GEOMETRY
+                        # (error 1101). Only emit DEFAULT when the target type
+                        # allows it.
+                        if dialect == "mysql":
+                            mysql_type_upper = (col.mysql_type or "").upper()
+                            if any(
+                                tok in mysql_type_upper
+                                for tok in ("TEXT", "BLOB", "JSON", "GEOMETRY")
+                            ):
+                                default = ""
+                            else:
+                                default = f" DEFAULT {default_val}"
+                        else:
+                            default = f" DEFAULT {default_val}"
                     null_clause = "" if col.nullable else " NOT NULL"
                     # SQLite cannot add NOT NULL without default
                     if dialect == "sqlite" and not col.nullable and col.default is None:

@@ -205,16 +205,20 @@ export function JobExpandedDetail({
               <span className="text-[var(--text-secondary)]">{formatRelativeTime(job.updated_at)}</span>
             </div>
           )}
-          {job.last_run_time && (
+          {job.last_run_at && (
             <div>
               <span className="text-[var(--text-tertiary)]">Last run: </span>
-              <span className="text-[var(--text-secondary)]">{formatRelativeTime(job.last_run_time)}</span>
+              <span className="text-[var(--text-secondary)]">
+                {job.last_run_at}{job.last_run_timezone ? ` (${job.last_run_timezone})` : ''}
+              </span>
             </div>
           )}
-          {job.next_run_time && (
+          {job.next_run_at && (
             <div>
               <span className="text-[var(--text-tertiary)]">Next run: </span>
-              <span className="text-[var(--color-success)]">{formatRelativeTime(job.next_run_time)}</span>
+              <span className="text-[var(--color-success)]">
+                {job.next_run_at}{job.next_run_timezone ? ` (${job.next_run_timezone})` : ''}
+              </span>
             </div>
           )}
         </div>

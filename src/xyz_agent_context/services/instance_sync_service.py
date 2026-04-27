@@ -36,9 +36,10 @@ MODULE_PREFIX_MAP = {
     "ChatModule": "chat",
     "JobModule": "job",
     "SocialNetworkModule": "social",
-    "GeminiRAGModule": "rag",
     "AwarenessModule": "aware",
     "BasicInfoModule": "info",
+    "MessageBusModule": "bus",
+    "LarkModule": "lark",
 }
 
 
@@ -156,6 +157,11 @@ class InstanceSyncService:
         # [Batch deduplication] Track Job titles created in this batch to avoid intra-batch duplicates
         created_titles_this_batch = set()
 
+        # Freeze the user's current timezone into each Job's trigger_config at creation time
+        # (per spec 2026-04-21 decision A: timezone is captured at registration, not at execution).
+        from xyz_agent_context.repository import UserRepository
+        user_tz = await UserRepository(self.db).get_user_timezone(user_id)
+
         for inst in instances:
             if inst.module_class != "JobModule":
                 continue
@@ -188,8 +194,7 @@ class InstanceSyncService:
 
             # Determine job_type and build trigger_config
             job_type = JobType.ONE_OFF
-            next_run_time = None
-            trigger_config_dict = {}
+            trigger_config_dict = {"timezone": user_tz}  # frozen at creation
 
             # Check if there is a cron expression (periodic task)
             cron_expr = getattr(job_config, 'cron', None)
@@ -205,38 +210,57 @@ class InstanceSyncService:
                 trigger_config_dict["end_condition"] = end_condition
                 if max_iterations:
                     trigger_config_dict["max_iterations"] = max_iterations
-                # ONGOING task starts the first check immediately
-                next_run_time = utc_now()
                 logger.info(f"  {inst.task_key}: ONGOING type task, interval={interval_seconds}s, end_condition={end_condition}")
             elif cron_expr:
                 job_type = JobType.SCHEDULED
                 trigger_config_dict["cron"] = cron_expr
-                # next_run_time for periodic tasks is calculated by calculate_next_run_time
-                from xyz_agent_context.repository.job_repository import calculate_next_run_time
-                trigger_config = TriggerConfig(**trigger_config_dict)
-                next_run_time = calculate_next_run_time(job_type, trigger_config)
             elif interval_seconds and not end_condition:
                 # SCHEDULED type: has interval_seconds but no end_condition
                 job_type = JobType.SCHEDULED
                 trigger_config_dict["interval_seconds"] = interval_seconds
-                from xyz_agent_context.repository.job_repository import calculate_next_run_time
-                trigger_config = TriggerConfig(**trigger_config_dict)
-                next_run_time = calculate_next_run_time(job_type, trigger_config)
             elif job_config.scheduled_at:
                 # One-off scheduled task
                 job_type = JobType.ONE_OFF
                 try:
-                    next_run_time = datetime.fromisoformat(job_config.scheduled_at)
-                    trigger_config_dict["run_at"] = job_config.scheduled_at
+                    parsed = datetime.fromisoformat(job_config.scheduled_at)
+                    # run_at must be naive per v2 protocol; strip tzinfo if present
+                    if parsed.tzinfo is not None:
+                        parsed = parsed.replace(tzinfo=None)
+                    trigger_config_dict["run_at"] = parsed
                 except ValueError:
                     logger.warning(f"  Invalid scheduled_at: {job_config.scheduled_at}")
-            elif not inst.depends_on:
-                # Immediate task with no dependencies -> execute immediately
-                next_run_time = utc_now()
-                logger.debug(f"  {inst.task_key}: Immediate task with no dependencies, setting next_run_time = now")
-            # else: Task with dependencies -> next_run_time stays None, will be set after dependencies complete
 
+            # Build TriggerConfig and compute atomic alpha+beta next-run triple
             trigger_config = TriggerConfig(**trigger_config_dict)
+            from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+            from zoneinfo import ZoneInfo
+
+            next_run_utc = None
+            next_run_local = None
+            next_run_tz_final = None
+
+            is_immediate_one_off = (
+                job_type == JobType.ONE_OFF
+                and trigger_config_dict.get("run_at") is None
+                and not inst.depends_on
+            )
+
+            if is_immediate_one_off:
+                # Immediate one-off: fire now in the user's timezone
+                now_u = utc_now()
+                next_run_utc = now_u
+                next_run_local = now_u.astimezone(ZoneInfo(user_tz)).replace(tzinfo=None).isoformat()
+                next_run_tz_final = user_tz
+            elif trigger_config.run_at is None and not trigger_config.cron and not trigger_config.interval_seconds:
+                # No fireable time (e.g. has deps, waiting) — leave next_run_* as None
+                pass
+            else:
+                base = utc_now() if job_type == JobType.ONGOING else None
+                next_run = compute_next_run(job_type, trigger_config, last_run_utc=base)
+                if next_run:
+                    next_run_utc = next_run.utc
+                    next_run_local = next_run.local
+                    next_run_tz_final = next_run.tz
 
             # Generate embedding
             embedding_text = prepare_job_text_for_embedding(
@@ -276,7 +300,9 @@ class InstanceSyncService:
                     payload=job_config.payload,
                     instance_id=instance_id,
                     notification_method="inbox",
-                    next_run_time=next_run_time,
+                    next_run_time=next_run_utc,
+                    next_run_at_local=next_run_local,
+                    next_run_tz=next_run_tz_final,
                     embedding=embedding,
                     related_entity_id=related_entity_id,  # Feature 2.2 (single value)
                     narrative_id=narrative_id  # Feature 3.1

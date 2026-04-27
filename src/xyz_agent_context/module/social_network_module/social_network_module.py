@@ -19,7 +19,7 @@ from loguru import logger
 from datetime import datetime
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule
+from xyz_agent_context.module import XYZBaseModule, mcp_host
 
 # Schema
 from xyz_agent_context.schema import (
@@ -230,7 +230,7 @@ Adapt your communication style according to this persona."""
 
                     Social network features are available when interacting with identified users."""
 
-            # 2. Load known agent entities for cross-module use (e.g. MatrixModule)
+            # 2. Load known agent entities for cross-module use (e.g. MessageBusModule)
             try:
                 agent_entities = await self._get_repo().get_all_entities(
                     instance_id=instance_id,
@@ -557,7 +557,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
         """
         return MCPServerConfig(
             server_name="social_network_module",
-            server_url=f"http://127.0.0.1:{self.port}/sse",
+            server_url=f"http://{mcp_host()}:{self.port}/sse",
             type="sse"
         )
 

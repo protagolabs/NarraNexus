@@ -1,10 +1,12 @@
 /**
  * Embedding status store
- * Manages embedding rebuild state and auto-polling
+ * Manages embedding rebuild state and auto-polling — scoped to the
+ * currently-logged-in user (cloud multi-tenant + desktop both).
  */
 
 import { create } from 'zustand';
 import { api } from '@/lib/api';
+import { useConfigStore } from '@/stores/configStore';
 import type { EmbeddingStatusData } from '@/types';
 
 interface EmbeddingState {
@@ -19,10 +21,14 @@ interface EmbeddingState {
   fetchStatus: () => Promise<void>;
   /** Start rebuilding embeddings */
   startRebuild: () => Promise<boolean>;
-  /** Start auto-polling (every 5s when rebuilding, 30s otherwise) */
+  /** Start auto-polling (every 3s when rebuilding, 15s otherwise) */
   startPolling: () => void;
   /** Stop auto-polling */
   stopPolling: () => void;
+}
+
+function currentUserId(): string {
+  return useConfigStore.getState().userId;
 }
 
 export const useEmbeddingStore = create<EmbeddingState>()((set, get) => ({
@@ -31,9 +37,14 @@ export const useEmbeddingStore = create<EmbeddingState>()((set, get) => ({
   _pollTimer: null,
 
   fetchStatus: async () => {
+    const userId = currentUserId();
+    if (!userId) {
+      // Not logged in yet — skip. Banner/Status components will retry after login.
+      return;
+    }
     try {
       set({ loading: true });
-      const res = await api.getEmbeddingStatus();
+      const res = await api.getEmbeddingStatus(userId);
       if (res.success) {
         set({ status: res.data });
       }
@@ -46,8 +57,10 @@ export const useEmbeddingStore = create<EmbeddingState>()((set, get) => ({
   },
 
   startRebuild: async () => {
+    const userId = currentUserId();
+    if (!userId) return false;
     try {
-      const res = await api.rebuildEmbeddings();
+      const res = await api.rebuildEmbeddings(userId);
       if (res.success) {
         // Immediately refresh status and switch to fast polling
         await get().fetchStatus();

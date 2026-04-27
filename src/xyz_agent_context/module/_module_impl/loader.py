@@ -52,7 +52,6 @@ class ModuleLoader:
     - Fallback mechanism: uses narrative.active_instances when database loading fails
     """
 
-    # Default static module list
     DEFAULT_MODULE_LIST = [
         "MemoryModule",
         "AwarenessModule",
@@ -60,7 +59,6 @@ class ModuleLoader:
         "BasicInfoModule",
         "SocialNetworkModule",
         "JobModule",
-        "GeminiRAGModule",
         "MessageBusModule",
     ]
 
@@ -68,6 +66,8 @@ class ModuleLoader:
     # These modules are independent of the database Instance mechanism and are always auto-loaded
     ALWAYS_LOAD_MODULES = [
         "SkillModule",
+        "LarkModule",
+        "CommonToolsModule",
     ]
 
     def __init__(
@@ -636,10 +636,11 @@ class ModuleLoader:
             "ChatModule": "chat",
             "JobModule": "job",
             "SocialNetworkModule": "social",
-            "GeminiRAGModule": "rag",
             "AwarenessModule": "aware",
             "BasicInfoModule": "info",
             "SkillModule": "skill",
+            "MessageBusModule": "bus",
+            "LarkModule": "lark",
         }
         prefix = prefix_map.get(module_class, module_class.lower().replace("module", ""))
         return f"{prefix}_{short_uuid}"

@@ -1,78 +1,18 @@
 /**
- * Theme hook with localStorage persistence
+ * Theme hook — thin selector wrapper over useThemeStore.
+ *
+ * Exposes the same shape used across the app: { theme, effectiveTheme,
+ * setTheme, toggleTheme, isDark }. State lives in the Zustand store so all
+ * subscribers stay in sync when the toggle flips.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-
-type Theme = 'light' | 'dark' | 'system';
-
-const STORAGE_KEY = 'narra-nexus-theme';
-
-function getSystemTheme(): 'light' | 'dark' {
-  if (typeof window === 'undefined') return 'dark';
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-function getStoredTheme(): Theme {
-  if (typeof window === 'undefined') return 'system';
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === 'light' || stored === 'dark' || stored === 'system') {
-    return stored;
-  }
-  return 'system';
-}
-
-function applyTheme(theme: Theme) {
-  const root = document.documentElement;
-  const effectiveTheme = theme === 'system' ? getSystemTheme() : theme;
-
-  if (effectiveTheme === 'dark') {
-    root.classList.add('dark');
-  } else {
-    root.classList.remove('dark');
-  }
-}
+import { useThemeStore } from '@/stores/themeStore';
 
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(() => getStoredTheme());
-  const [effectiveTheme, setEffectiveTheme] = useState<'light' | 'dark'>(() => {
-    const stored = getStoredTheme();
-    return stored === 'system' ? getSystemTheme() : stored;
-  });
-
-  // Apply theme on mount and changes
-  useEffect(() => {
-    applyTheme(theme);
-    setEffectiveTheme(theme === 'system' ? getSystemTheme() : theme);
-    localStorage.setItem(STORAGE_KEY, theme);
-  }, [theme]);
-
-  // Listen for system theme changes
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-
-    const handleChange = () => {
-      if (theme === 'system') {
-        applyTheme('system');
-        setEffectiveTheme(getSystemTheme());
-      }
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [theme]);
-
-  const setTheme = useCallback((newTheme: Theme) => {
-    setThemeState(newTheme);
-  }, []);
-
-  const toggleTheme = useCallback(() => {
-    setThemeState(current => {
-      if (current === 'light') return 'dark';
-      if (current === 'dark') return 'system';
-      return 'light';
-    });
-  }, []);
+  const theme = useThemeStore((s) => s.theme);
+  const effectiveTheme = useThemeStore((s) => s.effectiveTheme);
+  const setTheme = useThemeStore((s) => s.setTheme);
+  const toggleTheme = useThemeStore((s) => s.toggleTheme);
 
   return {
     theme,

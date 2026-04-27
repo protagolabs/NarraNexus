@@ -33,6 +33,7 @@ from xyz_agent_context.context_runtime.prompts import (
     MODULE_INSTRUCTIONS_HEADER,
     SHORT_TERM_MEMORY_HEADER,
     BOOTSTRAP_INJECTION_PROMPT,
+    USER_TEMPORAL_CONTEXT,
 )
 
 
@@ -330,6 +331,19 @@ class ContextRuntime:
         narrative_service = NarrativeService(self.agent_id)
 
         # ========================================================================
+        # Part 0: User Temporal Context (v2 timezone protocol, 2026-04-21)
+        # Injected first so every downstream section + all Module instructions
+        # can reference it. Source of truth = users.timezone (IANA).
+        # ========================================================================
+        try:
+            temporal_block = await self._build_user_temporal_block(ctx_data.user_id)
+            if temporal_block:
+                prompt_parts.append(temporal_block)
+                logger.debug(f"        Added User Temporal Context: {len(temporal_block)} chars")
+        except Exception as e:
+            logger.warning(f"        Failed to build User Temporal Context: {e}")
+
+        # ========================================================================
         # Part 1: Narrative Info (main Narrative)
         # ========================================================================
         if narrative_list:
@@ -404,6 +418,25 @@ class ContextRuntime:
         full_prompt = "\n\n".join(prompt_parts)
         logger.debug(f"      build_complete_system_prompt() completed: {len(full_prompt)} total chars")
         return full_prompt.strip()
+
+    async def _build_user_temporal_block(self, user_id: Optional[str]) -> str:
+        """
+        Build the User Temporal Context block (v2 timezone protocol).
+
+        Reads users.timezone (falls back to UTC for users who have never
+        synced their browser timezone) and produces a prompt section telling
+        the LLM the user's IANA timezone and current local time.
+        """
+        if not user_id:
+            return ""
+        from xyz_agent_context.repository import UserRepository
+        from xyz_agent_context.utils.timezone import utc_now, to_user_timezone
+        user_tz = await UserRepository(self.db).get_user_timezone(user_id)
+        now_local_dt = to_user_timezone(utc_now(), user_tz)
+        if now_local_dt is None:
+            return ""
+        now_local = now_local_dt.replace(tzinfo=None).isoformat(timespec="seconds")
+        return USER_TEMPORAL_CONTEXT.format(user_tz=user_tz, now_local=now_local)
 
     def _build_relevant_memory_prompt(self, episodes: List) -> str:
         """

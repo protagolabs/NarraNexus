@@ -1,5 +1,5 @@
 /**
- * Inbox Panel - Agent Inbox (Matrix channel messages grouped by room)
+ * Inbox Panel - Agent Inbox (IM channel messages grouped by room)
  * Uses preloaded data from preloadStore for instant tab switching
  */
 
@@ -8,6 +8,7 @@ import { Mail, RefreshCw, Hash, Users, ChevronRight, ChevronDown } from 'lucide-
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { api } from '@/lib/api';
 
 export function InboxPanel() {
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
@@ -23,39 +24,50 @@ export function InboxPanel() {
   const handleRefresh = () => refreshAgentInbox(agentId);
 
   const toggleRoom = (roomId: string) => {
-    if (expandedRoomId === roomId) {
-      setExpandedRoomId(null);
-    } else {
-      setExpandedRoomId(roomId);
+    const nextId = expandedRoomId === roomId ? null : roomId;
+    setExpandedRoomId(nextId);
+
+    if (nextId) {
+      const room = agentRooms.find((r) => r.room_id === nextId);
+      if (room && room.unread_count > 0 && room.messages.length > 0 && agentId) {
+        const latest = [...room.messages].sort((a, b) => {
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return tb - ta;
+        })[0];
+        if (latest?.message_id) {
+          api.markAgentMessageRead(latest.message_id, agentId)
+            .then(() => refreshAgentInbox(agentId, true))
+            .catch(() => { /* non-fatal */ });
+        }
+      }
     }
   };
 
   return (
     <Card className="flex flex-col h-full">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Mail className="w-4 h-4 text-[var(--color-accent)]" />
+        <CardTitle>
+          <Mail />
           Agent Inbox
-        </CardTitle>
-        <div className="flex items-center gap-2">
           {agentUnreadCount > 0 && (
-            <Badge variant="accent" pulse>
-              {agentUnreadCount}
-            </Badge>
+            <span className="ml-1 text-[var(--color-yellow-500)] tabular-nums normal-case tracking-normal">
+              · {agentUnreadCount}
+            </span>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleRefresh}
-            disabled={loading}
-            title="Refresh"
-          >
-            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-          </Button>
-        </div>
+        </CardTitle>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleRefresh}
+          disabled={loading}
+          title="Refresh"
+        >
+          <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+        </Button>
       </CardHeader>
 
-      <CardContent className="flex-1 overflow-y-auto space-y-2 min-h-0">
+      <CardContent className="flex-1 overflow-y-auto min-h-0 !p-0">
         {agentRooms.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-[var(--text-tertiary)] text-sm">No messages</p>
@@ -68,11 +80,8 @@ export function InboxPanel() {
               <div
                 key={room.room_id}
                 className={cn(
-                  'rounded-lg border transition-all',
-                  isRoomExpanded
-                    ? 'border-[var(--color-accent)]/30 ring-1 ring-[var(--color-accent)]'
-                    : 'border-[var(--border-default)] hover:border-[var(--color-accent)]/50',
-                  room.unread_count > 0 && !isRoomExpanded && 'bg-[var(--accent-10)]'
+                  'border-b border-[var(--rule)] transition-colors',
+                  room.unread_count > 0 && !isRoomExpanded && 'bg-[var(--bg-secondary)]'
                 )}
               >
                 {/* Room Header */}
@@ -123,10 +132,10 @@ export function InboxPanel() {
                     <div className="flex flex-wrap gap-1 px-1 pb-2 border-b border-[var(--border-default)]">
                       {room.members.map((member) => (
                         <span
-                          key={member.matrix_user_id}
+                          key={member.agent_id}
                           className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[10px] text-[var(--text-tertiary)]"
                         >
-                          {member.agent_name} <span className="opacity-60">{member.matrix_user_id}</span>
+                          {member.agent_name} <span className="opacity-60">{member.agent_id}</span>
                         </span>
                       ))}
                     </div>

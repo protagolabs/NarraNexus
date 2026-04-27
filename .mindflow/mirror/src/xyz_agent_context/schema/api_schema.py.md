@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-04-21
 stub: false
 ---
 

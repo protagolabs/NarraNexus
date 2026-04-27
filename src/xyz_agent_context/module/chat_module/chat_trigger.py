@@ -598,22 +598,45 @@ class A2AServer:
 
         # Execute Agent
         try:
-            agent_runtime = AgentRuntime()
-            final_output = ""
+            from xyz_agent_context.agent_runtime.run_collector import collect_run
+            from xyz_agent_context.schema.hook_schema import WorkingSource
 
-            async for response in agent_runtime.run(
+            agent_runtime = AgentRuntime()
+            collection = await collect_run(
+                agent_runtime,
                 agent_id=agent_id,
                 user_id=user_id,
-                input_content=user_input
-            ):
-                # Collect text output
-                if hasattr(response, 'delta'):
-                    final_output += response.delta
+                input_content=user_input,
+                working_source=WorkingSource.CHAT,
+            )
+
+            # Error path (Bug 2): previously this trigger collected on
+            # `if hasattr(response, 'delta')` which meant ErrorMessage
+            # (no `delta` attribute) was silently skipped. The A2A task
+            # would then finish with an empty completion, masking the
+            # failure to the caller. Now we surface the error as a FAILED
+            # task with the underlying message intact.
+            if collection.is_error:
+                logger.warning(
+                    f"A2A task {task.id} runtime error: "
+                    f"{collection.error.error_type}: {collection.error.error_message}"
+                )
+                error_message = A2AMessage.create_agent_message(
+                    text=(
+                        f"Execution error ({collection.error.error_type}): "
+                        f"{collection.error.error_message}"
+                    ),
+                    task_id=task.id,
+                )
+                task.update_status(TaskState.FAILED, message=error_message)
+                return task.model_dump()
+
+            final_output = collection.output_text
 
             # Create Agent response message
             agent_message = A2AMessage.create_agent_message(
                 text=final_output,
-                task_id=task.id
+                task_id=task.id,
             )
             task.add_message(agent_message)
 
@@ -621,26 +644,20 @@ class A2AServer:
             artifact = Artifact(
                 name="response",
                 description="Agent response",
-                parts=[TextPart(text=final_output)]
+                parts=[TextPart(text=final_output)],
             )
             task.add_artifact(artifact)
 
             # Update status to completed
-            task.update_status(
-                TaskState.COMPLETED,
-                message=agent_message
-            )
+            task.update_status(TaskState.COMPLETED, message=agent_message)
 
         except Exception as e:
             logger.error(f"Agent execution error: {e}")
             error_message = A2AMessage.create_agent_message(
                 text=f"Execution error: {str(e)}",
-                task_id=task.id
+                task_id=task.id,
             )
-            task.update_status(
-                TaskState.FAILED,
-                message=error_message
-            )
+            task.update_status(TaskState.FAILED, message=error_message)
 
         return task.model_dump()
 

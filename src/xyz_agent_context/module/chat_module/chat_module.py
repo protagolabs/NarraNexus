@@ -24,7 +24,7 @@ from loguru import logger
 
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule
+from xyz_agent_context.module import XYZBaseModule, mcp_host
 from xyz_agent_context.module.event_memory_module import EventMemoryModule
 
 # Schema
@@ -47,6 +47,89 @@ from xyz_agent_context.schema.agent_message_schema import MessageSourceType
 # Prompts
 from xyz_agent_context.module.chat_module.prompts import CHAT_MODULE_INSTRUCTIONS
 from xyz_agent_context.bootstrap.template import BOOTSTRAP_GREETING
+
+
+# =============================================================================
+# Bug 8 · Failed-turn isolation
+#
+# When a turn errors out (rate limit, API hiccup, tool exception), the agent
+# loop yields an ErrorMessage and stops early. Pre-fix, ChatModule stored the
+# turn as a normal (user, "") pair — so the next turn's prompt showed the
+# user's failed question with an empty assistant reply, and the LLM would
+# treat it as "I didn't finish last time" and retry instead of answering the
+# new user input.
+#
+# Two halves:
+#
+# 1. Storage: when ``_detect_error_in_agent_loop`` finds an ErrorMessage in
+#    ``agent_loop_response``, we persist ONLY the user question, tagged with
+#    ``meta_data.status="failed"`` + ``meta_data.error_type``. No fake
+#    assistant row. Partial output that streamed before the crash is
+#    discarded — it was never a complete answer.
+#
+# 2. Load: when feeding history back into the next turn's prompt, we apply
+#    ``_apply_failed_turn_filter`` to both long-term and short-term message
+#    lists:
+#      - failed USER rows → content rewritten to an annotated note that
+#        explicitly tells the LLM "this errored, do NOT retry"
+#      - failed ASSISTANT rows (legacy, pre-fix) → dropped defensively
+# =============================================================================
+
+_FAILED_TURN_ANNOTATION_TEMPLATE = (
+    "[Previous turn failed before the agent could reply. "
+    "The user's original question was: {original!r}. "
+    "An error ({error_type}) occurred and no reply was given. "
+    "Do NOT retry this question — focus on the current user input.]"
+)
+
+
+def _detect_error_in_agent_loop(agent_loop_response: List[Any]) -> Optional[Dict[str, str]]:
+    """Scan ``agent_loop_response`` for an ``ErrorMessage`` and return the
+    first one's signal, or ``None`` if the turn succeeded.
+
+    Import is local so the module doesn't couple to ``runtime_message``
+    at import time (keeps test fixtures simple)."""
+    from xyz_agent_context.schema import ErrorMessage
+    for msg in agent_loop_response:
+        if isinstance(msg, ErrorMessage):
+            return {
+                "error_type": msg.error_type,
+                "error_message": msg.error_message,
+            }
+    return None
+
+
+def _apply_failed_turn_filter(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Prepare a history list for the next turn's prompt, isolating
+    failed turns so they can't trick the LLM into retrying them.
+
+    Shape contract (messages are the list stored in Instance JSON memory):
+      - rule A: role=user + meta_data.status==failed → content replaced
+        with an annotated "do NOT retry" note that also preserves the
+        original wording for pronoun resolution.
+      - rule B: role=assistant + meta_data.status==failed → dropped.
+        (The storage half should never write these after the fix, but
+        we tolerate legacy rows.)
+      - everything else passes through untouched.
+
+    Returns a NEW list; does not mutate the input messages.
+    """
+    out: List[Dict[str, Any]] = []
+    for msg in messages:
+        meta = msg.get("meta_data") or {}
+        if meta.get("status") != "failed":
+            out.append(msg)
+            continue
+        role = msg.get("role")
+        if role == "user":
+            annotated = dict(msg)
+            annotated["content"] = _FAILED_TURN_ANNOTATION_TEMPLATE.format(
+                original=msg.get("content", ""),
+                error_type=meta.get("error_type", "unknown"),
+            )
+            out.append(annotated)
+        # role == "assistant" with status=failed → drop
+    return out
 
 
 class ChatModule(XYZBaseModule):
@@ -120,7 +203,7 @@ class ChatModule(XYZBaseModule):
         """
         return MCPServerConfig(
             server_name="chat_module",
-            server_url=f"http://127.0.0.1:{self.port}/sse",
+            server_url=f"http://{mcp_host()}:{self.port}/sse",
             type="sse"
         )
 
@@ -143,7 +226,7 @@ class ChatModule(XYZBaseModule):
         Returns:
             MCP Server URL
         """
-        return f"http://127.0.0.1:{self.port}/sse"
+        return f"http://{mcp_host()}:{self.port}/sse"
     
     
     # ============================================================================= Hooks
@@ -198,20 +281,12 @@ class ChatModule(XYZBaseModule):
         where the agent chose not to send a message to the user.
 
         Args:
-            working_source: Execution source ("job", "matrix", etc.)
+            working_source: Execution source ("job", "message_bus", etc.)
             meta: Shared meta_data dict (may contain channel_tag)
 
         Returns:
             Short activity description string
         """
-        if working_source == "matrix":
-            channel_tag = meta.get("channel_tag", {})
-            room_name = channel_tag.get("room_name") or channel_tag.get("room_id", "unknown room")
-            sender = channel_tag.get("sender_name") or channel_tag.get("sender_id", "")
-            if sender:
-                return f"Handled a message from {sender} in {room_name}"
-            return f"Handled a message in {room_name}"
-
         if working_source == "job":
             return "Executed a background job"
 
@@ -301,6 +376,12 @@ class ChatModule(XYZBaseModule):
             except Exception as e:
                 logger.warning(f"ChatModule: Short-term memory loading failed: {e}")
 
+        # Bug 8: transform failed-turn rows before feeding history back
+        # into the next prompt — failed user rows get an annotated "do
+        # NOT retry" note, failed assistant rows (legacy) are dropped.
+        long_term_messages = _apply_failed_turn_filter(long_term_messages)
+        short_term_messages = _apply_failed_turn_filter(short_term_messages)
+
         # ========== 3. Merge and sort ==========
         all_messages = long_term_messages + short_term_messages
 
@@ -319,6 +400,26 @@ class ChatModule(XYZBaseModule):
             )
         else:
             logger.debug("ChatModule.hook_data_gathering: No history messages retrieved")
+
+        # Splice persisted reasoning (see hook_after_event_execution) back
+        # into assistant message content, wrapped with tag markers so the
+        # next turn's LLM can tell "what I thought last turn" apart from
+        # "what I said to the user last turn". Tool-call outputs are not
+        # preserved across turns — this splicing is the mechanism that
+        # lets the Agent carry machine-readable values (device codes,
+        # job ids, fresh URLs) forward, by relying on the Agent having
+        # restated them in its own reasoning before ending the turn.
+        for _msg in all_messages:
+            if _msg.get("role") != "assistant":
+                continue
+            _reasoning = (_msg.get("meta_data") or {}).get("reasoning")
+            if not _reasoning:
+                continue
+            _original = _msg.get("content", "") or ""
+            _msg["content"] = (
+                f"<my_reasoning>\n{_reasoning}\n</my_reasoning>\n\n"
+                f"<reply_to_user>\n{_original}\n</reply_to_user>"
+            )
 
         # Fill merged history messages into ctx_data
         ctx_data.chat_history = all_messages
@@ -511,13 +612,48 @@ class ChatModule(XYZBaseModule):
         # Get working_source (execution source: chat/job/a2a)
         working_source = params.execution_ctx.working_source.value if params.execution_ctx else "unknown"
 
-        # Build shared meta_data fields
+        # Timestamp policy (fix: frontend dedup window) — user and assistant
+        # messages get DIFFERENT timestamps:
+        #   - user    → Event.created_at   (when the turn started, ~= when the
+        #              user pressed Enter; matches frontend session ts within RTT)
+        #   - assistant → utc_now()         (when this hook runs, ~= when the
+        #              agent finished; matches frontend stopStreaming ts)
+        # Before this split, both messages shared utc_now() which, for a slow
+        # turn, put the persisted user-message ts minutes past the frontend
+        # session ts. The dedup in ChatPanel (|session_ts - history_ts| <
+        # window) then failed and the user bubble rendered twice.
+        now_iso = utc_now().isoformat()
+        user_ts_iso = (
+            params.event.created_at.isoformat()
+            if params.event is not None and params.event.created_at is not None
+            else now_iso
+        )
+
+        # Build shared meta_data fields (assistant uses now; user overrides below)
         shared_meta = {
             "event_id": params.event_id,
-            "timestamp": utc_now().isoformat(),
+            "timestamp": now_iso,
             "instance_id": instance_id,
             "working_source": working_source,
         }
+
+        # Reasoning persistence (2026-04-23): tool-call outputs are ephemeral
+        # to the turn, but the Agent's written reasoning (final_output) is
+        # the one channel that can carry machine-readable values (device
+        # codes, job ids, freshly minted URLs) into the next turn. Capture
+        # it on assistant meta_data so hook_data_gathering can splice it
+        # back into content when building next turn's chat history. Stored
+        # full — truncation was explored and rejected: (a) the Agent writes
+        # the reasoning itself, so it's already self-limited; (b) a cap
+        # risks cutting exactly the value the Agent wanted to carry across.
+        assistant_reasoning: str = (
+            (params.io_data.final_output if params.io_data else "") or ""
+        )
+        assistant_meta = (
+            {**shared_meta, "reasoning": assistant_reasoning}
+            if assistant_reasoning
+            else {**shared_meta}
+        )
 
         # Inject channel_tag if available (set by Triggers for source tracking)
         if params.ctx_data and params.ctx_data.extra_data:
@@ -528,30 +664,49 @@ class ChatModule(XYZBaseModule):
                     channel_tag_data = channel_tag_data.to_dict()
                 shared_meta["channel_tag"] = channel_tag_data
 
+        user_meta = {**shared_meta, "timestamp": user_ts_iso}
+
+        # Bug 8: detect failure FIRST. If the agent loop raised, persist
+        # only the user question with status=failed so the next turn's
+        # prompt (after _apply_failed_turn_filter) shows an explicit
+        # "do not retry" annotation instead of a fake completed pair.
+        error_signal = _detect_error_in_agent_loop(params.agent_loop_response)
+
         # Extract the user-visible response (from send_message_to_user_directly tool call)
         assistant_content = self._extract_user_visible_response(params.agent_loop_response)
         is_no_response = assistant_content == "(Agent decided no response needed)"
 
-        if working_source == "chat" or not is_no_response:
+        if error_signal is not None:
+            # Failed turn: preserve user question (for reference), skip assistant.
+            messages.append({
+                "role": "user",
+                "content": params.input_content,
+                "meta_data": {
+                    **user_meta,
+                    "status": "failed",
+                    "error_type": error_signal["error_type"],
+                },
+            })
+        elif working_source == "chat" or not is_no_response:
             # Normal conversation: store user message + assistant reply
             messages.append({
                 "role": "user",
                 "content": params.input_content,
-                "meta_data": {**shared_meta},
+                "meta_data": {**user_meta},
             })
             messages.append({
                 "role": "assistant",
                 "content": assistant_content,
-                "meta_data": {**shared_meta},
+                "meta_data": {**assistant_meta},
             })
         else:
-            # Background task (job/matrix) where agent chose not to message user:
+            # Background task (job/lark/message_bus) where agent chose not to message user:
             # Store a lightweight activity record instead of a fake conversation pair
             activity_summary = self._build_activity_summary(working_source, shared_meta)
             messages.append({
                 "role": "assistant",
                 "content": activity_summary,
-                "meta_data": {**shared_meta, "message_type": "activity"},
+                "meta_data": {**assistant_meta, "message_type": "activity"},
             })
 
         # Save updated history (using instance_id)

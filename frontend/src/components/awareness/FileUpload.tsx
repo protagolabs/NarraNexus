@@ -4,7 +4,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Upload, File, Trash2, RefreshCw, FolderOpen } from 'lucide-react';
-import { Button, Badge } from '@/components/ui';
+import { Button, Badge, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,7 @@ export function FileUpload() {
   const [uploading, setUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Fetch files on mount and when agent/user changes
   const fetchFiles = useCallback(async () => {
@@ -78,7 +79,13 @@ export function FileUpload() {
   // Handle file deletion
   const handleDelete = async (filename: string) => {
     if (!agentId || !userId) return;
-    if (!confirm(`Delete ${filename}?`)) return;
+    const ok = await confirm({
+      title: 'Delete file',
+      message: `Delete ${filename}?`,
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
 
     try {
       const res = await api.deleteFile(agentId, userId, filename);
@@ -131,6 +138,7 @@ export function FileUpload() {
 
   return (
     <section className="space-y-2">
+      {confirmDialog}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] font-medium uppercase tracking-wider">
           <FolderOpen className="w-3 h-3" />
@@ -197,7 +205,7 @@ export function FileUpload() {
 
       {/* Error Message */}
       {error && (
-        <div className="text-xs text-[var(--color-error)] p-2 bg-red-500/10 rounded">
+        <div className="text-xs text-[var(--color-error)] p-2 border border-[var(--color-red-500)]">
           {error}
         </div>
       )}

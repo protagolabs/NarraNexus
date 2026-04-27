@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::{Child, Command};
 
-use crate::state::ServiceDef;
+use crate::state::{resolve_bundled_node_bins, ServiceDef};
 
 /// Ring buffer shared between ProcessManager and the per-child log drainer
 /// tasks. Uses std::sync::Mutex (not tokio's) because log pushes are brief
@@ -98,6 +98,32 @@ impl ProcessManager {
         let proxy_url = std::env::var("SQLITE_PROXY_URL").unwrap_or_default();
         let proxy_port = std::env::var("SQLITE_PROXY_PORT").unwrap_or_default();
 
+        // Prepend bundled Node.js + CLI shim paths to PATH.
+        //
+        // Why: claude_agent_sdk (Python) spawns the `claude` binary via
+        // shutil.which / subprocess without a full path. Finder-launched
+        // .app inherits launchd's minimal PATH (`/usr/bin:/bin:/usr/sbin:
+        // /sbin`) which never contains claude. Without this injection
+        // every chat turn blows up with "No such file or directory: 'claude'".
+        //
+        // In dev mode (non-bundled) resolve_bundled_node_bins() returns empty
+        // and we leave PATH alone — dev users already have node + the CLIs on
+        // their shell PATH via the `uv run` wrapper.
+        let parent_path = std::env::var("PATH").unwrap_or_default();
+        let bundled_bins = resolve_bundled_node_bins();
+        let child_path = if bundled_bins.is_empty() {
+            parent_path.clone()
+        } else {
+            let mut parts: Vec<String> = bundled_bins
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
+            if !parent_path.is_empty() {
+                parts.push(parent_path.clone());
+            }
+            parts.join(":")
+        };
+
         // Dashboard v2 TDR-12: for the backend service, export DASHBOARD_BIND_HOST
         // as a redundant signal to the lifespan bind assertion. The uvicorn CLI
         // `--host 127.0.0.1` is already set in ServiceDef.args; this env var is
@@ -105,6 +131,7 @@ impl ProcessManager {
         let mut cmd = Command::new(&def.command);
         cmd.args(&def.args)
             .current_dir(&cwd)
+            .env("PATH", &child_path)
             .env("DATABASE_URL", &db_url)
             .env("SQLITE_PROXY_URL", &proxy_url)
             .env("SQLITE_PROXY_PORT", &proxy_port);

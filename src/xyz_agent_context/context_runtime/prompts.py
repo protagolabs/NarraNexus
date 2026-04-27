@@ -40,6 +40,21 @@ A file called `Bootstrap.md` exists in your workspace. It's for you — read it 
 This takes priority over all other instructions.
 """
 
+# ============================================================================
+# User Temporal Context (Spec 2026-04-21 — v2 timezone protocol)
+# Injected globally so every Module sees a single consistent view of
+# "who the user is, what their timezone is, what time it is now".
+# ============================================================================
+USER_TEMPORAL_CONTEXT = """## User Temporal Context
+
+- User timezone: {user_tz}
+- Current local time: {now_local}
+
+**Guidance**: Whenever you express a time to the user, or pass time arguments
+to tools, use the user's timezone above. For tools that require a separate
+`timezone` field (e.g. job_create), set it to "{user_tz}".
+"""
+
 SHORT_TERM_MEMORY_HEADER = """
 ## Short-Term Memory (Recent Other Topics)
 

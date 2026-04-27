@@ -31,8 +31,11 @@ export interface Job {
   payload?: string;
   trigger_config?: TriggerConfig;
   process?: string[];
-  next_run_time?: string;
-  last_run_time?: string;
+  // v2 timezone protocol: user-local naive ISO + IANA pair; no UTC exposure
+  next_run_at?: string;
+  next_run_timezone?: string;
+  last_run_at?: string;
+  last_run_timezone?: string;
   last_error?: string;
   notification_method?: string;
   created_at?: string;
@@ -67,7 +70,6 @@ export interface MarkReadResponse extends ApiResponse {
 export interface RoomMember {
   agent_id: string;
   agent_name: string;
-  matrix_user_id: string;  // compat alias — contains agent_id
 }
 
 export interface RoomMessage {
@@ -79,7 +81,7 @@ export interface RoomMessage {
   created_at?: string;
 }
 
-export interface MatrixRoom {
+export interface InboxRoom {
   room_id: string;
   room_name: string;
   members: RoomMember[];
@@ -89,7 +91,7 @@ export interface MatrixRoom {
 }
 
 export interface AgentInboxListResponse extends ApiResponse {
-  rooms: MatrixRoom[];
+  rooms: InboxRoom[];
   total_unread: number;
 }
 
@@ -157,7 +159,7 @@ export interface SimpleChatMessage {
   content: string;
   timestamp?: string;
   narrative_id?: string;
-  working_source?: string;  // "chat" | "job" | "matrix" | etc.
+  working_source?: string;  // "chat" | "job" | "lark" | etc.
   message_type?: string;    // "chat" (default) | "activity"
   event_id?: string;        // Associated Event ID (for loading event_log on demand)
 }
@@ -246,6 +248,40 @@ export interface LoginResponse extends ApiResponse {
   token?: string;  // JWT token (cloud mode)
   role?: string;   // 'user' | 'staff' (cloud mode)
 }
+
+// Response from /api/auth/register. Carries the optional system free-tier
+// quota fields so the client can render a welcome toast without a follow-up
+// API call. has_system_quota is false in local mode or when the feature is
+// disabled server-side.
+export interface RegisterResponse extends ApiResponse {
+  user_id?: string;
+  token?: string;
+  has_system_quota?: boolean;
+  initial_input_tokens?: number;
+  initial_output_tokens?: number;
+}
+
+// Response shape for GET /api/quota/me. Discriminated by `enabled` and
+// `status` so the UI can switch exhaustively without "is the feature on"
+// booleans scattered through the component tree.
+export type QuotaMeResponse =
+  | { enabled: false }
+  | { enabled: true; status: 'uninitialized' }
+  | {
+      enabled: true;
+      status: 'active' | 'exhausted' | 'disabled';
+      remaining_input_tokens: number;
+      remaining_output_tokens: number;
+      initial_input_tokens: number;
+      initial_output_tokens: number;
+      granted_input_tokens: number;
+      granted_output_tokens: number;
+      used_input_tokens: number;
+      used_output_tokens: number;
+      // User's choice: when true, route LLM calls through the system-default
+      // provider even when they have their own provider configured.
+      prefer_system_override: boolean;
+    };
 
 export interface CreateUserResponse extends ApiResponse {
   user_id?: string;
@@ -470,7 +506,7 @@ export type AgentKind =
   | 'A2A'
   | 'CALLBACK'
   | 'SKILL_STUDY'
-  | 'MATRIX';
+  | 'LARK';
 
 export interface MessageBusDetails {
   src_channel?: string | null;
@@ -519,7 +555,8 @@ export interface DashboardPendingJob {
   job_id: string;
   title: string;
   job_type: string;
-  next_run_time: string | null;
+  next_run_at: string | null;
+  next_run_timezone: string | null;
   /** v2.1 */
   description?: string | null;
   /** v2.1: which live state this queued job is in */
@@ -643,4 +680,44 @@ export type AgentStatus = OwnedAgentStatus | PublicAgentStatus;
 
 export interface DashboardResponse extends ApiResponse {
   agents: AgentStatus[];
+}
+
+// Lark / Feishu Integration types
+export interface LarkCredentialData {
+  agent_id: string;
+  app_id: string;
+  brand: string;
+  bot_name: string;
+  owner_open_id: string;
+  owner_name: string;
+  auth_status: string;
+  is_active: boolean;
+}
+
+export interface LarkCredentialResponse extends ApiResponse {
+  data: LarkCredentialData | null;
+}
+
+export interface LarkBindResponse extends ApiResponse {
+  data?: {
+    profile_name: string;
+    brand: string;
+    app_id: string;
+    auth_status: string;
+    owner_open_id: string;
+    owner_name: string;
+  };
+}
+
+export interface LarkAuthLoginResponse extends ApiResponse {
+  data?: {
+    verification_url?: string;
+    verification_uri?: string;
+    device_code?: string;
+    user_code?: string;
+  };
+}
+
+export interface LarkAuthCompleteResponse extends ApiResponse {
+  data?: Record<string, unknown>;
 }

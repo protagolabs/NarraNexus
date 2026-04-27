@@ -11,6 +11,7 @@ Per design document:
 - Instance belongs to a specific Narrative
 """
 
+import os
 from abc import ABC, abstractmethod
 from typing import Optional, List, Any, TYPE_CHECKING
 
@@ -31,6 +32,20 @@ from xyz_agent_context.utils.mcp_executor import list_mcp_tools
 
 if TYPE_CHECKING:
     from xyz_agent_context.utils.database import AsyncDatabaseClient
+
+
+def mcp_host() -> str:
+    """
+    Resolve the host used to reach MCP servers from this process.
+
+    Defaults to 127.0.0.1 so single-host / systemd / `bash run.sh`
+    deployments keep working. In container setups where MCP runs in a
+    separate container (e.g. Docker Compose on one EC2, or Phase 2
+    Fargate), set MCP_HOST to the container / service name so loopback
+    calls resolve across the network instead of hitting the caller's own
+    loopback.
+    """
+    return os.getenv("MCP_HOST", "127.0.0.1")
 
 
 class XYZBaseModule(ABC):
@@ -55,13 +70,10 @@ class XYZBaseModule(ABC):
     - Data is stored in respective database tables
 
     MCP database connection:
-    - Each MCP server manages its own database connection
-    - Use get_mcp_db_client() in MCP tools to get the connection
-    - Connections are automatically cleaned up when MCP server shuts down
+    - MCP tools call `get_mcp_db_client()` which thin-wraps `get_db_client()`
+    - No per-class cache — the factory is already loop-aware and rebuilds
+      the aiomysql pool when the current running loop changes.
     """
-
-    # MCP-specific database connection (class variable, independent per MCP process)
-    _mcp_db_client: Optional["AsyncDatabaseClient"] = None
 
     def __init__(
         self,
@@ -100,13 +112,16 @@ class XYZBaseModule(ABC):
     @classmethod
     async def get_mcp_db_client(cls) -> "AsyncDatabaseClient":
         """
-        Get the MCP-specific database client
+        Get the shared async database client for MCP tool handlers.
 
-        Each MCP server (independent process) manages its own database connection.
-        This avoids issues with sharing connection pools across processes/event loops.
-
-        Returns:
-            AsyncDatabaseClient instance
+        Delegates directly to `get_db_client()` without an extra class-level
+        cache. The factory already keeps a single AsyncDatabaseClient and is
+        event-loop aware — it rebuilds the aiomysql pool when the current
+        running loop changes. Adding a class-level `_mcp_db_client` cache on
+        top of that used to hide the loop-change signal: once the cached
+        reference was set, subsequent tool calls bypassed the factory and
+        received a pool bound to a dead or different loop, producing
+        "Future attached to a different loop" errors from `Pool._wakeup()`.
 
         Example:
             @mcp.tool()
@@ -115,25 +130,18 @@ class XYZBaseModule(ABC):
                 result = await db.get_one("table", {"id": arg})
                 return str(result)
         """
-        if cls._mcp_db_client is None:
-            from xyz_agent_context.utils.db_factory import get_db_client
-            logger.info(f"Creating MCP-specific AsyncDatabaseClient for {cls.__name__}")
-            cls._mcp_db_client = await get_db_client()
-            logger.success(f"MCP AsyncDatabaseClient created for {cls.__name__}")
-        return cls._mcp_db_client
+        from xyz_agent_context.utils.db_factory import get_db_client
+        return await get_db_client()
 
     @classmethod
     async def close_mcp_db_client(cls) -> None:
         """
-        Close the MCP-specific database client
+        No-op kept for API compatibility.
 
-        Typically called when the MCP server shuts down.
+        The factory owns the shared client's lifecycle. Shutting MCP down
+        should call `close_db_client()` from db_factory instead.
         """
-        if cls._mcp_db_client is not None:
-            logger.info(f"Closing MCP AsyncDatabaseClient for {cls.__name__}")
-            await cls._mcp_db_client.close()
-            cls._mcp_db_client = None
-            logger.success(f"MCP AsyncDatabaseClient closed for {cls.__name__}")
+        return None
 
     # =========================================================================
     # Functional Information

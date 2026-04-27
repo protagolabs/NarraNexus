@@ -15,7 +15,7 @@ Provides endpoints for:
 
 import os
 from uuid import uuid4
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
@@ -121,7 +121,7 @@ async def login(request: LoginRequest):
 
 
 @router.post("/register", response_model=RegisterResponse)
-async def register(request: RegisterRequest):
+async def register(request: RegisterRequest, http_request: Request):
     """
     Register a new user (cloud mode only). Requires invite code.
     """
@@ -166,10 +166,31 @@ async def register(request: RegisterRequest):
         token = create_token(request.user_id, "user")
         logger.info(f"User {request.user_id} registered successfully")
 
+        # Seed the system-default free-tier quota row for the new user.
+        # Failures here must NOT fail the registration itself — the user
+        # still gets their account, they just don't get the free tier
+        # this run (staff can fix post-hoc via /api/admin/quota/init).
+        quota_row = None
+        quota_service = getattr(http_request.app.state, "quota_service", None)
+        if quota_service is not None:
+            try:
+                quota_row = await quota_service.init_for_user(request.user_id)
+            except Exception as e:
+                logger.error(
+                    f"register: failed to init quota for {request.user_id}: {e}"
+                )
+
         return RegisterResponse(
             success=True,
             user_id=request.user_id,
             token=token,
+            has_system_quota=quota_row is not None,
+            initial_input_tokens=(
+                quota_row.initial_input_tokens if quota_row else 0
+            ),
+            initial_output_tokens=(
+                quota_row.initial_output_tokens if quota_row else 0
+            ),
         )
 
     except Exception as e:
@@ -289,7 +310,7 @@ async def create_agent(request: CreateAgentRequest):
 
         logger.info(f"Agent created: {agent_id}, record_id: {record_id}")
 
-        # Compute workspace path (used by bootstrap + matrix registration)
+        # Compute workspace path (used by bootstrap)
         from xyz_agent_context.settings import settings
         workspace_path = os.path.join(
             settings.base_working_path,
@@ -645,6 +666,43 @@ async def delete_agent(
                 logger.info(f"Deleted workspace: {workspace_path}")
         except Exception as e:
             logger.warning(f"Workspace cleanup failed (non-critical): {e}")
+
+        # 14. Lark credentials + CLI profile + workspace + inbox data
+        try:
+            lark_cred = await db_client.get_one("lark_credentials", {"agent_id": agent_id})
+            if lark_cred:
+                # Remove CLI profile via the shared client — it handles HOME
+                # override and keychain cleanup regardless of which bind path
+                # created this credential.
+                from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
+                from xyz_agent_context.module.lark_module._lark_workspace import cleanup_workspace
+                try:
+                    await LarkCLIClient().profile_remove(agent_id)
+                except Exception as e:
+                    logger.debug(f"profile_remove best-effort failed for {agent_id}: {e}")
+                # Blow away the workspace directory (idempotent)
+                cleanup_workspace(agent_id)
+
+                # Clean up lark inbox channels
+                all_members = await db_client.get("bus_channel_members", {"agent_id": agent_id})
+                for m in all_members:
+                    cid = m.get("channel_id", "")
+                    if cid.startswith("lark_"):
+                        await db_client.delete("bus_channel_members", {"channel_id": cid, "agent_id": agent_id})
+                        remaining = await db_client.get("bus_channel_members", {"channel_id": cid})
+                        if not remaining:
+                            await db_client.delete("bus_messages", {"channel_id": cid})
+                            await db_client.delete("bus_channels", {"channel_id": cid})
+                # Delete credential
+                result = await db_client.execute(
+                    "DELETE FROM lark_credentials WHERE agent_id = %s",
+                    (agent_id,), fetch=False,
+                )
+                cnt = result if isinstance(result, int) else 0
+                if cnt > 0:
+                    stats["lark_credentials"] = cnt
+        except Exception as e:
+            logger.warning(f"Lark cleanup failed (non-critical): {e}")
 
         # 15. The Agent itself
         result = await db_client.execute(

@@ -33,3 +33,16 @@ The agent runtime calls multiple LLM APIs (Claude via the Anthropic SDK, OpenAI 
 **`ContextVar` does not propagate to `asyncio.create_task()` by default in Python < 3.7.1.** In modern Python (3.7.1+), `create_task` copies the current context, so child tasks see the parent's cost context. This is the expected behavior, but be aware that manually creating a new `Context` object and running a coroutine in it will lose the cost context.
 
 **New-contributor trap.** The `MODEL_PRICING` dict uses the exact model name strings that our SDK wrappers pass. If a model name changes (e.g., a new GPT version), the pricing entry must be updated by the same name string. A model name mismatch causes `calculate_cost` to return 0.0 silently, which means the cost is not recorded but no error is raised.
+
+## 2026-04-16 addition — system-default quota deduct hook
+
+`record_cost` now ends with an optional post-hook that deducts the
+system-default free-tier budget when `provider_source == "system"` and
+`current_user_id` is present (both ContextVars from `api_config.py`,
+set by ProviderResolver / auth_middleware respectively). The hook is
+best-effort — any failure (import error, uninitialised QuotaService,
+DB outage) is logged and swallowed so cost-tracking never blocks the
+user response. When the quota module is absent (local mode / tests
+that do not call `QuotaService.set_default`), the hook is a silent
+no-op. `user` / `None` provider_source values trigger nothing — the
+invariant is "only deduct on the system branch".

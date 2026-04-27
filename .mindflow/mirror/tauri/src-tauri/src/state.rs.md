@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/state.rs
-last_verified: 2026-04-10
+last_verified: 2026-04-23
 ---
 
 # state.rs — AppState, ServiceDef, and path resolution for the Tauri app
@@ -44,15 +44,19 @@ choose the right commands based on this.
 `dev_services` prefixes all commands with `uv run python ...` for the
 virtual-env-managed dev workflow.
 
-Both factories define the same six services in the same order:
+Both factories define the same seven services in the same order:
 1. sqlite_proxy (order 0, 3 s startup delay)
-2. backend (order 1)
+2. backend (order 1) — uvicorn args include `--ws-ping-interval 30
+   --ws-ping-timeout 60` so long-running Agent turns don't drop the WS stream
 3. mcp (order 2)
 4. poller (order 3)
 5. job_trigger (order 4)
 6. message_bus_trigger (order 5)
+7. lark_trigger (order 6)
 
 **These MUST stay in sync with `scripts/dev-local.sh` (CLAUDE.md rule #7).**
+Specifically the backend uvicorn ws-ping args above — mismatching the two
+makes chat streams drop on the dmg while they survive on dev.
 
 ## The SQLite proxy startup delay
 
@@ -60,6 +64,22 @@ Order 0 (sqlite_proxy) has `startup_delay_ms: Some(3000)`. This mirrors the
 `sleep 3` in `scripts/dev-local.sh`. Without this delay, backend/mcp/poller
 try to connect to the proxy before it binds port 8100 and crash. The value
 was chosen empirically — on slow machines 3 s may not be enough.
+
+## Bundled Node.js + CLI helper
+
+`resolve_bundled_node_bins()` returns the two directories that must be on
+PATH for every Python child process when running from the dmg:
+  `resources/nodejs/bin` (real node interpreter) and
+  `resources/nodejs/node_modules/.bin` (the `claude` / `lark-cli` shims).
+
+Layout is produced by `scripts/build-desktop.sh` step 3.5-3.6. In dev mode
+the helper returns an empty Vec — dev users already have node + CLIs on
+their shell PATH.
+
+`sidecar::process_manager::start_service` reads this helper and prepends the
+paths to the PATH env var it passes each child. Without that prefix,
+`claude_agent_sdk` cannot find the `claude` binary and the chat loop dies
+with "No such file or directory".
 
 ## Gotchas
 

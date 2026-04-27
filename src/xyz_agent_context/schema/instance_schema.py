@@ -92,7 +92,11 @@ class ModuleInstanceRecord(BaseModel):
     state: Optional[Dict[str, Any]] = Field(default=None, description="Runtime state")
 
     # ===== Retrieval Support =====
-    routing_embedding: Optional[List[float]] = Field(default=None, description="1536-dimensional vector for semantic retrieval")
+    # Legacy single-model column kept for backward compatibility. The
+    # canonical multi-model store is the `embeddings_store` table, keyed
+    # by (entity_type, entity_id, model). Read paths must tolerate dim
+    # mismatches between this column and the currently-active model.
+    routing_embedding: Optional[List[float]] = Field(default=None, description="Routing embedding vector (current-model dimension; legacy column)")
     keywords: List[str] = Field(default_factory=list, description="Keyword tags")
     topic_hint: str = Field(default="", description="Topic description/summary")
 

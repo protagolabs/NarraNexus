@@ -32,14 +32,29 @@ from xyz_agent_context.agent_framework.api_config import embedding_config
 
 
 def use_embedding_store() -> bool:
-    """Check if the new embeddings_store path should be used.
+    """Gate for the `embeddings_store` (new path) vs. legacy per-row columns.
 
-    Returns True when llm_config.json exists (user has configured the new
-    provider system). Returns False for legacy .env-only users, who should
-    continue reading from old table columns.
+    The new path is the correct one for any multi-user / multi-model
+    deployment: it is keyed by ``(entity_type, entity_id, model)`` so
+    switching models or running more than one model side-by-side does not
+    corrupt reads. Dual-writes have been in place since the table was
+    introduced, so `embeddings_store` is reliably populated at write time
+    on every deployment.
+
+    The previous file-existence gate (`llm_config.json`) returned False on
+    cloud — where each user's providers live in `user_providers` instead of
+    a global JSON file — causing cloud reads to silently fall back to
+    last-write-wins legacy columns. That was the actual mechanism behind
+    Bug 11 ("embedding model 切换之后和原先的逻辑还有冲突"): every cloud
+    user shared the same legacy column with whichever model happened to
+    write last.
+
+    Returning True unconditionally makes reads consult the model-aware
+    store. When a user has no embedding for the active model yet, the
+    EmbeddingBanner / EmbeddingStatus UI surfaces the gap so they can
+    trigger a per-user rebuild.
     """
-    from xyz_agent_context.agent_framework.provider_registry import provider_registry
-    return provider_registry.config_exists()
+    return True
 
 
 async def _get_repo():

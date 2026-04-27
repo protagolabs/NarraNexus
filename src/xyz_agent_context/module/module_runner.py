@@ -84,7 +84,6 @@ from xyz_agent_context.module import XYZBaseModule, MODULE_MAP
 from xyz_agent_context.module.awareness_module.awareness_module import AwarenessModule
 from xyz_agent_context.module.social_network_module import SocialNetworkModule
 from xyz_agent_context.module.job_module.job_module import JobModule
-from xyz_agent_context.module.gemini_rag_module.gemini_rag_module import GeminiRAGModule
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client, get_db_client_sync
@@ -94,16 +93,16 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client, get_db_client
 # Default Configuration
 # =============================================================================
 
-# Modules that have MCP servers and their fixed ports
-# Note: Each module defines its own port internally
+# Modules that have MCP servers and their fixed ports.
 DEFAULT_MCP_MODULES = [
     "AwarenessModule",      # port: 7801
     "ChatModule",           # port: 7804
     "SocialNetworkModule",  # port: 7802
     "JobModule",            # port: 7803
-    "GeminiRAGModule",      # port: 7805
     "SkillModule",          # port: 7806
+    "CommonToolsModule",    # port: 7807
     "MessageBusModule",     # port: 7820
+    "LarkModule",           # port: 7830
 ]
 
 # Port reference (for documentation only - actual ports are set in each module)
@@ -112,9 +111,10 @@ MODULE_PORTS = {
     "ChatModule": 7804,
     "SocialNetworkModule": 7802,
     "JobModule": 7803,
-    "GeminiRAGModule": 7805,
     "SkillModule": 7806,
+    "CommonToolsModule": 7807,
     "MessageBusModule": 7820,
+    "LarkModule": 7830,
 }
 
 
@@ -145,7 +145,14 @@ class ModuleRunner:
     """
 
     def __init__(self):
-        self.db = get_db_client_sync()
+        # Do not eagerly call get_db_client_sync() here: it runs
+        # asyncio.run(AsyncDatabaseClient.create()), which tears down the
+        # temporary loop and leaves the aiomysql pool bound to a dead loop.
+        # Any later async call from a different event loop (MCP's anyio
+        # TaskGroup in particular) blows up with "Future attached to a
+        # different loop". MCP tools use XYZBaseModule.get_mcp_db_client(),
+        # which lazy-creates the pool inside the MCP server's own loop.
+        pass
 
     # =========================================================================
     # Module Resolution
@@ -234,16 +241,37 @@ class ModuleRunner:
         mcp_server = module.create_mcp_server()
         if mcp_server is not None:
             logger.info(f"Starting MCP server for {module.__class__.__name__}")
+            # FastMCP's __init__ hardcodes host=127.0.0.1 and auto-enables
+            # DNS rebinding protection when host is localhost. In a multi-
+            # container deployment (Docker compose on EC2, MySQL mode that
+            # routes here via multiprocessing), that blocks backend/poller/
+            # jobs/bus/lark from reaching MCP via the `mcp` service name.
+            # Mirror the fix that _serve_one_mcp applies in async mode.
+            mcp_server.settings.host = "0.0.0.0"
+            from mcp.server.transport_security import TransportSecuritySettings
+            mcp_server.settings.transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=False,
+            )
             mcp_server.run("sse")
         else:
             raise ValueError(f"Module {module.__class__.__name__} does not have an MCP server")
 
     @staticmethod
     def _run_single_mcp(module_class, agent_id: str, user_id: Optional[str] = None):
-        """Run a single MCP server in an independent process."""
-        db = get_db_client_sync()
+        """Run a single MCP server in an independent process.
+
+        The module is constructed with database_client=None on purpose: in
+        the MCP subprocess, MCP tools obtain the pool via
+        XYZBaseModule.get_mcp_db_client() (which calls `await get_db_client()`
+        inside the MCP event loop), so the aiomysql pool binds to that loop.
+        Eagerly calling get_db_client_sync() here used to build the pool in
+        a temporary asyncio.run() loop that was torn down before MCP even
+        started, leaving the singleton attached to a dead loop and every
+        subsequent MCP tool call crashing with "Future attached to a
+        different loop".
+        """
         user = user_id or agent_id
-        module = module_class(agent_id=agent_id, user_id=user, database_client=db)
+        module = module_class(agent_id=agent_id, user_id=user, database_client=None)
         runner = ModuleRunner()
         runner.run_mcp_server(module)
 
@@ -339,8 +367,11 @@ class ModuleRunner:
         """
         Run multiple MCP servers concurrently in a single process using asyncio.
 
-        This is more lightweight than multiprocessing but all servers share
-        the same process. Useful for development or resource-constrained environments.
+        All MCP servers share a single event loop inside the same process.
+        This is intentional: aiomysql.Pool binds its internal Futures to
+        the loop that created the pool, so mixing loops (threads, nested
+        anyio.run, multiprocessing) causes "Future attached to a
+        different loop" errors. See PLAN-2026-04-22-mcp-single-loop.md.
 
         Args:
             agent_id: Agent ID for data isolation
@@ -391,42 +422,59 @@ class ModuleRunner:
 
         logger.info(f"\n✅ {len(instances)} MCP servers ready to start")
 
-        # Run all MCP servers in threads within a single process.
-        # This shares one SQLite connection, avoiding cross-process write lock contention.
-        import threading
+        # All MCP servers run on THIS loop via asyncio.gather. No threads,
+        # no nested anyio.run. One loop means one answer from
+        # asyncio.get_event_loop(), which is what keeps aiomysql.Pool's
+        # internal Futures (Pool._wakeup / Connection._loop) bound to the
+        # same loop that is actually processing requests. See
+        # PLAN-2026-04-22-mcp-single-loop.md for the full root-cause
+        # analysis and POC evidence.
+        from mcp.server.transport_security import TransportSecuritySettings
 
-        threads: list[threading.Thread] = []
+        coros = []
         for module_name, mcp_server in instances:
-            port = MODULE_PORTS.get(module_name, 7800 + len(threads))
-            logger.info(f"  🚀 {module_name} → http://localhost:{port}/sse")
+            port = MODULE_PORTS.get(module_name, 7800 + len(coros))
+            logger.info(f"  🚀 {module_name} → http://0.0.0.0:{port}/sse")
+            coros.append(self._serve_one_mcp(mcp_server, module_name, port))
 
-            t = threading.Thread(
-                target=self._run_mcp_in_thread,
-                args=(mcp_server, module_name, port),
-                daemon=True,
-            )
-            t.start()
-            threads.append(t)
-
-        logger.info(f"\n✅ {len(threads)} MCP servers running (single-process, threaded)")
+        logger.info(
+            f"\n✅ {len(coros)} MCP servers running (single-process, single-loop)"
+        )
 
         try:
-            for t in threads:
-                t.join()
+            await asyncio.gather(*coros)
+        except asyncio.CancelledError:
+            logger.info("MCP servers cancelled")
         except KeyboardInterrupt:
             logger.info("Stopping MCP servers...")
 
     @staticmethod
-    def _run_mcp_in_thread(mcp_server: Any, module_name: str, port: int) -> None:
-        """Run a single MCP server in its own thread with a fresh event loop."""
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    async def _serve_one_mcp(mcp_server: Any, module_name: str, port: int) -> None:
+        """Run a single FastMCP SSE server on the caller's event loop.
+
+        Uses `run_sse_async` (not `run("sse")`) because `run` internally
+        calls `anyio.run()`, which creates a brand-new loop inside the
+        caller — exactly the scenario the single-loop architecture is
+        designed to prevent.
+        """
+        from mcp.server.transport_security import TransportSecuritySettings
+
+        mcp_server.settings.host = "0.0.0.0"
+        mcp_server.settings.port = port
+        # FastMCP auto-enables DNS rebinding protection when host is
+        # 127.0.0.1 at init time; flipping host afterward does not clear
+        # it. Set the policy explicitly so other containers can reach
+        # MCP servers by Docker service name (e.g. "mcp:7803").
+        mcp_server.settings.transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        )
         try:
-            mcp_server.settings.port = port
-            mcp_server.run(transport="sse")
+            await mcp_server.run_sse_async()
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"MCP server {module_name} crashed: {e}")
+            raise
 
     # ============================================================================= A2A API Server
     @staticmethod
@@ -664,7 +712,10 @@ MCP Servers (default ports):
   - SocialNetworkModule: http://localhost:7802/sse
   - JobModule:           http://localhost:7803/sse
   - ChatModule:          http://localhost:7804/sse
-  - GeminiRAGModule:     http://localhost:7805/sse
+  - SkillModule:         http://localhost:7806/sse
+  - CommonToolsModule:   http://localhost:7807/sse
+  - MessageBusModule:    http://localhost:7820/sse
+  - LarkModule:          http://localhost:7830/sse
 
 Supported JSON-RPC Methods:
   - agentCard/get         Get Agent Card

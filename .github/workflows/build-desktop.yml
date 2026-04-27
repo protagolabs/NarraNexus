@@ -63,11 +63,23 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
 
-      - name: Build Tauri app (unsigned)
+      - name: Build Tauri app (signed + notarized)
         run: cd tauri && cargo tauri build
         env:
           CI: true
-          APPLE_SIGNING_IDENTITY: '-'
+          # Tauri's macOS bundler reads these env vars to:
+          #   1. import the .p12 into a temp keychain
+          #   2. codesign with Developer ID
+          #   3. submit to Apple notary service and staple the ticket
+          # Configure these as GitHub Repository Secrets (Settings →
+          # Secrets and variables → Actions). If any are missing the
+          # build falls back to ad-hoc unsigned and notarization is skipped.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Normalize artifact filenames (stable name across versions)
         run: |
@@ -87,8 +99,10 @@ jobs:
             dist/NarraNexus.app.tar.gz
           tag_name: ${{ github.ref_name }}
           name: 'NarraNexus ${{ github.ref_name }}'
-          body: 'Unsigned development build. On macOS, right-click the app → Open to bypass Gatekeeper.'
+          body: |
+            Signed and notarized macOS build for Apple Silicon.
+            Drag NarraNexus.app to /Applications and double-click — no Gatekeeper bypass needed.
           draft: true
-          prerelease: true
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

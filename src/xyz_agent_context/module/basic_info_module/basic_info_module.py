@@ -10,7 +10,6 @@ According to the design document:
 - Note: Basic Info Module itself does not include "multi-turn conversation" capability; multi-turn conversation requires Social-Network or Memory modules
 """
 
-from datetime import datetime
 from typing import Optional, List
 from loguru import logger
 
@@ -28,9 +27,62 @@ from xyz_agent_context.schema import (
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient
+from xyz_agent_context.utils.timezone import (
+    utc_now,
+    to_user_timezone,
+    is_valid_timezone,
+)
 
 # Prompts
-from xyz_agent_context.module.basic_info_module.prompts import BASIC_INFO_MODULE_INSTRUCTIONS
+from xyz_agent_context.module.basic_info_module.prompts import (
+    BASIC_INFO_MODULE_INSTRUCTIONS,
+    DEPLOYMENT_CONTEXT_CLOUD,
+    DEPLOYMENT_CONTEXT_LOCAL,
+)
+from xyz_agent_context.utils.deployment_mode import get_deployment_mode
+
+
+_WEEKDAY_NAMES = [
+    "Monday", "Tuesday", "Wednesday", "Thursday",
+    "Friday", "Saturday", "Sunday",
+]
+
+
+def _format_current_time_for_agent(user_tz: str) -> str:
+    """Render the current time in a form an agent can reason about.
+
+    Previous implementation used ``datetime.now().isoformat()`` which has
+    three problems:
+      1. Naive datetime (no timezone suffix) — the agent couldn't tell if
+         it was UTC, server-local, or user-local. Observed symptom: agent
+         would see a timestamp that disagreed with a search result and
+         explain it away as "server relative time" instead of catching
+         the mismatch.
+      2. Used server's local clock, which diverges from the user's
+         perceived "now" when backend runs in UTC and user is in Asia.
+      3. No weekday / human-readable anchor for day-of-week reasoning
+         ("this week's meeting" etc.).
+
+    We now emit: ``2026-04-21 17:45:08 +08:00 (Tuesday, Asia/Shanghai)``
+    — explicit offset, resolved in the user's timezone, weekday labelled.
+    Falls back to UTC when user_tz is unknown or invalid.
+    """
+    now_utc = utc_now()
+    # Validate tz up front so we label with "UTC" instead of echoing the
+    # invalid string (keeps the time correct either way).
+    effective_tz = user_tz if user_tz and is_valid_timezone(user_tz) else "UTC"
+    local = to_user_timezone(now_utc, effective_tz)
+    if local is None:
+        local = now_utc
+
+    weekday = _WEEKDAY_NAMES[local.weekday()]
+    # ISO-ish but with a space instead of T for readability, and an explicit
+    # UTC offset. Example: "2026-04-21 17:45:08 +08:00".
+    base = local.strftime("%Y-%m-%d %H:%M:%S %z")
+    # %z gives "+0800"; insert the colon for "+08:00" (what LLMs commonly see).
+    if len(base) >= 5 and base[-5] in ("+", "-"):
+        base = base[:-2] + ":" + base[-2:]
+    return f"{base} ({weekday}, {effective_tz})"
 
 class BasicInfoModule(XYZBaseModule):
     """
@@ -73,9 +125,23 @@ class BasicInfoModule(XYZBaseModule):
         """
         logger.debug(f"          → BasicInfoModule.data_gathering() started for agent_id={self.agent_id}")
 
-        # 1. Get current time
-        current_time = datetime.now().isoformat()
-        ctx_data.current_time = current_time
+        # 1. Get current time — resolved in the user's timezone, with
+        # explicit UTC offset and weekday so the agent can reliably sanity-
+        # check time references in search results / scheduling tools.
+        user_tz = await self._get_user_timezone()
+        ctx_data.current_time = _format_current_time_for_agent(user_tz)
+
+        # 1.5. Deployment environment — tell the agent whether it's
+        # running on a shared cloud server or the user's own machine.
+        # The two modes have fundamentally different filesystem / global-
+        # install / credential semantics; the rest of the rule system
+        # (SkillModule prompts, _tool_policy_guard) keys off this.
+        mode = get_deployment_mode()
+        ctx_data.deployment_mode = mode
+        ctx_data.deployment_context = (
+            DEPLOYMENT_CONTEXT_CLOUD if mode == "cloud"
+            else DEPLOYMENT_CONTEXT_LOCAL
+        )
 
         # 2. Get Agent information from database
         try:
@@ -112,6 +178,24 @@ class BasicInfoModule(XYZBaseModule):
 
         logger.debug("          BasicInfoModule.data_gathering() completed")
         return ctx_data
+
+    async def _get_user_timezone(self) -> str:
+        """Look up the current user's preferred timezone (IANA string).
+
+        Falls back to UTC if lookup fails or user has no preference set.
+        Kept lenient because `current_time` injection is best-effort —
+        a missing tz should degrade to "unknown tz" rather than fail the
+        whole turn.
+        """
+        if not self.user_id or not self.db:
+            return "UTC"
+        try:
+            from xyz_agent_context.repository.user_repository import UserRepository
+            tz = await UserRepository(self.db).get_user_timezone(self.user_id)
+            return tz or "UTC"
+        except Exception as e:
+            logger.debug(f"_get_user_timezone fallback to UTC: {e}")
+            return "UTC"
 
     # ============================================================================= MCP Server
 

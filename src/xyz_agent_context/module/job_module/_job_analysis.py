@@ -133,11 +133,13 @@ def build_job_analysis_prompt(
         if awareness:
             awareness_info = str(awareness)[:500]
 
+    # v2 timezone protocol: display times in the job's frozen timezone, not UTC
+    job_tz = (trigger_config or {}).get("timezone", "UTC")
     prompt = f"""
 Analyze job execution results and determine the job status.
 
-## Current Time (UTC)
-{current_time.strftime("%Y-%m-%dT%H:%M:%S")}Z ({current_time.strftime("%A")})
+## Current Time ({job_tz})
+Now, in the user's frozen timezone for this job.
 
 ## Job Information
 
@@ -148,15 +150,15 @@ Analyze job execution results and determine the job status.
 **Payload**: {job_info.get("payload", "N/A")}
 
 ### Trigger Configuration
+- **Timezone**: {job_tz}
 - **End Condition**: {end_condition or "None"}
 - **Interval (seconds)**: {interval_seconds or "N/A"}
 - **Max Iterations**: {max_iterations or "No limit"}
 - **Current Iteration**: {iteration_count}
 
-### Time References (all UTC)
-- **Created at**: {job_info.get("created_at", "N/A")}
-- **Last run time**: {job_info.get("last_run_time", "N/A")}
-- **Previous next_run_time**: {job_info.get("next_run_time", "N/A")}
+### Time References ({job_tz})
+- **Last run (local)**: {job_info.get("last_run_at_local", "N/A")}
+- **Next fire (local, scheduled)**: {job_info.get("next_run_at_local", "N/A")}
 
 ### Previous Execution History
 {chr(10).join(f"- {p}" for p in previous_process[-5:]) if previous_process else "No previous executions"}
@@ -195,13 +197,7 @@ This job runs repeatedly until the end_condition is satisfied OR max_iterations 
    - end_condition NOT MET → "active" (continue running)
    - execution error/exception → "failed"
 
-**Scheduling (all times in UTC):**
-Default next_run_time = current_time + interval_seconds. You may adjust slightly:
-- Close to achieving end_condition → slightly shorter interval
-- Far from end_condition → slightly longer interval
-- Do NOT deviate more than 2x from the configured interval without strong justification
-
-**Note**: Refer to the Agent Awareness section above for specific guidance on how to evaluate the end_condition in this context.
+**Note**: Refer to the Agent Awareness section above for specific guidance on how to evaluate the end_condition in this context. The scheduling (next_run_time) is computed deterministically from trigger_config after your decision — you only need to determine status.
 """
     elif job_type == "one_off":
         prompt += """
@@ -212,7 +208,6 @@ This job runs only once.
 **Status Determination:**
 - execution succeeded → "completed"
 - execution failed → "failed"
-- next_run_time should be null
 """
     elif job_type == "scheduled":
         prompt += f"""
@@ -223,10 +218,6 @@ This job runs on a schedule (interval: {interval_seconds}s, cron: {trigger_confi
 **Status Determination:**
 - execution succeeded → "active" (waiting for next run)
 - execution failed → "failed"
-
-**Scheduling (all times in UTC):**
-Default next_run_time = current_time + interval_seconds (or next cron time).
-You may adjust slightly based on context, but stay close to the configured interval.
 """
 
     prompt += """
@@ -251,18 +242,14 @@ Based on the execution results and context above, determine:
 
 3. **process**: 2-5 concise action descriptions from this execution
 
-4. **next_run_time**: ISO 8601 **UTC** format ("YYYY-MM-DDTHH:MM:SSZ") or null
-   - **IMPORTANT: All times MUST be in UTC.** The Current Time above is UTC. Your output must also be UTC.
-   - completed/failed → null
-   - active → Default: current_time + interval_seconds (or next cron time)
-     * You may adjust slightly based on context, but stay close to the configured interval
-     * Do NOT shift by hours unless there is a very strong reason
+4. **last_error**: Error description if failed, else null
 
-5. **last_error**: Error description if failed, else null
+5. **should_notify**: true if user should be notified, false if trivial
 
-6. **should_notify**: true if user should be notified, false if trivial
+6. **notification_summary**: 1-2 sentence summary for user
 
-7. **notification_summary**: 1-2 sentence summary for user
+**Do not** attempt to set `next_run_time`. Scheduling is computed from
+`trigger_config` deterministically by the system after your decision.
 """
 
     return prompt
