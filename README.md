@@ -25,6 +25,97 @@ An agent in isolation is a tool. An agent with persistent memory, social identit
 
 NarraNexus provides the infrastructure for this: narrative memory that grows across conversations, a social graph that tracks real-world relationships, task scheduling with dependency chains, and modular capabilities that can be composed at runtime.
 
+
+
+## Quick Start
+
+### Download the App
+
+You can find the latest version here (ending with .dmg): https://github.com/protagolabs/NarraNexus/releases
+
+### Online Version
+
+Try NarraNexus online with **one click**, claim free credits here: https://agent.narra.nexus
+
+## Development Guide
+
+### Install from Source
+
+```bash
+git clone https://github.com/NetMindAI-Open/NarraNexus.git
+cd NarraNexus
+bash run.sh
+```
+
+The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, and configuration. Just follow the prompts.
+
+After setup, you will see the image below。 Then, 
+1. open `http://localhost:5173` in your browser to enter UI interface, 
+  a. Chooose **Local** or **Cloud** mode to register an account.
+2. `http://localhost:8000/docs` for API Docs.
+<br/>
+
+![Install Interface](docs/images/install-interface-v2.png)
+<p align="center"><em>Setup complete — ready to open the interface</em></p>
+
+More options
+
+## LLM Provider Configuration
+
+NarraNexus uses a **three-slot** architecture for LLM access:
+
+| Slot | Protocol | Purpose |
+|------|----------|---------|
+| **Agent** | Anthropic | Core reasoning -- powers the agent's thinking, tool use, and multi-turn conversations |
+| **Embedding** | OpenAI | Converts text to vectors for narrative matching and semantic search |
+| **Helper LLM** | OpenAI | Lightweight tasks -- entity extraction, summarization, module decisions |
+
+### Setup Options
+
+| Option | What you need | Result |
+|--------|--------------|--------|
+| **[NetMind.AI Power](https://www.netmind.ai/)** | One API key | Covers all 3 slots. Quickest setup. |
+| **Claude Code Login + OpenAI** | Claude Code CLI login + OpenAI API key | Agent via OAuth (free tier available), rest via OpenAI |
+| **Anthropic + OpenAI** | Anthropic API key + OpenAI API key | Full control over both providers |
+| **Custom endpoints** | Any Anthropic/OpenAI compatible URL | For proxies, self-hosted models, or alternatives |
+
+> **Note**: Currently only **OpenAI official API** and **NetMind.AI Power** are supported for embedding. More providers coming soon.
+
+Configure through the setup wizard (desktop app) or the LLM Providers panel (web UI, click the CPU icon in the header). Config is stored at `~/.nexusagent/llm_config.json`.
+
+### Optional API Keys
+
+| Dependency | Purpose | How to get |
+|------------|---------|------------|
+| **Google Gemini** | RAG Knowledge Base (Gemini File Search) | [aistudio.google.com](https://aistudio.google.com/apikey) |
+| **EverMemOS LLM** | Long-term memory extraction | [OpenRouter](https://openrouter.ai/) (default) |
+| **EverMemOS Embedding/Rerank** | Semantic search over memories | [DeepInfra](https://deepinfra.com/) (default) |
+
+If not configured, the agent still works -- just without long-term memory features.
+
+## Configure Long-term Memory (EverMemOS)
+
+EverMemOS gives the agent long-term episodic memory. On first run, `bash run.sh` walks you through an interactive setup wizard. All options are skippable:
+
+| What you configure | Result |
+|--------------------|--------|
+| **Nothing** | Agent works normally, memory features disabled |
+| **LLM key only** | Memory extraction enabled, semantic search needs additional keys |
+| **All keys** | Full long-term memory -- cloud-based, no GPU required **(recommended)** |
+
+You can also edit `.evermemos/.env` manually at any time. See the [EverMemOS documentation](https://github.com/EverMind-AI/EverMemOS) for details.
+
+## Potential Missing Dependencies
+
+**Windows users**: WSL2 is **required**. Install it first in PowerShell (Admin): `wsl --install`, then run all commands inside WSL2.
+
+**macOS users**:  Following tools might be missing:
+| Tool | How to install |
+|------|---------------|
+| [Homebrew](https://brew.sh/) | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Download from official site and launch |
+| [Node.js](https://nodejs.org/) (v20) | Install via [nvm](https://github.com/nvm-sh/nvm): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
+
 ## What Makes NarraNexus Different
 
 ### Narrative Memory
@@ -83,90 +174,6 @@ User Message
 ```
 
 Each module enriches the context independently through **lifecycle hooks** -- no module knows about any other. This keeps the system clean, testable, and easy to extend.
-
-## Quick Start
-
-### Download the App
-
-You can find the latest version here (ending with .dmg): https://github.com/protagolabs/NarraNexus/releases
-
-### Online Version
-
-Try NarraNexus online with **one click**, claim free credits here: https://agent.narra.nexus
-
-## Development Guide
-
-### Install from Source
-
-```bash
-git clone https://github.com/NetMindAI-Open/NarraNexus.git
-cd NarraNexus
-bash run.sh
-```
-
-The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, and configuration. Just follow the prompts.
-
-After setup, open `http://localhost:5173` in your browser. 
-<br/>
-
-![Install Interface](docs/images/install-interface-v2.png)
-<p align="center"><em>Setup complete — ready to open the interface</em></p>
-
-## LLM Provider Configuration
-
-NarraNexus uses a **three-slot** architecture for LLM access:
-
-| Slot | Protocol | Purpose |
-|------|----------|---------|
-| **Agent** | Anthropic | Core reasoning -- powers the agent's thinking, tool use, and multi-turn conversations |
-| **Embedding** | OpenAI | Converts text to vectors for narrative matching and semantic search |
-| **Helper LLM** | OpenAI | Lightweight tasks -- entity extraction, summarization, module decisions |
-
-### Setup Options
-
-| Option | What you need | Result |
-|--------|--------------|--------|
-| **[NetMind.AI Power](https://www.netmind.ai/)** | One API key | Covers all 3 slots. Quickest setup. |
-| **Claude Code Login + OpenAI** | Claude Code CLI login + OpenAI API key | Agent via OAuth (free tier available), rest via OpenAI |
-| **Anthropic + OpenAI** | Anthropic API key + OpenAI API key | Full control over both providers |
-| **Custom endpoints** | Any Anthropic/OpenAI compatible URL | For proxies, self-hosted models, or alternatives |
-
-> **Note**: Currently only **OpenAI official API** and **NetMind.AI Power** are supported for embedding. More providers coming soon.
-
-Configure through the setup wizard (desktop app) or the LLM Providers panel (web UI, click the CPU icon in the header). Config is stored at `~/.nexusagent/llm_config.json`.
-
-### Optional API Keys
-
-| Dependency | Purpose | How to get |
-|------------|---------|------------|
-| **Google Gemini** | RAG Knowledge Base (Gemini File Search) | [aistudio.google.com](https://aistudio.google.com/apikey) |
-| **EverMemOS LLM** | Long-term memory extraction | [OpenRouter](https://openrouter.ai/) (default) |
-| **EverMemOS Embedding/Rerank** | Semantic search over memories | [DeepInfra](https://deepinfra.com/) (default) |
-
-If not configured, the agent still works -- just without long-term memory features.
-
-## Configure Long-term Memory (EverMemOS)
-
-EverMemOS gives the agent long-term episodic memory. On first run, `bash run.sh` walks you through an interactive setup wizard. All options are skippable:
-
-| What you configure | Result |
-|--------------------|--------|
-| **Nothing** | Agent works normally, memory features disabled |
-| **LLM key only** | Memory extraction enabled, semantic search needs additional keys |
-| **All keys** | Full long-term memory -- cloud-based, no GPU required **(recommended)** |
-
-You can also edit `.evermemos/.env` manually at any time. See the [EverMemOS documentation](https://github.com/EverMind-AI/EverMemOS) for details.
-
-## Potential Missing Dependencies
-
-**Windows users**: WSL2 is **required**. Install it first in PowerShell (Admin): `wsl --install`, then run all commands inside WSL2.
-
-**macOS users**:  Following tools might be missing:
-| Tool | How to install |
-|------|---------------|
-| [Homebrew](https://brew.sh/) | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Download from official site and launch |
-| [Node.js](https://nodejs.org/) (v20) | Install via [nvm](https://github.com/nvm-sh/nvm): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
 
 ## Architecture Overview
 
