@@ -8,13 +8,13 @@
 **A framework for building nexuses of agents -- where intelligence emerges from interaction, not isolation.**
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://www.narranexus-agent.ai/docs/getting-started/quick-start)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-8B5CF6)](https://modelcontextprotocol.io/)
 
 **English** | [中文](./README_zh.md)
-
 </div>
 
 <br/>
@@ -25,21 +25,49 @@ An agent in isolation is a tool. An agent with persistent memory, social identit
 
 NarraNexus provides the infrastructure for this: narrative memory that grows across conversations, a social graph that tracks real-world relationships, task scheduling with dependency chains, and modular capabilities that can be composed at runtime.
 
+## What Makes NarraNexus Different
 
+### Narrative Memory
+
+Unlike traditional chatbots that treat conversations as isolated sessions, NarraNexus organizes every conversation into **Narratives** -- semantic storylines that persist and grow over time. When you return to a topic days later, the agent picks up right where you left off by matching topic similarity, not timestamps.
+
+### Modular & Extensible
+
+Every capability -- chat, social graph, knowledge base, job scheduling, skills -- runs as an independent **Module**. Modules can be added, removed, or swapped at runtime without affecting the rest of the system. Each module manages its own data, tools, and lifecycle.
+
+### Agent-to-Agent Communication
+
+Agents don't just talk to users -- they talk to each other. Via the Matrix protocol, agents can create rooms, send messages, @mention peers, and coordinate in group chats, all through natural language.
+
+### Framework Agnostic
+
+NarraNexus is designed to work with multiple LLM providers (Claude, OpenAI, Gemini) through a unified adapter layer. No single framework or model is a hard dependency.
 
 ## Quick Start
+### Online Version
+
+Try NarraNexus instantly in your browser:
+
+[Launch NarraNexus](https://www.narranexus-agent.ai/)
 
 ### Download the App
 
-You can find the latest version here (ending with .dmg): https://github.com/protagolabs/NarraNexus/releases
+Download the latest desktop app from GitHub Releases.  
+For macOS, choose the file ending with `.dmg`.
 
-### Online Version
-
-Try NarraNexus online with **one click**, claim free credits here: https://agent.narra.nexus
-
-## Development Guide
+[Download Latest Release](https://github.com/protagolabs/NarraNexus/releases)
 
 ### Install from Source
+## Potential Missing Dependencies
+
+**Windows users**: WSL2 is **required**. Install it first in PowerShell (Admin): `wsl --install`, then run all commands inside WSL2.
+
+**macOS users**:  Following tools might be missing:
+| Tool | How to install |
+|------|---------------|
+| [Homebrew](https://brew.sh/) | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Download from official site and launch |
+| [Node.js](https://nodejs.org/) (v20) | Install via [nvm](https://github.com/nvm-sh/nvm): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
 
 ```bash
 git clone https://github.com/NetMindAI-Open/NarraNexus.git
@@ -56,8 +84,15 @@ After setup, you will see the image below. Then,
 2. `http://localhost:8000/docs` for API Docs.
 <br/>
 
-![Install Interface](docs/images/install-interface-v2.png)
-<p align="center"><em>Setup complete — ready to open the interface</em></p>
+<p align="center">
+  <img src="docs/images/install-interface-v2.png" alt="Install Interface" />
+</p>
+
+<p align="center">
+  <em>Setup complete — ready to open the interface</em>
+</p>
+
+For more details, see the [installation instructions](https://www.narranexus-agent.ai/docs/getting-started/quick-start) in the docs.
 
 ## LLM Provider Configuration
 
@@ -104,34 +139,7 @@ EverMemOS gives the agent long-term episodic memory. On first run, `bash run.sh`
 
 You can also edit `.evermemos/.env` manually at any time. See the [EverMemOS documentation](https://github.com/EverMind-AI/EverMemOS) for details.
 
-## Potential Missing Dependencies
 
-**Windows users**: WSL2 is **required**. Install it first in PowerShell (Admin): `wsl --install`, then run all commands inside WSL2.
-
-**macOS users**:  Following tools might be missing:
-| Tool | How to install |
-|------|---------------|
-| [Homebrew](https://brew.sh/) | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Download from official site and launch |
-| [Node.js](https://nodejs.org/) (v20) | Install via [nvm](https://github.com/nvm-sh/nvm): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
-
-## What Makes NarraNexus Different
-
-### Narrative Memory
-
-Unlike traditional chatbots that treat conversations as isolated sessions, NarraNexus organizes every conversation into **Narratives** -- semantic storylines that persist and grow over time. When you return to a topic days later, the agent picks up right where you left off by matching topic similarity, not timestamps.
-
-### Modular & Extensible
-
-Every capability -- chat, social graph, knowledge base, job scheduling, skills -- runs as an independent **Module**. Modules can be added, removed, or swapped at runtime without affecting the rest of the system. Each module manages its own data, tools, and lifecycle.
-
-### Agent-to-Agent Communication
-
-Agents don't just talk to users -- they talk to each other. Via the Matrix protocol, agents can create rooms, send messages, @mention peers, and coordinate in group chats, all through natural language.
-
-### Framework Agnostic
-
-NarraNexus is designed to work with multiple LLM providers (Claude, OpenAI, Gemini) through a unified adapter layer. No single framework or model is a hard dependency.
 
 ## Key Features
 
@@ -156,61 +164,6 @@ NarraNexus is designed to work with multiple LLM providers (Claude, OpenAI, Gemi
 <p align="center"><em>NarraNexus in action</em></p>
 
 <br/>
-
-## How It Works
-
-Under the hood, every user message flows through a **7-step pipeline**:
-
-```
-User Message
-  → Initialize session & load agent config
-    → Activate modules & gather context via hooks
-      → Select or create the right Narrative
-        → Build prompt with full context (memory, social graph, tools)
-          → Execute LLM reasoning with MCP tools
-            → Persist results (events, state, tokens)
-              → Run post-execution hooks (notifications, integrations)
-```
-
-Each module enriches the context independently through **lifecycle hooks** -- no module knows about any other. This keeps the system clean, testable, and easy to extend.
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────┐
-│              API Layer (FastAPI)                 │  ← HTTP / WebSocket endpoints
-├─────────────────────────────────────────────────┤
-│           AgentRuntime (Orchestrator)            │  ← 7-step pipeline
-├─────────────────────────────────────────────────┤
-│     Services (Narrative, Module, Context)        │  ← Business logic coordination
-├──────────────┬──────────────────────────────────┤
-│   Modules    │    Narrative    │   Social Graph  │  ← Independent capabilities
-├──────────────┴──────────────────────────────────┤
-│            Repository (Data Access)              │  ← Database abstraction
-├─────────────────────────────────────────────────┤
-│         Database (SQLite / MySQL)                │  ← Persistent storage
-└─────────────────────────────────────────────────┘
-```
-
-**Core design principles:**
-- **Modules are independent** -- no module references or depends on another
-- **Hooks, not imports** -- modules communicate through lifecycle hooks (`hook_data_gathering`, `hook_after_event_execution`), not direct calls
-- **Multi-channel** -- Web, Desktop, Matrix, and future IM integrations all flow through the same pipeline
-- **Shared triggers** -- background services (job scheduler, message bus, module poller) use shared infrastructure with routing, never one-listener-per-agent
-
-## Data Directory
-
-NarraNexus stores runtime logs at `~/.narranexus/`. Created automatically, contains only service logs (no user data or secrets). Safe to delete at any time.
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [`.mindflow/_overview.md`](./.mindflow/_overview.md) | Project overview and architecture reading path |
-| `CLAUDE.md` | Development rules, architecture details, coding standards |
-| [`.mindflow/project/references/`](./.mindflow/project/references/) | Deep-dive references (architecture, module system, narrative system) |
-| [`.mindflow/project/playbooks/`](./.mindflow/project/playbooks/) | Step-by-step guides for common tasks |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | Development setup, commit conventions, how to add modules |
 
 ## Star History
 
