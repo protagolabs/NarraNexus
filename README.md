@@ -21,70 +21,39 @@
 
 Most agent frameworks focus on making agents *smarter*. NarraNexus focuses on making agents *connected*.
 
-An agent in isolation is a tool. An agent with persistent memory, social identity, relationships, and goals becomes a participant in a **nexus** -- a network where intelligence is a collective property, not a model property.
+An agent in isolation is a tool. An agent with memory, identity, relationships, and goals becomes a participant in a **nexus** -- a network where intelligence is a collective property, not just a model property.
 
-NarraNexus provides the infrastructure for this: narrative memory that grows across conversations, a social graph that tracks real-world relationships, task scheduling with dependency chains, and modular capabilities that can be composed at runtime.
+NarraNexus provides the infrastructure for this: persistent memory, relationship-aware context, task scheduling, modular capabilities, and agent-to-agent communication.
 
 ## What Makes NarraNexus Different
 
-NarraNexus is a modular agent platform designed for long-term memory, contextual awareness, extensibility, and multi-agent collaboration.
+### Persistent Context
 
-### Long-Term Memory
+NarraNexus agents carry context across conversations through long-term memory, event memory, and relationship-aware retrieval. This allows agents to continue from past interactions instead of starting over every time.
 
-Powered by **EverMemOS**, NarraNexus stores and retrieves memories across MongoDB, Elasticsearch, and Milvus. This allows agents to remember past interactions, retrieve relevant context, and maintain continuity across conversations.
+### Composable Runtime
 
-### Context Awareness
+Core capabilities such as Memory, Awareness, Chat, RAG, Jobs, Skills, Social Network, and Matrix run as independent modules. Each module manages its own tools, data, and lifecycle, making the system easy to extend or customize.
 
-The Awareness Module extracts entities, detects intent, identifies topics, and analyzes emotional tone. This context helps other modules retrieve better memories, understand relationships, and decide what information matters.
+### Connected Agents
 
-### Modular Architecture
-
-NarraNexus is built from independent modules, including Chat, Memory, Awareness, Social Network, Jobs, RAG, Skills, Matrix, and Event Memory. Each module manages its own data, tools, and lifecycle, making the platform easy to extend or customize.
-
-### Agent-to-Agent Communication
-
-Through the Matrix protocol and a Synapse homeserver, agents can communicate with each other, join rooms, send messages, retrieve history, and coordinate multi-agent workflows.
-
-### Extensible Skills
-
-The Skills Module connects agents to **ClawHub**, where reusable capabilities can be discovered, installed, updated, and removed at runtime.
-
-### Background Jobs
-
-The Jobs Module supports cron, periodic, continuous, and DAG-based workflows, allowing agents to schedule tasks, monitor conditions, and perform asynchronous work.
-
-### Document-Based RAG
-
-The RAG Module uses **Google Gemini File Search** to index uploaded documents and retrieve relevant passages for grounded, source-aware responses.
-
-### Episodic Event Memory
-
-The Event Memory Module stores significant episodes, such as important conversations, decisions, milestones, and meaningful user interactions, helping agents build a more natural sense of continuity.
+Agents can communicate through Matrix-based messaging and use MCP tools to coordinate with other agents, external tools, and background workflows.
 
 ## Quick Start
-### Online Version
+### Online Version (Coming soon)
 
 Try NarraNexus instantly in your browser:
 
-[Launch NarraNexus](https://www.narranexus-agent.ai/)
+> [Launch NarraNexus](https://www.narranexus-agent.ai/)
 
 ### Download the App
 
 Download the latest desktop app from GitHub Releases.  
 For macOS, choose the file ending with `.dmg`.
 
-[Download Latest Release](https://github.com/protagolabs/NarraNexus/releases)
+> [Download Latest Release](https://github.com/protagolabs/NarraNexus/releases)
 
 ### Install from Source
-
-**Windows users**: WSL2 is **required**. Install it first in PowerShell (Admin): `wsl --install`, then run all commands inside WSL2.
-
-**macOS users**:  Following tools might be missing:
-| Tool | How to install |
-|------|---------------|
-| [Homebrew](https://brew.sh/) | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Download from official site and launch |
-| [Node.js](https://nodejs.org/) (v20) | Install via [nvm](https://github.com/nvm-sh/nvm): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
 
 ```bash
 git clone https://github.com/NetMindAI-Open/NarraNexus.git
@@ -92,13 +61,17 @@ cd NarraNexus
 bash run.sh
 ```
 
-The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, and configuration. Just follow the prompts.
+The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, and configuration. 
 
 After setup, you will see the image below. Then, 
 1. Open `http://localhost:5173` in your browser to enter UI interface,
 
-    a. Choose **Local** or **Cloud** mode to register an account.
-2. `http://localhost:8000/docs` for API Docs.
+    a. Choose **Local** or **Cloud (Coming soon) ** mode to register an account.
+
+    b. Follow the on-screen instructions to set up the API key. For details, see [LLM Provider Configuration](#llm-provider-configuration).
+
+    c. Start chat!
+2. Open `http://localhost:8000/docs` for API Docs.
 <br/>
 
 <p align="center">
@@ -136,17 +109,9 @@ Configure through the setup wizard (desktop app) or the LLM Providers panel (web
 
 ### Optional API Keys
 
-| Dependency | Purpose | How to get |
-|------------|---------|------------|
-| **Google Gemini** | RAG Knowledge Base (Gemini File Search) | [aistudio.google.com](https://aistudio.google.com/apikey) |
-| **EverMemOS LLM** | Long-term memory extraction | [OpenRouter](https://openrouter.ai/) (default) |
-| **EverMemOS Embedding/Rerank** | Semantic search over memories | [DeepInfra](https://deepinfra.com/) (default) |
+#### Configure Long-term Memory (EverMemOS) (Coming soon)
 
-If not configured, the agent still works -- just without long-term memory features.
-
-## Configure Long-term Memory (EverMemOS)
-
-EverMemOS gives the agent long-term episodic memory. On first run, `bash run.sh` walks you through an interactive setup wizard. All options are skippable:
+EverMemOS gives the agent long-term episodic memory.
 
 | What you configure | Result |
 |--------------------|--------|
@@ -155,7 +120,6 @@ EverMemOS gives the agent long-term episodic memory. On first run, `bash run.sh`
 | **All keys** | Full long-term memory -- cloud-based, no GPU required **(recommended)** |
 
 You can also edit `.evermemos/.env` manually at any time. See the [EverMemOS documentation](https://github.com/EverMind-AI/EverMemOS) for details.
-
 
 
 ## Key Features
