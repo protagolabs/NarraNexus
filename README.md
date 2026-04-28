@@ -42,14 +42,13 @@ Agents can communicate through Matrix-based messaging and use MCP tools to coord
 ## Quick Start
 ### Online Version (Coming soon)
 
-Try NarraNexus instantly in your browser:
+Try NarraNexus instantly in the browser:
 
 > [Launch NarraNexus](https://www.narranexus-agent.ai/)
 
-### Download the App
+### Download the App (MacOS only)
 
-Download the latest desktop app from GitHub Releases.  
-For macOS, choose the file ending with `.dmg`.
+Download the latest desktop app from GitHub Releases, then choose the file ending with `.dmg`.
 
 > [Download Latest Release](https://github.com/protagolabs/NarraNexus/releases)
 
@@ -63,10 +62,10 @@ bash run.sh
 
 The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, and configuration. 
 
-After setup, you will see the image below. Then, 
-1. Open `http://localhost:5173` in your browser to enter UI interface,
+After setup, you will see the image below. Then
+1. Open `http://localhost:5173` in your browser
 
-    a. Choose **Local** or **Cloud (Coming soon) ** mode to register an account.
+    a. Choose **Local** or **Cloud (Coming soon)** mode to register an account.
 
     b. Follow the on-screen instructions to set up the API key. For details, see [LLM Provider Configuration](#llm-provider-configuration).
 
