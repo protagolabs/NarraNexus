@@ -5,11 +5,16 @@
 @description: Integration tests for audio upload + transcription wiring.
 
 Covers the contract between the upload route and audio_transcription:
-  - audio/* MIME → is_transcription_available + transcribe_audio called
+  - audio/* MIME → is_transcription_available + transcribe_audio
+    called regardless of ``source`` (the agent must always receive the
+    transcribed content; ``source`` is a frontend-render hint only)
   - non-audio MIME → neither called, transcript fields stay None
   - Transcribe success → response carries the transcript
   - Transcribe returns None (no provider, error, etc.) → response has
     transcript=None but transcription_available reflects pre-check
+  - ``source`` echoed back in response: "recording" stays "recording",
+    everything else (omitted / "upload" / arbitrary) normalises to
+    "upload" so the frontend has a single deterministic dispatch value
 
 Strategy:
   - Build a minimal FastAPI app with just the attachments router
@@ -62,9 +67,21 @@ def upload_app(monkeypatch, tmp_path):
     return app
 
 
-def _post_audio(client, mime_type: str = "audio/wav", filename: str = "voice.wav"):
+def _post_audio(
+    client,
+    mime_type: str = "audio/wav",
+    filename: str = "voice.wav",
+    *,
+    source: str | None = None,
+):
+    """Default: omit ``source`` (= regular file upload). Backend should
+    still transcribe — Whisper runs for any audio/* upload — but the
+    response's echoed ``source`` should normalise to ``upload``."""
+    url = "/api/agents/agent_x/attachments?user_id=user_y"
+    if source is not None:
+        url += f"&source={source}"
     return client.post(
-        "/api/agents/agent_x/attachments?user_id=user_y",
+        url,
         files={"file": (filename, b"\x00" * 1024, mime_type)},
     )
 
@@ -170,3 +187,95 @@ def test_upload_audio_passes_user_id_through_to_transcribe(upload_app, monkeypat
     transcribe_mock.assert_called_once()
     kwargs = transcribe_mock.call_args.kwargs
     assert kwargs["user_id"] == "user_y"
+
+
+# ---------------------------------------------------------------------------
+# source echoing — frontend dispatch hint (agent always gets transcript)
+# ---------------------------------------------------------------------------
+
+
+def test_upload_audio_without_source_still_transcribes(upload_app, monkeypatch):
+    """Paperclip / drag-drop upload: the user attached an audio file
+    rather than dictating. The agent must still receive the transcribed
+    content via the system prompt, so Whisper runs unconditionally for
+    any audio/* MIME — ``source`` only affects how the frontend
+    chooses to render the bubble."""
+    monkeypatch.setattr(
+        at_mod, "is_transcription_available", AsyncMock(return_value=True)
+    )
+    transcribe_mock = AsyncMock(return_value="hello from the file")
+    monkeypatch.setattr(at_mod, "transcribe_audio", transcribe_mock)
+
+    client = TestClient(upload_app)
+    resp = _post_audio(client, source=None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["transcript"] == "hello from the file"
+    assert body["transcription_available"] is True
+    # Echoed-back source: anything other than "recording" normalises
+    # to "upload" so the frontend has one deterministic value to
+    # dispatch on.
+    assert body["source"] == "upload"
+    transcribe_mock.assert_called_once()
+
+
+def test_upload_audio_source_recording_echoes_back(upload_app, monkeypatch):
+    """In-browser voice memo path: source=recording survives the
+    round-trip so the frontend renders VoiceTranscript instead of a
+    file chip."""
+    monkeypatch.setattr(
+        at_mod, "is_transcription_available", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        at_mod, "transcribe_audio", AsyncMock(return_value="dictated text")
+    )
+
+    client = TestClient(upload_app)
+    resp = _post_audio(client, source="recording")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["transcript"] == "dictated text"
+    assert body["source"] == "recording"
+
+
+def test_upload_audio_arbitrary_source_normalises_to_upload(upload_app, monkeypatch):
+    """Defensive: a malformed / future-proofed client could send
+    ``source=foo``. Anything that isn't "recording" must be reported
+    back as "upload" so the frontend dispatch table stays a strict
+    two-state machine."""
+    monkeypatch.setattr(
+        at_mod, "is_transcription_available", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        at_mod, "transcribe_audio", AsyncMock(return_value="x")
+    )
+
+    client = TestClient(upload_app)
+    resp = _post_audio(client, source="something-else")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "upload"
+
+
+def test_upload_non_audio_keeps_source_field_for_consistency(upload_app, monkeypatch):
+    """Non-audio uploads also carry the source echo — the discriminator
+    stays meaningful even when the transcription pair is null."""
+    monkeypatch.setattr(
+        at_mod, "is_transcription_available", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(at_mod, "transcribe_audio", AsyncMock(return_value="x"))
+
+    client = TestClient(upload_app)
+    resp = client.post(
+        "/api/agents/agent_x/attachments?user_id=user_y",
+        files={"file": ("cat.png", b"\x89PNG" + b"\x00" * 100, "image/png")},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "upload"
+    assert body["transcript"] is None
+    assert body["transcription_available"] is None

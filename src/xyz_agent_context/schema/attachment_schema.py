@@ -148,6 +148,21 @@ class Attachment(BaseModel):
         ),
     )
 
+    source: Optional[str] = Field(
+        default=None,
+        description=(
+            "How the attachment was produced — set by the upload route "
+            "from the request's ``source`` query param. ``'recording'`` "
+            "means the in-browser AudioRecorder captured a voice memo; "
+            "``'upload'`` (or None on legacy rows) means a regular file "
+            "upload (Paperclip / drag-drop / paste). The backend treats "
+            "both identically (Whisper still runs for audio/*); the "
+            "field exists so the frontend can render voice memos as "
+            "transcript-only and file uploads as ordinary chips even "
+            "when both carry transcripts."
+        ),
+    )
+
     def synthesize_marker(self, agent_id: str, user_id: str) -> str:
         """Build the natural-language marker that ChatModule appends to
         message content when feeding chat_history to the LLM.

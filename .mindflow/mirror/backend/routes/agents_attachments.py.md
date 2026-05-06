@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents_attachments.py
-last_verified: 2026-05-02
+last_verified: 2026-05-06
 stub: false
 ---
 
@@ -15,17 +15,30 @@ frontend uses to render image thumbnails inline. Kept separate from
 shape (date-partitioned subdirs + sidecar index) and a different
 access pattern (referenced by `file_id`, not browsed by name).
 
-For `audio/*` MIME types, the upload route also synchronously transcribes
-the audio via Whisper (best-effort) and returns the text in the response
-so the frontend can display it and the agent receives it through the
-attachment marker. Transcription is routed through the same
-OpenAI-protocol provider system that powers chat (`UserProviderService`
-→ `SystemProviderService` → `settings.openai_api_key`), so any user
-with a configured OpenAI / NetMind / Yunwu / OpenRouter / self-hosted
-provider gets transcription "for free". Transcription failures never
-break the upload — they degrade to `transcript=null` and the response
-also exposes `transcription_available` so the frontend can surface a
-"voice unavailable" toast for users with only Anthropic configured.
+Whisper transcription runs for **every** `audio/*` upload regardless
+of how the user produced it — the agent must always receive the
+spoken content via the system-prompt attachment marker, whether the
+clip came from in-browser dictation or from a file the user attached.
+The route's `source` query parameter is purely a frontend-render
+hint, normalised on the way out and echoed back so the persisted
+attachment dict carries it through chat history reload:
+
+- `source=recording` — the in-browser AudioRecorder produced a voice
+  memo. Frontend renders `VoiceTranscript` (transcript text in place
+  of the message bubble).
+- omitted / `source=upload` / anything else — Paperclip / drag-drop /
+  paste. Frontend renders an ordinary file chip; the transcript still
+  reaches the agent via the system prompt but is not surfaced in the
+  UI (the user attached a file, they didn't dictate, so showing the
+  transcript would be confusing).
+
+Transcription routes through the same OpenAI-protocol provider system
+that powers chat (`UserProviderService` → `SystemProviderService` →
+`settings.openai_api_key`), so any user with a compatible provider
+gets transcription "for free". Failures never break the upload — they
+degrade to `transcript=null` and the response also exposes
+`transcription_available` so the frontend can surface a "voice
+unavailable" message specifically on the recording path.
 
 ## Upstream / Downstream
 
@@ -54,6 +67,20 @@ Mounted under `/api/agents` via `backend/routes/agents.py`.
 client value is user-controlled and easy to spoof. We try
 `python-magic` first (real content sniffing), fall back to extension
 guessing, and only use the client-supplied type if both fail.
+
+**Audio-vs-video container disambiguation.** WebM, Ogg, and MP4 are
+multimedia containers — the file header is identical for audio-only
+and audio+video streams, and libmagic looks at the header alone, so
+it always reports `video/<container>` for these formats. The
+in-browser `AudioRecorder` records with `MediaRecorder` into one of
+these containers and tags the upload as `audio/<container>` in the
+multipart Content-Type. `_audio_video_container_override` consults
+the browser claim ONLY when libmagic returned `video/<X>` AND the
+browser explicitly declared `audio/<X>` for the same container —
+narrow enough to be a safe tiebreaker, wide enough to unblock all
+three browser recording paths (Chrome/Firefox webm, Safari mp4,
+older Firefox ogg). Misclassification can't escalate: the file
+still lands on disk and Whisper silently no-ops on non-audio bytes.
 
 **Single-file upload, no multi-file form.** Frontend uploads files
 sequentially so each gets its own `file_id` round-trip; this keeps

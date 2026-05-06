@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/attachment_schema.py
-last_verified: 2026-05-02
+last_verified: 2026-05-06
 stub: false
 ---
 
