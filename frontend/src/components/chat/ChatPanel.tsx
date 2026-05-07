@@ -1128,24 +1128,24 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               {transcriptionReason === 'free_tier_opted_out' ? (
                 <>
                   <p>
-                    语音输入当前不可用：你已关闭"使用免费额度"，且没有配置自己的转录服务。两条路任选其一即可启用：
+                    Voice input is unavailable. You've turned off "Use free quota" and haven't configured your own transcription provider. Either path will enable it:
                   </p>
                   <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
-                    <li>到 <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> 添加 OpenAI 或 NetMind API key</li>
-                    <li>到 <span className="font-mono text-[var(--text-primary)]">Settings → Quota</span> 重新启用"使用免费额度"</li>
+                    <li>Add an OpenAI or NetMind API key in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span></li>
+                    <li>Re-enable "Use free quota" in <span className="font-mono text-[var(--text-primary)]">Settings → Quota</span></li>
                   </ul>
                 </>
               ) : (
                 <>
                   <p>
-                    语音输入需要一个支持的转录服务。当前账号下还没有配置：
+                    Voice input requires a supported transcription provider. None is configured for this account:
                   </p>
                   <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
-                    <li>OpenAI 官方 API（推荐，质量最佳）</li>
-                    <li>NetMind API（按量计费，成本较低）</li>
+                    <li>OpenAI official API (recommended, best quality)</li>
+                    <li>NetMind API (pay-as-you-go, lower cost)</li>
                   </ul>
                   <p className="mt-3">
-                    到 <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> 添加任意一项即可启用语音输入；保存后回到这里即生效。
+                    Add either one in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> to enable voice input — it takes effect as soon as you save.
                   </p>
                 </>
               )}
