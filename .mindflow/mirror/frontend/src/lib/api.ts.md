@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-04-29
+last_verified: 2026-05-06
 stub: false
 ---
 
@@ -27,6 +27,8 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 **Binary-response calls bypass `request<T>`.** `fetchAttachmentBlob` returns `response.blob()` instead of `response.json()`. Used by `useAttachmentBlobUrl` to feed `<img>` / `<a>` elements that can't carry an `Authorization` header themselves. There is no longer a public `attachmentRawUrl` builder — issuing the URL without doing the authed fetch in the same step would invite the 401-loop bug that motivated the hook.
 
 **`request<T>` throws on non-2xx.** The error message is `"API error: ${status} ${statusText}"`. Callers that need to distinguish error types must do so via the returned `success: false` payload rather than via exception. Exceptions only happen for network failures or non-2xx responses — not for business logic errors.
+
+**Side effects on 401 (stale JWT) and 402 (quota).** Before throwing, `request<T>` dispatches global `CustomEvent`s for two specific statuses: `narranexus:auth-expired` on 401 when an `Authorization` header was actually attached and the endpoint is not `/api/auth/login` or `/api/auth/register` (top-level `App` listens and calls `configStore.logout()` so `ProtectedRoute` redirects to `/login`); `narranexus:quota-exceeded` on 402 with `error_code=QUOTA_EXCEEDED_NO_USER_PROVIDER`. The 401 guard skips anonymous probes and login attempts so wrong-credentials surfaces in the form rather than logging the user out. Decoupled via events to avoid a circular import on `@/stores/configStore`.
 
 **Typed return types imported from `@/types`.** All response types live in `@/types` (the TypeScript layer). `api.ts` does not define any types itself. Adding a new endpoint requires adding the corresponding response type to `@/types` first.
 

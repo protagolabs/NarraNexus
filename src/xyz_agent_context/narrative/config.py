@@ -246,8 +246,10 @@ class NarrativeConfig:
     # Whether to enable EverMemOS retrieval
     # Description: When True, uses EverMemOS for Narrative retrieval
     #      When False, uses the original vector retrieval logic
-    # Note: Ensure EverMemOS service is deployed and running before enabling
-    EVERMEMOS_ENABLED = True
+    # Note: Ensure EverMemOS service is deployed and running before enabling.
+    # Disabled by default — cloud deploy does not currently run an EverMemOS
+    # instance; flip back to True after the service is provisioned.
+    EVERMEMOS_ENABLED = False
 
     # EverMemOS service address
     # Description: EverMemOS HTTP API service address

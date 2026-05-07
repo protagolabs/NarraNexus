@@ -202,6 +202,19 @@ function App() {
     return () => window.removeEventListener('narranexus:quota-exceeded', handler);
   }, []);
 
+  // Stale JWT: api.ts dispatches narranexus:auth-expired when an
+  // authenticated request comes back 401 (token rejected by backend).
+  // Clear auth state via configStore so ProtectedRoute redirects to /login
+  // instead of letting the UI keep firing 401s in a broken state.
+  useEffect(() => {
+    const handler = () => {
+      const { isLoggedIn, logout } = useConfigStore.getState();
+      if (isLoggedIn) logout();
+    };
+    window.addEventListener('narranexus:auth-expired', handler);
+    return () => window.removeEventListener('narranexus:auth-expired', handler);
+  }, []);
+
   return (
     <>
       <MockBanner />

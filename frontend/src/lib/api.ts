@@ -82,16 +82,31 @@ class ApiClient {
     // take effect immediately without requiring a page reload.
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
+    const authHeaders = this.getAuthHeaders();
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...this.getAuthHeaders(),
+        ...authHeaders,
         ...options?.headers,
       },
     });
 
     if (!response.ok) {
+      // Stale/expired JWT: backend says 401 even though we attached a token.
+      // Tell the app to clear auth state and bounce to /login. We skip when
+      // no token was attached (anonymous probe) and on auth endpoints
+      // themselves (wrong-credentials login should surface in the form, not
+      // log the user out of a session they never had). Decoupled via event
+      // to avoid a circular import with @/stores/configStore.
+      if (response.status === 401 && authHeaders.Authorization) {
+        const isAuthEndpoint =
+          endpoint.startsWith('/api/auth/login') ||
+          endpoint.startsWith('/api/auth/register');
+        if (!isAuthEndpoint) {
+          window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
+        }
+      }
       // System free-tier quota exhausted: dispatch a global event so
       // any listener (App shell, dedicated toast, etc.) can surface it.
       // Using CustomEvent keeps api.ts UI-framework-agnostic.
