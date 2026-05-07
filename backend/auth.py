@@ -180,6 +180,14 @@ QUOTA_BYPASS_PREFIXES = (
     "/api/quota",      # read own quota, flip prefer_system_override
     "/api/admin",      # staff operations (grant, init)
     "/api/auth",       # login / register / me / logout
+    # `/api/transcription/availability` is a pure capability probe — it
+    # has no LLM cost, and the frontend uses it to decide whether the
+    # mic button records on click or opens a "configure a provider"
+    # dialog. Without this bypass, the very state we want to surface
+    # (user opted out of free tier without configuring their own
+    # provider) gets a 402 from the resolver instead of an actionable
+    # `{available: false, reason: "free_tier_opted_out"}` response.
+    "/api/transcription",
 )
 
 

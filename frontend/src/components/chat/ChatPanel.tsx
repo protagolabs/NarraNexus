@@ -493,6 +493,24 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           }
         } catch (e) {
           console.error('Attachment upload error:', e);
+          // 402 means auth_middleware's provider_resolver gated the
+          // request — user has no LLM provider AND opted out of the
+          // free tier. STT can't proceed because the whole agent path
+          // is gated. Surface the same dialog as a normal "no
+          // transcription provider" state — the call to action is
+          // identical (configure a provider OR re-enable free quota).
+          //
+          // This branch is the safety net; a healthy click should
+          // already have been blocked by `onPreflight` re-probing
+          // /api/transcription/availability before MediaRecorder starts.
+          // Keeping this branch costs us nothing and protects against
+          // races (toggle flipped between preflight and upload).
+          const msg = String((e as Error)?.message ?? e);
+          if (msg.includes('402') && (opts?.source === 'recording')) {
+            setTranscriptionAvailable(false);
+            setTranscriptionReason('free_tier_opted_out');
+            setVoiceUnavailableDialogOpen(true);
+          }
         } finally {
           setUploadingCount((n) => Math.max(0, n - 1));
         }
@@ -992,6 +1010,27 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             onError={(msg) => setTranscriptionNotice(msg)}
             available={transcriptionAvailable}
             onUnavailable={() => setVoiceUnavailableDialogOpen(true)}
+            onPreflight={async () => {
+              // Click-time refresh of the availability cache. Without
+              // this, toggling "Use free quota" in Settings doesn't
+              // invalidate the value the AudioRecorder sees from the
+              // mount-time useEffect.
+              if (!userId) return false;
+              try {
+                const r = await api.getTranscriptionAvailability(userId);
+                setTranscriptionAvailable(r.available);
+                setTranscriptionReason(r.reason);
+                if (!r.available) {
+                  setVoiceUnavailableDialogOpen(true);
+                  return false;
+                }
+                return true;
+              } catch {
+                // Network blip — don't block recording. Upload-time
+                // error handler will surface real failures.
+                return true;
+              }
+            }}
           />
           <div className="flex-1 relative">
             <Textarea
