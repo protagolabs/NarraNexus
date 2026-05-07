@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { MessageBubble } from './MessageBubble';
 import { AttachmentImage } from './AttachmentImage';
+import { VoiceTranscript } from './VoiceTranscript';
+import { AudioRecorder } from './AudioRecorder';
 import { EmbeddingBanner } from '@/components/ui/EmbeddingBanner';
 import type { Attachment, SimpleChatMessage } from '@/types';
 
@@ -57,6 +59,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Attachments uploaded for the next message but not yet sent. Each entry
   // is the server-acknowledged metadata returned by uploadAttachment.
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  // Banner above the input when an audio upload comes back with
+  // transcription_available=false. Cleared on next successful audio
+  // upload or when user dismisses. Plain string so we don't need a
+  // toast library — keeps the UI consistent with the rest of the panel.
+  const [transcriptionNotice, setTranscriptionNotice] = useState<string | null>(null);
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -392,13 +399,19 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   }, [isStreaming]);
 
   // ── Attachment handlers ──────────────────────────────
+  // `source='recording'` triggers backend Whisper transcription; the
+  // default ('upload') means the user attached a file (Paperclip /
+  // drag-drop / paste) and audio bytes are treated as opaque file
+  // content, not dictation. Keeping the discriminator at the call
+  // site rather than guessing from filename / MIME avoids fragile
+  // heuristics and lets the AudioRecorder hand-pick its own path.
   const uploadAttachments = useCallback(
-    async (files: File[]) => {
+    async (files: File[], opts?: { source?: 'recording' | 'upload' }) => {
       if (!agentId || !userId || files.length === 0) return;
       setUploadingCount((n) => n + files.length);
       for (const file of files) {
         try {
-          const resp = await api.uploadAttachment(agentId, userId, file);
+          const resp = await api.uploadAttachment(agentId, userId, file, opts);
           if (resp.success && resp.file_id && resp.mime_type && resp.category) {
             setPendingAttachments((prev) => [
               ...prev,
@@ -408,8 +421,33 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 original_name: resp.original_name ?? file.name,
                 size_bytes: resp.size_bytes ?? file.size,
                 category: resp.category!,
+                // Render-path discriminator (recording vs upload).
+                // Echoed by backend so the persisted attachment dict
+                // carries it through chat history reload. Falls back
+                // to the local request hint for forward compat.
+                source: (resp.source ?? opts?.source ?? 'upload') as
+                  | 'recording'
+                  | 'upload',
+                // Whisper transcript — populated for any audio/* upload
+                // the user can transcribe (the backend runs Whisper for
+                // both source values). Forwarded into the WS payload so
+                // the agent's attachment marker carries the spoken
+                // content for both voice memos AND uploaded files.
+                transcript: resp.transcript ?? undefined,
               },
             ]);
+            // "Voice unavailable" notice only fires for the recording
+            // path — uploaded audio files don't claim to be dictation,
+            // so a missing transcript there is fine and silent.
+            const isRecording = (resp.source ?? opts?.source) === 'recording';
+            if (isRecording && resp.transcription_available === false) {
+              setTranscriptionNotice(
+                '音频已上传，但语音转文字未启用。请到 Settings → Providers 添加 OpenAI。',
+              );
+            } else if (isRecording && resp.transcript) {
+              // New successful recording → clear any stale notice
+              setTranscriptionNotice(null);
+            }
           } else {
             console.error('Attachment upload failed:', resp.error);
           }
@@ -809,40 +847,63 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       {/* Input area — drop is handled at the Card root, so this wrapper
           no longer needs its own onDragOver/onDragLeave/onDrop. */}
       <div className="px-5 py-4 border-t border-[var(--rule)]">
+        {/* Audio transcription unavailable notice — only shown when an
+            audio upload returned transcription_available=false. */}
+        {transcriptionNotice && (
+          <div className="mb-2.5 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
+            <span className="flex-1">{transcriptionNotice}</span>
+            <button
+              type="button"
+              onClick={() => setTranscriptionNotice(null)}
+              className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+              title="Dismiss"
+            >
+              <X className="w-3 h-3 text-[var(--text-tertiary)]" />
+            </button>
+          </div>
+        )}
         {/* Pending attachments preview row */}
         {(pendingAttachments.length > 0 || uploadingCount > 0) && (
           <div className="mb-2.5 flex flex-wrap gap-2">
             {pendingAttachments.map((att) => {
+              const haveCreds = !!agentId && !!userId;
               const isImage = att.category === 'image';
-              const canPreview = isImage && !!agentId && !!userId;
+              const isVoiceMemo = att.source === 'recording';
+              const canPreviewImage = isImage && haveCreds;
               return (
                 <div
                   key={att.file_id}
-                  className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[240px]"
+                  className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
                 >
-                  {canPreview ? (
-                    <AttachmentImage
-                      agentId={agentId!}
-                      userId={userId!}
-                      fileId={att.file_id}
-                      alt={att.original_name}
-                      className="w-9 h-9 rounded object-cover shrink-0"
-                    />
+                  {isVoiceMemo ? (
+                    <VoiceTranscript compact transcript={att.transcript} />
                   ) : (
-                    <div className="w-9 h-9 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
-                      {isImage ? (
-                        <ImageIcon className="w-4 h-4 text-[var(--text-tertiary)]" />
+                    <>
+                      {canPreviewImage ? (
+                        <AttachmentImage
+                          agentId={agentId!}
+                          userId={userId!}
+                          fileId={att.file_id}
+                          alt={att.original_name}
+                          className="w-9 h-9 rounded object-cover shrink-0"
+                        />
                       ) : (
-                        <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
+                        <div className="w-9 h-9 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
+                          {isImage ? (
+                            <ImageIcon className="w-4 h-4 text-[var(--text-tertiary)]" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
+                          )}
+                        </div>
                       )}
-                    </div>
+                      <div className="min-w-0 flex-1 leading-tight">
+                        <div className="text-xs truncate">{att.original_name}</div>
+                        <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+                          {att.category} · {Math.max(1, Math.round(att.size_bytes / 1024))} KB
+                        </div>
+                      </div>
+                    </>
                   )}
-                  <div className="min-w-0 flex-1 leading-tight">
-                    <div className="text-xs truncate">{att.original_name}</div>
-                    <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
-                      {att.category} · {Math.max(1, Math.round(att.size_bytes / 1024))} KB
-                    </div>
-                  </div>
                   <button
                     type="button"
                     onClick={() => handleRemoveAttachment(att.file_id)}
@@ -881,6 +942,15 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           >
             <Paperclip className="w-4 h-4" />
           </Button>
+          {/* Voice capture: hands the recorded blob to the same upload
+              path as Paperclip / drag-drop, so transcription, the
+              "transcription unavailable" notice, and the pendingAttachments
+              chip all behave identically across input methods. */}
+          <AudioRecorder
+            disabled={!agentId || isLoading}
+            onRecorded={(file) => uploadAttachments([file], { source: 'recording' })}
+            onError={(msg) => setTranscriptionNotice(msg)}
+          />
           <div className="flex-1 relative">
             <Textarea
               value={input}

@@ -106,6 +106,19 @@ export interface Attachment {
   original_name: string;
   size_bytes: number;
   category: AttachmentCategory;
+  // How the attachment was produced — echoed back from the upload
+  // route so the renderer can dispatch without filename heuristics.
+  // 'recording' = in-browser AudioRecorder voice memo (renders as
+  // VoiceTranscript). 'upload' (or undefined on legacy rows) = regular
+  // file upload (Paperclip / drag-drop / paste — renders as a file
+  // chip even when an audio transcript is present).
+  source?: 'recording' | 'upload';
+  // Whisper-transcribed text for audio/* uploads. Forwarded through the
+  // WebSocket payload so the agent's attachment marker carries the
+  // transcript and the LLM reads it directly without a Read tool round
+  // trip. None for non-audio uploads or when transcription was
+  // unavailable / failed.
+  transcript?: string;
 }
 
 // Chat message for display

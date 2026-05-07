@@ -110,3 +110,6 @@ scripts/.control.sh
 
 # Local production planning notes
 /production_plan/
+
+# Local audio fixtures for manual transcription testing
+/test_assets/

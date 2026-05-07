@@ -338,6 +338,17 @@ class ApiClient {
     agentId: string,
     userId: string,
     file: File,
+    options?: {
+      /**
+       * 'recording' tells the backend the file came from the in-browser
+       * AudioRecorder and should be Whisper-transcribed. Anything else
+       * (default) means a regular file upload — Paperclip, drag-drop,
+       * paste — and the backend skips Whisper even for audio MIME
+       * types. This separates "I'm dictating a message" from "here's
+       * an audio file I want to share with the agent".
+       */
+      source?: 'recording' | 'upload';
+    },
   ): Promise<{
     success: boolean;
     file_id?: string;
@@ -345,12 +356,30 @@ class ApiClient {
     original_name?: string;
     size_bytes?: number;
     category?: 'image' | 'document' | 'code' | 'data' | 'media' | 'other';
+    // Echoed-back source: 'recording' for in-browser voice memos,
+    // 'upload' for everything else (Paperclip / drag-drop / paste,
+    // including regular audio file uploads). Used by the UI to choose
+    // between VoiceTranscript and the standard file chip.
+    source?: 'recording' | 'upload' | null;
+    // Whisper output for audio/* uploads regardless of source — the
+    // backend transcribes both voice memos and uploaded audio files
+    // so the agent always receives the spoken content via the system
+    // prompt. The frontend uses `source` (not `transcript` presence)
+    // to decide rendering: voice memos surface the transcript inline,
+    // file uploads keep it hidden behind the file chip.
+    transcript?: string | null;
+    // Per-user capability check — false means no OpenAI-compatible
+    // provider configured. The UI surfaces a "voice unavailable"
+    // notice only when this is false on a recording-source upload.
+    transcription_available?: boolean | null;
     error?: string;
   }> {
     const formData = new FormData();
     formData.append('file', file);
 
-    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments?user_id=${encodeURIComponent(userId)}`;
+    const params = new URLSearchParams({ user_id: userId });
+    if (options?.source) params.set('source', options.source);
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments?${params.toString()}`;
     const response = await fetch(url, {
       method: 'POST',
       body: formData,

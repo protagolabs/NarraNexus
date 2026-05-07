@@ -16,6 +16,7 @@ import { Markdown, ScrollArea } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
+import { VoiceTranscript } from './VoiceTranscript';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -274,15 +275,33 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
             </div>
           )}
 
-          {/* Attachments — rendered above text content. Image attachments
-              are loaded via the /raw endpoint through an authed fetch +
-              blob URL (see AttachmentImage); non-image attachments show
-              a file chip so the user sees what was uploaded even though
-              the agent currently cannot read it. */}
+          {/* Attachments — rendered above text content. Three render
+              paths, picked in priority order:
+                1. Voice memo (att.source === 'recording'): VoiceTranscript
+                   renders the transcribed text only — no audio playback.
+                   The transcript itself IS the message; the audio bytes
+                   are kept on disk for storage but never re-surfaced.
+                2. Image (category=image): AttachmentImage loads via the
+                   /raw endpoint through an authed fetch + blob URL.
+                3. Everything else (including audio FILE uploads via
+                   Paperclip / drag-drop, even when transcribed):
+                   a generic file chip — the user shared a file with
+                   the agent, the transcript still flows to the agent
+                   via the system prompt but is not surfaced in the UI. */}
           {message.attachments && message.attachments.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
               {message.attachments.map((att: Attachment) => {
-                const isImage = att.category === 'image' && !!agentId && !!userId;
+                const haveCreds = !!agentId && !!userId;
+                const isVoiceMemo = att.source === 'recording';
+                const isImage = att.category === 'image' && haveCreds;
+                if (isVoiceMemo) {
+                  return (
+                    <VoiceTranscript
+                      key={att.file_id}
+                      transcript={att.transcript}
+                    />
+                  );
+                }
                 if (isImage) {
                   return (
                     <AttachmentImage
