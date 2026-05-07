@@ -116,6 +116,26 @@ class Settings(BaseSettings):
     # LLM call currently always returns the same 4 modules.
     skip_module_decision_llm: bool = True
 
+    # ===== Transcription (audio → text) =====
+    # Externally-reachable base URL for this NarraNexus deployment. Used by
+    # the NetMind transcription backend to mint signed audio URLs that
+    # NetMind's worker can fetch. Empty disables system-default NetMind
+    # transcription (the resolver downgrades to "unavailable" instead of
+    # minting URLs that NetMind can't reach).
+    public_base_url: str = ""
+
+    # HMAC-SHA256 secret used to sign transcription audio URLs. In cloud
+    # mode this MUST be set explicitly — we refuse to derive a secret in
+    # production. In local mode an unset value falls back to admin_secret_key.
+    transcription_hmac_secret: str = ""
+
+    # System-default NetMind credentials for the cloud free tier. When
+    # present and SystemProviderService is enabled, the transcription
+    # resolver appends NetMind as the last fallback (after user providers
+    # and settings.openai_api_key) without consulting the LLM token quota.
+    system_default_netmind_api_key: str = ""
+    system_default_netmind_base_url: str = "https://api.netmind.ai"
+
     @model_validator(mode="after")
     def _expand_user_paths(self) -> "Settings":
         """Expand ~ in path settings so callers don't need to handle it."""

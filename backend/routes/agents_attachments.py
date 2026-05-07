@@ -187,31 +187,28 @@ async def upload_attachment(
             f"size={len(raw_bytes)} path={on_disk}"
         )
 
-        # Whisper transcription runs for ALL audio/* uploads regardless
-        # of how the user produced them — whether they recorded via the
-        # in-browser AudioRecorder (source=recording) or attached an
-        # audio file (source=upload / Paperclip / drag-drop / paste),
-        # the agent should be able to "hear" the contents through the
-        # transcript injected into the system prompt. The `source`
-        # value is independently echoed back in the response so the
-        # frontend can choose how to render the attachment (transcript
-        # text for voice memos, file chip for plain uploads), but the
-        # backend treats both identically: transcribe, hand the agent
-        # the text. Routed through the same provider system that
-        # powers chat / embedding (UserProvider → SystemProvider →
-        # settings.openai_api_key); failures must not break the upload —
-        # see audio_transcription's never-raise contract.
+        # Whisper-style transcription runs for ALL audio/* uploads
+        # regardless of how the user produced them — `source` is purely
+        # a frontend rendering hint. Routed through TranscriptionService
+        # which walks an ordered candidate list (user OpenAI official →
+        # user NetMind → user other compatible → settings.openai →
+        # system-default NetMind cloud free tier). Never-raise contract:
+        # any failure returns transcript=None and the upload still
+        # succeeds.
         transcript: str | None = None
         transcription_available: bool | None = None
         if mime_type.startswith("audio/"):
-            from xyz_agent_context.utils.audio_transcription import (
-                transcribe_audio,
-                is_transcription_available,
+            from xyz_agent_context.agent_framework.transcription import (
+                TranscriptionService,
             )
-            transcription_available = await is_transcription_available(user_id)
+            svc = TranscriptionService.instance()
+            transcription_available = await svc.is_available(user_id)
             if transcription_available:
-                transcript = await transcribe_audio(
-                    file_path=str(on_disk), user_id=user_id,
+                transcript = await svc.transcribe(
+                    file_path=str(on_disk),
+                    file_id=file_id,
+                    agent_id=agent_id,
+                    user_id=user_id,
                 )
                 if transcript:
                     logger.info(

@@ -161,6 +161,12 @@ AUTH_EXEMPT_PATHS = {
 # Prefixes that don't require auth
 AUTH_EXEMPT_PREFIXES = (
     "/ws/",  # WebSocket handles its own auth via message payload
+    # Public transcription audio: NetMind's STT worker fetches via
+    # HMAC-signed token URLs; the token IS the auth. Without bypass,
+    # NetMind can't fetch (it has no JWT). See
+    # backend/routes/transcription_public.py and
+    # src/xyz_agent_context/agent_framework/transcription/url_signer.py.
+    "/api/public/",
 )
 
 # Prefixes that STILL require JWT auth but must SKIP the provider_resolver

@@ -45,6 +45,18 @@ interface AudioRecorderProps {
    * so users see one consistent voice-status surface.
    */
   onError?: (message: string) => void;
+  /**
+   * Whether this user has any transcription-capable provider on the
+   * backend. ``undefined`` means "still loading" — the button stays
+   * enabled and click is allowed (the post-upload banner takes over
+   * if the racing probe says no). ``false`` means we KNOW the user
+   * has nothing configured: the button stays visible but click opens
+   * a Dialog instead of starting MediaRecorder.
+   */
+  available?: boolean;
+  /** Fires when the user clicks the mic but ``available === false``.
+   *  ChatPanel uses this to open a "configure a provider" dialog. */
+  onUnavailable?: () => void;
 }
 
 type RecorderState = 'idle' | 'requesting' | 'recording' | 'denied' | 'unsupported';
@@ -86,6 +98,8 @@ export function AudioRecorder({
   disabled,
   onRecorded,
   onError,
+  available,
+  onUnavailable,
 }: AudioRecorderProps) {
   const [state, setState] = useState<RecorderState>(() =>
     typeof MediaRecorder === 'undefined' ? 'unsupported' : 'idle',
@@ -117,6 +131,16 @@ export function AudioRecorder({
   const startRecording = useCallback(async () => {
     if (state === 'recording' || state === 'requesting') return;
     if (state === 'unsupported') return;
+
+    // Click-time pre-flight: when the backend told us no transcription
+    // provider is configured, don't start MediaRecorder at all. We'd
+    // record audio the user thinks is being transcribed, then surface
+    // the failure as a banner after upload — worse UX than just telling
+    // them upfront. ChatPanel handles the dialog rendering.
+    if (available === false) {
+      onUnavailable?.();
+      return;
+    }
 
     setState('requesting');
     try {
@@ -170,7 +194,7 @@ export function AudioRecorder({
         onError?.(`Recording failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-  }, [state, cleanupStream, onRecorded, onError]);
+  }, [state, cleanupStream, onRecorded, onError, available, onUnavailable]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {

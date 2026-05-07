@@ -12,9 +12,11 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Square, Loader2, Sparkles, MessageSquare, CheckCircle2, Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Send, Square, Loader2, Sparkles, MessageSquare, CheckCircle2, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { useChatStore, useConfigStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
@@ -55,6 +57,7 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
+  const navigate = useNavigate();
   const [input, setInput] = useState('');
   // Attachments uploaded for the next message but not yet sent. Each entry
   // is the server-acknowledged metadata returned by uploadAttachment.
@@ -64,6 +67,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // upload or when user dismisses. Plain string so we don't need a
   // toast library — keeps the UI consistent with the rest of the panel.
   const [transcriptionNotice, setTranscriptionNotice] = useState<string | null>(null);
+  // Click-time pre-flight for the mic button. ``undefined`` while the
+  // first availability probe is in flight (button stays enabled — better
+  // to false-positive once than block voice input on a network blip);
+  // boolean once the probe lands. ``reason`` lets the unavailable
+  // dialog vary its copy (free-tier vs. user-needs-to-configure).
+  const [transcriptionAvailable, setTranscriptionAvailable] = useState<boolean | undefined>(undefined);
+  const [transcriptionReason, setTranscriptionReason] = useState<string>('');
+  const [voiceUnavailableDialogOpen, setVoiceUnavailableDialogOpen] = useState(false);
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -398,6 +409,31 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (isStreaming) shouldAutoScrollRef.current = true;
   }, [isStreaming]);
 
+  // ── Voice-input availability pre-flight ──────────────
+  // We probe ONCE per (userId) — provider config doesn't change mid-session
+  // for the chat view. If the user adds a provider in Settings during the
+  // session, they'll see the click-time dialog one more time and then a
+  // page reload picks up the new state. Cheaper than polling.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    api
+      .getTranscriptionAvailability(userId)
+      .then((r) => {
+        if (cancelled) return;
+        setTranscriptionAvailable(r.available);
+        setTranscriptionReason(r.reason);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Probe failure → leave as undefined so click is allowed; the
+        // post-upload banner will explain a real failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
   // ── Attachment handlers ──────────────────────────────
   // `source='recording'` triggers backend Whisper transcription; the
   // default ('upload') means the user attached a file (Paperclip /
@@ -436,13 +472,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 transcript: resp.transcript ?? undefined,
               },
             ]);
-            // "Voice unavailable" notice only fires for the recording
-            // path — uploaded audio files don't claim to be dictation,
-            // so a missing transcript there is fine and silent.
+            // Backstop for the race: availability probe said true at
+            // mount but the actual upload found nothing (provider was
+            // deleted between the two calls). Mirror the dialog with
+            // a banner so the user still sees something concrete.
             const isRecording = (resp.source ?? opts?.source) === 'recording';
             if (isRecording && resp.transcription_available === false) {
+              // Sync the cached availability state and surface the
+              // dialog the next time they tap mic.
+              setTranscriptionAvailable(false);
               setTranscriptionNotice(
-                '音频已上传，但语音转文字未启用。请到 Settings → Providers 添加 OpenAI。',
+                'Voice input is no longer available — the provider may have been removed. Open Settings to reconfigure.',
               );
             } else if (isRecording && resp.transcript) {
               // New successful recording → clear any stale notice
@@ -950,6 +990,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             disabled={!agentId || isLoading}
             onRecorded={(file) => uploadAttachments([file], { source: 'recording' })}
             onError={(msg) => setTranscriptionNotice(msg)}
+            available={transcriptionAvailable}
+            onUnavailable={() => setVoiceUnavailableDialogOpen(true)}
           />
           <div className="flex-1 relative">
             <Textarea
@@ -1027,6 +1069,73 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           <kbd className="font-[family-name:var(--font-mono)]">Drop</kbd> to attach
         </p>
       </div>
+
+      {/* Voice-input unavailable dialog. Triggered by clicking the mic
+          button when the availability probe came back false — we surface
+          the missing-provider state up-front rather than letting the
+          user record audio that can't be transcribed. */}
+      <Dialog
+        isOpen={voiceUnavailableDialogOpen}
+        onClose={() => setVoiceUnavailableDialogOpen(false)}
+        title="Voice input unavailable"
+        size="md"
+      >
+        <DialogContent>
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
+              <Mic className="w-4 h-4 text-[var(--text-secondary)]" />
+            </div>
+            <div className="flex-1 text-sm leading-relaxed text-[var(--text-secondary)]">
+              {transcriptionReason === 'free_tier_opted_out' ? (
+                <>
+                  <p>
+                    语音输入当前不可用：你已关闭"使用免费额度"，且没有配置自己的转录服务。两条路任选其一即可启用：
+                  </p>
+                  <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
+                    <li>到 <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> 添加 OpenAI 或 NetMind API key</li>
+                    <li>到 <span className="font-mono text-[var(--text-primary)]">Settings → Quota</span> 重新启用"使用免费额度"</li>
+                  </ul>
+                </>
+              ) : (
+                <>
+                  <p>
+                    语音输入需要一个支持的转录服务。当前账号下还没有配置：
+                  </p>
+                  <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
+                    <li>OpenAI 官方 API（推荐，质量最佳）</li>
+                    <li>NetMind API（按量计费，成本较低）</li>
+                  </ul>
+                  <p className="mt-3">
+                    到 <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> 添加任意一项即可启用语音输入；保存后回到这里即生效。
+                  </p>
+                </>
+              )}
+              {transcriptionReason === 'unknown' && (
+                <p className="mt-2 text-xs text-[var(--text-tertiary)] italic">
+                  Note: availability check failed to reach the server — the configuration may already be ready.
+                </p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => setVoiceUnavailableDialogOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="accent"
+            onClick={() => {
+              setVoiceUnavailableDialogOpen(false);
+              navigate('/app/settings');
+            }}
+          >
+            Open Settings
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </Card>
   );
 }

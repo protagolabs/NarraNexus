@@ -12,8 +12,9 @@
  * Plain audio file uploads (Paperclip / drag-drop / paste) intentionally
  * do NOT route through this component — they get the regular file chip
  * because the user is sharing a file, not dictating. The discriminator
- * is "does this attachment have a transcript", which the backend only
- * populates when source=recording.
+ * is `att.source === 'recording'`. The backend transcribes ALL audio/*
+ * uploads regardless of source — `source` purely controls how the
+ * frontend renders the bubble (this component vs. file chip).
  */
 
 import { Mic, MicOff } from 'lucide-react';
