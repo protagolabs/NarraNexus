@@ -167,7 +167,8 @@ async def test_user_openai_official_first(monkeypatch):
 @pytest.mark.asyncio
 async def test_user_netmind_aggregator_becomes_native_credential(monkeypatch):
     """User configures `https://api.netmind.ai/inference-api/openai/v1` —
-    the resolver rewrites the base_url to the native /v1/generation root."""
+    the resolver rewrites the base_url to the native /v1/generation root.
+    Requires PUBLIC_BASE_URL so the NetMind worker has a fetchable URL."""
     _patch_user_providers(
         monkeypatch,
         _provider(
@@ -177,7 +178,7 @@ async def test_user_netmind_aggregator_becomes_native_credential(monkeypatch):
         ),
     )
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_settings(monkeypatch)
+    _patch_settings(monkeypatch, public_base_url="https://my-deploy.example.com")
     creds = await R.resolve_candidates(user_id="u1")
     assert len(creds) == 1
     assert creds[0].backend_kind == TranscriptionBackendKind.NETMIND
@@ -185,6 +186,69 @@ async def test_user_netmind_aggregator_becomes_native_credential(monkeypatch):
     assert creds[0].base_url == "https://api.netmind.ai"
     assert creds[0].model == "openai/whisper"
     assert creds[0].is_system_free_tier is False
+
+
+@pytest.mark.asyncio
+async def test_local_mode_skips_user_netmind_credential(monkeypatch):
+    """No PUBLIC_BASE_URL ⇒ NetMind worker can't fetch our audio.
+    Skip the user-configured NetMind credential cleanly rather than
+    serving it up to fail later."""
+    _patch_user_providers(
+        monkeypatch,
+        _provider(
+            "https://api.netmind.ai/inference-api/openai/v1",
+            source=ProviderSource.NETMIND,
+            api_key="user-netmind",
+        ),
+    )
+    _patch_local_mode(monkeypatch, is_cloud=False)
+    _patch_free_tier(monkeypatch, system_enabled=False)
+    _patch_settings(monkeypatch, public_base_url="")
+    creds = await R.resolve_candidates(user_id="u1")
+    assert creds == []
+
+
+@pytest.mark.asyncio
+async def test_local_mode_user_openai_still_works_when_netmind_skipped(monkeypatch):
+    """Skipping NetMind doesn't affect the OpenAI multipart path —
+    OpenAI sends bytes directly, no public ingress needed."""
+    _patch_user_providers(
+        monkeypatch,
+        _provider("https://api.openai.com/v1", api_key="user-openai"),
+        _provider(
+            "https://api.netmind.ai/inference-api/openai/v1",
+            source=ProviderSource.NETMIND,
+            api_key="user-netmind",
+        ),
+    )
+    _patch_local_mode(monkeypatch, is_cloud=False)
+    _patch_free_tier(monkeypatch, system_enabled=False)
+    _patch_settings(monkeypatch, public_base_url="")
+    creds = await R.resolve_candidates(user_id="u1")
+    assert len(creds) == 1
+    assert creds[0].backend_kind == TranscriptionBackendKind.OPENAI_MULTIPART
+    assert creds[0].api_key == "user-openai"
+
+
+@pytest.mark.asyncio
+async def test_self_hosted_with_public_base_url_re_enables_netmind(monkeypatch):
+    """User self-deploys the backend on their own VPS and sets
+    PUBLIC_BASE_URL — NetMind credential becomes viable again, regardless
+    of cloud/local mode flag."""
+    _patch_user_providers(
+        monkeypatch,
+        _provider(
+            "https://api.netmind.ai/inference-api/openai/v1",
+            source=ProviderSource.NETMIND,
+            api_key="user-netmind",
+        ),
+    )
+    _patch_local_mode(monkeypatch, is_cloud=False)
+    _patch_free_tier(monkeypatch, system_enabled=False)
+    _patch_settings(monkeypatch, public_base_url="https://my-vps.example.com")
+    creds = await R.resolve_candidates(user_id="u1")
+    assert len(creds) == 1
+    assert creds[0].backend_kind == TranscriptionBackendKind.NETMIND
 
 
 @pytest.mark.asyncio
@@ -200,7 +264,7 @@ async def test_priority_openai_official_beats_netmind_beats_yunwu(monkeypatch):
         _provider("https://api.openai.com/v1", api_key="openai-key"),
     )
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_settings(monkeypatch)
+    _patch_settings(monkeypatch, public_base_url="https://my-deploy.example.com")
     creds = await R.resolve_candidates(user_id="u1")
     # Three candidates, in this order
     assert [c.backend_kind for c in creds] == [

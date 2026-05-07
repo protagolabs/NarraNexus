@@ -115,6 +115,17 @@ async def resolve_candidates(user_id: Optional[str]) -> List[TranscriptionCreden
     """
     candidates: List[TranscriptionCredential] = []
 
+    # NetMind's `/v1/generation` worker only accepts an http/https
+    # `audio_url` — it pulls the audio from us, never the other way.
+    # So the credential is only viable on deployments that expose a
+    # publicly-fetchable backend (cloud, or self-hosted with
+    # PUBLIC_BASE_URL set). On a Tauri / `bash run.sh` machine behind
+    # NAT this is False — we skip every NetMind candidate (user-
+    # configured AND system default) so the user gets a clean
+    # "configure OpenAI" dialog instead of a silent transcription
+    # failure when NetMind tries to GET an unreachable URL.
+    has_public_ingress = bool((settings.public_base_url or "").strip())
+
     # --- Tier 1-3: user-configured providers ------------------------------
     if user_id:
         try:
@@ -134,12 +145,15 @@ async def resolve_candidates(user_id: Optional[str]) -> List[TranscriptionCreden
                         prov, source_tag=f"user_provider:{prov.source.value}:openai_official",
                     ))
 
-            # Tier 2: user NetMind
-            for prov in providers:
-                if _is_active_openai_proto(prov) and _is_netmind(prov.base_url):
-                    candidates.append(_to_netmind_user_credential(
-                        prov, source_tag=f"user_provider:{prov.source.value}:netmind",
-                    ))
+            # Tier 2: user NetMind — gated on public ingress (see
+            # `has_public_ingress` comment above). Without a reachable
+            # URL the credential is decorative.
+            if has_public_ingress:
+                for prov in providers:
+                    if _is_active_openai_proto(prov) and _is_netmind(prov.base_url):
+                        candidates.append(_to_netmind_user_credential(
+                            prov, source_tag=f"user_provider:{prov.source.value}:netmind",
+                        ))
 
             # Tier 3: user other OpenAI-multipart compatible
             for prov in providers:

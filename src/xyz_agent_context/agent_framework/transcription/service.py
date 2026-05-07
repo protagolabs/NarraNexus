@@ -77,6 +77,11 @@ class TranscriptionAvailability:
     SYSTEM_FREE_TIER = "system_free_tier"
     NONE = "none"
     FREE_TIER_OPTED_OUT = "free_tier_opted_out"
+    # No transcription provider AND this deployment can't host NetMind
+    # (no PUBLIC_BASE_URL — typical for Tauri / `bash run.sh` desktop).
+    # Frontend dialog drops the "or NetMind" branch so we don't tell
+    # users to configure something that won't work for them anyway.
+    NONE_OPENAI_ONLY = "none_openai_only"
 
 
 def _classify(creds: list[TranscriptionCredential]) -> str:
@@ -169,6 +174,15 @@ class TranscriptionService:
                 opted_in = await _user_opted_in_to_free_tier(user_id)
                 if not opted_in:
                     return False, TranscriptionAvailability.FREE_TIER_OPTED_OUT
+
+        # No public ingress → NetMind isn't viable on this machine.
+        # Tell the frontend so the dialog drops the NetMind branch
+        # rather than telling Tauri users to configure something they
+        # can't use. Importing settings here (not at module scope) to
+        # keep this read fresh across reload-config flows.
+        from xyz_agent_context.settings import settings
+        if not (settings.public_base_url or "").strip():
+            return False, TranscriptionAvailability.NONE_OPENAI_ONLY
 
         return False, TranscriptionAvailability.NONE
 

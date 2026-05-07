@@ -56,6 +56,17 @@ currently know.
   one carries credentials usable for `/v1/generation`. The user's
   one-key card creates both protocols linked; we look at the openai
   side.
+- **All NetMind candidates when `PUBLIC_BASE_URL` is empty** —
+  whether user-configured (Tier 2) or system default (Tier 5).
+  NetMind's `/v1/generation` worker accepts only an http/https
+  `audio_url` it can GET — we verified via probe that base64,
+  multipart, and data URIs are all rejected. Tauri / `bash run.sh`
+  desktops behind NAT have no public ingress, so the credential is
+  decorative there. Skipping cleanly avoids "transcript silently
+  empty" failures and lets the frontend dialog drop the NetMind
+  branch via the `none_openai_only` reason. Self-hosted backends
+  with their own VPS just set PUBLIC_BASE_URL and NetMind comes
+  back online — same gate, no mode-specific code path.
 
 ## Gotchas
 

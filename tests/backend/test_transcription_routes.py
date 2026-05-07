@@ -69,6 +69,17 @@ def test_availability_reports_system_free_tier(availability_app, monkeypatch):
     assert body["reason"] == "system_free_tier"
 
 
+def test_availability_reports_none_openai_only(availability_app, monkeypatch):
+    """Local / no-public-ingress deployment: dialog drops the NetMind
+    branch — frontend reads this reason and renders OpenAI-only copy."""
+    _patch_service(monkeypatch, available=False, reason="none_openai_only")
+    client = TestClient(availability_app)
+    resp = client.get("/api/transcription/availability?user_id=u1")
+    body = resp.json()
+    assert body["available"] is False
+    assert body["reason"] == "none_openai_only"
+
+
 # ─────────────────────────────────────────────────────────────────────
 # /api/public/transcription/audio/{token}
 # ─────────────────────────────────────────────────────────────────────

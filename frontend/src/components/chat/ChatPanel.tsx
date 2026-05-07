@@ -1135,6 +1135,20 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                     <li>Re-enable "Use free quota" in <span className="font-mono text-[var(--text-primary)]">Settings → Quota</span></li>
                   </ul>
                 </>
+              ) : transcriptionReason === 'none_openai_only' ? (
+                <>
+                  <p>
+                    Voice input requires an OpenAI-compatible transcription provider. The desktop / local build can't reach NetMind's worker (it pulls audio from a public URL we don't have here), so OpenAI is the supported path:
+                  </p>
+                  <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
+                    <li>OpenAI official API (recommended)</li>
+                    <li>Yunwu, or any other OpenAI-protocol Whisper provider</li>
+                    <li>Self-hosted whisper.cpp behind an OpenAI-shaped endpoint</li>
+                  </ul>
+                  <p className="mt-3">
+                    Add one in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> to enable voice input.
+                  </p>
+                </>
               ) : (
                 <>
                   <p>
