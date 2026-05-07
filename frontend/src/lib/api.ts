@@ -349,6 +349,33 @@ class ApiClient {
     return response.json();
   }
 
+  /**
+   * Pre-flight check used by ChatPanel to decide whether the mic button
+   * records on click or pops a "configure a provider" dialog. Walks the
+   * same resolver chain the upload route uses, so a true here means
+   * the very next upload will run Whisper (barring a race where the
+   * user deletes their provider between mount and click).
+   *
+   * Returns:
+   *   available: whether ANY transcription candidate exists.
+   *   reason:    one of "has_openai" | "has_netmind" | "has_other"
+   *              | "system_free_tier" | "none". Used to vary the
+   *              dialog wording (e.g. free-tier users get "no setup
+   *              required" copy) and for analytics.
+   */
+  async getTranscriptionAvailability(
+    userId: string,
+  ): Promise<{ available: boolean; reason: string }> {
+    const url = `${getApiBaseUrl()}/api/transcription/availability?user_id=${encodeURIComponent(userId)}`;
+    const response = await fetch(url, { headers: this.getAuthHeaders() });
+    if (!response.ok) {
+      // Don't block the chat UI on a probe failure — fall back to
+      // "available" so the existing post-upload banner takes over.
+      return { available: true, reason: 'unknown' };
+    }
+    return response.json();
+  }
+
   async uploadAttachment(
     agentId: string,
     userId: string,

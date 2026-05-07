@@ -45,6 +45,33 @@ interface AudioRecorderProps {
    * so users see one consistent voice-status surface.
    */
   onError?: (message: string) => void;
+  /**
+   * Whether this user has any transcription-capable provider on the
+   * backend. ``undefined`` means "still loading" — the button stays
+   * enabled and click is allowed (the post-upload banner takes over
+   * if the racing probe says no). ``false`` means we KNOW the user
+   * has nothing configured: the button stays visible but click opens
+   * a Dialog instead of starting MediaRecorder.
+   */
+  available?: boolean;
+  /** Fires when the user clicks the mic but ``available === false``.
+   *  ChatPanel uses this to open a "configure a provider" dialog. */
+  onUnavailable?: () => void;
+  /**
+   * Click-time re-probe. ChatPanel passes a callback that re-fetches
+   * `/api/transcription/availability`, updates its cached state, and
+   * returns `false` when the freshly-resolved state says we should
+   * NOT record (e.g. user just toggled off "Use free quota" in
+   * Settings between mount and now). When it returns `false`, the
+   * parent has already handled the dialog — we just bail.
+   *
+   * Why this is needed: the `available` prop is set by a useEffect
+   * that only re-runs when `userId` changes; toggling the quota
+   * preference doesn't change userId, so the cached value can
+   * out-live the underlying capability. A click-time refresh
+   * eliminates that staleness window.
+   */
+  onPreflight?: () => Promise<boolean>;
 }
 
 type RecorderState = 'idle' | 'requesting' | 'recording' | 'denied' | 'unsupported';
@@ -86,6 +113,9 @@ export function AudioRecorder({
   disabled,
   onRecorded,
   onError,
+  available,
+  onUnavailable,
+  onPreflight,
 }: AudioRecorderProps) {
   const [state, setState] = useState<RecorderState>(() =>
     typeof MediaRecorder === 'undefined' ? 'unsupported' : 'idle',
@@ -117,6 +147,27 @@ export function AudioRecorder({
   const startRecording = useCallback(async () => {
     if (state === 'recording' || state === 'requesting') return;
     if (state === 'unsupported') return;
+
+    // Click-time pre-flight: when the cached prop already says no
+    // provider, fail-fast without a network round-trip.
+    if (available === false) {
+      onUnavailable?.();
+      return;
+    }
+
+    // Click-time RE-probe via parent callback. Catches the staleness
+    // case where `available` was true at mount but the user toggled
+    // off "Use free quota" before clicking the mic. Parent decides
+    // (and renders the dialog) — we just respect the verdict.
+    if (onPreflight) {
+      try {
+        const ok = await onPreflight();
+        if (!ok) return;
+      } catch {
+        // Probe network failure → don't block recording; the
+        // upload-time error path will still catch a hard 402.
+      }
+    }
 
     setState('requesting');
     try {
@@ -170,7 +221,7 @@ export function AudioRecorder({
         onError?.(`Recording failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-  }, [state, cleanupStream, onRecorded, onError]);
+  }, [state, cleanupStream, onRecorded, onError, available, onUnavailable, onPreflight]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {

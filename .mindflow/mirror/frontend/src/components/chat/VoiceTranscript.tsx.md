@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/VoiceTranscript.tsx
-last_verified: 2026-05-06
+last_verified: 2026-05-07
 stub: false
 ---
 
@@ -10,7 +10,9 @@ stub: false
 
 Phase 3 of the multimodal-audio rollout was originally going to ship an `<audio>` playback widget plus a transcript line (`AudioMessage`). After the first iteration in production we cut the player entirely: when a user records via the in-browser AudioRecorder, the **transcript is the message**. There is no "verify what I said" loop and no need to keep the audio bytes accessible to the user — Whisper's output stands on its own.
 
-This component owns the voice-memo render path. Plain audio file uploads (Paperclip / drag-drop / paste) deliberately do NOT go through here: those keep the regular file-chip rendering because the user is sharing a file with the agent, not dictating. The discriminator is `att.source === 'recording'`, which the upload route echoes back from the request's `source` query param and which is persisted on the attachment dict so chat history reload still picks the right path. Both cases (recording AND upload) get Whisper transcription on the backend so the agent always receives the spoken content via the system prompt — `source` only changes how the bubble renders.
+This component owns the voice-memo render path. Plain audio file uploads (Paperclip / drag-drop / paste) deliberately do NOT go through here: those keep the regular file-chip rendering because the user is sharing a file with the agent, not dictating. The discriminator is `att.source === 'recording'`, which the upload route echoes back from the request's `source` query param and which is persisted on the attachment dict so chat history reload still picks the right path.
+
+Both cases (recording AND upload) get Whisper-style transcription on the backend so the agent always receives the spoken content via the system prompt — `source` only changes how the bubble renders. Transcription routes through `agent_framework.transcription.TranscriptionService` (not the deleted `utils/audio_transcription`); resolver picks OpenAI multipart or NetMind submit-poll based on the user's existing provider config.
 
 ## Upstream / Downstream
 
@@ -43,5 +45,5 @@ The audio bytes are still on disk (they always are — that's where the upload l
 
 ## New-joiner traps
 
-- Regular audio file uploads (Paperclip / drag-drop) DO NOT and MUST NOT route through this component. They have no transcript (backend skips Whisper when `source != 'recording'`) and rendering them as voice memos would mislead users into thinking the agent dictated the file's contents back to them.
+- Regular audio file uploads (Paperclip / drag-drop) DO NOT and MUST NOT route through this component. They DO have a transcript (backend transcribes ALL audio/* uploads regardless of source — `source` is purely a frontend dispatch hint), but rendering them as voice memos would mislead users into thinking the agent dictated the file's contents back to them. The transcript still flows to the agent via `Attachment.synthesize_marker` in the system prompt — it's just hidden in the UI for file uploads.
 - Don't add a "play audio" link or button here. If product ever wants playback back, the right move is restoring `AudioMessage` as a separate component, not bolting playback onto the dictation primitive.
