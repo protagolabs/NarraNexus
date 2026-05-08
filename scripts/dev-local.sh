@@ -33,7 +33,7 @@ fi
 # Always clean up orphan processes from a previous run
 pkill -f "sqlite_proxy_server" 2>/dev/null || true
 pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-pkill -f "module_runner.py mcp" 2>/dev/null || true
+pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
 pkill -f "module_poller" 2>/dev/null || true
 pkill -f "job_trigger" 2>/dev/null || true
 pkill -f "message_bus_trigger" 2>/dev/null || true
@@ -132,7 +132,7 @@ draw_panel() {
   status_line "DB Proxy      :8100" "lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null || ss -tlnp 2>/dev/null | grep -q ':8100 '"
   status_line "Backend API   :8000" "lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null"
   status_line "Frontend      :5173" "lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null || lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null"
-  status_line "MCP Server"          "pgrep -f 'module_runner.py mcp' >/dev/null"
+  status_line "MCP Server"          "pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null"
   status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
   status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
   status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
@@ -157,7 +157,7 @@ while true; do
       # tmux kill-session sends SIGHUP but some processes may ignore it.
       pkill -f "sqlite_proxy_server" 2>/dev/null || true
       pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-      pkill -f "module_runner.py mcp" 2>/dev/null || true
+      pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
       pkill -f "module_poller" 2>/dev/null || true
       pkill -f "job_trigger" 2>/dev/null || true
       pkill -f "message_bus_trigger" 2>/dev/null || true
@@ -208,7 +208,7 @@ tmux new-window -t "$SESSION" -n "Backend" \
 
 # --- MCP Server ---
 tmux new-window -t "$SESSION" -n "MCP" \
-  "$ENV_CMD; echo '=== MCP Server ==='; uv run python src/xyz_agent_context/module/module_runner.py mcp; echo 'MCP stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== MCP Server ==='; uv run python -m xyz_agent_context.module.module_runner mcp; echo 'MCP stopped. Press Enter to close.'; read"
 
 # --- Module Poller ---
 tmux new-window -t "$SESSION" -n "Poller" \

@@ -60,7 +60,7 @@ stop_all() {
   # Kill known process patterns
   pkill -f "sqlite_proxy_server" 2>/dev/null || true
   pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-  pkill -f "module_runner.py mcp" 2>/dev/null || true
+  pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
   pkill -f "module_poller" 2>/dev/null || true
   pkill -f "job_trigger" 2>/dev/null || true
   pkill -f "message_bus_trigger" 2>/dev/null || true
