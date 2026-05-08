@@ -910,7 +910,7 @@ class ApiClient {
   // Subproject 2: Bundle export/import
   // =========================================================================
 
-  async exportBundle(payload: BundleExportRequest): Promise<{ blob: Blob; filename: string; warningsCount: number }> {
+  async exportBundle(payload: BundleExportRequest): Promise<{ blob: Blob; filename: string; warningsCount: number; externalEdgesDropped: number }> {
     const baseUrl = getApiBaseUrl();
     const authHeaders = this.getAuthHeaders();
     const resp = await fetch(`${baseUrl}/api/bundle/export`, {
@@ -934,8 +934,9 @@ class ApiClient {
     const m = /filename="([^"]+)"/.exec(cd);
     const filename = m ? m[1] : `bundle-${Date.now()}.nxbundle`;
     const warningsCount = parseInt(resp.headers.get('X-Bundle-Warnings-Count') || '0');
+    const externalEdgesDropped = parseInt(resp.headers.get('X-Bundle-External-Edges-Dropped') || '0');
     const blob = await resp.blob();
-    return { blob, filename, warningsCount };
+    return { blob, filename, warningsCount, externalEdgesDropped };
   }
 
   async importBundlePreflight(file: File): Promise<BundlePreflightResponse> {

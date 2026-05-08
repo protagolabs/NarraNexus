@@ -387,16 +387,29 @@ export default function BundleExportPage() {
         narrative_selection: Object.keys(narrativeSel).length ? narrativeSel : null,
         event_selection: Object.keys(eventSel).length ? eventSel : null,
       };
-      const { blob, filename, warningsCount } = await api.exportBundle(payload);
+      const { blob, filename, warningsCount, externalEdgesDropped } = await api.exportBundle(payload);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
+      // Warnings are real concerns; "external edges dropped" is informational
+      // (expected closure behavior) and shown separately so the user doesn't
+      // panic over hundreds of routine edge-drops.
+      const parts = [`${filename} downloaded.`];
+      if (externalEdgesDropped > 0) {
+        parts.push(
+          `Dropped ${externalEdgesDropped} reference(s) to entities outside the bundle ` +
+          '(expected — your agents had social-network notes about agents not in the closure).'
+        );
+      }
+      if (warningsCount > 0) {
+        parts.push(`${warningsCount} warning${warningsCount === 1 ? '' : 's'} (see manifest.json).`);
+      }
       await alert({
         title: 'Bundle created',
-        message: `${filename} downloaded.${warningsCount ? ` ${warningsCount} warning${warningsCount === 1 ? '' : 's'} (see manifest.json).` : ''}`,
+        message: parts.join(' '),
       });
       navigate('/app/settings');
     } catch (e: any) {

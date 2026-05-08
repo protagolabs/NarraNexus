@@ -157,6 +157,12 @@ async def build_bundle(
             raise ValueError(f"Forbidden: agent {aid} not owned by {user_id}")
 
     warnings: List[str] = []
+    # `info` is for expected, non-actionable events (e.g. closure dropped an
+    # external agent reference). The frontend shows `len(warnings)`, not info,
+    # so a clean export with thousands of dropped external edges no longer
+    # looks like "1234 warnings 你完了".
+    info: List[str] = []
+    info_counters: Dict[str, int] = {"skipped_external_edge": 0}
     stripped_lists = ["api_keys", "lark_oauth", "user_password_hash", "user_providers"]
 
     # 2. Find all instance_ids belonging to closure agents
@@ -271,9 +277,10 @@ async def build_bundle(
                 kept = []
                 for r in rows:
                     if r.get("entity_type") == "agent" and r.get("entity_id") not in closure_set:
-                        warnings.append(
-                            f"skipped_external_edge: {aid} -> {r.get('entity_id')} (not in bundle)"
-                        )
+                        # Expected behavior under strict closure (PRD §8.3 step 4).
+                        # Don't flood manifest.warnings — keep a counter and
+                        # emit a single rolled-up entry at the end.
+                        info_counters["skipped_external_edge"] += 1
                         continue
                     kept.append(r)
                 social_entities_for_agent.extend(kept)
@@ -406,6 +413,13 @@ async def build_bundle(
                     "intro_md": selection.team_intro_md or team_row.get("intro_md") or "",
                 }
 
+        # Roll up info_counters into one human-readable info line per kind
+        if info_counters["skipped_external_edge"]:
+            info.append(
+                f"skipped {info_counters['skipped_external_edge']} external entity reference(s) "
+                "outside the bundle closure (expected — see PRD §8.3)"
+            )
+
         manifest = {
             "bundle_format_version": BUNDLE_FORMAT_VERSION,
             "narranexus_version_exported": "1.3.4",
@@ -418,6 +432,8 @@ async def build_bundle(
             "mcp_hints_count": len(mcp_rows),
             "stripped": stripped_lists,
             "warnings": warnings,
+            "info": info,
+            "info_counters": info_counters,
             "embedding": {
                 "provider": selection.embedding_provider,
                 "model": selection.embedding_model,

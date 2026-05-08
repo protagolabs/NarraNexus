@@ -145,6 +145,12 @@ async def export_bundle(payload: ExportRequest, request: Request):
             "Content-Disposition": f'attachment; filename="{fname}"',
             "X-Bundle-Manifest-Sha256": result["manifest"].get("integrity_sha256", ""),
             "X-Bundle-Warnings-Count": str(len(result.get("warnings", []))),
+            # Info = expected non-actionable events (e.g. external-edge drops).
+            # Surfaced separately so the frontend doesn't alarm on them.
+            "X-Bundle-Info-Count": str(len(result["manifest"].get("info", []))),
+            "X-Bundle-External-Edges-Dropped": str(
+                result["manifest"].get("info_counters", {}).get("skipped_external_edge", 0)
+            ),
         },
     )
 
