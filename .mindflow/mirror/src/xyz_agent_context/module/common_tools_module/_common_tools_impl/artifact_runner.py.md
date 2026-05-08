@@ -4,6 +4,17 @@ last_verified: 2026-05-08
 stub: false
 ---
 
+## 2026-05-08 addition — ArtifactEventBus integration
+
+Both `create_text_artifact` and `upload_binary_artifact` now call
+`get_artifact_event_bus().publish(agent_id, event)` just before returning their
+`CreateArtifactToolResult`. The event type is `"artifact.created"` for version-1
+artifacts and `"artifact.updated"` for iterations (`is_iteration=True`). The
+event payload includes `artifact_id`, `version`, `kind`, `title` (truncated to
+200 chars), and `session_id`. This wires the runner into the real-time WS fan-out
+without adding any coupling to the WS layer — the bus is a one-way fire-and-forget
+publish call.
+
 # artifact_runner.py — 文件系统 + 数据库的 artifact 落地层
 
 ## 为什么存在

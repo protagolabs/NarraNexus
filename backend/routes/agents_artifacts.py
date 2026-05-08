@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema import Artifact, ArtifactVersion
 from xyz_agent_context.settings import settings
+from xyz_agent_context.utils.artifact_events import get_artifact_event_bus
 from xyz_agent_context.utils.db_factory import get_db_client
 
 
@@ -169,6 +170,10 @@ async def patch_artifact(agent_id: str, artifact_id: str, body: PatchArtifact):
 
     if body.pinned is not None:
         await repo.set_pinned(artifact_id, pinned=body.pinned)
+        await get_artifact_event_bus().publish(
+            agent_id,
+            {"type": "artifact.pinned", "artifact_id": artifact_id, "pinned": body.pinned},
+        )
     if body.title is not None:
         await db.update("instance_artifacts", {"artifact_id": artifact_id}, {"title": body.title[:200]})
 
@@ -204,5 +209,10 @@ async def delete_artifact(agent_id: str, artifact_id: str):
     if os.path.isdir(folder):
         shutil.rmtree(folder, ignore_errors=True)
         logger.info(f"Deleted artifact folder: {folder}")
+
+    await get_artifact_event_bus().publish(
+        agent_id,
+        {"type": "artifact.deleted", "artifact_id": artifact_id},
+    )
 
     return {"deleted": artifact_id}

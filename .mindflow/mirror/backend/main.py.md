@@ -4,6 +4,15 @@ last_verified: 2026-05-08
 stub: false
 ---
 
+## 2026-05-08 addition — artifact_ws_router wire-in
+
+`artifact_ws_router` (from `backend.routes.artifact_ws`) is now imported and
+registered with `app.include_router(artifact_ws_router, tags=["Artifacts"])` —
+no prefix because the route already starts with `/ws/`. This exposes the
+`/ws/artifacts/{agent_id}` WebSocket endpoint for real-time artifact event
+fan-out. The WS path sits after all REST routes and before the SPA fallback,
+consistent with the existing `/ws/agent/run` ordering.
+
 ## 2026-05-08 addition — agents_artifacts router wire-in
 
 `agents_artifacts_router` (from `backend.routes.agents_artifacts`) is now

@@ -163,3 +163,47 @@ def test_other_agents_cannot_read(setup):
     client = setup["client"]
     r = client.get("/api/agents/AGENT_OTHER/artifacts/art_99999999")
     assert r.status_code == 404
+
+
+def test_ws_emits_pinned_event_when_pin_called(setup):
+    """Pin a session-scoped artifact and verify a WS subscriber receives the event."""
+    import backend.routes.agents_artifacts as ag_mod
+    from backend.routes.artifact_ws import router as ws_router
+    from backend.routes.agents_artifacts import router as a_router
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    db = setup["db"]
+
+    async def _ret_db():
+        return db
+
+    # Build a fresh app that includes both the REST and WS routers so the
+    # same event bus singleton connects them.
+    app2 = FastAPI()
+    app2.include_router(a_router, prefix="/api/agents")
+    app2.include_router(ws_router)
+
+    # The REST router module was already patched in the fixture; that patch
+    # remains active for the duration of this test function.
+
+    client2 = TestClient(app2)
+
+    with client2.websocket_connect("/ws/artifacts/agent_x") as ws:
+        # Trigger the pinned event via the REST endpoint.
+        r = client2.patch(
+            "/api/agents/agent_x/artifacts/art_99999999",
+            json={"pinned": True},
+        )
+        assert r.status_code == 200, f"PATCH failed: {r.text}"
+
+        # Drain up to 5 messages; the event should arrive almost immediately.
+        # The 30s heartbeat will not fire in this short window, but we guard
+        # against it anyway so the test never hangs indefinitely.
+        for _ in range(5):
+            evt = ws.receive_json()
+            if evt.get("type") == "artifact.pinned":
+                assert evt["artifact_id"] == "art_99999999"
+                assert evt["pinned"] is True
+                return
+        raise AssertionError("did not receive artifact.pinned event within 5 messages")

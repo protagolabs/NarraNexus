@@ -25,6 +25,7 @@ from typing import Optional
 from loguru import logger
 
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.utils.artifact_events import get_artifact_event_bus
 from xyz_agent_context.schema.artifact_schema import (
     Artifact,
     ArtifactKind,
@@ -230,6 +231,19 @@ async def create_text_artifact(
         )
         logger.debug("Created artifact {} v1 kind={}", artifact_id, kind)
 
+    event_type = "artifact.updated" if is_iteration else "artifact.created"
+    await get_artifact_event_bus().publish(
+        agent_id,
+        {
+            "type": event_type,
+            "artifact_id": artifact_id,
+            "version": version,
+            "kind": kind,
+            "title": title[:200],
+            "session_id": session_id,
+        },
+    )
+
     return CreateArtifactToolResult(
         artifact_id=artifact_id,
         version=version,
@@ -358,6 +372,19 @@ async def upload_binary_artifact(
             size_bytes=size,
         )
         logger.debug("Created binary artifact {} v1 kind={}", artifact_id, kind)
+
+    event_type = "artifact.updated" if is_iteration else "artifact.created"
+    await get_artifact_event_bus().publish(
+        agent_id,
+        {
+            "type": event_type,
+            "artifact_id": artifact_id,
+            "version": version,
+            "kind": kind,
+            "title": title[:200],
+            "session_id": session_id,
+        },
+    )
 
     return CreateArtifactToolResult(
         artifact_id=artifact_id,

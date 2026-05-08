@@ -4,6 +4,14 @@ last_verified: 2026-05-08
 stub: false
 ---
 
+## 2026-05-08 addition — ArtifactEventBus integration
+
+`patch_artifact` now calls `get_artifact_event_bus().publish(agent_id, {"type": "artifact.pinned", ...})`
+after `repo.set_pinned()` completes, but **only** when `body.pinned is not None` (a
+title-only PATCH does not emit an event). `delete_artifact` calls `.publish(agent_id, {"type": "artifact.deleted", ...})`
+after the `shutil.rmtree` call (ensuring the on-disk cleanup is durable before the
+event fires). Both are fire-and-forget — the route return value is not affected.
+
 # agents_artifacts.py
 
 ## Why it exists
