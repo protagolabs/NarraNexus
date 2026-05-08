@@ -34,7 +34,14 @@ router = APIRouter()
 
 
 CSP_BY_KIND = {
-    "text/html":                       "default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:",
+    # text/html: Agent-emitted self-contained HTML rendered inside an
+    # iframe sandbox="allow-scripts" (no allow-same-origin). Inline scripts
+    # and inline event handlers (onclick=...) are explicitly allowed via
+    # script-src 'unsafe-inline' — required for interactive HTML artifacts.
+    # External script loads (<script src=...>), fetch(), XHR, and WebSocket
+    # all fall back to default-src 'none' and are blocked, so the document
+    # cannot phone home. Inline styles allowed for ergonomic markup.
+    "text/html":                       "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:",
     "application/vnd.echarts+json":    "default-src 'none'",
     "text/csv":                        "default-src 'none'",
     "text/markdown":                   "default-src 'none'",

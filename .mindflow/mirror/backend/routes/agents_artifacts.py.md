@@ -50,12 +50,15 @@ Mounted under `/api/agents` via `backend/routes/agents.py` (Task 8 wiring).
 **Kind-specific Content-Security-Policy on `/raw`.**
 Each MIME kind maps to a hand-crafted CSP that allows only the minimum
 needed for that content type to render:
-- HTML: `style-src 'unsafe-inline'; img-src data: blob:` — inline styles
-  for standalone apps; data:/blob: for embedded images. `script-src` is
-  intentionally absent, so `default-src 'none'` blocks all external script
-  loads and `eval`. Inline `<script>` blocks still execute under this policy
-  (that is the WebKit/Blink contract), but external fetch() and
-  XMLHttpRequest are blocked, reducing the SSRF/exfil surface to near zero.
+- HTML: `script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:`.
+  `script-src 'unsafe-inline'` is REQUIRED — without it, `default-src 'none'`
+  would block every inline `<script>` block and every inline event handler
+  (`onclick="..."`), making interactive HTML artifacts inert. With it,
+  inline JS executes inside the sandboxed iframe, but external script loads
+  (`<script src=...>`), `fetch()`, `XMLHttpRequest`, and `WebSocket` still
+  fall back to `default-src 'none'` and are blocked — the document can run
+  arbitrary JS but cannot phone home. Inline styles allowed for ergonomic
+  markup; data:/blob: images allowed for embedded thumbnails.
 - JSON / CSV / Markdown: `default-src 'none'` — pure data, no active content.
 - Image / PDF: `img-src 'self'` / `object-src 'self'` — self-reference only.
 

@@ -123,9 +123,13 @@ def test_raw_returns_strict_csp(setup):
     r = client.get("/api/agents/agent_x/artifacts/art_99999999/v1/raw")
     assert r.status_code == 200
     csp = r.headers["content-security-policy"]
+    # default-src 'none' anchors the policy: anything not explicitly allowed
+    # falls back to deny.
     assert "default-src 'none'" in csp
-    # script-src must never be present — no external scripts permitted
-    assert "script-src" not in csp
+    # text/html artifact must allow inline scripts so interactive demos work,
+    # but must NOT allow any external script source — only 'unsafe-inline'.
+    assert "script-src 'unsafe-inline'" in csp
+    assert "'self'" not in csp.split("script-src", 1)[1].split(";", 1)[0]
     assert r.headers["x-content-type-options"] == "nosniff"
     assert r.headers["referrer-policy"] == "no-referrer"
 
