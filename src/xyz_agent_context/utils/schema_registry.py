@@ -915,6 +915,25 @@ _register(
     )
 )
 
+# Subproject 2: Bundle Import — preflight session storage (cross-process / crash-safe)
+_register(
+    TableDef(
+        name="bundle_preflight_sessions",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("token", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("work_dir", "TEXT", "VARCHAR(1024)", nullable=False),
+            Column("manifest_json", "TEXT", "MEDIUMTEXT", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_bps_token", ["token"], unique=True),
+            Index("idx_bps_created", ["created_at"]),
+        ],
+    )
+)
+
 # Subproject 2: Bundle Export/Import — skill archive registry
 _register(
     TableDef(

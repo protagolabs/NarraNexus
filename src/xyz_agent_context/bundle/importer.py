@@ -15,6 +15,7 @@ Pipeline (PRD §8.4):
 8. Summary
 """
 
+import asyncio
 import io
 import json
 import os
@@ -24,7 +25,7 @@ import tarfile
 import tempfile
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from loguru import logger
@@ -40,8 +41,34 @@ from .security import (
 )
 
 
-# In-memory preflight cache (process-local; for v1 single-process backend)
-_PREFLIGHT_STORE: Dict[str, Dict[str, Any]] = {}
+# Preflight session TTL — older sessions are pruned every preflight call.
+PREFLIGHT_TTL_HOURS = 6
+
+
+async def _cleanup_stale_preflights(db) -> None:
+    """Delete preflight rows older than PREFLIGHT_TTL_HOURS + their work_dirs.
+    Called inline from preflight() — cheap; expected row count is tiny."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=PREFLIGHT_TTL_HOURS)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    rows = await db.execute(
+        "SELECT token, work_dir FROM bundle_preflight_sessions WHERE created_at < %s",
+        params=(cutoff,),
+        fetch=True,
+    )
+    for r in rows or []:
+        wd = r.get("work_dir")
+        if wd:
+            try:
+                shutil.rmtree(wd, ignore_errors=True)
+            except Exception:
+                pass
+    if rows:
+        await db.execute(
+            "DELETE FROM bundle_preflight_sessions WHERE created_at < %s",
+            params=(cutoff,),
+            fetch=False,
+        )
 
 
 async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
@@ -53,10 +80,15 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     if size > MAX_BUNDLE_BYTES:
         raise ValueError(f"bundle too large: {size}B > {MAX_BUNDLE_BYTES}B")
 
-    # Extract to temp dir for inspection (kept until /confirm is called).
-    work_dir = Path(tempfile.mkdtemp(prefix="nx-import-"))
+    # Extract to a persistent dir (kept until /confirm completes or TTL expires).
+    # Use a shared volume-friendly path under ~/.nexusagent so docker compose
+    # can persist it across backend restarts (mount point set by ops).
+    sessions_root = Path.home() / ".nexusagent" / "bundle_preflight"
+    sessions_root.mkdir(parents=True, exist_ok=True)
+    work_dir = Path(tempfile.mkdtemp(prefix="nx-import-", dir=str(sessions_root)))
     try:
-        extract_zip_safely(zip_path, work_dir)
+        # zip extraction is CPU-bound — offload to a worker thread.
+        await asyncio.to_thread(extract_zip_safely, zip_path, work_dir)
     except Exception:
         shutil.rmtree(work_dir, ignore_errors=True)
         raise
@@ -117,24 +149,35 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         "embedding_compat": embedding_compat,
         "warnings": manifest.get("warnings", []),
     }
-    _PREFLIGHT_STORE[token] = {
-        "work_dir": str(work_dir),
-        "user_id": user_id,
-        "manifest": manifest,
-    }
+    # Persist to DB so confirm() works across worker boundaries / restarts.
+    await _cleanup_stale_preflights(db)
+    await db.insert(
+        "bundle_preflight_sessions",
+        {
+            "token": token,
+            "user_id": user_id,
+            "work_dir": str(work_dir),
+            "manifest_json": json.dumps(manifest, ensure_ascii=False, default=str),
+        },
+    )
     return summary
 
 
 async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
     """Execute the actual import using a previously preflighted bundle."""
-    info = _PREFLIGHT_STORE.get(preflight_token)
-    if not info:
+    db = await get_db_client()
+    row = await db.get_one("bundle_preflight_sessions", {"token": preflight_token})
+    if not row:
         raise ValueError("preflight_token not found or expired")
-    if info["user_id"] != user_id:
+    if row["user_id"] != user_id:
         raise ValueError("preflight_token user mismatch")
 
-    work_dir = Path(info["work_dir"])
-    manifest = info["manifest"]
+    work_dir = Path(row["work_dir"])
+    manifest = json.loads(row["manifest_json"])
+    if not work_dir.exists():
+        # Backend was restarted / volume not persisted; the extracted files are gone.
+        await db.delete("bundle_preflight_sessions", {"token": preflight_token})
+        raise ValueError("preflight working dir missing — please re-upload the bundle")
 
     # ---- ID Rewrite ----
     id_map: Dict[str, str] = {}
@@ -425,23 +468,14 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     await db.insert("agent_messages", new_mr)
                     written_summary["messages_created"] += 1
 
-        # workspace tar
+        # workspace tar — offload extraction to thread
         ws_tar = adir / "workspace.tar.gz"
         if ws_tar.exists():
             target = (
                 Path.home() / ".nexusagent" / "workspaces" / f"{new_aid}_user_{user_id}"
             )
             target.mkdir(parents=True, exist_ok=True)
-            with tarfile.open(ws_tar, "r:gz") as tar:
-                # Reject any unsafe entries
-                safe_members = []
-                for member in tar.getmembers():
-                    if member.issym() or member.islnk():
-                        continue
-                    if member.name.startswith("/") or ".." in member.name.split("/"):
-                        continue
-                    safe_members.append(member)
-                tar.extractall(target, members=safe_members)
+            await asyncio.to_thread(_extract_tar_safely, ws_tar, target)
 
     # -- Skills --
     skill_archives_dir = Path.home() / ".nexusagent" / "skill_archives" / user_id
@@ -478,6 +512,20 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
     try:
         shutil.rmtree(work_dir, ignore_errors=True)
     finally:
-        _PREFLIGHT_STORE.pop(preflight_token, None)
+        await db.delete("bundle_preflight_sessions", {"token": preflight_token})
 
     return written_summary
+
+
+def _extract_tar_safely(tar_path: Path, target: Path) -> None:
+    """Synchronous tar.gz extractor with traversal/symlink guards.
+    Caller wraps in asyncio.to_thread() — extraction is CPU+IO bound."""
+    with tarfile.open(tar_path, "r:gz") as tar:
+        safe_members = []
+        for member in tar.getmembers():
+            if member.issym() or member.islnk():
+                continue
+            if member.name.startswith("/") or ".." in member.name.split("/"):
+                continue
+            safe_members.append(member)
+        tar.extractall(target, members=safe_members)

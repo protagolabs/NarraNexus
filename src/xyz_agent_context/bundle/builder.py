@@ -15,6 +15,7 @@ Pipeline (PRD §8.3 + §8.12):
 8. Compute integrity sha256, zip into .nxbundle
 """
 
+import asyncio
 import io
 import json
 import os
@@ -302,9 +303,9 @@ async def build_bundle(
                 if hits:
                     zip_secrets_warnings.append({"skill": skill_name, "hits": hits})
                 tgt_zip = skills_dir / f"{skill_name}.zip"
-                shutil.copy2(src_zip, tgt_zip)
+                await asyncio.to_thread(shutil.copy2, src_zip, tgt_zip)
                 entry["archive_ref"] = f"skills/{skill_name}.zip"
-                entry["sha256"] = file_sha256(tgt_zip)
+                entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
             elif method == "full_copy":
                 # Pack the entire skill dir from agent's workspace
                 # We pick the first agent that has this skill installed
@@ -313,9 +314,9 @@ async def build_bundle(
                     warnings.append(f"skill {skill_name}: full_copy source not found")
                     continue
                 tgt_zip = skills_dir / f"{skill_name}-full.zip"
-                _zip_dir(src_dir, tgt_zip)
+                await asyncio.to_thread(_zip_dir, src_dir, tgt_zip)
                 entry["archive_ref"] = f"skills/{skill_name}-full.zip"
-                entry["sha256"] = file_sha256(tgt_zip)
+                entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
             elif method == "builtin":
                 pass
             else:
@@ -381,26 +382,21 @@ async def build_bundle(
             },
         }
 
-        # Compute integrity sha256 over all non-manifest files (sorted)
-        all_paths = sorted(
-            [p for p in tmpdir.rglob("*") if p.is_file() and p.name != "manifest.json"]
+        # Compute integrity sha256 over all non-manifest files (sorted) — heavy I/O,
+        # offloaded to a worker thread so we don't block the event loop while
+        # hashing large workspaces.
+        manifest["integrity_sha256"] = await asyncio.to_thread(
+            _compute_integrity_sha256, tmpdir
         )
-        h = io.BytesIO()
-        for p in all_paths:
-            h.write(str(p.relative_to(tmpdir)).encode("utf-8"))
-            h.write(b":")
-            h.write(file_sha256(p).encode("utf-8"))
-            h.write(b"\n")
-        manifest["integrity_sha256"] = bytes_sha256(h.getvalue())
 
         (tmpdir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False, default=str),
             encoding="utf-8",
         )
 
-        # ---- zip into .nxbundle ----
+        # ---- zip into .nxbundle ---- (also CPU-heavy, off-loop)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        _zip_dir(tmpdir, output_path)
+        await asyncio.to_thread(_zip_dir, tmpdir, output_path)
 
     return {
         "manifest": manifest,
@@ -427,7 +423,9 @@ async def _pack_workspace(
     agent_dir: Path,
     excludes: List[str],
 ) -> Optional[Path]:
-    """Tar.gz agent's workspace dir to agent_dir/workspace.tar.gz; respects sensitive-pattern filter."""
+    """Tar.gz agent's workspace dir to agent_dir/workspace.tar.gz; respects sensitive-pattern filter.
+    The tarfile compression itself is offloaded to a worker thread so the main
+    asyncio event loop stays responsive for other users during big workspaces."""
     candidates = [
         Path.home() / ".nexusagent" / "workspaces" / f"agent_{agent_id.replace('agent_', '')}_user_{user_id}",
         Path.home() / ".nexusagent" / "workspaces" / f"{agent_id}_user_{user_id}",
@@ -440,6 +438,10 @@ async def _pack_workspace(
     out = agent_dir / "workspace.tar.gz"
     excl_set = set(excludes or [])
 
+    return await asyncio.to_thread(_pack_workspace_sync, src, out, excl_set)
+
+
+def _pack_workspace_sync(src: Path, out: Path, excl_set: set) -> Path:
     def filter_func(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
         name = tarinfo.name
         if name.startswith("./"):
@@ -476,9 +478,26 @@ async def _find_skill_dir(agent_ids: Set[str], user_id: str, skill_name: str) ->
 
 
 def _zip_dir(src: Path, dst: Path) -> None:
+    """Synchronous zip writer. Callers in async context MUST wrap in
+    asyncio.to_thread() — zip compression is CPU-bound and blocks the event loop."""
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, _, files in os.walk(src):
             for fn in files:
                 full = Path(root) / fn
                 rel = full.relative_to(src)
                 zf.write(full, arcname=str(rel))
+
+
+def _compute_integrity_sha256(tmpdir: Path) -> str:
+    """Walk tmpdir, sha256 each non-manifest file, fold into a single digest.
+    Sync — caller wraps in asyncio.to_thread()."""
+    all_paths = sorted(
+        [p for p in tmpdir.rglob("*") if p.is_file() and p.name != "manifest.json"]
+    )
+    h = io.BytesIO()
+    for p in all_paths:
+        h.write(str(p.relative_to(tmpdir)).encode("utf-8"))
+        h.write(b":")
+        h.write(file_sha256(p).encode("utf-8"))
+        h.write(b"\n")
+    return bytes_sha256(h.getvalue())
