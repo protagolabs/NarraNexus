@@ -224,6 +224,15 @@ from .a2a_schema import (
     A2AErrorCodes,
 )
 
+# ===== Artifact Schema (agent-emitted artifacts: charts, reports, html apps, csv, images, pdf) =====
+from .artifact_schema import (
+    Artifact as AgentArtifact,
+    ArtifactKind,
+    ArtifactVersion,
+    ArtifactWithVersions,
+    CreateArtifactToolResult,
+)
+
 # ===== Export All =====
 __all__ = [
     # Module Schema
@@ -385,4 +394,11 @@ __all__ = [
     "SkillListResponse",
     "SkillOperationResponse",
     "SkillStudyResponse",
+
+    # Artifact Schema
+    "AgentArtifact",
+    "ArtifactKind",
+    "ArtifactVersion",
+    "ArtifactWithVersions",
+    "CreateArtifactToolResult",
 ]
