@@ -18,13 +18,11 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule, mcp_host
-from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
+from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.module.base import XYZBaseModule
 from xyz_agent_context.schema import (
     ModuleConfig,
-    MCPServerConfig,
     ContextData,
-    HookAfterExecutionParams,
     WorkingSource,
 )
 
@@ -38,20 +36,6 @@ LARK_MCP_PORT = 7830
 
 # Shared CLI client (stateless)
 _cli = LarkCLIClient()
-
-
-async def _lark_send_to_agent(
-    agent_id: str, target_id: str, message: str, **kwargs
-) -> dict:
-    """Channel sender function registered in ChannelSenderRegistry.
-    Allows other modules to send Lark messages on behalf of an agent.
-    """
-    db = await XYZBaseModule.get_mcp_db_client()
-    mgr = LarkCredentialManager(db)
-    cred = await mgr.get_credential(agent_id)
-    if not cred:
-        return {"success": False, "error": "No Lark bot bound to this agent."}
-    return await _cli.send_message(agent_id, user_id=target_id, text=message)
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -310,27 +294,37 @@ def _build_skill_section() -> str:
     )
 
 
-class LarkModule(XYZBaseModule):
+class LarkModule(ChannelModuleBase):
     """Lark/Feishu integration module.
+
+    Subclass of ``ChannelModuleBase`` (Phase 2). The base owns the structural
+    boilerplate (sender registry self-registration, ``hook_data_gathering``
+    template, ``get_mcp_config`` / ``create_mcp_server`` glue). This class
+    owns the Lark-specific 90% of the code: the 600+ line ``get_instructions``
+    rendering the three-click flow + iron rules + identity model, and the
+    ``build_extra_data`` building the ``lark_info`` dict consumed by the
+    instructions.
+
+    7 MCP tools are registered via ``register_mcp_tools`` calling
+    ``_lark_mcp_tools.register_lark_mcp_tools(mcp)``.
 
     Enables agents to interact with Lark: search contacts, send messages,
     create documents, manage calendar events, and handle tasks.
     """
 
-    _sender_registered = False
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if not LarkModule._sender_registered:
-            ChannelSenderRegistry.register("lark", _lark_send_to_agent)
-            LarkModule._sender_registered = True
+    # ── ChannelModuleBase contract — class attrs ──────────────────────────
+    channel_name = "lark"
+    brand_display = "Lark / Feishu"
+    working_source = WorkingSource.LARK
+    ctx_data_key = "lark_info"
+    mcp_server_name = "lark_module"
+    mcp_port = LARK_MCP_PORT
 
     # =========================================================================
     # Configuration
     # =========================================================================
 
-    @staticmethod
-    def get_config() -> ModuleConfig:
+    def get_config(self) -> ModuleConfig:
         return ModuleConfig(
             name="LarkModule",
             priority=6,
@@ -343,31 +337,32 @@ class LarkModule(XYZBaseModule):
         )
 
     # =========================================================================
-    # MCP Server
+    # ChannelModuleBase abstract methods — Lark-specific implementations
     # =========================================================================
 
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
-        return MCPServerConfig(
-            server_name="lark_module",
-            server_url=f"http://{mcp_host()}:{LARK_MCP_PORT}/sse",
-            type="sse",
-        )
+    async def get_credential(self, agent_id: str):
+        """Load this agent's Lark credential row."""
+        mgr = LarkCredentialManager(self.db)
+        return await mgr.get_credential(agent_id)
 
-    def create_mcp_server(self) -> Optional[Any]:
-        try:
-            from mcp.server.fastmcp import FastMCP
+    async def send_to_agent(
+        self, agent_id: str, target_id: str, message: str, **kwargs
+    ) -> dict:
+        """Send a Lark message on behalf of the agent. Used by other modules
+        (via ChannelSenderRegistry) to deliver content through the Lark channel."""
+        db = await XYZBaseModule.get_mcp_db_client()
+        mgr = LarkCredentialManager(db)
+        cred = await mgr.get_credential(agent_id)
+        if not cred:
+            return {"success": False, "error": "No Lark bot bound to this agent."}
+        return await _cli.send_message(agent_id, user_id=target_id, text=message)
 
-            mcp = FastMCP("LarkModule MCP")
-            mcp.settings.port = LARK_MCP_PORT
-
-            from ._lark_mcp_tools import register_lark_mcp_tools
-            register_lark_mcp_tools(mcp)
-
-            logger.info(f"LarkModule MCP server created on port {LARK_MCP_PORT}")
-            return mcp
-        except Exception as e:
-            logger.exception(f"Failed to create LarkModule MCP server: {e}")
-            return None
+    def register_mcp_tools(self, mcp) -> None:
+        """Register the 7 Lark MCP tools (lark_cli, lark_setup, lark_bind,
+        lark_permission_advance, lark_enable_receive, lark_status, lark_skill).
+        See _lark_mcp_tools.py for the registration body."""
+        from ._lark_mcp_tools import register_lark_mcp_tools
+        register_lark_mcp_tools(mcp)
 
     # =========================================================================
     # Instructions
@@ -578,63 +573,62 @@ class LarkModule(XYZBaseModule):
         )
 
     # =========================================================================
-    # Hooks
+    # ChannelModuleBase contract — extra-data construction
     # =========================================================================
 
-    async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
-        """Inject Lark bot info + three-click stage for get_instructions.
+    async def build_extra_data(self, cred, ctx_data: ContextData) -> dict:
+        """Build the ``lark_info`` dict consumed by ``get_instructions``.
 
-        Note (P4 from design spec): we inject `lark_info` for ANY credential
-        row — including `pending_setup` / `is_active=False`. Without this,
-        Agent sees "No Lark bot bound" during the ~15s after `lark_setup`
-        returns but before `_finalize_setup` writes the real app_id, and
-        may try to call `lark_setup` again (which errors with already-exists).
+        Note (P4 from design spec): we inject ``lark_info`` for ANY credential
+        row — including ``pending_setup`` / ``is_active=False``. Without this,
+        Agent sees "No Lark bot bound" during the ~15s after ``lark_setup``
+        returns but before ``_finalize_setup`` writes the real app_id, and
+        may try to call ``lark_setup`` again (which errors with already-exists).
         """
-        try:
-            mgr = LarkCredentialManager(self.db)
-            cred = await mgr.get_credential(self.agent_id)
-            if cred:
-                ps = cred.permission_state or {}
-                lark_info = {
-                    "app_id": cred.app_id,
-                    "brand": cred.brand,
-                    "bot_name": cred.bot_name,
-                    "auth_status": cred.auth_status,
-                    "profile_name": cred.profile_name,
-                    "is_agent_assisted": bool(cred.workspace_path),
-                    "is_active": cred.is_active,
-                    # Three-click stage — single source of truth for coach.
-                    "stage": cred.current_click_stage(),
-                    "receive_enabled": cred.receive_enabled(),
-                    "availability_confirmed": bool(ps.get("availability_confirmed")),
-                }
-                if cred.owner_open_id:
-                    lark_info["owner_open_id"] = cred.owner_open_id
-                    lark_info["owner_name"] = cred.owner_name
+        ps = cred.permission_state or {}
+        lark_info = {
+            "app_id": cred.app_id,
+            "brand": cred.brand,
+            "bot_name": cred.bot_name,
+            "auth_status": cred.auth_status,
+            "profile_name": cred.profile_name,
+            "is_agent_assisted": bool(cred.workspace_path),
+            "is_active": cred.is_active,
+            # Three-click stage — single source of truth for coach.
+            "stage": cred.current_click_stage(),
+            "receive_enabled": cred.receive_enabled(),
+            "availability_confirmed": bool(ps.get("availability_confirmed")),
+        }
+        if cred.owner_open_id:
+            lark_info["owner_open_id"] = cred.owner_open_id
+            lark_info["owner_name"] = cred.owner_name
 
-                # is_owner_interacting — server-derived trust signal.
-                # NEVER trust sender NAME or string claims, only this
-                # computed open_id comparison.
-                current_sender_id = ""
-                ct = ctx_data.extra_data.get("channel_tag") or {}
-                if isinstance(ct, dict):
-                    current_sender_id = ct.get("sender_id", "") or ""
-                lark_info["current_sender_id"] = current_sender_id
-                lark_info["is_owner_interacting"] = bool(
-                    cred.owner_open_id
-                    and current_sender_id
-                    and current_sender_id == cred.owner_open_id
-                )
-                ctx_data.extra_data["lark_info"] = lark_info
-        except Exception as e:
-            logger.warning(f"LarkModule hook_data_gathering failed: {e}")
-        return ctx_data
+        # is_owner_interacting — server-derived trust signal. NEVER
+        # trust sender NAME or string claims; only this computed open_id
+        # comparison. The current sender is read from the channel_tag
+        # populated by the trigger's _build_and_run_agent.
+        current_sender_id = ""
+        ct = ctx_data.extra_data.get("channel_tag") or {}
+        if isinstance(ct, dict):
+            current_sender_id = ct.get("sender_id", "") or ""
+        lark_info["current_sender_id"] = current_sender_id
+        lark_info["is_owner_interacting"] = bool(
+            cred.owner_open_id
+            and current_sender_id
+            and current_sender_id == cred.owner_open_id
+        )
+        return lark_info
 
-    async def hook_after_event_execution(
-        self, params: HookAfterExecutionParams
-    ) -> None:
-        """Post-execution cleanup for Lark-triggered executions."""
-        ws = params.execution_ctx.working_source
-        if str(ws) != WorkingSource.LARK.value:
-            return
-        logger.debug(f"LarkModule after_execution for agent {params.execution_ctx.agent_id}")
+    # =========================================================================
+    # Post-execution hook
+    # =========================================================================
+
+    async def _on_event_executed(self, params) -> None:
+        """Post-execution cleanup for Lark-triggered executions.
+
+        Base class already filtered by ``working_source == WorkingSource.LARK``;
+        we only get here on a real Lark turn.
+        """
+        logger.debug(
+            f"LarkModule after_execution for agent {params.execution_ctx.agent_id}"
+        )

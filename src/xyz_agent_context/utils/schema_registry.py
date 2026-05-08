@@ -875,6 +875,68 @@ _register(
 )
 
 
+# ----------------------------------------------------------------------------
+# channel_seen_messages — multi-channel durable dedup (Phase 1 / IM abstraction)
+#
+# Same INSERT-or-UNIQUE atomicity as `lark_seen_messages`, but namespaced by
+# channel so Lark + Slack + Telegram dedup independently. The composite UNIQUE
+# `(channel, message_id)` lets the same `om_xxx` (or whatever the platform
+# emits) appear in multiple channels without colliding.
+#
+# `lark_seen_messages` is intentionally NOT migrated here — iron rule #6
+# forbids destructive DB changes. Phase 2 will switch the Lark trigger to
+# point at this generic table, double-write for one release, then drop the
+# old table in a separate cleanup PR once data has aged out.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="channel_seen_messages",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("channel", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("message_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("seen_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_channel_seen_messages_unique", ["channel", "message_id"], unique=True),
+            Index("idx_channel_seen_messages_seen_at", ["seen_at"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# channel_trigger_audit — multi-channel lifecycle audit (Phase 1 / IM abstraction)
+#
+# Generic version of `lark_trigger_audit` with an additional `channel` column
+# so all IM triggers write to one observable table. `details` stays JSON so
+# new fields can be added without migrations. 30-day retention matches Lark.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="channel_trigger_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("channel", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("event_time", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("event_type", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("message_id", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(128)"),
+            Column("app_id", "TEXT", "VARCHAR(128)"),
+            Column("chat_id", "TEXT", "VARCHAR(128)"),
+            Column("sender_id", "TEXT", "VARCHAR(128)"),
+            Column("details", "TEXT", "MEDIUMTEXT"),
+        ],
+        indexes=[
+            Index("idx_channel_trigger_audit_event_time", ["event_time"]),
+            Index("idx_channel_trigger_audit_channel_event_type", ["channel", "event_type"]),
+            Index("idx_channel_trigger_audit_agent_id", ["agent_id"]),
+            Index("idx_channel_trigger_audit_message_id", ["message_id"]),
+        ],
+    )
+)
+
+
 # ============================================================================
 # DDL Generation
 # ============================================================================
