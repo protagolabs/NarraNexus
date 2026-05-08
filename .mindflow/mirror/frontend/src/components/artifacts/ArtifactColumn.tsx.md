@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-08T02
 stub: false
 ---
 
@@ -45,6 +45,6 @@ When `artifacts.length === 0`, the component returns `null` — the 4th column i
 
 ## Gotchas
 
-**`writing-mode-vertical` Tailwind class**: The collapsed sliver button uses this class for vertical text. This is a custom utility that must exist in `tailwind.config.js` (or be inlined as an arbitrary CSS property). If the class is absent, the button text will render horizontally and overflow the 8px width. Consider replacing with `[writing-mode:vertical-rl]` if the custom class is not configured.
+**`[writing-mode:vertical-rl]` Tailwind arbitrary property**: The collapsed sliver button uses the Tailwind arbitrary-property syntax `[writing-mode:vertical-rl]` for vertical text. This is valid in any Tailwind v3+ project without any config additions. Do not use a custom utility class like `writing-mode-vertical` — it requires explicit `tailwind.config.js` registration and will be silently no-op if absent.
 
-**Tab strip border-b conflict**: `ArtifactTabStrip` already renders `border-b` on its own container. The `<div>` wrapping the strip and collapse button in `ArtifactColumn` also has `border-b`. This means two hairlines stack. If the visual result is a double border, remove the `border-b` from the wrapper div in `ArtifactColumn` and rely solely on the strip's own border.
+**Tab strip border**: `ArtifactTabStrip` renders `border-b` on its own outer container. The wrapper `<div>` in `ArtifactColumn` that holds the strip and the collapse button intentionally has **no** `border-b`. Adding it would produce a doubled hairline at the same pixel row.

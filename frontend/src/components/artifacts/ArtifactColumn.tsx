@@ -58,7 +58,7 @@ export default function ArtifactColumn({ agentId }: Props) {
     return (
       <button
         onClick={() => setCollapsed(false)}
-        className="w-8 border-l border-[var(--border-default)] writing-mode-vertical text-xs"
+        className="w-8 border-l border-[var(--border-default)] [writing-mode:vertical-rl] text-xs"
         title="Expand artifacts"
       >
         ▶ Artifacts ({artifacts.length})
@@ -71,7 +71,8 @@ export default function ArtifactColumn({ agentId }: Props) {
 
   return (
     <aside className="flex flex-col min-w-[320px] flex-[2] border-l border-[var(--border-default)] bg-[var(--bg-primary)]">
-      <div className="flex items-center justify-between border-b border-[var(--border-default)]">
+      {/* No border-b here — ArtifactTabStrip already provides one */}
+      <div className="flex items-center justify-between">
         <ArtifactTabStrip agentId={agentId} />
         <button
           onClick={() => setCollapsed(true)}

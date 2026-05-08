@@ -34,7 +34,7 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
         .then((r) => r.text())
         .then((t) => setMdHead(t.slice(0, 200) + (t.length > 200 ? '…' : '')));
     }
-  }, [artifact]);
+  }, [artifact.kind, artifact.agent_id, artifact.artifact_id, artifact.latest_version]);
 
   const open = () => {
     setCollapsed(false);

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactPreviewCard.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-08T02
 stub: false
 ---
 
@@ -37,4 +37,4 @@ When the agent emits a tool result that creates or references an artifact, the c
 
 ## Gotchas
 
-The `useEffect` dependency array includes the full `artifact` object. If the parent re-renders with a new `artifact` reference (even with the same data) the effect re-fires and issues a new fetch. Callers should stabilise the prop via `useMemo` or ensure the artifact reference only changes when the content actually changes.
+The `useEffect` dependency array uses stable scalar fields `(kind, agent_id, artifact_id, latest_version)` instead of the full `artifact` object. This prevents refetch storms when the parent re-renders with a new object reference but identical data. The four fields are sufficient to uniquely identify both the artifact and the version being previewed.
