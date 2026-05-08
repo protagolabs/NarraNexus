@@ -8,3 +8,4 @@ export { usePreloadStore } from './preloadStore';
 export { useJobComplexStore, JOB_TEMPLATES } from './jobComplexStore';
 export { useRuntimeStore } from './runtimeStore';
 export { useThemeStore } from './themeStore';
+export { useArtifactStore } from './artifactStore';
