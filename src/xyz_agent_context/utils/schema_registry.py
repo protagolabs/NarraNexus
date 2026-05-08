@@ -881,8 +881,8 @@ _register(
         name="instance_artifacts",
         columns=[
             Column("artifact_id",    "TEXT",    "VARCHAR(32)",  nullable=False, primary_key=True),
-            Column("agent_id",       "TEXT",    "VARCHAR(64)",  nullable=False),
-            Column("user_id",        "TEXT",    "VARCHAR(64)",  nullable=False),
+            Column("agent_id",       "TEXT",    "VARCHAR(128)", nullable=False),
+            Column("user_id",        "TEXT",    "VARCHAR(128)", nullable=False),
             Column("session_id",     "TEXT",    "VARCHAR(64)"),
             Column("title",          "TEXT",    "VARCHAR(200)", nullable=False),
             Column("kind",           "TEXT",    "VARCHAR(64)",  nullable=False),

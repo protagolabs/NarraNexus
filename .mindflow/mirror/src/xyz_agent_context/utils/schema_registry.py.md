@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-08
+last_verified: 2026-05-08-r1
 stub: false
 ---
 
@@ -80,9 +80,12 @@ Two new tables registered as part of the Agent Artifact Tabs feature
 **`instance_artifacts`** — one row per artifact emitted by the agent (chart,
 csv, markdown, html app, png/jpeg/pdf, etc.). Text primary key `artifact_id`
 (prefix `art_` + 8 random chars). Tracks `kind`, `title`, `description`,
-`pinned` flag, and `latest_version` counter. Indexed on `(agent_id, session_id)`
-and `(agent_id, pinned)` for the two common query patterns: "all artifacts in
-this session" and "pinned artifacts for this agent".
+`pinned` flag, and `latest_version` counter. `agent_id` and `user_id` are
+`VARCHAR(128)` (aligned with `instance_jobs`, `module_instances` and other
+module-owned tables — the wider width prevents MySQL truncation for IDs that
+can exceed 64 chars in some generator configurations). Indexed on
+`(agent_id, session_id)` and `(agent_id, pinned)` for the two common query
+patterns: "all artifacts in this session" and "pinned artifacts for this agent".
 
 **`instance_artifact_versions`** — append-only version log. Each row stores the
 `file_path` to the artifact file on disk and `size_bytes`. The composite unique
