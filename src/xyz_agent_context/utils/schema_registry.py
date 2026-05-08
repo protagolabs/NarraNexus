@@ -875,6 +875,46 @@ _register(
 )
 
 
+# ── Artifacts (agent visual outputs) ─────────────────────────────────────
+_register(
+    TableDef(
+        name="instance_artifacts",
+        columns=[
+            Column("artifact_id",    "TEXT",    "VARCHAR(32)",  nullable=False, primary_key=True),
+            Column("agent_id",       "TEXT",    "VARCHAR(64)",  nullable=False),
+            Column("user_id",        "TEXT",    "VARCHAR(64)",  nullable=False),
+            Column("session_id",     "TEXT",    "VARCHAR(64)"),
+            Column("title",          "TEXT",    "VARCHAR(200)", nullable=False),
+            Column("kind",           "TEXT",    "VARCHAR(64)",  nullable=False),
+            Column("description",    "TEXT",    "TEXT"),
+            Column("pinned",         "INTEGER", "TINYINT",      nullable=False, default="0"),
+            Column("latest_version", "INTEGER", "INT",          nullable=False, default="1"),
+            Column("created_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),
+            Column("updated_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_artifact_agent_session", ["agent_id", "session_id"]),
+            Index("idx_artifact_agent_pinned",  ["agent_id", "pinned"]),
+        ],
+    )
+)
+
+_register(
+    TableDef(
+        name="instance_artifact_versions",
+        columns=[
+            Column("id",          "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("artifact_id", "TEXT",    "VARCHAR(32)",     nullable=False),
+            Column("version",     "INTEGER", "INT",             nullable=False),
+            Column("file_path",   "TEXT",    "VARCHAR(512)",    nullable=False),
+            Column("size_bytes",  "INTEGER", "BIGINT",          nullable=False),
+            Column("created_at",  "TEXT",    "DATETIME(6)",     nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_artifact_version", ["artifact_id", "version"], unique=True)],
+    )
+)
+
+
 # ============================================================================
 # DDL Generation
 # ============================================================================

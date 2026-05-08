@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-04-28
+last_verified: 2026-05-08
 stub: false
 ---
 
@@ -71,3 +71,24 @@ Before this file, table schemas lived only as raw `CREATE TABLE` SQL strings in 
 `instance_jobs` 表新增 4 列：`next_run_at_local` / `next_run_tz` / `last_run_at_local` / `last_run_tz`（全部 TEXT/VARCHAR, nullable）。语义见 spec `reference/self_notebook/specs/2026-04-21-job-timezone-redesign-design.md` 第 4.1 节。
 
 这些列是 additive 变更，`auto_migrate` 启动时自动 `ALTER TABLE ADD COLUMN` 即可。**不改**原 `next_run_time` / `last_run_time` 列名或类型（它们在新协议下专职承载 UTC，对 LLM 不可见）。
+
+## 2026-05-08 · Agent Artifact Tabs — instance_artifacts + instance_artifact_versions
+
+Two new tables registered as part of the Agent Artifact Tabs feature
+(spec: `reference/self_notebook/specs/2026-05-08-agent-artifact-tabs-design.md`).
+
+**`instance_artifacts`** — one row per artifact emitted by the agent (chart,
+csv, markdown, html app, png/jpeg/pdf, etc.). Text primary key `artifact_id`
+(prefix `art_` + 8 random chars). Tracks `kind`, `title`, `description`,
+`pinned` flag, and `latest_version` counter. Indexed on `(agent_id, session_id)`
+and `(agent_id, pinned)` for the two common query patterns: "all artifacts in
+this session" and "pinned artifacts for this agent".
+
+**`instance_artifact_versions`** — append-only version log. Each row stores the
+`file_path` to the artifact file on disk and `size_bytes`. The composite unique
+index on `(artifact_id, version)` enforces immutability: a given version of a
+given artifact cannot be overwritten. The `latest_version` counter in
+`instance_artifacts` is bumped on each new version write.
+
+Both tables are purely additive and take effect on next `auto_migrate()` call
+(i.e., next app startup).
