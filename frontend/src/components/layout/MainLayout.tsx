@@ -5,16 +5,21 @@
  * @description: Main Layout - Bioluminescent Terminal Style
  *
  * Layout structure:
- * ┌──────────┬─────────────────────────────┬──────────────────┐
- * │          │                             │ [Tab] [Tab] [Bell]│
- * │  Agent   │        Chat Area            ├──────────────────┤
- * │  List    │                             │                  │
- * │          │     (Spacious chat area)    │  Context Panel   │
- * │          │                             │  (Tab content)   │
- * └──────────┴─────────────────────────────┴──────────────────┘
+ * ┌──────────┬──────────────────────┬──────────────────┬──────────────────┐
+ * │          │                      │                  │ [Tab] [Tab] [Bell]│
+ * │  Agent   │      Chat Area       │  Artifact Column ├──────────────────┤
+ * │  List    │                      │ (auto-hides when │                  │
+ * │          │  (Spacious chat)     │   no artifacts)  │  Context Panel   │
+ * │          │                      │                  │  (Tab content)   │
+ * └──────────┴──────────────────────┴──────────────────┴──────────────────┘
  *
  * Right-side tabs: Runtime, Awareness, Agent Inbox, Jobs
  * Top-right bell: User Inbox Popover
+ * Artifact column: auto-hides when no artifacts; collapses to sliver on demand.
+ *
+ * WS lifecycle: connectWs(agentId) on mount / agent change; disconnectWs on unmount.
+ * Session-ID gap: chatStore has no per-agent session-id field — only loadPinned is
+ * called on mount. Session-scoped artifacts arrive via WS as the agent emits them.
  */
 
 import { useState, useEffect, Suspense } from 'react';
@@ -25,7 +30,8 @@ import { ContextPanelHeader, type ContextTab } from './ContextPanelHeader';
 import { ContextPanelContent } from './ContextPanelContent';
 import { ChatPanel } from '@/components/chat';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
-import { useConfigStore, usePreloadStore } from '@/stores';
+import { ArtifactColumn } from '@/components/artifacts';
+import { useConfigStore, usePreloadStore, useArtifactStore } from '@/stores';
 import { useAutoRefresh } from '@/hooks';
 
 /** Default chat view with context panel */
@@ -34,12 +40,30 @@ export function ChatView() {
   const { agentId, userId } = useConfigStore();
   const { refreshAll } = useAutoRefresh({ agentId, userId });
 
+  const loadPinned = useArtifactStore((s) => s.loadPinned);
+  const connectWs = useArtifactStore((s) => s.connectWs);
+  const disconnectWs = useArtifactStore((s) => s.disconnectWs);
+
+  // Load pinned artifacts and open WS channel whenever agentId changes.
+  // Note: chatStore does not expose a per-agent session ID, so loadForSession
+  // is not called here. Session-scoped artifacts arrive via the WS stream as
+  // the agent emits artifact.created / artifact.updated events.
+  useEffect(() => {
+    if (!agentId) return;
+    loadPinned(agentId);
+    connectWs(agentId);
+    return () => disconnectWs();
+  }, [agentId, loadPinned, connectWs, disconnectWs]);
+
   return (
     <main className="flex-1 flex min-w-0 p-5 gap-5 overflow-hidden relative z-10">
       {/* Chat column — outer border gives the column a single frame */}
       <div className="flex-[3] min-w-[400px] animate-fade-in border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
         <ChatPanel onAgentComplete={refreshAll} />
       </div>
+
+      {/* Artifact column — auto-hides when no artifacts are loaded */}
+      {agentId && <ArtifactColumn agentId={agentId} />}
 
       {/* Context column */}
       <div
