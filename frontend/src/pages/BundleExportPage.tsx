@@ -83,6 +83,9 @@ export default function BundleExportPage() {
   const { alert, dialog } = useConfirm();
 
   const [tab, setTab] = useState<TabId>('agents');
+  // PRD §5 议题 2 — Full vs Custom export mode (PRD names: Full = 1:1 snapshot
+  // for self-backup; Custom = pick-and-choose for sharing).
+  const [mode, setMode] = useState<'full' | 'custom'>('custom');
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const [selectedTeam, setSelectedTeam] = useState<string>('');
   const [introMd, setIntroMd] = useState('');
@@ -258,6 +261,7 @@ export default function BundleExportPage() {
   }
 
   function toggleAgent(aid: string) {
+    if (mode === 'full') return;
     setSelectedAgents((prev) => {
       const next = new Set(prev);
       if (next.has(aid)) next.delete(aid);
@@ -267,6 +271,7 @@ export default function BundleExportPage() {
   }
 
   function toggleSocial(aid: string, eid: string) {
+    if (mode === 'full') return;
     setSocialSelected((prev) => {
       const next = { ...prev };
       const set = new Set(next[aid] || []);
@@ -277,6 +282,7 @@ export default function BundleExportPage() {
   }
 
   function toggleWorkspaceFile(aid: string, path: string) {
+    if (mode === 'full') return;
     setWorkspaceExcludes((prev) => {
       const next = { ...prev };
       const set = new Set(next[aid] || []);
@@ -294,6 +300,41 @@ export default function BundleExportPage() {
       workspaceExcluded: Object.values(workspaceExcludes).reduce((a, b) => a + b.size, 0),
     };
   }, [selectedAgents, skillChoices, socialSelected, workspaceExcludes]);
+
+  // Full mode: when caller flips to "full", auto-select everything that
+  // can be turned into a 1:1 snapshot. We re-run this on mode change AND
+  // whenever a new agent's data lands so late-arriving entities/files
+  // also get captured.
+  useEffect(() => {
+    if (mode !== 'full') return;
+    // 1. Select all agents
+    setSelectedAgents(new Set(agents.map((a) => a.agent_id)));
+  }, [mode, agents]);
+
+  useEffect(() => {
+    if (mode !== 'full') return;
+    // 2. Force every skill to full_copy mode (carries .skill_meta.json
+    //    + credentials.json + wallet.json — the "self-backup" contract).
+    const next: Record<string, SkillExportSpec> = { ...skillChoices };
+    Object.values(skillsForAgents).flat().forEach((skill) => {
+      next[skill] = { skill_name: skill, install_method: 'full_copy' };
+    });
+    setSkillChoices(next);
+    // 3. Select every social entity for every agent (no closure-fuzzy filter).
+    setSocialSelected((cur) => {
+      const out = { ...cur };
+      Object.entries(socialEntities).forEach(([aid, list]) => {
+        out[aid] = new Set(list.map((e) => e.entity_id));
+      });
+      return out;
+    });
+    // 4. Clear workspace + history exclusions — Full ships everything.
+    setWorkspaceExcludes({});
+    setExcludedNarratives({});
+    setExcludedEvents({});
+    setIncludeChat(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, JSON.stringify(skillsForAgents), JSON.stringify(socialEntities)]);
 
   async function doExport() {
     setDownloading(true);
@@ -340,7 +381,9 @@ export default function BundleExportPage() {
         social_entity_selection: social,
         workspace_excludes: excludes,
         include_chat_history: includeChat,
-        accept_sensitive_zips: acceptSensitiveZips,
+        // Full mode user has already accepted "ship credentials" semantics by
+        // picking that mode; auto-flag so they don't have to confirm twice.
+        accept_sensitive_zips: mode === 'full' ? true : acceptSensitiveZips,
         narrative_selection: Object.keys(narrativeSel).length ? narrativeSel : null,
         event_selection: Object.keys(eventSel).length ? eventSel : null,
       };
@@ -384,6 +427,71 @@ export default function BundleExportPage() {
         <div className="text-xs text-[var(--text-tertiary)]">
           {summary.agents} agents · {summary.skills} skills · {summary.socialEntities} entities
         </div>
+      </div>
+
+      {/* Mode picker (PRD §5 议题 2) */}
+      <div className="px-6 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+        <div className="flex items-start gap-3">
+          <span className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mt-1.5 font-mono shrink-0">
+            Mode
+          </span>
+          <div className="flex-1 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setMode('full')}
+              className={cn(
+                'text-left p-3 border transition-colors',
+                mode === 'full'
+                  ? 'border-[var(--text-primary)] bg-[var(--bg-elevated)]'
+                  : 'border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]'
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  'w-3 h-3 rounded-full border-2',
+                  mode === 'full' ? 'border-[var(--text-primary)] bg-[var(--text-primary)]' : 'border-[var(--text-tertiary)]'
+                )} />
+                <span className="font-mono text-sm">Full snapshot</span>
+                <span className="text-[10px] px-1.5 py-0.5 border border-[var(--color-yellow-500)] text-[var(--color-yellow-500)]">
+                  contains_secrets
+                </span>
+              </div>
+              <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
+                Self-backup. Includes <strong>all</strong> agents, narratives, events,
+                workspace files, and skills with credentials (env_config, wallet.json,
+                study summaries). Use to clone an entire setup to another of YOUR machines.
+              </div>
+            </button>
+            <button
+              onClick={() => setMode('custom')}
+              className={cn(
+                'text-left p-3 border transition-colors',
+                mode === 'custom'
+                  ? 'border-[var(--text-primary)] bg-[var(--bg-elevated)]'
+                  : 'border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]'
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  'w-3 h-3 rounded-full border-2',
+                  mode === 'custom' ? 'border-[var(--text-primary)] bg-[var(--text-primary)]' : 'border-[var(--text-tertiary)]'
+                )} />
+                <span className="font-mono text-sm">Custom (recommended for sharing)</span>
+              </div>
+              <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
+                Pick exactly which agents, narratives, events, social entities,
+                workspace files and skills go in. Skill credentials are <strong>stripped</strong>
+                {' '}(unless you explicitly choose Full Copy per skill). Use to share with someone else.
+              </div>
+            </button>
+          </div>
+        </div>
+        {mode === 'full' && (
+          <div className="mt-2 ml-[60px] text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5">
+            <AlertTriangle className="w-3 h-3" />
+            All {agents.length} agent{agents.length === 1 ? '' : 's'} are auto-selected, all skills set to Full Copy.
+            Below tabs let you preview but cannot un-select.
+          </div>
+        )}
       </div>
 
       {/* Tab bar */}
