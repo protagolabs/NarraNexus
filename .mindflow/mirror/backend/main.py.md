@@ -1,8 +1,23 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-04-28
+last_verified: 2026-05-08
 stub: false
 ---
+
+## 2026-05-08 addition — agents_artifacts router wire-in
+
+`agents_artifacts_router` (from `backend.routes.agents_artifacts`) is now
+imported and registered at `/api/agents` with `["Artifacts"]` tags. This
+router provides CRUD endpoints for artifact management:
+
+- `GET /api/agents/{agent_id}/artifacts` — list artifacts in a session
+- `GET /api/agents/{agent_id}/artifacts/{artifact_id}` — fetch artifact detail with versions
+- `PATCH /api/agents/{agent_id}/artifacts/{artifact_id}` — pin/unpin artifacts
+- `DELETE /api/agents/{agent_id}/artifacts/{artifact_id}` — delete artifact and cleanup
+- `GET /api/agents/{agent_id}/artifacts/{artifact_id}/v{version}/raw` — raw artifact content with strict CSP
+
+All routes enforce agent isolation via the `agents_artifacts_auth_required`
+dependency, preventing agents from accessing other agents' artifacts.
 
 ## 2026-04-28 addition — unified logging + access middleware + admin logs router
 
