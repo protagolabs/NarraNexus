@@ -208,7 +208,6 @@ from backend.routes.admin_quota import router as admin_quota_router
 from backend.routes.admin_logs import router as admin_logs_router
 from backend.routes.transcription import router as transcription_router
 from backend.routes.transcription_public import router as transcription_public_router
-from backend.routes.artifact_ws import router as artifact_ws_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -231,7 +230,6 @@ app.include_router(
     prefix="/api/public/transcription",
     tags=["TranscriptionPublic"],
 )
-app.include_router(artifact_ws_router, tags=["Artifacts"])
 
 
 @app.get("/health")

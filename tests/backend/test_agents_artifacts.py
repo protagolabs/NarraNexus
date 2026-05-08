@@ -169,45 +169,36 @@ def test_other_agents_cannot_read(setup):
     assert r.status_code == 404
 
 
-def test_ws_emits_pinned_event_when_pin_called(setup):
-    """Pin a session-scoped artifact and verify a WS subscriber receives the event."""
-    import backend.routes.agents_artifacts as ag_mod
-    from backend.routes.artifact_ws import router as ws_router
-    from backend.routes.agents_artifacts import router as a_router
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+def test_unpin_agent_scoped_artifact_returns_400(setup):
+    """
+    C1.5: Agent-created artifacts (session_id=null, pinned=true via C1 auto-pin) have
+    no original_session_id to restore on unpin. Refuse rather than silently
+    drop the artifact into limbo.
+    """
+    import asyncio
+    from datetime import datetime, timezone
+    from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+    from xyz_agent_context.schema import Artifact
 
-    db = setup["db"]
+    client = setup["client"]
+    repo = ArtifactRepository(setup["db"])
 
-    async def _ret_db():
-        return db
+    # Create an agent-scoped artifact (session_id=None, pinned=True, original_session_id=None)
+    art = Artifact(
+        artifact_id="art_agent999",
+        agent_id="agent_x", user_id="user_y",
+        session_id=None,                       # agent-scoped from the start
+        title="agent-emitted", kind="text/csv",
+        pinned=True,
+        latest_version=1,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    asyncio.run(repo.create(art, file_path="x", size_bytes=1))
 
-    # Build a fresh app that includes both the REST and WS routers so the
-    # same event bus singleton connects them.
-    app2 = FastAPI()
-    app2.include_router(a_router, prefix="/api/agents")
-    app2.include_router(ws_router)
-
-    # The REST router module was already patched in the fixture; that patch
-    # remains active for the duration of this test function.
-
-    client2 = TestClient(app2)
-
-    with client2.websocket_connect("/ws/artifacts/agent_x") as ws:
-        # Trigger the pinned event via the REST endpoint.
-        r = client2.patch(
-            "/api/agents/agent_x/artifacts/art_99999999",
-            json={"pinned": True},
-        )
-        assert r.status_code == 200, f"PATCH failed: {r.text}"
-
-        # Drain up to 5 messages; the event should arrive almost immediately.
-        # The 30s heartbeat will not fire in this short window, but we guard
-        # against it anyway so the test never hangs indefinitely.
-        for _ in range(5):
-            evt = ws.receive_json()
-            if evt.get("type") == "artifact.pinned":
-                assert evt["artifact_id"] == "art_99999999"
-                assert evt["pinned"] is True
-                return
-        raise AssertionError("did not receive artifact.pinned event within 5 messages")
+    r = client.patch(
+        "/api/agents/agent_x/artifacts/art_agent999",
+        json={"pinned": False},
+    )
+    assert r.status_code == 400
+    assert "agent-scoped" in r.text or "DELETE" in r.text

@@ -1,19 +1,29 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_runner.py
-last_verified: 2026-05-08-r2
+last_verified: 2026-05-08-r3
 stub: false
 ---
 
-## 2026-05-08 addition — ArtifactEventBus integration
+## 2026-05-08-r3 — ArtifactEventBus removed; C1 auto-pin applied to upload_binary_artifact
 
-Both `create_text_artifact` and `upload_binary_artifact` now call
-`get_artifact_event_bus().publish(agent_id, event)` just before returning their
-`CreateArtifactToolResult`. The event type is `"artifact.created"` for version-1
-artifacts and `"artifact.updated"` for iterations (`is_iteration=True`). The
-event payload includes `artifact_id`, `version`, `kind`, `title` (truncated to
-200 chars), and `session_id`. This wires the runner into the real-time WS fan-out
-without adding any coupling to the WS layer — the bus is a one-way fire-and-forget
-publish call.
+The `get_artifact_event_bus().publish(...)` calls have been removed from both
+`create_text_artifact` and `upload_binary_artifact`. The in-process event bus was
+dropped because it lived in the MCP server process, not the FastAPI process, so
+`publish()` never reached the `/ws/artifacts/{agent_id}` subscribers in FastAPI.
+The `from xyz_agent_context.utils.artifact_events import get_artifact_event_bus`
+import was removed accordingly.
+
+The **C1 auto-pin fix** (previously applied only to `create_text_artifact` in r2)
+is now also applied to `upload_binary_artifact`: `auto_pinned = session_id is None and not is_iteration`.
+When `session_id` is `None` at creation time (LLM-driven call with no session context),
+the artifact is created with `pinned=True` so it appears in `list_pinned` and is
+visible to the UI. Iterations are unaffected — they inherit the parent's pin state.
+
+## 2026-05-08 addition — ArtifactEventBus integration (superseded, removed in r3)
+
+Both `create_text_artifact` and `upload_binary_artifact` called
+`get_artifact_event_bus().publish(agent_id, event)` just before returning.
+This was removed in r3 — see above for why.
 
 # artifact_runner.py — 文件系统 + 数据库的 artifact 落地层
 

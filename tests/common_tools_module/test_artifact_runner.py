@@ -111,3 +111,24 @@ async def test_upload_binary_path_escape_raises(env):
             kind="image/png", local_path="/etc/passwd",
             title="t", description=None, target_artifact_id=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_create_without_session_id_auto_pins(env):
+    """C1: agent-driven calls (session_id=None) must default to pinned=True so
+    the artifact appears in list_pinned instead of being invisible."""
+    repo: ArtifactRepository = env["repo"]
+    result = await artifact_runner.create_text_artifact(
+        repo=repo,
+        agent_id="agent_x", user_id="user_y",
+        session_id=None,                      # no session — agent-driven path
+        kind="text/csv",
+        content="a,b\n1,2\n",
+        title="agent output", description=None,
+        target_artifact_id=None,
+    )
+    fetched = await repo.get_by_id(result.artifact_id)
+    assert fetched is not None
+    assert fetched.session_id is None
+    assert fetched.pinned is True
+    assert fetched.original_session_id is None  # never had one to remember

@@ -1,16 +1,27 @@
 ---
 code_file: backend/routes/agents_artifacts.py
-last_verified: 2026-05-08
+last_verified: 2026-05-08-r3
 stub: false
 ---
 
-## 2026-05-08 addition — ArtifactEventBus integration
+## 2026-05-08-r3 simplification — ArtifactEventBus removed; C1.5 unpin guard added
 
-`patch_artifact` now calls `get_artifact_event_bus().publish(agent_id, {"type": "artifact.pinned", ...})`
-after `repo.set_pinned()` completes, but **only** when `body.pinned is not None` (a
-title-only PATCH does not emit an event). `delete_artifact` calls `.publish(agent_id, {"type": "artifact.deleted", ...})`
-after the `shutil.rmtree` call (ensuring the on-disk cleanup is durable before the
-event fires). Both are fire-and-forget — the route return value is not affected.
+The `get_artifact_event_bus().publish(...)` calls added on 2026-05-08 have been
+removed from both `patch_artifact` and `delete_artifact`. The in-process event bus
+was dropped because it lived in the MCP server process, not the FastAPI process,
+so `publish()` in `artifact_runner.py` never reached the `/ws/artifacts/{agent_id}`
+subscribers. The `from xyz_agent_context.utils.artifact_events import get_artifact_event_bus`
+import was removed accordingly.
+
+A new **C1.5 unpin guard** was added to `patch_artifact`: if `body.pinned is False`
+and the existing artifact's `original_session_id` is `None` and the artifact is
+currently pinned, the handler raises `HTTP 400`. This covers agent-created artifacts
+that were auto-pinned at creation time (C1 fix in `artifact_runner.py`); their
+`original_session_id` is null because they never had a session to restore. Unpinning
+such an artifact would silently drop it into limbo (visible neither in `list_by_session`
+nor `list_pinned`). The 400 message instructs the caller to use DELETE instead.
+
+## 2026-05-08 addition — ArtifactEventBus integration (superseded, removed in r3)
 
 # agents_artifacts.py
 

@@ -1,17 +1,22 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-05-08
+last_verified: 2026-05-08-r3
 stub: false
 ---
 
-## 2026-05-08 addition — artifact_ws_router wire-in
+## 2026-05-08-r3 simplification — artifact_ws_router removed
 
-`artifact_ws_router` (from `backend.routes.artifact_ws`) is now imported and
-registered with `app.include_router(artifact_ws_router, tags=["Artifacts"])` —
-no prefix because the route already starts with `/ws/`. This exposes the
-`/ws/artifacts/{agent_id}` WebSocket endpoint for real-time artifact event
-fan-out. The WS path sits after all REST routes and before the SPA fallback,
-consistent with the existing `/ws/agent/run` ordering.
+`artifact_ws_router` (added 2026-05-08) has been removed from `main.py`.
+The in-process `ArtifactEventBus` / `artifact_ws.py` notification path was
+dropped entirely because the bus lived in the MCP server process while the
+`/ws/artifacts/{agent_id}` subscribers lived in the FastAPI process — cross-
+process `publish()` never delivered events. The frontend already receives
+artifact signals through the existing chat WebSocket stream (`tool_output`
+frames parsed in `ChatPanel.tsx`). One signal path is simpler and correct.
+
+The import line `from backend.routes.artifact_ws import router as artifact_ws_router`
+and the corresponding `app.include_router(artifact_ws_router, tags=["Artifacts"])` call
+were removed. All other routers are unchanged.
 
 ## 2026-05-08 addition — agents_artifacts router wire-in
 

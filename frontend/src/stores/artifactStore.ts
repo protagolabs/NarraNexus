@@ -1,5 +1,8 @@
 /**
- * Artifact store — manages open artifact tabs, active selection, collapse state, and WS sync
+ * Artifact store — manages open artifact tabs, active selection, and collapse state.
+ *
+ * Real-time artifact signals arrive via the existing chat WebSocket stream (tool_output
+ * frames parsed in ChatPanel.tsx). This store does NOT manage a dedicated WS connection.
  */
 
 import { create } from 'zustand';
@@ -12,7 +15,6 @@ interface ArtifactState {
   artifacts: Artifact[];
   activeArtifactId: string | null;
   collapsed: boolean;
-  _ws: WebSocket | null;
 
   loadForSession: (agentId: string, sessionId: string) => Promise<void>;
   loadPinned: (agentId: string) => Promise<void>;
@@ -23,9 +25,6 @@ interface ArtifactState {
 
   pin: (agentId: string, artifactId: string, pinned: boolean) => Promise<void>;
   delete: (agentId: string, artifactId: string) => Promise<void>;
-
-  connectWs: (agentId: string) => void;
-  disconnectWs: () => void;
 }
 
 const initialCollapsed = (() => {
@@ -40,7 +39,6 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   artifacts: [],
   activeArtifactId: null,
   collapsed: initialCollapsed,
-  _ws: null,
 
   async loadForSession(agentId, sessionId) {
     const sessionArtifacts = await artifactsApi.listSession(agentId, sessionId);
@@ -102,60 +100,5 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   async delete(agentId, artifactId) {
     await artifactsApi.remove(agentId, artifactId);
     get().remove(artifactId);
-  },
-
-  connectWs(agentId) {
-    get().disconnectWs();
-    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/artifacts/${agentId}`;
-    const ws = new WebSocket(url);
-    ws.onmessage = async (e) => {
-      let evt: { type?: string; artifact_id?: string; pinned?: boolean };
-      try {
-        evt = JSON.parse(e.data);
-      } catch {
-        return;
-      }
-      if (!evt.type || !evt.artifact_id) return;
-
-      if (evt.type === 'artifact.created' || evt.type === 'artifact.updated') {
-        try {
-          const detail = await artifactsApi.getDetail(agentId, evt.artifact_id);
-          const { upsert, setActive, setCollapsed } = get();
-          upsert(detail.artifact);
-          if (evt.type === 'artifact.created') {
-            setActive(evt.artifact_id);
-            setCollapsed(false);
-          }
-        } catch {
-          /* ignore — artifact may have been deleted between events */
-        }
-      } else if (evt.type === 'artifact.pinned') {
-        const list = get().artifacts.map((a) =>
-          a.artifact_id === evt.artifact_id
-            ? { ...a, pinned: !!evt.pinned, session_id: evt.pinned ? null : a.session_id }
-            : a,
-        );
-        set({ artifacts: list });
-      } else if (evt.type === 'artifact.deleted') {
-        get().remove(evt.artifact_id);
-      }
-      // ignore "ping" frames
-    };
-    ws.onclose = () => set({ _ws: null });
-    set({ _ws: ws });
-  },
-
-  disconnectWs() {
-    const ws = get()._ws;
-    if (ws) {
-      ws.onmessage = null;
-      ws.onclose = null;
-      try {
-        ws.close();
-      } catch {
-        /* */
-      }
-    }
-    set({ _ws: null });
   },
 }));

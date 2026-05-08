@@ -1,14 +1,19 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-08-r3
 stub: false
 ---
+
+## v2.3-r3 改动（2026-05-08-r3）
+
+- **WS lifecycle removed**: `connectWs(agentId)` and `disconnectWs()` calls removed from the `useEffect`. The dedicated `/ws/artifacts/{agentId}` endpoint was dropped; artifact signals arrive via the chat WS stream (`tool_output` frames in `ChatPanel.tsx`).
+- `loadPinned(agentId)` is still called on mount/agent-change to hydrate agent-scoped artifacts.
+- The `connectWs` and `disconnectWs` selectors are no longer imported from `useArtifactStore`.
 
 ## v2.3 改动（2026-05-08）
 
 - **4-column layout**: `ChatView` now renders `<ArtifactColumn agentId={agentId} />` between the chat column and the context column. `ArtifactColumn` auto-hides when no artifacts are loaded, so the layout degrades gracefully to 3 columns for agents that don't produce artifacts.
-- **WS lifecycle**: `ChatView` mounts a `useEffect` on `agentId` that calls `loadPinned(agentId)` and `connectWs(agentId)`. `disconnectWs()` is called on cleanup. This wires the artifact WebSocket channel to the currently active agent.
-- **Session-ID gap**: `chatStore` does not expose a per-agent session ID (`AgentChatState` has no `sessionId` field). `loadForSession` is intentionally not called — session-scoped artifacts arrive via the `artifact.created` / `artifact.updated` WS events as the agent runs. If a session-ID source is added to `chatStore` in the future, add a `loadForSession(agentId, sessionId)` call here.
+- **Session-ID gap**: `chatStore` does not expose a per-agent session ID (`AgentChatState` has no `sessionId` field). `loadForSession` is intentionally not called. If a session-ID source is added to `chatStore` in the future, add a `loadForSession(agentId, sessionId)` call here.
 - **ASCII diagram updated**: file header now shows 4 columns.
 
 ## v2.2 改动（2026-04-13）

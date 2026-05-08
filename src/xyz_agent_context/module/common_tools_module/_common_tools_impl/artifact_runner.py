@@ -25,7 +25,6 @@ from typing import Optional
 from loguru import logger
 
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.utils.artifact_events import get_artifact_event_bus
 from xyz_agent_context.schema.artifact_schema import (
     Artifact,
     ArtifactKind,
@@ -207,6 +206,13 @@ async def create_text_artifact(
         fh.write(encoded)
     rel_path = _relative_to_base(abs_path)
 
+    # If the caller has no session context (LLM-driven calls cannot know a
+    # session_id), default the new artifact to agent-scoped (pinned=true).
+    # Otherwise it would land with session_id=NULL and pinned=false, where
+    # neither list_by_session nor list_pinned would surface it. Iterations
+    # inherit their parent's pin state — don't touch.
+    auto_pinned = session_id is None and not is_iteration
+
     now = datetime.now(timezone.utc)
     if is_iteration:
         await repo.iterate(artifact_id, file_path=rel_path, size_bytes=len(encoded))
@@ -221,7 +227,7 @@ async def create_text_artifact(
                 title=title[:200],
                 kind=kind,
                 description=description,
-                pinned=False,
+                pinned=auto_pinned,
                 latest_version=1,
                 created_at=now,
                 updated_at=now,
@@ -229,20 +235,7 @@ async def create_text_artifact(
             file_path=rel_path,
             size_bytes=len(encoded),
         )
-        logger.debug("Created artifact {} v1 kind={}", artifact_id, kind)
-
-    event_type = "artifact.updated" if is_iteration else "artifact.created"
-    await get_artifact_event_bus().publish(
-        agent_id,
-        {
-            "type": event_type,
-            "artifact_id": artifact_id,
-            "version": version,
-            "kind": kind,
-            "title": title[:200],
-            "session_id": session_id,
-        },
-    )
+        logger.debug("Created artifact {} v1 kind={} pinned={}", artifact_id, kind, auto_pinned)
 
     return CreateArtifactToolResult(
         artifact_id=artifact_id,
@@ -349,6 +342,13 @@ async def upload_binary_artifact(
     shutil.copyfile(abs_local, abs_path)
     rel_path = _relative_to_base(abs_path)
 
+    # If the caller has no session context (LLM-driven calls cannot know a
+    # session_id), default the new artifact to agent-scoped (pinned=true).
+    # Otherwise it would land with session_id=NULL and pinned=false, where
+    # neither list_by_session nor list_pinned would surface it. Iterations
+    # inherit their parent's pin state — don't touch.
+    auto_pinned = session_id is None and not is_iteration
+
     now = datetime.now(timezone.utc)
     if is_iteration:
         await repo.iterate(artifact_id, file_path=rel_path, size_bytes=size)
@@ -363,7 +363,7 @@ async def upload_binary_artifact(
                 title=title[:200],
                 kind=kind,
                 description=description,
-                pinned=False,
+                pinned=auto_pinned,
                 latest_version=1,
                 created_at=now,
                 updated_at=now,
@@ -371,20 +371,7 @@ async def upload_binary_artifact(
             file_path=rel_path,
             size_bytes=size,
         )
-        logger.debug("Created binary artifact {} v1 kind={}", artifact_id, kind)
-
-    event_type = "artifact.updated" if is_iteration else "artifact.created"
-    await get_artifact_event_bus().publish(
-        agent_id,
-        {
-            "type": event_type,
-            "artifact_id": artifact_id,
-            "version": version,
-            "kind": kind,
-            "title": title[:200],
-            "session_id": session_id,
-        },
-    )
+        logger.debug("Created binary artifact {} v1 kind={} pinned={}", artifact_id, kind, auto_pinned)
 
     return CreateArtifactToolResult(
         artifact_id=artifact_id,

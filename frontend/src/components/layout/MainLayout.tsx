@@ -17,9 +17,9 @@
  * Top-right bell: User Inbox Popover
  * Artifact column: auto-hides when no artifacts; collapses to sliver on demand.
  *
- * WS lifecycle: connectWs(agentId) on mount / agent change; disconnectWs on unmount.
- * Session-ID gap: chatStore has no per-agent session-id field — only loadPinned is
- * called on mount. Session-scoped artifacts arrive via WS as the agent emits them.
+ * Signal source: artifact_id signals arrive via the chat WebSocket stream
+ * (tool_output frames parsed in ChatPanel.tsx). loadPinned is called on mount /
+ * agent change to hydrate agent-scoped artifacts. No dedicated artifact WS.
  */
 
 import { useState, useEffect, Suspense } from 'react';
@@ -41,19 +41,16 @@ export function ChatView() {
   const { refreshAll } = useAutoRefresh({ agentId, userId });
 
   const loadPinned = useArtifactStore((s) => s.loadPinned);
-  const connectWs = useArtifactStore((s) => s.connectWs);
-  const disconnectWs = useArtifactStore((s) => s.disconnectWs);
 
-  // Load pinned artifacts and open WS channel whenever agentId changes.
+  // Load pinned artifacts whenever agentId changes.
   // Note: chatStore does not expose a per-agent session ID, so loadForSession
-  // is not called here. Session-scoped artifacts arrive via the WS stream as
-  // the agent emits artifact.created / artifact.updated events.
+  // is not called here. Session-scoped artifacts arrive via the chat WS stream
+  // (tool_output frames parsed in ChatPanel.tsx).
+  // TODO: if chatStore gains a sessionId field, add loadForSession(agentId, sessionId) here.
   useEffect(() => {
     if (!agentId) return;
     loadPinned(agentId);
-    connectWs(agentId);
-    return () => disconnectWs();
-  }, [agentId, loadPinned, connectWs, disconnectWs]);
+  }, [agentId, loadPinned]);
 
   return (
     <main className="flex-1 flex min-w-0 p-5 gap-5 overflow-hidden relative z-10">

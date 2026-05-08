@@ -1,10 +1,21 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-05-08
+last_verified: 2026-05-08-r3
 stub: false
 ---
 
-# artifactStore.ts — Artifact tab list, active selection, collapse state, and WS sync
+## 2026-05-08-r3 — WS subscription removed
+
+`_ws`, `connectWs`, and `disconnectWs` have been removed from the store.
+The dedicated `/ws/artifacts/{agentId}` endpoint was dropped because the
+in-process `ArtifactEventBus` never delivered events across the MCP-process /
+FastAPI-process boundary. Artifact signals now arrive exclusively through the
+chat WebSocket stream (`tool_output` frames parsed in `ChatPanel.tsx`). The
+store retains all REST-backed methods (`loadForSession`, `loadPinned`, `upsert`,
+`remove`, `pin`, `delete`) — these are called by the chat WS handler and UI
+components as before.
+
+# artifactStore.ts — Artifact tab list, active selection, and collapse state
 
 ## Why it exists
 
