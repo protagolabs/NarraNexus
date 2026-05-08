@@ -23,6 +23,9 @@ from .security import bytes_sha256, file_sha256
 
 
 SKILL_ARCHIVES_ROOT = Path.home() / ".nexusagent" / "skill_archives"
+# SINGLE-WORKER ASSUMPTION: archive_path columns are absolute local fs paths.
+# Multi-pod scale needs shared volume or object-store URLs — see
+# .mindflow/project/references/scaling_assumptions.md §2.
 
 
 def _user_archive_dir(user_id: str) -> Path:

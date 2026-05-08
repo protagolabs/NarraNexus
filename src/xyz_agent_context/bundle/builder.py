@@ -426,6 +426,10 @@ async def _pack_workspace(
     """Tar.gz agent's workspace dir to agent_dir/workspace.tar.gz; respects sensitive-pattern filter.
     The tarfile compression itself is offloaded to a worker thread so the main
     asyncio event loop stays responsive for other users during big workspaces."""
+    # SINGLE-WORKER ASSUMPTION: workspaces live on this process's local fs.
+    # Multi-pod scale requires shared volume (compose already mounts it
+    # under /opt/narranexus/workspaces). See
+    # .mindflow/project/references/scaling_assumptions.md §3.
     candidates = [
         Path.home() / ".nexusagent" / "workspaces" / f"agent_{agent_id.replace('agent_', '')}_user_{user_id}",
         Path.home() / ".nexusagent" / "workspaces" / f"{agent_id}_user_{user_id}",

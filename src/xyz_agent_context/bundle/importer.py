@@ -83,6 +83,10 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     # Extract to a persistent dir (kept until /confirm completes or TTL expires).
     # Use a shared volume-friendly path under ~/.nexusagent so docker compose
     # can persist it across backend restarts (mount point set by ops).
+    # SINGLE-WORKER ASSUMPTION: this path is on the local fs of whichever
+    # backend process handled preflight. Multi-pod scale needs a shared
+    # volume (RWX) or object-store rewrite — see
+    # .mindflow/project/references/scaling_assumptions.md §1.
     sessions_root = Path.home() / ".nexusagent" / "bundle_preflight"
     sessions_root.mkdir(parents=True, exist_ok=True)
     work_dir = Path(tempfile.mkdtemp(prefix="nx-import-", dir=str(sessions_root)))
