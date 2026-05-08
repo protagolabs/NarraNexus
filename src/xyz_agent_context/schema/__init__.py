@@ -201,7 +201,7 @@ from .a2a_schema import (
     # Core Objects
     Message as A2AMessage,
     TaskStatus,
-    Artifact,
+    A2AArtifact,
     Task,
     # Agent Card
     ProviderInfo,
@@ -226,7 +226,7 @@ from .a2a_schema import (
 
 # ===== Artifact Schema (agent-emitted artifacts: charts, reports, html apps, csv, images, pdf) =====
 from .artifact_schema import (
-    Artifact as AgentArtifact,
+    Artifact,
     ArtifactKind,
     ArtifactVersion,
     ArtifactWithVersions,
@@ -268,7 +268,7 @@ __all__ = [
     "Part",
     "A2AMessage",
     "TaskStatus",
-    "Artifact",
+    "A2AArtifact",
     "Task",
     "ProviderInfo",
     "AgentCapabilities",
@@ -396,7 +396,7 @@ __all__ = [
     "SkillStudyResponse",
 
     # Artifact Schema
-    "AgentArtifact",
+    "Artifact",
     "ArtifactKind",
     "ArtifactVersion",
     "ArtifactWithVersions",

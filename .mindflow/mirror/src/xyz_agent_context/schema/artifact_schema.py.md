@@ -43,11 +43,11 @@ It is the single source of truth that ties together three distinct concerns:
 ## Gotchas
 
 - `ArtifactVersion.id` is the DB auto-increment integer; `artifact_id` is the business key. Never use `id` for cross-service references.
-- `Artifact` in `schema/__init__.py` is exported as `AgentArtifact` to avoid collision with `a2a_schema.Artifact` (the A2A protocol model). Internal code within `artifact_schema.py` and `ArtifactRepository` uses the unaliased name `Artifact` — only import-site code must use the alias.
+- `Artifact` in `schema/__init__.py` is exported as `Artifact` (the canonical name). The A2A protocol model was renamed to `A2AArtifact` to free this name (2026-05-08). Internal code within `artifact_schema.py` and `ArtifactRepository` uses `Artifact` directly — no alias needed anywhere.
 - `size_bytes` on `ArtifactVersion` must be populated at write time by the tool implementation. The repository does not stat the file; it trusts the caller.
 
 ## New-joiner traps
 
-- Do not confuse `Artifact` (this file) with `a2a_schema.Artifact` — the A2A one represents a task output chunk in the Google A2A protocol and has a completely different shape.
+- Do not confuse `Artifact` (this file) with `A2AArtifact` from `a2a_schema` — the A2A one represents a task output chunk in the Google A2A protocol and has a completely different shape.
 - `ArtifactKind` is a `Literal` type alias, not a class. `isinstance(x, ArtifactKind)` does not work — use `x in get_args(ArtifactKind)` if runtime membership checking is needed.
 - The `pinned` field is the user intent; `session_id is None` is the DB-level representation. Always keep them in sync when writing via the repository.
