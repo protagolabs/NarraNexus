@@ -207,6 +207,8 @@ from backend.routes.admin_quota import router as admin_quota_router
 from backend.routes.admin_logs import router as admin_logs_router
 from backend.routes.transcription import router as transcription_router
 from backend.routes.transcription_public import router as transcription_public_router
+from backend.routes.teams import router as teams_router
+from backend.routes.bundle import router as bundle_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -214,6 +216,8 @@ app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
+app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
+app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])

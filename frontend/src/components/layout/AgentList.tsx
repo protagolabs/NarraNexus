@@ -24,9 +24,11 @@ import { cn } from '@/lib/utils';
 
 interface AgentListProps {
   collapsed: boolean;
+  /** When non-null, only render agents whose IDs are in this list (used by TeamFilterBar). */
+  filterAgentIds?: string[] | null;
 }
 
-export function AgentList({ collapsed }: AgentListProps) {
+export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
@@ -36,7 +38,10 @@ export function AgentList({ collapsed }: AgentListProps) {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { userId, agentId, agents, setAgentId, setAgents, refreshAgents } = useConfigStore();
+  const { userId, agentId, agents: rawAgents, setAgentId, setAgents, refreshAgents } = useConfigStore();
+  const agents = filterAgentIds == null
+    ? rawAgents
+    : rawAgents.filter((a) => filterAgentIds.includes(a.agent_id));
   const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds } = useChatStore();
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 

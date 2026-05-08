@@ -1,0 +1,116 @@
+/**
+ * Team & Bundle types — Subproject 1 + Subproject 2
+ */
+
+export interface Team {
+  id?: number | null;
+  team_id: string;
+  owner_user_id: string;
+  name: string;
+  description?: string | null;
+  color?: string | null;
+  source: string;
+  intro_md?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface TeamWithMembers {
+  team: Team;
+  member_agent_ids: string[];
+}
+
+export interface TeamListResponse {
+  teams: TeamWithMembers[];
+}
+
+export interface TeamOperationResponse {
+  success: boolean;
+  message?: string | null;
+  team?: Team | null;
+}
+
+// ----- Bundle export -----
+
+export type SkillInstallMethod = 'url' | 'zip' | 'full_copy' | 'builtin';
+
+export interface SkillExportSpec {
+  skill_name: string;
+  install_method: SkillInstallMethod;
+  source_url?: string | null;
+  source_type?: 'github' | 'zip';
+  branch?: string | null;
+  archive_path?: string | null;
+  manual_zip_path?: string | null;
+}
+
+export interface BundleExportRequest {
+  agent_ids: string[];
+  team_id?: string | null;
+  team_intro_md?: string | null;
+  skills?: SkillExportSpec[];
+  social_entity_selection?: Record<string, string[]>;
+  workspace_excludes?: Record<string, string[]>;
+  include_chat_history?: boolean;
+  embedding_provider?: string | null;
+  embedding_model?: string | null;
+  embedding_dim?: number | null;
+}
+
+// ----- Bundle import -----
+
+export interface BundlePreflightResponse {
+  preflight_token: string;
+  manifest: BundleManifest;
+  name_clashes: { agent_id_in_bundle: string; agent_name: string; existing_count: number }[];
+  team_clash?: { name: string; existing_count: number } | null;
+  embedding_compat: { manifest: any; advice: string };
+  warnings: string[];
+}
+
+export interface BundleManifest {
+  bundle_format_version: string;
+  narranexus_version_exported: string;
+  exported_at: string;
+  owner_placeholder: string;
+  team?: { team_id: string; name: string; description?: string; color?: string; source: string; intro_md?: string } | null;
+  agents: string[];
+  agents_summary: any[];
+  skills: any[];
+  mcp_hints_count?: number;
+  stripped: string[];
+  warnings: string[];
+  embedding?: { provider?: string; model?: string; dim?: number };
+  integrity_sha256: string;
+}
+
+export interface BundleConfirmResponse {
+  agents_created: number;
+  agents_renamed: number;
+  team_created: boolean;
+  team_id?: string;
+  team_name?: string;
+  narratives_created: number;
+  events_created: number;
+  instances_created: number;
+  messages_created: number;
+  social_entities_created: number;
+  rag_rows_created: number;
+  skills_imported: number;
+  mcp_hints: number;
+  mcp_hints_data?: { agent_id: string; name: string; url: string; description?: string }[];
+  warnings: string[];
+}
+
+// ----- Skill archive -----
+
+export interface SkillArchiveRecord {
+  id?: number;
+  user_id: string;
+  skill_name: string;
+  source_type: 'github' | 'zip';
+  source_url?: string | null;
+  archive_path?: string | null;
+  sha256: string;
+  created_at?: string | null;
+}
