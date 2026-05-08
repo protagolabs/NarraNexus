@@ -46,12 +46,13 @@ import type {
 
 const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: 'agents', label: 'Agents', icon: Users },
+  { id: 'history', label: 'Chat history', icon: FileText },
   { id: 'skills', label: 'Skills', icon: Wrench },
   { id: 'social', label: 'Social Network', icon: Hexagon },
   { id: 'workspace', label: 'Workspace files', icon: ListTree },
 ];
 
-type TabId = 'agents' | 'skills' | 'social' | 'workspace';
+type TabId = 'agents' | 'history' | 'skills' | 'social' | 'workspace';
 
 interface SocialEntity {
   entity_id: string;
@@ -59,7 +60,20 @@ interface SocialEntity {
   entity_name?: string | null;
   entity_description?: string | null;
   tags?: string[] | null;
-  instance_id: string;
+}
+
+interface ChatHistoryEvent {
+  event_id: string;
+  trigger?: string;
+  created_at?: string;
+  preview?: string;
+}
+
+interface ChatHistoryNarrative {
+  narrative_id: string;
+  title?: string;
+  type?: string;
+  events: ChatHistoryEvent[];
 }
 
 export default function BundleExportPage() {
@@ -88,6 +102,16 @@ export default function BundleExportPage() {
   const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, { path: string; size: number; sensitive: boolean }[]>>({});
   const [workspaceExcludes, setWorkspaceExcludes] = useState<Record<string, Set<string>>>({});
 
+  // B2: chat history selection state — narrative-level allowlist (per agent)
+  // and event-level allowlist (per narrative). Default = all included.
+  const [historyByAgent, setHistoryByAgent] = useState<Record<string, ChatHistoryNarrative[]>>({});
+  const [excludedNarratives, setExcludedNarratives] = useState<Record<string, Set<string>>>({});
+  const [excludedEvents, setExcludedEvents] = useState<Record<string, Set<string>>>({});
+
+  // B6: sensitive zip confirmation flag (set after user confirms)
+  const [acceptSensitiveZips, setAcceptSensitiveZips] = useState(false);
+  const [sensitiveHits, setSensitiveHits] = useState<{ skill: string; hits: string[] }[] | null>(null);
+
   const [reviewing, setReviewing] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
@@ -108,14 +132,15 @@ export default function BundleExportPage() {
       if (!socialEntities[aid]) {
         api.getSocialNetworkList(aid)
           .then((r: any) => {
-            // Backend response shape: { entities: [...] } or similar
-            const entities: SocialEntity[] = (r.entities || r.network || []).map((e: any) => ({
+            // Verified shape: { success, entities: [...], count }
+            // Each entity: entity_id, entity_name, entity_type, entity_description,
+            //              tags, keywords, identity_info, contact_info, persona, ...
+            const entities: SocialEntity[] = (r.entities || []).map((e: any) => ({
               entity_id: e.entity_id,
               entity_type: e.entity_type,
               entity_name: e.entity_name,
               entity_description: e.entity_description,
-              tags: e.tags || [],
-              instance_id: e.instance_id,
+              tags: e.tags || e.keywords || [],
             }));
             setSocialEntities((s) => ({ ...s, [aid]: entities }));
           }).catch(() => {});
@@ -123,12 +148,34 @@ export default function BundleExportPage() {
       if (!workspaceFiles[aid]) {
         api.listFiles(aid, userId)
           .then((r: any) => {
+            // Verified shape: { success, files: [{filename, size, modified_at}],
+            //                   workspace_path, error }
+            // NB: only top-level files are listed (no subdir recursion).
             const files = (r.files || []).map((f: any) => ({
-              path: f.path || f.name,
+              path: f.filename,
               size: f.size || 0,
-              sensitive: isSensitive(f.path || f.name),
+              sensitive: isSensitive(f.filename),
             }));
             setWorkspaceFiles((s) => ({ ...s, [aid]: files }));
+          }).catch(() => {});
+      }
+      // Chat history (B2)
+      if (!historyByAgent[aid]) {
+        api.getChatHistory(aid, userId)
+          .then((r: any) => {
+            // shape: { success, narratives: [{narrative_id, title, events: [...]}] }
+            const narrs: ChatHistoryNarrative[] = (r.narratives || []).map((n: any) => ({
+              narrative_id: n.narrative_id,
+              title: n.title || n.topic_hint || n.narrative_id,
+              type: n.type,
+              events: (n.events || []).map((e: any) => ({
+                event_id: e.event_id,
+                trigger: e.trigger,
+                created_at: e.created_at,
+                preview: (e.final_output || '').slice(0, 80),
+              })),
+            }));
+            setHistoryByAgent((s) => ({ ...s, [aid]: narrs }));
           }).catch(() => {});
       }
     });
@@ -262,6 +309,29 @@ export default function BundleExportPage() {
         const sens = (workspaceFiles[aid] || []).filter((f) => f.sensitive).map((f) => f.path);
         excludes[aid] = Array.from(new Set([...sens, ...Array.from(set)]));
       });
+      // B2: derive narrative + event allowlists from "exclusion" sets
+      const narrativeSel: Record<string, string[]> = {};
+      const eventSel: Record<string, string[]> = {};
+      Array.from(selectedAgents).forEach((aid) => {
+        const allNarrs = historyByAgent[aid] || [];
+        const exNars = excludedNarratives[aid] || new Set();
+        // Only emit a selection if user actually de-selected something;
+        // otherwise leave undefined to fall back to "include all" semantics.
+        if (exNars.size > 0) {
+          narrativeSel[aid] = allNarrs
+            .filter((n) => !exNars.has(n.narrative_id))
+            .map((n) => n.narrative_id);
+        }
+        // Per-narrative event filtering
+        allNarrs.forEach((n) => {
+          const exEvts = excludedEvents[n.narrative_id];
+          if (exEvts && exEvts.size > 0) {
+            eventSel[n.narrative_id] = n.events
+              .filter((e) => !exEvts.has(e.event_id))
+              .map((e) => e.event_id);
+          }
+        });
+      });
       const payload: BundleExportRequest = {
         agent_ids: Array.from(selectedAgents),
         team_id: selectedTeam || null,
@@ -270,6 +340,9 @@ export default function BundleExportPage() {
         social_entity_selection: social,
         workspace_excludes: excludes,
         include_chat_history: includeChat,
+        accept_sensitive_zips: acceptSensitiveZips,
+        narrative_selection: Object.keys(narrativeSel).length ? narrativeSel : null,
+        event_selection: Object.keys(eventSel).length ? eventSel : null,
       };
       const { blob, filename, warningsCount } = await api.exportBundle(payload);
       const url = URL.createObjectURL(blob);
@@ -285,7 +358,12 @@ export default function BundleExportPage() {
       navigate('/app/settings');
     } catch (e: any) {
       console.error(e);
-      await alert({ title: 'Export failed', message: e?.message || String(e), danger: true });
+      // B6: detect 409 SENSITIVE_FILES_IN_SKILL_ZIP and surface confirmation modal
+      if (e?.code === 'SENSITIVE_FILES_IN_SKILL_ZIP' && e?.hits) {
+        setSensitiveHits(e.hits);
+      } else {
+        await alert({ title: 'Export failed', message: e?.message || String(e), danger: true });
+      }
     } finally {
       setDownloading(false);
       setReviewing(false);
@@ -342,12 +420,40 @@ export default function BundleExportPage() {
             onSetTeam={setSelectedTeam}
           />
         )}
+        {tab === 'history' && (
+          <HistoryTab
+            agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
+            historyByAgent={historyByAgent}
+            excludedNarratives={excludedNarratives}
+            excludedEvents={excludedEvents}
+            onToggleNarrative={(aid, nid) => setExcludedNarratives((s) => {
+              const next = { ...s };
+              const cur = new Set(next[aid] || []);
+              if (cur.has(nid)) cur.delete(nid); else cur.add(nid);
+              next[aid] = cur;
+              return next;
+            })}
+            onToggleEvent={(nid, eid) => setExcludedEvents((s) => {
+              const next = { ...s };
+              const cur = new Set(next[nid] || []);
+              if (cur.has(eid)) cur.delete(eid); else cur.add(eid);
+              next[nid] = cur;
+              return next;
+            })}
+            includeAll={includeChat}
+          />
+        )}
         {tab === 'skills' && (
           <SkillsTab
+            agentIds={Array.from(selectedAgents)}
+            userId={userId}
             skillsForAgents={skillsForAgents}
             skillArchives={skillArchives}
             skillChoices={skillChoices}
             onChange={(name, spec) => setSkillChoices((s) => ({ ...s, [name]: spec }))}
+            onAfterBackup={() => {
+              api.listSkillArchives().then((r) => setSkillArchives(r.archives)).catch(() => {});
+            }}
           />
         )}
         {tab === 'social' && (
@@ -420,6 +526,18 @@ export default function BundleExportPage() {
           onCancel={() => setReviewing(false)}
           onConfirm={doExport}
           downloading={downloading}
+        />
+      )}
+      {sensitiveHits && (
+        <SensitiveZipConfirmModal
+          hits={sensitiveHits}
+          onCancel={() => setSensitiveHits(null)}
+          onAccept={async () => {
+            setAcceptSensitiveZips(true);
+            setSensitiveHits(null);
+            // Re-trigger export with the flag set
+            setTimeout(() => doExport(), 50);
+          }}
         />
       )}
       {dialog}
@@ -502,12 +620,15 @@ function AgentsTab({
 }
 
 function SkillsTab({
-  skillsForAgents, skillArchives, skillChoices, onChange,
+  agentIds, userId, skillsForAgents, skillArchives, skillChoices, onChange, onAfterBackup,
 }: {
+  agentIds: string[];
+  userId: string;
   skillsForAgents: Record<string, string[]>;
   skillArchives: SkillArchiveRecord[];
   skillChoices: Record<string, SkillExportSpec>;
   onChange: (name: string, spec: SkillExportSpec) => void;
+  onAfterBackup: () => void;
 }) {
   const allSkills = Array.from(new Set(Object.values(skillsForAgents).flat()));
   if (allSkills.length === 0) {
@@ -572,14 +693,232 @@ function SkillsTab({
               />
             </div>
             {!hasUrl && !hasZip && (
-              <div className="mt-2 text-[10px] text-[var(--text-tertiary)] flex items-start gap-1">
-                <AlertTriangle className="w-3 h-3 mt-0.5" />
-                <span>This skill has no archive. Either ask your agent to call <code>skill_backup_*</code>, upload one in Settings → Skill archives, or use Full copy.</span>
+              <div className="mt-2 text-[10px] text-[var(--text-tertiary)] flex items-start gap-1.5">
+                <AlertTriangle className="w-3 h-3 mt-0.5 text-[var(--color-yellow-500)] shrink-0" />
+                <span className="flex-1">
+                  This skill has no archive. Use <strong>Ask agent to back up</strong> to drop a
+                  message into the chat that asks the agent to call <code>skill_backup_*</code>,
+                  upload one manually, or use Full copy.
+                </span>
+                <AskAgentToBackupButton
+                  agentIds={agentIds}
+                  userId={userId}
+                  skillName={name}
+                  onDone={onAfterBackup}
+                />
               </div>
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function AskAgentToBackupButton({
+  agentIds, userId, skillName, onDone,
+}: { agentIds: string[]; userId: string; skillName: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        if (agentIds.length === 0) return;
+        setBusy(true);
+        // Pick the first selected agent — most common case is one-skill-one-agent.
+        const aid = agentIds[0];
+        try {
+          // Send a message via the standard chat WS endpoint asking the agent
+          // to call its skill_backup MCP tool. We use the standard send-message
+          // surface (post-message) so the request goes through the regular
+          // agent loop.
+          await fetch(`/api/agents/${encodeURIComponent(aid)}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              content: `Please back up the "${skillName}" skill for export — call skill_list_unbackedup() first to confirm it's missing, then choose the correct skill_backup_* MCP tool (skill_backup_from_github / _from_md / _from_local_zip) based on how you originally installed it. After the backup completes, tell me you're done.`,
+              user_id: userId,
+            }),
+          }).catch(() => {});
+          // Note: we don't wait for the agent to actually run; just kick the
+          // message and ask the user to refresh archives in a few seconds.
+          setTimeout(onDone, 3000);
+        } finally {
+          setBusy(false);
+        }
+      }}
+      disabled={busy || agentIds.length === 0}
+      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+      title="Send a message to the first selected agent asking it to call skill_backup_*"
+    >
+      {busy ? '…' : 'Ask agent to back up'}
+    </button>
+  );
+}
+
+function HistoryTab({
+  agents, historyByAgent, excludedNarratives, excludedEvents,
+  onToggleNarrative, onToggleEvent, includeAll,
+}: {
+  agents: any[];
+  historyByAgent: Record<string, ChatHistoryNarrative[]>;
+  excludedNarratives: Record<string, Set<string>>;
+  excludedEvents: Record<string, Set<string>>;
+  onToggleNarrative: (aid: string, nid: string) => void;
+  onToggleEvent: (nid: string, eid: string) => void;
+  includeAll: boolean;
+}) {
+  if (agents.length === 0) {
+    return (<div className="text-sm text-[var(--text-tertiary)]">Select agents first.</div>);
+  }
+  if (!includeAll) {
+    return (
+      <div className="border border-[var(--color-yellow-500)] bg-[var(--color-yellow-500)]/10 p-3 text-xs">
+        <strong>Chat history disabled.</strong> Toggle "Include chat history" off in the
+        Bundle Notes section to enable this tab. With chat history off, narratives and events
+        are not exported regardless of your selection here.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-[var(--text-tertiary)]">
+        Per-agent narratives and per-narrative events. By default everything is included; uncheck
+        any narrative or individual event to exclude it from the bundle.
+      </p>
+      {agents.map((a) => {
+        const narrs = historyByAgent[a.agent_id] || [];
+        const exNars = excludedNarratives[a.agent_id] || new Set();
+        return (
+          <details key={a.agent_id} open className="border border-[var(--border-default)]">
+            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
+              <span>{a.name || a.agent_id}</span>
+              <span className="text-[10px] text-[var(--text-tertiary)]">
+                {narrs.length - exNars.size} / {narrs.length} narratives included
+              </span>
+            </summary>
+            <div className="p-2 max-h-[480px] overflow-y-auto space-y-2">
+              {narrs.length === 0 && (
+                <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">No narratives.</div>
+              )}
+              {narrs.map((n) => {
+                const narExcluded = exNars.has(n.narrative_id);
+                const exEvts = excludedEvents[n.narrative_id] || new Set();
+                return (
+                  <div key={n.narrative_id} className={cn(
+                    'border border-[var(--border-subtle)]',
+                    narExcluded && 'opacity-50'
+                  )}>
+                    <div className="px-3 py-2 flex items-center gap-2 bg-[var(--bg-secondary)]">
+                      <input
+                        type="checkbox"
+                        checked={!narExcluded}
+                        onChange={() => onToggleNarrative(a.agent_id, n.narrative_id)}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-mono truncate">{n.title || n.narrative_id}</div>
+                        <div className="text-[10px] text-[var(--text-tertiary)]">
+                          {n.events.length - exEvts.size} / {n.events.length} events
+                          {n.type ? ` · ${n.type}` : ''}
+                        </div>
+                      </div>
+                    </div>
+                    {!narExcluded && n.events.length > 0 && (
+                      <div className="border-t border-[var(--border-subtle)]">
+                        {n.events.slice(0, 30).map((e) => {
+                          const evExcluded = exEvts.has(e.event_id);
+                          return (
+                            <label key={e.event_id} className={cn(
+                              'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--bg-tertiary)]',
+                              evExcluded && 'opacity-40'
+                            )}>
+                              <input
+                                type="checkbox"
+                                checked={!evExcluded}
+                                onChange={() => onToggleEvent(n.narrative_id, e.event_id)}
+                                className="mt-0.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-mono text-[10px] text-[var(--text-tertiary)]">
+                                  {e.trigger || 'event'} · {(e.created_at || '').slice(0, 19)}
+                                </div>
+                                <div className="truncate">{e.preview || '(no preview)'}</div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                        {n.events.length > 30 && (
+                          <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)]">
+                            +{n.events.length - 30} more events (all included by default; select narrative-level toggle to exclude entire narrative)
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
+function SensitiveZipConfirmModal({
+  hits, onCancel, onAccept,
+}: {
+  hits: { skill: string; hits: string[] }[];
+  onCancel: () => void;
+  onAccept: () => void;
+}) {
+  const [confirmText, setConfirmText] = useState('');
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-[520px] max-w-[95vw] bg-[var(--bg-primary)] border-2 border-[var(--color-red-500)] flex flex-col">
+        <div className="px-5 py-3 border-b border-[var(--border-default)] bg-[var(--color-red-500)]/10">
+          <div className="flex items-center gap-2 text-[var(--color-red-500)]">
+            <AlertTriangle className="w-5 h-5" />
+            <h2 className="font-mono text-sm">Sensitive files detected in skill zip</h2>
+          </div>
+        </div>
+        <div className="p-5 space-y-3 text-sm">
+          <p>
+            One or more zip-archived skills in your bundle contain files matching sensitive
+            path patterns (.env, .key, wallet.json, credentials.json, etc.).
+            <strong> If you proceed, recipients will receive these files.</strong>
+          </p>
+          <ul className="list-disc list-inside space-y-1 text-xs font-mono bg-[var(--bg-tertiary)] p-3 max-h-[200px] overflow-y-auto">
+            {hits.map((w, i) => (
+              <li key={i}>
+                <span className="text-[var(--color-red-500)]">{w.skill}</span>:{' '}
+                {(w.hits || []).slice(0, 5).join(', ')}
+                {(w.hits || []).length > 5 && ` (+${(w.hits || []).length - 5} more)`}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-[var(--text-secondary)]">
+            Type <strong className="font-mono">SHARE SECRETS</strong> below to confirm you understand
+            and want to ship these files anyway.
+          </p>
+          <input
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder="Type SHARE SECRETS to confirm"
+            className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
+          />
+        </div>
+        <div className="px-5 py-3 border-t border-[var(--border-default)] flex justify-end gap-2">
+          <Button onClick={onCancel} variant="ghost" size="sm">Cancel</Button>
+          <Button
+            onClick={onAccept}
+            disabled={confirmText !== 'SHARE SECRETS'}
+            size="sm"
+            className="bg-[var(--color-red-500)] text-white hover:bg-[var(--color-red-500)]/80"
+          >
+            Ship anyway
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

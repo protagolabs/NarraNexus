@@ -77,6 +77,18 @@ STRIPPED_TABLES = {
 }
 
 
+class SensitiveZipDetected(Exception):
+    """Raised when a zip-source skill's archive contains sensitive paths and
+    the caller has not confirmed via `accept_sensitive_zips=True`."""
+
+    def __init__(self, hits: List[Dict[str, Any]]):
+        self.hits = hits  # [{skill, hits: [path, ...]}, ...]
+        super().__init__(
+            f"{len(hits)} skill(s) contain sensitive files in their zip archive. "
+            "User must explicitly accept before export proceeds."
+        )
+
+
 class ExportSelection:
     """Agent-scoped selection for what to include in the bundle."""
 
@@ -92,6 +104,9 @@ class ExportSelection:
         embedding_provider: Optional[str] = None,
         embedding_model: Optional[str] = None,
         embedding_dim: Optional[int] = None,
+        accept_sensitive_zips: bool = False,
+        narrative_selection: Optional[Dict[str, List[str]]] = None,
+        event_selection: Optional[Dict[str, List[str]]] = None,
     ):
         self.agent_ids = agent_ids
         self.team_id = team_id
@@ -109,6 +124,15 @@ class ExportSelection:
         self.embedding_provider = embedding_provider
         self.embedding_model = embedding_model
         self.embedding_dim = embedding_dim
+        # B6: explicit user opt-in to ship zip-archived skills containing
+        # sensitive files (e.g. .env / wallet.json). Without this, builder
+        # raises SensitiveZipDetected and the route returns 409 with the hits
+        # so the frontend can show a confirmation modal.
+        self.accept_sensitive_zips = accept_sensitive_zips
+        # B2: per-agent narrative_id allowlist (None = include all).
+        self.narrative_selection = narrative_selection
+        # B2: per-narrative event_id allowlist (None = include all).
+        self.event_selection = event_selection
 
 
 async def build_bundle(
@@ -178,11 +202,19 @@ async def build_bundle(
                 encoding="utf-8",
             )
 
-            # narratives + events
+            # narratives + events — B2: respect per-agent narrative_selection
+            # and per-narrative event_selection if provided. None = all.
             narratives_dir = agent_dir / "narratives"
             narratives_dir.mkdir(parents=True, exist_ok=True)
             n_rows = await db.get("narratives", {"agent_id": aid})
+            allowed_nars = (
+                selection.narrative_selection.get(aid)
+                if selection.narrative_selection
+                else None
+            )
             for n in n_rows:
+                if allowed_nars is not None and n["narrative_id"] not in allowed_nars:
+                    continue
                 ndir = narratives_dir / n["narrative_id"]
                 ndir.mkdir(parents=True, exist_ok=True)
                 (ndir / "narrative.json").write_text(
@@ -196,9 +228,16 @@ async def build_bundle(
                         {"narrative_id": n["narrative_id"]},
                         order_by="created_at ASC",
                     )
+                    allowed_events = (
+                        set(selection.event_selection.get(n["narrative_id"], []))
+                        if selection.event_selection
+                        else None
+                    )
                     e_path = ndir / "events.jsonl"
                     with open(e_path, "w", encoding="utf-8") as f:
                         for e in e_rows:
+                            if allowed_events is not None and e["event_id"] not in allowed_events:
+                                continue
                             scrubbed = _scrub_user_id(dict(e), user_id)
                             f.write(json.dumps(scrubbed, ensure_ascii=False, default=str) + "\n")
 
@@ -325,6 +364,10 @@ async def build_bundle(
             skills_summary.append(entry)
 
         if zip_secrets_warnings:
+            if not selection.accept_sensitive_zips:
+                # Force the caller (frontend) to surface a confirmation prompt
+                # before we ship a bundle that contains user secrets.
+                raise SensitiveZipDetected(zip_secrets_warnings)
             for w in zip_secrets_warnings:
                 warnings.append(
                     f"sensitive_files_in_zip: {w['skill']} -> {','.join(w['hits'][:5])}"
@@ -430,10 +473,15 @@ async def _pack_workspace(
     # Multi-pod scale requires shared volume (compose already mounts it
     # under /opt/narranexus/workspaces). See
     # .mindflow/project/references/scaling_assumptions.md §3.
+    #
+    # Canonical workspace path (settings.base_working_path / {agent_id}_{user_id})
+    # comes from attachment_storage.get_workspace_path() and step_3_agent_loop.py.
+    # Legacy `_user_<user_id>` infix kept as fallback for old install state.
+    from xyz_agent_context.settings import settings as core_settings
+    base = Path(core_settings.base_working_path)
     candidates = [
-        Path.home() / ".nexusagent" / "workspaces" / f"agent_{agent_id.replace('agent_', '')}_user_{user_id}",
-        Path.home() / ".nexusagent" / "workspaces" / f"{agent_id}_user_{user_id}",
-        Path.home() / ".nexusagent" / "workspaces" / f"{agent_id}_{user_id}",
+        base / f"{agent_id}_{user_id}",            # canonical
+        base / f"{agent_id}_user_{user_id}",       # legacy
     ]
     src = next((c for c in candidates if c.is_dir()), None)
     if not src:
@@ -470,10 +518,12 @@ def _pack_workspace_sync(src: Path, out: Path, excl_set: set) -> Path:
 
 
 async def _find_skill_dir(agent_ids: Set[str], user_id: str, skill_name: str) -> Optional[Path]:
+    from xyz_agent_context.settings import settings as core_settings
+    base = Path(core_settings.base_working_path)
     for aid in agent_ids:
         candidates = [
-            Path.home() / ".nexusagent" / "workspaces" / f"{aid}_user_{user_id}" / "skills" / skill_name,
-            Path.home() / ".nexusagent" / "workspaces" / f"{aid}_{user_id}" / "skills" / skill_name,
+            base / f"{aid}_{user_id}" / "skills" / skill_name,            # canonical
+            base / f"{aid}_user_{user_id}" / "skills" / skill_name,       # legacy
         ]
         for c in candidates:
             if c.is_dir():

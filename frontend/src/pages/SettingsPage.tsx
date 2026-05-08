@@ -9,7 +9,7 @@
  */
 
 import { useNavigate } from 'react-router-dom';
-import { Package, Upload } from 'lucide-react';
+import { Package, Upload, Users } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 import { ScrollArea, Button } from '@/components/ui';
@@ -54,6 +54,22 @@ export default function SettingsPage() {
             Import bundle…
           </Button>
         </div>
+      </section>
+
+      {/* Batch agent management — issue 8.B replacement for "undo import" */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+          Manage agents (batch)
+        </h2>
+        <p className="text-sm text-[var(--text-secondary)] mb-3">
+          Bulk-select agents to delete, or batch-add/remove them from teams.
+          Useful after importing a bundle you don't want to keep — filter by
+          "From bundles" to find them.
+        </p>
+        <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
+          <Users className="w-4 h-4" />
+          Open batch manager…
+        </Button>
       </section>
       </div>
     </ScrollArea>

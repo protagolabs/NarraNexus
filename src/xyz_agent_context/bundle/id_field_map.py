@@ -44,6 +44,11 @@ STRUCTURED_ID_FIELDS: Dict[str, Dict[str, str]] = {
         "instance_id": "instance",
         "job_id": "job",
         "agent_id": "agent",
+        "narrative_id": "narrative",
+        # related_entity_id mostly references a social entity which is often an
+        # agent_id within the same closure; treat as agent for v1. Polymorphic
+        # case (entity_type != 'agent') is left intact via fallback regex pass.
+        "related_entity_id": "agent",
     },
     "instance_rag_store": {
         "instance_id": "instance",
@@ -66,6 +71,7 @@ STRUCTURED_ID_FIELDS: Dict[str, Dict[str, str]] = {
     },
     "module_report_memory": {
         "instance_id": "instance",
+        "narrative_id": "narrative",
     },
     "bus_channels": {
         "channel_id": "channel",

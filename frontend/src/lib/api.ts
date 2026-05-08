@@ -918,7 +918,18 @@ class ApiClient {
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
     });
-    if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+    if (!resp.ok) {
+      // Try to parse a structured error so callers can act on it (B6 sensitive zip flow)
+      let detail: any = null;
+      try { detail = (await resp.json()).detail; } catch {}
+      const err: any = new Error(
+        detail?.message || `Export failed: ${resp.status}`
+      );
+      if (detail?.error_code) err.code = detail.error_code;
+      if (detail?.hits) err.hits = detail.hits;
+      err.status = resp.status;
+      throw err;
+    }
     const cd = resp.headers.get('Content-Disposition') || '';
     const m = /filename="([^"]+)"/.exec(cd);
     const filename = m ? m[1] : `bundle-${Date.now()}.nxbundle`;

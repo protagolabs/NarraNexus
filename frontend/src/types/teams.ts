@@ -55,6 +55,12 @@ export interface BundleExportRequest {
   embedding_provider?: string | null;
   embedding_model?: string | null;
   embedding_dim?: number | null;
+  // B6: explicit user opt-in to ship zip skill archives that contain sensitive files
+  accept_sensitive_zips?: boolean;
+  // B2: per-agent narrative allowlist; omit/null = include all
+  narrative_selection?: Record<string, string[]> | null;
+  // B2: per-narrative event allowlist; omit/null = include all
+  event_selection?: Record<string, string[]> | null;
 }
 
 // ----- Bundle import -----

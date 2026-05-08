@@ -167,8 +167,7 @@ export default function BundleImportPage() {
             onClose={() => navigate('/app/settings')}
             onViewIntro={() => {
               if (confirmResult.team_id) {
-                // Open the team management modal via navigation hook (we just go to chat for v1)
-                navigate('/app/chat');
+                navigate(`/app/teams/${confirmResult.team_id}`);
               }
             }}
           />

@@ -104,12 +104,23 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    # Compatibility: check format version
-    fv = manifest.get("bundle_format_version") or "0"
-    major = fv.split(".")[0]
-    if major != "1":
+    # Compatibility: walk the bundle-format-version migration chain so older
+    # bundles can be upgraded in-place to the current major before import.
+    from xyz_agent_context.bundle._bundle_migrations import (
+        apply_migrations,
+        CURRENT_BUNDLE_MAJOR,
+    )
+    try:
+        manifest = await apply_migrations(work_dir, manifest)
+    except ValueError:
         shutil.rmtree(work_dir, ignore_errors=True)
-        raise ValueError(f"unsupported bundle_format_version: {fv}")
+        raise
+    # Persist the (possibly migrated) manifest back to disk so confirm() reads
+    # the upgraded version.
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
 
     # Name clashes
     db = await get_db_client()
@@ -137,12 +148,57 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         if existing_team:
             team_clash = {"name": team["name"], "existing_count": len(existing_team)}
 
-    # Embedding compatibility — manifest's value vs current instance's default
-    emb = manifest.get("embedding", {}) or {}
-    embedding_compat = {
-        "manifest": emb,
-        "advice": "If your provider/dim differs, you'll be asked to rebuild RAG embeddings.",
+    # Embedding compatibility — manifest's value vs current instance's default.
+    # Hard-block when the dim is incompatible (the embeddings_store column would
+    # mismatch and break semantic search). When provider/model differ but dim
+    # matches, surface a soft warning suggesting a rebuild.
+    from xyz_agent_context.settings import settings as core_settings
+    from xyz_agent_context.agent_framework.model_catalog import get_embedding_dimensions
+
+    bundle_emb = manifest.get("embedding", {}) or {}
+    bundle_dim = bundle_emb.get("dim")
+    bundle_provider = bundle_emb.get("provider")
+    bundle_model = bundle_emb.get("model")
+
+    local_model = core_settings.openai_embedding_model
+    local_dim = get_embedding_dimensions(local_model) if local_model else None
+    local_provider = "openai"  # current implementation hard-codes openai
+
+    embedding_compat: Dict[str, Any] = {
+        "manifest": bundle_emb,
+        "local": {"provider": local_provider, "model": local_model, "dim": local_dim},
+        "compatible": True,
+        "advice": "Embeddings from the bundle should work as-is.",
     }
+
+    if bundle_dim is not None and local_dim is not None and bundle_dim != local_dim:
+        # Hard block — different vector dimensions means the embeddings_store column
+        # cannot be reused, RAG / chat embeddings would be silently broken.
+        embedding_compat["compatible"] = False
+        embedding_compat["advice"] = (
+            f"BLOCKED: bundle uses embeddings of dimension {bundle_dim} but this "
+            f"instance is configured for dimension {local_dim} (model={local_model}). "
+            "Importing would corrupt the RAG store. Either reconfigure this instance "
+            "to use a model with matching dim, or ask the bundle author to re-export "
+            "with a compatible model."
+        )
+        # Refuse to create a session — this is an unrecoverable mismatch.
+        shutil.rmtree(work_dir, ignore_errors=True)
+        raise ValueError(embedding_compat["advice"])
+
+    if bundle_provider and bundle_provider != local_provider:
+        embedding_compat["advice"] = (
+            f"WARNING: bundle was exported with embedding provider '{bundle_provider}'; "
+            f"this instance uses '{local_provider}'. Existing embeddings will be kept "
+            "but you may want to rebuild via Settings → Embedding Index."
+        )
+    elif bundle_model and bundle_model != local_model:
+        embedding_compat["advice"] = (
+            f"WARNING: bundle was exported with embedding model '{bundle_model}'; "
+            f"this instance uses '{local_model}'. Vectors are dimensionally compatible "
+            f"({local_dim}), but semantic space differs slightly. Optional rebuild via "
+            "Settings → Embedding Index for best results."
+        )
 
     token = uuid.uuid4().hex
     summary = {
@@ -472,38 +528,138 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     await db.insert("agent_messages", new_mr)
                     written_summary["messages_created"] += 1
 
-        # workspace tar — offload extraction to thread
+        # workspace tar — offload extraction to thread.
+        # Use canonical {agent_id}_{user_id} path (matches attachment_storage
+        # and step_3_agent_loop). New imports always use the canonical form.
         ws_tar = adir / "workspace.tar.gz"
         if ws_tar.exists():
-            target = (
-                Path.home() / ".nexusagent" / "workspaces" / f"{new_aid}_user_{user_id}"
-            )
+            from xyz_agent_context.settings import settings as core_settings
+            target = Path(core_settings.base_working_path) / f"{new_aid}_{user_id}"
             target.mkdir(parents=True, exist_ok=True)
             await asyncio.to_thread(_extract_tar_safely, ws_tar, target)
+            # Layer 4 (PRD §8.11): rewrite IDs in extracted text files too.
+            await asyncio.to_thread(_rewrite_workspace_text_files, target, id_map)
 
-    # -- Skills --
+    # -- Skills (auto-install for each imported agent) --
+    # For each imported agent + each skill in the bundle, drive the existing
+    # SkillModule install pipeline so the recipient's skills/ dir is
+    # populated immediately. Failures are recorded in warnings; we never
+    # fail the entire import on a skill error.
     skill_archives_dir = Path.home() / ".nexusagent" / "skill_archives" / user_id
     skill_archives_dir.mkdir(parents=True, exist_ok=True)
+    skill_install_failures: List[Dict[str, str]] = []
+
+    # Resolve which agent_ids the skills should be installed under.
+    # Bundle scope = all imported agents; skills are workspace-local so each
+    # imported agent gets its own skill dir.
+    new_agent_ids = [
+        id_map[old] for old in manifest.get("agents", []) if old in id_map
+    ]
+
+    from xyz_agent_context.module.skill_module.skill_module import SkillModule
+    from xyz_agent_context.bundle.skill_backup import (
+        backup_after_api_install,
+        archive_local_zip,
+        register_archive,
+    )
+
     for s in manifest.get("skills", []):
         method = s.get("install_method")
-        if method == "url":
-            # Recipient instance will reinstall later via skills/install API.
-            written_summary["skills_imported"] += 1
-        elif method == "zip":
-            archive_ref = s.get("archive_ref")
-            zip_path = work_dir / archive_ref if archive_ref else None
-            if zip_path and zip_path.exists():
-                # Just copy to archive registry; user will run install_skill explicitly
-                tgt = skill_archives_dir / f"{s['name']}_imported.zip"
-                shutil.copy2(zip_path, tgt)
+        skill_name = s.get("name")
+        if not skill_name:
+            continue
+        try:
+            if method == "url":
+                src_url = s.get("source_url")
+                branch = s.get("branch") or "main"
+                if not src_url:
+                    skill_install_failures.append(
+                        {"skill": skill_name, "reason": "url install method but no source_url"}
+                    )
+                    continue
+                for new_aid in new_agent_ids:
+                    sm = SkillModule(agent_id=new_aid, user_id=user_id)
+                    await asyncio.to_thread(sm.install_from_github, src_url, branch)
+                # Register the archive for the recipient (so future bundles can re-export).
+                await backup_after_api_install(
+                    user_id=user_id,
+                    skill_name=skill_name,
+                    source_type="github",
+                    source_url=src_url,
+                    branch=branch,
+                )
                 written_summary["skills_imported"] += 1
-        elif method == "full_copy":
-            archive_ref = s.get("archive_ref")
-            zip_path = work_dir / archive_ref if archive_ref else None
-            if zip_path and zip_path.exists():
-                tgt = skill_archives_dir / f"{s['name']}_full_imported.zip"
-                shutil.copy2(zip_path, tgt)
+
+            elif method == "zip":
+                archive_ref = s.get("archive_ref")
+                zip_path = work_dir / archive_ref if archive_ref else None
+                if not zip_path or not zip_path.exists():
+                    skill_install_failures.append(
+                        {"skill": skill_name, "reason": "zip archive missing in bundle"}
+                    )
+                    continue
+                # Copy to recipient's skill_archives so future re-exports work.
+                tgt = skill_archives_dir / f"{skill_name}.zip"
+                await asyncio.to_thread(shutil.copy2, zip_path, tgt)
+                # Drive the standard install_skill pipeline per agent.
+                for new_aid in new_agent_ids:
+                    sm = SkillModule(agent_id=new_aid, user_id=user_id)
+                    await asyncio.to_thread(sm.install_skill, zip_path)
+                # Register archive (for export later).
+                await backup_after_api_install(
+                    user_id=user_id,
+                    skill_name=skill_name,
+                    source_type="zip",
+                    source_url=None,
+                    original_zip_path=tgt,
+                )
                 written_summary["skills_imported"] += 1
+
+            elif method == "full_copy":
+                # full_copy ships the entire skill dir (incl. credentials) as a zip.
+                # Install via the same path; users have already accepted the security
+                # warning at export time. Skill is loaded with credentials intact.
+                archive_ref = s.get("archive_ref")
+                zip_path = work_dir / archive_ref if archive_ref else None
+                if not zip_path or not zip_path.exists():
+                    skill_install_failures.append(
+                        {"skill": skill_name, "reason": "full_copy archive missing in bundle"}
+                    )
+                    continue
+                tgt = skill_archives_dir / f"{skill_name}_full.zip"
+                await asyncio.to_thread(shutil.copy2, zip_path, tgt)
+                for new_aid in new_agent_ids:
+                    sm = SkillModule(agent_id=new_aid, user_id=user_id)
+                    await asyncio.to_thread(sm.install_skill, zip_path)
+                await register_archive(
+                    user_id=user_id,
+                    skill_name=skill_name,
+                    source_type="zip",
+                    source_url=None,
+                    archive_path=str(tgt),
+                    sha256=s.get("sha256", "imported"),
+                )
+                written_summary["skills_imported"] += 1
+
+            elif method == "builtin":
+                # Built-in modules are loaded by the runtime automatically; nothing
+                # to install on disk.
+                written_summary["skills_imported"] += 1
+
+            else:
+                skill_install_failures.append(
+                    {"skill": skill_name, "reason": f"unknown install_method '{method}'"}
+                )
+        except Exception as e:
+            logger.exception(f"skill install failed for '{skill_name}': {e}")
+            skill_install_failures.append({"skill": skill_name, "reason": str(e)})
+
+    if skill_install_failures:
+        written_summary["warnings"].extend([
+            f"skill install failed: {f['skill']} — {f['reason']}"
+            for f in skill_install_failures
+        ])
+        written_summary["skill_install_failures"] = skill_install_failures
 
     # -- mcp_hints --
     mcp_hints_path = work_dir / "mcp_hints.json"
@@ -533,3 +689,40 @@ def _extract_tar_safely(tar_path: Path, target: Path) -> None:
                 continue
             safe_members.append(member)
         tar.extractall(target, members=safe_members)
+
+
+# Extensions whose contents we Layer-4 scan for ID rewrite.
+_TEXT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".csv", ".log"}
+_MAX_TEXT_REWRITE_SIZE = 5 * 1024 * 1024  # 5 MB per file — anything bigger we skip
+
+
+def _rewrite_workspace_text_files(root: Path, id_map: Dict[str, str]) -> None:
+    """Walk extracted workspace, regex-rewrite known ID kinds in text files.
+    Layer 4 of PRD §8.11. Sync — caller wraps in asyncio.to_thread()."""
+    if not id_map:
+        return
+    rgx = build_all_id_regex()
+
+    def replace(m):
+        old = m.group()
+        return id_map.get(old, old)
+
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in _TEXT_EXTENSIONS:
+            continue
+        try:
+            if path.stat().st_size > _MAX_TEXT_REWRITE_SIZE:
+                continue
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        new_content = rgx.sub(replace, content)
+        if new_content != content:
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+            except OSError:
+                pass

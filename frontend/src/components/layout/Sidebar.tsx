@@ -440,7 +440,7 @@ function TeamFilterAndAgents({ collapsed }: { collapsed: boolean }) {
 
   return (
     <>
-      {!collapsed && <TeamFilterBar selectedFilter={filter} onChange={setFilter} />}
+      <TeamFilterBar selectedFilter={filter} onChange={setFilter} collapsed={collapsed} />
       <ScrollArea className="flex-1">
         <AgentList collapsed={collapsed} filterAgentIds={filterIds} />
       </ScrollArea>

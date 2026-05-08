@@ -60,6 +60,13 @@ class ExportRequest(BaseModel):
     embedding_provider: Optional[str] = None
     embedding_model: Optional[str] = None
     embedding_dim: Optional[int] = None
+    # B6: explicit confirmation that sensitive files inside zip-archived skills
+    # may be shipped (the user saw the modal and clicked through).
+    accept_sensitive_zips: bool = False
+    # B2: per-agent narrative allowlist; None = include all
+    narrative_selection: Optional[Dict[str, List[str]]] = None
+    # B2: per-narrative event allowlist; None = include all
+    event_selection: Optional[Dict[str, List[str]]] = None
 
 
 @router.post("/export")
@@ -95,12 +102,27 @@ async def export_bundle(payload: ExportRequest, request: Request):
         embedding_provider=payload.embedding_provider,
         embedding_model=payload.embedding_model,
         embedding_dim=payload.embedding_dim,
+        accept_sensitive_zips=payload.accept_sensitive_zips,
+        narrative_selection=payload.narrative_selection,
+        event_selection=payload.event_selection,
     )
 
     try:
         result = await build_bundle(user_id, selection, out_path)
     except Exception as e:
         shutil.rmtree(out_dir, ignore_errors=True)
+        # B6: surface SensitiveZipDetected as 409 with structured payload
+        # so the frontend can show a per-skill confirmation modal.
+        from xyz_agent_context.bundle.builder import SensitiveZipDetected
+        if isinstance(e, SensitiveZipDetected):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_code": "SENSITIVE_FILES_IN_SKILL_ZIP",
+                    "message": "Some zip-archived skills contain sensitive files. Confirm before export.",
+                    "hits": e.hits,
+                },
+            )
         logger.exception("export build failed")
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -35,9 +35,12 @@ def _user_archive_dir(user_id: str) -> Path:
 
 
 def _agent_workspace_root(agent_id: str, user_id: str) -> Optional[Path]:
+    """Resolve canonical workspace dir; fall back to legacy `_user_` infix."""
+    from xyz_agent_context.settings import settings as core_settings
+    base = Path(core_settings.base_working_path)
     candidates = [
-        Path.home() / ".nexusagent" / "workspaces" / f"{agent_id}_user_{user_id}",
-        Path.home() / ".nexusagent" / "workspaces" / f"{agent_id}_{user_id}",
+        base / f"{agent_id}_{user_id}",            # canonical
+        base / f"{agent_id}_user_{user_id}",       # legacy
     ]
     for c in candidates:
         if c.is_dir():
@@ -50,9 +53,18 @@ async def archive_github_tarball(
     skill_name: str,
     github_url: str,
     branch: str = "main",
+    github_token: Optional[str] = None,
 ) -> Tuple[Path, str]:
     """Download GitHub tarball and store as the skill's archive.
-    Returns (archive_path, sha256)."""
+
+    Public repos work over the unauthenticated tarball URL. Private repos
+    require a personal access token; either pass it explicitly via
+    `github_token` or set the GITHUB_TOKEN env var. Token is sent via
+    `Authorization: Bearer …` and is NOT persisted anywhere.
+
+    Returns (archive_path, sha256).
+    """
+    import os
     p = urlparse(github_url)
     if p.scheme != "https" or p.hostname not in {"github.com", "www.github.com"}:
         raise ValueError("Only https://github.com/<owner>/<repo> is supported")
@@ -60,12 +72,29 @@ async def archive_github_tarball(
     if len(parts) < 2:
         raise ValueError("Invalid GitHub URL")
     owner, repo = parts[0], parts[1].removesuffix(".git")
-    tarball_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.tar.gz"
 
+    # GitHub's API tarball endpoint works for both public AND private repos
+    # when paired with an Authorization header. The /archive/refs/heads/...
+    # form is public-only.
     archive_dir = _user_archive_dir(user_id)
     out_path = archive_dir / f"{skill_name}.tar.gz"
+    token = github_token or os.environ.get("GITHUB_TOKEN") or ""
+    headers = {"Accept": "application/vnd.github.v3.raw"}
+    if token:
+        # Use API endpoint with auth — works for private repos too.
+        tarball_url = f"https://api.github.com/repos/{owner}/{repo}/tarball/{branch}"
+        headers["Authorization"] = f"Bearer {token}"
+    else:
+        # Public-only path — no auth, simpler.
+        tarball_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.tar.gz"
+
     async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
-        resp = await client.get(tarball_url)
+        resp = await client.get(tarball_url, headers=headers)
+        if resp.status_code == 404 and not token:
+            raise ValueError(
+                f"Tarball 404 for {github_url} (branch={branch}). "
+                "If this is a private repo, set GITHUB_TOKEN or pass github_token."
+            )
         if resp.status_code != 200:
             raise ValueError(
                 f"Failed to download tarball: HTTP {resp.status_code} ({tarball_url})"
@@ -178,6 +207,7 @@ async def backup_after_api_install(
     source_url: Optional[str],
     original_zip_path: Optional[Path] = None,
     branch: Optional[str] = "main",
+    github_token: Optional[str] = None,
 ) -> Optional[str]:
     """Auto-archive immediately after the public install_skill API completes.
     Returns the resulting archive_path (str), or None if archiving was skipped."""
@@ -188,6 +218,7 @@ async def backup_after_api_install(
                 skill_name=skill_name,
                 github_url=source_url,
                 branch=branch or "main",
+                github_token=github_token,
             )
             await register_archive(
                 user_id=user_id, skill_name=skill_name, source_type="github",
