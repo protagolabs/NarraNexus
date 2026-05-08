@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_runner.py
-last_verified: 2026-05-08
+last_verified: 2026-05-08-r2
 stub: false
 ---
 
@@ -77,6 +77,15 @@ DB 里存的是相对于 `settings.base_working_path` 的 relpath，
 
 写文件是不可逆的（就算删 inode，磁盘块要到 GC 才回收）。先检查，通过才写，
 避免写了文件但 DB 插入因 quota 失败的不一致状态。
+
+### `now` 固定化 (2026-05-08-r2)
+
+Both `create_text_artifact` and `upload_binary_artifact` previously called
+`datetime.now(timezone.utc)` twice — once for the DB row's `created_at`/`updated_at`
+and again for `CreateArtifactToolResult.created_at`. This caused a tiny clock skew
+between what the DB stores and what the LLM sees in the tool result. A single
+`now = datetime.now(timezone.utc)` is now captured at the top of the create branch
+and reused in both places.
 
 ### 为什么 iterate 时不更新 artifact 的 updated_at
 

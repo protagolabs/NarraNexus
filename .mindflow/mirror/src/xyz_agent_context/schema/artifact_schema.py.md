@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-05-08
+last_verified: 2026-05-08-r2
 stub: false
 ---
 
@@ -51,3 +51,4 @@ It is the single source of truth that ties together three distinct concerns:
 - Do not confuse `Artifact` (this file) with `A2AArtifact` from `a2a_schema` — the A2A one represents a task output chunk in the Google A2A protocol and has a completely different shape.
 - `ArtifactKind` is a `Literal` type alias, not a class. `isinstance(x, ArtifactKind)` does not work — use `x in get_args(ArtifactKind)` if runtime membership checking is needed.
 - The `pinned` field is the user intent; `session_id is None` is the DB-level representation. Always keep them in sync when writing via the repository.
+- `original_session_id` stores the `session_id` value captured at pin time so that `set_pinned(False)` can restore it. `None` on rows that were never pinned, or on legacy rows pinned before this column was added.

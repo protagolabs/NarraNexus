@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/MarkdownRenderer.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-08-r2
 stub: false
 ---
 
@@ -25,5 +25,11 @@ Fetches a `text/markdown` artifact and renders it with ReactMarkdown + remark-gf
 **Empty string initial state.** `setText` fires on each `version` change. Starting from `''` means the component renders a blank `<div>` during the fetch rather than stale content from the previous version. Acceptable flicker for the typical small-to-medium Markdown files agents emit.
 
 ## Gotchas
+
+**Error handling (2026-05-08-r2).** The fetch chain now checks `r.ok` before calling
+`r.text()`. On a non-2xx response it rejects with `Error("HTTP {status}")`, which the
+`.catch` handler stores in an `error` state slot. When `error` is set, the component
+renders `<div className="p-4 text-red-400">Failed to load: {error}</div>` instead of
+the prose container, mirroring the pattern in `CsvRenderer`.
 
 The `useEffect` fetch has no abort controller. If `version` changes quickly (e.g., the user flips through version history), multiple concurrent fetches may race. The last one to resolve wins, which is usually correct (monotonically increasing versions). For a more rigorous fix, add `AbortController` inside the effect — low priority given typical usage patterns.

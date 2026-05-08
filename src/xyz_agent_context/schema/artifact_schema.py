@@ -43,6 +43,7 @@ class Artifact(BaseModel):
     agent_id: str
     user_id: str
     session_id: Optional[str] = None
+    original_session_id: Optional[str] = None
     title: str = Field(..., max_length=200)
     kind: ArtifactKind
     description: Optional[str] = None

@@ -207,11 +207,11 @@ async def create_text_artifact(
         fh.write(encoded)
     rel_path = _relative_to_base(abs_path)
 
+    now = datetime.now(timezone.utc)
     if is_iteration:
         await repo.iterate(artifact_id, file_path=rel_path, size_bytes=len(encoded))
         logger.debug("Iterated artifact {} to v{}", artifact_id, version)
     else:
-        now = datetime.now(timezone.utc)
         await repo.create(
             Artifact(
                 artifact_id=artifact_id,
@@ -248,7 +248,7 @@ async def create_text_artifact(
         artifact_id=artifact_id,
         version=version,
         url=_build_url(agent_id, artifact_id, version),
-        created_at=datetime.now(timezone.utc),
+        created_at=now,
     )
 
 
@@ -349,11 +349,11 @@ async def upload_binary_artifact(
     shutil.copyfile(abs_local, abs_path)
     rel_path = _relative_to_base(abs_path)
 
+    now = datetime.now(timezone.utc)
     if is_iteration:
         await repo.iterate(artifact_id, file_path=rel_path, size_bytes=size)
         logger.debug("Iterated binary artifact {} to v{}", artifact_id, version)
     else:
-        now = datetime.now(timezone.utc)
         await repo.create(
             Artifact(
                 artifact_id=artifact_id,
@@ -390,5 +390,5 @@ async def upload_binary_artifact(
         artifact_id=artifact_id,
         version=version,
         url=_build_url(agent_id, artifact_id, version),
-        created_at=datetime.now(timezone.utc),
+        created_at=now,
     )

@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-05-08-r2
 ---
 
 # Intent
@@ -38,10 +38,13 @@ Two tables, one logical entity:
   A read-modify-write outside a transaction would race under concurrent LLM responses
   emitting new artifact versions.
 
-- `set_pinned(pinned=True)` uses a raw SQL UPDATE that explicitly sets `session_id = NULL`
-  because `AsyncDatabaseClient.update()` filters out `None` values (to let MySQL DEFAULT
-  take effect), so we cannot use the CRUD helper to explicitly nullify a column. Raw SQL
-  with `%s` is the correct path for setting NULL in this codebase.
+- `set_pinned` uses raw SQL for both the pin and unpin paths because `AsyncDatabaseClient.update()`
+  filters out `None` values, making it impossible to explicitly SET a column to NULL via the CRUD
+  helper. On pin: saves current `session_id` into `original_session_id` and sets `session_id = NULL`.
+  On unpin: restores `session_id` from `original_session_id` and sets `original_session_id = NULL`.
+  Legacy rows pinned before the `original_session_id` column existed will have `original_session_id = NULL`;
+  unpin leaves them orphaned (session_id stays NULL) — the route layer is responsible for surfacing a
+  warning (review Important #1).
 
 - `list_by_session()` uses raw SQL because the simple `filters` dict passed to
   `BaseRepository.find()` cannot express `AND pinned = 0` alongside

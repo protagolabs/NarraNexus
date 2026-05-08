@@ -884,6 +884,7 @@ _register(
             Column("agent_id",       "TEXT",    "VARCHAR(128)", nullable=False),
             Column("user_id",        "TEXT",    "VARCHAR(128)", nullable=False),
             Column("session_id",     "TEXT",    "VARCHAR(64)"),
+            Column("original_session_id", "TEXT", "VARCHAR(64)"),    # remembers session_id at pin time so unpin can restore it
             Column("title",          "TEXT",    "VARCHAR(200)", nullable=False),
             Column("kind",           "TEXT",    "VARCHAR(64)",  nullable=False),
             Column("description",    "TEXT",    "TEXT"),

@@ -122,34 +122,50 @@ class ArtifactRepository(BaseRepository[Artifact]):
 
     async def set_pinned(self, artifact_id: str, *, pinned: bool) -> None:
         """
-        Set the pinned flag for an artifact.
+        Toggle pin state.
 
-        When pinned=True, session_id is also cleared (None) so the artifact
-        becomes agent-scoped rather than session-scoped.
+        On pin: remember current session_id in original_session_id, then clear
+        session_id (cross-session visibility).
+        On unpin: restore session_id from original_session_id, clear
+        original_session_id, set pinned=0.
+        If original_session_id was never set (legacy row pinned before this column
+        existed), unpin leaves the artifact orphaned with session_id=NULL — the
+        route layer is responsible for surfacing a warning to the user (Important #1
+        of the review).
 
         Args:
             artifact_id: ID of the artifact.
             pinned: Target pinned state.
         """
-        update_data: Dict[str, Any] = {"pinned": 1 if pinned else 0}
+        existing = await self.get_by_id(artifact_id)
+        if existing is None:
+            raise LookupError(f"artifact not found: {artifact_id}")
+
+        now = datetime.now(timezone.utc)
         if pinned:
-            # Pinned artifacts are agent-scoped; clear the session association.
-            # We use a direct SQL UPDATE so we can explicitly SET session_id = NULL.
+            # raw SQL because db.update() filters None and we need to preserve
+            # session_id NULL semantics correctly here
             sql = """
             UPDATE instance_artifacts
-            SET pinned = %s, session_id = NULL
+            SET pinned = %s, original_session_id = %s, session_id = NULL, updated_at = %s
             WHERE artifact_id = %s
             """
             await self._db.execute(
                 sql,
-                params=(1, artifact_id),
+                params=(1, existing.session_id, now, artifact_id),
                 fetch=False,
             )
         else:
-            await self._db.update(
-                self.table_name,
-                filters={self.id_field: artifact_id},
-                data=update_data,
+            # restore session_id from original_session_id; clear original_session_id; set pinned=0
+            sql = """
+            UPDATE instance_artifacts
+            SET pinned = %s, session_id = %s, original_session_id = NULL, updated_at = %s
+            WHERE artifact_id = %s
+            """
+            await self._db.execute(
+                sql,
+                params=(0, existing.original_session_id, now, artifact_id),
+                fetch=False,
             )
 
     async def delete(self, artifact_id: str) -> None:  # type: ignore[override]
@@ -260,6 +276,7 @@ class ArtifactRepository(BaseRepository[Artifact]):
             agent_id=row["agent_id"],
             user_id=row["user_id"],
             session_id=row.get("session_id"),
+            original_session_id=row.get("original_session_id"),
             title=row["title"],
             kind=row["kind"],
             description=row.get("description"),
@@ -275,6 +292,7 @@ class ArtifactRepository(BaseRepository[Artifact]):
             "agent_id": entity.agent_id,
             "user_id": entity.user_id,
             "session_id": entity.session_id,
+            "original_session_id": entity.original_session_id,
             "title": entity.title,
             "kind": entity.kind,
             "description": entity.description,

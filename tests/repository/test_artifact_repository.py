@@ -5,7 +5,7 @@
 @description: TDD tests for ArtifactRepository.
 
 Uses real in-memory SQLite (via conftest db_client fixture).
-Tests: create, iterate, set_pinned, list_by_session, delete cascade, total_bytes_for_agent.
+Tests: create, iterate, set_pinned, unpin restoration, list_by_session, delete cascade, total_bytes_for_agent.
 """
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ async def test_iterate_increments_version_and_appends_row(repo):
 
 @pytest.mark.asyncio
 async def test_pin_clears_session_id(repo):
-    """set_pinned(True) sets pinned=True and clears session_id."""
+    """set_pinned(True) sets pinned=True, clears session_id, and saves original_session_id."""
     artifact = _make_artifact(session_id="ses_xyz")
     await repo.create(artifact, file_path="/tmp/art/v1.html", size_bytes=300)
 
@@ -115,6 +115,28 @@ async def test_pin_clears_session_id(repo):
     assert fetched is not None
     assert fetched.pinned is True
     assert fetched.session_id is None
+    assert fetched.original_session_id == "ses_xyz"
+
+
+@pytest.mark.asyncio
+async def test_unpin_restores_original_session_id(repo):
+    """set_pinned(False) restores session_id from original_session_id and clears it."""
+    art = _make_artifact(artifact_id="art_unpin01", session_id="sess_42")
+    await repo.create(art, file_path="p/v1.html", size_bytes=1)
+    await repo.set_pinned("art_unpin01", pinned=True)
+
+    # session_id was cleared; original_session_id remembers it
+    pinned = await repo.get_by_id("art_unpin01")
+    assert pinned is not None
+    assert pinned.session_id is None
+    assert pinned.original_session_id == "sess_42"
+
+    await repo.set_pinned("art_unpin01", pinned=False)
+    unpinned = await repo.get_by_id("art_unpin01")
+    assert unpinned is not None
+    assert unpinned.session_id == "sess_42"           # restored
+    assert unpinned.original_session_id is None        # cleared
+    assert unpinned.pinned is False
 
 
 @pytest.mark.asyncio

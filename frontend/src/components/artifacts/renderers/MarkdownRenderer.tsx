@@ -25,13 +25,16 @@ interface Props {
 
 export default function MarkdownRenderer({ artifact, version }: Props) {
   const [text, setText] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(rawUrl(artifact.agent_id, artifact.artifact_id, version))
-      .then((r) => r.text())
-      .then(setText);
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setText)
+      .catch((e) => setError(String(e)));
   }, [artifact.agent_id, artifact.artifact_id, version]);
 
+  if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
   return (
     <div className="prose prose-invert max-w-none p-4 overflow-auto">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>

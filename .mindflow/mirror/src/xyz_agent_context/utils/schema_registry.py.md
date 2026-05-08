@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-08-r1
+last_verified: 2026-05-08-r2
 stub: false
 ---
 
@@ -95,3 +95,12 @@ given artifact cannot be overwritten. The `latest_version` counter in
 
 Both tables are purely additive and take effect on next `auto_migrate()` call
 (i.e., next app startup).
+
+## 2026-05-08-r2 · original_session_id column added to instance_artifacts
+
+Added a nullable `original_session_id TEXT/VARCHAR(64)` column to
+`instance_artifacts`. This stores the `session_id` at the moment the artifact
+is pinned, so that `set_pinned(False)` can restore it instead of leaving the
+artifact orphaned with `session_id=NULL`. Purely additive — existing rows get
+`NULL` (no session to restore; the route layer surfaces a warning per review
+Important #1).
