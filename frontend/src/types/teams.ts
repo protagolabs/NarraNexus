@@ -37,6 +37,12 @@ export type SkillInstallMethod = 'url' | 'zip' | 'full_copy' | 'builtin';
 export interface SkillExportSpec {
   skill_name: string;
   install_method: SkillInstallMethod;
+  // Per-agent attribution: same skill name may be installed on N agents
+  // and each of them is an independent copy with its own .skill_meta.json
+  // (different env_config / study_result). Bundle ships one entry per
+  // (agent_id, skill_name) pair so import-side reconstructs each
+  // agent's skill state independently.
+  agent_id?: string;
   source_url?: string | null;
   source_type?: 'github' | 'zip';
   branch?: string | null;

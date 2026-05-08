@@ -540,32 +540,39 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             # Layer 4 (PRD §8.11): rewrite IDs in extracted text files too.
             await asyncio.to_thread(_rewrite_workspace_text_files, target, id_map)
 
-    # -- Skills (auto-install for each imported agent) --
-    # For each imported agent + each skill in the bundle, drive the existing
-    # SkillModule install pipeline so the recipient's skills/ dir is
-    # populated immediately. Failures are recorded in warnings; we never
-    # fail the entire import on a skill error.
+    # -- Skills (auto-install per-(agent, skill)) --
+    # Each manifest.skills entry has agent_id (the OLD agent_id from the
+    # source instance). Map it to the new agent_id and install the skill
+    # only on that one — preserves per-agent state from the source.
     skill_archives_dir = Path.home() / ".nexusagent" / "skill_archives" / user_id
     skill_archives_dir.mkdir(parents=True, exist_ok=True)
     skill_install_failures: List[Dict[str, str]] = []
 
-    # Resolve which agent_ids the skills should be installed under.
-    # Bundle scope = all imported agents; skills are workspace-local so each
-    # imported agent gets its own skill dir.
-    new_agent_ids = [
-        id_map[old] for old in manifest.get("agents", []) if old in id_map
-    ]
-
     from xyz_agent_context.module.skill_module.skill_module import SkillModule
     from xyz_agent_context.bundle.skill_backup import (
         backup_after_api_install,
-        archive_local_zip,
         register_archive,
     )
 
     for s in manifest.get("skills", []):
         method = s.get("install_method")
         skill_name = s.get("name")
+        old_aid = s.get("agent_id")
+        # Backward compat: pre-per-agent bundles had no agent_id; install on all.
+        target_aids = []
+        if old_aid:
+            new_aid = id_map.get(old_aid)
+            if new_aid:
+                target_aids = [new_aid]
+            else:
+                skill_install_failures.append(
+                    {"skill": skill_name, "reason": f"agent {old_aid} not in id_map"}
+                )
+                continue
+        else:
+            # Legacy bundle: apply this skill to every imported agent.
+            target_aids = [id_map[old] for old in manifest.get("agents", []) if old in id_map]
+
         if not skill_name:
             continue
         try:
@@ -577,10 +584,9 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                         {"skill": skill_name, "reason": "url install method but no source_url"}
                     )
                     continue
-                for new_aid in new_agent_ids:
+                for new_aid in target_aids:
                     sm = SkillModule(agent_id=new_aid, user_id=user_id)
                     await asyncio.to_thread(sm.install_from_github, src_url, branch)
-                # Register the archive for the recipient (so future bundles can re-export).
                 await backup_after_api_install(
                     user_id=user_id,
                     skill_name=skill_name,
@@ -598,14 +604,12 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                         {"skill": skill_name, "reason": "zip archive missing in bundle"}
                     )
                     continue
-                # Copy to recipient's skill_archives so future re-exports work.
                 tgt = skill_archives_dir / f"{skill_name}.zip"
-                await asyncio.to_thread(shutil.copy2, zip_path, tgt)
-                # Drive the standard install_skill pipeline per agent.
-                for new_aid in new_agent_ids:
+                if not tgt.exists():
+                    await asyncio.to_thread(shutil.copy2, zip_path, tgt)
+                for new_aid in target_aids:
                     sm = SkillModule(agent_id=new_aid, user_id=user_id)
                     await asyncio.to_thread(sm.install_skill, zip_path)
-                # Register archive (for export later).
                 await backup_after_api_install(
                     user_id=user_id,
                     skill_name=skill_name,
@@ -616,9 +620,9 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 written_summary["skills_imported"] += 1
 
             elif method == "full_copy":
-                # full_copy ships the entire skill dir (incl. credentials) as a zip.
-                # Install via the same path; users have already accepted the security
-                # warning at export time. Skill is loaded with credentials intact.
+                # full_copy is per-agent: each agent's archive_ref points at
+                # skills/<agent_id>/<skill>-full.zip with that agent's own
+                # .skill_meta.json + wallets.
                 archive_ref = s.get("archive_ref")
                 zip_path = work_dir / archive_ref if archive_ref else None
                 if not zip_path or not zip_path.exists():
@@ -626,9 +630,10 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                         {"skill": skill_name, "reason": "full_copy archive missing in bundle"}
                     )
                     continue
+                # Stash a copy in skill_archives for re-export (uses last-seen).
                 tgt = skill_archives_dir / f"{skill_name}_full.zip"
                 await asyncio.to_thread(shutil.copy2, zip_path, tgt)
-                for new_aid in new_agent_ids:
+                for new_aid in target_aids:
                     sm = SkillModule(agent_id=new_aid, user_id=user_id)
                     await asyncio.to_thread(sm.install_skill, zip_path)
                 await register_archive(
@@ -642,8 +647,6 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 written_summary["skills_imported"] += 1
 
             elif method == "builtin":
-                # Built-in modules are loaded by the runtime automatically; nothing
-                # to install on disk.
                 written_summary["skills_imported"] += 1
 
             else:
@@ -651,8 +654,8 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     {"skill": skill_name, "reason": f"unknown install_method '{method}'"}
                 )
         except Exception as e:
-            logger.exception(f"skill install failed for '{skill_name}': {e}")
-            skill_install_failures.append({"skill": skill_name, "reason": str(e)})
+            logger.exception(f"skill install failed for '{skill_name}' on {old_aid}: {e}")
+            skill_install_failures.append({"skill": f"{skill_name}@{old_aid}", "reason": str(e)})
 
     if skill_install_failures:
         written_summary["warnings"].extend([

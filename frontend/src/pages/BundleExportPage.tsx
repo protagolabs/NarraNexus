@@ -91,10 +91,15 @@ export default function BundleExportPage() {
   const [introMd, setIntroMd] = useState('');
   const [includeChat, setIncludeChat] = useState(true);
 
-  // Skills state
+  // Skills state. Choices are keyed per (agent_id, skill_name) so the same
+  // skill name installed on 5 different agents becomes 5 independent rows
+  // in the UI and 5 independent entries in the bundle (each carries its
+  // own .skill_meta.json under Full mode).
   const [skillsForAgents, setSkillsForAgents] = useState<Record<string, string[]>>({});
   const [skillArchives, setSkillArchives] = useState<SkillArchiveRecord[]>([]);
   const [skillChoices, setSkillChoices] = useState<Record<string, SkillExportSpec>>({});
+
+  const skillKey = (agentId: string, skillName: string) => `${agentId}::${skillName}`;
 
   // Social state
   const [socialEntities, setSocialEntities] = useState<Record<string, SocialEntity[]>>({});
@@ -184,36 +189,41 @@ export default function BundleExportPage() {
     });
   }, [selectedAgents, userId]);
 
-  // Default skill choice based on archive availability
+  // Default skill choice per (agent, skill) based on archive availability.
   useEffect(() => {
     const newChoices: Record<string, SkillExportSpec> = {};
-    Object.values(skillsForAgents).flat().forEach((skill) => {
-      if (skillChoices[skill]) {
-        newChoices[skill] = skillChoices[skill];
-        return;
-      }
-      const arch = skillArchives.find((a) => a.skill_name === skill);
-      if (arch?.source_url) {
-        newChoices[skill] = {
-          skill_name: skill,
-          install_method: 'url',
-          source_url: arch.source_url,
-          source_type: 'github',
-          branch: 'main',
-        };
-      } else if (arch?.archive_path) {
-        newChoices[skill] = {
-          skill_name: skill,
-          install_method: 'zip',
-          archive_path: arch.archive_path,
-        };
-      } else {
-        // Default to "skip" semantically by leaving install_method blank
-        newChoices[skill] = {
-          skill_name: skill,
-          install_method: 'full_copy',
-        };
-      }
+    Object.entries(skillsForAgents).forEach(([aid, skillNames]) => {
+      skillNames.forEach((skill) => {
+        const key = skillKey(aid, skill);
+        if (skillChoices[key]) {
+          newChoices[key] = skillChoices[key];
+          return;
+        }
+        const arch = skillArchives.find((a) => a.skill_name === skill);
+        if (arch?.source_url) {
+          newChoices[key] = {
+            skill_name: skill,
+            agent_id: aid,
+            install_method: 'url',
+            source_url: arch.source_url,
+            source_type: 'github',
+            branch: 'main',
+          };
+        } else if (arch?.archive_path) {
+          newChoices[key] = {
+            skill_name: skill,
+            agent_id: aid,
+            install_method: 'zip',
+            archive_path: arch.archive_path,
+          };
+        } else {
+          newChoices[key] = {
+            skill_name: skill,
+            agent_id: aid,
+            install_method: 'full_copy',
+          };
+        }
+      });
     });
     setSkillChoices(newChoices);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -261,7 +271,9 @@ export default function BundleExportPage() {
   }
 
   function toggleAgent(aid: string) {
-    if (mode === 'full') return;
+    // Full mode still allows agent selection — see PRD note at the top of the
+    // Full-mode pre-fill effect. Only the *granularity* tabs (skills/social/
+    // workspace/history) become read-only.
     setSelectedAgents((prev) => {
       const next = new Set(prev);
       if (next.has(aid)) next.delete(aid);
@@ -301,23 +313,26 @@ export default function BundleExportPage() {
     };
   }, [selectedAgents, skillChoices, socialSelected, workspaceExcludes]);
 
-  // Full mode: when caller flips to "full", auto-select everything that
-  // can be turned into a 1:1 snapshot. We re-run this on mode change AND
-  // whenever a new agent's data lands so late-arriving entities/files
-  // also get captured.
+  // Full mode: pre-fill granularity to "everything for the selected agents",
+  // but DO NOT touch the agent selection itself — the user picks which agents
+  // to ship (you might want to copy 3 of 11 agents to a new machine, not all
+  // 11). PRD §5 议题 2: Full vs Custom is depth (with-credentials vs
+  // strip-credentials), not breadth.
   useEffect(() => {
     if (mode !== 'full') return;
-    // 1. Select all agents
-    setSelectedAgents(new Set(agents.map((a) => a.agent_id)));
-  }, [mode, agents]);
-
-  useEffect(() => {
-    if (mode !== 'full') return;
-    // 2. Force every skill to full_copy mode (carries .skill_meta.json
-    //    + credentials.json + wallet.json — the "self-backup" contract).
+    // 2. Force every (agent, skill) pair to full_copy mode (carries
+    //    .skill_meta.json + credentials.json + wallet.json per agent —
+    //    the "self-backup" contract; same skill name on different agents
+    //    has different credentials).
     const next: Record<string, SkillExportSpec> = { ...skillChoices };
-    Object.values(skillsForAgents).flat().forEach((skill) => {
-      next[skill] = { skill_name: skill, install_method: 'full_copy' };
+    Object.entries(skillsForAgents).forEach(([aid, skillNames]) => {
+      skillNames.forEach((skill) => {
+        next[skillKey(aid, skill)] = {
+          skill_name: skill,
+          agent_id: aid,
+          install_method: 'full_copy',
+        };
+      });
     });
     setSkillChoices(next);
     // 3. Select every social entity for every agent (no closure-fuzzy filter).
@@ -501,8 +516,10 @@ export default function BundleExportPage() {
         {mode === 'full' && (
           <div className="mt-2 ml-[60px] text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5">
             <AlertTriangle className="w-3 h-3" />
-            All {agents.length} agent{agents.length === 1 ? '' : 's'} are auto-selected, all skills set to Full Copy.
-            Below tabs let you preview but cannot un-select.
+            Pick which agents to ship in the Agents tab. For each picked agent,
+            ALL their skills become Full Copy (carry credentials), narratives /
+            events / social entities / workspace files are fully included.
+            Below tabs are read-only previews.
           </div>
         )}
       </div>
@@ -561,17 +578,32 @@ export default function BundleExportPage() {
               next[nid] = cur;
               return next;
             })}
+            onSelectAllNarratives={(aid) => setExcludedNarratives((s) => ({
+              ...s, [aid]: new Set(),
+            }))}
+            onSelectNoneNarratives={(aid) => setExcludedNarratives((s) => ({
+              ...s, [aid]: new Set((historyByAgent[aid] || []).map((n) => n.narrative_id)),
+            }))}
+            onSelectAllEventsInNarrative={(nid) => setExcludedEvents((s) => ({
+              ...s, [nid]: new Set(),
+            }))}
+            onSelectNoneEventsInNarrative={(nid, allIds) => setExcludedEvents((s) => ({
+              ...s, [nid]: new Set(allIds),
+            }))}
             includeAll={includeChat}
           />
         )}
         {tab === 'skills' && (
           <SkillsTab
-            agentIds={Array.from(selectedAgents)}
+            agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
             userId={userId}
             skillsForAgents={skillsForAgents}
             skillArchives={skillArchives}
             skillChoices={skillChoices}
-            onChange={(name, spec) => setSkillChoices((s) => ({ ...s, [name]: spec }))}
+            mode={mode}
+            onChange={(agentId, name, spec) =>
+              setSkillChoices((s) => ({ ...s, [skillKey(agentId, name)]: { ...spec, agent_id: agentId } }))
+            }
             onAfterBackup={() => {
               api.listSkillArchives().then((r) => setSkillArchives(r.archives)).catch(() => {});
             }}
@@ -741,21 +773,30 @@ function AgentsTab({
 }
 
 function SkillsTab({
-  agentIds, userId, skillsForAgents, skillArchives, skillChoices, onChange, onAfterBackup,
+  agents, userId, skillsForAgents, skillArchives, skillChoices, mode, onChange, onAfterBackup,
 }: {
-  agentIds: string[];
+  agents: any[];
   userId: string;
   skillsForAgents: Record<string, string[]>;
   skillArchives: SkillArchiveRecord[];
   skillChoices: Record<string, SkillExportSpec>;
-  onChange: (name: string, spec: SkillExportSpec) => void;
+  mode: 'full' | 'custom';
+  onChange: (agentId: string, name: string, spec: SkillExportSpec) => void;
   onAfterBackup: () => void;
 }) {
-  const allSkills = Array.from(new Set(Object.values(skillsForAgents).flat()));
-  if (allSkills.length === 0) {
+  if (agents.length === 0) {
     return (
       <div className="text-sm text-[var(--text-tertiary)]">
         Select agents in the previous tab — their skills will appear here.
+      </div>
+    );
+  }
+  const isReadOnly = mode === 'full';
+  const totalSkills = agents.reduce((s, a) => s + (skillsForAgents[a.agent_id]?.length || 0), 0);
+  if (totalSkills === 0) {
+    return (
+      <div className="text-sm text-[var(--text-tertiary)]">
+        None of the selected agents have any skills installed.
       </div>
     );
   }
@@ -763,73 +804,103 @@ function SkillsTab({
   return (
     <div className="space-y-3">
       <p className="text-xs text-[var(--text-tertiary)]">
-        For each skill, pick how it should be reproducible by the bundle recipient. The default
-        is the safest available option.
+        Per-agent skill list. The same skill name can appear on multiple agents — each one is
+        independent (its own <code>.skill_meta.json</code>, <code>env_config</code>, <code>study_result</code>).
+        {isReadOnly && ' Read-only: Full mode pinned every skill to Full Copy.'}
       </p>
-      {allSkills.map((name) => {
-        const arch = skillArchives.find((a) => a.skill_name === name);
-        const choice = skillChoices[name];
-        const hasUrl = !!arch?.source_url;
-        const hasZip = !!arch?.archive_path;
+      {agents.map((a) => {
+        const skills = skillsForAgents[a.agent_id] || [];
+        if (skills.length === 0) {
+          return (
+            <details key={a.agent_id} className="border border-[var(--border-default)]">
+              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)]">
+                {a.name || a.agent_id} — no skills installed
+              </summary>
+            </details>
+          );
+        }
         return (
-          <div key={name} className="border border-[var(--border-default)] p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <div className="text-sm font-mono">{name}</div>
-                <div className="text-[10px] text-[var(--text-tertiary)]">
-                  {arch?.source_type ? `archived (${arch.source_type})` : 'no archive registered'}
-                </div>
-              </div>
-              {choice?.install_method === 'full_copy' && (
-                <span className="text-[10px] px-1.5 py-0.5 border border-[var(--color-yellow-500)] text-[var(--color-yellow-500)]">
-                  contains_secrets
-                </span>
-              )}
+          <details key={a.agent_id} open className="border border-[var(--border-default)]">
+            <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
+              <span>{a.name || a.agent_id}</span>
+              <span className="text-[10px] text-[var(--text-tertiary)]">
+                {skills.length} skill{skills.length === 1 ? '' : 's'}
+              </span>
+            </summary>
+            <div className="p-2 space-y-2">
+              {skills.map((name) => {
+                const arch = skillArchives.find((aa) => aa.skill_name === name);
+                const choice = skillChoices[`${a.agent_id}::${name}`];
+                const hasUrl = !!arch?.source_url;
+                const hasZip = !!arch?.archive_path;
+                const setMethod = (spec: SkillExportSpec) => {
+                  if (isReadOnly) return;
+                  onChange(a.agent_id, name, spec);
+                };
+                return (
+                  <div key={name} className="border border-[var(--border-subtle)] p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <div className="text-sm font-mono">{name}</div>
+                        <div className="text-[10px] text-[var(--text-tertiary)]">
+                          {arch?.source_type ? `archived (${arch.source_type}, shared by user across agents)` : 'no archive registered'}
+                        </div>
+                      </div>
+                      {choice?.install_method === 'full_copy' && (
+                        <span className="text-[10px] px-1.5 py-0.5 border border-[var(--color-yellow-500)] text-[var(--color-yellow-500)]">
+                          contains_secrets
+                        </span>
+                      )}
+                    </div>
+                    <div className={cn('grid grid-cols-3 gap-2', isReadOnly && 'opacity-60 pointer-events-none')}>
+                      <RadioCard
+                        label="URL install"
+                        desc={hasUrl ? `${arch?.source_url}` : 'No URL recorded'}
+                        disabled={!hasUrl || isReadOnly}
+                        active={choice?.install_method === 'url'}
+                        onClick={() => hasUrl && setMethod({
+                          skill_name: name, install_method: 'url',
+                          source_url: arch?.source_url || '', source_type: 'github', branch: 'main',
+                        })}
+                      />
+                      <RadioCard
+                        label="Zip install"
+                        desc={hasZip ? `archive ${arch?.archive_path?.split('/').pop()}` : 'No archive'}
+                        disabled={!hasZip || isReadOnly}
+                        active={choice?.install_method === 'zip'}
+                        onClick={() => hasZip && setMethod({
+                          skill_name: name, install_method: 'zip', archive_path: arch?.archive_path || '',
+                        })}
+                      />
+                      <RadioCard
+                        label="Full copy"
+                        desc="⚠ includes wallets/credentials"
+                        active={choice?.install_method === 'full_copy'}
+                        disabled={isReadOnly}
+                        onClick={() => setMethod({ skill_name: name, install_method: 'full_copy' })}
+                      />
+                    </div>
+                    {!hasUrl && !hasZip && !isReadOnly && (
+                      <div className="mt-2 text-[10px] text-[var(--text-tertiary)] flex items-start gap-1.5">
+                        <AlertTriangle className="w-3 h-3 mt-0.5 text-[var(--color-yellow-500)] shrink-0" />
+                        <span className="flex-1">
+                          This skill has no archive. Use <strong>Ask agent to back up</strong> to drop a
+                          message into the chat that asks the agent to call <code>skill_backup_*</code>,
+                          upload one manually, or use Full copy.
+                        </span>
+                        <AskAgentToBackupButton
+                          agentIds={[a.agent_id]}
+                          userId={userId}
+                          skillName={name}
+                          onDone={onAfterBackup}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <RadioCard
-                label="URL install"
-                desc={hasUrl ? `${arch?.source_url} (${arch?.source_type})` : 'No URL recorded'}
-                disabled={!hasUrl}
-                active={choice?.install_method === 'url'}
-                onClick={() => hasUrl && onChange(name, {
-                  skill_name: name, install_method: 'url',
-                  source_url: arch?.source_url || '', source_type: 'github', branch: 'main',
-                })}
-              />
-              <RadioCard
-                label="Zip install"
-                desc={hasZip ? `archive ${arch?.archive_path?.split('/').pop()}` : 'No archive'}
-                disabled={!hasZip}
-                active={choice?.install_method === 'zip'}
-                onClick={() => hasZip && onChange(name, {
-                  skill_name: name, install_method: 'zip', archive_path: arch?.archive_path || '',
-                })}
-              />
-              <RadioCard
-                label="Full copy"
-                desc="⚠ includes wallets/credentials"
-                active={choice?.install_method === 'full_copy'}
-                onClick={() => onChange(name, { skill_name: name, install_method: 'full_copy' })}
-              />
-            </div>
-            {!hasUrl && !hasZip && (
-              <div className="mt-2 text-[10px] text-[var(--text-tertiary)] flex items-start gap-1.5">
-                <AlertTriangle className="w-3 h-3 mt-0.5 text-[var(--color-yellow-500)] shrink-0" />
-                <span className="flex-1">
-                  This skill has no archive. Use <strong>Ask agent to back up</strong> to drop a
-                  message into the chat that asks the agent to call <code>skill_backup_*</code>,
-                  upload one manually, or use Full copy.
-                </span>
-                <AskAgentToBackupButton
-                  agentIds={agentIds}
-                  userId={userId}
-                  skillName={name}
-                  onDone={onAfterBackup}
-                />
-              </div>
-            )}
-          </div>
+          </details>
         );
       })}
     </div>
@@ -878,7 +949,9 @@ function AskAgentToBackupButton({
 
 function HistoryTab({
   agents, historyByAgent, excludedNarratives, excludedEvents,
-  onToggleNarrative, onToggleEvent, includeAll,
+  onToggleNarrative, onToggleEvent, onSelectAllNarratives, onSelectNoneNarratives,
+  onSelectAllEventsInNarrative, onSelectNoneEventsInNarrative,
+  includeAll,
 }: {
   agents: any[];
   historyByAgent: Record<string, ChatHistoryNarrative[]>;
@@ -886,6 +959,10 @@ function HistoryTab({
   excludedEvents: Record<string, Set<string>>;
   onToggleNarrative: (aid: string, nid: string) => void;
   onToggleEvent: (nid: string, eid: string) => void;
+  onSelectAllNarratives: (aid: string) => void;
+  onSelectNoneNarratives: (aid: string) => void;
+  onSelectAllEventsInNarrative: (nid: string) => void;
+  onSelectNoneEventsInNarrative: (nid: string, allEventIds: string[]) => void;
   includeAll: boolean;
 }) {
   if (agents.length === 0) {
@@ -913,9 +990,23 @@ function HistoryTab({
           <details key={a.agent_id} open className="border border-[var(--border-default)]">
             <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
               <span>{a.name || a.agent_id}</span>
-              <span className="text-[10px] text-[var(--text-tertiary)]">
-                {narrs.length - exNars.size} / {narrs.length} narratives included
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[var(--text-tertiary)]">
+                  {narrs.length - exNars.size} / {narrs.length} narratives
+                </span>
+                <button
+                  onClick={(e) => { e.preventDefault(); onSelectAllNarratives(a.agent_id); }}
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                >
+                  Select all
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); onSelectNoneNarratives(a.agent_id); }}
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                >
+                  Select none
+                </button>
+              </div>
             </summary>
             <div className="p-2 max-h-[480px] overflow-y-auto space-y-2">
               {narrs.length === 0 && (
@@ -942,6 +1033,28 @@ function HistoryTab({
                           {n.type ? ` · ${n.type}` : ''}
                         </div>
                       </div>
+                      {!narExcluded && n.events.length > 0 && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectAllEventsInNarrative(n.narrative_id);
+                            }}
+                            className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                          >
+                            All events
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectNoneEventsInNarrative(n.narrative_id, n.events.map((x) => x.event_id));
+                            }}
+                            className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                          >
+                            No events
+                          </button>
+                        </div>
+                      )}
                     </div>
                     {!narExcluded && n.events.length > 0 && (
                       <div className="border-t border-[var(--border-subtle)]">

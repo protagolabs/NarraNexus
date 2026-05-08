@@ -42,6 +42,11 @@ async def _user_id_for_request(request: Request) -> str:
 class SkillExportSpec(BaseModel):
     skill_name: str
     install_method: str  # url | zip | full_copy | builtin
+    # Per-agent attribution: each (agent_id, skill_name) pair is independent;
+    # for the same skill name on multiple agents, the user picks N rows. Bundle
+    # serializes one entry per pair so import-side reconstructs each agent's
+    # skill state independently (different .skill_meta.json under Full mode).
+    agent_id: Optional[str] = None
     source_url: Optional[str] = None
     source_type: Optional[str] = "github"
     branch: Optional[str] = "main"
@@ -79,8 +84,14 @@ async def export_bundle(payload: ExportRequest, request: Request):
     fname = f"nxbundle-{int(__import__('time').time())}.nxbundle"
     out_path = out_dir / fname
 
-    skill_methods = {
-        s.skill_name: {
+    # skill_methods is now a list of per-(agent, skill) entries. The builder
+    # iterates this list and packages each one independently — ships one
+    # archive per (agent_id, skill_name) so each agent's `.skill_meta.json`
+    # (env_config / study_result) is preserved independently under Full mode.
+    skill_methods = [
+        {
+            "skill_name": s.skill_name,
+            "agent_id": s.agent_id,
             "install_method": s.install_method,
             "source_url": s.source_url,
             "source_type": s.source_type,
@@ -89,7 +100,7 @@ async def export_bundle(payload: ExportRequest, request: Request):
             "manual_zip_path": s.manual_zip_path,
         }
         for s in payload.skills
-    }
+    ]
 
     selection = ExportSelection(
         agent_ids=payload.agent_ids,

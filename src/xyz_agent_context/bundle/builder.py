@@ -97,7 +97,7 @@ class ExportSelection:
         agent_ids: List[str],
         team_id: Optional[str] = None,
         team_intro_md: Optional[str] = None,
-        skill_methods: Optional[Dict[str, Dict[str, Any]]] = None,
+        skill_methods: Optional[List[Dict[str, Any]]] = None,
         social_entity_selection: Optional[Dict[str, List[str]]] = None,
         workspace_excludes: Optional[Dict[str, List[str]]] = None,
         include_chat_history: bool = True,
@@ -111,9 +111,12 @@ class ExportSelection:
         self.agent_ids = agent_ids
         self.team_id = team_id
         self.team_intro_md = team_intro_md or ""
-        # skill_methods: { skill_name: {"install_method": "url"|"zip"|"full_copy",
-        #                                "source_url": ..., "manual_zip_path": ...} }
-        self.skill_methods = skill_methods or {}
+        # skill_methods: list of per-(agent, skill) export specs.
+        # Each entry: {agent_id, skill_name, install_method, source_url?,
+        #              source_type?, branch?, archive_path?, manual_zip_path?}
+        # The same skill name on N agents = N entries in this list, and the
+        # builder serializes one bundle entry per row.
+        self.skill_methods = skill_methods or []
         # social_entity_selection: { agent_id: [entity_id, ...] }
         # If None, default to: per-agent, all entities matching (team-name fuzzy).
         # If provided, use the given list verbatim.
@@ -322,14 +325,28 @@ async def build_bundle(
                 "workspace_path": "workspace.tar.gz" if ws_path else None,
             })
 
-        # ---- skills ----
+        # ---- skills (per-(agent, skill) export) ----
         skills_dir = tmpdir / "skills"
         skills_dir.mkdir(parents=True, exist_ok=True)
         skills_summary = []
         zip_secrets_warnings: List[Dict[str, Any]] = []
-        for skill_name, cfg in (selection.skill_methods or {}).items():
+        # De-dup zip-archive copies across multiple agents picking the same
+        # zip-method skill: they'd reference the exact same source zip, so
+        # one archive_ref is enough; per-agent bundle entries still each
+        # point to it. Full-copy is always per-agent (different .skill_meta).
+        copied_zip_ref: Dict[str, str] = {}  # skill_name → archive_ref already copied
+
+        for cfg in (selection.skill_methods or []):
+            agent_id = cfg.get("agent_id")
+            skill_name = cfg.get("skill_name")
             method = cfg.get("install_method")
-            entry = {
+            if not agent_id or agent_id not in closure_set:
+                warnings.append(
+                    f"skill {skill_name}: agent {agent_id} not in closure, skipping"
+                )
+                continue
+            entry: Dict[str, Any] = {
+                "agent_id": agent_id,
                 "name": skill_name,
                 "install_method": method,
                 "contains_secrets": method == "full_copy",
@@ -339,34 +356,42 @@ async def build_bundle(
                 entry["source_type"] = cfg.get("source_type", "github")
                 entry["branch"] = cfg.get("branch", "main")
             elif method == "zip":
-                # archive_ref: relative path inside bundle
-                src_zip = cfg.get("archive_path") or cfg.get("manual_zip_path")
-                if not src_zip or not Path(src_zip).exists():
-                    warnings.append(f"skill {skill_name}: zip not found, skipping")
-                    continue
-                # Scan for secrets (PRD §8.12.11)
-                hits = scan_zip_for_sensitive(Path(src_zip))
-                if hits:
-                    zip_secrets_warnings.append({"skill": skill_name, "hits": hits})
-                tgt_zip = skills_dir / f"{skill_name}.zip"
-                await asyncio.to_thread(shutil.copy2, src_zip, tgt_zip)
-                entry["archive_ref"] = f"skills/{skill_name}.zip"
-                entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
+                # If this zip skill_name was already copied for another agent,
+                # reuse the same archive_ref instead of duplicating bytes.
+                if skill_name in copied_zip_ref:
+                    entry["archive_ref"] = copied_zip_ref[skill_name]
+                    entry["sha256"] = "shared"  # see manifest header for true hash
+                else:
+                    src_zip = cfg.get("archive_path") or cfg.get("manual_zip_path")
+                    if not src_zip or not Path(src_zip).exists():
+                        warnings.append(f"skill {skill_name} on {agent_id}: zip not found, skipping")
+                        continue
+                    hits = scan_zip_for_sensitive(Path(src_zip))
+                    if hits:
+                        zip_secrets_warnings.append({"skill": skill_name, "hits": hits})
+                    tgt_zip = skills_dir / f"{skill_name}.zip"
+                    await asyncio.to_thread(shutil.copy2, src_zip, tgt_zip)
+                    archive_ref = f"skills/{skill_name}.zip"
+                    copied_zip_ref[skill_name] = archive_ref
+                    entry["archive_ref"] = archive_ref
+                    entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
             elif method == "full_copy":
-                # Pack the entire skill dir from agent's workspace
-                # We pick the first agent that has this skill installed
-                src_dir = await _find_skill_dir(closure_set, user_id, skill_name)
+                # Per-agent: pack THIS specific agent's skill dir
+                src_dir = await _find_skill_dir({agent_id}, user_id, skill_name)
                 if not src_dir:
-                    warnings.append(f"skill {skill_name}: full_copy source not found")
+                    warnings.append(f"skill {skill_name} on {agent_id}: full_copy source not found")
                     continue
-                tgt_zip = skills_dir / f"{skill_name}-full.zip"
+                # Use per-agent path inside bundle to keep state separated.
+                per_agent_dir = skills_dir / agent_id
+                per_agent_dir.mkdir(parents=True, exist_ok=True)
+                tgt_zip = per_agent_dir / f"{skill_name}-full.zip"
                 await asyncio.to_thread(_zip_dir, src_dir, tgt_zip)
-                entry["archive_ref"] = f"skills/{skill_name}-full.zip"
+                entry["archive_ref"] = f"skills/{agent_id}/{skill_name}-full.zip"
                 entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
             elif method == "builtin":
                 pass
             else:
-                warnings.append(f"skill {skill_name}: unknown install_method {method}")
+                warnings.append(f"skill {skill_name} on {agent_id}: unknown install_method {method}")
                 continue
             skills_summary.append(entry)
 
