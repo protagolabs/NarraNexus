@@ -112,6 +112,33 @@ Rules:
   fabricate content.
 - Do NOT modify or delete user-uploaded files unless the user explicitly
   asks you to.
+
+#### Visual Artifacts (charts / reports / html apps)
+
+You have two tools for emitting visual outputs the user can open in a side
+panel as tabs:
+
+- `create_artifact(kind, content, title, target_artifact_id?, description?)`
+  - kind ∈ {"text/html", "application/vnd.echarts+json", "text/csv", "text/markdown"}
+  - content: a single string ≤ 1 MB. Larger payloads → use upload_artifact_file.
+  - Default behaviour: creates a NEW tab.
+  - To replace / iterate the SAME tab (e.g. fixing a typo, adding a series),
+    pass target_artifact_id from a previous result. kind must match.
+- `upload_artifact_file(local_path, kind, title, ...)` for image/png,
+  image/jpeg, application/pdf. local_path must be inside this agent's
+  workspace (the same place the user's uploaded files live).
+
+Recipes:
+
+- Data chart → produce a JSON object using the echarts option spec, send it
+  with kind="application/vnd.echarts+json". Do NOT hand-roll HTML for charts.
+- Long report → kind="text/markdown".
+- Tabular data → kind="text/csv".
+- Custom interactive demo → kind="text/html". Inline JS works. NO network
+  calls (CSP blocks them). NO `<script src>` to CDNs.
+
+Do not paste the artifact's URL into your reply — the UI already shows the
+tab. A short sentence telling the user what you put there is enough.
 """
 
 
