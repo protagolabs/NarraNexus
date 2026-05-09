@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Pencil, Users, Bot } from 'lucide-react';
+import { ArrowLeft, Pencil, Users, Bot, Package } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
 import { Markdown } from '@/components/ui/Markdown';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
@@ -72,15 +72,42 @@ export default function TeamDetailPage() {
               {team.team.description ? ` · ${team.team.description}` : ''}
             </div>
           </div>
-          <Button
-            onClick={() => setEditing(true)}
-            variant="outline"
-            size="sm"
-            className="gap-1"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            Edit
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => {
+                // Pre-seed Export wizard with this team's agents preselected
+                // by passing the team_id through the URL. BundleExportPage
+                // reads ?team=<id>&agents=<csv> on mount and primes its
+                // selectedTeam + selectedAgents accordingly.
+                const memberCsv = team.member_agent_ids.join(',');
+                navigate(
+                  `/app/bundle/export?team=${encodeURIComponent(team.team.team_id)}` +
+                  `&agents=${encodeURIComponent(memberCsv)}`
+                );
+              }}
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              disabled={team.member_agent_ids.length === 0}
+              title={
+                team.member_agent_ids.length === 0
+                  ? 'Add agents to this team before exporting'
+                  : 'Export this team as a .nxbundle'
+              }
+            >
+              <Package className="w-3.5 h-3.5" />
+              Export team
+            </Button>
+            <Button
+              onClick={() => setEditing(true)}
+              variant="outline"
+              size="sm"
+              className="gap-1"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Edit
+            </Button>
+          </div>
         </div>
 
         {/* Intro markdown */}

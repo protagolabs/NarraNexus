@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -78,6 +78,7 @@ interface ChatHistoryNarrative {
 
 export default function BundleExportPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { agents, userId } = useConfigStore();
   const { teams, refresh: refreshTeams } = useTeamsStore();
   const { alert, dialog } = useConfirm();
@@ -126,6 +127,21 @@ export default function BundleExportPage() {
   useEffect(() => { refreshTeams(); }, [refreshTeams]);
   useEffect(() => {
     api.listSkillArchives().then((r) => setSkillArchives(r.archives)).catch(() => {});
+  }, []);
+
+  // Quick-launch from TeamDetailPage: ?team=<team_id>&agents=<csv>
+  // Pre-seed selection so the user can hit "Review & Export" immediately.
+  // Run once on mount only — don't re-apply if the user later changes
+  // selection by hand.
+  useEffect(() => {
+    const teamFromQuery = searchParams.get('team');
+    const agentsFromQuery = searchParams.get('agents');
+    if (teamFromQuery) setSelectedTeam(teamFromQuery);
+    if (agentsFromQuery) {
+      const ids = agentsFromQuery.split(',').filter(Boolean);
+      if (ids.length > 0) setSelectedAgents(new Set(ids));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // When agent selection changes, prefetch skills + social entities + files lazily

@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Settings2, ExternalLink } from 'lucide-react';
+import { Settings2, ExternalLink, Upload } from 'lucide-react';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 import { cn } from '@/lib/utils';
@@ -45,6 +45,13 @@ export function TeamFilterBar({ selectedFilter, onChange, collapsed }: Props) {
           title="Manage teams"
         >
           <Settings2 className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+        </button>
+        <button
+          onClick={() => navigate('/app/bundle/import')}
+          className="p-1 hover:bg-[var(--bg-tertiary)]"
+          title="Import a .nxbundle (team)"
+        >
+          <Upload className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
         </button>
         <button
           onClick={() => onChange('all')}
@@ -92,13 +99,22 @@ export function TeamFilterBar({ selectedFilter, onChange, collapsed }: Props) {
         <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.15em] font-[family-name:var(--font-mono)]">
           Teams
         </span>
-        <button
-          onClick={() => setOpenMgmt(true)}
-          className="p-1 hover:bg-[var(--bg-tertiary)]"
-          title="Manage teams"
-        >
-          <Settings2 className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => navigate('/app/bundle/import')}
+            className="p-1 hover:bg-[var(--bg-tertiary)]"
+            title="Import a .nxbundle (team)"
+          >
+            <Upload className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+          </button>
+          <button
+            onClick={() => setOpenMgmt(true)}
+            className="p-1 hover:bg-[var(--bg-tertiary)]"
+            title="Manage teams"
+          >
+            <Settings2 className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+          </button>
+        </div>
       </div>
       <div className="flex flex-wrap gap-1">
         <Chip
