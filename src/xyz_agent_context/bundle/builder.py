@@ -107,6 +107,7 @@ class ExportSelection:
         accept_sensitive_zips: bool = False,
         narrative_selection: Optional[Dict[str, List[str]]] = None,
         event_selection: Optional[Dict[str, List[str]]] = None,
+        job_selection: Optional[Dict[str, List[str]]] = None,
     ):
         self.agent_ids = agent_ids
         self.team_id = team_id
@@ -136,6 +137,10 @@ class ExportSelection:
         self.narrative_selection = narrative_selection
         # B2: per-narrative event_id allowlist (None = include all).
         self.event_selection = event_selection
+        # P7: per-agent job_id allowlist (None = include all). Jobs whose
+        # parent narrative is excluded are also auto-dropped (P4) regardless
+        # of this allowlist, so a job_id won't ship if its narrative didn't.
+        self.job_selection = job_selection
 
 
 async def build_bundle(
@@ -311,10 +316,36 @@ async def build_bundle(
                 encoding="utf-8",
             )
 
-            # instance_jobs (per-agent jobs created by JobModule)
-            job_rows = await db.get("instance_jobs", {"agent_id": aid})
+            # instance_jobs (per-agent jobs created by JobModule).
+            # P4: drop jobs whose parent narrative is NOT in the user's
+            # narrative selection (otherwise the job would point at a
+            # narrative that doesn't exist in the bundle, leaving a
+            # dangling FK on import).
+            # P7: also honor explicit per-agent job_selection allowlist.
+            allowed_jobs = (
+                set(selection.job_selection.get(aid, []))
+                if selection.job_selection else None
+            )
+            job_rows_raw = await db.get("instance_jobs", {"agent_id": aid})
+            kept_jobs = []
+            dropped_orphan_jobs = 0
+            for jr in job_rows_raw:
+                # If user gave an explicit job allowlist, honor it
+                if allowed_jobs is not None and jr.get("job_id") not in allowed_jobs:
+                    continue
+                # If job's parent narrative is excluded, drop it
+                jnar = jr.get("narrative_id")
+                if jnar and allowed_nars is not None and jnar not in allowed_nars:
+                    dropped_orphan_jobs += 1
+                    continue
+                kept_jobs.append(jr)
+            if dropped_orphan_jobs:
+                info.append(
+                    f"agent {aid}: dropped {dropped_orphan_jobs} job(s) whose parent "
+                    "narrative was not selected (auto-cascade)"
+                )
             (agent_dir / "jobs.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id) for r in job_rows],
+                json.dumps([_scrub_user_id(dict(r), user_id) for r in kept_jobs],
                            indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
@@ -424,6 +455,9 @@ async def build_bundle(
                 entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
             elif method == "builtin":
                 pass
+            elif method == "skip" or method is None:
+                # P3: user opted to exclude this (agent, skill) pair from the bundle.
+                continue
             else:
                 warnings.append(f"skill {skill_name} on {agent_id}: unknown install_method {method}")
                 continue

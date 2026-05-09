@@ -72,6 +72,9 @@ class ExportRequest(BaseModel):
     narrative_selection: Optional[Dict[str, List[str]]] = None
     # B2: per-narrative event allowlist; None = include all
     event_selection: Optional[Dict[str, List[str]]] = None
+    # P7: per-agent job_id allowlist; None = include all (subject to
+    # narrative cascade — see builder).
+    job_selection: Optional[Dict[str, List[str]]] = None
 
 
 @router.post("/export")
@@ -116,6 +119,7 @@ async def export_bundle(payload: ExportRequest, request: Request):
         accept_sensitive_zips=payload.accept_sensitive_zips,
         narrative_selection=payload.narrative_selection,
         event_selection=payload.event_selection,
+        job_selection=payload.job_selection,
     )
 
     try:

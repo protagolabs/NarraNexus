@@ -69,11 +69,25 @@ interface ChatHistoryEvent {
   preview?: string;
 }
 
+interface ChatHistoryJob {
+  job_id: string;
+  title?: string;
+  description?: string;
+  status?: string;
+  job_type?: string;
+}
+
 interface ChatHistoryNarrative {
   narrative_id: string;
-  title?: string;
+  // human-readable label — derived from API's `name` (preferred) or first event preview
+  title: string;
+  description?: string;
+  current_summary?: string;
   type?: string;
+  instances_count?: number;
   events: ChatHistoryEvent[];
+  jobs: ChatHistoryJob[];      // P7: jobs grouped by parent narrative
+  created_at?: string;
 }
 
 export default function BundleExportPage() {
@@ -81,7 +95,7 @@ export default function BundleExportPage() {
   const [searchParams] = useSearchParams();
   const { agents, userId } = useConfigStore();
   const { teams, refresh: refreshTeams } = useTeamsStore();
-  const { alert, dialog } = useConfirm();
+  const { alert, confirm: confirmDialog, dialog } = useConfirm();
 
   const [tab, setTab] = useState<TabId>('agents');
   // PRD §5 议题 2 — Full vs Custom export mode (PRD names: Full = 1:1 snapshot
@@ -116,6 +130,14 @@ export default function BundleExportPage() {
   const [historyByAgent, setHistoryByAgent] = useState<Record<string, ChatHistoryNarrative[]>>({});
   const [excludedNarratives, setExcludedNarratives] = useState<Record<string, Set<string>>>({});
   const [excludedEvents, setExcludedEvents] = useState<Record<string, Set<string>>>({});
+  // P7: per-narrative job exclusion (default = include). When the parent
+  // narrative is excluded, its jobs are auto-dropped on the backend (P4)
+  // regardless of this set.
+  const [excludedJobs, setExcludedJobs] = useState<Record<string, Set<string>>>({});
+
+  // P9: bundle filename — defaults to <team_name>-YYYYMMDD.nxbundle when a
+  // team is selected, else bundle-<YYYYMMDD>.nxbundle. Editable.
+  const [filename, setFilename] = useState<string>('');
 
   // B6: sensitive zip confirmation flag (set after user confirms)
   const [acceptSensitiveZips, setAcceptSensitiveZips] = useState(false);
@@ -130,9 +152,6 @@ export default function BundleExportPage() {
   }, []);
 
   // Quick-launch from TeamDetailPage: ?team=<team_id>&agents=<csv>
-  // Pre-seed selection so the user can hit "Review & Export" immediately.
-  // Run once on mount only — don't re-apply if the user later changes
-  // selection by hand.
   useEffect(() => {
     const teamFromQuery = searchParams.get('team');
     const agentsFromQuery = searchParams.get('agents');
@@ -143,6 +162,25 @@ export default function BundleExportPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // P9: derive default filename from selected team. User can still type over
+  // it. We only auto-fill when the field is empty OR matches a previous
+  // auto-fill (i.e. the user hasn't typed anything custom).
+  useEffect(() => {
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const team = teams.find((t) => t.team.team_id === selectedTeam);
+    const safeName = team
+      ? team.team.name.replace(/[^a-zA-Z0-9_一-龥-]/g, '_').replace(/__+/g, '_')
+      : 'bundle';
+    const def = `${safeName}-${stamp}.nxbundle`;
+    setFilename((cur) => {
+      // Only overwrite if empty, or if it still looks like a previous default
+      // (matches `<anything>-YYYYMMDD.nxbundle`).
+      if (!cur) return def;
+      if (/-\d{8}\.nxbundle$/.test(cur)) return def;
+      return cur;
+    });
+  }, [selectedTeam, teams]);
 
   // When agent selection changes, prefetch skills + social entities + files lazily
   useEffect(() => {
@@ -183,24 +221,65 @@ export default function BundleExportPage() {
             setWorkspaceFiles((s) => ({ ...s, [aid]: files }));
           }).catch(() => {});
       }
-      // Chat history (B2)
+      // Chat history (B2/P1) — actual API shape:
+      //   { narratives: [{narrative_id, name, description, current_summary,
+      //                   instances, ...}], events: [{event_id, narrative_id,
+      //                   final_output, ...}] }   <- events are FLAT, not nested!
+      // Plus we fetch jobs (/api/jobs?agent_id=...) and group by narrative_id (P7).
       if (!historyByAgent[aid]) {
-        api.getChatHistory(aid, userId)
-          .then((r: any) => {
-            // shape: { success, narratives: [{narrative_id, title, events: [...]}] }
-            const narrs: ChatHistoryNarrative[] = (r.narratives || []).map((n: any) => ({
-              narrative_id: n.narrative_id,
-              title: n.title || n.topic_hint || n.narrative_id,
-              type: n.type,
-              events: (n.events || []).map((e: any) => ({
-                event_id: e.event_id,
-                trigger: e.trigger,
-                created_at: e.created_at,
-                preview: (e.final_output || '').slice(0, 80),
-              })),
-            }));
-            setHistoryByAgent((s) => ({ ...s, [aid]: narrs }));
-          }).catch(() => {});
+        Promise.all([
+          api.getChatHistory(aid, userId).catch(() => null),
+          api.getJobs(aid, userId).catch(() => null),
+        ]).then(([chRaw, jobsRaw]: any[]) => {
+          const ch: any = chRaw || {};
+          const jobs: any = jobsRaw || {};
+          // Bucket events by narrative_id
+          const eventsByNar: Record<string, ChatHistoryEvent[]> = {};
+          for (const e of (ch.events || [])) {
+            const nid = e.narrative_id;
+            if (!nid) continue;
+            (eventsByNar[nid] ??= []).push({
+              event_id: e.event_id,
+              trigger: e.trigger,
+              created_at: e.created_at,
+              preview: (e.final_output || '').slice(0, 100),
+            });
+          }
+          // Bucket jobs by narrative_id (jobs without parent narrative go in
+          // a synthetic "(no narrative)" bucket the user can still skip)
+          const jobsByNar: Record<string, ChatHistoryJob[]> = {};
+          for (const j of (jobs.jobs || [])) {
+            const nid = j.narrative_id || '__orphan__';
+            (jobsByNar[nid] ??= []).push({
+              job_id: j.job_id,
+              title: j.title,
+              description: j.description,
+              status: j.status,
+              job_type: j.job_type,
+            });
+          }
+          const narrs: ChatHistoryNarrative[] = (ch.narratives || []).map((n: any) => ({
+            narrative_id: n.narrative_id,
+            title: n.name || n.narrative_id,                 // human-readable
+            description: n.description,
+            current_summary: n.current_summary,
+            type: n.type,
+            instances_count: (n.instances || []).length,
+            events: eventsByNar[n.narrative_id] || [],
+            jobs: jobsByNar[n.narrative_id] || [],
+            created_at: n.created_at,
+          }));
+          // Surface orphan jobs (no parent narrative) under a synthetic row
+          if (jobsByNar['__orphan__']) {
+            narrs.push({
+              narrative_id: '__orphan_jobs__',
+              title: '(jobs without a parent narrative)',
+              events: [],
+              jobs: jobsByNar['__orphan__'],
+            });
+          }
+          setHistoryByAgent((s) => ({ ...s, [aid]: narrs }));
+        });
       }
     });
   }, [selectedAgents, userId]);
@@ -245,41 +324,79 @@ export default function BundleExportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(skillsForAgents), JSON.stringify(skillArchives)]);
 
-  // Default social entity selection: match by team-mate name fuzzy
+  // P8: default social entity selection — only entries that reference
+  // agents IN this bundle's closure. Strict matching:
+  //   * entity_type MUST be 'agent' (skip user/organization/etc — user can
+  //     manually opt them in)
+  //   * AND one of:
+  //       - entity_id ∈ closure (or contains a closure agent_id substring)
+  //       - entity_name == any closure agent's name (case-insensitive
+  //         exact-or-token match — not naive substring like "Loki" matching
+  //         "lokitrickster")
+  //       - any closure agent's name OR agent_id appears as a TOKEN in
+  //         tags / description / aliases / contact_info / extra_data
+  // We avoid pure substring search because real entities like "Loki" /
+  // "Iris" are 3-4 letters and would over-match (e.g. an entity named
+  // "iris_8ec0" would match "Iris", a teammate name, even though they're
+  // different agents). Word-boundary regex avoids that.
   useEffect(() => {
-    const teamMateNames = new Set<string>();
-    if (selectedTeam) {
-      const t = teams.find((x) => x.team.team_id === selectedTeam);
-      if (t) {
-        t.member_agent_ids.forEach((aid) => {
-          const a = agents.find((x) => x.agent_id === aid);
-          if (a?.name) teamMateNames.add(a.name);
-        });
+    // Build the closure-agent identity set: each entry has both name and id
+    // we should match on. Names can repeat (different agent same name) so we
+    // dedupe per closure agent.
+    const closureAgents: { id: string; nameLower: string; idLower: string }[] = [];
+    Array.from(selectedAgents).forEach((aid) => {
+      const a = agents.find((x) => x.agent_id === aid);
+      const nm = (a?.name || '').trim();
+      if (nm) {
+        closureAgents.push({ id: aid, nameLower: nm.toLowerCase(), idLower: aid.toLowerCase() });
+      } else {
+        closureAgents.push({ id: aid, nameLower: '', idLower: aid.toLowerCase() });
       }
-    }
+    });
+
+    const wordBoundary = (haystack: string, needle: string): boolean => {
+      if (!needle) return false;
+      const escaped = needle.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+      // Treat any non-alnum-Chinese as boundary
+      const re = new RegExp(`(^|[^\\w\\u4e00-\\u9fa5])${escaped}([^\\w\\u4e00-\\u9fa5]|$)`, 'i');
+      return re.test(haystack);
+    };
+
+    const matchesClosure = (e: SocialEntity): boolean => {
+      // Only agent-typed entities are eligible for default selection (P8).
+      if (e.entity_type !== 'agent') return false;
+      const eid = (e.entity_id || '').toLowerCase();
+      const en = (e.entity_name || '').toLowerCase();
+      // Aggregate every text field into one haystack we can scan
+      const haystackParts: string[] = [
+        eid, en,
+        (e.entity_description || ''),
+        ...(e.tags || []),
+      ];
+      const hay = haystackParts.filter(Boolean).join('\n').toLowerCase();
+      for (const ca of closureAgents) {
+        // Exact id match
+        if (eid === ca.idLower) return true;
+        // Name match (case-insensitive exact, or token-bounded inside a longer string)
+        if (ca.nameLower && (en === ca.nameLower || wordBoundary(en, ca.nameLower))) return true;
+        // Any closure agent's full id or name appears as token in haystack
+        if (ca.nameLower && wordBoundary(hay, ca.nameLower)) return true;
+        if (wordBoundary(hay, ca.idLower)) return true;
+      }
+      return false;
+    };
+
     const next: Record<string, Set<string>> = {};
     Object.entries(socialEntities).forEach(([aid, list]) => {
       const set = new Set<string>();
       list.forEach((e) => {
-        if (matchesTeam(e, selectedAgents, teamMateNames)) set.add(e.entity_id);
+        if (matchesClosure(e)) set.add(e.entity_id);
       });
       next[aid] = set;
     });
     setSocialSelected(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(socialEntities), selectedTeam, JSON.stringify(Array.from(selectedAgents))]);
-
-  function matchesTeam(e: SocialEntity, closure: Set<string>, names: Set<string>): boolean {
-    if (e.entity_type === 'agent' && closure.has(e.entity_id)) return true;
-    const n = (e.entity_name || '').toLowerCase();
-    for (const tn of names) {
-      const lc = tn.toLowerCase();
-      if (n.includes(lc)) return true;
-      if ((e.tags || []).some((t) => t.toLowerCase().includes(lc))) return true;
-      if ((e.entity_description || '').toLowerCase().includes(lc)) return true;
-    }
-    return false;
-  }
+  }, [JSON.stringify(socialEntities), JSON.stringify(Array.from(selectedAgents)), JSON.stringify(agents.map(a => a.agent_id + ':' + a.name))]);
 
   function isSensitive(p: string): boolean {
     const lc = p.toLowerCase();
@@ -309,8 +426,38 @@ export default function BundleExportPage() {
     });
   }
 
-  function toggleWorkspaceFile(aid: string, path: string) {
+  async function toggleWorkspaceFile(aid: string, path: string) {
     if (mode === 'full') return;
+    // Determine current state. Sensitive files start excluded; toggling them
+    // ON requires explicit confirmation.
+    const file = (workspaceFiles[aid] || []).find((f) => f.path === path);
+    const isSensitive = !!file?.sensitive;
+    const isCurrentlyExcluded = (workspaceExcludes[aid] || new Set()).has(path);
+    // For sensitive files, "include" means: NOT excluded AND not in the
+    // implicit auto-exclude. Switching from excluded → included needs confirm.
+    // For sensitive files, the default unchecked state means they will be
+    // auto-added to excludes at submit time. Toggling means moving them
+    // into the "explicit include override" path: we add them to a set we
+    // track as user-overrides. But since our payload at submit pulls
+    // sensitive files into excludes UNLESS the user has cleared them,
+    // simplest: if sensitive AND user is trying to INCLUDE (current toggle
+    // state will result in including), warn first.
+    const willInclude = isCurrentlyExcluded;  // toggling flips it to non-excluded
+    if (isSensitive && willInclude) {
+      const ok = await confirmDialog({
+        title: 'Include sensitive file?',
+        message: (
+          <>
+            <p><code>{path}</code> matches a sensitive-pattern (e.g. <code>.env</code>, <code>*.key</code>, credentials, wallet).</p>
+            <p>Including it will ship the file's contents inside the bundle. Anyone you share the bundle with will receive these bytes.</p>
+            <p>Confirm only if you've verified this file does not contain secrets you want to keep private.</p>
+          </>
+        ),
+        confirmText: 'Include anyway',
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setWorkspaceExcludes((prev) => {
       const next = { ...prev };
       const set = new Set(next[aid] || []);
@@ -375,11 +522,27 @@ export default function BundleExportPage() {
       Object.entries(socialSelected).forEach(([aid, set]) => {
         social[aid] = Array.from(set);
       });
+      // P6: workspaceExcludes set has dual meaning per file:
+      //   - non-sensitive file in set → user wants to EXCLUDE it
+      //   - sensitive file in set → user opted-IN (override the default-skip)
+      // Final exclude list emitted to backend = (non-sensitive in set) ∪
+      // (sensitive NOT in set). This way sensitive files default-skip but the
+      // user can opt-in via the confirm modal.
       const excludes: Record<string, string[]> = {};
-      Object.entries(workspaceExcludes).forEach(([aid, set]) => {
-        // Auto-add sensitive files to excludes if not explicitly opted-in
-        const sens = (workspaceFiles[aid] || []).filter((f) => f.sensitive).map((f) => f.path);
-        excludes[aid] = Array.from(new Set([...sens, ...Array.from(set)]));
+      Array.from(selectedAgents).forEach((aid) => {
+        const allFiles = workspaceFiles[aid] || [];
+        const userSet = workspaceExcludes[aid] || new Set();
+        const out = new Set<string>();
+        for (const f of allFiles) {
+          if (f.sensitive) {
+            // default: exclude. user-override-set membership flips to include.
+            if (!userSet.has(f.path)) out.add(f.path);
+          } else {
+            // default: include. set membership = exclude.
+            if (userSet.has(f.path)) out.add(f.path);
+          }
+        }
+        if (out.size > 0) excludes[aid] = Array.from(out);
       });
       // B2: derive narrative + event allowlists from "exclusion" sets
       const narrativeSel: Record<string, string[]> = {};
@@ -404,6 +567,28 @@ export default function BundleExportPage() {
           }
         });
       });
+      // P7: per-agent job allowlist derived from `excludedJobs`. We only
+      // emit a selection if the user actually de-selected something (else
+      // backend's "include all" default applies).
+      const jobSel: Record<string, string[]> = {};
+      Array.from(selectedAgents).forEach((aid) => {
+        const allNarrs = historyByAgent[aid] || [];
+        const exNars = excludedNarratives[aid] || new Set();
+        const ids: string[] = [];
+        let hasExclusion = false;
+        allNarrs.forEach((n) => {
+          if (exNars.has(n.narrative_id)) return;  // narrative excluded → builder drops jobs anyway
+          const exJobs = excludedJobs[n.narrative_id];
+          if (exJobs && exJobs.size > 0) {
+            hasExclusion = true;
+            n.jobs.forEach((j) => { if (!exJobs.has(j.job_id)) ids.push(j.job_id); });
+          } else {
+            n.jobs.forEach((j) => ids.push(j.job_id));
+          }
+        });
+        if (hasExclusion) jobSel[aid] = ids;
+      });
+
       const payload: BundleExportRequest = {
         agent_ids: Array.from(selectedAgents),
         team_id: selectedTeam || null,
@@ -417,18 +602,21 @@ export default function BundleExportPage() {
         accept_sensitive_zips: mode === 'full' ? true : acceptSensitiveZips,
         narrative_selection: Object.keys(narrativeSel).length ? narrativeSel : null,
         event_selection: Object.keys(eventSel).length ? eventSel : null,
+        job_selection: Object.keys(jobSel).length ? jobSel : null,
       };
-      const { blob, filename, warningsCount, externalEdgesDropped } = await api.exportBundle(payload);
+      const { blob, filename: serverFilename, warningsCount, externalEdgesDropped } = await api.exportBundle(payload);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename;
+      // P9: use the user-typed filename if non-empty, else fall back to server's
+      a.download = (filename && filename.trim()) || serverFilename;
       a.click();
       URL.revokeObjectURL(url);
       // Warnings are real concerns; "external edges dropped" is informational
       // (expected closure behavior) and shown separately so the user doesn't
       // panic over hundreds of routine edge-drops.
-      const parts = [`${filename} downloaded.`];
+      const finalName = (filename && filename.trim()) || serverFilename;
+      const parts = [`${finalName} downloaded.`];
       if (externalEdgesDropped > 0) {
         parts.push(
           `Dropped ${externalEdgesDropped} reference(s) to entities outside the bundle ` +
@@ -580,6 +768,7 @@ export default function BundleExportPage() {
             historyByAgent={historyByAgent}
             excludedNarratives={excludedNarratives}
             excludedEvents={excludedEvents}
+            excludedJobs={excludedJobs}
             onToggleNarrative={(aid, nid) => setExcludedNarratives((s) => {
               const next = { ...s };
               const cur = new Set(next[aid] || []);
@@ -594,6 +783,13 @@ export default function BundleExportPage() {
               next[nid] = cur;
               return next;
             })}
+            onToggleJob={(nid, jid) => setExcludedJobs((s) => {
+              const next = { ...s };
+              const cur = new Set(next[nid] || []);
+              if (cur.has(jid)) cur.delete(jid); else cur.add(jid);
+              next[nid] = cur;
+              return next;
+            })}
             onSelectAllNarratives={(aid) => setExcludedNarratives((s) => ({
               ...s, [aid]: new Set(),
             }))}
@@ -604,6 +800,12 @@ export default function BundleExportPage() {
               ...s, [nid]: new Set(),
             }))}
             onSelectNoneEventsInNarrative={(nid, allIds) => setExcludedEvents((s) => ({
+              ...s, [nid]: new Set(allIds),
+            }))}
+            onSelectAllJobsInNarrative={(nid) => setExcludedJobs((s) => ({
+              ...s, [nid]: new Set(),
+            }))}
+            onSelectNoneJobsInNarrative={(nid, allIds) => setExcludedJobs((s) => ({
               ...s, [nid]: new Set(allIds),
             }))}
             includeAll={includeChat}
@@ -647,8 +849,20 @@ export default function BundleExportPage() {
         )}
       </div>
 
-      {/* Bundle notes (README.md) */}
+      {/* Bundle notes (README.md) + filename (P9) */}
       <div className="px-6 py-4 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+        {/* Filename input */}
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs font-mono uppercase tracking-widest text-[var(--text-tertiary)] shrink-0">
+            File name
+          </span>
+          <input
+            value={filename}
+            onChange={(e) => setFilename(e.target.value)}
+            placeholder="bundle.nxbundle"
+            className="flex-1 px-3 py-1.5 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
+          />
+        </div>
         <div className="flex items-center gap-2 mb-2">
           <FileText className="w-4 h-4" />
           <span className="text-sm font-mono">Bundle Notes (optional, shown to recipient)</span>
@@ -868,24 +1082,27 @@ function SkillsTab({
                         </span>
                       )}
                     </div>
-                    <div className={cn('grid grid-cols-3 gap-2', isReadOnly && 'opacity-60 pointer-events-none')}>
+                    <div className={cn('grid grid-cols-4 gap-2', isReadOnly && 'opacity-60 pointer-events-none')}>
                       <RadioCard
                         label="URL install"
-                        desc={hasUrl ? `${arch?.source_url}` : 'No URL recorded'}
-                        disabled={!hasUrl || isReadOnly}
+                        desc={hasUrl ? `${arch?.source_url}` : (choice?.install_method === 'url' && choice.source_url ? `(manual) ${choice.source_url}` : 'No URL recorded')}
+                        disabled={isReadOnly}
                         active={choice?.install_method === 'url'}
-                        onClick={() => hasUrl && setMethod({
+                        onClick={() => setMethod({
                           skill_name: name, install_method: 'url',
-                          source_url: arch?.source_url || '', source_type: 'github', branch: 'main',
+                          source_url: arch?.source_url || choice?.source_url || '',
+                          source_type: 'github', branch: 'main',
                         })}
                       />
                       <RadioCard
                         label="Zip install"
-                        desc={hasZip ? `archive ${arch?.archive_path?.split('/').pop()}` : 'No archive'}
-                        disabled={!hasZip || isReadOnly}
+                        desc={hasZip ? `archive ${arch?.archive_path?.split('/').pop()}` : (choice?.install_method === 'zip' && choice.manual_zip_path ? `(manual) ${choice.manual_zip_path}` : 'No archive')}
+                        disabled={isReadOnly}
                         active={choice?.install_method === 'zip'}
-                        onClick={() => hasZip && setMethod({
-                          skill_name: name, install_method: 'zip', archive_path: arch?.archive_path || '',
+                        onClick={() => setMethod({
+                          skill_name: name, install_method: 'zip',
+                          archive_path: arch?.archive_path || choice?.archive_path || undefined,
+                          manual_zip_path: choice?.manual_zip_path,
                         })}
                       />
                       <RadioCard
@@ -895,14 +1112,72 @@ function SkillsTab({
                         disabled={isReadOnly}
                         onClick={() => setMethod({ skill_name: name, install_method: 'full_copy' })}
                       />
+                      <RadioCard
+                        label="Skip"
+                        desc="Don't include this skill"
+                        active={choice?.install_method === 'skip'}
+                        disabled={isReadOnly}
+                        onClick={() => setMethod({ skill_name: name, install_method: 'skip' })}
+                      />
                     </div>
-                    {!hasUrl && !hasZip && !isReadOnly && (
+                    {/* Manual URL fill — shown when user picked URL but no archive */}
+                    {!isReadOnly && choice?.install_method === 'url' && !hasUrl && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">GitHub URL:</span>
+                        <input
+                          type="text"
+                          placeholder="https://github.com/owner/repo"
+                          defaultValue={choice.source_url || ''}
+                          onChange={(e) => setMethod({
+                            skill_name: name, install_method: 'url',
+                            source_url: e.target.value, source_type: 'github',
+                            branch: choice.branch || 'main',
+                          })}
+                          className="flex-1 px-2 py-1 text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] focus:outline-none"
+                        />
+                        <input
+                          type="text"
+                          placeholder="branch"
+                          defaultValue={choice.branch || 'main'}
+                          onChange={(e) => setMethod({
+                            skill_name: name, install_method: 'url',
+                            source_url: choice.source_url || '', source_type: 'github',
+                            branch: e.target.value || 'main',
+                          })}
+                          className="w-24 px-2 py-1 text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] focus:outline-none"
+                        />
+                      </div>
+                    )}
+                    {/* Manual zip upload — shown when user picked Zip but no archive */}
+                    {!isReadOnly && choice?.install_method === 'zip' && !hasZip && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">Upload zip:</span>
+                        <input
+                          type="file"
+                          accept=".zip"
+                          onChange={async (e) => {
+                            const f = e.target.files?.[0];
+                            if (!f) return;
+                            try {
+                              await api.uploadSkillArchive({ skillName: name, sourceType: 'zip', file: f });
+                              onAfterBackup();
+                            } catch (err) {
+                              console.error('manual zip upload failed', err);
+                            }
+                          }}
+                          className="text-[11px]"
+                        />
+                        <span className="text-[10px] text-[var(--text-tertiary)]">
+                          uploads to your skill_archives so subsequent exports reuse it
+                        </span>
+                      </div>
+                    )}
+                    {!hasUrl && !hasZip && !isReadOnly && choice?.install_method !== 'url' && choice?.install_method !== 'zip' && (
                       <div className="mt-2 text-[10px] text-[var(--text-tertiary)] flex items-start gap-1.5">
                         <AlertTriangle className="w-3 h-3 mt-0.5 text-[var(--color-yellow-500)] shrink-0" />
                         <span className="flex-1">
-                          This skill has no archive. Use <strong>Ask agent to back up</strong> to drop a
-                          message into the chat that asks the agent to call <code>skill_backup_*</code>,
-                          upload one manually, or use Full copy.
+                          This skill has no archive. Pick URL/Zip to fill in a source manually,
+                          ask the agent to back it up, choose Full copy (含 credentials), or Skip.
                         </span>
                         <AskAgentToBackupButton
                           agentIds={[a.agent_id]}
@@ -964,21 +1239,27 @@ function AskAgentToBackupButton({
 }
 
 function HistoryTab({
-  agents, historyByAgent, excludedNarratives, excludedEvents,
-  onToggleNarrative, onToggleEvent, onSelectAllNarratives, onSelectNoneNarratives,
+  agents, historyByAgent, excludedNarratives, excludedEvents, excludedJobs,
+  onToggleNarrative, onToggleEvent, onToggleJob,
+  onSelectAllNarratives, onSelectNoneNarratives,
   onSelectAllEventsInNarrative, onSelectNoneEventsInNarrative,
+  onSelectAllJobsInNarrative, onSelectNoneJobsInNarrative,
   includeAll,
 }: {
   agents: any[];
   historyByAgent: Record<string, ChatHistoryNarrative[]>;
   excludedNarratives: Record<string, Set<string>>;
   excludedEvents: Record<string, Set<string>>;
+  excludedJobs: Record<string, Set<string>>;
   onToggleNarrative: (aid: string, nid: string) => void;
   onToggleEvent: (nid: string, eid: string) => void;
+  onToggleJob: (nid: string, jid: string) => void;
   onSelectAllNarratives: (aid: string) => void;
   onSelectNoneNarratives: (aid: string) => void;
   onSelectAllEventsInNarrative: (nid: string) => void;
   onSelectNoneEventsInNarrative: (nid: string, allEventIds: string[]) => void;
+  onSelectAllJobsInNarrative: (nid: string) => void;
+  onSelectNoneJobsInNarrative: (nid: string, allJobIds: string[]) => void;
   includeAll: boolean;
 }) {
   if (agents.length === 0) {
@@ -1031,44 +1312,79 @@ function HistoryTab({
               {narrs.map((n) => {
                 const narExcluded = exNars.has(n.narrative_id);
                 const exEvts = excludedEvents[n.narrative_id] || new Set();
+                const exJobs = excludedJobs[n.narrative_id] || new Set();
+                const isOrphanJobsRow = n.narrative_id === '__orphan_jobs__';
                 return (
                   <div key={n.narrative_id} className={cn(
                     'border border-[var(--border-subtle)]',
                     narExcluded && 'opacity-50'
                   )}>
                     <div className="px-3 py-2 flex items-center gap-2 bg-[var(--bg-secondary)]">
-                      <input
-                        type="checkbox"
-                        checked={!narExcluded}
-                        onChange={() => onToggleNarrative(a.agent_id, n.narrative_id)}
-                      />
+                      {!isOrphanJobsRow && (
+                        <input
+                          type="checkbox"
+                          checked={!narExcluded}
+                          onChange={() => onToggleNarrative(a.agent_id, n.narrative_id)}
+                        />
+                      )}
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-mono truncate">{n.title || n.narrative_id}</div>
-                        <div className="text-[10px] text-[var(--text-tertiary)]">
-                          {n.events.length - exEvts.size} / {n.events.length} events
-                          {n.type ? ` · ${n.type}` : ''}
+                        <div className="text-sm font-mono truncate">{n.title}</div>
+                        {(n.description || n.current_summary) && (
+                          <div className="text-[11px] text-[var(--text-secondary)] line-clamp-2">
+                            {n.description || n.current_summary}
+                          </div>
+                        )}
+                        <div className="text-[10px] text-[var(--text-tertiary)] flex flex-wrap gap-x-2">
+                          {!isOrphanJobsRow && (
+                            <span>
+                              {n.events.length - exEvts.size} / {n.events.length} events
+                            </span>
+                          )}
+                          {n.jobs.length > 0 && (
+                            <span>{n.jobs.length - exJobs.size} / {n.jobs.length} jobs</span>
+                          )}
+                          {n.type && <span>{n.type}</span>}
+                          {(n.instances_count ?? 0) > 0 && (
+                            <span>{n.instances_count} instance(s)</span>
+                          )}
+                          {n.created_at && <span>{(n.created_at || '').slice(0, 10)}</span>}
+                          <span className="text-[var(--text-tertiary)]/70">{n.narrative_id}</span>
                         </div>
                       </div>
-                      {!narExcluded && n.events.length > 0 && (
+                      {!narExcluded && (n.events.length > 0 || n.jobs.length > 0) && (
                         <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectAllEventsInNarrative(n.narrative_id);
-                            }}
-                            className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
-                          >
-                            All events
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectNoneEventsInNarrative(n.narrative_id, n.events.map((x) => x.event_id));
-                            }}
-                            className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
-                          >
-                            No events
-                          </button>
+                          {n.events.length > 0 && (
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onSelectAllEventsInNarrative(n.narrative_id); }}
+                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                              >
+                                All events
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onSelectNoneEventsInNarrative(n.narrative_id, n.events.map((x) => x.event_id)); }}
+                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                              >
+                                No events
+                              </button>
+                            </>
+                          )}
+                          {n.jobs.length > 0 && (
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onSelectAllJobsInNarrative(n.narrative_id); }}
+                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                              >
+                                All jobs
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onSelectNoneJobsInNarrative(n.narrative_id, n.jobs.map((x) => x.job_id)); }}
+                                className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                              >
+                                No jobs
+                              </button>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1101,6 +1417,38 @@ function HistoryTab({
                             +{n.events.length - 30} more events (all included by default; select narrative-level toggle to exclude entire narrative)
                           </div>
                         )}
+                      </div>
+                    )}
+                    {!narExcluded && n.jobs.length > 0 && (
+                      <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/30">
+                        <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">
+                          Jobs ({n.jobs.length - exJobs.size} / {n.jobs.length} included)
+                        </div>
+                        {n.jobs.map((j) => {
+                          const jobExcluded = exJobs.has(j.job_id);
+                          return (
+                            <label key={j.job_id} className={cn(
+                              'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--bg-tertiary)]',
+                              jobExcluded && 'opacity-40'
+                            )}>
+                              <input
+                                type="checkbox"
+                                checked={!jobExcluded}
+                                onChange={() => onToggleJob(n.narrative_id, j.job_id)}
+                                className="mt-0.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-mono text-[10px] text-[var(--text-tertiary)]">
+                                  {j.job_type || 'job'} · {j.status || ''}
+                                </div>
+                                <div className="truncate">{j.title || j.job_id}</div>
+                                {j.description && (
+                                  <div className="text-[10px] text-[var(--text-tertiary)] truncate">{j.description}</div>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1313,9 +1661,25 @@ function WorkspaceTab({
               {files.map((f) => {
                 const sensitive = f.sensitive;
                 const excluded = excludes.has(f.path);
-                const willBeIncluded = !sensitive && !excluded;
+                // Default include rules:
+                //   - non-sensitive: included unless in `excludes` set
+                //   - sensitive: excluded by default; included ONLY if user
+                //     explicitly clicked through the confirm dialog (we track
+                //     that as a presence in `excludes` toggled to false).
+                // Implementation detail: `excludes` actually means "user
+                // override". For non-sensitive files presence-in-excludes →
+                // exclude. For sensitive files we INVERT the meaning: presence
+                // means "user opted in" (included). This is hidden in the
+                // toggle handler — sensitive files get a "really?" modal.
+                const willBeIncluded = sensitive ? excluded : !excluded;
                 return (
-                  <label key={f.path} className="flex items-center gap-2 px-2 py-1 hover:bg-[var(--bg-tertiary)]">
+                  <label
+                    key={f.path}
+                    className={cn(
+                      "flex items-center gap-2 px-2 py-1 hover:bg-[var(--bg-tertiary)]",
+                      sensitive && "bg-[var(--color-yellow-500)]/10",
+                    )}
+                  >
                     <input
                       type="checkbox"
                       checked={willBeIncluded}
@@ -1324,7 +1688,11 @@ function WorkspaceTab({
                     <span className={cn('text-xs font-mono flex-1 truncate', sensitive && 'text-[var(--color-yellow-500)]')}>
                       {f.path}
                     </span>
-                    {sensitive && <span className="text-[9px] text-[var(--color-yellow-500)]">sensitive</span>}
+                    {sensitive && (
+                      <span className="text-[9px] text-[var(--color-yellow-500)] uppercase tracking-wider font-mono">
+                        sensitive — click to include
+                      </span>
+                    )}
                     <span className="text-[10px] text-[var(--text-tertiary)]">{Math.round(f.size / 1024)} KB</span>
                   </label>
                 );

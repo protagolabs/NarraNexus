@@ -32,7 +32,7 @@ export interface TeamOperationResponse {
 
 // ----- Bundle export -----
 
-export type SkillInstallMethod = 'url' | 'zip' | 'full_copy' | 'builtin';
+export type SkillInstallMethod = 'url' | 'zip' | 'full_copy' | 'builtin' | 'skip';
 
 export interface SkillExportSpec {
   skill_name: string;
@@ -67,6 +67,8 @@ export interface BundleExportRequest {
   narrative_selection?: Record<string, string[]> | null;
   // B2: per-narrative event allowlist; omit/null = include all
   event_selection?: Record<string, string[]> | null;
+  // P7: per-agent job_id allowlist; omit/null = include all
+  job_selection?: Record<string, string[]> | null;
 }
 
 // ----- Bundle import -----
