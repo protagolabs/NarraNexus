@@ -120,6 +120,8 @@ export default function BundleExportPage() {
   const [socialEntities, setSocialEntities] = useState<Record<string, SocialEntity[]>>({});
   const [socialSelected, setSocialSelected] = useState<Record<string, Set<string>>>({});
   const [socialPage, setSocialPage] = useState<Record<string, number>>({});
+  // Right-pane (selected entities) pagination — independent from left.
+  const [socialSelectedPage, setSocialSelectedPage] = useState<Record<string, number>>({});
 
   // Workspace state
   const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, { path: string; size: number; sensitive: boolean }[]>>({});
@@ -428,22 +430,26 @@ export default function BundleExportPage() {
 
   async function toggleWorkspaceFile(aid: string, path: string) {
     if (mode === 'full') return;
-    // Determine current state. Sensitive files start excluded; toggling them
-    // ON requires explicit confirmation.
     const file = (workspaceFiles[aid] || []).find((f) => f.path === path);
     const isSensitive = !!file?.sensitive;
-    const isCurrentlyExcluded = (workspaceExcludes[aid] || new Set()).has(path);
-    // For sensitive files, "include" means: NOT excluded AND not in the
-    // implicit auto-exclude. Switching from excluded → included needs confirm.
-    // For sensitive files, the default unchecked state means they will be
-    // auto-added to excludes at submit time. Toggling means moving them
-    // into the "explicit include override" path: we add them to a set we
-    // track as user-overrides. But since our payload at submit pulls
-    // sensitive files into excludes UNLESS the user has cleared them,
-    // simplest: if sensitive AND user is trying to INCLUDE (current toggle
-    // state will result in including), warn first.
-    const willInclude = isCurrentlyExcluded;  // toggling flips it to non-excluded
-    if (isSensitive && willInclude) {
+    const inSet = (workspaceExcludes[aid] || new Set()).has(path);
+
+    // workspaceExcludes set has DUAL meaning per file kind:
+    //   - non-sensitive file: presence ↔ user-excluded (default include)
+    //   - sensitive file:     presence ↔ user override-include (default exclude)
+    //
+    // So clicking the checkbox does:
+    //   - non-sensitive, NOT in set → add to set       : default-include → exclude   (no prompt)
+    //   - non-sensitive, in set     → remove from set  : excluded → default-include  (no prompt)
+    //   - sensitive,     NOT in set → add to set       : default-skip → user opts-in (CONFIRM)
+    //   - sensitive,     in set     → remove from set  : user-override-include → back to default skip (no prompt)
+    //
+    // Confirm modal only fires when the click is going to put a sensitive
+    // file's bytes INTO the bundle for the first time.
+    const isAddingToSet = !inSet;
+    const isOptingInSensitive = isSensitive && isAddingToSet;
+
+    if (isOptingInSensitive) {
       const ok = await confirmDialog({
         title: 'Include sensitive file?',
         message: (
@@ -833,6 +839,8 @@ export default function BundleExportPage() {
             selectedByAgent={socialSelected}
             pageByAgent={socialPage}
             onTogglePage={(aid, p) => setSocialPage((s) => ({ ...s, [aid]: p }))}
+            selectedPageByAgent={socialSelectedPage}
+            onToggleSelectedPage={(aid, p) => setSocialSelectedPage((s) => ({ ...s, [aid]: p }))}
             agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
             onToggle={toggleSocial}
             selectedTeam={selectedTeam}
@@ -1582,18 +1590,22 @@ function RadioCard({ label, desc, disabled, active, onClick }: { label: string; 
 
 function SocialTab({
   entitiesByAgent, selectedByAgent, pageByAgent, onTogglePage,
+  selectedPageByAgent, onToggleSelectedPage,
   agents, onToggle,
 }: {
   entitiesByAgent: Record<string, SocialEntity[]>;
   selectedByAgent: Record<string, Set<string>>;
   pageByAgent: Record<string, number>;
   onTogglePage: (aid: string, page: number) => void;
+  selectedPageByAgent: Record<string, number>;
+  onToggleSelectedPage: (aid: string, page: number) => void;
   agents: any[];
   onToggle: (aid: string, eid: string) => void;
   selectedTeam?: string;
   teams?: TeamWithMembers[];
 }) {
-  const PAGE_SIZE = 10;
+  // Unified pagination — both the "All" and "Selected" panes show 30/page (P10).
+  const PAGE_SIZE = 30;
   if (agents.length === 0) return (
     <div className="text-sm text-[var(--text-tertiary)]">Select agents first.</div>
   );
@@ -1605,9 +1617,20 @@ function SocialTab({
           (x.entity_name || x.entity_id).localeCompare(y.entity_name || y.entity_id)
         );
         const selected = selectedByAgent[a.agent_id] || new Set<string>();
+
+        // Left pane (All entities) pagination
         const page = pageByAgent[a.agent_id] || 0;
         const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
-        const slice = list.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+        const safePage = Math.min(page, totalPages - 1);
+        const slice = list.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
+        // Right pane (Selected entities) pagination — sorted same way
+        const selectedList = list.filter((e) => selected.has(e.entity_id));
+        const selPage = selectedPageByAgent[a.agent_id] || 0;
+        const selTotalPages = Math.max(1, Math.ceil(selectedList.length / PAGE_SIZE));
+        const safeSelPage = Math.min(selPage, selTotalPages - 1);
+        const selSlice = selectedList.slice(safeSelPage * PAGE_SIZE, (safeSelPage + 1) * PAGE_SIZE);
+
         if (!loaded) {
           return (
             <details key={a.agent_id} className="border border-[var(--border-default)]">
@@ -1627,9 +1650,11 @@ function SocialTab({
               </span>
             </summary>
             <div className="grid grid-cols-2 divide-x divide-[var(--border-subtle)]">
-              {/* Left: all entities (paged) */}
+              {/* Left: all entities (paged 30/page) */}
               <div className="p-2">
-                <div className="text-[10px] text-[var(--text-tertiary)] mb-1 px-2">All entities (sort by name)</div>
+                <div className="text-[10px] text-[var(--text-tertiary)] mb-1 px-2">
+                  All entities (sort by name) — {list.length} total
+                </div>
                 {slice.length === 0 && (
                   <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">No entities for this agent.</div>
                 )}
@@ -1655,32 +1680,59 @@ function SocialTab({
                   );
                 })}
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-1 py-2 text-xs">
-                    <button onClick={() => onTogglePage(a.agent_id, Math.max(0, page - 1))} disabled={page === 0} className="px-2 py-0.5 border border-[var(--border-subtle)] disabled:opacity-30">‹</button>
-                    <span>{page + 1} / {totalPages}</span>
-                    <button onClick={() => onTogglePage(a.agent_id, Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} className="px-2 py-0.5 border border-[var(--border-subtle)] disabled:opacity-30">›</button>
-                  </div>
+                  <Pager
+                    page={safePage}
+                    total={totalPages}
+                    onPage={(p) => onTogglePage(a.agent_id, p)}
+                  />
                 )}
               </div>
-              {/* Right: selected */}
+              {/* Right: selected (paged 30/page) */}
               <div className="p-2">
-                <div className="text-[10px] text-[var(--text-tertiary)] mb-1 px-2">Selected (will be packaged)</div>
-                {Array.from(selected).map((eid) => {
-                  const e = list.find((x) => x.entity_id === eid);
-                  if (!e) return null;
-                  return (
-                    <div key={eid} className="flex items-center gap-2 px-2 py-1 text-xs font-mono">
-                      <Check className="w-3 h-3 text-[var(--color-green-500)]" />
-                      <span className="flex-1 truncate">{e.entity_name || e.entity_id}</span>
-                      <button onClick={() => onToggle(a.agent_id, eid)} className="text-[var(--color-red-500)] text-[10px]">remove</button>
-                    </div>
-                  );
-                })}
+                <div className="text-[10px] text-[var(--text-tertiary)] mb-1 px-2">
+                  Selected (will be packaged) — {selectedList.length} total
+                </div>
+                {selSlice.length === 0 && (
+                  <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">Nothing selected.</div>
+                )}
+                {selSlice.map((e) => (
+                  <div key={e.entity_id} className="flex items-center gap-2 px-2 py-1 text-xs font-mono">
+                    <Check className="w-3 h-3 text-[var(--color-green-500)] shrink-0" />
+                    <span className="flex-1 truncate">{e.entity_name || e.entity_id}</span>
+                    <span className="text-[9px] text-[var(--text-tertiary)]">[{e.entity_type}]</span>
+                    <button onClick={() => onToggle(a.agent_id, e.entity_id)} className="text-[var(--color-red-500)] text-[10px]">remove</button>
+                  </div>
+                ))}
+                {selTotalPages > 1 && (
+                  <Pager
+                    page={safeSelPage}
+                    total={selTotalPages}
+                    onPage={(p) => onToggleSelectedPage(a.agent_id, p)}
+                  />
+                )}
               </div>
             </div>
           </details>
         );
       })}
+    </div>
+  );
+}
+
+function Pager({ page, total, onPage }: { page: number; total: number; onPage: (p: number) => void }) {
+  return (
+    <div className="flex items-center justify-center gap-1 py-2 text-xs">
+      <button
+        onClick={() => onPage(Math.max(0, page - 1))}
+        disabled={page === 0}
+        className="px-2 py-0.5 border border-[var(--border-subtle)] disabled:opacity-30"
+      >‹</button>
+      <span>{page + 1} / {total}</span>
+      <button
+        onClick={() => onPage(Math.min(total - 1, page + 1))}
+        disabled={page >= total - 1}
+        className="px-2 py-0.5 border border-[var(--border-subtle)] disabled:opacity-30"
+      >›</button>
     </div>
   );
 }
