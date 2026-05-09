@@ -75,7 +75,11 @@ fi
 
 # --- Common env ---
 SQLITE_PROXY_PORT="${SQLITE_PROXY_PORT:-8100}"
-SQLITE_PROXY_URL="http://localhost:${SQLITE_PROXY_PORT}"
+# Use 127.0.0.1 explicitly, not localhost. On macOS `localhost` resolves to
+# IPv6 ::1 first, but uvicorn binds 127.0.0.1 (IPv4 only) by default —
+# httpx connects to ::1, gets ECONNREFUSED, and never falls back. This bit
+# every macOS contributor on a fresh checkout.
+SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:${SQLITE_PROXY_PORT}}"
 ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
