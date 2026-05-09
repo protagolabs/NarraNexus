@@ -38,6 +38,7 @@ export default function CsvRenderer({ artifact, version }: Props) {
 
   if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
   if (!rows) return <div className="p-4 opacity-60">Loading…</div>;
+  if (rows.length === 0) return <div className="p-4 opacity-60">Empty CSV</div>;
 
   const [header, ...body] = rows;
   return (

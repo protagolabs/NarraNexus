@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/HtmlRenderer.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-09
 stub: false
 ---
 
@@ -12,7 +12,7 @@ Renders agent-emitted HTML inside an `<iframe>` with a carefully chosen `sandbox
 
 ## Upstream / Downstream
 
-- **Used by**: `ArtifactColumn` via `React.lazy`, dispatched when `artifact.kind === 'text/html'`.
+- **Used by**: `ArtifactColumn` via `React.lazy`, dispatched when `artifact.kind === 'text/html'`. PDF was previously routed here but was split into `PdfRenderer` (C4, 2026-05-09) — see `PdfRenderer.tsx.md` for rationale.
 - **Calls**: `rawUrl()` from `@/types/artifact` to set `iframe.src`.
 
 ## Security contract

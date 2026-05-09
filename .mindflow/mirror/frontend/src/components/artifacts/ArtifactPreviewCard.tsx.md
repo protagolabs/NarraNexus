@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactPreviewCard.tsx
-last_verified: 2026-05-08T02
+last_verified: 2026-05-09
 stub: false
 ---
 
@@ -38,3 +38,7 @@ When the agent emits a tool result that creates or references an artifact, the c
 ## Gotchas
 
 The `useEffect` dependency array uses stable scalar fields `(kind, agent_id, artifact_id, latest_version)` instead of the full `artifact` object. This prevents refetch storms when the parent re-renders with a new object reference but identical data. The four fields are sufficient to uniquely identify both the artifact and the version being previewed.
+
+**Error path (I3, 2026-05-09)**: The fetch chain now checks `r.ok` and catches network errors. A `previewError` state slot stores the error string; when set, a small red fallback line renders below the thumbnail area. The effect uses an async IIFE (matching ChartRenderer's pattern) so that the `setPreviewError(null)` reset and the async `setPreviewError(String(e))` are in the same async microtask batch — required by `react-hooks/set-state-in-effect` (eslint-plugin-react-hooks v7).
+
+**No spinner-forever bug**: Previously, a failed fetch would leave csvHead/mdHead as null with no error indicator, producing an empty 80px div with no feedback. The error path makes the failure visible.

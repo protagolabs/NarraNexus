@@ -35,8 +35,9 @@ export default function MarkdownRenderer({ artifact, version }: Props) {
   }, [artifact.agent_id, artifact.artifact_id, version]);
 
   if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
+  if (!text && !error) return <div className="p-4 opacity-60">(empty markdown)</div>;
   return (
-    <div className="prose prose-invert max-w-none p-4 overflow-auto">
+    <div className="markdown-content max-w-none p-4 overflow-auto">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   );

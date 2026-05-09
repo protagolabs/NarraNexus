@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/CsvRenderer.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-09
 stub: false
 ---
 
@@ -26,3 +26,5 @@ Fetches agent-generated CSV and renders it as a scrollable HTML `<table>` so use
 ## Gotchas
 
 Very large CSVs (thousands of rows) will render slowly and occupy a lot of DOM nodes. No pagination or virtualisation is implemented. This is acceptable for agent-emitted tabular results; production data import pipelines need a different component.
+
+**Empty CSV guard (I6, 2026-05-09)**: An explicit `rows.length === 0` check was added before the `const [header, ...body] = rows` destructuring. Without it, an agent that emits a zero-byte or whitespace-only CSV file would produce `rows = []` after `parseCsv()`, and `header.map(...)` would throw `TypeError: Cannot read properties of undefined`. Now an empty CSV renders a `"(Empty CSV)"` placeholder instead of crashing.

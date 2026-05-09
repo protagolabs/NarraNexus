@@ -102,11 +102,12 @@ class ArtifactRepository(BaseRepository[Artifact]):
             if row is None:
                 raise ValueError(f"Artifact {artifact_id!r} not found")
             new_version: int = int(row["latest_version"]) + 1
+            now = datetime.now(timezone.utc).isoformat()
 
             await self._db.update(
                 self.table_name,
                 filters={self.id_field: artifact_id},
-                data={"latest_version": new_version},
+                data={"latest_version": new_version, "updated_at": now},
             )
             await self._db.insert(
                 "instance_artifact_versions",

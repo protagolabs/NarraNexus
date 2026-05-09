@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/MarkdownRenderer.tsx
-last_verified: 2026-05-08-r2
+last_verified: 2026-05-09
 stub: false
 ---
 
@@ -18,7 +18,7 @@ Fetches a `text/markdown` artifact and renders it with ReactMarkdown + remark-gf
 
 ## Design decisions
 
-**`prose prose-invert`** — uses Tailwind Typography plugin classes for readable body text in dark mode. The artifact tab pane background is dark, so `prose-invert` flips the typography tokens to light text.
+**`markdown-content`** (I8, 2026-05-09) — replaced `prose prose-invert` with the app's own `.markdown-content` CSS class from `index.css`. The `prose-invert` Tailwind Typography class hardcoded a dark-theme assumption. The app styles Markdown via `.markdown-content` using CSS custom properties (see `index.css`), so both this renderer and `ui/Markdown.tsx` now use the same theme-aware class. Dropping `prose-invert` means theme changes in the CSS variables flow through automatically without touching the component.
 
 **No rehype-raw.** Unlike `ui/Markdown.tsx` (which enables raw HTML for message bubbles that may contain agent-formatted HTML fragments), the artifact renderer intentionally omits `rehypeRaw` so that literal HTML tags in the Markdown are escaped rather than rendered. An agent that needs rendered HTML should emit a `text/html` artifact rendered by `HtmlRenderer` instead.
 
@@ -33,3 +33,5 @@ renders `<div className="p-4 text-red-400">Failed to load: {error}</div>` instea
 the prose container, mirroring the pattern in `CsvRenderer`.
 
 The `useEffect` fetch has no abort controller. If `version` changes quickly (e.g., the user flips through version history), multiple concurrent fetches may race. The last one to resolve wins, which is usually correct (monotonically increasing versions). For a more rigorous fix, add `AbortController` inside the effect — low priority given typical usage patterns.
+
+**Empty body placeholder (M9, 2026-05-09)**: A `!text && !error` guard was added before the prose container render. A 200-OK response with an empty body now shows `"(empty markdown)"` instead of a blank panel, which would look like a load failure to the user.

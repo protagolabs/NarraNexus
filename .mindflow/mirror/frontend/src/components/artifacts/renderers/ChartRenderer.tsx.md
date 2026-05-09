@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/ChartRenderer.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-09
 stub: false
 ---
 
@@ -28,3 +28,5 @@ Renders ECharts option JSON emitted by an agent as an interactive chart. ECharts
 ## Gotchas
 
 `echarts.init(ref.current)` will fail if `ref.current` has zero dimensions (display:none, width:0). The tab system must ensure the container has non-zero dimensions before the renderer mounts.
+
+**Stale error reset (I5, 2026-05-09)**: `setError(null)` is now called at the top of the effect, before the async IIFE. Without this, a failed fetch on version N would leave `error` set, and when version N+1 arrives the early-return `if (error) return ...` path would keep showing the stale error instead of attempting a fresh load. The synchronous `setError(null)` inside the effect (before the async IIFE) does not trigger `react-hooks/set-state-in-effect` because the rule only fires when setState is called both synchronously and asynchronously in the same `.then()/.catch()` chain — the async IIFE wrapping here uses `await`/`catch` instead.

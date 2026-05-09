@@ -9,10 +9,9 @@
  * when the corresponding kind is first activated — avoids pulling ECharts or
  * PDF viewer code on first load.
  *
- * PDF artifacts reuse HtmlRenderer: the raw endpoint serves the PDF bytes with
- * an appropriate Content-Type, which triggers the browser's native PDF viewer
- * inside the iframe. This reuse gives PDF the same CSP + sandbox isolation as
- * HTML artifacts at zero extra code.
+ * PDF artifacts use a dedicated PdfRenderer based on <object> rather than an
+ * iframe sandbox, because PDF.js in Firefox requires same-origin XHR and the
+ * sandboxed iframe pattern breaks it. See PdfRenderer.tsx for the full rationale.
  */
 
 import { lazy, Suspense } from 'react';
@@ -25,6 +24,7 @@ const ChartRenderer = lazy(() => import('./renderers/ChartRenderer'));
 const CsvRenderer = lazy(() => import('./renderers/CsvRenderer'));
 const ImageRenderer = lazy(() => import('./renderers/ImageRenderer'));
 const MarkdownRenderer = lazy(() => import('./renderers/MarkdownRenderer'));
+const PdfRenderer = lazy(() => import('./renderers/PdfRenderer'));
 
 type RendererComponent = React.LazyExoticComponent<
   React.ComponentType<{ artifact: Artifact; version: number }>
@@ -37,9 +37,9 @@ const RENDERER_BY_KIND: Record<ArtifactKind, RendererComponent> = {
   'text/markdown': MarkdownRenderer,
   'image/png': ImageRenderer,
   'image/jpeg': ImageRenderer,
-  // PDF in browser: an iframe pointing at the raw URL renders the browser's
-  // native PDF viewer with the same isolation guarantees as HTML artifacts.
-  'application/pdf': HtmlRenderer,
+  // PDF: dedicated PdfRenderer uses <object> instead of the sandboxed iframe
+  // to avoid breaking Firefox PDF.js (needs same-origin XHR) and WKWebView.
+  'application/pdf': PdfRenderer,
 };
 
 interface Props {

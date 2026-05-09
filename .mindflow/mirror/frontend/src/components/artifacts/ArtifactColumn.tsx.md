@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-05-08T02
+last_verified: 2026-05-09
 stub: false
 ---
 
@@ -15,7 +15,7 @@ The agent layout has three primary columns (nav, chat, context). When the agent 
 - **Placed by**: the main agent page layout, side-by-side with the chat panel.
 - **Reads from**: `artifactStore` — `artifacts[]`, `activeArtifactId`, `collapsed`, `setCollapsed`.
 - **Renders**: `ArtifactTabStrip` + a lazy renderer selected by `RENDERER_BY_KIND`.
-- **Lazy imports**: `HtmlRenderer`, `ChartRenderer`, `CsvRenderer`, `ImageRenderer`, `MarkdownRenderer` — all via `React.lazy`.
+- **Lazy imports**: `HtmlRenderer`, `ChartRenderer`, `CsvRenderer`, `ImageRenderer`, `MarkdownRenderer`, `PdfRenderer` — all via `React.lazy`.
 
 ## Renderer dispatch
 
@@ -29,9 +29,9 @@ The agent layout has three primary columns (nav, chat, context). When the agent 
 | `text/markdown` | MarkdownRenderer | Markdown → HTML |
 | `image/png` | ImageRenderer | `<img>` with zoom |
 | `image/jpeg` | ImageRenderer | Same as png |
-| `application/pdf` | HtmlRenderer | PDF via browser native viewer in iframe |
+| `application/pdf` | PdfRenderer | PDF via `<object>` — see PdfRenderer.tsx |
 
-**PDF reuses HtmlRenderer**: the `/raw` endpoint serves PDF bytes with `Content-Type: application/pdf`. When an `<iframe>` loads this URL, the browser invokes its native PDF viewer inside the iframe. This gives PDF the same CSP + null-origin sandbox isolation as HTML artifacts at zero extra implementation. The security properties are identical: `sandbox="allow-scripts"` without `allow-same-origin` means the PDF viewer JS (if any) is null-origin isolated.
+**PDF uses a dedicated PdfRenderer** (C4, 2026-05-09): PDF rendering was separated from HtmlRenderer because the `sandbox="allow-scripts"` iframe approach breaks Firefox's PDF.js renderer (which requires same-origin XHR to load its own worker) and is inconsistent in WKWebView. `PdfRenderer` uses `<object data type="application/pdf">` instead, letting each browser pick its native viewer. The lazy import is added to `ArtifactColumn`'s lazy registry alongside the other renderers.
 
 ## Lazy loading rationale
 

@@ -30,6 +30,7 @@ export default function ChartRenderer({ artifact, version }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setError(null);
     let disposed = false;
     let chart: { dispose: () => void } | null = null;
 

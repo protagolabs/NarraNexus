@@ -888,7 +888,7 @@ _register(
             Column("title",          "TEXT",    "VARCHAR(200)", nullable=False),
             Column("kind",           "TEXT",    "VARCHAR(64)",  nullable=False),
             Column("description",    "TEXT",    "TEXT"),
-            Column("pinned",         "INTEGER", "TINYINT",      nullable=False, default="0"),
+            Column("pinned",         "INTEGER", "TINYINT(1)",   nullable=False, default="0"),
             Column("latest_version", "INTEGER", "INT",          nullable=False, default="1"),
             Column("created_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),
             Column("updated_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),

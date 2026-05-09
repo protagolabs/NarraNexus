@@ -23,17 +23,28 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
   const setCollapsed = useArtifactStore((s) => s.setCollapsed);
   const [csvHead, setCsvHead] = useState<string[][] | null>(null);
   const [mdHead, setMdHead] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (artifact.kind === 'text/csv') {
-      fetch(rawUrl(artifact.agent_id, artifact.artifact_id, artifact.latest_version))
-        .then((r) => r.text())
-        .then((t) => setCsvHead(t.split(/\r?\n/).slice(0, 5).map((r) => r.split(','))));
-    } else if (artifact.kind === 'text/markdown') {
-      fetch(rawUrl(artifact.agent_id, artifact.artifact_id, artifact.latest_version))
-        .then((r) => r.text())
-        .then((t) => setMdHead(t.slice(0, 200) + (t.length > 200 ? '…' : '')));
-    }
+    if (artifact.kind !== 'text/csv' && artifact.kind !== 'text/markdown') return;
+    const url = rawUrl(artifact.agent_id, artifact.artifact_id, artifact.latest_version);
+    // Wrap in async IIFE so all setState calls — including the reset — happen
+    // inside the same async microtask batch, satisfying react-hooks/set-state-in-effect.
+    (async () => {
+      setPreviewError(null);
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const t = await r.text();
+        if (artifact.kind === 'text/csv') {
+          setCsvHead(t.split(/\r?\n/).slice(0, 5).map((row) => row.split(',')));
+        } else {
+          setMdHead(t.slice(0, 200) + (t.length > 200 ? '…' : ''));
+        }
+      } catch (e) {
+        setPreviewError(String(e));
+      }
+    })();
   }, [artifact.kind, artifact.agent_id, artifact.artifact_id, artifact.latest_version]);
 
   const open = () => {
@@ -84,6 +95,9 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
           <p className="text-xs opacity-60">[PDF document — open tab to view]</p>
         )}
       </div>
+      {previewError && (
+        <p className="text-xs text-red-400/80">Preview unavailable: {previewError}</p>
+      )}
       <div className="text-xs opacity-50">Open →</div>
     </button>
   );
