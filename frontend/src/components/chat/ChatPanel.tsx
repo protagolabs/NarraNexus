@@ -11,7 +11,7 @@
  * - 2026-03-17: Unified timeline (removed history/session split)
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, Square, Loader2, Sparkles, MessageSquare, CheckCircle2, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
@@ -58,7 +58,9 @@ interface ArtifactToolCallCardsProps {
   allArtifacts: ReturnType<typeof useArtifactStore.getState>['artifacts'];
 }
 
-function ArtifactToolCallCards({ toolCalls, agentId, allArtifacts }: ArtifactToolCallCardsProps) {
+const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
+  toolCalls, agentId, allArtifacts,
+}: ArtifactToolCallCardsProps) {
   const cards: React.ReactNode[] = [];
 
   for (const tc of toolCalls) {
@@ -110,7 +112,19 @@ function ArtifactToolCallCards({ toolCalls, agentId, allArtifacts }: ArtifactToo
 
   if (cards.length === 0) return null;
   return <div className="mt-3 space-y-2">{cards}</div>;
-}
+}, (prev, next) => {
+  // Custom shallow compare so React.memo skips re-renders triggered by
+  // unrelated keystrokes in the chat input. Each timeline item's `toolCalls`
+  // array is built once via useMemo and stays referentially stable until the
+  // streaming state actually advances, so the array identity check below is
+  // sufficient. allArtifacts swaps when the artifact store updates (which is
+  // exactly when we want to re-render to drop the "Loading artifact…" stub).
+  return (
+    prev.agentId === next.agentId &&
+    prev.toolCalls === next.toolCalls &&
+    prev.allArtifacts === next.allArtifacts
+  );
+});
 
 // Must match BOOTSTRAP_GREETING in src/xyz_agent_context/bootstrap/template.py
 const BOOTSTRAP_GREETING =
