@@ -387,7 +387,7 @@ export function Sidebar() {
               <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
                 Powered by NetMind.AI
               </span>
-              <span className="text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider">v1.0.0</span>
+              <span className="text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider">v{__APP_VERSION__}</span>
             </div>
           </>
         ) : (
