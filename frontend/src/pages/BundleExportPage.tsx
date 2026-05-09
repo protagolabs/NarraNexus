@@ -342,6 +342,11 @@ export default function BundleExportPage() {
   // "iris_8ec0" would match "Iris", a teammate name, even though they're
   // different agents). Word-boundary regex avoids that.
   useEffect(() => {
+    // Full mode = "ship everything"; the dedicated Full-mode effect below
+    // handles social-entity selection (selects every entity), so this
+    // strict-matching default-selector should NOT run in Full mode (it
+    // would otherwise overwrite the all-selected state on every render).
+    if (mode === 'full') return;
     // Build the closure-agent identity set: each entry has both name and id
     // we should match on. Names can repeat (different agent same name) so we
     // dedupe per closure agent.
@@ -398,7 +403,7 @@ export default function BundleExportPage() {
     });
     setSocialSelected(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(socialEntities), JSON.stringify(Array.from(selectedAgents)), JSON.stringify(agents.map(a => a.agent_id + ':' + a.name))]);
+  }, [mode, JSON.stringify(socialEntities), JSON.stringify(Array.from(selectedAgents)), JSON.stringify(agents.map(a => a.agent_id + ':' + a.name))]);
 
   function isSensitive(p: string): boolean {
     const lc = p.toLowerCase();
@@ -489,10 +494,7 @@ export default function BundleExportPage() {
   // strip-credentials), not breadth.
   useEffect(() => {
     if (mode !== 'full') return;
-    // 2. Force every (agent, skill) pair to full_copy mode (carries
-    //    .skill_meta.json + credentials.json + wallet.json per agent —
-    //    the "self-backup" contract; same skill name on different agents
-    //    has different credentials).
+    // 2. Force every (agent, skill) pair to full_copy mode.
     const next: Record<string, SkillExportSpec> = { ...skillChoices };
     Object.entries(skillsForAgents).forEach(([aid, skillNames]) => {
       skillNames.forEach((skill) => {
@@ -504,7 +506,8 @@ export default function BundleExportPage() {
       });
     });
     setSkillChoices(next);
-    // 3. Select every social entity for every agent (no closure-fuzzy filter).
+    // 3. Select EVERY social entity for every agent (no type filter — Full
+    //    ships agent / user / organization / etc.).
     setSocialSelected((cur) => {
       const out = { ...cur };
       Object.entries(socialEntities).forEach(([aid, list]) => {
@@ -512,13 +515,27 @@ export default function BundleExportPage() {
       });
       return out;
     });
-    // 4. Clear workspace + history exclusions — Full ships everything.
-    setWorkspaceExcludes({});
+    // 4. History: include all narratives + events + jobs.
     setExcludedNarratives({});
     setExcludedEvents({});
+    setExcludedJobs({});
     setIncludeChat(true);
+    // 5. Workspace excludes: dual-meaning set (see toggleWorkspaceFile).
+    //    Non-sensitive default = include (set membership = exclude). Full
+    //    keeps non-sensitive set entries empty.
+    //    Sensitive default = exclude (set membership = override-include).
+    //    For Full snapshot we want sensitive files INCLUDED, so we PRELOAD
+    //    every sensitive file path into the override-include set per agent.
+    setWorkspaceExcludes(() => {
+      const out: Record<string, Set<string>> = {};
+      Object.entries(workspaceFiles).forEach(([aid, files]) => {
+        const sensitivePaths = files.filter((f) => f.sensitive).map((f) => f.path);
+        if (sensitivePaths.length > 0) out[aid] = new Set(sensitivePaths);
+      });
+      return out;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, JSON.stringify(skillsForAgents), JSON.stringify(socialEntities)]);
+  }, [mode, JSON.stringify(skillsForAgents), JSON.stringify(socialEntities), JSON.stringify(workspaceFiles)]);
 
   async function doExport() {
     setDownloading(true);
