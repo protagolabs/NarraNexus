@@ -14,7 +14,7 @@
  * tab close can never destroy the underlying file.
  */
 
-import { Minus } from 'lucide-react';
+import { Minus, Trash2 } from 'lucide-react';
 import { useArtifactStore } from '@/stores';
 import type { Artifact } from '@/types/artifact';
 
@@ -29,12 +29,25 @@ export default function ArtifactTabStrip({ agentId }: Props) {
   const setActive = useArtifactStore((s) => s.setActive);
   const pin = useArtifactStore((s) => s.pin);
   const minimizeTab = useArtifactStore((s) => s.minimizeTab);
+  const deleteArtifact = useArtifactStore((s) => s.delete);
 
   const visible = artifacts.filter((a) => !minimizedTabIds.has(a.artifact_id));
 
   if (visible.length === 0) {
     return <div className="text-xs opacity-50 px-3 py-2">No artifacts yet</div>;
   }
+
+  const handleDelete = (artifact: Artifact) => {
+    const ok = window.confirm(
+      `永久删除 "${artifact.title}"?\n\n` +
+      '该操作会同时删除磁盘文件和数据库记录，无法撤销。\n\n' +
+      '如果只想隐藏这个 tab，请改用旁边的 "─" 最小化按钮。',
+    );
+    if (!ok) return;
+    deleteArtifact(agentId, artifact.artifact_id).catch((e) => {
+      window.alert(`删除失败: ${e}`);
+    });
+  };
 
   return (
     <div className="flex flex-row overflow-x-auto border-b border-[var(--border-default)]">
@@ -46,6 +59,7 @@ export default function ArtifactTabStrip({ agentId }: Props) {
           onClick={() => setActive(a.artifact_id)}
           onPin={() => pin(agentId, a.artifact_id, !a.pinned)}
           onMinimize={() => minimizeTab(a.artifact_id)}
+          onDelete={() => handleDelete(a)}
         />
       ))}
     </div>
@@ -53,13 +67,14 @@ export default function ArtifactTabStrip({ agentId }: Props) {
 }
 
 function TabButton({
-  artifact, active, onClick, onPin, onMinimize,
+  artifact, active, onClick, onPin, onMinimize, onDelete,
 }: {
   artifact: Artifact;
   active: boolean;
   onClick: () => void;
   onPin: () => void;
   onMinimize: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div
@@ -84,6 +99,14 @@ function TabButton({
         aria-label="Minimize tab"
       >
         <Minus className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        title="永久删除（删除文件和数据库记录，无法撤销）"
+        className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-red-900/40 hover:text-red-400 transition-colors"
+        aria-label="Delete artifact permanently"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
       </button>
     </div>
   );

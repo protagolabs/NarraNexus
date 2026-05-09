@@ -121,7 +121,7 @@ export default function ArtifactColumn({ agentId }: Props) {
           <ArtifactTabStrip agentId={agentId} />
         </div>
         <div className="flex items-center gap-1 px-1 border-b border-[var(--border-default)] self-stretch">
-          {active && <ArtifactDownloadMenu artifact={active} agentId={agentId} />}
+          {active && <ArtifactDownloadMenu artifact={active} />}
           <button
             onClick={() => setCollapsed(true)}
             className="text-xs opacity-60 hover:opacity-100 px-2"
