@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Settings2, ExternalLink, Upload } from 'lucide-react';
+import { Settings2, ExternalLink, Upload, Package } from 'lucide-react';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 import { cn } from '@/lib/utils';
@@ -35,6 +35,29 @@ export function TeamFilterBar({ selectedFilter, onChange, collapsed }: Props) {
     return agents.filter((a) => !memberSet.has(a.agent_id)).length;
   }, [teams, agents]);
 
+  // When the user clicks the Package shortcut, pre-fill the wizard with the
+  // currently filtered team (if any). Picks up team_id + member agent_ids
+  // exactly the way TeamDetailPage's Export button does, so the wizard knows
+  // both the team binding (for default filename / intro) and the agent
+  // closure to scope below tabs.
+  function gotoExport() {
+    const team = teams.find((t) => t.team.team_id === selectedFilter);
+    if (team) {
+      const agentsCsv = team.member_agent_ids.join(',');
+      const search = new URLSearchParams({ team: team.team.team_id });
+      if (agentsCsv) search.set('agents', agentsCsv);
+      navigate(`/app/bundle/export?${search.toString()}`);
+    } else {
+      navigate('/app/bundle/export');
+    }
+  }
+  const exportTitle = (() => {
+    const team = teams.find((t) => t.team.team_id === selectedFilter);
+    return team
+      ? `Export "${team.team.name}" as .nxbundle`
+      : 'Export agents as .nxbundle';
+  })();
+
   if (collapsed) {
     // Compact rail: stacked color dots, click cycles, gear opens modal.
     return (
@@ -52,6 +75,13 @@ export function TeamFilterBar({ selectedFilter, onChange, collapsed }: Props) {
           title="Import a .nxbundle (team)"
         >
           <Upload className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+        </button>
+        <button
+          onClick={gotoExport}
+          className="p-1 hover:bg-[var(--bg-tertiary)]"
+          title={exportTitle}
+        >
+          <Package className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
         </button>
         <button
           onClick={() => onChange('all')}
@@ -106,6 +136,13 @@ export function TeamFilterBar({ selectedFilter, onChange, collapsed }: Props) {
             title="Import a .nxbundle (team)"
           >
             <Upload className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+          </button>
+          <button
+            onClick={gotoExport}
+            className="p-1 hover:bg-[var(--bg-tertiary)]"
+            title={exportTitle}
+          >
+            <Package className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
           </button>
           <button
             onClick={() => setOpenMgmt(true)}

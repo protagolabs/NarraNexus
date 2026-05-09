@@ -885,6 +885,7 @@ export default function BundleExportPage() {
             onToggle={toggleAgent}
             selectedTeam={selectedTeam}
             onSetTeam={setSelectedTeam}
+            onBulkSet={setSelectedAgents}
           />
         )}
         {tab === 'history' && (
@@ -1124,11 +1125,32 @@ function collectWarnings(
 // =============================================================================
 
 function AgentsTab({
-  agents, teams, selected, onToggle, selectedTeam, onSetTeam,
+  agents, teams, selected, onToggle, selectedTeam, onSetTeam, onBulkSet,
 }: {
   agents: any[]; teams: TeamWithMembers[]; selected: Set<string>; onToggle: (id: string) => void;
   selectedTeam: string; onSetTeam: (t: string) => void;
+  onBulkSet: (next: Set<string>) => void;
 }) {
+  // Pre-compute (team_id → existing-on-this-instance member ids) so that
+  // batch select doesn't try to add agent_ids that no longer exist locally.
+  const liveAgentIds = useMemo(() => new Set(agents.map((a) => a.agent_id)), [agents]);
+  function teamLiveMembers(t: TeamWithMembers): string[] {
+    return t.member_agent_ids.filter((id) => liveAgentIds.has(id));
+  }
+  function addTeam(t: TeamWithMembers) {
+    const next = new Set(selected);
+    teamLiveMembers(t).forEach((id) => next.add(id));
+    onBulkSet(next);
+  }
+  function replaceWithTeam(t: TeamWithMembers) {
+    onBulkSet(new Set(teamLiveMembers(t)));
+  }
+  function dropTeam(t: TeamWithMembers) {
+    const next = new Set(selected);
+    teamLiveMembers(t).forEach((id) => next.delete(id));
+    onBulkSet(next);
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -1144,8 +1166,73 @@ function AgentsTab({
           ))}
         </select>
       </div>
+
+      {/* Per-team batch select — same gesture as the sidebar Package button:
+          one click pulls in (or replaces with) every live member of that team. */}
+      {teams.length > 0 && (
+        <div>
+          <label className="text-xs uppercase text-[var(--text-tertiary)]">Quick add by team</label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {teams.map((t) => {
+              const live = teamLiveMembers(t);
+              const inSelected = live.filter((id) => selected.has(id)).length;
+              const allIn = live.length > 0 && inSelected === live.length;
+              const someIn = inSelected > 0 && !allIn;
+              return (
+                <div
+                  key={t.team.team_id}
+                  className={cn(
+                    'flex items-center gap-1 border text-[11px] font-mono',
+                    allIn
+                      ? 'border-[var(--border-strong)] bg-[var(--bg-elevated)]'
+                      : someIn
+                        ? 'border-[var(--border-default)]'
+                        : 'border-[var(--border-subtle)]'
+                  )}
+                >
+                  <button
+                    onClick={() => (allIn ? dropTeam(t) : addTeam(t))}
+                    className="px-2 py-1 hover:bg-[var(--bg-tertiary)] flex items-center gap-1"
+                    title={allIn ? `Deselect all members of "${t.team.name}"` : `Add all members of "${t.team.name}"`}
+                  >
+                    {t.team.color && (
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: t.team.color }} />
+                    )}
+                    <span>{t.team.name}</span>
+                    <span className="text-[var(--text-tertiary)]">
+                      ({inSelected}/{live.length})
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => replaceWithTeam(t)}
+                    className="px-1.5 py-1 hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] border-l border-[var(--border-subtle)]"
+                    title={`Replace selection with "${t.team.name}" members`}
+                  >
+                    only
+                  </button>
+                </div>
+              );
+            })}
+            <button
+              onClick={() => onBulkSet(new Set(agents.map((a) => a.agent_id)))}
+              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] text-[11px] font-mono"
+            >
+              all agents ({agents.length})
+            </button>
+            <button
+              onClick={() => onBulkSet(new Set())}
+              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] text-[11px] font-mono"
+            >
+              clear
+            </button>
+          </div>
+        </div>
+      )}
+
       <div>
-        <label className="text-xs uppercase text-[var(--text-tertiary)]">Agents to include</label>
+        <label className="text-xs uppercase text-[var(--text-tertiary)]">
+          Agents to include · {selected.size}/{agents.length}
+        </label>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {agents.map((a) => {
             const checked = selected.has(a.agent_id);
