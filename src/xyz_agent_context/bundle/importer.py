@@ -625,7 +625,16 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                             await db.insert("events", new_erow)
                             written_summary["events_created"] += 1
 
-        # instances
+        # instances. Filter out rows whose module_class isn't registered in
+        # MODULE_MAP on this side: importing them produces zombie rows the
+        # runtime would log "Unknown module type X, skipping" against on every
+        # agent turn (and they'd be dead weight forever, since cascade-delete
+        # only fires when the agent itself is deleted). Cascade-drop their
+        # instance-scoped children (jobs / social / rag / memory / narrative_links)
+        # by remembering the skipped instance_ids.
+        from xyz_agent_context.module import MODULE_MAP
+        skipped_instance_ids: set = set()
+        skipped_by_class: Dict[str, int] = {}
         inst_dir = adir / "instances"
         if inst_dir.exists():
             for kdir in inst_dir.iterdir():
@@ -635,17 +644,32 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     if ifile.suffix != ".json":
                         continue
                     irec = json.loads(ifile.read_text(encoding="utf-8"))
+                    mclass = irec.get("module_class") or kdir.name
+                    if mclass not in MODULE_MAP:
+                        skipped_instance_ids.add(irec.get("instance_id") or "")
+                        skipped_by_class[mclass] = skipped_by_class.get(mclass, 0) + 1
+                        continue
                     new_irow = rewrite_row("module_instances", irec)
                     new_irow["user_id"] = user_id
                     new_irow.pop("created_at", None)
                     new_irow.pop("updated_at", None)
                     await db.insert("module_instances", new_irow)
                     written_summary["instances_created"] += 1
+        if skipped_by_class:
+            for cls_name, n in skipped_by_class.items():
+                msg = (
+                    f"agent {old_aid}: skipped {n} {cls_name} instance(s) — "
+                    "module class not registered in this build"
+                )
+                written_summary["warnings"].append(msg)
+                logger.warning(f"bundle_import.skip_unknown_module agent={old_aid} class={cls_name} count={n}")
 
         # social entities
         se_path = adir / "social_entities.json"
         if se_path.exists():
             for srec in json.loads(se_path.read_text(encoding="utf-8")):
+                if srec.get("instance_id") in skipped_instance_ids:
+                    continue
                 new_sr = rewrite_row("instance_social_entities", srec)
                 new_sr.pop("created_at", None)
                 new_sr.pop("updated_at", None)
@@ -661,6 +685,8 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         rag_path = adir / "rag.json"
         if rag_path.exists():
             for rrec in json.loads(rag_path.read_text(encoding="utf-8")):
+                if rrec.get("instance_id") in skipped_instance_ids:
+                    continue
                 new_rr = rewrite_row("instance_rag_store", rrec)
                 new_rr.pop("created_at", None)
                 new_rr.pop("updated_at", None)
@@ -688,19 +714,41 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         aware_path = adir / "awareness.json"
         if aware_path.exists():
             for arec in json.loads(aware_path.read_text(encoding="utf-8")):
+                if arec.get("instance_id") in skipped_instance_ids:
+                    continue
                 new_ar = rewrite_row("instance_awareness", arec)
                 new_ar.pop("created_at", None)
                 new_ar.pop("updated_at", None)
                 await db.insert("instance_awareness", new_ar)
                 written_summary["awareness_rows_created"] += 1
 
-        # instance_jobs (bug 3 — was missing entirely from export AND import)
+        # instance_jobs.
+        #
+        # Two correctness rules:
+        # 1. Cascade-drop rows whose parent module_instance was skipped above
+        #    (unknown module class) — otherwise the runtime ends up with orphan
+        #    Job rows pointing to a non-existent instance, and JobModel
+        #    validation fires on every poll.
+        # 2. PRESERVE created_at / updated_at from the bundle. The instance_jobs
+        #    schema has no DB-level default for these columns, so popping them
+        #    inserts NULL — and JobModel.created_at is a non-Optional datetime,
+        #    so job_trigger fails to parse the row on first poll. (See
+        #    schema_registry.py: Column("created_at", "TEXT", "DATETIME(6)")
+        #    has neither nullable=False nor default.)
         jobs_path = adir / "jobs.json"
         if jobs_path.exists():
+            from datetime import datetime, timezone
             for jrec in json.loads(jobs_path.read_text(encoding="utf-8")):
+                if jrec.get("instance_id") in skipped_instance_ids:
+                    continue
                 new_jr = rewrite_row("instance_jobs", jrec)
-                new_jr.pop("created_at", None)
-                new_jr.pop("updated_at", None)
+                # Backfill timestamps if the bundle is missing them. Rows from
+                # older bundles (pre-fix) may have been written with NULLs;
+                # fall back to "now" so JobModel parsing works.
+                if not new_jr.get("created_at"):
+                    new_jr["created_at"] = datetime.now(timezone.utc).isoformat(sep=" ")
+                if not new_jr.get("updated_at"):
+                    new_jr["updated_at"] = new_jr["created_at"]
                 await db.insert("instance_jobs", new_jr)
                 written_summary["jobs_created"] += 1
 
@@ -708,6 +756,8 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         nl_path = adir / "instance_narrative_links.json"
         if nl_path.exists():
             for nrec in json.loads(nl_path.read_text(encoding="utf-8")):
+                if nrec.get("instance_id") in skipped_instance_ids:
+                    continue
                 new_nl = rewrite_row("instance_narrative_links", nrec)
                 new_nl.pop("created_at", None)
                 new_nl.pop("updated_at", None)
@@ -725,6 +775,8 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             if not mp.exists():
                 continue
             for mrec in json.loads(mp.read_text(encoding="utf-8")):
+                if mrec.get("instance_id") in skipped_instance_ids:
+                    continue
                 new_mm = rewrite_row(memory_table, mrec)
                 new_mm.pop("created_at", None)
                 new_mm.pop("updated_at", None)

@@ -301,3 +301,122 @@ async def test_no_dangling_references(db_client, tmp_workspace_root):
         ni = await db_client.get("module_instances", {"agent_id": new_aid})
         for i in ni:
             assert i["agent_id"] in new_aids
+
+
+@pytest.mark.asyncio
+async def test_jobs_preserve_timestamps_on_import(db_client, tmp_workspace_root):
+    """Regression: instance_jobs.created_at / updated_at must survive the
+    roundtrip. The schema has no DB default for these columns, so popping
+    them on import inserts NULL — and JobModel.created_at is a non-Optional
+    datetime, so job_trigger blows up on first poll. See importer.py jobs
+    section: we must keep the bundle's timestamps (and only backfill if
+    missing)."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+
+    user_id = "test_user"
+    aid = "agent_jobttsmm00"
+    await _seed_agent(db_client, aid, "Jobby", user_id)
+    (tmp_workspace_root / f"{aid}_{user_id}").mkdir()
+
+    # Add a JobModule instance + an instance_jobs row with explicit timestamps
+    job_inst_id = "job_ttsmm0001"
+    await db_client.insert("module_instances", {
+        "instance_id": job_inst_id,
+        "module_class": "JobModule",
+        "agent_id": aid,
+        "user_id": user_id,
+        "is_public": 0,
+        "status": "active",
+    })
+    src_created = "2026-04-15 10:00:00.000000"
+    src_updated = "2026-04-16 11:30:00.000000"
+    await db_client.insert("instance_jobs", {
+        "instance_id": job_inst_id,
+        "job_id": "job_ttsmm0099",
+        "agent_id": aid,
+        "user_id": user_id,
+        "title": "Daily standup",
+        "job_type": "ongoing",
+        "status": "pending",
+        "created_at": src_created,
+        "updated_at": src_updated,
+    })
+
+    bundle_path = tmp_workspace_root.parent / "jobs.nxbundle"
+    await build_bundle(user_id, ExportSelection(agent_ids=[aid]), bundle_path)
+
+    pre = await preflight(bundle_path, user_id)
+    await confirm(pre["preflight_token"], user_id)
+
+    rows = await db_client.get("agents", {"created_by": user_id})
+    new_aid = next(r["agent_id"] for r in rows if r["agent_id"] != aid)
+    new_jobs = await db_client.get("instance_jobs", {"agent_id": new_aid})
+    assert len(new_jobs) == 1
+    j = new_jobs[0]
+    assert j["created_at"] is not None and j["created_at"] != "", \
+        f"created_at must survive import; got {j['created_at']!r}"
+    assert j["updated_at"] is not None and j["updated_at"] != "", \
+        f"updated_at must survive import; got {j['updated_at']!r}"
+    # Should be the original timestamps verbatim (sqlite stores as-is)
+    assert str(j["created_at"]).startswith("2026-04-15"), j["created_at"]
+    assert str(j["updated_at"]).startswith("2026-04-16"), j["updated_at"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_module_class_skipped_with_warning(db_client, tmp_workspace_root):
+    """Importing a bundle that contains an unregistered module_class (e.g.
+    MatrixModule from a custom build) must NOT create a zombie row that
+    runtime would log "Unknown module type X, skipping" against forever.
+    The module_instances row is dropped, its dependent instance_jobs cascade
+    out, and a manifest warning is emitted."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+
+    user_id = "test_user"
+    aid = "agent_unkclas000"
+    await _seed_agent(db_client, aid, "Stranger", user_id)
+    (tmp_workspace_root / f"{aid}_{user_id}").mkdir()
+
+    rogue_inst = "matrix_unkclasinst"
+    await db_client.insert("module_instances", {
+        "instance_id": rogue_inst,
+        "module_class": "MatrixModule",  # NOT in MODULE_MAP
+        "agent_id": aid,
+        "user_id": user_id,
+        "is_public": 0,
+        "status": "active",
+    })
+    # Cascade target: a job pinned to that rogue instance
+    await db_client.insert("instance_jobs", {
+        "instance_id": rogue_inst,
+        "job_id": "job_unkclas0099",
+        "agent_id": aid,
+        "user_id": user_id,
+        "title": "Rogue job",
+        "job_type": "ongoing",
+        "status": "pending",
+        "created_at": "2026-04-20 09:00:00.000000",
+        "updated_at": "2026-04-20 09:00:00.000000",
+    })
+
+    bundle_path = tmp_workspace_root.parent / "rogue.nxbundle"
+    await build_bundle(user_id, ExportSelection(agent_ids=[aid]), bundle_path)
+
+    pre = await preflight(bundle_path, user_id)
+    summary = await confirm(pre["preflight_token"], user_id)
+
+    rows = await db_client.get("agents", {"created_by": user_id})
+    new_aid = next(r["agent_id"] for r in rows if r["agent_id"] != aid)
+
+    # Rogue MatrixModule instance was NOT inserted
+    new_insts = await db_client.get("module_instances", {"agent_id": new_aid})
+    assert all(i["module_class"] != "MatrixModule" for i in new_insts)
+
+    # Its dependent job was also dropped (cascade)
+    new_jobs = await db_client.get("instance_jobs", {"agent_id": new_aid})
+    assert len(new_jobs) == 0, f"unknown-module job not dropped: {new_jobs}"
+
+    # A warning surfaced
+    assert any("MatrixModule" in w for w in summary.get("warnings", [])), \
+        f"expected MatrixModule warning in summary.warnings, got {summary.get('warnings')!r}"
