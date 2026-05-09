@@ -14,6 +14,7 @@
  * tab close can never destroy the underlying file.
  */
 
+import { Minus } from 'lucide-react';
 import { useArtifactStore } from '@/stores';
 import type { Artifact } from '@/types/artifact';
 
@@ -78,11 +79,11 @@ function TabButton({
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onMinimize(); }}
-        title="Minimize (does not delete; restore from the bar above)"
-        className="text-xs opacity-60 hover:opacity-100 leading-none"
+        title="最小化（不会删除文件，可从顶部恢复）"
+        className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
         aria-label="Minimize tab"
       >
-        ─
+        <Minus className="w-3.5 h-3.5" />
       </button>
     </div>
   );
