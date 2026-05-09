@@ -5,13 +5,16 @@
  * artifacts surface in the header bar above (rendered by ArtifactColumn).
  *
  * Per-tab actions:
- *   📌 / 📍  pin / unpin (status toggle, persisted to DB)
- *   ─        minimize (frontend-only hide, persisted to localStorage; the
- *            artifact stays in the DB and can be restored from the header)
+ *   ─   minimize (frontend-only hide, persisted to localStorage; the
+ *       artifact stays in the DB and can be restored from the header)
+ *   🗑️  delete permanently (with confirm; rmtree + DB delete)
  *
- * Permanent deletion is intentionally NOT on the tab — it lives in the
- * download menu (ArtifactDownloadMenu) behind a confirm dialog so a casual
- * tab close can never destroy the underlying file.
+ * Pin/unpin is intentionally NOT exposed: under the current LLM-driven flow
+ * every agent-emitted artifact is auto-pinned at creation (C1 fix), and the
+ * route refuses to unpin an artifact whose original_session_id is null
+ * (C1.5 guard, prevents the limbo state). So the toggle has no working
+ * outcome in v1. When session-scoped artifacts become reachable from the UI
+ * (loadForSession wiring), the pin toggle can come back.
  */
 
 import { Minus, Trash2 } from 'lucide-react';
@@ -27,7 +30,6 @@ export default function ArtifactTabStrip({ agentId }: Props) {
   const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const activeId = useArtifactStore((s) => s.activeArtifactId);
   const setActive = useArtifactStore((s) => s.setActive);
-  const pin = useArtifactStore((s) => s.pin);
   const minimizeTab = useArtifactStore((s) => s.minimizeTab);
   const deleteArtifact = useArtifactStore((s) => s.delete);
 
@@ -39,13 +41,13 @@ export default function ArtifactTabStrip({ agentId }: Props) {
 
   const handleDelete = (artifact: Artifact) => {
     const ok = window.confirm(
-      `永久删除 "${artifact.title}"?\n\n` +
-      '该操作会同时删除磁盘文件和数据库记录，无法撤销。\n\n' +
-      '如果只想隐藏这个 tab，请改用旁边的 "─" 最小化按钮。',
+      `Permanently delete "${artifact.title}"?\n\n` +
+      'This removes the file from disk AND the database record. Cannot be undone.\n\n' +
+      'If you only want to hide the tab, use the "−" minimize button next to it instead.',
     );
     if (!ok) return;
     deleteArtifact(agentId, artifact.artifact_id).catch((e) => {
-      window.alert(`删除失败: ${e}`);
+      window.alert(`Delete failed: ${e}`);
     });
   };
 
@@ -57,7 +59,6 @@ export default function ArtifactTabStrip({ agentId }: Props) {
           artifact={a}
           active={a.artifact_id === activeId}
           onClick={() => setActive(a.artifact_id)}
-          onPin={() => pin(agentId, a.artifact_id, !a.pinned)}
           onMinimize={() => minimizeTab(a.artifact_id)}
           onDelete={() => handleDelete(a)}
         />
@@ -67,12 +68,11 @@ export default function ArtifactTabStrip({ agentId }: Props) {
 }
 
 function TabButton({
-  artifact, active, onClick, onPin, onMinimize, onDelete,
+  artifact, active, onClick, onMinimize, onDelete,
 }: {
   artifact: Artifact;
   active: boolean;
   onClick: () => void;
-  onPin: () => void;
   onMinimize: () => void;
   onDelete: () => void;
 }) {
@@ -86,15 +86,8 @@ function TabButton({
     >
       <span className="text-sm truncate max-w-[12rem]">{artifact.title}</span>
       <button
-        onClick={(e) => { e.stopPropagation(); onPin(); }}
-        title={artifact.pinned ? 'Unpin' : 'Pin'}
-        className="text-xs opacity-60 hover:opacity-100"
-      >
-        {artifact.pinned ? '📌' : '📍'}
-      </button>
-      <button
         onClick={(e) => { e.stopPropagation(); onMinimize(); }}
-        title="最小化（不会删除文件，可从顶部恢复）"
+        title="Minimize (does not delete; restore from the bar above)"
         className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
         aria-label="Minimize tab"
       >
@@ -102,7 +95,7 @@ function TabButton({
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        title="永久删除（删除文件和数据库记录，无法撤销）"
+        title="Delete permanently (removes file and DB record, cannot be undone)"
         className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-red-900/40 hover:text-red-400 transition-colors"
         aria-label="Delete artifact permanently"
       >

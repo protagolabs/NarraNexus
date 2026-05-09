@@ -26,6 +26,16 @@ export interface ChartInstanceLike {
 }
 
 interface ArtifactState {
+  /**
+   * Per-agent cache so switching agents back-and-forth shows the previous
+   * artifacts immediately while a stale-while-revalidate refresh runs in
+   * the background. Keys are agent_id, values are the latest known artifact
+   * list for that agent.
+   */
+  artifactsByAgent: Record<string, Artifact[]>;
+  /** Currently displayed agent — drives the `artifacts` view. */
+  activeAgentId: string | null;
+  /** Convenience selector: artifacts for the active agent. */
   artifacts: Artifact[];
   activeArtifactId: string | null;
   collapsed: boolean;
@@ -88,6 +98,8 @@ function persistMinimizedTabIds(ids: Set<string>): void {
 }
 
 export const useArtifactStore = create<ArtifactState>((set, get) => ({
+  artifactsByAgent: {},
+  activeAgentId: null,
   artifacts: [],
   activeArtifactId: null,
   collapsed: initialCollapsed,
@@ -95,21 +107,61 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   minimizedTabIds: initialMinimizedTabIds,
 
   async loadForSession(agentId, sessionId) {
-    const sessionArtifacts = await artifactsApi.listSession(agentId, sessionId);
-    const pinned = await artifactsApi.listPinned(agentId);
+    // Stale-while-revalidate: switch the active agent and surface any cached
+    // artifacts immediately, then fetch in the background. Avoids a blank
+    // panel on every agent switch.
+    const cached = get().artifactsByAgent[agentId] ?? [];
+    set({
+      activeAgentId: agentId,
+      artifacts: cached,
+      activeArtifactId:
+        cached.find((a) => a.artifact_id === get().activeArtifactId)
+          ? get().activeArtifactId
+          : cached[0]?.artifact_id ?? null,
+    });
+
+    const [sessionArtifacts, pinned] = await Promise.all([
+      artifactsApi.listSession(agentId, sessionId),
+      artifactsApi.listPinned(agentId),
+    ]);
     const merged = [
       ...pinned,
       ...sessionArtifacts.filter((a) => !pinned.find((p) => p.artifact_id === a.artifact_id)),
     ];
+    // Only commit if the user is still on this agent.
+    if (get().activeAgentId !== agentId) return;
     set({
+      artifactsByAgent: { ...get().artifactsByAgent, [agentId]: merged },
       artifacts: merged,
-      activeArtifactId: merged[0]?.artifact_id ?? null,
+      activeArtifactId:
+        merged.find((a) => a.artifact_id === get().activeArtifactId)
+          ? get().activeArtifactId
+          : merged[0]?.artifact_id ?? null,
     });
   },
 
   async loadPinned(agentId) {
+    // Stale-while-revalidate: switch + show cached immediately, then refresh.
+    const cached = get().artifactsByAgent[agentId] ?? [];
+    set({
+      activeAgentId: agentId,
+      artifacts: cached,
+      activeArtifactId:
+        cached.find((a) => a.artifact_id === get().activeArtifactId)
+          ? get().activeArtifactId
+          : cached[0]?.artifact_id ?? null,
+    });
+
     const pinned = await artifactsApi.listPinned(agentId);
-    set({ artifacts: pinned, activeArtifactId: pinned[0]?.artifact_id ?? null });
+    if (get().activeAgentId !== agentId) return;
+    set({
+      artifactsByAgent: { ...get().artifactsByAgent, [agentId]: pinned },
+      artifacts: pinned,
+      activeArtifactId:
+        pinned.find((a) => a.artifact_id === get().activeArtifactId)
+          ? get().activeArtifactId
+          : pinned[0]?.artifact_id ?? null,
+    });
   },
 
   setActive(artifactId) {
@@ -119,19 +171,32 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   upsert(artifact) {
     const list = get().artifacts;
     const idx = list.findIndex((a) => a.artifact_id === artifact.artifact_id);
-    if (idx === -1) {
-      set({ artifacts: [artifact, ...list], activeArtifactId: artifact.artifact_id });
-    } else {
-      const next = [...list];
-      next[idx] = artifact;
-      set({ artifacts: next });
-    }
+    const nextList = idx === -1 ? [artifact, ...list] : list.map((a, i) => (i === idx ? artifact : a));
+    const agentId = artifact.agent_id;
+    set({
+      artifacts: get().activeAgentId === agentId ? nextList : get().artifacts,
+      artifactsByAgent: {
+        ...get().artifactsByAgent,
+        [agentId]:
+          (() => {
+            const cache = get().artifactsByAgent[agentId] ?? [];
+            const ci = cache.findIndex((a) => a.artifact_id === artifact.artifact_id);
+            return ci === -1 ? [artifact, ...cache] : cache.map((a, i) => (i === ci ? artifact : a));
+          })(),
+      },
+      activeArtifactId: idx === -1 && get().activeAgentId === agentId ? artifact.artifact_id : get().activeArtifactId,
+    });
   },
 
   remove(artifactId) {
     const list = get().artifacts.filter((a) => a.artifact_id !== artifactId);
+    const cache = { ...get().artifactsByAgent };
+    for (const aid of Object.keys(cache)) {
+      cache[aid] = cache[aid].filter((a) => a.artifact_id !== artifactId);
+    }
     set({
       artifacts: list,
+      artifactsByAgent: cache,
       activeArtifactId:
         get().activeArtifactId === artifactId ? list[0]?.artifact_id ?? null : get().activeArtifactId,
     });
