@@ -244,6 +244,12 @@ function ReviewPanel({
         </Section>
       )}
 
+      {(m.info && m.info.length > 0) && (
+        <Section title="Info (expected, no action needed)">
+          {m.info.map((line, i) => <Bullet key={i}>{line}</Bullet>)}
+        </Section>
+      )}
+
       <Section title="Embedding compatibility">
         <Bullet>
           Provider: {m.embedding?.provider || 'unknown'} · Model: {m.embedding?.model || 'unknown'} · Dim: {m.embedding?.dim || 'unknown'}

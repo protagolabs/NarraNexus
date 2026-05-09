@@ -104,6 +104,34 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
+    # Legacy bundle compatibility: pre-3d7e089 exports put every
+    # `skipped_external_edge` line into manifest.warnings (one per row).
+    # That floods the preflight UI with hundreds of "Bundle warnings"
+    # entries that are actually expected closure-drop events. Demote them
+    # to manifest.info here so any bundle (old or new) renders the same
+    # in the import wizard.
+    raw_warnings = manifest.get("warnings") or []
+    real_warnings: List[str] = []
+    legacy_external_edge_count = 0
+    for w in raw_warnings:
+        if isinstance(w, str) and w.startswith("skipped_external_edge:"):
+            legacy_external_edge_count += 1
+        else:
+            real_warnings.append(w)
+    if legacy_external_edge_count > 0:
+        manifest["warnings"] = real_warnings
+        info = list(manifest.get("info") or [])
+        info.append(
+            f"skipped {legacy_external_edge_count} external entity reference(s) "
+            "outside the bundle closure (expected — see PRD §8.3)"
+        )
+        manifest["info"] = info
+        info_counters = dict(manifest.get("info_counters") or {})
+        info_counters["skipped_external_edge"] = (
+            info_counters.get("skipped_external_edge", 0) + legacy_external_edge_count
+        )
+        manifest["info_counters"] = info_counters
+
     # Compatibility: walk the bundle-format-version migration chain so older
     # bundles can be upgraded in-place to the current major before import.
     from xyz_agent_context.bundle._bundle_migrations import (

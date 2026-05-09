@@ -92,6 +92,11 @@ export interface BundleManifest {
   mcp_hints_count?: number;
   stripped: string[];
   warnings: string[];
+  // Non-actionable expected events (e.g. closure-dropped external edges).
+  // Server demotes legacy `skipped_external_edge: ...` lines from warnings
+  // into here at preflight time, so the UI doesn't alarm on them.
+  info?: string[];
+  info_counters?: Record<string, number>;
   embedding?: { provider?: string; model?: string; dim?: number };
   integrity_sha256: string;
 }
