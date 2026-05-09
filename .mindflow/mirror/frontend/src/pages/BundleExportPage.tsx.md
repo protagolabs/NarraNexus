@@ -1,19 +1,21 @@
 ---
 code_file: frontend/src/pages/BundleExportPage.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-09
 stub: false
 ---
 
 # BundleExportPage.tsx — Export wizard (subproject 2 §8.13)
 
-4 tabs（Agents / Skills / Social Network / Workspace files）+ Bundle Notes editor + Review Summary modal。
+6 tabs（Agents / Chat history / Skills / Social Network / Message Bus / Workspace files）+ Bundle Notes editor + Review Summary modal。
 
 ## Tab data flow
 
 1. **Agents tab**：选 agent_ids + （可选）team。其他 tab 的内容范围跟随这里。
-2. **Skills tab**：拉每个 agent 的 skill list（`api.listSkills`），对照 `skill_archives`（`api.listSkillArchives`）显示三选项（url / zip / full_copy）+ 可用性灰显逻辑。
-3. **Social Network tab**：双栏 + 分页 + accordion。匹配同 team 名字的默认勾选（最宽匹配规则，议题 7.f.1 接受误报）。
-4. **Workspace files tab**：从 `api.listFiles` 拿文件列表，sensitive pattern 命中默认 unchecked + warning 标。
+2. **Chat history tab**：narrative / event / job 三层勾选；放进同一棵树是因为这三者有 narrative 的 cascade 关系。
+3. **Skills tab**：拉每个 agent 的 skill list（`api.listSkills`），对照 `skill_archives`（`api.listSkillArchives`）显示四选项（url / zip / full_copy / skip）。
+4. **Social Network tab**：双栏 + 分页 + accordion。匹配同 team 名字的默认勾选（最宽匹配规则，议题 7.f.1 接受误报）。
+5. **Message Bus tab**：调 `api.previewBusChannels(agent_ids)` 拿候选 channel（owner==self AND ≥1 closure 成员）；用户可勾掉某些 channel。默认全选，与旧版 closure-auto 行为对齐。Full mode 强制全选 + 只读。
+6. **Workspace files tab**：从 `api.listFiles` 拿文件列表，sensitive pattern 命中默认 unchecked + warning 标。
 
 ## Review Summary modal
 

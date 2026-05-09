@@ -963,6 +963,21 @@ class ApiClient {
     });
   }
 
+  async previewBusChannels(agentIds: string[]): Promise<{ channels: Array<{
+    channel_id: string;
+    name: string;
+    channel_type: string;
+    in_closure_member_ids: string[];
+    all_member_ids: string[];
+    message_count: number;
+    created_at?: string | null;
+  }> }> {
+    return this.request('/api/bundle/export/preview/bus-channels', {
+      method: 'POST',
+      body: JSON.stringify({ agent_ids: agentIds }),
+    });
+  }
+
   async listSkillArchives(): Promise<{ archives: SkillArchiveRecord[] }> {
     return this.request<{ archives: SkillArchiveRecord[] }>('/api/bundle/skills/archives');
   }

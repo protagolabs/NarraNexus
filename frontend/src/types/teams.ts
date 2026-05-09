@@ -74,6 +74,9 @@ export interface BundleExportRequest {
   event_selection?: Record<string, string[]> | null;
   // P7: per-agent job_id allowlist; omit/null = include all
   job_selection?: Record<string, string[]> | null;
+  // Message Bus channel allowlist; omit/null = include all
+  // owner-owned channels with ≥1 closure agent member
+  bus_channel_selection?: string[] | null;
 }
 
 // ----- Bundle import -----

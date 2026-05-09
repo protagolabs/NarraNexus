@@ -32,6 +32,7 @@ import {
   Wrench,
   ListTree,
   Hexagon,
+  Radio,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
 import { useConfigStore, useTeamsStore } from '@/stores';
@@ -49,10 +50,11 @@ const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: 'history', label: 'Chat history', icon: FileText },
   { id: 'skills', label: 'Skills', icon: Wrench },
   { id: 'social', label: 'Social Network', icon: Hexagon },
+  { id: 'bus', label: 'Message Bus', icon: Radio },
   { id: 'workspace', label: 'Workspace files', icon: ListTree },
 ];
 
-type TabId = 'agents' | 'history' | 'skills' | 'social' | 'workspace';
+type TabId = 'agents' | 'history' | 'skills' | 'social' | 'bus' | 'workspace';
 
 interface SocialEntity {
   entity_id: string;
@@ -75,6 +77,16 @@ interface ChatHistoryJob {
   description?: string;
   status?: string;
   job_type?: string;
+}
+
+interface BusChannel {
+  channel_id: string;
+  name: string;
+  channel_type: string;
+  in_closure_member_ids: string[];
+  all_member_ids: string[];
+  message_count: number;
+  created_at?: string | null;
 }
 
 interface ChatHistoryNarrative {
@@ -139,6 +151,17 @@ export default function BundleExportPage() {
   // narrative is excluded, its jobs are auto-dropped on the backend (P4)
   // regardless of this set.
   const [excludedJobs, setExcludedJobs] = useState<Record<string, Set<string>>>({});
+
+  // Message Bus channels available for the selected agent closure. Lazy-fetched
+  // when (a) the user opens the Bus tab, or (b) selectedAgents changes. Default
+  // selection = all candidates (matches legacy auto-include behavior).
+  // `null` = not yet fetched (loading), `[]` = fetched and empty.
+  const [busChannels, setBusChannels] = useState<BusChannel[] | null>(null);
+  const [busSelected, setBusSelected] = useState<Set<string>>(new Set());
+  // We track whether the user has manually edited the selection. If they
+  // haven't, agent-closure changes auto-refresh defaults; if they have, we
+  // preserve their picks across re-fetches.
+  const [busSelectionTouched, setBusSelectionTouched] = useState(false);
 
   // P9: bundle filename — defaults to <team_name>-YYYYMMDD.nxbundle when a
   // team is selected, else bundle-<YYYYMMDD>.nxbundle. Editable.
@@ -294,6 +317,49 @@ export default function BundleExportPage() {
       }
     });
   }, [selectedAgents, userId]);
+
+  // Fetch the candidate Message Bus channel list whenever the closure
+  // changes. Defaults to "select all" (matches legacy behavior); the user
+  // can untick channels in the Bus tab. We track `busSelectionTouched` so
+  // a closure refresh doesn't clobber a user's existing manual picks for
+  // channels still in the new candidate set.
+  useEffect(() => {
+    const ids = Array.from(selectedAgents);
+    if (ids.length === 0) {
+      setBusChannels([]);
+      setBusSelected(new Set());
+      return;
+    }
+    setBusChannels(null);  // mark loading
+    api.previewBusChannels(ids)
+      .then((r) => {
+        const candidates = r.channels || [];
+        setBusChannels(candidates);
+        const candidateIds = new Set(candidates.map((c) => c.channel_id));
+        setBusSelected((cur) => {
+          if (!busSelectionTouched) {
+            return new Set(candidateIds);  // default = all
+          }
+          // Preserve manual picks that are still candidates; drop stale ones.
+          const next = new Set<string>();
+          cur.forEach((id) => { if (candidateIds.has(id)) next.add(id); });
+          return next;
+        });
+      })
+      .catch(() => {
+        setBusChannels([]);
+      });
+  }, [selectedAgents]);
+
+  // Full snapshot mode: Bus is treated like every other depth dial — auto-include
+  // every candidate channel. The Bus tab becomes read-only; flipping back to
+  // Custom restores user-controlled selection.
+  useEffect(() => {
+    if (mode !== 'full') return;
+    if (!busChannels) return;
+    setBusSelected(new Set(busChannels.map((c) => c.channel_id)));
+    setBusSelectionTouched(false);
+  }, [mode, busChannels]);
 
   // Default skill choice per (agent, dirName) based on archive availability.
   // Note: skill_archives is keyed by skill_name (not dir), so two skills
@@ -496,8 +562,9 @@ export default function BundleExportPage() {
       skills: Object.values(skillChoices).filter((s) => s && s.install_method).length,
       socialEntities: Object.values(socialSelected).reduce((a, b) => a + b.size, 0),
       workspaceExcluded: Object.values(workspaceExcludes).reduce((a, b) => a + b.size, 0),
+      busChannels: busSelected.size,
     };
-  }, [selectedAgents, skillChoices, socialSelected, workspaceExcludes]);
+  }, [selectedAgents, skillChoices, socialSelected, workspaceExcludes, busSelected]);
 
   // Full mode: pre-fill granularity to "everything for the selected agents",
   // but DO NOT touch the agent selection itself — the user picks which agents
@@ -643,6 +710,16 @@ export default function BundleExportPage() {
         narrative_selection: Object.keys(narrativeSel).length ? narrativeSel : null,
         event_selection: Object.keys(eventSel).length ? eventSel : null,
         job_selection: Object.keys(jobSel).length ? jobSel : null,
+        // Bus channel allowlist. Only emit when the user actually deselected
+        // something (else the backend's default "ship every owner-owned channel
+        // with ≥1 closure member" applies, and we don't want a stale list to
+        // override that). We compare to the candidate list at the time of
+        // export — Full mode auto-fills back to all-candidates, so we'll skip
+        // the field there too.
+        bus_channel_selection: (busChannels && busChannels.length > 0
+          && busSelected.size !== busChannels.length)
+          ? Array.from(busSelected)
+          : null,
       };
       const { blob, filename: serverFilename, warningsCount, externalEdgesDropped } = await api.exportBundle(payload);
       // (filename sanitization happens just below; reuse `finalName`)
@@ -704,7 +781,7 @@ export default function BundleExportPage() {
           <h1 className="font-mono text-base">Export bundle</h1>
         </div>
         <div className="text-xs text-[var(--text-tertiary)]">
-          {summary.agents} agents · {summary.skills} skills · {summary.socialEntities} entities
+          {summary.agents} agents · {summary.skills} skills · {summary.socialEntities} entities · {summary.busChannels} channels
         </div>
       </div>
 
@@ -735,9 +812,10 @@ export default function BundleExportPage() {
                 </span>
               </div>
               <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
-                Self-backup. Includes <strong>all</strong> agents, narratives, events,
-                workspace files, and skills with credentials (env_config, wallet.json,
-                study summaries). Use to clone an entire setup to another of YOUR machines.
+                Self-backup. Includes <strong>all</strong> narratives, events, jobs,
+                social entities, message-bus channels, workspace files, and skills
+                with credentials (env_config, wallet.json, study summaries). Use to
+                clone an entire setup to another of YOUR machines.
               </div>
             </button>
             <button
@@ -887,6 +965,30 @@ export default function BundleExportPage() {
             onBulkSet={(aid, ids) => setSocialSelected((s) => ({ ...s, [aid]: new Set(ids) }))}
             selectedTeam={selectedTeam}
             teams={teams}
+          />
+        )}
+        {tab === 'bus' && (
+          <BusTab
+            agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
+            channels={busChannels}
+            selected={busSelected}
+            mode={mode}
+            onToggle={(cid) => {
+              setBusSelectionTouched(true);
+              setBusSelected((cur) => {
+                const next = new Set(cur);
+                if (next.has(cid)) next.delete(cid); else next.add(cid);
+                return next;
+              });
+            }}
+            onSelectAll={() => {
+              setBusSelectionTouched(true);
+              setBusSelected(new Set((busChannels || []).map((c) => c.channel_id)));
+            }}
+            onSelectNone={() => {
+              setBusSelectionTouched(true);
+              setBusSelected(new Set());
+            }}
           />
         )}
         {tab === 'workspace' && (
@@ -1832,6 +1934,131 @@ function Pager({ page, total, onPage }: { page: number; total: number; onPage: (
   );
 }
 
+function BusTab({
+  agents, channels, selected, mode, onToggle, onSelectAll, onSelectNone,
+}: {
+  agents: any[];
+  channels: BusChannel[] | null;
+  selected: Set<string>;
+  mode: 'full' | 'custom';
+  onToggle: (channelId: string) => void;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+}) {
+  const readOnly = mode === 'full';
+  const agentNameById: Record<string, string> = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of agents) m[a.agent_id] = a.name || a.agent_id;
+    return m;
+  }, [agents]);
+
+  if (channels === null) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] font-mono py-6">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        Loading message bus channels…
+      </div>
+    );
+  }
+  if (agents.length === 0) {
+    return <div className="text-xs text-[var(--text-tertiary)]">Pick at least one agent first.</div>;
+  }
+  if (channels.length === 0) {
+    return (
+      <div className="text-xs text-[var(--text-tertiary)] py-3">
+        No message-bus channels exist for the selected agent closure. Channels
+        ship only when you own them and at least one closure agent is a member.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs font-mono">
+        <span className="text-[var(--text-tertiary)]">
+          {channels.length} channel{channels.length === 1 ? '' : 's'} eligible · {selected.size} selected
+        </span>
+        {!readOnly && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onSelectAll}
+              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+            >
+              Select all
+            </button>
+            <button
+              onClick={onSelectNone}
+              className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+            >
+              Select none
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
+        Channels visible here are owned by you AND have at least one selected
+        agent as a member. Unselected channels — and their messages — are
+        excluded from the bundle. External members (agents outside this
+        closure) get rewritten on import as references; members not in the
+        closure don&apos;t come along.
+      </div>
+      <div className="border border-[var(--border-subtle)]">
+        {channels.map((c) => {
+          const checked = selected.has(c.channel_id);
+          const externalMembers = c.all_member_ids.filter((mid) => !c.in_closure_member_ids.includes(mid));
+          return (
+            <label
+              key={c.channel_id}
+              className={cn(
+                'flex items-start gap-3 px-3 py-2 border-b border-[var(--border-subtle)] last:border-b-0 cursor-pointer hover:bg-[var(--bg-tertiary)]',
+                readOnly && 'cursor-default opacity-90'
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={readOnly}
+                onChange={() => !readOnly && onToggle(c.channel_id)}
+                className="mt-1"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-sm">{c.name || c.channel_id}</span>
+                  {c.channel_type && (
+                    <span className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] text-[var(--text-tertiary)] font-mono">
+                      {c.channel_type}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-[var(--text-tertiary)] font-mono">
+                    {c.message_count} msg{c.message_count === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <div className="text-[11px] text-[var(--text-tertiary)] mt-0.5 font-mono break-all">
+                  {c.channel_id}
+                </div>
+                <div className="text-[11px] mt-1 text-[var(--text-secondary)]">
+                  In closure: {c.in_closure_member_ids.map((mid) => agentNameById[mid] || mid.slice(0, 8)).join(', ') || '(none)'}
+                  {externalMembers.length > 0 && (
+                    <span className="text-[var(--text-tertiary)]">
+                      {' '}· External: {externalMembers.length}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+      {readOnly && (
+        <div className="text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5">
+          <AlertTriangle className="w-3 h-3" />
+          Full snapshot mode auto-includes every eligible channel. Switch to Custom to pick.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WorkspaceTab({
   filesByAgent, excludesByAgent, agents, onToggle, onBulkSet,
 }: {
@@ -1997,6 +2224,7 @@ function ReviewSummaryModal({
                 {(skillStats.skip || 0) > 0 && `, ${skillStats.skip}× skip (NOT in bundle)`}
               </li>
               <li>{summary.socialEntities} social entit{summary.socialEntities === 1 ? 'y' : 'ies'}</li>
+              <li>{summary.busChannels} message-bus channel{summary.busChannels === 1 ? '' : 's'}</li>
               <li>
                 workspace files
                 {mode === 'full'

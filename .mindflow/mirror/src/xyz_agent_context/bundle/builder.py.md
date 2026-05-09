@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-05-08
+last_verified: 2026-05-09
 stub: false
 ---
 
@@ -38,6 +38,14 @@ stub: false
 zip 打包、tar.gz 压缩、整合 sha256 都是 CPU bound。一个 100MB workspace 压缩可能几秒到十几秒。用 `asyncio.to_thread` 让 event loop 不被卡住，其他用户的 chat 不受影响。
 
 涉及的 helper：`_zip_dir`, `_pack_workspace_sync`, `_compute_integrity_sha256`, `file_sha256` (单文件版)。
+
+### Bus channel 粒度（2026-05-09）
+
+`ExportSelection.bus_channel_selection: Optional[List[str]]`：
+- `None`（默认）→ 走旧逻辑：owner==当前用户 AND ≥1 closure 成员的 channel 全收
+- 传 list → 在旧逻辑基础上**再过一层 allowlist**（仍要求 owner+closure 条件）
+
+bus_messages 跟着 channel 走（被丢的 channel 上的所有消息也被丢）。前端 `BundleExportPage` 的 "Message Bus" tab 通过 `POST /api/bundle/export/preview/bus-channels` 拿候选清单，让用户勾。Full mode 自动等价 None（全收）。
 
 ### Workspace 路径
 

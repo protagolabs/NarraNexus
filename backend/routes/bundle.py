@@ -76,6 +76,10 @@ class ExportRequest(BaseModel):
     # P7: per-agent job_id allowlist; None = include all (subject to
     # narrative cascade — see builder).
     job_selection: Optional[Dict[str, List[str]]] = None
+    # Bus channel allowlist (channel_id list). None = ship every owner-owned
+    # channel that has at least one closure agent as a member (default).
+    # Selected channels still must satisfy ownership + ≥1 closure-agent member.
+    bus_channel_selection: Optional[List[str]] = None
 
 
 @router.post("/export")
@@ -122,6 +126,7 @@ async def export_bundle(payload: ExportRequest, request: Request):
         narrative_selection=payload.narrative_selection,
         event_selection=payload.event_selection,
         job_selection=payload.job_selection,
+        bus_channel_selection=payload.bus_channel_selection,
     )
 
     try:
@@ -211,6 +216,44 @@ async def import_confirm(payload: ConfirmRequest, request: Request):
     except Exception as e:
         logger.exception("confirm failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class BusChannelsPreviewRequest(BaseModel):
+    agent_ids: List[str]
+
+
+@router.post("/export/preview/bus-channels")
+async def preview_bus_channels(payload: BusChannelsPreviewRequest, request: Request):
+    """List the message-bus channels that *would* ship for the given agent
+    closure under default rules (owner==current user AND ≥1 closure agent
+    member). The frontend uses this to render a per-channel picker.
+    """
+    user_id = await _user_id_for_request(request)
+    if not payload.agent_ids:
+        return {"channels": []}
+
+    db = await get_db_client()
+    closure_set = set(payload.agent_ids)
+    owned_chs = await db.get("bus_channels", {"owner_user_id": user_id})
+    out: List[Dict[str, Any]] = []
+    for ch in owned_chs:
+        cid = ch["channel_id"]
+        members = await db.get("bus_channel_members", {"channel_id": cid})
+        closure_member_ids = [m["agent_id"] for m in members if m["agent_id"] in closure_set]
+        if not closure_member_ids:
+            continue
+        msgs = await db.get("bus_messages", {"channel_id": cid})
+        msg_count = len(msgs)
+        out.append({
+            "channel_id": cid,
+            "name": ch.get("name") or "",
+            "channel_type": ch.get("channel_type") or "",
+            "in_closure_member_ids": closure_member_ids,
+            "all_member_ids": [m["agent_id"] for m in members],
+            "message_count": msg_count,
+            "created_at": ch.get("created_at"),
+        })
+    return {"channels": out}
 
 
 @router.get("/skills/archives")

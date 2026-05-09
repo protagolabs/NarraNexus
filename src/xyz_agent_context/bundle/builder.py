@@ -108,6 +108,7 @@ class ExportSelection:
         narrative_selection: Optional[Dict[str, List[str]]] = None,
         event_selection: Optional[Dict[str, List[str]]] = None,
         job_selection: Optional[Dict[str, List[str]]] = None,
+        bus_channel_selection: Optional[List[str]] = None,
     ):
         self.agent_ids = agent_ids
         self.team_id = team_id
@@ -141,6 +142,11 @@ class ExportSelection:
         # parent narrative is excluded are also auto-dropped (P4) regardless
         # of this allowlist, so a job_id won't ship if its narrative didn't.
         self.job_selection = job_selection
+        # Bus channel allowlist. None = ship every owner-owned channel that
+        # has at least one closure agent as a member (legacy/default behavior).
+        # When provided, only channels in this list ship — but they still
+        # must be owned by the user and have ≥1 closure-agent member.
+        self.bus_channel_selection = bus_channel_selection
 
 
 async def build_bundle(
@@ -519,9 +525,17 @@ async def build_bundle(
         # Channels: keep ones owned by any closure agent (owner_user_id == export user; we
         # ship all channels matching the owner_user_id and at least one closure member).
         owned_chs = await db.get("bus_channels", {"owner_user_id": user_id})
+        # User-provided allowlist (channel_ids). None = include all.
+        channel_allowlist: Optional[Set[str]] = (
+            set(selection.bus_channel_selection)
+            if selection.bus_channel_selection is not None
+            else None
+        )
         kept_channel_ids: Set[str] = set()
         for ch in owned_chs:
             cid = ch["channel_id"]
+            if channel_allowlist is not None and cid not in channel_allowlist:
+                continue
             members = await db.get("bus_channel_members", {"channel_id": cid})
             closure_members = [m for m in members if m["agent_id"] in closure_set]
             if not closure_members:

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-05-08
+last_verified: 2026-05-09
 stub: false
 ---
 
@@ -29,6 +29,9 @@ stub: false
 | POST | /import/confirm | 用 token 真正导入 |
 | GET  | /skills/archives | 列当前 user 的归档清单 |
 | POST | /skills/archives/upload | 手动补归档（github URL or zip 文件） |
+| POST | /export/preview/bus-channels | 列出当前 closure 候选 message-bus 频道（前端 picker 用） |
+
+`bus_channel_selection`（List[str]）通过 `ExportRequest` 透传到 `ExportSelection`：None = 默认走 closure 自动过滤，传值则在自动过滤的基础上再做 allowlist 限制（仍要求 owner == user 且 ≥1 closure 成员）。
 
 ### Streaming response
 
