@@ -572,16 +572,20 @@ export default function BundleExportPage() {
       const eventSel: Record<string, string[]> = {};
       Array.from(selectedAgents).forEach((aid) => {
         const allNarrs = historyByAgent[aid] || [];
+        // Filter out the synthetic orphan-jobs placeholder narrative —
+        // it's a UI-only construct, not a real narrative_id, and
+        // shouldn't enter the backend allowlist.
+        const realNarrs = allNarrs.filter((n) => n.narrative_id !== '__orphan_jobs__');
         const exNars = excludedNarratives[aid] || new Set();
         // Only emit a selection if user actually de-selected something;
         // otherwise leave undefined to fall back to "include all" semantics.
         if (exNars.size > 0) {
-          narrativeSel[aid] = allNarrs
+          narrativeSel[aid] = realNarrs
             .filter((n) => !exNars.has(n.narrative_id))
             .map((n) => n.narrative_id);
         }
-        // Per-narrative event filtering
-        allNarrs.forEach((n) => {
+        // Per-narrative event filtering (skip orphan placeholder which has no events)
+        realNarrs.forEach((n) => {
           const exEvts = excludedEvents[n.narrative_id];
           if (exEvts && exEvts.size > 0) {
             eventSel[n.narrative_id] = n.events
@@ -628,17 +632,24 @@ export default function BundleExportPage() {
         job_selection: Object.keys(jobSel).length ? jobSel : null,
       };
       const { blob, filename: serverFilename, warningsCount, externalEdgesDropped } = await api.exportBundle(payload);
+      // (filename sanitization happens just below; reuse `finalName`)
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      // P9: use the user-typed filename if non-empty, else fall back to server's
-      a.download = (filename && filename.trim()) || serverFilename;
-      a.click();
-      URL.revokeObjectURL(url);
       // Warnings are real concerns; "external edges dropped" is informational
       // (expected closure behavior) and shown separately so the user doesn't
       // panic over hundreds of routine edge-drops.
-      const finalName = (filename && filename.trim()) || serverFilename;
+      // Sanitize filename: strip path-traversal chars, ensure .nxbundle suffix.
+      let chosen = (filename && filename.trim()) || serverFilename;
+      // Disallow `/` and `\` to avoid the browser writing into a subdirectory.
+      chosen = chosen.replace(/[\/\\]/g, '_');
+      if (!chosen.endsWith('.nxbundle') && !chosen.endsWith('.zip')) {
+        chosen = `${chosen}.nxbundle`;
+      }
+      const finalName = chosen;
+      a.download = finalName;
+      a.click();
+      URL.revokeObjectURL(url);
       const parts = [`${finalName} downloaded.`];
       if (externalEdgesDropped > 0) {
         parts.push(
@@ -860,6 +871,7 @@ export default function BundleExportPage() {
             onToggleSelectedPage={(aid, p) => setSocialSelectedPage((s) => ({ ...s, [aid]: p }))}
             agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
             onToggle={toggleSocial}
+            onBulkSet={(aid, ids) => setSocialSelected((s) => ({ ...s, [aid]: new Set(ids) }))}
             selectedTeam={selectedTeam}
             teams={teams}
           />
@@ -870,6 +882,24 @@ export default function BundleExportPage() {
             excludesByAgent={workspaceExcludes}
             agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
             onToggle={toggleWorkspaceFile}
+            onBulkSet={(aid, scope) => {
+              const files = workspaceFiles[aid] || [];
+              setWorkspaceExcludes((s) => {
+                const next = { ...s };
+                if (scope === 'all') {
+                  // all included: sensitive get override-include (in set);
+                  // non-sensitive default-include (NOT in set)
+                  next[aid] = new Set(files.filter((f) => f.sensitive).map((f) => f.path));
+                } else if (scope === 'non-sensitive') {
+                  // back to defaults: all non-sensitive included, all sensitive skipped
+                  next[aid] = new Set();
+                } else {
+                  // exclude-all: every non-sensitive in set; no sensitive override
+                  next[aid] = new Set(files.filter((f) => !f.sensitive).map((f) => f.path));
+                }
+                return next;
+              });
+            }}
           />
         )}
       </div>
@@ -934,6 +964,8 @@ export default function BundleExportPage() {
           onCancel={() => setReviewing(false)}
           onConfirm={doExport}
           downloading={downloading}
+          filename={filename}
+          mode={mode}
         />
       )}
       {sensitiveHits && (
@@ -1608,7 +1640,7 @@ function RadioCard({ label, desc, disabled, active, onClick }: { label: string; 
 function SocialTab({
   entitiesByAgent, selectedByAgent, pageByAgent, onTogglePage,
   selectedPageByAgent, onToggleSelectedPage,
-  agents, onToggle,
+  agents, onToggle, onBulkSet,
 }: {
   entitiesByAgent: Record<string, SocialEntity[]>;
   selectedByAgent: Record<string, Set<string>>;
@@ -1618,6 +1650,7 @@ function SocialTab({
   onToggleSelectedPage: (aid: string, page: number) => void;
   agents: any[];
   onToggle: (aid: string, eid: string) => void;
+  onBulkSet: (aid: string, ids: string[]) => void;
   selectedTeam?: string;
   teams?: TeamWithMembers[];
 }) {
@@ -1662,9 +1695,25 @@ function SocialTab({
           <details key={a.agent_id} open className="border border-[var(--border-default)]">
             <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
               <span>{a.name || a.agent_id}</span>
-              <span className="text-[10px] text-[var(--text-tertiary)]">
-                {selected.size} / {list.length} selected
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[var(--text-tertiary)]">
+                  {selected.size} / {list.length} selected
+                </span>
+                <button
+                  onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, list.map((x) => x.entity_id)); }}
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  disabled={list.length === 0}
+                >
+                  Select all
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, []); }}
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  disabled={selected.size === 0}
+                >
+                  Select none
+                </button>
+              </div>
             </summary>
             <div className="grid grid-cols-2 divide-x divide-[var(--border-subtle)]">
               {/* Left: all entities (paged 30/page) */}
@@ -1755,12 +1804,17 @@ function Pager({ page, total, onPage }: { page: number; total: number; onPage: (
 }
 
 function WorkspaceTab({
-  filesByAgent, excludesByAgent, agents, onToggle,
+  filesByAgent, excludesByAgent, agents, onToggle, onBulkSet,
 }: {
   filesByAgent: Record<string, { path: string; size: number; sensitive: boolean }[]>;
   excludesByAgent: Record<string, Set<string>>;
   agents: any[];
   onToggle: (aid: string, path: string) => void;
+  // Dual-meaning bulk setter (see workspaceExcludes semantics):
+  // include-all ⇒ excludesSet = {all sensitive paths}
+  // include-non-sensitive-only ⇒ excludesSet = {} (default)
+  // exclude-all ⇒ excludesSet = {all non-sensitive paths}
+  onBulkSet: (aid: string, mode: 'all' | 'non-sensitive' | 'none') => void;
 }) {
   if (agents.length === 0) return (<div className="text-sm text-[var(--text-tertiary)]">Select agents first.</div>);
   return (
@@ -1779,11 +1833,42 @@ function WorkspaceTab({
             </details>
           );
         }
+        const sensitiveCount = files.filter((f) => f.sensitive).length;
+        const includedCount = files.filter((f) =>
+          f.sensitive ? excludes.has(f.path) : !excludes.has(f.path)
+        ).length;
         return (
           <details key={a.agent_id} open className="border border-[var(--border-default)]">
             <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
               <span>{a.name || a.agent_id}</span>
-              <span className="text-[10px] text-[var(--text-tertiary)]">{files.length} file{files.length === 1 ? '' : 's'}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[var(--text-tertiary)]">
+                  {includedCount} / {files.length} files included
+                  {sensitiveCount > 0 && ` · ${sensitiveCount} sensitive`}
+                </span>
+                <button
+                  onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, 'all'); }}
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  disabled={files.length === 0}
+                >
+                  Include all
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, 'non-sensitive'); }}
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  disabled={sensitiveCount === 0 && includedCount === files.length - 0}
+                  title="Include all NON-sensitive files; sensitive files default-skipped"
+                >
+                  Defaults
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, 'none'); }}
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  disabled={files.length === 0}
+                >
+                  Exclude all
+                </button>
+              </div>
             </summary>
             <div className="p-2 max-h-[320px] overflow-y-auto">
               {files.length === 0 && (
@@ -1821,7 +1906,7 @@ function WorkspaceTab({
                     </span>
                     {sensitive && (
                       <span className="text-[9px] text-[var(--color-yellow-500)] uppercase tracking-wider font-mono">
-                        sensitive — click to include
+                        {willBeIncluded ? 'sensitive — included' : 'sensitive — click to include'}
                       </span>
                     )}
                     <span className="text-[10px] text-[var(--text-tertiary)]">{Math.round(f.size / 1024)} KB</span>
@@ -1842,27 +1927,53 @@ function WorkspaceTab({
 
 function ReviewSummaryModal({
   summary, team, introMd, skills, warnings, onCancel, onConfirm, downloading,
+  filename, mode,
 }: any) {
+  const skillStats = (skills || []).reduce(
+    (acc: Record<string, number>, s: SkillExportSpec) => {
+      const m = s.install_method || 'skip';
+      acc[m] = (acc[m] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
+  const includedSkills = skills.filter(
+    (s: SkillExportSpec) => s.install_method && s.install_method !== 'skip'
+  ).length;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="w-[680px] max-w-[95vw] max-h-[90vh] bg-[var(--bg-primary)] border border-[var(--border-default)] flex flex-col">
         <div className="px-5 py-3 border-b border-[var(--border-default)] flex items-center justify-between">
           <h2 className="font-mono text-sm">Final review before download</h2>
+          <span className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">
+            {mode === 'full' ? 'Full snapshot' : 'Custom'}
+          </span>
         </div>
         <div className="flex-1 overflow-y-auto p-5 space-y-4 text-sm font-mono">
+          {/* Filename — show what will be downloaded */}
+          <div className="text-[12px] flex items-center gap-2">
+            <span className="text-[var(--text-tertiary)] uppercase tracking-widest text-[10px]">File:</span>
+            <span className="text-[var(--text-primary)]">{filename || 'bundle.nxbundle'}</span>
+          </div>
           <div>
             <div className="text-[var(--text-secondary)] uppercase text-xs mb-1">✓ Included</div>
             <ul className="list-disc list-inside text-[12px] text-[var(--text-secondary)] space-y-0.5">
               <li>{summary.agents} agent{summary.agents === 1 ? '' : 's'}</li>
               {team && <li>1 team "{team.team.name}"</li>}
               <li>
-                {skills.filter((s: SkillExportSpec) => s.install_method).length} skill{skills.filter((s: SkillExportSpec) => s.install_method).length === 1 ? '' : 's'}:
-                {' '}{skills.filter((s: SkillExportSpec) => s.install_method === 'url').length}× url,
-                {' '}{skills.filter((s: SkillExportSpec) => s.install_method === 'zip').length}× zip,
-                {' '}{skills.filter((s: SkillExportSpec) => s.install_method === 'full_copy').length}× full-copy
+                {includedSkills} skill entr{includedSkills === 1 ? 'y' : 'ies'}:
+                {' '}{skillStats.url || 0}× url,
+                {' '}{skillStats.zip || 0}× zip,
+                {' '}{skillStats.full_copy || 0}× full-copy
+                {(skillStats.skip || 0) > 0 && `, ${skillStats.skip}× skip (NOT in bundle)`}
               </li>
               <li>{summary.socialEntities} social entit{summary.socialEntities === 1 ? 'y' : 'ies'}</li>
-              <li>workspace files (sensitive paths excluded by default)</li>
+              <li>
+                workspace files
+                {mode === 'full'
+                  ? ' (sensitive paths included)'
+                  : ' (sensitive paths excluded by default — opt-in per file)'}
+              </li>
               {introMd && <li>README.md ({introMd.length} chars)</li>}
             </ul>
           </div>

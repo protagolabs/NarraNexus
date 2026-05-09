@@ -141,7 +141,16 @@ async def archive_local_zip(
     ws = _agent_workspace_root(agent_id, user_id)
     if ws is None:
         raise ValueError("Cannot resolve agent workspace")
-    if str(src).find(str(ws.resolve())) != 0:
+    ws_resolved = ws.resolve()
+    # Use Path.is_relative_to (3.9+) for robust prefix check; falls back
+    # to a string-based check on older Pythons. Defense-in-depth against
+    # `/foo/agent_a_user_x/../../etc/passwd` style attempts that resolve
+    # to outside the workspace.
+    try:
+        is_in_ws = src.is_relative_to(ws_resolved)
+    except AttributeError:  # pragma: no cover (Python < 3.9)
+        is_in_ws = str(src).startswith(str(ws_resolved) + "/") or str(src) == str(ws_resolved)
+    if not is_in_ws:
         raise ValueError("zip_file_path must be inside this agent's workspace")
     if not src.exists() or not src.is_file():
         raise ValueError(f"file not found: {src}")

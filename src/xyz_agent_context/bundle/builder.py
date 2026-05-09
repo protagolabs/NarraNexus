@@ -193,7 +193,7 @@ async def build_bundle(
 
             # agent.json
             agent_row = await db.get_one("agents", {"agent_id": aid})
-            agent_record = _scrub_user_id(dict(agent_row), user_id)
+            agent_record = _scrub_user_id(dict(agent_row), user_id, "agents")
             (agent_dir / "agent.json").write_text(
                 json.dumps(agent_record, indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
@@ -211,7 +211,7 @@ async def build_bundle(
                     if inst and inst.get("agent_id") == aid:
                         awareness_rows.append(r)
             (agent_dir / "awareness.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id) for r in awareness_rows],
+                json.dumps([_scrub_user_id(dict(r), user_id, "instance_awareness") for r in awareness_rows],
                            indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
@@ -232,7 +232,7 @@ async def build_bundle(
                 ndir = narratives_dir / n["narrative_id"]
                 ndir.mkdir(parents=True, exist_ok=True)
                 (ndir / "narrative.json").write_text(
-                    json.dumps(_scrub_user_id(dict(n), user_id),
+                    json.dumps(_scrub_user_id(dict(n), user_id, "narratives"),
                                indent=2, ensure_ascii=False, default=str),
                     encoding="utf-8",
                 )
@@ -252,7 +252,7 @@ async def build_bundle(
                         for e in e_rows:
                             if allowed_events is not None and e["event_id"] not in allowed_events:
                                 continue
-                            scrubbed = _scrub_user_id(dict(e), user_id)
+                            scrubbed = _scrub_user_id(dict(e), user_id, "events")
                             f.write(json.dumps(scrubbed, ensure_ascii=False, default=str) + "\n")
 
             # module_instances + instance-scoped tables (filtered to this agent's instances)
@@ -266,7 +266,7 @@ async def build_bundle(
                 kdir = instances_dir / klass
                 kdir.mkdir(parents=True, exist_ok=True)
                 (kdir / f"{r['instance_id']}.json").write_text(
-                    json.dumps(_scrub_user_id(dict(r), user_id),
+                    json.dumps(_scrub_user_id(dict(r), user_id, "module_instances"),
                                indent=2, ensure_ascii=False, default=str),
                     encoding="utf-8",
                 )
@@ -293,7 +293,7 @@ async def build_bundle(
                     kept.append(r)
                 social_entities_for_agent.extend(kept)
             (agent_dir / "social_entities.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id) for r in social_entities_for_agent],
+                json.dumps([_scrub_user_id(dict(r), user_id, "instance_social_entities") for r in social_entities_for_agent],
                            indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
@@ -303,7 +303,7 @@ async def build_bundle(
             for iid in agent_instance_ids:
                 rag_rows.extend(await db.get("instance_rag_store", {"instance_id": iid}))
             (agent_dir / "rag.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id) for r in rag_rows],
+                json.dumps([_scrub_user_id(dict(r), user_id, "instance_rag_store") for r in rag_rows],
                            indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
@@ -311,7 +311,7 @@ async def build_bundle(
             # agent_messages
             msg_rows = await db.get("agent_messages", {"agent_id": aid}) if selection.include_chat_history else []
             (agent_dir / "agent_messages.jsonl").write_text(
-                "\n".join(json.dumps(_scrub_user_id(dict(r), user_id),
+                "\n".join(json.dumps(_scrub_user_id(dict(r), user_id, "agent_messages"),
                                      ensure_ascii=False, default=str) for r in msg_rows),
                 encoding="utf-8",
             )
@@ -345,7 +345,7 @@ async def build_bundle(
                     "narrative was not selected (auto-cascade)"
                 )
             (agent_dir / "jobs.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id) for r in kept_jobs],
+                json.dumps([_scrub_user_id(dict(r), user_id, "instance_jobs") for r in kept_jobs],
                            indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
@@ -355,7 +355,7 @@ async def build_bundle(
             for iid in agent_instance_ids:
                 nl_rows.extend(await db.get("instance_narrative_links", {"instance_id": iid}))
             (agent_dir / "instance_narrative_links.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id) for r in nl_rows],
+                json.dumps([_scrub_user_id(dict(r), user_id, "instance_narrative_links") for r in nl_rows],
                            indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
@@ -371,7 +371,7 @@ async def build_bundle(
                 for iid in agent_instance_ids:
                     mem_rows.extend(await db.get(memory_table, {"instance_id": iid}))
                 (agent_dir / f"{memory_table}.json").write_text(
-                    json.dumps([_scrub_user_id(dict(r), user_id) for r in mem_rows],
+                    json.dumps([_scrub_user_id(dict(r), user_id, memory_table) for r in mem_rows],
                                indent=2, ensure_ascii=False, default=str),
                     encoding="utf-8",
                 )
@@ -511,17 +511,17 @@ async def build_bundle(
             if not closure_members:
                 continue
             kept_channel_ids.add(cid)
-            bus_channels.append(_scrub_user_id(dict(ch), user_id))
-            bus_channel_members.extend(_scrub_user_id(dict(m), user_id) for m in closure_members)
+            bus_channels.append(_scrub_user_id(dict(ch), user_id, "bus_channels"))
+            bus_channel_members.extend(_scrub_user_id(dict(m), user_id, "bus_channel_members") for m in closure_members)
         # Bus messages for kept channels
         for cid in kept_channel_ids:
             msgs = await db.get("bus_messages", {"channel_id": cid}, order_by="created_at ASC")
-            bus_messages.extend(_scrub_user_id(dict(m), user_id) for m in msgs)
+            bus_messages.extend(_scrub_user_id(dict(m), user_id, "bus_messages") for m in msgs)
         # bus_agent_registry per closure agent
         for aid in closure_set:
             row = await db.get_one("bus_agent_registry", {"agent_id": aid})
             if row:
-                bus_agent_registry.append(_scrub_user_id(dict(row), user_id))
+                bus_agent_registry.append(_scrub_user_id(dict(row), user_id, "bus_agent_registry"))
         (tmpdir / "bus.json").write_text(
             json.dumps({
                 "channels": bus_channels,
@@ -545,7 +545,7 @@ async def build_bundle(
                 closure_event_ids.add(ev["event_id"])
         for ib in inbox_rows:
             if ib.get("event_id") and ib["event_id"] in closure_event_ids:
-                inbox_kept.append(_scrub_user_id(dict(ib), user_id))
+                inbox_kept.append(_scrub_user_id(dict(ib), user_id, "inbox_table"))
         (tmpdir / "inbox.json").write_text(
             json.dumps(inbox_kept, indent=2, ensure_ascii=False, default=str),
             encoding="utf-8",
@@ -619,15 +619,24 @@ async def build_bundle(
     }
 
 
-def _scrub_user_id(row: dict, user_id: str) -> dict:
+def _scrub_user_id(row: dict, user_id: str, table: Optional[str] = None) -> dict:
     """Replace any user_id columns AND any free-text occurrences of user_id
     with the owner placeholder. Drop password_hash etc.
 
-    Free-text replacement matters for fields like awareness markdown,
-    event final_output, narrative dynamic_summary etc. that may contain the
-    owner's username verbatim. On import the placeholder gets swapped for
-    the recipient's user_id (Layer 4).
+    The free-text substring replace must NOT touch columns that hold a
+    structured ID — some legacy ID schemes embed the user's name (e.g.
+    `agent_X_binliang_default_N-05` as a deterministic narrative_id). If we
+    blindly replace `binliang` with `<original_owner>` inside that string,
+    the dir name (used by importer's pre-collect) and the JSON content
+    diverge, and the import-side rewrite misses the lookup → UNIQUE conflict
+    on insert. Pass `table=` so we know which columns are ID-typed and
+    leave them untouched.
     """
+    from xyz_agent_context.bundle.id_field_map import STRUCTURED_ID_FIELDS
+    id_cols: set = set()
+    if table:
+        id_cols = set(STRUCTURED_ID_FIELDS.get(table, {}).keys())
+
     out = dict(row)
     placeholder = "<original_owner>"
     for k in list(out.keys()):
@@ -638,6 +647,12 @@ def _scrub_user_id(row: dict, user_id: str) -> dict:
         if k.endswith("user_id") or k == "user_id" or k == "created_by":
             if v == user_id:
                 out[k] = placeholder
+            continue
+        if k in id_cols:
+            # ID columns are referenced by id_map / pre-collect. Leave them
+            # exactly as stored; substring scrubbing would corrupt the
+            # cross-reference on import. Free-text rewrite (Layer 4) on the
+            # import side handles user_id appearance in non-ID columns.
             continue
         # Free-text: replace literal user_id substring with placeholder.
         if isinstance(v, str) and user_id and user_id in v:
@@ -681,6 +696,11 @@ async def _pack_workspace(
 def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "") -> Path:
     text_extensions = {".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".csv", ".log"}
     placeholder = "<original_owner>"
+    # Memory cap on per-file user_id rewrite. Files larger than this are
+    # added to the tar as-is (no in-memory rewrite). Picked at 5 MB so the
+    # rewrite still covers awareness markdown / notes / chat logs but skips
+    # giant log files / dumps that would balloon RAM during export.
+    text_rewrite_max_bytes = 5 * 1024 * 1024
 
     def filter_func(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
         name = tarinfo.name
@@ -718,18 +738,23 @@ def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "")
                     arcname = f"./{rel_str}"
                     if full.suffix.lower() in text_extensions:
                         try:
-                            content = full.read_text(encoding="utf-8")
-                        except (OSError, UnicodeDecodeError):
-                            tar.add(full, arcname=arcname, filter=filter_func)
-                            continue
-                        if user_id in content:
-                            content = content.replace(user_id, placeholder)
-                            data = content.encode("utf-8")
-                            ti = tarfile.TarInfo(name=arcname)
-                            ti.size = len(data)
-                            ti.mtime = full.stat().st_mtime
-                            tar.addfile(ti, fileobj=io.BytesIO(data))
-                            continue
+                            sz = full.stat().st_size
+                        except OSError:
+                            sz = 0
+                        if 0 < sz <= text_rewrite_max_bytes:
+                            try:
+                                content = full.read_text(encoding="utf-8")
+                            except (OSError, UnicodeDecodeError):
+                                tar.add(full, arcname=arcname, filter=filter_func)
+                                continue
+                            if user_id in content:
+                                content = content.replace(user_id, placeholder)
+                                data = content.encode("utf-8")
+                                ti = tarfile.TarInfo(name=arcname)
+                                ti.size = len(data)
+                                ti.mtime = full.stat().st_mtime
+                                tar.addfile(ti, fileobj=io.BytesIO(data))
+                                continue
                     tar.add(full, arcname=arcname, filter=filter_func)
         else:
             tar.add(src, arcname=".", filter=filter_func)

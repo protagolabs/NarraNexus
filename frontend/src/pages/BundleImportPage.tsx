@@ -89,7 +89,18 @@ export default function BundleImportPage() {
       await refreshTeams();
       await refreshAgents();
     } catch (e: any) {
-      setError(e?.message || 'Import failed');
+      const msg = e?.message || String(e);
+      // Special case: preflight session expired (>6h since upload, or
+      // backend was restarted on a host without persistent volume).
+      // Bounce back to upload step so the user can re-pick the file.
+      if (/preflight.*(not found|expired|missing)/i.test(msg)) {
+        setError('Your preview session expired (>6h or backend restarted). Please re-upload the bundle.');
+        setStep('upload');
+        setPreflight(null);
+        setFile(null);
+      } else {
+        setError(msg);
+      }
     } finally {
       setBusy(false);
     }

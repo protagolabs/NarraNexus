@@ -200,19 +200,39 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     }
 
     if bundle_dim is not None and local_dim is not None and bundle_dim != local_dim:
-        # Hard block — different vector dimensions means the embeddings_store column
-        # cannot be reused, RAG / chat embeddings would be silently broken.
-        embedding_compat["compatible"] = False
-        embedding_compat["advice"] = (
-            f"BLOCKED: bundle uses embeddings of dimension {bundle_dim} but this "
-            f"instance is configured for dimension {local_dim} (model={local_model}). "
-            "Importing would corrupt the RAG store. Either reconfigure this instance "
-            "to use a model with matching dim, or ask the bundle author to re-export "
-            "with a compatible model."
-        )
-        # Refuse to create a session — this is an unrecoverable mismatch.
-        shutil.rmtree(work_dir, ignore_errors=True)
-        raise ValueError(embedding_compat["advice"])
+        # Check whether the bundle ACTUALLY ships any embeddings. If it
+        # doesn't (e.g. agents never had RAG / chat embedding rows), dim
+        # mismatch is irrelevant — let the import proceed with a soft warning.
+        rag_path = work_dir / "rag.json"  # legacy path (unused now but keep for compat)
+        bundle_has_embeddings = False
+        for adir in (work_dir / "agents").iterdir() if (work_dir / "agents").exists() else []:
+            arag = adir / "rag.json"
+            if arag.exists():
+                try:
+                    if json.loads(arag.read_text(encoding="utf-8")):
+                        bundle_has_embeddings = True
+                        break
+                except Exception:
+                    pass
+        if not bundle_has_embeddings:
+            embedding_compat["advice"] = (
+                f"NOTE: bundle was tagged with dim={bundle_dim} but ships no actual "
+                f"embedding rows. Your instance uses dim={local_dim}. Import will "
+                "proceed; future embeddings will use your local model."
+            )
+        else:
+            # Hard block — different vector dimensions means the embeddings_store
+            # column cannot be reused, RAG / chat embeddings would be silently broken.
+            embedding_compat["compatible"] = False
+            embedding_compat["advice"] = (
+                f"BLOCKED: bundle uses embeddings of dimension {bundle_dim} but this "
+                f"instance is configured for dimension {local_dim} (model={local_model}). "
+                "Importing would corrupt the RAG store. Either reconfigure this instance "
+                "to use a model with matching dim, or ask the bundle author to re-export "
+                "with a compatible model."
+            )
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise ValueError(embedding_compat["advice"])
 
     if bundle_provider and bundle_provider != local_provider:
         embedding_compat["advice"] = (
@@ -333,6 +353,32 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                         mid = rec.get("message_id")
                         if mid and mid not in id_map:
                             id_map[mid] = gen_new_id("message")
+            # jobs
+            jobs_path = adir / "jobs.json"
+            if jobs_path.exists():
+                try:
+                    for jrec in json.loads(jobs_path.read_text(encoding="utf-8")):
+                        jid = jrec.get("job_id")
+                        if jid and jid not in id_map:
+                            id_map[jid] = gen_new_id("job")
+                except (OSError, json.JSONDecodeError):
+                    pass
+
+    # Bundle-level: bus channels (channel_id) and bus messages (message_id)
+    bus_path = work_dir / "bus.json"
+    if bus_path.exists():
+        try:
+            bus_data = json.loads(bus_path.read_text(encoding="utf-8"))
+            for ch in (bus_data.get("channels") or []):
+                cid = ch.get("channel_id")
+                if cid and cid not in id_map:
+                    id_map[cid] = gen_new_id("channel")
+            for ms in (bus_data.get("messages") or []):
+                mid = ms.get("message_id")
+                if mid and mid not in id_map:
+                    id_map[mid] = gen_new_id("message")
+        except (OSError, json.JSONDecodeError):
+            pass
 
     free_text_regex = build_all_id_regex()
     OWNER_PLACEHOLDER = "<original_owner>"
@@ -726,6 +772,37 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         register_archive,
     )
 
+    # Perf optimization: when N entries reference the same source (same
+    # skill_name + same install_method + same source URL or zip archive_ref),
+    # we install once into the FIRST agent's skills/ dir and `cp -r` to the
+    # rest. Avoids N×git-clones / N×zip-extracts which can dominate import
+    # time on team bundles (5 agents sharing 4 skills = 20 unnecessary
+    # subprocess.git invocations under the naive impl).
+    # full_copy is excluded — each agent's archive zip carries that agent's
+    # own .skill_meta.json / credentials, so they're distinct payloads.
+    from xyz_agent_context.utils.file_safety import sanitize_filename, ensure_within_directory
+    from xyz_agent_context.settings import settings as core_settings
+
+    def install_cache_key(s_entry: dict) -> Optional[str]:
+        m = s_entry.get("install_method")
+        if m == "url":
+            return f"url::{s_entry.get('skill_name')}::{s_entry.get('source_url')}::{s_entry.get('branch') or 'main'}"
+        if m == "zip":
+            return f"zip::{s_entry.get('skill_name')}::{s_entry.get('archive_ref')}"
+        return None
+
+    install_cache: Dict[str, Path] = {}  # cache_key → "first installed skill dir"
+
+    def _copy_skill_to_agent(src_skill_dir: Path, target_aid: str, skill_name: str) -> None:
+        """Copy an already-installed skill dir into a target agent's skills/ dir."""
+        base = Path(core_settings.base_working_path) / f"{target_aid}_{user_id}" / "skills"
+        base.mkdir(parents=True, exist_ok=True)
+        safe_name = sanitize_filename(skill_name, label="skill name")
+        target = ensure_within_directory(base, safe_name, label="skill name")
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(src_skill_dir, target)
+
     for s in manifest.get("skills", []):
         method = s.get("install_method")
         skill_name = s.get("name")
@@ -756,9 +833,26 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                         {"skill": skill_name, "reason": "url install method but no source_url"}
                     )
                     continue
-                for new_aid in target_aids:
-                    sm = SkillModule(agent_id=new_aid, user_id=user_id)
-                    await asyncio.to_thread(sm.install_from_github, src_url, branch)
+                key = install_cache_key(s)
+                cached_dir = install_cache.get(key) if key else None
+                # First pass: install into the first agent's workspace, then
+                # cache that dir. Subsequent agents copy from the cache.
+                first_aid = target_aids[0]
+                if cached_dir is None:
+                    sm = SkillModule(agent_id=first_aid, user_id=user_id)
+                    info = await asyncio.to_thread(sm.install_from_github, src_url, branch)
+                    cached_dir = Path(info.path)
+                    if key:
+                        install_cache[key] = cached_dir
+                else:
+                    await asyncio.to_thread(
+                        _copy_skill_to_agent, cached_dir, first_aid, skill_name
+                    )
+                # Copy to remaining agents (no clone needed)
+                for new_aid in target_aids[1:]:
+                    await asyncio.to_thread(
+                        _copy_skill_to_agent, cached_dir, new_aid, skill_name
+                    )
                 await backup_after_api_install(
                     user_id=user_id,
                     skill_name=skill_name,
@@ -779,9 +873,23 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 tgt = skill_archives_dir / f"{skill_name}.zip"
                 if not tgt.exists():
                     await asyncio.to_thread(shutil.copy2, zip_path, tgt)
-                for new_aid in target_aids:
-                    sm = SkillModule(agent_id=new_aid, user_id=user_id)
-                    await asyncio.to_thread(sm.install_skill, zip_path)
+                key = install_cache_key(s)
+                cached_dir = install_cache.get(key) if key else None
+                first_aid = target_aids[0]
+                if cached_dir is None:
+                    sm = SkillModule(agent_id=first_aid, user_id=user_id)
+                    info = await asyncio.to_thread(sm.install_skill, zip_path)
+                    cached_dir = Path(info.path)
+                    if key:
+                        install_cache[key] = cached_dir
+                else:
+                    await asyncio.to_thread(
+                        _copy_skill_to_agent, cached_dir, first_aid, skill_name
+                    )
+                for new_aid in target_aids[1:]:
+                    await asyncio.to_thread(
+                        _copy_skill_to_agent, cached_dir, new_aid, skill_name
+                    )
                 await backup_after_api_install(
                     user_id=user_id,
                     skill_name=skill_name,
