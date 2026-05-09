@@ -522,9 +522,12 @@ async def build_bundle(
         bus_channel_members = []
         bus_messages = []
         bus_agent_registry = []
-        # Channels: keep ones owned by any closure agent (owner_user_id == export user; we
-        # ship all channels matching the owner_user_id and at least one closure member).
-        owned_chs = await db.get("bus_channels", {"owner_user_id": user_id})
+        # Channels: keep ones owned by the export user (created_by == user_id) AND
+        # having ≥1 closure-agent member. NB the column is `created_by`, not
+        # `owner_user_id` — the latter doesn't exist; only the message_bus
+        # subsystem owns this table and it uses created_by everywhere
+        # (message_bus_trigger.py, local_bus.py).
+        owned_chs = await db.get("bus_channels", {"created_by": user_id})
         # User-provided allowlist (channel_ids). None = include all.
         channel_allowlist: Optional[Set[str]] = (
             set(selection.bus_channel_selection)

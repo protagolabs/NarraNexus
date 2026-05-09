@@ -234,7 +234,9 @@ async def preview_bus_channels(payload: BusChannelsPreviewRequest, request: Requ
 
     db = await get_db_client()
     closure_set = set(payload.agent_ids)
-    owned_chs = await db.get("bus_channels", {"owner_user_id": user_id})
+    # bus_channels.created_by is the owner column — see builder.py for the
+    # column-name rationale (no owner_user_id column exists on this table).
+    owned_chs = await db.get("bus_channels", {"created_by": user_id})
     out: List[Dict[str, Any]] = []
     for ch in owned_chs:
         cid = ch["channel_id"]
