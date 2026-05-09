@@ -272,20 +272,47 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
 
 
 async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
-    """Execute the actual import using a previously preflighted bundle."""
+    """Execute the actual import using a previously preflighted bundle.
+
+    Emits structured log lines prefixed `bundle_import.<event>` throughout
+    so a complete import can be reconstructed from the backend log via
+    `grep bundle_import.* backend.log`. Each log line is one event; values
+    are key=value pairs for easy parsing.
+    """
+    import time
+    _t0 = time.monotonic()
+
     db = await get_db_client()
     row = await db.get_one("bundle_preflight_sessions", {"token": preflight_token})
     if not row:
+        logger.warning(f"bundle_import.error event=token_not_found token={preflight_token[:12]}…")
         raise ValueError("preflight_token not found or expired")
     if row["user_id"] != user_id:
+        logger.warning(
+            f"bundle_import.error event=token_user_mismatch token={preflight_token[:12]}… "
+            f"row_user={row['user_id']} requesting_user={user_id}"
+        )
         raise ValueError("preflight_token user mismatch")
 
     work_dir = Path(row["work_dir"])
     manifest = json.loads(row["manifest_json"])
     if not work_dir.exists():
-        # Backend was restarted / volume not persisted; the extracted files are gone.
         await db.delete("bundle_preflight_sessions", {"token": preflight_token})
+        logger.warning(f"bundle_import.error event=work_dir_missing path={work_dir}")
         raise ValueError("preflight working dir missing — please re-upload the bundle")
+
+    # Manifest snapshot — what we expect the bundle to contain.
+    manifest_agents = manifest.get("agents", []) or []
+    manifest_skills = manifest.get("skills", []) or []
+    logger.info(
+        f"bundle_import.start "
+        f"token={preflight_token[:12]}… "
+        f"user_id={user_id} "
+        f"bundle_format={manifest.get('bundle_format_version')} "
+        f"manifest_agents={len(manifest_agents)} "
+        f"manifest_skills={len(manifest_skills)} "
+        f"manifest_team={(manifest.get('team') or {}).get('name')!r}"
+    )
 
     # ---- ID Rewrite ----
     id_map: Dict[str, str] = {}
@@ -379,6 +406,20 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     id_map[mid] = gen_new_id("message")
         except (OSError, json.JSONDecodeError):
             pass
+
+    # Log id_map breakdown by kind so we can verify "did pre-collect cover
+    # everything" — if the import later fails on UNIQUE conflict for some
+    # ID kind, this tells us whether pre-collect missed it.
+    id_map_breakdown: Dict[str, int] = {}
+    for old_id, new_id in id_map.items():
+        # infer kind from prefix of new_id (we minted these so they're well-formed)
+        kind = new_id.split("_", 1)[0]
+        id_map_breakdown[kind] = id_map_breakdown.get(kind, 0) + 1
+    logger.info(
+        f"bundle_import.id_map.collected "
+        + " ".join(f"{k}={v}" for k, v in sorted(id_map_breakdown.items()))
+        + f" total={len(id_map)}"
+    )
 
     free_text_regex = build_all_id_regex()
     OWNER_PLACEHOLDER = "<original_owner>"
@@ -502,13 +543,23 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         written_summary["team_id"] = new_tid
         written_summary["team_name"] = team_name
 
+    if new_team_id:
+        logger.info(
+            f"bundle_import.team.created new_id={new_team_id} name={team_name!r} "
+            f"intro_md_chars={len(intro or '')}"
+        )
+
     # -- Per-agent write --
     for old_aid in manifest.get("agents", []):
+        # snapshot per-agent counts so we can log a delta after writing this agent
+        before = {k: v for k, v in written_summary.items() if isinstance(v, int)}
         adir = work_dir / "agents" / old_aid
         if not adir.is_dir():
+            logger.warning(f"bundle_import.agent.skip old_id={old_aid} reason=dir_missing")
             continue
         agent_path = adir / "agent.json"
         if not agent_path.exists():
+            logger.warning(f"bundle_import.agent.skip old_id={old_aid} reason=agent_json_missing")
             continue
         agent_record = json.loads(agent_path.read_text(encoding="utf-8"))
         new_aid = id_map[old_aid]
@@ -517,7 +568,8 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         deduped_name = await dedupe_name(
             "agents", "agent_name", {"created_by": user_id}, original_name
         )
-        if deduped_name != original_name:
+        renamed = (deduped_name != original_name)
+        if renamed:
             written_summary["agents_renamed"] += 1
 
         # Insert agents row (new agent_id, current user_id)
@@ -529,6 +581,11 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         new_agent_row.pop("agent_update_time", None)
         await db.insert("agents", new_agent_row)
         written_summary["agents_created"] += 1
+        rename_part = f"renamed_from={original_name!r}" if renamed else "renamed=no"
+        logger.info(
+            f"bundle_import.agent.created old_id={old_aid} new_id={new_aid} "
+            f"name={deduped_name!r} {rename_part}"
+        )
 
         # team_members
         if new_team_id:
@@ -678,17 +735,41 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     logger.warning(f"insert {memory_table} failed: {me}")
 
         # workspace tar — offload extraction to thread.
-        # Use canonical {agent_id}_{user_id} path (matches attachment_storage
-        # and step_3_agent_loop). New imports always use the canonical form.
         ws_tar = adir / "workspace.tar.gz"
+        ws_size_b = ws_tar.stat().st_size if ws_tar.exists() else 0
+        ws_extracted = False
+        ws_target = None
         if ws_tar.exists():
             from xyz_agent_context.settings import settings as core_settings
             target = Path(core_settings.base_working_path) / f"{new_aid}_{user_id}"
             target.mkdir(parents=True, exist_ok=True)
             await asyncio.to_thread(_extract_tar_safely, ws_tar, target)
-            # Layer 4 (PRD §8.11): rewrite IDs in extracted text files too,
-            # plus replace <original_owner> placeholder with recipient user_id.
             await asyncio.to_thread(_rewrite_workspace_text_files, target, id_map, user_id)
+            ws_extracted = True
+            ws_target = target
+
+        # Per-agent delta log so the user can see counts attributable to THIS agent
+        delta = {
+            k: written_summary[k] - before.get(k, 0)
+            for k in (
+                "narratives_created", "events_created", "instances_created",
+                "messages_created", "social_entities_created", "rag_rows_created",
+                "awareness_rows_created", "jobs_created", "narrative_links_created",
+                "memory_rows_created",
+            )
+            if isinstance(written_summary.get(k), int) and (written_summary.get(k, 0) - before.get(k, 0)) > 0
+        }
+        delta_str = " ".join(f"{k}={v}" for k, v in sorted(delta.items())) or "(empty)"
+        logger.info(
+            f"bundle_import.agent.write old_id={old_aid} new_id={new_aid} "
+            f"workspace_tar={ws_size_b}B workspace_target={ws_target} "
+            f"{delta_str}"
+        )
+
+    logger.info(
+        f"bundle_import.agents.done agents_created={written_summary['agents_created']} "
+        f"renamed={written_summary['agents_renamed']}"
+    )
 
     # -- Bus state (bug 2: messagebus channels/messages/registry not migrated) --
     # Cross-agent and cross-channel rewrite is needed: channel_id and agent_id
@@ -758,10 +839,15 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             logger.warning(f"inbox.json processing failed: {e}")
             written_summary["warnings"].append(f"inbox import failed: {e}")
 
+    logger.info(
+        f"bundle_import.bus.done channels={written_summary.get('bus_channels_created', 0)} "
+        f"members={written_summary.get('bus_members_created', 0)} "
+        f"messages={written_summary.get('bus_messages_created', 0)} "
+        f"registry={written_summary.get('bus_registry_created', 0)} "
+        f"inbox={written_summary.get('inbox_rows_created', 0)}"
+    )
+
     # -- Skills (auto-install per-(agent, skill)) --
-    # Each manifest.skills entry has agent_id (the OLD agent_id from the
-    # source instance). Map it to the new agent_id and install the skill
-    # only on that one — preserves per-agent state from the source.
     skill_archives_dir = Path.home() / ".nexusagent" / "skill_archives" / user_id
     skill_archives_dir.mkdir(parents=True, exist_ok=True)
     skill_install_failures: List[Dict[str, str]] = []
@@ -943,6 +1029,12 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             for f in skill_install_failures
         ])
         written_summary["skill_install_failures"] = skill_install_failures
+        for f in skill_install_failures:
+            logger.warning(f"bundle_import.skill.failure skill={f['skill']!r} reason={f['reason']!r}")
+    logger.info(
+        f"bundle_import.skills.done installed={written_summary['skills_imported']} "
+        f"failures={len(skill_install_failures)}"
+    )
 
     # -- mcp_hints --
     mcp_hints_path = work_dir / "mcp_hints.json"
@@ -950,6 +1042,50 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         hints = json.loads(mcp_hints_path.read_text(encoding="utf-8"))
         written_summary["mcp_hints"] = len(hints)
         written_summary["mcp_hints_data"] = hints  # frontend prompts user
+
+    # ---- Verification pass: re-query DB for the new agents and confirm row counts
+    # match what we think we wrote. Helps catch silent failures that didn't raise.
+    verification: Dict[str, Any] = {"per_agent": [], "discrepancies": []}
+    new_agent_ids = [id_map[old] for old in manifest.get("agents", []) if old in id_map]
+    for naid in new_agent_ids:
+        # Count rows in major tables for this agent
+        n_narr = len(await db.get("narratives", {"agent_id": naid}))
+        n_evt = len(await db.get("events", {"agent_id": naid}))
+        n_inst = len(await db.get("module_instances", {"agent_id": naid}))
+        n_msg = len(await db.get("agent_messages", {"agent_id": naid}))
+        n_job = len(await db.get("instance_jobs", {"agent_id": naid}))
+        agent_inst_ids = [r["instance_id"] for r in await db.get("module_instances", {"agent_id": naid})]
+        n_aware = 0
+        n_social = 0
+        n_rag = 0
+        for iid in agent_inst_ids:
+            n_aware += len(await db.get("instance_awareness", {"instance_id": iid}))
+            n_social += len(await db.get("instance_social_entities", {"instance_id": iid}))
+            n_rag += len(await db.get("instance_rag_store", {"instance_id": iid}))
+        per = {
+            "agent_id": naid,
+            "narratives": n_narr, "events": n_evt, "instances": n_inst,
+            "messages": n_msg, "jobs": n_job, "awareness": n_aware,
+            "social_entities": n_social, "rag_rows": n_rag,
+        }
+        verification["per_agent"].append(per)
+        logger.info(
+            f"bundle_import.verify.agent new_id={naid} "
+            + " ".join(f"{k}={v}" for k, v in per.items() if k != "agent_id")
+        )
+    written_summary["verification"] = verification
+
+    # ---- Final summary log: one line that captures everything important.
+    duration_ms = int((time.monotonic() - _t0) * 1000)
+    summary_kv = " ".join(
+        f"{k}={v}" for k, v in sorted(written_summary.items())
+        if isinstance(v, int)
+    )
+    fail_count = len(written_summary.get("warnings") or [])
+    logger.info(
+        f"bundle_import.done duration_ms={duration_ms} "
+        f"id_map_size={len(id_map)} {summary_kv} warnings={fail_count}"
+    )
 
     # cleanup
     try:
