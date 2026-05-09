@@ -55,6 +55,14 @@ interface ArtifactState {
    */
   minimizedTabIds: Set<string>;
 
+  /**
+   * Set when the agent's create_artifact tool call returns an
+   * ArtifactQuotaExceeded error. Surfaced as a modal at the layout level
+   * with a button that jumps the user to Settings → Artifacts. Cleared
+   * automatically once the user dismisses the modal or navigates away.
+   */
+  quotaError: string | null;
+
   loadForSession: (agentId: string, sessionId: string) => Promise<void>;
   loadPinned: (agentId: string) => Promise<void>;
   setActive: (artifactId: string | null) => void;
@@ -64,6 +72,7 @@ interface ArtifactState {
   registerChartInstance: (artifactId: string, instance: ChartInstanceLike | null) => void;
   minimizeTab: (artifactId: string) => void;
   restoreTab: (artifactId: string) => void;
+  setQuotaError: (msg: string | null) => void;
 
   pin: (agentId: string, artifactId: string, pinned: boolean) => Promise<void>;
   delete: (agentId: string, artifactId: string) => Promise<void>;
@@ -105,6 +114,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   collapsed: initialCollapsed,
   chartInstances: {},
   minimizedTabIds: initialMinimizedTabIds,
+  quotaError: null,
 
   async loadForSession(agentId, sessionId) {
     // Stale-while-revalidate: switch the active agent and surface any cached
@@ -236,6 +246,10 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     next.delete(artifactId);
     persistMinimizedTabIds(next);
     set({ minimizedTabIds: next, activeArtifactId: artifactId });
+  },
+
+  setQuotaError(msg) {
+    set({ quotaError: msg });
   },
 
   async pin(agentId, artifactId, pinned) {

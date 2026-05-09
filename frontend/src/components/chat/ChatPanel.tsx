@@ -67,7 +67,21 @@ function ArtifactToolCallCards({ toolCalls, agentId, allArtifacts }: ArtifactToo
 
     let artifactId: string | undefined;
     try {
-      const parsed = JSON.parse(tc.tool_output) as { artifact_id?: string };
+      const parsed = JSON.parse(tc.tool_output) as {
+        artifact_id?: string;
+        error?: string;
+        code?: number;
+      };
+      // Detect ArtifactQuotaExceeded (HTTP 507) from the structured tool_output
+      // payload — surface a modal pointing to Settings → Artifacts. We only
+      // fire once per error message so re-renders during streaming don't spam.
+      if (parsed.error && parsed.code === 507) {
+        const current = useArtifactStore.getState().quotaError;
+        if (current !== parsed.error) {
+          useArtifactStore.getState().setQuotaError(parsed.error);
+        }
+        continue;
+      }
       artifactId = parsed.artifact_id;
     } catch {
       // tool_output is not JSON — skip
