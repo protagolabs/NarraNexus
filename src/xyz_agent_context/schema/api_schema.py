@@ -441,6 +441,9 @@ class JobResponse(BaseModel):
     # Dependencies (obtained from module_instances table)
     instance_id: Optional[str] = None
     depends_on: List[str] = []
+    # Parent narrative (jobs are owned by a narrative; bundle export uses
+    # this to group jobs under their narrative for selection).
+    narrative_id: Optional[str] = None
 
 
 class JobListResponse(BaseModel):

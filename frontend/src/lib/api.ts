@@ -53,6 +53,12 @@ import type {
   LarkBindResponse,
   LarkAuthLoginResponse,
   LarkAuthCompleteResponse,
+  TeamListResponse,
+  TeamOperationResponse,
+  BundleExportRequest,
+  BundlePreflightResponse,
+  BundleConfirmResponse,
+  SkillArchiveRecord,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -856,6 +862,141 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ prefer_system_override: preferSystemOverride }),
     });
+  }
+
+  // =========================================================================
+  // Subproject 1: Teams
+  // =========================================================================
+
+  async listTeams(): Promise<TeamListResponse> {
+    return this.request<TeamListResponse>('/api/teams');
+  }
+
+  async createTeam(payload: { name: string; description?: string; color?: string }): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>('/api/teams', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateTeam(teamId: string, patch: { name?: string; description?: string; color?: string; intro_md?: string }): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(`/api/teams/${encodeURIComponent(teamId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async deleteTeam(teamId: string): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(`/api/teams/${encodeURIComponent(teamId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async addTeamMember(teamId: string, agentId: string): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(`/api/teams/${encodeURIComponent(teamId)}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async removeTeamMember(teamId: string, agentId: string): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(agentId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // =========================================================================
+  // Subproject 2: Bundle export/import
+  // =========================================================================
+
+  async exportBundle(payload: BundleExportRequest): Promise<{ blob: Blob; filename: string; warningsCount: number; externalEdgesDropped: number }> {
+    const baseUrl = getApiBaseUrl();
+    const authHeaders = this.getAuthHeaders();
+    const resp = await fetch(`${baseUrl}/api/bundle/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      // Try to parse a structured error so callers can act on it (B6 sensitive zip flow)
+      let detail: any = null;
+      try { detail = (await resp.json()).detail; } catch {}
+      const err: any = new Error(
+        detail?.message || `Export failed: ${resp.status}`
+      );
+      if (detail?.error_code) err.code = detail.error_code;
+      if (detail?.hits) err.hits = detail.hits;
+      err.status = resp.status;
+      throw err;
+    }
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = /filename="([^"]+)"/.exec(cd);
+    const filename = m ? m[1] : `bundle-${Date.now()}.nxbundle`;
+    const warningsCount = parseInt(resp.headers.get('X-Bundle-Warnings-Count') || '0');
+    const externalEdgesDropped = parseInt(resp.headers.get('X-Bundle-External-Edges-Dropped') || '0');
+    const blob = await resp.blob();
+    return { blob, filename, warningsCount, externalEdgesDropped };
+  }
+
+  async importBundlePreflight(file: File): Promise<BundlePreflightResponse> {
+    const baseUrl = getApiBaseUrl();
+    const authHeaders = this.getAuthHeaders();
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch(`${baseUrl}/api/bundle/import/preflight`, {
+      method: 'POST',
+      headers: { ...authHeaders },
+      body: fd,
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || `Preflight failed: ${resp.status}`);
+    }
+    return resp.json();
+  }
+
+  async importBundleConfirm(preflightToken: string): Promise<BundleConfirmResponse> {
+    return this.request<BundleConfirmResponse>('/api/bundle/import/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ preflight_token: preflightToken }),
+    });
+  }
+
+  async previewBusChannels(agentIds: string[]): Promise<{ channels: Array<{
+    channel_id: string;
+    name: string;
+    channel_type: string;
+    in_closure_member_ids: string[];
+    all_member_ids: string[];
+    message_count: number;
+    created_at?: string | null;
+  }> }> {
+    return this.request('/api/bundle/export/preview/bus-channels', {
+      method: 'POST',
+      body: JSON.stringify({ agent_ids: agentIds }),
+    });
+  }
+
+  async listSkillArchives(): Promise<{ archives: SkillArchiveRecord[] }> {
+    return this.request<{ archives: SkillArchiveRecord[] }>('/api/bundle/skills/archives');
+  }
+
+  async uploadSkillArchive(payload: { skillName: string; sourceType: 'github' | 'zip'; sourceUrl?: string; file?: File }): Promise<{ success: boolean; skill_name: string }> {
+    const baseUrl = getApiBaseUrl();
+    const authHeaders = this.getAuthHeaders();
+    const fd = new FormData();
+    fd.append('skill_name', payload.skillName);
+    fd.append('source_type', payload.sourceType);
+    if (payload.sourceUrl) fd.append('source_url', payload.sourceUrl);
+    if (payload.file) fd.append('file', payload.file);
+    const resp = await fetch(`${baseUrl}/api/bundle/skills/archives/upload`, {
+      method: 'POST',
+      headers: { ...authHeaders },
+      body: fd,
+    });
+    if (!resp.ok) throw new Error(`Upload archive failed: ${resp.status}`);
+    return resp.json();
   }
 }
 

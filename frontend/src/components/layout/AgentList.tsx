@@ -16,27 +16,38 @@ import {
   Lock,
   Trash2,
   Loader2,
+  Users2,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
 import { useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 
 interface AgentListProps {
   collapsed: boolean;
+  /** When non-null, only render agents whose IDs are in this list (used by TeamFilterBar). */
+  filterAgentIds?: string[] | null;
 }
 
-export function AgentList({ collapsed }: AgentListProps) {
+export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
+  // Open the same TeamManagementModal that TeamFilterBar's gear icon opens.
+  // Surfacing it next to the Plus button makes "manage / batch organize agents"
+  // a one-glance operation instead of hunting for the gear in the Teams row.
+  const [openTeamMgmt, setOpenTeamMgmt] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { userId, agentId, agents, setAgentId, setAgents, refreshAgents } = useConfigStore();
+  const { userId, agentId, agents: rawAgents, setAgentId, setAgents, refreshAgents } = useConfigStore();
+  const agents = filterAgentIds == null
+    ? rawAgents
+    : rawAgents.filter((a) => filterAgentIds.includes(a.agent_id));
   const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds } = useChatStore();
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
@@ -238,6 +249,13 @@ export function AgentList({ collapsed }: AgentListProps) {
         >
           <Plus className={cn('w-5 h-5', creatingAgent && 'animate-pulse')} />
         </button>
+        <button
+          onClick={() => setOpenTeamMgmt(true)}
+          className="w-full aspect-square flex items-center justify-center border border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
+          title="Manage teams · batch organize agents"
+        >
+          <Users2 className="w-4 h-4" />
+        </button>
         {agents.slice(0, 4).map((agent, index) => {
           const isSelected = agentId === agent.agent_id;
           const completed = completedAgentIds.includes(agent.agent_id);
@@ -264,6 +282,7 @@ export function AgentList({ collapsed }: AgentListProps) {
             </div>
           );
         })}
+        <TeamManagementModal open={openTeamMgmt} onClose={() => setOpenTeamMgmt(false)} />
       </div>
     );
   }
@@ -286,6 +305,15 @@ export function AgentList({ collapsed }: AgentListProps) {
             title="Create New Agent"
           >
             <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setOpenTeamMgmt(true)}
+            className="w-7 h-7"
+            title="Manage teams · batch organize agents"
+          >
+            <Users2 className="w-3.5 h-3.5" />
           </Button>
           <Button
             variant="ghost"
@@ -474,6 +502,7 @@ export function AgentList({ collapsed }: AgentListProps) {
           })}
         </div>
       )}
+      <TeamManagementModal open={openTeamMgmt} onClose={() => setOpenTeamMgmt(false)} />
     </div>
   );
 }

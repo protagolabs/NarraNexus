@@ -75,7 +75,11 @@ fi
 
 # --- Common env ---
 SQLITE_PROXY_PORT="${SQLITE_PROXY_PORT:-8100}"
-SQLITE_PROXY_URL="http://localhost:${SQLITE_PROXY_PORT}"
+# Use 127.0.0.1 explicitly, not localhost. On macOS `localhost` resolves to
+# IPv6 ::1 first, but uvicorn binds 127.0.0.1 (IPv4 only) by default —
+# httpx connects to ::1, gets ECONNREFUSED, and never falls back. This bit
+# every macOS contributor on a fresh checkout.
+SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:${SQLITE_PROXY_PORT}}"
 ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
@@ -202,29 +206,37 @@ for _i in $(seq 1 20); do
   sleep 1
 done
 
+# Use the venv's interpreter / uvicorn directly instead of `uv run`. `uv run`
+# re-resolves the project + may rebuild the env, which can clobber the
+# editable install (uv sync does not always re-create the .pth on every
+# Python build). Using `.venv/bin/...` directly is faster AND immune to that
+# clobbering behavior. See run.sh for the editable-install setup.
+VENV_PY="$PROJECT_ROOT/.venv/bin/python3"
+VENV_UVI="$PROJECT_ROOT/.venv/bin/uvicorn"
+
 # --- Backend ---
 tmux new-window -t "$SESSION" -n "Backend" \
-  "$ENV_CMD; echo '=== Backend API :8000 ==='; DASHBOARD_BIND_HOST=127.0.0.1 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60; echo 'Backend stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Backend API :8000 ==='; DASHBOARD_BIND_HOST=127.0.0.1 '$VENV_UVI' backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60; echo 'Backend stopped. Press Enter to close.'; read"
 
 # --- MCP Server ---
 tmux new-window -t "$SESSION" -n "MCP" \
-  "$ENV_CMD; echo '=== MCP Server ==='; uv run python src/xyz_agent_context/module/module_runner.py mcp; echo 'MCP stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== MCP Server ==='; '$VENV_PY' src/xyz_agent_context/module/module_runner.py mcp; echo 'MCP stopped. Press Enter to close.'; read"
 
 # --- Module Poller ---
 tmux new-window -t "$SESSION" -n "Poller" \
-  "$ENV_CMD; echo '=== Module Poller ==='; uv run python -m xyz_agent_context.services.module_poller; echo 'Poller stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Module Poller ==='; '$VENV_PY' -m xyz_agent_context.services.module_poller; echo 'Poller stopped. Press Enter to close.'; read"
 
 # --- Job Trigger ---
 tmux new-window -t "$SESSION" -n "Jobs" \
-  "$ENV_CMD; echo '=== Job Trigger ==='; uv run python src/xyz_agent_context/module/job_module/job_trigger.py; echo 'Jobs stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Job Trigger ==='; '$VENV_PY' src/xyz_agent_context/module/job_module/job_trigger.py; echo 'Jobs stopped. Press Enter to close.'; read"
 
 # --- Bus Trigger ---
 tmux new-window -t "$SESSION" -n "BusTrigger" \
-  "$ENV_CMD; echo '=== Bus Trigger ==='; uv run python -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Bus Trigger ==='; '$VENV_PY' -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
 
 # --- Lark Trigger ---
 tmux new-window -t "$SESSION" -n "LarkTrigger" \
-  "$ENV_CMD; echo '=== Lark Trigger ==='; uv run python -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Lark Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \
