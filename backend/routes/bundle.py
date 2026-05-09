@@ -41,12 +41,13 @@ async def _user_id_for_request(request: Request) -> str:
 
 class SkillExportSpec(BaseModel):
     skill_name: str
-    install_method: str  # url | zip | full_copy | builtin
-    # Per-agent attribution: each (agent_id, skill_name) pair is independent;
-    # for the same skill name on multiple agents, the user picks N rows. Bundle
-    # serializes one entry per pair so import-side reconstructs each agent's
-    # skill state independently (different .skill_meta.json under Full mode).
+    install_method: str  # url | zip | full_copy | builtin | skip
+    # Per-agent attribution: each (agent_id, skill_dir) pair is independent.
     agent_id: Optional[str] = None
+    # Filesystem dir name under the agent's skills/ dir. fs-unique per agent,
+    # disambiguates two skills with the same SKILL.md `name` (frontmatter
+    # name can duplicate; dir name cannot).
+    skill_dir: Optional[str] = None
     source_url: Optional[str] = None
     source_type: Optional[str] = "github"
     branch: Optional[str] = "main"
@@ -95,6 +96,7 @@ async def export_bundle(payload: ExportRequest, request: Request):
         {
             "skill_name": s.skill_name,
             "agent_id": s.agent_id,
+            "skill_dir": s.skill_dir,
             "install_method": s.install_method,
             "source_url": s.source_url,
             "source_type": s.source_type,

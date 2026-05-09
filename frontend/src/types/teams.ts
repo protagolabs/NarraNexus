@@ -43,6 +43,11 @@ export interface SkillExportSpec {
   // (agent_id, skill_name) pair so import-side reconstructs each
   // agent's skill state independently.
   agent_id?: string;
+  // skill_name comes from SKILL.md frontmatter and CAN duplicate across
+  // two physically-different skill dirs under the same agent. skill_dir is
+  // the actual filesystem dir name (filesystem-unique within one agent's
+  // skills/ dir) — backend uses it to package the right physical folder.
+  skill_dir?: string;
   source_url?: string | null;
   source_type?: 'github' | 'zip';
   branch?: string | null;

@@ -404,6 +404,11 @@ async def build_bundle(
         for cfg in (selection.skill_methods or []):
             agent_id = cfg.get("agent_id")
             skill_name = cfg.get("skill_name")
+            # `skill_dir` is the filesystem-unique dir name within the agent's
+            # skills/ folder. SKILL.md frontmatter `name` can duplicate across
+            # multiple dirs under one agent (user installed the same skill twice
+            # into different folders), so we need the dir name to disambiguate.
+            skill_dir = cfg.get("skill_dir") or skill_name
             method = cfg.get("install_method")
             if not agent_id or agent_id not in closure_set:
                 warnings.append(
@@ -413,6 +418,8 @@ async def build_bundle(
             entry: Dict[str, Any] = {
                 "agent_id": agent_id,
                 "name": skill_name,
+                # Always emit dir for the importer's reconstruction.
+                "skill_dir": skill_dir,
                 "install_method": method,
                 "contains_secrets": method == "full_copy",
             }
@@ -421,42 +428,51 @@ async def build_bundle(
                 entry["source_type"] = cfg.get("source_type", "github")
                 entry["branch"] = cfg.get("branch", "main")
             elif method == "zip":
-                # If this zip skill_name was already copied for another agent,
-                # reuse the same archive_ref instead of duplicating bytes.
-                if skill_name in copied_zip_ref:
-                    entry["archive_ref"] = copied_zip_ref[skill_name]
-                    entry["sha256"] = "shared"  # see manifest header for true hash
+                # Two skills with the same SKILL.md `name` but different dirs
+                # would collide in the de-dup cache if we keyed by name. Use
+                # archive_path (or manual_zip) as part of the key so distinct
+                # source bytes get distinct archive_ref entries in the bundle.
+                src_zip = cfg.get("archive_path") or cfg.get("manual_zip_path")
+                if not src_zip or not Path(src_zip).exists():
+                    warnings.append(f"skill {skill_name} on {agent_id}: zip not found, skipping")
+                    continue
+                cache_key = f"{skill_name}|{src_zip}"
+                if cache_key in copied_zip_ref:
+                    entry["archive_ref"] = copied_zip_ref[cache_key]
+                    entry["sha256"] = "shared"
                 else:
-                    src_zip = cfg.get("archive_path") or cfg.get("manual_zip_path")
-                    if not src_zip or not Path(src_zip).exists():
-                        warnings.append(f"skill {skill_name} on {agent_id}: zip not found, skipping")
-                        continue
                     hits = scan_zip_for_sensitive(Path(src_zip))
                     if hits:
                         zip_secrets_warnings.append({"skill": skill_name, "hits": hits})
-                    tgt_zip = skills_dir / f"{skill_name}.zip"
+                    # Use dir-based filename to disambiguate same-named-different-dir
+                    # zips packed in the same bundle.
+                    tgt_zip = skills_dir / f"{skill_dir}.zip"
+                    if tgt_zip.exists():
+                        # Defensive: another (different agent) entry already
+                        # wrote a zip with this dir name. Append agent suffix.
+                        tgt_zip = skills_dir / f"{skill_dir}__{agent_id}.zip"
                     await asyncio.to_thread(shutil.copy2, src_zip, tgt_zip)
-                    archive_ref = f"skills/{skill_name}.zip"
-                    copied_zip_ref[skill_name] = archive_ref
+                    archive_ref = f"skills/{tgt_zip.name}"
+                    copied_zip_ref[cache_key] = archive_ref
                     entry["archive_ref"] = archive_ref
                     entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
             elif method == "full_copy":
                 # Per-agent: pack THIS specific agent's skill dir
-                src_dir = await _find_skill_dir({agent_id}, user_id, skill_name)
+                src_dir = await _find_skill_dir({agent_id}, user_id, skill_name, skill_dir)
                 if not src_dir:
                     warnings.append(f"skill {skill_name} on {agent_id}: full_copy source not found")
                     continue
-                # Use per-agent path inside bundle to keep state separated.
+                # Use per-agent + dir-name path inside bundle so duplicate-named
+                # skills under the same agent don't collide.
                 per_agent_dir = skills_dir / agent_id
                 per_agent_dir.mkdir(parents=True, exist_ok=True)
-                tgt_zip = per_agent_dir / f"{skill_name}-full.zip"
+                tgt_zip = per_agent_dir / f"{skill_dir}-full.zip"
                 await asyncio.to_thread(_zip_dir, src_dir, tgt_zip)
-                entry["archive_ref"] = f"skills/{agent_id}/{skill_name}-full.zip"
+                entry["archive_ref"] = f"skills/{agent_id}/{skill_dir}-full.zip"
                 entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
             elif method == "builtin":
                 pass
             elif method == "skip" or method is None:
-                # P3: user opted to exclude this (agent, skill) pair from the bundle.
                 continue
             else:
                 warnings.append(f"skill {skill_name} on {agent_id}: unknown install_method {method}")
@@ -761,13 +777,23 @@ def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "")
     return out
 
 
-async def _find_skill_dir(agent_ids: Set[str], user_id: str, skill_name: str) -> Optional[Path]:
+async def _find_skill_dir(
+    agent_ids: Set[str],
+    user_id: str,
+    skill_name: str,
+    skill_dir: Optional[str] = None,
+) -> Optional[Path]:
+    """Resolve the on-disk skill dir.
+    Prefers the explicit `skill_dir` (filesystem-unique) over `skill_name`
+    (frontmatter, can duplicate). Falls back to skill_name when callers
+    don't yet pass skill_dir (legacy / pre-fix-for-duplicate-name)."""
     from xyz_agent_context.settings import settings as core_settings
     base = Path(core_settings.base_working_path)
+    dir_name = skill_dir or skill_name
     for aid in agent_ids:
         candidates = [
-            base / f"{aid}_{user_id}" / "skills" / skill_name,            # canonical
-            base / f"{aid}_user_{user_id}" / "skills" / skill_name,       # legacy
+            base / f"{aid}_{user_id}" / "skills" / dir_name,              # canonical
+            base / f"{aid}_user_{user_id}" / "skills" / dir_name,         # legacy workspace
         ]
         for c in candidates:
             if c.is_dir():

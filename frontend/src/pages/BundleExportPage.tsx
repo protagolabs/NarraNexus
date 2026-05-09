@@ -106,15 +106,18 @@ export default function BundleExportPage() {
   const [introMd, setIntroMd] = useState('');
   const [includeChat, setIncludeChat] = useState(true);
 
-  // Skills state. Choices are keyed per (agent_id, skill_name) so the same
-  // skill name installed on 5 different agents becomes 5 independent rows
-  // in the UI and 5 independent entries in the bundle (each carries its
-  // own .skill_meta.json under Full mode).
-  const [skillsForAgents, setSkillsForAgents] = useState<Record<string, string[]>>({});
+  // Skills state. Each agent's skills are stored as objects (not strings)
+  // because SkillInfo.name comes from SKILL.md frontmatter and CAN duplicate
+  // across two physically-different skill dirs (e.g. user installed `arena`
+  // twice into different folders). The DIRECTORY NAME (= basename of path)
+  // is filesystem-unique within one agent's skills/ dir, so we key state
+  // by (agent_id, dirName) — and only show `name` in the UI.
+  type SkillEntry = { name: string; dirName: string; path: string };
+  const [skillsForAgents, setSkillsForAgents] = useState<Record<string, SkillEntry[]>>({});
   const [skillArchives, setSkillArchives] = useState<SkillArchiveRecord[]>([]);
   const [skillChoices, setSkillChoices] = useState<Record<string, SkillExportSpec>>({});
 
-  const skillKey = (agentId: string, skillName: string) => `${agentId}::${skillName}`;
+  const skillKey = (agentId: string, dirName: string) => `${agentId}::${dirName}`;
 
   // Social state
   const [socialEntities, setSocialEntities] = useState<Record<string, SocialEntity[]>>({});
@@ -190,7 +193,13 @@ export default function BundleExportPage() {
       if (!skillsForAgents[aid]) {
         api.listSkills(aid, userId, true)
           .then((r) => {
-            setSkillsForAgents((s) => ({ ...s, [aid]: r.skills.map((sk: any) => sk.name) }));
+            const list: SkillEntry[] = (r.skills || []).map((sk: any) => {
+              const path: string = sk.path || '';
+              // Last path segment = filesystem-unique dir name within skills/
+              const dirName = path.split('/').filter(Boolean).pop() || sk.name;
+              return { name: sk.name, dirName, path };
+            });
+            setSkillsForAgents((s) => ({ ...s, [aid]: list }));
           }).catch(() => {});
       }
       if (!socialEntities[aid]) {
@@ -286,21 +295,29 @@ export default function BundleExportPage() {
     });
   }, [selectedAgents, userId]);
 
-  // Default skill choice per (agent, skill) based on archive availability.
+  // Default skill choice per (agent, dirName) based on archive availability.
+  // Note: skill_archives is keyed by skill_name (not dir), so two skills
+  // with the same `name:` from frontmatter will share the same archive
+  // lookup. That's fine for the URL/Zip default — the user can still
+  // override per-row. dir_name is what disambiguates the actual dir.
   useEffect(() => {
     const newChoices: Record<string, SkillExportSpec> = {};
-    Object.entries(skillsForAgents).forEach(([aid, skillNames]) => {
-      skillNames.forEach((skill) => {
-        const key = skillKey(aid, skill);
+    Object.entries(skillsForAgents).forEach(([aid, list]) => {
+      list.forEach(({ name, dirName }) => {
+        const key = skillKey(aid, dirName);
         if (skillChoices[key]) {
           newChoices[key] = skillChoices[key];
           return;
         }
-        const arch = skillArchives.find((a) => a.skill_name === skill);
+        const arch = skillArchives.find((a) => a.skill_name === name);
+        const base = {
+          skill_name: name,
+          agent_id: aid,
+          skill_dir: dirName,
+        };
         if (arch?.source_url) {
           newChoices[key] = {
-            skill_name: skill,
-            agent_id: aid,
+            ...base,
             install_method: 'url',
             source_url: arch.source_url,
             source_type: 'github',
@@ -308,17 +325,12 @@ export default function BundleExportPage() {
           };
         } else if (arch?.archive_path) {
           newChoices[key] = {
-            skill_name: skill,
-            agent_id: aid,
+            ...base,
             install_method: 'zip',
             archive_path: arch.archive_path,
           };
         } else {
-          newChoices[key] = {
-            skill_name: skill,
-            agent_id: aid,
-            install_method: 'full_copy',
-          };
+          newChoices[key] = { ...base, install_method: 'full_copy' };
         }
       });
     });
@@ -494,13 +506,14 @@ export default function BundleExportPage() {
   // strip-credentials), not breadth.
   useEffect(() => {
     if (mode !== 'full') return;
-    // 2. Force every (agent, skill) pair to full_copy mode.
+    // 2. Force every (agent, dir) pair to full_copy mode.
     const next: Record<string, SkillExportSpec> = { ...skillChoices };
-    Object.entries(skillsForAgents).forEach(([aid, skillNames]) => {
-      skillNames.forEach((skill) => {
-        next[skillKey(aid, skill)] = {
-          skill_name: skill,
+    Object.entries(skillsForAgents).forEach(([aid, list]) => {
+      list.forEach(({ name, dirName }) => {
+        next[skillKey(aid, dirName)] = {
+          skill_name: name,
           agent_id: aid,
+          skill_dir: dirName,
           install_method: 'full_copy',
         };
       });
@@ -853,8 +866,8 @@ export default function BundleExportPage() {
             skillArchives={skillArchives}
             skillChoices={skillChoices}
             mode={mode}
-            onChange={(agentId, name, spec) =>
-              setSkillChoices((s) => ({ ...s, [skillKey(agentId, name)]: { ...spec, agent_id: agentId } }))
+            onChange={(agentId, dirName, spec) =>
+              setSkillChoices((s) => ({ ...s, [skillKey(agentId, dirName)]: { ...spec, agent_id: agentId, skill_dir: dirName } }))
             }
             onAfterBackup={() => {
               api.listSkillArchives().then((r) => setSkillArchives(r.archives)).catch(() => {});
@@ -1059,16 +1072,18 @@ function AgentsTab({
   );
 }
 
+type SkillEntryT = { name: string; dirName: string; path: string };
+
 function SkillsTab({
   agents, userId, skillsForAgents, skillArchives, skillChoices, mode, onChange, onAfterBackup,
 }: {
   agents: any[];
   userId: string;
-  skillsForAgents: Record<string, string[]>;
+  skillsForAgents: Record<string, SkillEntryT[]>;
   skillArchives: SkillArchiveRecord[];
   skillChoices: Record<string, SkillExportSpec>;
   mode: 'full' | 'custom';
-  onChange: (agentId: string, name: string, spec: SkillExportSpec) => void;
+  onChange: (agentId: string, dirName: string, spec: SkillExportSpec) => void;
   onAfterBackup: () => void;
 }) {
   if (agents.length === 0) {
@@ -1135,22 +1150,36 @@ function SkillsTab({
               </span>
             </summary>
             <div className="p-2 space-y-2">
-              {skills.map((name) => {
-                const arch = skillArchives.find((aa) => aa.skill_name === name);
-                const choice = skillChoices[`${a.agent_id}::${name}`];
+              {skills.map((sk: SkillEntryT) => {
+                // Use the skill's frontmatter `name` to look up archives
+                // (skill_archives is keyed by name, not dir). The dir-based
+                // key is what disambiguates this row from other same-named
+                // siblings within the same agent.
+                const arch = skillArchives.find((aa) => aa.skill_name === sk.name);
+                const choice = skillChoices[`${a.agent_id}::${sk.dirName}`];
                 const hasUrl = !!arch?.source_url;
                 const hasZip = !!arch?.archive_path;
                 const setMethod = (spec: SkillExportSpec) => {
                   if (isReadOnly) return;
-                  onChange(a.agent_id, name, spec);
+                  // Pass dirName as the unique key. spec carries skill_dir
+                  // so backend knows which physical directory to package.
+                  onChange(a.agent_id, sk.dirName, { ...spec, skill_dir: sk.dirName });
                 };
+                // Detect duplicate-name siblings (e.g. two `arena` dirs under
+                // this agent). Show the dir name to disambiguate.
+                const sameNameCount = skills.filter((s) => s.name === sk.name).length;
                 return (
-                  <div key={name} className="border border-[var(--border-subtle)] p-3">
+                  <div key={sk.dirName} className="border border-[var(--border-subtle)] p-3">
                     <div className="flex items-center justify-between mb-2">
                       <div>
-                        <div className="text-sm font-mono">{name}</div>
+                        <div className="text-sm font-mono">{sk.name}</div>
                         <div className="text-[10px] text-[var(--text-tertiary)]">
-                          {arch?.source_type ? `archived (${arch.source_type}, shared by user across agents)` : 'no archive registered'}
+                          {sameNameCount > 1 && (
+                            <span className="text-[var(--color-yellow-500)] mr-1">dir: {sk.dirName}</span>
+                          )}
+                          {arch?.source_type
+                            ? `archived (${arch.source_type})`
+                            : 'no archive registered'}
                         </div>
                       </div>
                       {choice?.install_method === 'full_copy' && (
@@ -1166,7 +1195,7 @@ function SkillsTab({
                         disabled={isReadOnly}
                         active={choice?.install_method === 'url'}
                         onClick={() => setMethod({
-                          skill_name: name, install_method: 'url',
+                          skill_name: sk.name, install_method: 'url',
                           source_url: arch?.source_url || choice?.source_url || '',
                           source_type: 'github', branch: 'main',
                         })}
@@ -1177,7 +1206,7 @@ function SkillsTab({
                         disabled={isReadOnly}
                         active={choice?.install_method === 'zip'}
                         onClick={() => setMethod({
-                          skill_name: name, install_method: 'zip',
+                          skill_name: sk.name, install_method: 'zip',
                           archive_path: arch?.archive_path || choice?.archive_path || undefined,
                           manual_zip_path: choice?.manual_zip_path,
                         })}
@@ -1187,17 +1216,17 @@ function SkillsTab({
                         desc="⚠ includes wallets/credentials"
                         active={choice?.install_method === 'full_copy'}
                         disabled={isReadOnly}
-                        onClick={() => setMethod({ skill_name: name, install_method: 'full_copy' })}
+                        onClick={() => setMethod({ skill_name: sk.name, install_method: 'full_copy' })}
                       />
                       <RadioCard
                         label="Skip"
                         desc="Don't include this skill"
                         active={choice?.install_method === 'skip'}
                         disabled={isReadOnly}
-                        onClick={() => setMethod({ skill_name: name, install_method: 'skip' })}
+                        onClick={() => setMethod({ skill_name: sk.name, install_method: 'skip' })}
                       />
                     </div>
-                    {/* Manual URL fill — shown when user picked URL but no archive */}
+                    {/* Manual URL fill */}
                     {!isReadOnly && choice?.install_method === 'url' && !hasUrl && (
                       <div className="mt-2 flex items-center gap-2">
                         <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">GitHub URL:</span>
@@ -1206,7 +1235,7 @@ function SkillsTab({
                           placeholder="https://github.com/owner/repo"
                           defaultValue={choice.source_url || ''}
                           onChange={(e) => setMethod({
-                            skill_name: name, install_method: 'url',
+                            skill_name: sk.name, install_method: 'url',
                             source_url: e.target.value, source_type: 'github',
                             branch: choice.branch || 'main',
                           })}
@@ -1217,7 +1246,7 @@ function SkillsTab({
                           placeholder="branch"
                           defaultValue={choice.branch || 'main'}
                           onChange={(e) => setMethod({
-                            skill_name: name, install_method: 'url',
+                            skill_name: sk.name, install_method: 'url',
                             source_url: choice.source_url || '', source_type: 'github',
                             branch: e.target.value || 'main',
                           })}
@@ -1225,7 +1254,7 @@ function SkillsTab({
                         />
                       </div>
                     )}
-                    {/* Manual zip upload — shown when user picked Zip but no archive */}
+                    {/* Manual zip upload */}
                     {!isReadOnly && choice?.install_method === 'zip' && !hasZip && (
                       <div className="mt-2 flex items-center gap-2">
                         <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">Upload zip:</span>
@@ -1236,7 +1265,7 @@ function SkillsTab({
                             const f = e.target.files?.[0];
                             if (!f) return;
                             try {
-                              await api.uploadSkillArchive({ skillName: name, sourceType: 'zip', file: f });
+                              await api.uploadSkillArchive({ skillName: sk.name, sourceType: 'zip', file: f });
                               onAfterBackup();
                             } catch (err) {
                               console.error('manual zip upload failed', err);
@@ -1259,7 +1288,7 @@ function SkillsTab({
                         <AskAgentToBackupButton
                           agentIds={[a.agent_id]}
                           userId={userId}
-                          skillName={name}
+                          skillName={sk.name}
                           onDone={onAfterBackup}
                         />
                       </div>
