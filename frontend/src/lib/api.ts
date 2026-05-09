@@ -53,6 +53,9 @@ import type {
   LarkBindResponse,
   LarkAuthLoginResponse,
   LarkAuthCompleteResponse,
+  SlackCredentialResponse,
+  SlackBindResponse,
+  SlackTestResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -841,6 +844,42 @@ class ApiClient {
 
   async unbindLarkBot(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/lark/unbind', {
+      method: 'DELETE',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // Slack Integration API
+  async getSlackCredential(agentId: string): Promise<SlackCredentialResponse> {
+    return this.request<SlackCredentialResponse>(`/api/slack/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindSlackBot(
+    agentId: string,
+    botToken: string,
+    appToken: string,
+    ownerEmail: string = '',
+  ): Promise<SlackBindResponse> {
+    return this.request<SlackBindResponse>('/api/slack/bind', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: agentId,
+        bot_token: botToken,
+        app_token: appToken,
+        owner_email: ownerEmail,
+      }),
+    });
+  }
+
+  async testSlackConnection(agentId: string): Promise<SlackTestResponse> {
+    return this.request<SlackTestResponse>('/api/slack/test', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async unbindSlackBot(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/slack/unbind', {
       method: 'DELETE',
       body: JSON.stringify({ agent_id: agentId }),
     });

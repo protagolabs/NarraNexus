@@ -38,7 +38,8 @@ pkill -f "module_poller" 2>/dev/null || true
 pkill -f "job_trigger" 2>/dev/null || true
 pkill -f "message_bus_trigger" 2>/dev/null || true
 pkill -f "run_lark_trigger" 2>/dev/null || true
-for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830; do
+pkill -f "run_slack_trigger" 2>/dev/null || true
+for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -137,6 +138,7 @@ draw_panel() {
   status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
   status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
   status_line "Lark Trigger"        "pgrep -f 'run_lark_trigger' >/dev/null"
+  status_line "Slack Trigger"       "pgrep -f 'run_slack_trigger' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -162,13 +164,14 @@ while true; do
       pkill -f "job_trigger" 2>/dev/null || true
       pkill -f "message_bus_trigger" 2>/dev/null || true
       pkill -f "run_lark_trigger" 2>/dev/null || true
+      pkill -f "run_slack_trigger" 2>/dev/null || true
       # Kill processes on known ports
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830; do
+      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
       done
       sleep 1
       # Force-kill any stragglers
-      for port in 8100 8000 5173 5174 7801 7830; do
+      for port in 8100 8000 5173 5174 7801 7830 7831; do
         lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
       done
       echo -e "  ${G}All services stopped.${R}"
@@ -225,6 +228,10 @@ tmux new-window -t "$SESSION" -n "BusTrigger" \
 # --- Lark Trigger ---
 tmux new-window -t "$SESSION" -n "LarkTrigger" \
   "$ENV_CMD; echo '=== Lark Trigger ==='; uv run python -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
+
+# --- Slack Trigger ---
+tmux new-window -t "$SESSION" -n "SlackTrigger" \
+  "$ENV_CMD; echo '=== Slack Trigger ==='; uv run python -m xyz_agent_context.module.slack_module.run_slack_trigger; echo 'Slack Trigger stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

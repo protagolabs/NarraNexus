@@ -14,7 +14,7 @@ import { api } from '@/lib/api';
 import { EntityCard } from './EntityCard';
 import { FileUpload } from './FileUpload';
 import { MCPManager } from './MCPManager';
-import { LarkConfig } from './LarkConfig';
+import { IMChannelsSection } from './IMChannelsSection';
 import type { SocialNetworkEntity } from '@/types';
 
 export function AwarenessPanel() {
@@ -381,9 +381,9 @@ export function AwarenessPanel() {
             <MCPManager />
           </section>
 
-          {/* ── Section: Lark ── */}
+          {/* ── Section: IM Channels (Lark / Slack / future Telegram) ── */}
           <section className="border-t border-[var(--rule)] px-5 py-5">
-            <LarkConfig />
+            <IMChannelsSection />
           </section>
         </ScrollArea>
         </CardContent>

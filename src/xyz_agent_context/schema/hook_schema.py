@@ -81,6 +81,7 @@ class WorkingSource(str, Enum):
     SKILL_STUDY = "skill_study"  # Skill study trigger
     MESSAGE_BUS = "message_bus"  # Triggered by MessageBus message
     LARK = "lark"  # Triggered by Lark/Feishu message (LarkTrigger)
+    SLACK = "slack"  # Triggered by Slack message (SlackTrigger)
 
     @classmethod
     def from_string(cls, value: str) -> "WorkingSource":

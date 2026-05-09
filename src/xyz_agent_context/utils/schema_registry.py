@@ -778,6 +778,44 @@ _register(
 )
 
 
+# --- 27b. channel_slack_credentials -----------------------------------------
+# Phase 3: per-agent Slack bot binding (Bot Token + App-Level Token).
+# Tokens are stored as base64-encoded text (matching the lark_credentials
+# convention: trivially reversible, NOT encryption — production deployments
+# should swap in real KMS-backed crypto).
+_register(
+    TableDef(
+        name="channel_slack_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bot_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("app_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("bot_user_id", "TEXT", "VARCHAR(64)"),
+            Column("team_id", "TEXT", "VARCHAR(64)"),
+            Column("team_name", "TEXT", "VARCHAR(255)"),
+            # Owner identity — populated at bind via users.lookupByEmail when
+            # owner_email is supplied. Drives is_owner_interacting trust
+            # signal (sender_id == owner_user_id).
+            Column("owner_email", "TEXT", "VARCHAR(254)"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_slack_cred_agent_id", ["agent_id"], unique=True),
+            # Same Slack bot in same workspace can be bound to AT MOST one
+            # agent. Two agents sharing a bot would race on the single
+            # Socket Mode WebSocket slot Slack issues per app_token, and
+            # the trust signal would flip-flop between agents' owner_user_ids.
+            Index("idx_slack_cred_bot_identity", ["team_id", "bot_user_id"], unique=True),
+        ],
+    )
+)
+
+
 # 28. user_quotas (system-default free-tier token quota per user)
 _register(
     TableDef(

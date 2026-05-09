@@ -41,6 +41,7 @@ from xyz_agent_context.module.skill_module.skill_module import SkillModule
 from xyz_agent_context.module.memory_module.memory_module import MemoryModule
 from xyz_agent_context.module.message_bus_module.message_bus_module import MessageBusModule
 from xyz_agent_context.module.lark_module.lark_module import LarkModule
+from xyz_agent_context.module.slack_module.slack_module import SlackModule
 from xyz_agent_context.module.common_tools_module.common_tools_module import CommonToolsModule
 
 # Module mapping table.
@@ -58,6 +59,7 @@ MODULE_MAP = {
     "SkillModule": SkillModule,
     "MessageBusModule": MessageBusModule,
     "LarkModule": LarkModule,
+    "SlackModule": SlackModule,
     "CommonToolsModule": CommonToolsModule,
 }
 
@@ -107,6 +109,7 @@ __all__ = [
     "SkillModule",
     "MessageBusModule",
     "LarkModule",
+    "SlackModule",
     "CommonToolsModule",
 
     # ===== Module mapping =====

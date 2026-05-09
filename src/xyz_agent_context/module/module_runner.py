@@ -103,6 +103,7 @@ DEFAULT_MCP_MODULES = [
     "CommonToolsModule",    # port: 7807
     "MessageBusModule",     # port: 7820
     "LarkModule",           # port: 7830
+    "SlackModule",          # port: 7831
 ]
 
 # Port reference (for documentation only - actual ports are set in each module)
@@ -115,6 +116,7 @@ MODULE_PORTS = {
     "CommonToolsModule": 7807,
     "MessageBusModule": 7820,
     "LarkModule": 7830,
+    "SlackModule": 7831,
 }
 
 

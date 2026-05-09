@@ -717,6 +717,47 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"Lark cleanup failed (non-critical): {e}")
 
+        # 14b. Slack credentials + inbox channels.
+        # Mirrors the Lark cascade above. Deleting the credential here is
+        # CRITICAL — otherwise SlackTrigger's credential watcher would keep
+        # the Socket Mode WebSocket alive for an agent that no longer
+        # exists (orphan workers, ghost replies). The trigger reloads
+        # active credentials on its watcher tick (~60s) and notices the
+        # row is gone, then disconnects.
+        try:
+            slack_cred = await db_client.get_one(
+                "channel_slack_credentials", {"agent_id": agent_id}
+            )
+            if slack_cred:
+                # Clean up slack inbox channels
+                all_members = await db_client.get(
+                    "bus_channel_members", {"agent_id": agent_id}
+                )
+                for m in all_members:
+                    cid = m.get("channel_id", "")
+                    if cid.startswith("slack_"):
+                        await db_client.delete(
+                            "bus_channel_members",
+                            {"channel_id": cid, "agent_id": agent_id},
+                        )
+                        remaining = await db_client.get(
+                            "bus_channel_members", {"channel_id": cid}
+                        )
+                        if not remaining:
+                            await db_client.delete("bus_messages", {"channel_id": cid})
+                            await db_client.delete("bus_channels", {"channel_id": cid})
+
+                # Delete credential
+                result = await db_client.execute(
+                    "DELETE FROM channel_slack_credentials WHERE agent_id = %s",
+                    (agent_id,), fetch=False,
+                )
+                cnt = result if isinstance(result, int) else 0
+                if cnt > 0:
+                    stats["channel_slack_credentials"] = cnt
+        except Exception as e:
+            logger.warning(f"Slack cleanup failed (non-critical): {e}")
+
         # 15. The Agent itself
         result = await db_client.execute(
             "DELETE FROM agents WHERE agent_id = %s",
