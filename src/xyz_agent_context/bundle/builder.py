@@ -311,6 +311,40 @@ async def build_bundle(
                 encoding="utf-8",
             )
 
+            # instance_jobs (per-agent jobs created by JobModule)
+            job_rows = await db.get("instance_jobs", {"agent_id": aid})
+            (agent_dir / "jobs.json").write_text(
+                json.dumps([_scrub_user_id(dict(r), user_id) for r in job_rows],
+                           indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+
+            # instance_narrative_links (per-instance narrative bindings)
+            nl_rows = []
+            for iid in agent_instance_ids:
+                nl_rows.extend(await db.get("instance_narrative_links", {"instance_id": iid}))
+            (agent_dir / "instance_narrative_links.json").write_text(
+                json.dumps([_scrub_user_id(dict(r), user_id) for r in nl_rows],
+                           indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+
+            # Per-instance memory family
+            for memory_table in (
+                "instance_module_report_memory",
+                "instance_json_format_memory",
+                "instance_json_format_memory_chat",
+                "module_report_memory",
+            ):
+                mem_rows = []
+                for iid in agent_instance_ids:
+                    mem_rows.extend(await db.get(memory_table, {"instance_id": iid}))
+                (agent_dir / f"{memory_table}.json").write_text(
+                    json.dumps([_scrub_user_id(dict(r), user_id) for r in mem_rows],
+                               indent=2, ensure_ascii=False, default=str),
+                    encoding="utf-8",
+                )
+
             # workspace tar.gz
             ws_path = await _pack_workspace(aid, user_id, agent_dir,
                                             excludes=selection.workspace_excludes.get(aid, []))
@@ -424,6 +458,65 @@ async def build_bundle(
             json.dumps(mcp_rows, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
         )
 
+        # ---- bus.json (cross-agent message bus state, closure-scoped) ----
+        # Channels owned by closure agents; channel members in closure;
+        # bus messages whose channel is in closure; bus_agent_registry rows
+        # for closure agents.
+        bus_channels = []
+        bus_channel_members = []
+        bus_messages = []
+        bus_agent_registry = []
+        # Channels: keep ones owned by any closure agent (owner_user_id == export user; we
+        # ship all channels matching the owner_user_id and at least one closure member).
+        owned_chs = await db.get("bus_channels", {"owner_user_id": user_id})
+        kept_channel_ids: Set[str] = set()
+        for ch in owned_chs:
+            cid = ch["channel_id"]
+            members = await db.get("bus_channel_members", {"channel_id": cid})
+            closure_members = [m for m in members if m["agent_id"] in closure_set]
+            if not closure_members:
+                continue
+            kept_channel_ids.add(cid)
+            bus_channels.append(_scrub_user_id(dict(ch), user_id))
+            bus_channel_members.extend(_scrub_user_id(dict(m), user_id) for m in closure_members)
+        # Bus messages for kept channels
+        for cid in kept_channel_ids:
+            msgs = await db.get("bus_messages", {"channel_id": cid}, order_by="created_at ASC")
+            bus_messages.extend(_scrub_user_id(dict(m), user_id) for m in msgs)
+        # bus_agent_registry per closure agent
+        for aid in closure_set:
+            row = await db.get_one("bus_agent_registry", {"agent_id": aid})
+            if row:
+                bus_agent_registry.append(_scrub_user_id(dict(row), user_id))
+        (tmpdir / "bus.json").write_text(
+            json.dumps({
+                "channels": bus_channels,
+                "members": bus_channel_members,
+                "messages": bus_messages,
+                "registry": bus_agent_registry,
+            }, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+
+        # ---- inbox.json (per-user inbox entries linked to events in closure) ----
+        # We can't migrate the whole inbox (it's per-USER not per-agent), but
+        # we DO want to migrate inbox entries triggered by the closure's events.
+        # On import we'll filter to event_id ∈ id_map.
+        inbox_rows = await db.get("inbox_table", {"user_id": user_id})
+        inbox_kept = []
+        # Find which event_ids are in our closure
+        closure_event_ids: Set[str] = set()
+        for aid in closure_set:
+            for ev in await db.get("events", {"agent_id": aid}):
+                closure_event_ids.add(ev["event_id"])
+        for ib in inbox_rows:
+            if ib.get("event_id") and ib["event_id"] in closure_event_ids:
+                inbox_kept.append(_scrub_user_id(dict(ib), user_id))
+        (tmpdir / "inbox.json").write_text(
+            json.dumps(inbox_kept, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+
         # ---- manifest ----
         team_meta = None
         if selection.team_id:
@@ -450,6 +543,9 @@ async def build_bundle(
             "narranexus_version_exported": "1.3.4",
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "owner_placeholder": "<original_owner>",
+            # We DON'T store the original user_id by name — privacy. The
+            # placeholder above is the canonical token in all bundle text /
+            # JSON; importer swaps it for the recipient's user_id everywhere.
             "team": team_meta,
             "agents": list(closure_set),
             "agents_summary": agents_summary,
@@ -490,14 +586,28 @@ async def build_bundle(
 
 
 def _scrub_user_id(row: dict, user_id: str) -> dict:
-    """Replace any user_id columns with the owner placeholder. Drop password_hash etc."""
+    """Replace any user_id columns AND any free-text occurrences of user_id
+    with the owner placeholder. Drop password_hash etc.
+
+    Free-text replacement matters for fields like awareness markdown,
+    event final_output, narrative dynamic_summary etc. that may contain the
+    owner's username verbatim. On import the placeholder gets swapped for
+    the recipient's user_id (Layer 4).
+    """
     out = dict(row)
+    placeholder = "<original_owner>"
     for k in list(out.keys()):
+        v = out[k]
         if k in ("password_hash", "secret", "api_key"):
             out.pop(k, None)
-        elif k.endswith("user_id") or k == "user_id" or k == "created_by":
-            if out[k] == user_id:
-                out[k] = "<original_owner>"
+            continue
+        if k.endswith("user_id") or k == "user_id" or k == "created_by":
+            if v == user_id:
+                out[k] = placeholder
+            continue
+        # Free-text: replace literal user_id substring with placeholder.
+        if isinstance(v, str) and user_id and user_id in v:
+            out[k] = v.replace(user_id, placeholder)
     return out
 
 
@@ -531,10 +641,13 @@ async def _pack_workspace(
     out = agent_dir / "workspace.tar.gz"
     excl_set = set(excludes or [])
 
-    return await asyncio.to_thread(_pack_workspace_sync, src, out, excl_set)
+    return await asyncio.to_thread(_pack_workspace_sync, src, out, excl_set, user_id)
 
 
-def _pack_workspace_sync(src: Path, out: Path, excl_set: set) -> Path:
+def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "") -> Path:
+    text_extensions = {".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".csv", ".log"}
+    placeholder = "<original_owner>"
+
     def filter_func(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
         name = tarinfo.name
         if name.startswith("./"):
@@ -554,7 +667,38 @@ def _pack_workspace_sync(src: Path, out: Path, excl_set: set) -> Path:
         return tarinfo
 
     with tarfile.open(out, "w:gz") as tar:
-        tar.add(src, arcname=".", filter=filter_func)
+        # If we need to scrub user_id from text files, walk manually so we can
+        # rewrite their bytes before adding to tar. Otherwise, fast path.
+        if user_id:
+            for root, dirs, files in os.walk(src):
+                for fn in files:
+                    full = Path(root) / fn
+                    rel_to_src = full.relative_to(src)
+                    rel_str = str(rel_to_src).replace("\\", "/")
+                    if rel_str in excl_set:
+                        continue
+                    if is_sensitive_path(rel_str) or is_volume_path(rel_str):
+                        continue
+                    if full.is_symlink():
+                        continue
+                    arcname = f"./{rel_str}"
+                    if full.suffix.lower() in text_extensions:
+                        try:
+                            content = full.read_text(encoding="utf-8")
+                        except (OSError, UnicodeDecodeError):
+                            tar.add(full, arcname=arcname, filter=filter_func)
+                            continue
+                        if user_id in content:
+                            content = content.replace(user_id, placeholder)
+                            data = content.encode("utf-8")
+                            ti = tarfile.TarInfo(name=arcname)
+                            ti.size = len(data)
+                            ti.mtime = full.stat().st_mtime
+                            tar.addfile(ti, fileobj=io.BytesIO(data))
+                            continue
+                    tar.add(full, arcname=arcname, filter=filter_func)
+        else:
+            tar.add(src, arcname=".", filter=filter_func)
     return out
 
 

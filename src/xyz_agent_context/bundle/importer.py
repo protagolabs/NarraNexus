@@ -335,6 +335,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                             id_map[mid] = gen_new_id("message")
 
     free_text_regex = build_all_id_regex()
+    OWNER_PLACEHOLDER = "<original_owner>"
 
     def rewrite_id(s: str) -> str:
         return id_map.get(s, s)
@@ -342,7 +343,12 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
     def rewrite_text(text: str) -> str:
         if not isinstance(text, str):
             return text
-        return free_text_regex.sub(lambda m: id_map.get(m.group(), m.group()), text)
+        # Layer 4 (a): kind-prefixed ID rewrite
+        text = free_text_regex.sub(lambda m: id_map.get(m.group(), m.group()), text)
+        # Layer 4 (b): owner placeholder → recipient user_id (bug 4 fix)
+        if OWNER_PLACEHOLDER in text:
+            text = text.replace(OWNER_PLACEHOLDER, user_id)
+        return text
 
     def rewrite_value(v: Any) -> Any:
         if isinstance(v, str):
@@ -364,9 +370,19 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             if kind and isinstance(val, str):
                 out[col] = id_map.get(val, val)
             elif isinstance(val, str):
+                # Owner placeholder → current user_id; also rewrite kind-prefixed IDs
                 out[col] = rewrite_text(val)
             elif isinstance(val, (list, dict)):
                 out[col] = rewrite_value(val)
+        # User-attribution columns: any column literally named user_id, created_by,
+        # or owner_user_id should be set to the recipient's user_id (the source
+        # value was scrubbed to the placeholder during export, but we re-assert
+        # here in case some legacy bundle stored a literal source user_id).
+        for col in list(out.keys()):
+            if col in ("user_id", "created_by", "owner_user_id"):
+                v = out[col]
+                if isinstance(v, str) and (v == OWNER_PLACEHOLDER or v != user_id):
+                    out[col] = user_id
         return out
 
     # ---- Name suffix dedupe ----
@@ -395,6 +411,15 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         "messages_created": 0,
         "social_entities_created": 0,
         "rag_rows_created": 0,
+        "awareness_rows_created": 0,
+        "jobs_created": 0,
+        "narrative_links_created": 0,
+        "memory_rows_created": 0,
+        "bus_channels_created": 0,
+        "bus_members_created": 0,
+        "bus_messages_created": 0,
+        "bus_registry_created": 0,
+        "inbox_rows_created": 0,
         "skills_imported": 0,
         "mcp_hints": 0,
         "warnings": [],
@@ -556,6 +581,56 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     await db.insert("agent_messages", new_mr)
                     written_summary["messages_created"] += 1
 
+        # awareness (bug 1 — was being exported but never inserted on import)
+        aware_path = adir / "awareness.json"
+        if aware_path.exists():
+            for arec in json.loads(aware_path.read_text(encoding="utf-8")):
+                new_ar = rewrite_row("instance_awareness", arec)
+                new_ar.pop("created_at", None)
+                new_ar.pop("updated_at", None)
+                await db.insert("instance_awareness", new_ar)
+                written_summary["awareness_rows_created"] += 1
+
+        # instance_jobs (bug 3 — was missing entirely from export AND import)
+        jobs_path = adir / "jobs.json"
+        if jobs_path.exists():
+            for jrec in json.loads(jobs_path.read_text(encoding="utf-8")):
+                new_jr = rewrite_row("instance_jobs", jrec)
+                new_jr.pop("created_at", None)
+                new_jr.pop("updated_at", None)
+                await db.insert("instance_jobs", new_jr)
+                written_summary["jobs_created"] += 1
+
+        # instance_narrative_links (bidirectional binding between narratives + module instances)
+        nl_path = adir / "instance_narrative_links.json"
+        if nl_path.exists():
+            for nrec in json.loads(nl_path.read_text(encoding="utf-8")):
+                new_nl = rewrite_row("instance_narrative_links", nrec)
+                new_nl.pop("created_at", None)
+                new_nl.pop("updated_at", None)
+                await db.insert("instance_narrative_links", new_nl)
+                written_summary["narrative_links_created"] += 1
+
+        # Per-instance memory family (used by various Modules to remember per-turn state)
+        for memory_table in (
+            "instance_module_report_memory",
+            "instance_json_format_memory",
+            "instance_json_format_memory_chat",
+            "module_report_memory",
+        ):
+            mp = adir / f"{memory_table}.json"
+            if not mp.exists():
+                continue
+            for mrec in json.loads(mp.read_text(encoding="utf-8")):
+                new_mm = rewrite_row(memory_table, mrec)
+                new_mm.pop("created_at", None)
+                new_mm.pop("updated_at", None)
+                try:
+                    await db.insert(memory_table, new_mm)
+                    written_summary["memory_rows_created"] += 1
+                except Exception as me:
+                    logger.warning(f"insert {memory_table} failed: {me}")
+
         # workspace tar — offload extraction to thread.
         # Use canonical {agent_id}_{user_id} path (matches attachment_storage
         # and step_3_agent_loop). New imports always use the canonical form.
@@ -565,8 +640,77 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             target = Path(core_settings.base_working_path) / f"{new_aid}_{user_id}"
             target.mkdir(parents=True, exist_ok=True)
             await asyncio.to_thread(_extract_tar_safely, ws_tar, target)
-            # Layer 4 (PRD §8.11): rewrite IDs in extracted text files too.
-            await asyncio.to_thread(_rewrite_workspace_text_files, target, id_map)
+            # Layer 4 (PRD §8.11): rewrite IDs in extracted text files too,
+            # plus replace <original_owner> placeholder with recipient user_id.
+            await asyncio.to_thread(_rewrite_workspace_text_files, target, id_map, user_id)
+
+    # -- Bus state (bug 2: messagebus channels/messages/registry not migrated) --
+    # Cross-agent and cross-channel rewrite is needed: channel_id and agent_id
+    # both change. rewrite_row handles this since both kinds are in
+    # STRUCTURED_ID_FIELDS.
+    bus_path = work_dir / "bus.json"
+    if bus_path.exists():
+        try:
+            bus = json.loads(bus_path.read_text(encoding="utf-8"))
+            for ch in (bus.get("channels") or []):
+                new_ch = rewrite_row("bus_channels", ch)
+                new_ch.pop("created_at", None)
+                new_ch.pop("updated_at", None)
+                # owner_user_id → recipient (rewrite_row handles this column-wise)
+                try:
+                    await db.insert("bus_channels", new_ch)
+                    written_summary["bus_channels_created"] += 1
+                except Exception as e:
+                    logger.warning(f"bus_channels insert failed: {e}")
+            for m in (bus.get("members") or []):
+                new_m = rewrite_row("bus_channel_members", m)
+                try:
+                    await db.insert("bus_channel_members", new_m)
+                    written_summary["bus_members_created"] += 1
+                except Exception as e:
+                    logger.warning(f"bus_channel_members insert failed: {e}")
+            for ms in (bus.get("messages") or []):
+                new_ms = rewrite_row("bus_messages", ms)
+                new_ms.pop("created_at", None)
+                try:
+                    await db.insert("bus_messages", new_ms)
+                    written_summary["bus_messages_created"] += 1
+                except Exception as e:
+                    logger.warning(f"bus_messages insert failed: {e}")
+            for r in (bus.get("registry") or []):
+                new_r = rewrite_row("bus_agent_registry", r)
+                try:
+                    await db.insert("bus_agent_registry", new_r)
+                    written_summary["bus_registry_created"] += 1
+                except Exception as e:
+                    # Likely a UNIQUE collision if the recipient happens to already
+                    # have a registry row for this new agent_id (shouldn't, since
+                    # ID was just freshly minted, but be defensive).
+                    logger.warning(f"bus_agent_registry insert failed: {e}")
+        except Exception as e:
+            logger.warning(f"bus.json processing failed: {e}")
+            written_summary["warnings"].append(f"bus state import failed: {e}")
+
+    # -- Inbox (per-user notifications tied to events in closure) --
+    inbox_path = work_dir / "inbox.json"
+    if inbox_path.exists():
+        try:
+            for ib in json.loads(inbox_path.read_text(encoding="utf-8")):
+                new_ib = rewrite_row("inbox_table", ib)
+                new_ib.pop("created_at", None)
+                # Drop pre-existing message_id (we'll let SQLite mint a new one
+                # via the auto-increment surrogate; message_id UNIQUE would clash
+                # if user re-imports the same bundle).
+                if "message_id" in new_ib:
+                    new_ib["message_id"] = id_map.get(new_ib["message_id"], new_ib["message_id"])
+                try:
+                    await db.insert("inbox_table", new_ib)
+                    written_summary["inbox_rows_created"] += 1
+                except Exception as e:
+                    logger.warning(f"inbox_table insert failed: {e}")
+        except Exception as e:
+            logger.warning(f"inbox.json processing failed: {e}")
+            written_summary["warnings"].append(f"inbox import failed: {e}")
 
     # -- Skills (auto-install per-(agent, skill)) --
     # Each manifest.skills entry has agent_id (the OLD agent_id from the
@@ -727,14 +871,16 @@ _TEXT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".csv", "
 _MAX_TEXT_REWRITE_SIZE = 5 * 1024 * 1024  # 5 MB per file — anything bigger we skip
 
 
-def _rewrite_workspace_text_files(root: Path, id_map: Dict[str, str]) -> None:
-    """Walk extracted workspace, regex-rewrite known ID kinds in text files.
+def _rewrite_workspace_text_files(root: Path, id_map: Dict[str, str], user_id: str = "") -> None:
+    """Walk extracted workspace, regex-rewrite known ID kinds in text files,
+    and replace <original_owner> placeholder with the recipient's user_id.
     Layer 4 of PRD §8.11. Sync — caller wraps in asyncio.to_thread()."""
-    if not id_map:
+    if not id_map and not user_id:
         return
     rgx = build_all_id_regex()
+    placeholder = "<original_owner>"
 
-    def replace(m):
+    def replace_id(m):
         old = m.group()
         return id_map.get(old, old)
 
@@ -750,7 +896,9 @@ def _rewrite_workspace_text_files(root: Path, id_map: Dict[str, str]) -> None:
                 content = f.read()
         except (OSError, UnicodeDecodeError):
             continue
-        new_content = rgx.sub(replace, content)
+        new_content = rgx.sub(replace_id, content) if id_map else content
+        if user_id and placeholder in new_content:
+            new_content = new_content.replace(placeholder, user_id)
         if new_content != content:
             try:
                 with open(path, "w", encoding="utf-8") as f:
