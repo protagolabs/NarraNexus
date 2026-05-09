@@ -59,24 +59,30 @@ class ArtifactRepository(BaseRepository[Artifact]):
         size_bytes: int,
     ) -> None:
         """
-        Atomically insert one artifact row and its first version row.
+        Insert one artifact row and its first version row.
+
+        Note on atomicity: project-wide convention is single-statement writes
+        without explicit transactions (matches the SQLiteProxy backend, which
+        does not support nested BEGIN). The two inserts here run sequentially.
+        Crash window between the two leaves an artifact row with no version row
+        — `list_*` queries simply won't surface it; cleanup is done by deleting
+        the orphan via the route DELETE.
 
         Args:
             entity: The Artifact to persist.
             file_path: Relative path of the content file for version 1.
             size_bytes: Content size in bytes for version 1.
         """
-        async with self._db.transaction():
-            await self._db.insert(self.table_name, self._entity_to_row(entity))
-            await self._db.insert(
-                "instance_artifact_versions",
-                {
-                    "artifact_id": entity.artifact_id,
-                    "version": 1,
-                    "file_path": file_path,
-                    "size_bytes": size_bytes,
-                },
-            )
+        await self._db.insert(self.table_name, self._entity_to_row(entity))
+        await self._db.insert(
+            "instance_artifact_versions",
+            {
+                "artifact_id": entity.artifact_id,
+                "version": 1,
+                "file_path": file_path,
+                "size_bytes": size_bytes,
+            },
+        )
 
     async def iterate(
         self,
@@ -95,29 +101,36 @@ class ArtifactRepository(BaseRepository[Artifact]):
 
         Returns:
             The newly created version number.
-        """
-        async with self._db.transaction():
-            # Read the current latest_version inside the transaction
-            row = await self._db.get_one(self.table_name, {self.id_field: artifact_id})
-            if row is None:
-                raise ValueError(f"Artifact {artifact_id!r} not found")
-            new_version: int = int(row["latest_version"]) + 1
-            now = datetime.now(timezone.utc).isoformat()
 
-            await self._db.update(
-                self.table_name,
-                filters={self.id_field: artifact_id},
-                data={"latest_version": new_version, "updated_at": now},
-            )
-            await self._db.insert(
-                "instance_artifact_versions",
-                {
-                    "artifact_id": artifact_id,
-                    "version": new_version,
-                    "file_path": file_path,
-                    "size_bytes": size_bytes,
-                },
-            )
+        Note on concurrency: project-wide convention is single-statement writes
+        without explicit transactions (matches the SQLiteProxy backend). Two
+        concurrent iterates targeting the same artifact_id can race — both
+        could read latest_version=N and try to insert version=N+1 on
+        instance_artifact_versions. The unique index `(artifact_id, version)`
+        will reject the second insert with a constraint error, and the file on
+        disk uses a random hex token so the file naming itself never races.
+        Single-user agent flows do not hit this; documented as I9 follow-up.
+        """
+        row = await self._db.get_one(self.table_name, {self.id_field: artifact_id})
+        if row is None:
+            raise ValueError(f"Artifact {artifact_id!r} not found")
+        new_version: int = int(row["latest_version"]) + 1
+        now = datetime.now(timezone.utc).isoformat()
+
+        await self._db.update(
+            self.table_name,
+            filters={self.id_field: artifact_id},
+            data={"latest_version": new_version, "updated_at": now},
+        )
+        await self._db.insert(
+            "instance_artifact_versions",
+            {
+                "artifact_id": artifact_id,
+                "version": new_version,
+                "file_path": file_path,
+                "size_bytes": size_bytes,
+            },
+        )
 
         return new_version
 
@@ -174,23 +187,26 @@ class ArtifactRepository(BaseRepository[Artifact]):
 
     async def delete(self, artifact_id: str) -> None:  # type: ignore[override]
         """
-        Atomically delete an artifact and all its version rows.
+        Delete an artifact and all its version rows.
 
         Deletes versions first to avoid FK-style orphan rows, then removes
-        the artifact row itself.
+        the artifact row itself. Sequential deletes (no transaction — matches
+        project convention; SQLiteProxy backend does not support nested
+        BEGIN). Crash window between the two leaves orphan version rows with
+        no parent artifact — `list_versions` returns them but nothing else
+        references them; cleanup is best-effort via the route's DELETE retry.
 
         Args:
             artifact_id: ID of the artifact to delete.
         """
-        async with self._db.transaction():
-            await self._db.delete(
-                "instance_artifact_versions",
-                {"artifact_id": artifact_id},
-            )
-            await self._db.delete(
-                self.table_name,
-                {self.id_field: artifact_id},
-            )
+        await self._db.delete(
+            "instance_artifact_versions",
+            {"artifact_id": artifact_id},
+        )
+        await self._db.delete(
+            self.table_name,
+            {self.id_field: artifact_id},
+        )
 
     # ── query operations ───────────────────────────────────────────────────────
 
