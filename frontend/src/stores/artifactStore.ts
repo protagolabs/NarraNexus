@@ -11,10 +11,30 @@ import { artifactsApi } from '@/services/artifactsApi';
 
 const COLLAPSED_KEY = 'artifact_column_collapsed';
 
+/**
+ * Minimal interface to the echarts instance methods we actually use.
+ * Avoids a hard type dependency on echarts in this eagerly-loaded store
+ * (echarts itself is lazy-loaded inside ChartRenderer).
+ */
+export interface ChartInstanceLike {
+  getDataURL: (opts: {
+    type?: 'png' | 'jpeg' | 'svg';
+    backgroundColor?: string;
+    pixelRatio?: number;
+  }) => string;
+}
+
 interface ArtifactState {
   artifacts: Artifact[];
   activeArtifactId: string | null;
   collapsed: boolean;
+
+  /**
+   * Live registry of mounted chart renderers, keyed by artifact_id.
+   * Used by ArtifactDownloadMenu to call getDataURL() for PNG/JPEG export.
+   * ChartRenderer registers on mount, unregisters on unmount.
+   */
+  chartInstances: Record<string, ChartInstanceLike | null>;
 
   loadForSession: (agentId: string, sessionId: string) => Promise<void>;
   loadPinned: (agentId: string) => Promise<void>;
@@ -22,6 +42,7 @@ interface ArtifactState {
   upsert: (artifact: Artifact) => void;
   remove: (artifactId: string) => void;
   setCollapsed: (collapsed: boolean) => void;
+  registerChartInstance: (artifactId: string, instance: ChartInstanceLike | null) => void;
 
   pin: (agentId: string, artifactId: string, pinned: boolean) => Promise<void>;
   delete: (agentId: string, artifactId: string) => Promise<void>;
@@ -39,6 +60,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   artifacts: [],
   activeArtifactId: null,
   collapsed: initialCollapsed,
+  chartInstances: {},
 
   async loadForSession(agentId, sessionId) {
     const sessionArtifacts = await artifactsApi.listSession(agentId, sessionId);
@@ -90,6 +112,12 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     } catch {
       /* ignore */
     }
+  },
+
+  registerChartInstance(artifactId, instance) {
+    set((state) => ({
+      chartInstances: { ...state.chartInstances, [artifactId]: instance },
+    }));
   },
 
   async pin(agentId, artifactId, pinned) {

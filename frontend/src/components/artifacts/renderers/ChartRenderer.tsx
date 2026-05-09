@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { rawUrl } from '@/types/artifact';
+import { useArtifactStore, type ChartInstanceLike } from '@/stores/artifactStore';
 
 interface Props {
   artifact: Artifact;
@@ -28,6 +29,7 @@ interface Props {
 export default function ChartRenderer({ artifact, version }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const registerChartInstance = useArtifactStore((s) => s.registerChartInstance);
 
   useEffect(() => {
     setError(null);
@@ -43,6 +45,8 @@ export default function ChartRenderer({ artifact, version }: Props) {
         const c = echarts.init(ref.current);
         c.setOption(option);
         chart = c as unknown as { dispose: () => void };
+        // Register so ArtifactDownloadMenu can call getDataURL() for PNG/JPEG export.
+        registerChartInstance(artifact.artifact_id, c as unknown as ChartInstanceLike);
       } catch (e) {
         setError(String(e));
       }
@@ -50,9 +54,10 @@ export default function ChartRenderer({ artifact, version }: Props) {
 
     return () => {
       disposed = true;
+      registerChartInstance(artifact.artifact_id, null);
       chart?.dispose();
     };
-  }, [artifact.agent_id, artifact.artifact_id, version]);
+  }, [artifact.agent_id, artifact.artifact_id, version, registerChartInstance]);
 
   if (error) return <div className="p-4 text-red-400">Chart failed: {error}</div>;
   return <div ref={ref} className="w-full h-full" />;
