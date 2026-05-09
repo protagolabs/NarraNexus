@@ -288,6 +288,94 @@ class ArtifactRepository(BaseRepository[Artifact]):
             return 0
         return int(rows[0]["total"] or 0)
 
+    async def count_for_user(self, user_id: str) -> int:
+        """
+        Return the total artifact count for a user across all their agents.
+
+        Args:
+            user_id: User whose quota to count.
+
+        Returns:
+            Number of artifacts owned by the user (rows in instance_artifacts).
+        """
+        sql = "SELECT COUNT(*) AS n FROM instance_artifacts WHERE user_id = %s"
+        rows = await self._db.execute(sql, params=(user_id,), fetch=True)
+        if not rows:
+            return 0
+        return int(rows[0]["n"] or 0)
+
+    async def total_bytes_for_user(self, user_id: str) -> int:
+        """
+        Return the total size_bytes across all versions of all the user's artifacts.
+
+        Joins instance_artifacts to instance_artifact_versions and filters by
+        user_id so the aggregation is scoped per-user (cross-agent).
+
+        Args:
+            user_id: User whose quota to sum.
+
+        Returns:
+            Sum of size_bytes (0 if user has no artifacts or versions).
+        """
+        sql = """
+        SELECT COALESCE(SUM(v.size_bytes), 0) AS total
+        FROM instance_artifact_versions v
+        JOIN instance_artifacts a ON a.artifact_id = v.artifact_id
+        WHERE a.user_id = %s
+        """
+        rows = await self._db.execute(sql, params=(user_id,), fetch=True)
+        if not rows:
+            return 0
+        return int(rows[0]["total"] or 0)
+
+    async def list_by_user(self, user_id: str) -> List[Artifact]:
+        """
+        Return all artifacts owned by a user, across every agent the user owns.
+
+        Ordered by updated_at DESC so the freshest activity surfaces first
+        in the Settings → Artifacts management table.
+
+        Args:
+            user_id: User scope.
+
+        Returns:
+            List of Artifact objects belonging to the user, newest first.
+        """
+        sql = """
+        SELECT * FROM instance_artifacts
+        WHERE user_id = %s
+        ORDER BY updated_at DESC
+        """
+        rows = await self._db.execute(sql, params=(user_id,), fetch=True)
+        return [self._row_to_entity(row) for row in rows]
+
+    async def bulk_delete(self, artifact_ids: List[str]) -> int:
+        """
+        Delete multiple artifacts (and their versions) in one call.
+
+        Order matters: versions first to mirror the per-row delete contract.
+        Uses one DELETE per id rather than a bulk IN(...) so callers that
+        wrap this in a transaction (when one is supported) can roll back
+        cleanly. Returns the number of artifact rows actually removed.
+
+        On-disk folder cleanup is the route's responsibility — this method
+        only touches the DB.
+
+        Args:
+            artifact_ids: Artifact IDs to delete. Empty list → no-op.
+
+        Returns:
+            Number of parent rows deleted (filtered to those that existed).
+        """
+        if not artifact_ids:
+            return 0
+        deleted = 0
+        for aid in artifact_ids:
+            await self._db.delete("instance_artifact_versions", {"artifact_id": aid})
+            n = await self._db.delete(self.table_name, {self.id_field: aid})
+            deleted += int(n or 0)
+        return deleted
+
     # ── conversion helpers ─────────────────────────────────────────────────────
 
     def _row_to_entity(self, row: Dict[str, Any]) -> Artifact:

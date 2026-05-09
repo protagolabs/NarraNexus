@@ -136,6 +136,41 @@ class Settings(BaseSettings):
     system_default_netmind_api_key: str = ""
     system_default_netmind_base_url: str = "https://api.netmind.ai"
 
+    # ===== Artifact quotas =====
+    # Hard-cap byte quota per user (sum across all that user's agents and
+    # versions). 100 MB matches the design after user feedback. Combined with
+    # the per-artifact limits in artifact_runner (1 MB text / 10 MB binary),
+    # this caps a runaway agent at ~100 small artifacts before triggering
+    # quota-exceeded. Consciously not configurable per agent — keeping it
+    # user-scoped matches the Settings → Artifacts management UX.
+    artifact_total_bytes_per_user: int = 100 * 1024 * 1024  # 100 MB
+
+    # Count cap. Local desktop deployments allow more (you have your own
+    # disk); cloud deployments are tighter to keep aggregate disk usage
+    # predictable. Selected by `artifact_count_limit_per_user` based on
+    # is_cloud_mode below.
+    artifact_count_limit_per_user_local: int = 50
+    artifact_count_limit_per_user_cloud: int = 10
+
+    @property
+    def is_cloud_mode(self) -> bool:
+        """True when DATABASE_URL points at a non-sqlite backend (mysql in prod).
+
+        Mirrors backend.auth._is_cloud_mode but without the cross-package
+        import — settings is a leaf module and mustn't depend on backend.
+        """
+        url = (self.database_url or os.environ.get("DATABASE_URL") or "").strip()
+        return bool(url) and not url.startswith("sqlite")
+
+    @property
+    def artifact_count_limit_per_user(self) -> int:
+        """Per-user artifact count cap; 50 local / 10 cloud."""
+        return (
+            self.artifact_count_limit_per_user_cloud
+            if self.is_cloud_mode
+            else self.artifact_count_limit_per_user_local
+        )
+
     @model_validator(mode="after")
     def _expand_user_paths(self) -> "Settings":
         """Expand ~ in path settings so callers don't need to handle it."""

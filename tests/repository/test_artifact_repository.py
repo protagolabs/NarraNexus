@@ -278,3 +278,90 @@ async def test_total_bytes_for_agent(repo):
     total = await repo.total_bytes_for_agent(agent_id)
     # art1: 1000 + 2000 = 3000, art2: 500 => total 3500
     assert total == 3500
+
+
+# ─── user-scoped quota / list / bulk delete (Phase 1) ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_count_for_user_aggregates_across_agents(repo):
+    """count_for_user counts every row owned by the user, regardless of agent."""
+    user_id = "user_count_test"
+    a1 = _make_artifact(artifact_id="art_u_01", user_id=user_id, agent_id="agent_a")
+    a2 = _make_artifact(artifact_id="art_u_02", user_id=user_id, agent_id="agent_a")
+    a3 = _make_artifact(artifact_id="art_u_03", user_id=user_id, agent_id="agent_b")
+    other = _make_artifact(artifact_id="art_other", user_id="someone_else", agent_id="agent_a")
+
+    for art in (a1, a2, a3, other):
+        await repo.create(art, file_path=f"/tmp/{art.artifact_id}/v1.html", size_bytes=1)
+
+    assert await repo.count_for_user(user_id) == 3
+    assert await repo.count_for_user("someone_else") == 1
+    assert await repo.count_for_user("nobody") == 0
+
+
+@pytest.mark.asyncio
+async def test_total_bytes_for_user_aggregates_across_agents(repo):
+    """total_bytes_for_user sums versions across every agent the user owns."""
+    user_id = "user_bytes_test"
+    a1 = _make_artifact(artifact_id="art_ub_01", user_id=user_id, agent_id="agent_x")
+    a2 = _make_artifact(artifact_id="art_ub_02", user_id=user_id, agent_id="agent_y")
+    other = _make_artifact(artifact_id="art_ub_other", user_id="someone_else", agent_id="agent_x")
+
+    await repo.create(a1, file_path="/tmp/a1/v1.html", size_bytes=1000)
+    await repo.iterate("art_ub_01", file_path="/tmp/a1/v2.html", size_bytes=2000)
+    await repo.create(a2, file_path="/tmp/a2/v1.html", size_bytes=500)
+    await repo.create(other, file_path="/tmp/other/v1.html", size_bytes=9999)
+
+    assert await repo.total_bytes_for_user(user_id) == 3500
+    assert await repo.total_bytes_for_user("someone_else") == 9999
+
+
+@pytest.mark.asyncio
+async def test_list_by_user_orders_by_recency(repo):
+    """list_by_user returns the user's artifacts ordered by updated_at DESC."""
+    user_id = "user_list_test"
+    a1 = _make_artifact(artifact_id="art_l_01", user_id=user_id, agent_id="agent_a", title="oldest")
+    a2 = _make_artifact(artifact_id="art_l_02", user_id=user_id, agent_id="agent_b", title="middle")
+    a3 = _make_artifact(artifact_id="art_l_03", user_id=user_id, agent_id="agent_a", title="newest")
+    other = _make_artifact(artifact_id="art_l_other", user_id="not_us", title="not for us")
+
+    for art in (a1, a2, a3, other):
+        await repo.create(art, file_path=f"/tmp/{art.artifact_id}/v1.html", size_bytes=1)
+
+    # Bump updated_at so ordering is deterministic
+    await repo.iterate("art_l_03", file_path="/tmp/art_l_03/v2.html", size_bytes=2)
+
+    rows = await repo.list_by_user(user_id)
+    assert len(rows) == 3
+    titles = [r.title for r in rows]
+    # newest (just iterated) should come first
+    assert titles[0] == "newest"
+    assert "not for us" not in titles
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_removes_specified_ids_only(repo):
+    """bulk_delete drops the listed IDs (and their versions); spares the rest."""
+    user_id = "user_bulk"
+    a1 = _make_artifact(artifact_id="art_b_01", user_id=user_id)
+    a2 = _make_artifact(artifact_id="art_b_02", user_id=user_id)
+    a3 = _make_artifact(artifact_id="art_b_03", user_id=user_id)
+
+    for art in (a1, a2, a3):
+        await repo.create(art, file_path=f"/tmp/{art.artifact_id}/v1.html", size_bytes=1)
+    await repo.iterate("art_b_02", file_path="/tmp/art_b_02/v2.html", size_bytes=1)
+
+    deleted = await repo.bulk_delete(["art_b_01", "art_b_02"])
+    assert deleted == 2
+
+    assert await repo.get_by_id("art_b_01") is None
+    assert await repo.get_by_id("art_b_02") is None
+    assert await repo.get_by_id("art_b_03") is not None  # spared
+    assert await repo.list_versions("art_b_02") == []  # cascade
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_empty_list_is_noop(repo):
+    deleted = await repo.bulk_delete([])
+    assert deleted == 0

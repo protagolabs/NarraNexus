@@ -196,6 +196,7 @@ app.middleware("http")(access_log_middleware)
 from backend.routes.websocket import router as websocket_router
 from backend.routes.agents import router as agents_router
 from backend.routes.agents_artifacts import router as agents_artifacts_router
+from backend.routes.users_artifacts import router as users_artifacts_router
 from backend.routes.jobs import router as jobs_router
 from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
@@ -215,6 +216,7 @@ app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
 app.include_router(agents_artifacts_router, prefix="/api/agents", tags=["Artifacts"])
+app.include_router(users_artifacts_router, prefix="/api/users", tags=["Artifacts"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])

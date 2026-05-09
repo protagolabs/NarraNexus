@@ -33,9 +33,12 @@ from xyz_agent_context.schema.artifact_schema import (
 from xyz_agent_context.settings import settings
 
 
-MAX_TEXT_BYTES = 1 * 1024 * 1024       # 1 MB
-MAX_BINARY_BYTES = 10 * 1024 * 1024    # 10 MB
-PER_AGENT_QUOTA_BYTES = 500 * 1024 * 1024  # 500 MB
+MAX_TEXT_BYTES = 1 * 1024 * 1024       # 1 MB per text artifact (content body)
+MAX_BINARY_BYTES = 10 * 1024 * 1024    # 10 MB per binary artifact (image / pdf)
+
+# Per-user aggregate quota lives in settings (count + bytes; deploy-mode aware).
+# Both must be satisfied; whichever fires first triggers ArtifactQuotaExceeded
+# with a message pointing the user at the Settings → Artifacts management UI.
 
 _KIND_TO_EXT: dict[str, str] = {
     "text/html": "html",
@@ -107,14 +110,51 @@ def _build_url(agent_id: str, artifact_id: str, version: int) -> str:
 # ── quota enforcement ──────────────────────────────────────────────────────────
 
 
-async def _enforce_quota(repo: ArtifactRepository, agent_id: str, incoming_bytes: int) -> None:
-    """Raise ArtifactQuotaExceeded if adding incoming_bytes would exceed the per-agent limit."""
-    used = await repo.total_bytes_for_agent(agent_id)
-    if used + incoming_bytes > PER_AGENT_QUOTA_BYTES:
+async def _enforce_quota(
+    repo: ArtifactRepository,
+    user_id: str,
+    incoming_bytes: int,
+    *,
+    is_iteration: bool,
+) -> None:
+    """Raise ArtifactQuotaExceeded if creating this artifact would exceed the
+    per-user count or byte limit.
+
+    Both limits are user-scoped (cross-agent) per Bin's design: count is
+    50 local / 10 cloud (deploy-mode aware via settings.is_cloud_mode),
+    and bytes is 100 MB regardless of mode. Iterations don't consume a new
+    count slot (they only add a version row), so the count check is skipped
+    when ``is_iteration=True``.
+
+    Error messages explicitly mention "Settings → Artifacts" so the LLM can
+    relay actionable guidance to the user, and the frontend can pattern-
+    match the structured payload to surface a modal.
+    """
+    from xyz_agent_context.settings import settings
+
+    # Byte ceiling: applies to both new + iterate (each iteration writes a
+    # new version row, so the bytes truly accumulate).
+    used_bytes = await repo.total_bytes_for_user(user_id)
+    byte_limit = settings.artifact_total_bytes_per_user
+    if used_bytes + incoming_bytes > byte_limit:
         raise ArtifactQuotaExceeded(
-            f"artifact storage quota exceeded for this agent "
-            f"(used={used}, incoming={incoming_bytes}, limit={PER_AGENT_QUOTA_BYTES})"
+            f"Artifact storage limit reached "
+            f"({used_bytes / 1024 / 1024:.1f} MB used + {incoming_bytes / 1024 / 1024:.1f} MB incoming "
+            f"> {byte_limit / 1024 / 1024:.0f} MB total per user). "
+            f"Manage in Settings → Artifacts."
         )
+
+    # Count ceiling: only applies when minting a NEW artifact, since iterate
+    # appends a version to an existing parent and therefore doesn't grow the
+    # parent count.
+    if not is_iteration:
+        used_count = await repo.count_for_user(user_id)
+        count_limit = settings.artifact_count_limit_per_user
+        if used_count + 1 > count_limit:
+            raise ArtifactQuotaExceeded(
+                f"Artifact limit reached ({used_count}/{count_limit}). "
+                f"Manage in Settings → Artifacts before creating new ones."
+            )
 
 
 # ── public API ─────────────────────────────────────────────────────────────────
@@ -176,8 +216,6 @@ async def create_text_artifact(
     if len(encoded) > MAX_TEXT_BYTES:
         raise ArtifactTooLarge("content too large (1MB max). For binaries use upload_artifact_file.")
 
-    await _enforce_quota(repo, agent_id, len(encoded))
-
     is_iteration: bool
     artifact_id: str
     version: int
@@ -190,10 +228,15 @@ async def create_text_artifact(
             raise ArtifactKindMismatch(
                 f"cannot iterate {kind} on a {existing.kind} artifact"
             )
+        # Quota is checked AFTER existing-target validation so the user gets
+        # a more specific error first (kind mismatch / not found > quota).
+        await _enforce_quota(repo, user_id, len(encoded), is_iteration=True)
         artifact_id = target_artifact_id
         version = existing.latest_version + 1
         is_iteration = True
     else:
+        # Quota check before minting a new artifact_id (count + bytes both apply).
+        await _enforce_quota(repo, user_id, len(encoded), is_iteration=False)
         artifact_id = _new_artifact_id()
         version = 1
         is_iteration = False
@@ -315,8 +358,6 @@ async def upload_binary_artifact(
     if size > MAX_BINARY_BYTES:
         raise ArtifactTooLarge("file too large (10MB max)")
 
-    await _enforce_quota(repo, agent_id, size)
-
     is_iteration: bool
     artifact_id: str
     version: int
@@ -329,10 +370,12 @@ async def upload_binary_artifact(
             raise ArtifactKindMismatch(
                 f"cannot iterate {kind} on a {existing.kind} artifact"
             )
+        await _enforce_quota(repo, user_id, size, is_iteration=True)
         artifact_id = target_artifact_id
         version = existing.latest_version + 1
         is_iteration = True
     else:
+        await _enforce_quota(repo, user_id, size, is_iteration=False)
         artifact_id = _new_artifact_id()
         version = 1
         is_iteration = False
