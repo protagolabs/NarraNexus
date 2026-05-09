@@ -18,6 +18,10 @@ const ModeSelectPage = lazy(() => import('@/pages/ModeSelectPage'));
 const SetupPage = lazy(() => import('@/pages/SetupPage'));
 const SystemPage = lazy(() => import('@/pages/SystemPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
+const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
+const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
+const ManageAgentsPage = lazy(() => import('@/pages/ManageAgentsPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 
 /** Full-screen loading placeholder */
@@ -265,6 +269,10 @@ function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="bundle/export" element={<BundleExportPage />} />
+          <Route path="bundle/import" element={<BundleImportPage />} />
+          <Route path="teams/:teamId" element={<TeamDetailPage />} />
+          <Route path="manage-agents" element={<ManageAgentsPage />} />
         </Route>
 
         {/* Root redirect + catch-all */}

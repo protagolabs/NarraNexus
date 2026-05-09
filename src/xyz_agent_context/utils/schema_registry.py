@@ -875,6 +875,87 @@ _register(
 )
 
 
+# Subproject 1: Team Membership (from main)
+_register(
+    TableDef(
+        name="teams",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("name", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("description", "TEXT", "TEXT"),
+            Column("color", "TEXT", "VARCHAR(16)"),
+            Column("source", "TEXT", "VARCHAR(64)", nullable=False, default="'user'"),
+            Column("intro_md", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_teams_team_id", ["team_id"], unique=True),
+            Index("idx_teams_owner_user_id", ["owner_user_id"]),
+        ],
+    )
+)
+
+_register(
+    TableDef(
+        name="team_members",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("joined_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_team_members_team_agent", ["team_id", "agent_id"], unique=True),
+            Index("idx_team_members_agent_id", ["agent_id"]),
+            Index("idx_team_members_team_id", ["team_id"]),
+        ],
+    )
+)
+
+# Subproject 2: Bundle Import — preflight session storage (cross-process / crash-safe)
+_register(
+    TableDef(
+        name="bundle_preflight_sessions",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("token", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("work_dir", "TEXT", "VARCHAR(1024)", nullable=False),
+            Column("manifest_json", "TEXT", "MEDIUMTEXT", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_bps_token", ["token"], unique=True),
+            Index("idx_bps_created", ["created_at"]),
+        ],
+    )
+)
+
+# Subproject 2: Bundle Export/Import — skill archive registry
+_register(
+    TableDef(
+        name="skill_archives",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("skill_name", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("source_type", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("source_url", "TEXT", "VARCHAR(1024)"),
+            Column("archive_path", "TEXT", "VARCHAR(1024)"),
+            Column("sha256", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_skill_arch_user_name", ["user_id", "skill_name"], unique=True),
+            Index("idx_skill_arch_user_id", ["user_id"]),
+        ],
+    )
+)
+
+
 # ── Artifacts (agent visual outputs) ─────────────────────────────────────
 _register(
     TableDef(

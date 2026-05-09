@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-04-10
+last_verified: 2026-05-09
 stub: false
 ---
 
@@ -21,6 +21,12 @@ The agent list is the primary navigation for multi-agent concurrent chat. It sho
 Collapsed mode shows max 4 agents as icon squares — the rest are invisible but still selectable if you expand the sidebar.
 
 Inline rename: clicking the pencil enters editing mode on that agent row. Enter/Escape confirms/cancels. The `editingAgentId !== agentId` guard ensures you cannot edit a different agent while the current one is selected for rename.
+
+### Team management 双入口（2026-05-09）
+
+`AgentList` 自己也渲染一个 `TeamManagementModal`（除了 `TeamFilterBar` 那一份），通过 `Users2` icon 按钮打开。两份 modal 各持本地 state，互不干扰，因为 modal 内部读的是 `useTeamsStore`，关闭时 store 已经刷新过，再开任一入口都能看到最新数据。
+
+为什么要两个入口：用户反馈 TeamFilterBar 的齿轮 (`Settings2`) 看起来像"系统设置"，发现不到团队管理。`AgentList` 顶部 `[+ Plus]  [Users2]  [↻ Refresh]` 三联工具按钮把"建 agent / 管 team / 刷新"放成一个动作组，让批量管理离 agent 操作只差一个 icon 距离。
 
 ## 新人易踩的坑
 
