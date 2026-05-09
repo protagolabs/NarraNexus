@@ -367,11 +367,11 @@ async def build_bundle(
             )
 
             # Per-instance memory family
+            # Per-instance memory tables — keyed by instance_id.
             for memory_table in (
                 "instance_module_report_memory",
                 "instance_json_format_memory",
                 "instance_json_format_memory_chat",
-                "module_report_memory",
             ):
                 mem_rows = []
                 for iid in agent_instance_ids:
@@ -381,6 +381,20 @@ async def build_bundle(
                                indent=2, ensure_ascii=False, default=str),
                     encoding="utf-8",
                 )
+
+            # Legacy module_report_memory — keyed by (narrative_id, module_name),
+            # NOT by instance_id (the table predates per-instance memory; it's still
+            # actively written by EventMemoryModule). Query per narrative instead.
+            mrm_rows = []
+            for nrec in n_rows:
+                mrm_rows.extend(
+                    await db.get("module_report_memory", {"narrative_id": nrec["narrative_id"]})
+                )
+            (agent_dir / "module_report_memory.json").write_text(
+                json.dumps([_scrub_user_id(dict(r), user_id, "module_report_memory") for r in mrm_rows],
+                           indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
 
             # workspace tar.gz
             ws_path = await _pack_workspace(aid, user_id, agent_dir,

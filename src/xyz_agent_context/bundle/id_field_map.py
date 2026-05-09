@@ -70,7 +70,7 @@ STRUCTURED_ID_FIELDS: Dict[str, Dict[str, str]] = {
         "instance_id": "instance",
     },
     "module_report_memory": {
-        "instance_id": "instance",
+        # No instance_id on this legacy table — keyed by (narrative_id, module_name)
         "narrative_id": "narrative",
     },
     "bus_channels": {
