@@ -1,8 +1,32 @@
 ---
 code_file: backend/routes/agents_artifacts.py
-last_verified: 2026-05-08-r3
+last_verified: 2026-05-09
 stub: false
 ---
+
+## 2026-05-09 hardening — C1 ownership, C6 path confinement, I1 delete order
+
+**C1 — JWT ownership check on all 5 handlers.**
+A `_verify_agent_ownership(request, agent_id)` helper was added (mirrors the pattern
+from `lark.py`). It is a no-op in local mode (no `request.state.user_id`); in cloud mode
+it looks up `agents.created_by` and raises HTTP 403 if it does not match the JWT user.
+All 5 route handlers (`list_artifacts`, `get_artifact`, `get_raw`, `patch_artifact`,
+`delete_artifact`) now accept `request: Request` as their first parameter and call this
+helper before any other logic.
+
+**C6 — Path-confinement in `get_raw`.**
+`os.path.join(base, match.file_path)` is replaced by `os.path.realpath(join(...))`,
+which is then checked against `os.path.realpath(settings.base_working_path)`. If the
+resolved path escapes the workspace root (e.g., a DB-injected `../../etc/passwd`),
+the handler returns HTTP 404 and logs a warning. This is a defence-in-depth guard —
+the primary prevention is in `artifact_runner.py` which writes only paths inside
+the workspace.
+
+**I1 — Delete order flipped: folder first, then DB row.**
+`delete_artifact` now removes the on-disk folder *before* `repo.delete()`. If `shutil.rmtree`
+raises `OSError`, the endpoint returns HTTP 500 and the DB row is preserved
+(both-or-neither contract). `ignore_errors=True` was dropped to surface real failures.
+If the folder is already absent, the `os.path.isdir` guard means no error is raised.
 
 ## 2026-05-08-r3 simplification — ArtifactEventBus removed; C1.5 unpin guard added
 

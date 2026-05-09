@@ -144,10 +144,13 @@ class ArtifactRepository(BaseRepository[Artifact]):
         now = datetime.now(timezone.utc)
         if pinned:
             # raw SQL because db.update() filters None and we need to preserve
-            # session_id NULL semantics correctly here
+            # session_id NULL semantics correctly here.
+            # COALESCE(original_session_id, ?) preserves a previously saved value
+            # so that double-pinning does not overwrite the real original session_id
+            # with the already-NULLed session_id from the first pin.
             sql = """
             UPDATE instance_artifacts
-            SET pinned = %s, original_session_id = %s, session_id = NULL, updated_at = %s
+            SET pinned = %s, original_session_id = COALESCE(original_session_id, %s), session_id = NULL, updated_at = %s
             WHERE artifact_id = %s
             """
             await self._db.execute(

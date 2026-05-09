@@ -169,6 +169,130 @@ def test_other_agents_cannot_read(setup):
     assert r.status_code == 404
 
 
+def test_non_owner_jwt_returns_403(monkeypatch, tmp_path):
+    """C1: Cloud-mode — JWT user_id that does not match agent's created_by gets 403."""
+    import asyncio
+
+    workspace = tmp_path / "workspace2"
+    workspace.mkdir()
+
+    from xyz_agent_context.settings import settings as sa_settings
+    monkeypatch.setattr(sa_settings, "base_working_path", str(workspace), raising=False)
+
+    from backend.routes.agents_artifacts import router as artifacts_router
+    import backend.routes.agents_artifacts as artifacts_mod
+
+    # Build a DB with an agent owned by "owner_user"
+    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.schema_registry import auto_migrate
+
+    async def _make_db():
+        backend = SQLiteBackend(":memory:")
+        await backend.initialize()
+        await auto_migrate(backend)
+        return await AsyncDatabaseClient.create_with_backend(backend)
+
+    db = asyncio.run(_make_db())
+
+    # Insert agent owned by "owner_user"
+    asyncio.run(db.insert("agents", {
+        "agent_id": "agent_owned",
+        "agent_name": "Test Agent",
+        "created_by": "owner_user",
+    }))
+
+    monkeypatch.setattr(artifacts_mod, "get_db_client", lambda: _async_return(db))
+    monkeypatch.setattr(artifacts_mod, "settings", sa_settings)
+
+    app = FastAPI()
+    # Inject a middleware that sets request.state.user_id to simulate cloud JWT
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class FakeJWTMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            request.state.user_id = "other_user"  # Not the owner
+            return await call_next(request)
+
+    app.add_middleware(FakeJWTMiddleware)
+    app.include_router(artifacts_router, prefix="/api/agents")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    # list_artifacts — should get 403
+    r = client.get("/api/agents/agent_owned/artifacts", params={"scope": "pinned"})
+    assert r.status_code == 403
+
+    # Local-mode (no user_id in state) should pass through
+    app2 = FastAPI()
+    app2.include_router(artifacts_router, prefix="/api/agents")
+    client2 = TestClient(app2, raise_server_exceptions=False)
+    # No agent in DB with agent_id "agent_owned" in local mode — will hit 404 from art lookup, not 403
+    r2 = client2.get("/api/agents/agent_owned/artifacts", params={"scope": "pinned"})
+    assert r2.status_code == 200  # local mode: ownership not enforced, returns empty list
+
+
+def test_raw_path_escape_returns_404(setup):
+    """C6: Defence-in-depth — if a file_path DB row contains ../, refuse to serve."""
+    import asyncio
+
+    client = setup["client"]
+    db = setup["db"]
+
+    # Directly update the version row to contain a path-traversal string
+    asyncio.run(db.update(
+        "instance_artifact_versions",
+        {"artifact_id": "art_99999999", "version": 1},
+        {"file_path": "../../etc/passwd"},
+    ))
+
+    r = client.get("/api/agents/agent_x/artifacts/art_99999999/v1/raw")
+    # Must be refused (404) — not 410, not 500
+    assert r.status_code == 404
+
+
+def test_delete_with_already_missing_folder_succeeds(setup):
+    """I1: If the artifact folder is already gone, delete still succeeds (DB row is removed)."""
+    client = setup["client"]
+    workspace = setup["workspace"]
+
+    # Remove the folder manually before issuing DELETE
+    import shutil
+    folder = workspace / "agent_x_user_y/artifacts/art_99999999"
+    if folder.exists():
+        shutil.rmtree(folder)
+
+    r = client.delete("/api/agents/agent_x/artifacts/art_99999999")
+    assert r.status_code == 200
+    assert r.json()["deleted"] == "art_99999999"
+
+    # Confirm DB row is gone
+    r = client.get("/api/agents/agent_x/artifacts/art_99999999")
+    assert r.status_code == 404
+
+
+def test_create_with_oversize_description_rejected():
+    """C5: description longer than 2000 chars is rejected at the Pydantic layer."""
+    import pytest
+    from pydantic import ValidationError
+    from xyz_agent_context.schema.artifact_schema import Artifact
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    huge = "x" * 2001
+    with pytest.raises(ValidationError):
+        Artifact(
+            artifact_id="art_test",
+            agent_id="agent_1",
+            user_id="user_1",
+            session_id="sess_1",
+            title="title",
+            kind="text/html",
+            description=huge,
+            created_at=now,
+            updated_at=now,
+        )
+
+
 def test_unpin_agent_scoped_artifact_returns_400(setup):
     """
     C1.5: Agent-created artifacts (session_id=null, pinned=true via C1 auto-pin) have

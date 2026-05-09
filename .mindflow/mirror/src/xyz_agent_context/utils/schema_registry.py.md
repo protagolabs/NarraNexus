@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-08-r2
+last_verified: 2026-05-09
 stub: false
 ---
+
+## 2026-05-09 hardening — I7 idx_artifact_agent_id added
+
+`instance_artifacts` now has a third index `idx_artifact_agent_id` on `["agent_id"]`.
+`total_bytes_for_agent` joins `instance_artifact_versions` to `instance_artifacts` on
+`artifact_id` and filters by `agent_id`. Without an `agent_id` index the planner may
+scan the full `instance_artifacts` table when an agent has many artifacts. The two
+existing composite indexes (`idx_artifact_agent_session`, `idx_artifact_agent_pinned`)
+cover query patterns with two conditions; the new single-column index covers the quota
+aggregation join path.
 
 ## 2026-04-28 addition — chat_message_embeddings folded in
 

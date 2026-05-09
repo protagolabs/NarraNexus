@@ -191,6 +191,75 @@ async def test_delete_cascades_versions(repo):
 
 
 @pytest.mark.asyncio
+async def test_pin_then_pin_again_preserves_original_session_id(repo):
+    """C3: Re-pinning an already-pinned artifact must not overwrite original_session_id."""
+    art = _make_artifact(artifact_id="art_double_pin", session_id="sess_1")
+    await repo.create(art, file_path="p/v1.html", size_bytes=1)
+
+    # First pin: original_session_id should be saved as "sess_1"
+    await repo.set_pinned("art_double_pin", pinned=True)
+    after_first = await repo.get_by_id("art_double_pin")
+    assert after_first is not None
+    assert after_first.session_id is None
+    assert after_first.original_session_id == "sess_1"
+
+    # Second pin: original_session_id must still be "sess_1" (not overwritten with None)
+    await repo.set_pinned("art_double_pin", pinned=True)
+    after_second = await repo.get_by_id("art_double_pin")
+    assert after_second is not None
+    assert after_second.session_id is None
+    assert after_second.original_session_id == "sess_1"  # must not be overwritten with NULL
+
+    # Unpin: should restore to sess_1
+    await repo.set_pinned("art_double_pin", pinned=False)
+    unpinned = await repo.get_by_id("art_double_pin")
+    assert unpinned is not None
+    assert unpinned.session_id == "sess_1"
+    assert unpinned.original_session_id is None
+    assert unpinned.pinned is False
+
+
+@pytest.mark.asyncio
+async def test_iterate_sequential_produces_distinct_versions_and_paths(repo):
+    """C2: 5 sequential iterate calls must produce distinct version numbers and file paths.
+
+    Serialization of iterate() calls is guaranteed by the DB transaction.
+    The C2 fix also requires that the caller (artifact_runner) supplies a unique
+    file path per call (via secrets.token_hex(8)) so no two versions share a path.
+    This test verifies the repository side: distinct version numbers and that
+    the repository stores whatever file_path the caller passes without dedup.
+    """
+    artifact = _make_artifact(artifact_id="art_sequential")
+    await repo.create(artifact, file_path="/tmp/art_seq/seed.html", size_bytes=10)
+
+    # 5 iterates with distinct file paths (as artifact_runner now does with token_hex)
+    returned_versions = []
+    for i in range(5):
+        new_ver = await repo.iterate(
+            "art_sequential",
+            file_path=f"/tmp/art_seq/unique_{i:04d}.html",
+            size_bytes=100 + i,
+        )
+        returned_versions.append(new_ver)
+
+    # All 5 return distinct, incrementing version numbers
+    assert returned_versions == [2, 3, 4, 5, 6]
+
+    fetched = await repo.get_by_id("art_sequential")
+    assert fetched is not None
+    assert fetched.latest_version == 6
+
+    versions = await repo.list_versions("art_sequential")
+    assert len(versions) == 6  # seed + 5 iterations
+    version_nums = sorted(v.version for v in versions)
+    assert version_nums == [1, 2, 3, 4, 5, 6]
+
+    # All 6 file paths are distinct — no two versions share a file
+    file_paths = [v.file_path for v in versions]
+    assert len(set(file_paths)) == len(file_paths), f"Duplicate file_paths: {file_paths}"
+
+
+@pytest.mark.asyncio
 async def test_total_bytes_for_agent(repo):
     """total_bytes_for_agent sums correctly across all versions of all artifacts."""
     agent_id = "agent_bytes"

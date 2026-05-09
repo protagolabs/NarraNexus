@@ -46,7 +46,7 @@ class Artifact(BaseModel):
     original_session_id: Optional[str] = None
     title: str = Field(..., max_length=200)
     kind: ArtifactKind
-    description: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=2000)
     pinned: bool = False
     latest_version: int = 1
     created_at: datetime

@@ -51,8 +51,15 @@ async def test_create_text_artifact_writes_file_and_row(env):
 
     row = await repo.get_by_id(result.artifact_id)
     assert row is not None
-    abs_path = os.path.join(env["workspace"], f"agent_x_user_y/artifacts/{result.artifact_id}/v1.csv")
+
+    # C2: File naming is now token-based ({hex}.ext), not v{n}.ext.
+    # Verify by reading the version row's file_path from DB.
+    versions = await repo.list_versions(result.artifact_id)
+    assert len(versions) == 1
+    v1 = versions[0]
+    abs_path = os.path.join(env["workspace"], v1.file_path)
     assert os.path.exists(abs_path)
+    assert abs_path.endswith(".csv")  # extension matches kind
     with open(abs_path) as f:
         assert f.read() == "a,b\n1,2\n"
 
@@ -81,9 +88,23 @@ async def test_iterate_keeps_old_version_file(env):
     )
     assert r2.artifact_id == r1.artifact_id
     assert r2.version == 2
-    v1_path = os.path.join(env["workspace"], f"a_u/artifacts/{r1.artifact_id}/v1.md")
-    v2_path = os.path.join(env["workspace"], f"a_u/artifacts/{r1.artifact_id}/v2.md")
-    assert os.path.exists(v1_path) and os.path.exists(v2_path)
+
+    # C2: File naming is now token-based ({hex}.ext), not v{n}.ext.
+    # Both version files must exist and be distinct.
+    versions = await repo.list_versions(r1.artifact_id)
+    assert len(versions) == 2
+    v1_path = os.path.join(env["workspace"], versions[0].file_path)
+    v2_path = os.path.join(env["workspace"], versions[1].file_path)
+    # Both files exist
+    assert os.path.exists(v1_path), f"v1 file missing: {v1_path}"
+    assert os.path.exists(v2_path), f"v2 file missing: {v2_path}"
+    # They are distinct (no collision)
+    assert v1_path != v2_path
+    # Content matches what was written
+    with open(v1_path) as f:
+        assert f.read() == "v1"
+    with open(v2_path) as f:
+        assert f.read() == "v2"
 
 
 @pytest.mark.asyncio

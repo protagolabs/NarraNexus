@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-05-08-r2
+last_verified: 2026-05-09
 stub: false
 ---
+
+## 2026-05-09 hardening — C5 description bounded to 2000 chars
+
+`Artifact.description` now uses `Field(default=None, max_length=2000)` (was a bare
+`Optional[str] = None`). Pydantic enforces the limit at model construction time,
+raising `ValidationError` before the value reaches the DB. MySQL `TEXT` can hold 64KB,
+so without a bound an LLM could dump arbitrary data into the field and trigger
+a MySQL `1406 Data too long` error at the ORM layer (a 500). 2000 chars is generous
+for a human-readable description.
 
 # artifact_schema.py
 

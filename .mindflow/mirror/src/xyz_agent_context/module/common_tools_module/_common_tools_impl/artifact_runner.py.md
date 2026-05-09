@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_runner.py
-last_verified: 2026-05-08-r3
+last_verified: 2026-05-09
 stub: false
 ---
+
+## 2026-05-09 hardening — C2 token-based file naming; version from repo.iterate()
+
+**C2 — File naming changed from `v{n}.{ext}` to `{secrets.token_hex(8)}.{ext}`.**
+Both `create_text_artifact` and `upload_binary_artifact` now generate a random
+16-hex-char filename token for every version (including the first). This eliminates
+the race condition where two concurrent `iterate` calls both compute `version=N+1`
+outside the DB transaction and then race to write `vN+1.{ext}` — one overwriting the
+other's bytes. With random tokens, two concurrent calls always produce distinct filenames.
+
+**Version is now authoritative from `repo.iterate()`.**
+In the `is_iteration` branch, the callers previously computed `version = existing.latest_version + 1`
+themselves and then called `repo.iterate()` (which did the same calculation inside a
+transaction). The local version was used for the result URL. After this change,
+`repo.iterate()` returns the new version number (it always did) and the runner uses
+that return value: `version = await repo.iterate(...)`. This ensures the URL in
+`CreateArtifactToolResult` always matches what the DB recorded, even if a concurrent
+call caused the DB-side version to differ from the pre-transaction read.
+
+**File layout note:**
+```
+{settings.base_working_path}/{agent_id}_{user_id}/artifacts/{artifact_id}/{token}.{ext}
+```
+The `v{n}` prefix is gone. The version number remains a pure DB concept — callers
+must look up `instance_artifact_versions.file_path` to find the file on disk.
+The `get_raw` endpoint already does this (it reads the version row's `file_path`
+before constructing the absolute path).
 
 ## 2026-05-08-r3 — ArtifactEventBus removed; C1 auto-pin applied to upload_binary_artifact
 

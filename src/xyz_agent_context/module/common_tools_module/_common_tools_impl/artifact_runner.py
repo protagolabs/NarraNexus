@@ -201,7 +201,9 @@ async def create_text_artifact(
     folder = _artifact_dir(agent_id, user_id, artifact_id)
     os.makedirs(folder, exist_ok=True)
     ext = _KIND_TO_EXT[kind]
-    abs_path = os.path.join(folder, f"v{version}.{ext}")
+    # Use a random token instead of v{n} so concurrent iterate calls never race on the filename.
+    # The version number is a pure DB concept — iterate() returns the authoritative value.
+    abs_path = os.path.join(folder, f"{secrets.token_hex(8)}.{ext}")
     with open(abs_path, "wb") as fh:
         fh.write(encoded)
     rel_path = _relative_to_base(abs_path)
@@ -215,7 +217,7 @@ async def create_text_artifact(
 
     now = datetime.now(timezone.utc)
     if is_iteration:
-        await repo.iterate(artifact_id, file_path=rel_path, size_bytes=len(encoded))
+        version = await repo.iterate(artifact_id, file_path=rel_path, size_bytes=len(encoded))
         logger.debug("Iterated artifact {} to v{}", artifact_id, version)
     else:
         await repo.create(
@@ -338,7 +340,9 @@ async def upload_binary_artifact(
     folder = _artifact_dir(agent_id, user_id, artifact_id)
     os.makedirs(folder, exist_ok=True)
     ext = _KIND_TO_EXT[kind]
-    abs_path = os.path.join(folder, f"v{version}.{ext}")
+    # Use a random token instead of v{n} so concurrent iterate calls never race on the filename.
+    # The version number is a pure DB concept — iterate() returns the authoritative value.
+    abs_path = os.path.join(folder, f"{secrets.token_hex(8)}.{ext}")
     shutil.copyfile(abs_local, abs_path)
     rel_path = _relative_to_base(abs_path)
 
@@ -351,7 +355,7 @@ async def upload_binary_artifact(
 
     now = datetime.now(timezone.utc)
     if is_iteration:
-        await repo.iterate(artifact_id, file_path=rel_path, size_bytes=size)
+        version = await repo.iterate(artifact_id, file_path=rel_path, size_bytes=size)
         logger.debug("Iterated binary artifact {} to v{}", artifact_id, version)
     else:
         await repo.create(

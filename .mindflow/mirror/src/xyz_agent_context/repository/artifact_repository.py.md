@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
 stub: false
-last_verified: 2026-05-08-r2
+last_verified: 2026-05-09
 ---
+
+## 2026-05-09 hardening — C3 COALESCE for idempotent re-pin
+
+**C3 — `set_pinned(True)` now uses `COALESCE(original_session_id, ?)` instead of a bare
+`original_session_id = ?`.**
+Previously, re-pinning an already-pinned artifact would execute
+`original_session_id = existing.session_id` where `existing.session_id` is already `NULL`
+(cleared on the first pin), overwriting the original session memory with `NULL`. Subsequent
+unpin would then fail: `original_session_id = NULL` means there is nothing to restore,
+hitting the C1.5 guard with HTTP 400 ("agent-scoped").
+With `COALESCE(original_session_id, ?)`, the column is only written if it is currently
+`NULL` — the first pin sets it, every subsequent re-pin is a no-op on this column.
+Unpin continues to work correctly.
 
 # Intent
 

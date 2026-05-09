@@ -18,7 +18,7 @@ import os
 import shutil
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel
@@ -30,6 +30,23 @@ from xyz_agent_context.utils.db_factory import get_db_client
 
 
 router = APIRouter()
+
+
+async def _verify_agent_ownership(request: Request, agent_id: str) -> None:
+    """Verify that the JWT user owns the agent. Raises HTTPException(403) on failure.
+
+    In local mode (no JWT / no request.state.user_id), ownership is not enforced.
+    In cloud mode, the agent's created_by must match the JWT user_id.
+    """
+    if not hasattr(request.state, "user_id") or not request.state.user_id:
+        return  # Local mode — no auth enforcement
+    user_id = request.state.user_id
+    db = await get_db_client()
+    agent = await db.get_one("agents", {"agent_id": agent_id})
+    if not agent:
+        raise HTTPException(404, "agent not found")
+    if agent.get("created_by") != user_id:
+        raise HTTPException(403, "permission denied: you do not own this agent")
 
 
 CSP_BY_KIND = {
@@ -69,6 +86,7 @@ class ArtifactDetail(BaseModel):
 
 @router.get("/{agent_id}/artifacts", response_model=List[Artifact])
 async def list_artifacts(
+    request: Request,
     agent_id: str,
     scope: Literal["session", "pinned"] = Query("session"),
     session_id: Optional[str] = Query(None),
@@ -77,6 +95,7 @@ async def list_artifacts(
     List artifacts for an agent.
 
     Args:
+        request: FastAPI request (used for ownership verification in cloud mode).
         agent_id: Agent scope.
         scope: 'session' (default) returns non-pinned artifacts for the given
                session_id; 'pinned' returns all pinned artifacts for the agent.
@@ -85,6 +104,7 @@ async def list_artifacts(
     Returns:
         List of Artifact objects.
     """
+    await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
     if scope == "pinned":
@@ -95,17 +115,19 @@ async def list_artifacts(
 
 
 @router.get("/{agent_id}/artifacts/{artifact_id}", response_model=ArtifactDetail)
-async def get_artifact(agent_id: str, artifact_id: str):
+async def get_artifact(request: Request, agent_id: str, artifact_id: str):
     """
     Get artifact metadata and its version list.
 
     Args:
+        request: FastAPI request (used for ownership verification in cloud mode).
         agent_id: Agent scope (used to verify ownership).
         artifact_id: Artifact ID.
 
     Returns:
         ArtifactDetail containing the Artifact and its ArtifactVersion list.
     """
+    await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
     art = await repo.get_by_id(artifact_id)
@@ -116,7 +138,7 @@ async def get_artifact(agent_id: str, artifact_id: str):
 
 
 @router.get("/{agent_id}/artifacts/{artifact_id}/v{version}/raw")
-async def get_raw(agent_id: str, artifact_id: str, version: int):
+async def get_raw(request: Request, agent_id: str, artifact_id: str, version: int):
     """
     Serve the raw artifact file with strict Content-Security-Policy headers.
 
@@ -124,6 +146,7 @@ async def get_raw(agent_id: str, artifact_id: str, version: int):
     an external src, preventing XSS from arbitrary agent-generated HTML.
 
     Args:
+        request: FastAPI request (used for ownership verification in cloud mode).
         agent_id: Agent scope (ownership check).
         artifact_id: Artifact ID.
         version: Version number (integer path segment after 'v').
@@ -131,6 +154,7 @@ async def get_raw(agent_id: str, artifact_id: str, version: int):
     Returns:
         FileResponse with kind-specific CSP and SAFE_HEADERS.
     """
+    await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
     art = await repo.get_by_id(artifact_id)
@@ -141,7 +165,14 @@ async def get_raw(agent_id: str, artifact_id: str, version: int):
     if match is None:
         raise HTTPException(404, "version not found")
 
-    abs_path = os.path.join(settings.base_working_path, match.file_path)
+    # Path-confinement defence: prevent DB-injected path-traversal from escaping the workspace.
+    abs_path = os.path.realpath(os.path.join(settings.base_working_path, match.file_path))
+    base = os.path.realpath(settings.base_working_path)
+    if not (abs_path == base or abs_path.startswith(base + os.sep)):
+        logger.warning(
+            f"Path-escape attempt for artifact {artifact_id} v{version}: {match.file_path!r}"
+        )
+        raise HTTPException(404, "artifact not found")
     if not os.path.isfile(abs_path):
         logger.warning(f"Artifact file missing on disk: {abs_path}")
         raise HTTPException(410, "artifact file missing on disk")
@@ -154,13 +185,14 @@ async def get_raw(agent_id: str, artifact_id: str, version: int):
 
 
 @router.patch("/{agent_id}/artifacts/{artifact_id}", response_model=Artifact)
-async def patch_artifact(agent_id: str, artifact_id: str, body: PatchArtifact):
+async def patch_artifact(request: Request, agent_id: str, artifact_id: str, body: PatchArtifact):
     """
     Update artifact metadata (pinned flag and/or title).
 
     Pinning an artifact clears its session_id, making it agent-scoped.
 
     Args:
+        request: FastAPI request (used for ownership verification in cloud mode).
         agent_id: Agent scope (ownership check).
         artifact_id: Artifact ID.
         body: Fields to update (all optional).
@@ -168,6 +200,7 @@ async def patch_artifact(agent_id: str, artifact_id: str, body: PatchArtifact):
     Returns:
         Updated Artifact.
     """
+    await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
     existing = await repo.get_by_id(artifact_id)
@@ -193,24 +226,28 @@ async def patch_artifact(agent_id: str, artifact_id: str, body: PatchArtifact):
 
 
 @router.delete("/{agent_id}/artifacts/{artifact_id}")
-async def delete_artifact(agent_id: str, artifact_id: str):
+async def delete_artifact(request: Request, agent_id: str, artifact_id: str):
     """
-    Hard-delete an artifact: removes the DB row cascade and the on-disk folder.
+    Hard-delete an artifact: removes the on-disk folder first, then the DB row cascade.
+
+    The folder is removed before the DB row so that a filesystem failure aborts
+    the entire operation without leaving orphaned DB rows. If rmtree fails, the
+    endpoint returns 500 and the DB row is preserved (both-or-neither contract).
 
     Args:
+        request: FastAPI request (used for ownership verification in cloud mode).
         agent_id: Agent scope (ownership check).
         artifact_id: Artifact ID.
 
     Returns:
         Dict with 'deleted' key containing the artifact_id.
     """
+    await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
     existing = await repo.get_by_id(artifact_id)
     if existing is None or existing.agent_id != agent_id:
         raise HTTPException(404, "artifact not found")
-
-    await repo.delete(artifact_id)
 
     folder = os.path.join(
         settings.base_working_path,
@@ -219,7 +256,12 @@ async def delete_artifact(agent_id: str, artifact_id: str):
         artifact_id,
     )
     if os.path.isdir(folder):
-        shutil.rmtree(folder, ignore_errors=True)
+        try:
+            shutil.rmtree(folder)  # no ignore_errors — surface real failures
+        except OSError as e:
+            logger.error(f"Failed to remove artifact folder {folder}: {e}")
+            raise HTTPException(500, "failed to remove artifact files; aborting deletion")
         logger.info(f"Deleted artifact folder: {folder}")
 
+    await repo.delete(artifact_id)
     return {"deleted": artifact_id}
