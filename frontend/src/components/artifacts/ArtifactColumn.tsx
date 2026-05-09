@@ -49,10 +49,14 @@ interface Props {
 }
 
 export default function ArtifactColumn({ agentId }: Props) {
+  // All hooks must run in the same order on every render — no conditional hook
+  // calls. Selectors first, then early returns.
   const artifacts = useArtifactStore((s) => s.artifacts);
   const activeId = useArtifactStore((s) => s.activeArtifactId);
   const collapsed = useArtifactStore((s) => s.collapsed);
   const setCollapsed = useArtifactStore((s) => s.setCollapsed);
+  const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
+  const restoreTab = useArtifactStore((s) => s.restoreTab);
 
   if (artifacts.length === 0) return null;
 
@@ -78,11 +82,38 @@ export default function ArtifactColumn({ agentId }: Props) {
     );
   }
 
-  const active = artifacts.find((a) => a.artifact_id === activeId);
+  const minimized = artifacts.filter((a) => minimizedTabIds.has(a.artifact_id));
+
+  const visibleArtifacts = artifacts.filter((a) => !minimizedTabIds.has(a.artifact_id));
+  const effectiveActiveId =
+    activeId && visibleArtifacts.some((a) => a.artifact_id === activeId)
+      ? activeId
+      : visibleArtifacts[0]?.artifact_id ?? null;
+  const active = visibleArtifacts.find((a) => a.artifact_id === effectiveActiveId);
   const Renderer = active ? RENDERER_BY_KIND[active.kind] : null;
 
   return (
     <aside className="flex flex-col min-w-[320px] flex-[2] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
+      {/* Minimized strip — only renders when something is minimized.
+          Click a chip to restore the tab. */}
+      {minimized.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] text-xs overflow-x-auto">
+          <span className="opacity-60 whitespace-nowrap">⊟ Minimized:</span>
+          <div className="flex gap-1.5 flex-1 min-w-0">
+            {minimized.map((a) => (
+              <button
+                key={a.artifact_id}
+                onClick={() => restoreTab(a.artifact_id)}
+                className="px-2 py-0.5 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] truncate max-w-[14rem] text-left"
+                title={`Restore "${a.title}"`}
+              >
+                ↺ {a.title}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Header row: tab strip on the left, action buttons on the right.
           Shares its bottom border with the tab strip's own border-b. */}
       <div className="flex items-center justify-between min-w-0">
@@ -90,7 +121,7 @@ export default function ArtifactColumn({ agentId }: Props) {
           <ArtifactTabStrip agentId={agentId} />
         </div>
         <div className="flex items-center gap-1 px-1 border-b border-[var(--border-default)] self-stretch">
-          {active && <ArtifactDownloadMenu artifact={active} />}
+          {active && <ArtifactDownloadMenu artifact={active} agentId={agentId} />}
           <button
             onClick={() => setCollapsed(true)}
             className="text-xs opacity-60 hover:opacity-100 px-2"

@@ -910,6 +910,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               }}
               isStreaming
             />
+            {/* Mid-stream artifact preview: as soon as a create_artifact /
+                upload_artifact_file tool finishes (tool_output populated), pull
+                the artifact into the store so ArtifactColumn shows it without
+                waiting for the whole turn to finish. */}
+            {agentId && currentToolCalls.length > 0 && (
+              <ArtifactToolCallCards
+                toolCalls={currentToolCalls}
+                agentId={agentId}
+                allArtifacts={allArtifacts}
+              />
+            )}
           </div>
         )}
 

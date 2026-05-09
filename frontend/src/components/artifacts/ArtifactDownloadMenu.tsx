@@ -48,12 +48,27 @@ function safeFilename(title: string, ext: string): string {
 
 interface Props {
   artifact: Artifact;
+  agentId: string;
 }
 
-export default function ArtifactDownloadMenu({ artifact }: Props) {
+export default function ArtifactDownloadMenu({ artifact, agentId }: Props) {
+  const deleteArtifact = useArtifactStore((s) => s.delete);
   const isChart = artifact.kind === 'application/vnd.echarts+json';
   const url = rawUrl(artifact.agent_id, artifact.artifact_id, artifact.latest_version);
   const ext = KIND_TO_EXT[artifact.kind] ?? 'bin';
+
+  const handleDelete = () => {
+    const ok = window.confirm(
+      `Permanently delete "${artifact.title}"?\n\n` +
+      'This removes the file from disk AND the database. ' +
+      'Cannot be undone.\n\n' +
+      'If you only want to hide the tab, click "Minimize" on the tab itself instead.',
+    );
+    if (!ok) return;
+    deleteArtifact(agentId, artifact.artifact_id).catch((e) => {
+      window.alert(`Delete failed: ${e}`);
+    });
+  };
 
   const exportChartImage = (type: 'png' | 'jpeg') => {
     const instance = useArtifactStore.getState().chartInstances[artifact.artifact_id];
@@ -113,6 +128,14 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
         >
           Download original (.{ext})
         </a>
+        <div className="my-1 border-t border-[var(--border-default)]" />
+        <button
+          onClick={handleDelete}
+          className="block w-full text-left px-3 py-1.5 hover:bg-red-900/30 text-red-400"
+          role="menuitem"
+        >
+          Delete permanently…
+        </button>
       </div>
     </details>
   );

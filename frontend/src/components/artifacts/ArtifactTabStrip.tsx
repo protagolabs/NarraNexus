@@ -1,14 +1,17 @@
 /**
  * @file_name: ArtifactTabStrip.tsx
- * @description: Horizontally scrolling tab bar showing all open artifacts for an
- * agent session. Each tab supports pin and close actions. The strip is the
- * navigation control for ArtifactColumn — clicking a tab activates it in the
- * store which triggers the renderer dispatch.
+ * @description: Horizontally scrolling tab bar showing the user's currently
+ * VISIBLE artifacts — i.e. artifacts that are not minimized. Minimized
+ * artifacts surface in the header bar above (rendered by ArtifactColumn).
  *
- * Pin semantics: a pinned artifact persists across sessions (session_id becomes
- * null on the server). The pin emoji (📌 = pinned, 📍 = unpinned) is a quick
- * mnemonic: 📌 looks "stuck in place" (already pinned), 📍 looks like it is
- * waiting to be planted (not yet pinned).
+ * Per-tab actions:
+ *   📌 / 📍  pin / unpin (status toggle, persisted to DB)
+ *   ─        minimize (frontend-only hide, persisted to localStorage; the
+ *            artifact stays in the DB and can be restored from the header)
+ *
+ * Permanent deletion is intentionally NOT on the tab — it lives in the
+ * download menu (ArtifactDownloadMenu) behind a confirm dialog so a casual
+ * tab close can never destroy the underlying file.
  */
 
 import { useArtifactStore } from '@/stores';
@@ -20,25 +23,28 @@ interface Props {
 
 export default function ArtifactTabStrip({ agentId }: Props) {
   const artifacts = useArtifactStore((s) => s.artifacts);
+  const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const activeId = useArtifactStore((s) => s.activeArtifactId);
   const setActive = useArtifactStore((s) => s.setActive);
   const pin = useArtifactStore((s) => s.pin);
-  const remove = useArtifactStore((s) => s.delete);
+  const minimizeTab = useArtifactStore((s) => s.minimizeTab);
 
-  if (artifacts.length === 0) {
+  const visible = artifacts.filter((a) => !minimizedTabIds.has(a.artifact_id));
+
+  if (visible.length === 0) {
     return <div className="text-xs opacity-50 px-3 py-2">No artifacts yet</div>;
   }
 
   return (
     <div className="flex flex-row overflow-x-auto border-b border-[var(--border-default)]">
-      {artifacts.map((a) => (
+      {visible.map((a) => (
         <TabButton
           key={a.artifact_id}
           artifact={a}
           active={a.artifact_id === activeId}
           onClick={() => setActive(a.artifact_id)}
           onPin={() => pin(agentId, a.artifact_id, !a.pinned)}
-          onClose={() => remove(agentId, a.artifact_id)}
+          onMinimize={() => minimizeTab(a.artifact_id)}
         />
       ))}
     </div>
@@ -46,13 +52,13 @@ export default function ArtifactTabStrip({ agentId }: Props) {
 }
 
 function TabButton({
-  artifact, active, onClick, onPin, onClose,
+  artifact, active, onClick, onPin, onMinimize,
 }: {
   artifact: Artifact;
   active: boolean;
   onClick: () => void;
   onPin: () => void;
-  onClose: () => void;
+  onMinimize: () => void;
 }) {
   return (
     <div
@@ -71,11 +77,12 @@ function TabButton({
         {artifact.pinned ? '📌' : '📍'}
       </button>
       <button
-        onClick={(e) => { e.stopPropagation(); onClose(); }}
-        title="Delete"
-        className="text-xs opacity-60 hover:opacity-100"
+        onClick={(e) => { e.stopPropagation(); onMinimize(); }}
+        title="Minimize (does not delete; restore from the bar above)"
+        className="text-xs opacity-60 hover:opacity-100 leading-none"
+        aria-label="Minimize tab"
       >
-        ✕
+        ─
       </button>
     </div>
   );

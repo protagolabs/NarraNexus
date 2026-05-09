@@ -10,6 +10,7 @@ import type { Artifact } from '@/types/artifact';
 import { artifactsApi } from '@/services/artifactsApi';
 
 const COLLAPSED_KEY = 'artifact_column_collapsed';
+const MINIMIZED_IDS_KEY = 'artifact_minimized_ids';
 
 /**
  * Minimal interface to the echarts instance methods we actually use.
@@ -36,6 +37,14 @@ interface ArtifactState {
    */
   chartInstances: Record<string, ChartInstanceLike | null>;
 
+  /**
+   * Tab IDs the user has clicked "minimize" on. The artifact stays in `artifacts`
+   * (and in the DB), but TabStrip filters them out and surfaces them in the
+   * "Minimized" header bar so the user can restore them. Persisted to
+   * localStorage so refreshes do not undo the user's intent.
+   */
+  minimizedTabIds: Set<string>;
+
   loadForSession: (agentId: string, sessionId: string) => Promise<void>;
   loadPinned: (agentId: string) => Promise<void>;
   setActive: (artifactId: string | null) => void;
@@ -43,6 +52,8 @@ interface ArtifactState {
   remove: (artifactId: string) => void;
   setCollapsed: (collapsed: boolean) => void;
   registerChartInstance: (artifactId: string, instance: ChartInstanceLike | null) => void;
+  minimizeTab: (artifactId: string) => void;
+  restoreTab: (artifactId: string) => void;
 
   pin: (agentId: string, artifactId: string, pinned: boolean) => Promise<void>;
   delete: (agentId: string, artifactId: string) => Promise<void>;
@@ -56,11 +67,32 @@ const initialCollapsed = (() => {
   }
 })();
 
+const initialMinimizedTabIds = (() => {
+  try {
+    const raw = window.localStorage.getItem(MINIMIZED_IDS_KEY);
+    if (!raw) return new Set<string>();
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return new Set<string>();
+    return new Set<string>(arr.filter((x): x is string => typeof x === 'string'));
+  } catch {
+    return new Set<string>();
+  }
+})();
+
+function persistMinimizedTabIds(ids: Set<string>): void {
+  try {
+    window.localStorage.setItem(MINIMIZED_IDS_KEY, JSON.stringify(Array.from(ids)));
+  } catch {
+    /* ignore */
+  }
+}
+
 export const useArtifactStore = create<ArtifactState>((set, get) => ({
   artifacts: [],
   activeArtifactId: null,
   collapsed: initialCollapsed,
   chartInstances: {},
+  minimizedTabIds: initialMinimizedTabIds,
 
   async loadForSession(agentId, sessionId) {
     const sessionArtifacts = await artifactsApi.listSession(agentId, sessionId);
@@ -118,6 +150,27 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     set((state) => ({
       chartInstances: { ...state.chartInstances, [artifactId]: instance },
     }));
+  },
+
+  minimizeTab(artifactId) {
+    const next = new Set(get().minimizedTabIds);
+    next.add(artifactId);
+    persistMinimizedTabIds(next);
+    // If this was the active tab, switch active to the first non-minimized one.
+    const visible = get().artifacts.filter((a) => !next.has(a.artifact_id));
+    const currentActive = get().activeArtifactId;
+    set({
+      minimizedTabIds: next,
+      activeArtifactId:
+        currentActive === artifactId ? visible[0]?.artifact_id ?? null : currentActive,
+    });
+  },
+
+  restoreTab(artifactId) {
+    const next = new Set(get().minimizedTabIds);
+    next.delete(artifactId);
+    persistMinimizedTabIds(next);
+    set({ minimizedTabIds: next, activeArtifactId: artifactId });
   },
 
   async pin(agentId, artifactId, pinned) {
