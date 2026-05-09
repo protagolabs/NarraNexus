@@ -416,7 +416,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         kind = new_id.split("_", 1)[0]
         id_map_breakdown[kind] = id_map_breakdown.get(kind, 0) + 1
     logger.info(
-        f"bundle_import.id_map.collected "
+        "bundle_import.id_map.collected "
         + " ".join(f"{k}={v}" for k, v in sorted(id_map_breakdown.items()))
         + f" total={len(id_map)}"
     )
@@ -535,7 +535,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             "name": team_name,
             "description": team.get("description"),
             "color": team.get("color"),
-            "source": f"bundle",
+            "source": "bundle",
             "intro_md": intro,
         })
         new_team_id = new_tid

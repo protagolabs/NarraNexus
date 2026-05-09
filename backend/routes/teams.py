@@ -145,7 +145,7 @@ async def add_member(team_id: str, payload: AddMemberRequest, request: Request):
     added = await member_repo.add_member(team_id, payload.agent_id)
     return TeamOperationResponse(
         success=True,
-        message=f"Agent added to team" if added else "Agent already in team",
+        message="Agent added to team" if added else "Agent already in team",
     )
 
 
