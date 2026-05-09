@@ -753,16 +753,56 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 written_summary["jobs_created"] += 1
 
         # instance_narrative_links (bidirectional binding between narratives + module instances)
+        #
+        # The table's UNIQUE key is (instance_id, narrative_id) only — link_type
+        # is NOT in the unique index. Two real-world cases can produce the same
+        # pair twice in one import:
+        #   1. The same instance has multiple link rows on source side (e.g.
+        #      one ACTIVE + one COMPLETED for archival), so the bundle's
+        #      links file legitimately has both rows.
+        #   2. Cross-agent shared instances appear in two agents' links files;
+        #      both rows rewrite to the same new (instance_id, narrative_id)
+        #      pair, and the second agent's loop hits the unique constraint.
+        # Either way: aborting the whole confirm() on row #2 is the wrong
+        # call. Skip the dup, count it, keep going.
         nl_path = adir / "instance_narrative_links.json"
+        nl_dups = 0
         if nl_path.exists():
+            seen_pairs: set = set()
             for nrec in json.loads(nl_path.read_text(encoding="utf-8")):
                 if nrec.get("instance_id") in skipped_instance_ids:
                     continue
                 new_nl = rewrite_row("instance_narrative_links", nrec)
                 new_nl.pop("created_at", None)
                 new_nl.pop("updated_at", None)
-                await db.insert("instance_narrative_links", new_nl)
-                written_summary["narrative_links_created"] += 1
+                pair = (new_nl.get("instance_id"), new_nl.get("narrative_id"))
+                if pair in seen_pairs:
+                    # Intra-file duplicate (case 1) — skip without hitting DB.
+                    nl_dups += 1
+                    continue
+                seen_pairs.add(pair)
+                try:
+                    await db.insert("instance_narrative_links", new_nl)
+                    written_summary["narrative_links_created"] += 1
+                except Exception as ex:
+                    # Cross-agent / cross-file duplicate (case 2) — pair was
+                    # inserted by an earlier agent's loop in this same confirm().
+                    # We catch broadly because the underlying driver's exception
+                    # type differs by backend (pymysql.IntegrityError on MySQL,
+                    # sqlite3.IntegrityError via aiosqlite on SQLite). Re-raise
+                    # anything that doesn't smell like a unique-constraint hit.
+                    msg = str(ex).lower()
+                    if "duplicate" in msg or "unique" in msg or "1062" in msg:
+                        nl_dups += 1
+                    else:
+                        raise
+        if nl_dups:
+            written_summary["warnings"].append(
+                f"agent {old_aid}: skipped {nl_dups} duplicate instance_narrative_links row(s)"
+            )
+            logger.info(
+                f"bundle_import.dedup_narrative_links agent={old_aid} skipped={nl_dups}"
+            )
 
         # Per-instance memory family (used by various Modules to remember per-turn state)
         for memory_table in (
