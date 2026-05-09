@@ -16,13 +16,12 @@ import {
   Lock,
   Trash2,
   Loader2,
-  Users2,
+  ListChecks,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
 import { useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 
 interface AgentListProps {
   collapsed: boolean;
@@ -37,10 +36,9 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
-  // Open the same TeamManagementModal that TeamFilterBar's gear icon opens.
-  // Surfacing it next to the Plus button makes "manage / batch organize agents"
-  // a one-glance operation instead of hunting for the gear in the Teams row.
-  const [openTeamMgmt, setOpenTeamMgmt] = useState(false);
+  // Note: team management lives behind the gear icon on TeamFilterBar.
+  // The button next to "+" here is for batch agent CRUD (manage agents page),
+  // not team membership — the two are conceptually distinct.
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -250,11 +248,12 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
           <Plus className={cn('w-5 h-5', creatingAgent && 'animate-pulse')} />
         </button>
         <button
-          onClick={() => setOpenTeamMgmt(true)}
+          onClick={() => navigate('/app/manage-agents')}
           className="w-full aspect-square flex items-center justify-center border border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
-          title="Manage teams · batch organize agents"
+          title="Manage agents (batch · add / edit / delete)"
+          aria-label="Manage agents"
         >
-          <Users2 className="w-4 h-4" />
+          <ListChecks className="w-4 h-4" />
         </button>
         {agents.slice(0, 4).map((agent, index) => {
           const isSelected = agentId === agent.agent_id;
@@ -282,7 +281,6 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
             </div>
           );
         })}
-        <TeamManagementModal open={openTeamMgmt} onClose={() => setOpenTeamMgmt(false)} />
       </div>
     );
   }
@@ -309,11 +307,12 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setOpenTeamMgmt(true)}
+            onClick={() => navigate('/app/manage-agents')}
             className="w-7 h-7"
-            title="Manage teams · batch organize agents"
+            title="Manage agents (batch · add / edit / delete)"
+            aria-label="Manage agents"
           >
-            <Users2 className="w-3.5 h-3.5" />
+            <ListChecks className="w-3.5 h-3.5" />
           </Button>
           <Button
             variant="ghost"
@@ -502,7 +501,6 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
           })}
         </div>
       )}
-      <TeamManagementModal open={openTeamMgmt} onClose={() => setOpenTeamMgmt(false)} />
     </div>
   );
 }
