@@ -1022,8 +1022,17 @@ function SkillsTab({
     );
   }
   const isReadOnly = mode === 'full';
+  const allLoaded = agents.every((a) => a.agent_id in skillsForAgents);
   const totalSkills = agents.reduce((s, a) => s + (skillsForAgents[a.agent_id]?.length || 0), 0);
-  if (totalSkills === 0) {
+  if (!allLoaded && totalSkills === 0) {
+    return (
+      <div className="text-sm text-[var(--text-tertiary)] flex items-center gap-2">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        Loading skills for selected agents…
+      </div>
+    );
+  }
+  if (allLoaded && totalSkills === 0) {
     return (
       <div className="text-sm text-[var(--text-tertiary)]">
         None of the selected agents have any skills installed.
@@ -1039,7 +1048,18 @@ function SkillsTab({
         {isReadOnly && ' Read-only: Full mode pinned every skill to Full Copy.'}
       </p>
       {agents.map((a) => {
+        const loaded = a.agent_id in skillsForAgents;
         const skills = skillsForAgents[a.agent_id] || [];
+        if (!loaded) {
+          return (
+            <details key={a.agent_id} className="border border-[var(--border-default)]">
+              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center gap-2">
+                <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
+                {a.name || a.agent_id} — loading skills…
+              </summary>
+            </details>
+          );
+        }
         if (skills.length === 0) {
           return (
             <details key={a.agent_id} className="border border-[var(--border-default)]">
@@ -1281,6 +1301,11 @@ function HistoryTab({
         any narrative or individual event to exclude it from the bundle.
       </p>
       {agents.map((a) => {
+        // Distinguish "not loaded yet" from "loaded, empty":
+        //   - undefined  → fetch still in flight, show Loading…
+        //   - []         → fetched, this agent really has no narratives
+        //   - non-empty  → render as usual
+        const loaded = a.agent_id in historyByAgent;
         const narrs = historyByAgent[a.agent_id] || [];
         const exNars = excludedNarratives[a.agent_id] || new Set();
         return (
@@ -1288,25 +1313,40 @@ function HistoryTab({
             <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
               <span>{a.name || a.agent_id}</span>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-[var(--text-tertiary)]">
-                  {narrs.length - exNars.size} / {narrs.length} narratives
-                </span>
+                {!loaded ? (
+                  <span className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Loading…
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-[var(--text-tertiary)]">
+                    {narrs.length - exNars.size} / {narrs.length} narratives
+                  </span>
+                )}
                 <button
                   onClick={(e) => { e.preventDefault(); onSelectAllNarratives(a.agent_id); }}
-                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  disabled={!loaded}
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40"
                 >
                   Select all
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); onSelectNoneNarratives(a.agent_id); }}
-                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                  disabled={!loaded}
+                  className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40"
                 >
                   Select none
                 </button>
               </div>
             </summary>
             <div className="p-2 max-h-[480px] overflow-y-auto space-y-2">
-              {narrs.length === 0 && (
+              {!loaded && (
+                <div className="px-2 py-3 text-xs text-[var(--text-tertiary)] flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Loading narratives + events + jobs from this agent…</span>
+                </div>
+              )}
+              {loaded && narrs.length === 0 && (
                 <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">No narratives.</div>
               )}
               {narrs.map((n) => {
@@ -1560,6 +1600,7 @@ function SocialTab({
   return (
     <div className="space-y-4">
       {agents.map((a) => {
+        const loaded = a.agent_id in entitiesByAgent;
         const list = (entitiesByAgent[a.agent_id] || []).slice().sort((x, y) =>
           (x.entity_name || x.entity_id).localeCompare(y.entity_name || y.entity_id)
         );
@@ -1567,6 +1608,16 @@ function SocialTab({
         const page = pageByAgent[a.agent_id] || 0;
         const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
         const slice = list.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+        if (!loaded) {
+          return (
+            <details key={a.agent_id} className="border border-[var(--border-default)]">
+              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center gap-2">
+                <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
+                {a.name || a.agent_id} — loading social network entities…
+              </summary>
+            </details>
+          );
+        }
         return (
           <details key={a.agent_id} open className="border border-[var(--border-default)]">
             <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
@@ -1646,8 +1697,19 @@ function WorkspaceTab({
   return (
     <div className="space-y-4">
       {agents.map((a) => {
+        const loaded = a.agent_id in filesByAgent;
         const files = filesByAgent[a.agent_id] || [];
         const excludes = excludesByAgent[a.agent_id] || new Set();
+        if (!loaded) {
+          return (
+            <details key={a.agent_id} className="border border-[var(--border-default)]">
+              <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center gap-2">
+                <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
+                {a.name || a.agent_id} — loading workspace files…
+              </summary>
+            </details>
+          );
+        }
         return (
           <details key={a.agent_id} open className="border border-[var(--border-default)]">
             <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
