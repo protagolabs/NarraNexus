@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useState, type ComponentType } from 'react';
-import { ChevronDown, ChevronRight, MessageSquare, Hash, Link as LinkIcon } from 'lucide-react';
+import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, Link as LinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -18,6 +18,7 @@ import { api } from '@/lib/api';
 
 import { LarkConfig } from './LarkConfig';
 import { SlackConfig } from './SlackConfig';
+import { TelegramConfig } from './TelegramConfig';
 
 interface ChannelEntry {
   key: string;
@@ -51,6 +52,20 @@ const IM_CHANNELS: ChannelEntry[] = [
     fetchConnected: async (agentId) => {
       try {
         const res = await api.getSlackCredential(agentId);
+        return Boolean(res.success && res.data && res.data.enabled);
+      } catch {
+        return false;
+      }
+    },
+  },
+  {
+    key: 'telegram',
+    label: 'Telegram',
+    Icon: Send,
+    Component: TelegramConfig,
+    fetchConnected: async (agentId) => {
+      try {
+        const res = await api.getTelegramCredential(agentId);
         return Boolean(res.success && res.data && res.data.enabled);
       } catch {
         return false;

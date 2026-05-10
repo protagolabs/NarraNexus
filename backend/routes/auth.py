@@ -680,83 +680,35 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"Workspace cleanup failed (non-critical): {e}")
 
-        # 14. Lark credentials + CLI profile + workspace + inbox data
+        # 14. Channel cleanups — registry-driven walk over every
+        # ChannelModuleBase subclass in MODULE_MAP. Each subclass owns
+        # its own cleanup_for_agent (default: credential row + inbox
+        # channels by channel_id prefix; Lark overrides to also drop
+        # CLI profile + workspace dir). Adding a new IM channel requires
+        # zero edits here.
         try:
-            lark_cred = await db_client.get_one("lark_credentials", {"agent_id": agent_id})
-            if lark_cred:
-                # Remove CLI profile via the shared client — it handles HOME
-                # override and keychain cleanup regardless of which bind path
-                # created this credential.
-                from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
-                from xyz_agent_context.module.lark_module._lark_workspace import cleanup_workspace
-                try:
-                    await LarkCLIClient().profile_remove(agent_id)
-                except Exception as e:
-                    logger.debug(f"profile_remove best-effort failed for {agent_id}: {e}")
-                # Blow away the workspace directory (idempotent)
-                cleanup_workspace(agent_id)
-
-                # Clean up lark inbox channels
-                all_members = await db_client.get("bus_channel_members", {"agent_id": agent_id})
-                for m in all_members:
-                    cid = m.get("channel_id", "")
-                    if cid.startswith("lark_"):
-                        await db_client.delete("bus_channel_members", {"channel_id": cid, "agent_id": agent_id})
-                        remaining = await db_client.get("bus_channel_members", {"channel_id": cid})
-                        if not remaining:
-                            await db_client.delete("bus_messages", {"channel_id": cid})
-                            await db_client.delete("bus_channels", {"channel_id": cid})
-                # Delete credential
-                result = await db_client.execute(
-                    "DELETE FROM lark_credentials WHERE agent_id = %s",
-                    (agent_id,), fetch=False,
-                )
-                cnt = result if isinstance(result, int) else 0
-                if cnt > 0:
-                    stats["lark_credentials"] = cnt
-        except Exception as e:
-            logger.warning(f"Lark cleanup failed (non-critical): {e}")
-
-        # 14b. Slack credentials + inbox channels.
-        # Mirrors the Lark cascade above. Deleting the credential here is
-        # CRITICAL — otherwise SlackTrigger's credential watcher would keep
-        # the Socket Mode WebSocket alive for an agent that no longer
-        # exists (orphan workers, ghost replies). The trigger reloads
-        # active credentials on its watcher tick (~60s) and notices the
-        # row is gone, then disconnects.
-        try:
-            slack_cred = await db_client.get_one(
-                "channel_slack_credentials", {"agent_id": agent_id}
+            from xyz_agent_context.channel.channel_module_base import (
+                ChannelModuleBase,
             )
-            if slack_cred:
-                # Clean up slack inbox channels
-                all_members = await db_client.get(
-                    "bus_channel_members", {"agent_id": agent_id}
-                )
-                for m in all_members:
-                    cid = m.get("channel_id", "")
-                    if cid.startswith("slack_"):
-                        await db_client.delete(
-                            "bus_channel_members",
-                            {"channel_id": cid, "agent_id": agent_id},
-                        )
-                        remaining = await db_client.get(
-                            "bus_channel_members", {"channel_id": cid}
-                        )
-                        if not remaining:
-                            await db_client.delete("bus_messages", {"channel_id": cid})
-                            await db_client.delete("bus_channels", {"channel_id": cid})
+            from xyz_agent_context.module import MODULE_MAP
 
-                # Delete credential
-                result = await db_client.execute(
-                    "DELETE FROM channel_slack_credentials WHERE agent_id = %s",
-                    (agent_id,), fetch=False,
-                )
-                cnt = result if isinstance(result, int) else 0
-                if cnt > 0:
-                    stats["channel_slack_credentials"] = cnt
-        except Exception as e:
-            logger.warning(f"Slack cleanup failed (non-critical): {e}")
+            for module_name, cls in MODULE_MAP.items():
+                if not (isinstance(cls, type) and issubclass(cls, ChannelModuleBase)):
+                    continue
+                try:
+                    mod = cls(
+                        agent_id=agent_id,
+                        user_id=user_id,
+                        database_client=db_client,
+                    )
+                    result_stats = await mod.cleanup_for_agent(agent_id, db_client)
+                    stats.update(result_stats)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        f"Channel cleanup for {module_name} failed (non-critical): {e}"
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Channel cleanup walk failed (non-critical): {e}")
 
         # 15. The Agent itself
         result = await db_client.execute(

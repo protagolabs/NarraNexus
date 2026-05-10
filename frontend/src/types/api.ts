@@ -763,3 +763,41 @@ export interface SlackTestResponse extends ApiResponse {
     bot_name?: string;
   };
 }
+
+// Telegram Integration types
+//
+// Note: bot_token is NEVER returned by the API. The backend returns only
+// this sanitised view, which is everything the UI needs to render binding
+// state.
+export interface TelegramCredentialData {
+  agent_id: string;
+  bot_user_id: string;
+  bot_username: string;
+  owner_username: string;
+  owner_user_id: string;
+  owner_name: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface TelegramCredentialResponse extends ApiResponse {
+  data: TelegramCredentialData | null;
+}
+
+export interface TelegramBindResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
+    owner_user_id: string;
+    owner_name: string;
+  };
+}
+
+export interface TelegramTestResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
+    first_name?: string;
+  };
+}

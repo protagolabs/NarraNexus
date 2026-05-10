@@ -164,6 +164,79 @@ class ChannelModuleBase(XYZBaseModule):
         the base's ``hook_after_event_execution`` does that filtering.
         """
 
+    async def cleanup_for_agent(self, agent_id: str, db) -> dict[str, int]:
+        """Remove all per-agent state owned by this channel.
+
+        Called by ``backend/routes/auth.py:delete_agent`` for each
+        ``ChannelModuleBase`` subclass in MODULE_MAP — single registry-
+        driven cleanup walk replaces what used to be inline channel-
+        specific blocks in ``delete_agent``. Returns ``{table_name: n,
+        ...}`` for the caller to merge into its stats dict.
+
+        Default implementation handles the common case:
+          1. Look up the credential row for ``agent_id`` in
+             ``self._credential_table_name()`` (subclasses override if
+             non-standard naming).
+          2. Walk ``bus_channel_members`` for ``channel_id LIKE
+             "{channel_name}_%"`` and remove this agent's membership.
+          3. For any inbox channel left empty, delete its ``bus_messages``
+             + ``bus_channels`` rows.
+          4. Delete the credential row.
+
+        Subclasses with extra cleanup (Lark's CLI profile + workspace
+        directory; future channels with on-disk caches; etc.) override
+        this and call ``super().cleanup_for_agent(...)`` last.
+        """
+        from loguru import logger
+
+        stats: dict[str, int] = {}
+        cred_table = self._credential_table_name()
+
+        try:
+            cred = await db.get_one(cred_table, {"agent_id": agent_id})
+            if not cred:
+                return stats
+
+            # Inbox cleanup — symmetric for every channel that uses the
+            # `{channel_name}_*` channel_id namespace.
+            members = await db.get("bus_channel_members", {"agent_id": agent_id})
+            channel_prefix = f"{self.channel_name}_"
+            for m in members:
+                cid = m.get("channel_id", "")
+                if not cid.startswith(channel_prefix):
+                    continue
+                await db.delete(
+                    "bus_channel_members",
+                    {"channel_id": cid, "agent_id": agent_id},
+                )
+                remaining = await db.get(
+                    "bus_channel_members", {"channel_id": cid}
+                )
+                if not remaining:
+                    await db.delete("bus_messages", {"channel_id": cid})
+                    await db.delete("bus_channels", {"channel_id": cid})
+
+            # Credential row
+            result = await db.execute(
+                f"DELETE FROM {cred_table} WHERE agent_id = %s",
+                (agent_id,),
+                fetch=False,
+            )
+            cnt = result if isinstance(result, int) else 0
+            if cnt > 0:
+                stats[cred_table] = cnt
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__} cleanup_for_agent failed: {e}"
+            )
+        return stats
+
+    def _credential_table_name(self) -> str:
+        """Default credential table name. Override only if your channel uses
+        a non-standard table (Lark uses ``lark_credentials``, predating the
+        ``channel_*_credentials`` convention)."""
+        return f"channel_{self.channel_name}_credentials"
+
     # ────────────────────────────────────────────────────────────────────
     # Concrete — base provides; subclasses inherit
     # ────────────────────────────────────────────────────────────────────

@@ -56,6 +56,9 @@ import type {
   SlackCredentialResponse,
   SlackBindResponse,
   SlackTestResponse,
+  TelegramCredentialResponse,
+  TelegramBindResponse,
+  TelegramTestResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -880,6 +883,40 @@ class ApiClient {
 
   async unbindSlackBot(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/slack/unbind', {
+      method: 'DELETE',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // Telegram Integration API
+  async getTelegramCredential(agentId: string): Promise<TelegramCredentialResponse> {
+    return this.request<TelegramCredentialResponse>(`/api/telegram/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindTelegramBot(
+    agentId: string,
+    botToken: string,
+    ownerUsername: string = '',
+  ): Promise<TelegramBindResponse> {
+    return this.request<TelegramBindResponse>('/api/telegram/bind', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: agentId,
+        bot_token: botToken,
+        owner_username: ownerUsername,
+      }),
+    });
+  }
+
+  async testTelegramConnection(agentId: string): Promise<TelegramTestResponse> {
+    return this.request<TelegramTestResponse>('/api/telegram/test', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async unbindTelegramBot(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/telegram/unbind', {
       method: 'DELETE',
       body: JSON.stringify({ agent_id: agentId }),
     });

@@ -82,6 +82,7 @@ class WorkingSource(str, Enum):
     MESSAGE_BUS = "message_bus"  # Triggered by MessageBus message
     LARK = "lark"  # Triggered by Lark/Feishu message (LarkTrigger)
     SLACK = "slack"  # Triggered by Slack message (SlackTrigger)
+    TELEGRAM = "telegram"  # Triggered by Telegram message (TelegramTrigger)
 
     @classmethod
     def from_string(cls, value: str) -> "WorkingSource":

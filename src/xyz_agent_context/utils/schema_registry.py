@@ -816,6 +816,40 @@ _register(
 )
 
 
+# --- 27c. channel_telegram_credentials -------------------------------------
+# Phase 4: per-agent Telegram bot binding (single Bot Token from @BotFather).
+# Telegram has no team/workspace concept — bot_user_id alone is the identity
+# for the uniqueness check.
+_register(
+    TableDef(
+        name="channel_telegram_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bot_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            # Telegram bot identity (from getMe). bot_user_id is int64 stored as string.
+            Column("bot_user_id", "TEXT", "VARCHAR(64)"),
+            Column("bot_username", "TEXT", "VARCHAR(128)"),
+            # Owner — populated at bind via getChat("@handle"). user_id is the
+            # immutable identity (username can change).
+            Column("owner_username", "TEXT", "VARCHAR(64)"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_tg_cred_agent_id", ["agent_id"], unique=True),
+            # Same Telegram bot can be bound to AT MOST one agent. Two agents
+            # racing on long-poll for the same token would flip-flop trust
+            # signal + drop events arbitrarily.
+            Index("idx_tg_cred_bot_identity", ["bot_user_id"], unique=True),
+        ],
+    )
+)
+
+
 # 28. user_quotas (system-default free-tier token quota per user)
 _register(
     TableDef(

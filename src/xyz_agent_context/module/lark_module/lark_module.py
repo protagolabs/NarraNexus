@@ -632,3 +632,42 @@ class LarkModule(ChannelModuleBase):
         logger.debug(
             f"LarkModule after_execution for agent {params.execution_ctx.agent_id}"
         )
+
+    def _credential_table_name(self) -> str:
+        """Lark predates the ``channel_*_credentials`` naming convention —
+        its table is just ``lark_credentials``."""
+        return "lark_credentials"
+
+    async def cleanup_for_agent(self, agent_id: str, db) -> dict[str, int]:
+        """Lark cascade — extends the base default with CLI profile +
+        workspace dir removal, both of which live outside the database.
+
+        Order matters: kill the CLI subprocess hooks first (they hold
+        Keychain references), then nuke the workspace dir, then let
+        ``super().cleanup_for_agent`` handle DB rows.
+        """
+        stats: dict[str, int] = {}
+        try:
+            cred = await db.get_one("lark_credentials", {"agent_id": agent_id})
+            if cred:
+                # CLI profile — release Keychain + cli_state.json
+                from .lark_cli_client import LarkCLIClient
+                from ._lark_workspace import cleanup_workspace
+
+                try:
+                    await LarkCLIClient().profile_remove(agent_id)
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(
+                        f"profile_remove best-effort failed for {agent_id}: {e}"
+                    )
+                # Workspace dir under HOME
+                cleanup_workspace(agent_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"LarkModule pre-cleanup failed: {e}")
+
+        # Inbox + credential row removal — base handles via the
+        # ``lark_*`` channel_id prefix (matches ``channel_name = "lark"``)
+        # and ``_credential_table_name`` override above.
+        base_stats = await super().cleanup_for_agent(agent_id, db)
+        stats.update(base_stats)
+        return stats
