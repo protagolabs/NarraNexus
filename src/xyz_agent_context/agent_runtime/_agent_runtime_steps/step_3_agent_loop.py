@@ -176,12 +176,20 @@ async def step_3_agent_loop(
         # downstream hooks (notably ChatModule.hook_after_event_execution)
         # can detect the failure and avoid persisting the turn as if it
         # had succeeded — see Bug 8.
+        #
+        # Severity is fatal: by definition we caught a framework-level
+        # exception (TimeoutError, SDK crash, cancellation we couldn't
+        # recover from). The agent cannot continue this turn. Recoverable
+        # errors (transient rate-limit signals etc.) are yielded inside
+        # response_processor without raising, and they get
+        # severity="recoverable" so chat_module doesn't kill the turn.
         error_str = str(e)
         error_type = type(e).__name__
-        logger.exception(f"Agent loop error ({error_type}): {error_str}")
+        logger.exception(f"[AGENT-LOOP-FATAL] {error_type}: {error_str}")
         error_msg = ErrorMessage(
             error_message=f"Agent execution error: {error_str}",
             error_type=error_type,
+            severity="fatal",
         )
         agent_loop_response.append(error_msg)
         yield error_msg

@@ -170,14 +170,27 @@ class ResponseProcessor:
 
         if data_type == "response.error":
             # API error (rate limit, auth failure, quota exhaustion, etc.)
+            # surfaced inline by the SDK while the stream is still alive.
+            #
+            # Pre-2026-05-11 behaviour: chat_module saw any ErrorMessage in
+            # agent_loop_response and tore the whole turn down into a
+            # failed user-only row. That meant a transient rate-limit blip
+            # mid-loop killed turns that had already produced useful
+            # output. Now we tag these as severity="recoverable" so the
+            # turn keeps assembling — the agent loop may still complete
+            # with a valid reply, and chat_module's fatal-only detector
+            # leaves it alone. Auth/quota errors are still surfaced to the
+            # user via the yielded ErrorMessage (frontend renders it as a
+            # warning) and logged here for ops visibility.
             error_message = data.get("error_message", "Unknown API error")
             error_type = data.get("error_type", "api_error")
-            logger.error(f"API error ({error_type}): {error_message}")
+            logger.error(f"[AGENT-LOOP-RECOVERABLE] API error ({error_type}): {error_message}")
             return ProcessedResponse(
                 type=ResponseType.ERROR,
                 message=ErrorMessage(
                     error_message=error_message,
                     error_type=error_type,
+                    severity="recoverable",
                 ),
                 state_update={"method": "increment_response", "args": {}}
             )

@@ -3,6 +3,44 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-05-11
 ---
 
+## 2026-05-11 P0 #3 — error detail, no-reply differentiation, final_output fallback
+
+Three changes addressing the "Agent decided no response needed"
+recurring P0 (Lark recviIcuKMNuHj / Xiong's 60% failure rate):
+
+1. **`_detect_error_in_agent_loop` → `_detect_fatal_error_in_agent_loop`**.
+   Only `ErrorMessage(severity="fatal")` collapses the turn into a
+   failed user-only row. Recoverable signals (mid-loop rate-limit
+   blips emitted by ResponseProcessor) keep the turn alive so the
+   agent can react and still produce a reply. The old name is kept as
+   an alias for backwards compat with existing tests.
+
+2. **Failed-turn rows persist `error_message`, not just `error_type`**.
+   `_FAILED_TURN_ANNOTATION_TEMPLATE` now substitutes the actual
+   error message into the next-turn annotation, so when the LLM (or
+   an operator) reads `[Previous turn failed... Error type: X.
+   Detail: Y. Do NOT retry]`, it sees *why* — ops no longer need to
+   grep stderr to learn what happened.
+
+3. **`final_output` fallback** (Bug B fix). When
+   `_extract_user_visible_response` returns the placeholder but
+   `io_data.final_output` is non-empty, we persist `final_output` as
+   the assistant content and tag the row with
+   `meta_data.reply_via="final_output_fallback"`. Pre-fix, the agent
+   would stream LLM-native output to the user (visible mid-turn) but
+   the persisted row was just `(Agent decided no response needed)` —
+   the next turn's prompt then showed the agent saying it decided not
+   to reply, training the model into a self-reinforcing failure loop.
+   Production data (RDS, 2026-05-11): chat-trigger placeholders had
+   `events.final_output` non-empty in 83/90 cases (92%) — those are
+   the rows the fallback will recover.
+
+New `[NO-REPLY]` / `[NO-REPLY-BG]` / `[TURN-FAILED]` / `[FALLBACK]`
+WARNING-level log markers fire on each path so ops can grep production
+logs and instantly see *which* path a turn ended on and why.
+
+Pinned by `tests/chat_module/test_error_severity_and_fallback.py`.
+
 ## 2026-05-11 follow-ups — recency cap + short-term fairness
 
 After landing the per-source dispatch fix, three knobs in this file

@@ -80,7 +80,7 @@ from xyz_agent_context.bootstrap.template import BOOTSTRAP_GREETING
 _FAILED_TURN_ANNOTATION_TEMPLATE = (
     "[Previous turn failed before the agent could reply. "
     "The user's original question was: {original!r}. "
-    "An error ({error_type}) occurred and no reply was given. "
+    "Error type: {error_type}. Detail: {error_message}. "
     "Do NOT retry this question — focus on the current user input.]"
 )
 
@@ -118,20 +118,39 @@ def _synthesize_attachment_markers(
     return "\n".join(lines)
 
 
-def _detect_error_in_agent_loop(agent_loop_response: List[Any]) -> Optional[Dict[str, str]]:
-    """Scan ``agent_loop_response`` for an ``ErrorMessage`` and return the
-    first one's signal, or ``None`` if the turn succeeded.
+def _detect_fatal_error_in_agent_loop(
+    agent_loop_response: List[Any],
+) -> Optional[Dict[str, str]]:
+    """Scan ``agent_loop_response`` for a **fatal** ``ErrorMessage`` and
+    return its signal, or ``None`` if the turn either succeeded or only
+    saw recoverable errors.
+
+    Why "fatal" only: tearing down a whole turn into a `status=failed`
+    user-only row is the right answer for unrecoverable framework
+    errors (CLI timeout, SDK crash, auth failure) — the agent literally
+    cannot reply. But for recoverable signals (transient rate-limit,
+    one-shot 5xx that the SDK already retried, etc.) the agent loop
+    can keep going; treating those as turn-killers is exactly what
+    caused the "agent decided no response needed" baseline noise.
 
     Import is local so the module doesn't couple to ``runtime_message``
     at import time (keeps test fixtures simple)."""
     from xyz_agent_context.schema import ErrorMessage
     for msg in agent_loop_response:
-        if isinstance(msg, ErrorMessage):
-            return {
-                "error_type": msg.error_type,
-                "error_message": msg.error_message,
-            }
+        if not isinstance(msg, ErrorMessage):
+            continue
+        if getattr(msg, "severity", "fatal") != "fatal":
+            continue
+        return {
+            "error_type": msg.error_type,
+            "error_message": msg.error_message,
+        }
     return None
+
+
+# Backwards-compatible alias — existing tests / callers import the old
+# name. New code should use _detect_fatal_error_in_agent_loop directly.
+_detect_error_in_agent_loop = _detect_fatal_error_in_agent_loop
 
 
 def _apply_failed_turn_filter(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -161,6 +180,7 @@ def _apply_failed_turn_filter(messages: List[Dict[str, Any]]) -> List[Dict[str, 
             annotated["content"] = _FAILED_TURN_ANNOTATION_TEMPLATE.format(
                 original=msg.get("content", ""),
                 error_type=meta.get("error_type", "unknown"),
+                error_message=meta.get("error_message", "no detail captured"),
             )
             out.append(annotated)
         # role == "assistant" with status=failed → drop
@@ -806,11 +826,13 @@ class ChatModule(XYZBaseModule):
 
         user_meta = {**shared_meta, "timestamp": user_ts_iso}
 
-        # Bug 8: detect failure FIRST. If the agent loop raised, persist
-        # only the user question with status=failed so the next turn's
-        # prompt (after _apply_failed_turn_filter) shows an explicit
-        # "do not retry" annotation instead of a fake completed pair.
-        error_signal = _detect_error_in_agent_loop(params.agent_loop_response)
+        # Bug 8 + 2026-05-11: detect FATAL framework error first. Recoverable
+        # ErrorMessages (severity="recoverable") are intentionally NOT
+        # treated as turn-killers — they're agent-visible information, not
+        # framework failures. Only fatal errors (TimeoutError, SDK crash,
+        # auth failure, etc.) collapse the whole turn into a failed
+        # user-only row.
+        error_signal = _detect_fatal_error_in_agent_loop(params.agent_loop_response)
 
         # Extract the user-visible response, dispatched by working_source
         # so per-source reply tools (e.g. lark_cli for Lark) are recognised.
@@ -818,6 +840,28 @@ class ChatModule(XYZBaseModule):
             params.agent_loop_response, working_source
         )
         is_no_response = assistant_content == "(Agent decided no response needed)"
+
+        # 2026-05-11 Bug B fallback: when the agent produced LLM-native
+        # output but never called a registered reply tool, the per-source
+        # extractor returns the placeholder. Recover the actual text from
+        # `io_data.final_output` so the row persists the real reply
+        # content instead of "(Agent decided no response needed)".
+        # Without this, the next turn's prompt shows the agent saying
+        # "decided no response" — which is false (the user actually saw
+        # streamed output) and trains the agent to keep doing it.
+        final_output_fallback = (
+            (params.io_data.final_output if params.io_data else "") or ""
+        )
+        used_fallback = False
+        if is_no_response and final_output_fallback.strip():
+            logger.warning(
+                f"[FALLBACK] event_id={params.event_id} working_source={working_source} "
+                f"agent did not call a reply tool but produced final_output "
+                f"(len={len(final_output_fallback)}); persisting final_output as reply"
+            )
+            assistant_content = final_output_fallback
+            is_no_response = False
+            used_fallback = True
 
         # Attachments forwarded by the trigger (WebSocket / Lark / etc.)
         # land in ctx_data.extra_data via context_runtime's
@@ -831,7 +875,14 @@ class ChatModule(XYZBaseModule):
                 turn_attachments = [a for a in raw if isinstance(a, dict)]
 
         if error_signal is not None:
-            # Failed turn: preserve user question (for reference), skip assistant.
+            # Fatal turn: preserve user question (for reference), skip assistant.
+            # Persist BOTH error_type and error_message so the next turn's
+            # annotation tells the agent (and ops) *why* it failed.
+            logger.warning(
+                f"[TURN-FAILED] event_id={params.event_id} working_source={working_source} "
+                f"error_type={error_signal['error_type']} "
+                f"error_message={error_signal['error_message'][:200]!r}"
+            )
             user_msg = {
                 "role": "user",
                 "content": params.input_content,
@@ -839,6 +890,7 @@ class ChatModule(XYZBaseModule):
                     **user_meta,
                     "status": "failed",
                     "error_type": error_signal["error_type"],
+                    "error_message": error_signal["error_message"],
                 },
             }
             if turn_attachments:
@@ -854,15 +906,29 @@ class ChatModule(XYZBaseModule):
             if turn_attachments:
                 user_msg["attachments"] = turn_attachments
             messages.append(user_msg)
+            asst_meta = {**assistant_meta}
+            if used_fallback:
+                asst_meta["reply_via"] = "final_output_fallback"
             messages.append({
                 "role": "assistant",
                 "content": assistant_content,
-                "meta_data": {**assistant_meta},
+                "meta_data": asst_meta,
             })
+            if is_no_response:
+                logger.warning(
+                    f"[NO-REPLY] event_id={params.event_id} working_source={working_source} "
+                    f"agent_loop_response_size={len(params.agent_loop_response)} "
+                    f"final_output_empty=True — persisting placeholder. "
+                    f"Likely cancellation or LLM produced zero output."
+                )
         else:
             # Background task (job/lark/message_bus) where agent chose not to message user:
             # Store a lightweight activity record instead of a fake conversation pair
             activity_summary = self._build_activity_summary(working_source, shared_meta)
+            logger.info(
+                f"[NO-REPLY-BG] event_id={params.event_id} working_source={working_source} "
+                f"writing activity row (background trigger, no user-facing reply)"
+            )
             messages.append({
                 "role": "assistant",
                 "content": activity_summary,
