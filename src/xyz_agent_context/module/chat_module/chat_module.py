@@ -19,6 +19,7 @@ Note: ChatModule itself does not include "multi-turn conversation" capability; m
 """
 
 
+from datetime import timedelta
 from typing import Optional, Any, List, Dict
 from loguru import logger
 
@@ -677,13 +678,26 @@ class ChatModule(XYZBaseModule):
 
         # Bootstrap greeting injection: if this is the first turn and bootstrap is active,
         # prepend the static greeting as the first assistant message so DB history starts with it.
+        #
+        # Timestamp anchor: must be strictly earlier than the user's first
+        # message, otherwise the chat-history API and the frontend timeline
+        # (both sort by meta_data.timestamp ascending) render the greeting
+        # AFTER the user's query bubble. event.created_at is turn-start,
+        # so we subtract 1ms; the fallback (no event) uses now()-1ms which
+        # also stays below the user message stamped a moment later.
         if len(messages) == 0 and getattr(params.ctx_data, 'bootstrap_active', False):
+            base_dt = (
+                params.event.created_at
+                if params.event is not None and params.event.created_at is not None
+                else utc_now()
+            )
+            greeting_ts_iso = (base_dt - timedelta(milliseconds=1)).isoformat()
             messages.append({
                 "role": "assistant",
                 "content": BOOTSTRAP_GREETING,
                 "meta_data": {
                     "event_id": params.event_id,
-                    "timestamp": utc_now().isoformat(),
+                    "timestamp": greeting_ts_iso,
                     "instance_id": instance_id,
                     "bootstrap": True,
                 }

@@ -1,7 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-04-28
+last_verified: 2026-05-11
 ---
+
+## 2026-05-11 fix — bootstrap greeting timestamp anchor (P0)
+
+`hook_after_event_execution` used to stamp the injected
+`BOOTSTRAP_GREETING` row with `utc_now()` (the moment the hook runs,
+i.e. after the agent loop finishes), while the user's first message
+carries `event.created_at` (turn-start). Because the agent loop spans
+seconds to minutes, the greeting timestamp ended up *later* than the
+user message timestamp. Both the chat-history API
+(`backend/routes/agents_chat_history.py`, sorts by
+`meta_data.timestamp` ascending) and the frontend timeline
+(`frontend/src/components/chat/ChatPanel.tsx`, also ascending sort)
+then rendered the greeting *under* the user's first query bubble —
+the P0 "agent主动问好的消息跑到 query 底下了" filed by Xinyao.
+
+Fix: anchor the greeting at `event.created_at - 1ms` (or
+`utc_now() - 1ms` as defensive fallback when `params.event` is None),
+keeping the persisted ordering greeting → user → assistant under any
+timestamp-ascending sort. Regression pinned in
+`tests/chat_module/test_bootstrap_greeting_order.py`.
+
+The frontend never needed changing: the in-session greeting injection
+in `ChatPanel.tsx` already stamps `Date.now() - 1`, which dedups
+correctly against the (now earlier) DB greeting via the role+content
+key inside the 5-minute SAME_MESSAGE_WINDOW.
 
 ## 2026-04-28 changes — half-finished features parked
 
