@@ -1,8 +1,44 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-11
 stub: false
 ---
+
+## 2026-05-11 fix — live activity stays visible after first reply (P0)
+
+The streaming-state UI used to have two mutually exclusive render
+branches:
+
+1. `isStreaming && getUserVisibleResponse()` → render a streaming
+   `MessageBubble` with the reply content. `thinking` and `toolCalls`
+   are passed in but live inside the bubble's **collapsed** Reasoning
+   / Tool-calls sections (`MessageBubble.tsx` initialises `showThinking`
+   and `showTools` to `false`).
+2. `isStreaming && !getUserVisibleResponse()` → render the "Live
+   activity preview": italic streaming `currentThinking` text + a
+   spinner-decorated list of in-flight `toolSteps`. **Always visible,
+   no click required.**
+
+The instant the agent called `send_message_to_user_directly` for the
+first time, `getUserVisibleResponse()` flipped from `null` to a
+string, branch 2 unmounted, and branch 1 took over. Any subsequent
+thinking deltas or tool calls kept accumulating into
+`chatStore.currentThinking` / `currentToolCalls` but had **no
+always-visible UI surface** — the reply bubble looked finished even
+when the agent was still mid-loop running more tools. Xiong's P0
+"先回复一条信息后，不再显示思考过程" (`recvjhejbs2abv`).
+
+Fix: drop the `!getUserVisibleResponse()` gate so the live activity
+preview now stays mounted for the **entire** streaming window. The
+streaming MessageBubble keeps receiving `thinking` / `toolCalls` so a
+user who clicks "Reasoning" mid-stream still sees the full trace; the
+live preview below provides the always-visible "still working" signal
+until `stopStreaming` flips `isStreaming` to false (at which point the
+bubble persists into history with its data already attached, line
+269-270 of `chatStore.ts`). The `toolSteps` filter (regex
+`/^3\.4\.\d+$/` minus `*.send_message_to_user_directly`) intentionally
+drops the reply tool call so the same action doesn't appear twice
+(once as the bubble, once as a tool step).
 
 # ChatPanel.tsx — Unified timeline chat surface with streaming and history pagination
 

@@ -952,8 +952,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        {/* Loading indicator / Live activity preview */}
-        {isStreaming && !getUserVisibleResponse() && (() => {
+        {/* Live activity preview — stays visible for the whole streaming
+            window so post-reply thinking / tool calls don't go silent.
+            See mirror md (2026-05-11) for why this is NOT gated by
+            `!getUserVisibleResponse()`. */}
+        {isStreaming && (() => {
           const getInitStatus = () => {
             if (currentSteps.length === 0) return 'Starting up...';
             const latestStep = currentSteps[currentSteps.length - 1];
