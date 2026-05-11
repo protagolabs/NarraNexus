@@ -23,8 +23,11 @@ import sqlite3
 DB_PATH = os.path.expanduser("~/.nexusagent/nexusagent.db")
 AGENT_ID = "agent_97b0bde56ba5"          # 阿良
 USER_ID = "binliang"
-CURRENT_INSTANCE_ID = "chat_b51f070d"    # bound to default GreetingAndCourtesy (3 msgs)
-SIMULATED_INPUT = "好"
+import os as _os
+CURRENT_INSTANCE_ID = _os.environ.get(
+    "DUMP_INSTANCE_ID", "chat_b51f070d"  # default: GreetingAndCourtesy (3 msgs)
+)
+SIMULATED_INPUT = _os.environ.get("DUMP_INPUT", "好")
 
 
 def load_instance_messages(conn: sqlite3.Connection, instance_id: str) -> list[dict]:
