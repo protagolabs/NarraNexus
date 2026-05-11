@@ -26,7 +26,7 @@
 
 封闭的单个 Agent 只是工具。当 Agent 拥有持久记忆、社会身份、人际关系和目标时，它就成为**连接网络（Nexus）**中的参与者——在这个网络中，智能是集体属性，而非模型属性。
 
-NarraNexus 为此提供基础设施：持久记忆、关系感知的上下文、任务调度、模块化能力，以及 Agent 间通信。
+NarraNexus 为此提供基础设施：持久记忆、关系感知的上下文、任务调度、模块化能力、多模态输入输出，以及 Agent 间通信。
 
 ---
 
@@ -40,35 +40,31 @@ NarraNexus Agent 通过长期记忆、事件记忆和关系感知检索在对话
 ### 可组合运行时
 *每项能力都是可热插拔的模块。*
 
-Memory、Awareness、Chat、RAG、Jobs、Skills、Social Network 和 Matrix 等核心能力作为独立模块运行。每个模块管理自己的工具、数据和生命周期，使系统易于扩展和定制。
+核心能力——Memory、Awareness、Chat、Social Network、Jobs、Skills、Agent Communication（Matrix）以及 Lark 集成——都作为独立模块运行。每个模块管理自己的工具、数据和生命周期，使系统易于扩展和定制。
 
 ### 互联 Agent
 *为协作而生，不只是对话。*
 
 Agent 通过基于 Matrix 协议的消息系统相互通信，并使用 MCP 工具与其他 Agent、外部工具和后台工作流协调。
 
+### 多模态与 Artifact 渲染
+*不止文本——支持语音输入和富内容输出。*
+
+支持语音输入和实时转写、图片附件，以及 per-agent 的 artifact 系统：HTML、Markdown、图表、PDF、CSV、图像可直接在 Agent 工作区中渲染。
+
 ---
 
 ## 快速开始
 
-###  在线版本（即将推出）
-*在浏览器中直接体验 NarraNexus，无需安装。*
-
-> **[启动 NarraNexus →](https://website.narra.nexus/)**
-
-###  下载桌面应用（仅限 macOS）
-*原生桌面应用，支持自动更新。*
-
-> **[下载最新版本 →](https://github.com/NetMindAI-Open/NarraNexus/releases)** — 选择以 `.dmg` 结尾的文件。
-
 ###  从源码安装
+*标准开发路径——所有平台支持。*
 
 #### 前置依赖
 
 | 依赖 | 安装方式 |
 |------|---------|
 | **Node.js** (v20+) | 推荐通过 [nvm](https://github.com/nvm-sh/nvm) 安装：`curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
-| **uv** | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| **uv** | Python 项目与虚拟环境管理器（替代 pip + virtualenv，更快）：`curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 
 ```bash
 git clone https://github.com/NetMindAI-Open/NarraNexus.git
@@ -79,12 +75,11 @@ bash run.sh
 > [!TIP]
 > 脚本会自动检测操作系统（Linux / macOS / Windows WSL2）并处理其余依赖。如果检测不到上述任一依赖，`run.sh` 会打印安装命令并退出，安装后重新运行即可。
 
-
 **安装完成后：**
 
 1. 在浏览器中打开 **`http://localhost:5173`**
-   - 选择 **LOCAL** 或 **CLOUD（即将推出）** 模式注册账号并登录
-   - 点击左侧面板的 **SETTING** 设置 API Key——详见 [LLM 供应商配置](#llm-供应商配置)
+   - 选择 **LOCAL** 模式（或 **CLOUD**，即将推出）注册账号并登录
+   - 点击左侧面板的 **Setting** 设置 API Key——详见 [LLM 供应商配置](#llm-供应商配置)
    - 开始聊天！
 2. 打开 **`http://localhost:8000/docs`** 查看 API 文档
 
@@ -99,6 +94,16 @@ bash run.sh
 > [!NOTE]
 > 更多详情请参阅文档中的[安装说明](https://website.narra.nexus/docs/getting-started/quick-start)。
 
+###  下载桌面应用（macOS）
+*原生应用，已签名与公证，支持自动更新。*
+
+> **[下载最新版本 →](https://github.com/NetMindAI-Open/NarraNexus/releases)** — 选择以 `.dmg` 结尾的文件。内置 Claude Code OAuth 登录入口，无需打开终端。
+
+###  Web 版（Beta）
+*在浏览器中直接体验 NarraNexus，无需安装。*
+
+> **[启动 Web Demo →](https://website.narra.nexus/)**
+
 ---
 
 ## LLM 供应商配置
@@ -110,7 +115,6 @@ Agent 使用三个功能性 LLM 槽位：
 | **Agent** | Anthropic | 核心推理——驱动 Agent 的思考、工具调用和多轮对话 |
 | **Embedding** | OpenAI | 将文本转换为向量，用于 Narrative 匹配和语义搜索 |
 | **Helper LLM** | OpenAI | 轻量任务——实体提取、摘要生成、模块决策 |
-
 
 ### 配置步骤
 
@@ -129,7 +133,7 @@ Agent 使用三个功能性 LLM 槽位：
 |------|---------|------|
 | **NetMind.AI Power** | 一个 API Key | 自动创建 Anthropic 和 OpenAI 两个端点 |
 | **OpenRouter / 云雾** | 一个 API Key | 添加支持的端点和可用模型 |
-| **Claude Code 登录** | Claude Code CLI 登录 | 通过 OAuth 为 Agent 槽位启用 Claude 模型 |
+| **Claude Code 登录** | Claude Code CLI 登录（或桌面端 in-app OAuth） | 通过 OAuth 为 Agent 槽位启用 Claude 模型 |
 | **自定义 Anthropic** | 兼容 URL 和 API Key | 添加自定义 Anthropic 端点 |
 | **自定义 OpenAI** | 兼容 URL 和 API Key | 添加自定义 OpenAI 端点 |
 
@@ -157,22 +161,44 @@ Agent 使用三个功能性 LLM 槽位：
 | 特性 | 描述 |
 |------|------|
 | **叙事记忆** | 对话被路由到语义故事线中，按话题相似度跨会话检索 |
-| **热插拔模块** | 独立能力模块（聊天、社交图谱、RAG、任务、技能），各自拥有数据库、工具和钩子 |
-| **Agent 间通信** | Agent 通过 Matrix 协议协调——房间、消息、@提及、群聊 |
-| **技能市场** | 通过自然语言从 ClawHub 浏览和安装技能 |
+| **长期记忆** | 双轨召回——内置 builtin memory（默认开启）+ 可选 [EverMemOS](https://github.com/EverMind-AI/EverMemOS) 后端用于高级情景记忆 |
+| **Awareness** | per-user 偏好画像，覆盖 4 个维度（communication / task / role / narrative），从对话信号中持续更新 |
+| **热插拔模块** | Chat、Memory、Awareness、Social Network、Jobs、Skills、Matrix、Lark——各自拥有数据库、工具和钩子 |
+| **Agent 间通信** | 基于 Matrix 协议的消息系统——房间、私聊、@提及、群聊，含速率限制与有毒消息检测 |
+| **技能市场** | 通过自然语言从 ClawHub 安装技能（*"Install the twitter-bot skill"*） |
 | **社交网络** | 实体图谱追踪人物、关系、专业领域和互动历史 |
 | **任务调度** | 一次性、定时、周期和持续任务，支持依赖链（DAG） |
-| **RAG 知识库** | 基于 Gemini File Search 的文档索引与语义检索 |
-| **长期记忆** | 基于 EverMemOS（MongoDB + Elasticsearch + Milvus）的情景记忆 |
-| **成本追踪** | 实时计量每次 LLM 调用，按模型分类展示费用明细 |
+| **多模态输入输出** | 图片附件 + 语音录制与实时转写（NetMind STT，provider 抽象层可替换） |
+| **per-Agent Artifacts** | Agent 可生成并渲染 HTML / Markdown / 图片 / PDF / CSV / 图表 artifact，挂在 session 或 agent 上 |
+| **Bundle 导入导出** | `.nxbundle` 把一个 Agent 的完整配置打包，便于分享或迁移 |
+| **Team 协作** | 多用户 Agent，基于角色的访问控制 |
+| **成本与配额管理** | 实时计量每次 LLM 调用，按模型分类展示费用明细，并支持 per-user 配额 |
+| **桌面端 Claude Code 登录** | 桌面应用内置 OAuth 流程——无需打开终端 |
 | **执行透明度** | 每个流水线步骤实时可见——Agent 做了什么决策、为什么、改变了什么 |
 | **多 LLM 支持** | Claude、OpenAI 和 Gemini 通过统一适配层接入 |
-| **桌面应用** | 原生桌面应用，支持自动更新和一键服务编排 |
+| **桌面应用** | 已签名与公证的 macOS 应用，支持自动更新和一键服务编排 |
+| **RAG（实验性）** | 基于 Gemini File Search 的文档索引 API；runtime module 集成开发中 |
 
 <br/>
 
+<!-- TODO(readme-rewrite-2026-05-11): replace showcase-weather.gif with a newer demo that highlights v1.4 features (artifact tabs, multi-agent collaboration, multimodal input). -->
 ![功能展示](docs/images/showcase-weather.gif)
 <p align="center"><em>NarraNexus 功能展示</em></p>
+
+---
+
+## 模块一览
+
+| 模块 | 作用 | 文档 |
+|------|------|------|
+| **Memory** | 长期记忆——builtin 或 EverMemOS 后端 | [memory](https://website.narra.nexus/docs/modules/memory) · [builtin](https://website.narra.nexus/docs/modules/memory/builtin) · [evermemos](https://website.narra.nexus/docs/modules/memory/evermemos) |
+| **Chat** | 会话管理、对话历史 | [chat](https://website.narra.nexus/docs/modules/chat) |
+| **Awareness** | per-user 偏好画像，覆盖 4 个维度 | [awareness](https://website.narra.nexus/docs/modules/awareness) |
+| **Social Network** | 实体图谱：人物、关系、专业领域 | [social-network](https://website.narra.nexus/docs/modules/social-network) |
+| **Jobs** | 后台任务——定时、周期、持续 | [jobs](https://website.narra.nexus/docs/modules/jobs) |
+| **Skills** | 插件市场，自然语言安装 | [skills](https://website.narra.nexus/docs/modules/skills) |
+| **Agent Communication** | 基于 Matrix 的 Agent 间通信 | [agent-communication](https://website.narra.nexus/docs/modules/agent-communication) |
+| **Custom Modules** | 构建自己的热插拔能力 | [custom-modules](https://website.narra.nexus/docs/modules/custom-modules) |
 
 ---
 
@@ -190,7 +216,7 @@ Agent 使用三个功能性 LLM 槽位：
 
 ## 致谢
 
-NarraNexus 的长期记忆系统基于 **[EverMemOS](https://github.com/EverMind-AI/EverMemOS)** 构建，这是一个用于结构化长程推理的自组织记忆操作系统。感谢 EverMemOS 团队的基础性工作。
+NarraNexus 的可选长期记忆后端基于 **[EverMemOS](https://github.com/EverMind-AI/EverMemOS)** 构建，这是一个用于结构化长程推理的自组织记忆操作系统。感谢 EverMemOS 团队的基础性工作。
 
 > Chuanrui Hu, Xingze Gao, Zuyi Zhou, Dannong Xu, Yi Bai, Xintong Li, Hui Zhang, Tong Li, Chong Zhang, Lidong Bing, Yafeng Deng. *EverMemOS: A Self-Organizing Memory Operating System for Structured Long-Horizon Reasoning.* arXiv:2601.02163, 2026. [[论文]](https://arxiv.org/abs/2601.02163)
 
