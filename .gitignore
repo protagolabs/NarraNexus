@@ -29,6 +29,11 @@ AGENT.md
 /.worktrees/
 /.superpowers/
 
+# ── Per-developer CLAUDE.md overrides ─────────────────────────────────────
+# CLAUDE.md is the shared team baseline. Personal preferences go in
+# CLAUDE.local.md, which Claude Code reads in addition to CLAUDE.md.
+CLAUDE.local.md
+
 # ── Python bytecode & cache ────────────────────────────────────────────────
 __pycache__/
 *.py[codz]
