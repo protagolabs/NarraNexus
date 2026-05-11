@@ -61,13 +61,17 @@ def load_short_term(conn: sqlite3.Connection) -> list[dict]:
         (AGENT_ID, USER_ID, CURRENT_INSTANCE_ID),
     ).fetchall()
 
+    # Mirror the two-stage budgeting in chat_module._load_short_term_memory.
+    SHORT_TERM_MAX = 15
+    SHORT_TERM_PER_INSTANCE = 5
     collected: list[dict] = []
     dropped_activity = 0
+
     for (inst_id,) in rows:
         msgs = load_instance_messages(conn, inst_id)
+        keepers: list[dict] = []
         for msg in msgs:
             meta = msg.get("meta_data") or {}
-            # Phase 3 fix: drop background activity rows.
             if meta.get("message_type") == "activity":
                 dropped_activity += 1
                 continue
@@ -78,14 +82,24 @@ def load_short_term(conn: sqlite3.Connection) -> list[dict]:
                 msg["meta_data"] = {}
             msg["meta_data"]["instance_id"] = inst_id
             msg["meta_data"]["memory_type"] = "short_term"
-            collected.append(msg)
+            keepers.append(msg)
+
+        # Stage A: per-instance cap.
+        if len(keepers) > SHORT_TERM_PER_INSTANCE:
+            keepers.sort(
+                key=lambda m: m.get("meta_data", {}).get("timestamp", ""),
+                reverse=True,
+            )
+            keepers = keepers[:SHORT_TERM_PER_INSTANCE]
+        collected.extend(keepers)
 
     print(f"[dump] short_term: dropped {dropped_activity} activity rows pre-cap")
+
+    # Stage B: global cap, then chronological ordering.
     collected.sort(
         key=lambda m: m.get("meta_data", {}).get("timestamp", ""),
         reverse=True,
     )
-    SHORT_TERM_MAX = 15
     collected = collected[:SHORT_TERM_MAX]
     collected.sort(key=lambda m: m.get("meta_data", {}).get("timestamp", ""))
     return collected

@@ -3,7 +3,26 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-05-11
 ---
 
-## 2026-05-11 fix — bootstrap greeting timestamp anchor (P0)
+## 2026-05-11 follow-ups — recency cap + short-term fairness
+
+After landing the per-source dispatch fix, three knobs in this file
+got tuned in the same direction (better recall of meaningful history):
+
+- `MAX_RECENT_MESSAGES`: **30 → 40** (chat_module.py around line 432).
+  Long narratives were hitting the old cap and silently losing the
+  earlier half of the conversation. 40 is still count-based — a
+  token-based cap is the right next step if 40 starts to matter.
+- `SHORT_TERM_PER_INSTANCE = 5` new constant. `_load_short_term_memory`
+  now runs **two stages**: Stage A caps each cross-narrative
+  ChatModule instance at its 5 most recent rows; Stage B merges and
+  applies the existing `SHORT_TERM_MAX_MESSAGES = 15` global cap.
+  Pre-fix, one chatty instance could fill all 15 slots and starve
+  every other narrative the user had touched. Pinned by
+  `tests/chat_module/test_short_term_fairness.py`.
+
+Both changes are read-side only — no schema, no migration.
+
+
 
 `hook_after_event_execution` used to stamp the injected
 `BOOTSTRAP_GREETING` row with `utc_now()` (the moment the hook runs,

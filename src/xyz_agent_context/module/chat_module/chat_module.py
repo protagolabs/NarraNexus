@@ -187,7 +187,8 @@ class ChatModule(XYZBaseModule):
     """
 
     # Short-term memory configuration parameters (2026-02-09 optimization: removed time limit)
-    SHORT_TERM_MAX_MESSAGES = 15    # Max short-term memory messages (most recent K across Narratives)
+    SHORT_TERM_MAX_MESSAGES = 15    # Hard cap on total short-term rows (across all other ChatModule instances)
+    SHORT_TERM_PER_INSTANCE = 5      # Per-instance cap before global merge (fairness — see _load_short_term_memory)
     # Note: Long-term memory count is controlled by EverMemOS retrieval top_k (see narrative/config.py)
 
     def __init__(
@@ -428,8 +429,13 @@ class ChatModule(XYZBaseModule):
                         f"[ChatHistory-A] Instance {instance_id}: {len(messages)} messages loaded"
                     )
 
-        # Limit to most recent 30 messages (Part A: recency-based)
-        MAX_RECENT_MESSAGES = 30
+        # Limit to most recent N messages (Part A: recency-based).
+        # 40 (raised from 30 on 2026-05-11) — long narratives were
+        # hitting the old cap and losing earlier context. 40 is a
+        # compromise: enough headroom for a meaningful conversation arc
+        # without bloating the prompt; if this becomes the limiting
+        # factor again, consider a token-based cap instead of a count.
+        MAX_RECENT_MESSAGES = 40
         if len(long_term_messages) > MAX_RECENT_MESSAGES:
             original_count = len(long_term_messages)
             long_term_messages = long_term_messages[-MAX_RECENT_MESSAGES:]
@@ -540,20 +546,27 @@ class ChatModule(XYZBaseModule):
             logger.debug("ChatModule._load_short_term_memory: No other ChatModule instances")
             return []
 
-        # Get messages from each instance (no longer time-limited)
-        short_term_messages = []
+        # Two-stage budgeting (2026-05-11 fairness fix):
+        # Stage A — per instance, keep only the most recent K rows
+        #          (SHORT_TERM_PER_INSTANCE = 5). Prevents one chatty
+        #          instance from saturating the 15-slot global cap and
+        #          starving every other narrative the user has touched.
+        # Stage B — flatten all instances' Stage-A survivors, sort by
+        #          timestamp descending, take SHORT_TERM_MAX_MESSAGES.
+        short_term_messages: List[Dict[str, Any]] = []
+        per_instance_kept = 0
 
         for instance in other_instances:
             memory = await self.event_memory_module.search_instance_json_format_memory(
                 module_name, instance.instance_id
             )
-
             if not memory or "messages" not in memory:
                 continue
 
             messages = memory.get("messages", [])
 
-            # Collect all messages (no longer filtered by time)
+            # Filter + tag this instance's messages.
+            keepers: List[Dict[str, Any]] = []
             for msg in messages:
                 meta = msg.get("meta_data", {})
 
@@ -596,17 +609,26 @@ class ChatModule(XYZBaseModule):
                             ),
                         }
 
-                short_term_messages.append(msg)
+                keepers.append(msg)
 
-        # Sort by time, limit count
+            # Stage A: per-instance cap.
+            if len(keepers) > self.SHORT_TERM_PER_INSTANCE:
+                keepers.sort(
+                    key=lambda m: m.get("meta_data", {}).get("timestamp", ""),
+                    reverse=True,
+                )
+                keepers = keepers[:self.SHORT_TERM_PER_INSTANCE]
+
+            short_term_messages.extend(keepers)
+            per_instance_kept += len(keepers)
+
+        # Stage B: global cap + final chronological ordering.
         if short_term_messages:
             short_term_messages.sort(
                 key=lambda m: m.get("meta_data", {}).get("timestamp", ""),
                 reverse=True
             )
-            # Take the most recent N messages
             short_term_messages = short_term_messages[:self.SHORT_TERM_MAX_MESSAGES]
-            # Sort by time in ascending order again
             short_term_messages.sort(
                 key=lambda m: m.get("meta_data", {}).get("timestamp", "")
             )
