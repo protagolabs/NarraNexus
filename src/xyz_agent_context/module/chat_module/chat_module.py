@@ -266,46 +266,50 @@ class ChatModule(XYZBaseModule):
     
     # ============================================================================= Hooks
 
-    def _extract_user_visible_response(self, agent_loop_response: list) -> str:
-        """
-        Extract user-visible response content from agent_loop_response
+    def _extract_user_visible_response(
+        self,
+        agent_loop_response: list,
+        working_source: str,
+    ) -> str:
+        """Extract user-visible reply text emitted during this turn.
 
-        Iterates through agent_loop_response, looking for ALL send_message_to_user_directly
-        tool calls, and concatenates their content. Agent may call this tool multiple times
-        in a single turn (e.g. sending a greeting then a detailed answer).
-
-        Args:
-            agent_loop_response: Raw response list from Agent Loop, containing ProgressMessage etc.
-
-        Returns:
-            str: Concatenated user-visible response content; returns default message if not called
+        Per-source dispatch via MessageSourceRegistry: each WorkingSource
+        (chat / lark / message_bus / job / …) registers which tool names
+        count as the agent replying to the user. Chat uses
+        send_message_to_user_directly; Lark also accepts lark_cli
+        +messages-send / +messages-reply; bus accepts its own bus_send;
+        etc. Without this dispatch, Lark turns where the agent really
+        did reply via lark_cli would be misclassified as "no response"
+        and persisted as activity rows — the actual P0 we are fixing.
         """
         from xyz_agent_context.schema import ProgressMessage
+        from xyz_agent_context.channel.message_source_handler import (
+            MessageSourceRegistry,
+        )
 
-        parts = []
+        handler = MessageSourceRegistry.get(working_source)
+        parts: List[str] = []
         for response in agent_loop_response:
-            # Check if it's a ProgressMessage (tool calls are wrapped as ProgressMessage)
-            if isinstance(response, ProgressMessage) and response.details:
-                tool_name = response.details.get("tool_name", "")
-                # Match send_message_to_user_directly (frontend uses endsWith matching)
-                if tool_name.endswith("send_message_to_user_directly"):
-                    arguments = response.details.get("arguments", {})
-                    content = arguments.get("content", "")
-                    if content:
-                        parts.append(content)
+            if not (isinstance(response, ProgressMessage) and response.details):
+                continue
+            tool_name = response.details.get("tool_name", "")
+            arguments = response.details.get("arguments", {})
+            reply = handler.extract_reply_text(tool_name, arguments)
+            if reply:
+                parts.append(reply)
 
         if parts:
             combined = "\n\n".join(parts)
-            logger.debug(
-                f"ChatModule._extract_user_visible_response: "
-                f"Extracted {len(parts)} reply(s), total length {len(combined)}"
+            logger.info(
+                f"[CHAT-CTX] _extract_user_visible_response: working_source={working_source} "
+                f"handler={handler.name} replies={len(parts)} total_len={len(combined)}"
             )
             return combined
 
-        # send_message_to_user_directly call not found
-        logger.debug(
-            "ChatModule._extract_user_visible_response: "
-            "send_message_to_user_directly tool call not found, Agent did not reply to user"
+        logger.info(
+            f"[CHAT-CTX] _extract_user_visible_response: working_source={working_source} "
+            f"handler={handler.name} no reply tool matched "
+            f"(checked patterns={handler.user_reply_tool_names})"
         )
         return "(Agent decided no response needed)"
 
@@ -376,6 +380,19 @@ class ChatModule(XYZBaseModule):
                             msg["meta_data"] = {}
                         msg["meta_data"]["instance_id"] = instance_id
                         msg["meta_data"]["memory_type"] = "long_term"
+
+                        # Drop background activity rows — they are agent
+                        # housekeeping (Matrix/Lark cascade forwards a
+                        # job did not reply to a user about), not real
+                        # dialogue. Once Phase 2 lands new turns will
+                        # only get message_type=activity when the agent
+                        # truly did not reply to anyone; pre-existing
+                        # mislabelled rows from before that fix are no
+                        # longer salvageable (content was already
+                        # rewritten by _build_activity_summary), so
+                        # filtering loses nothing the LLM could use.
+                        if msg["meta_data"].get("message_type") == "activity":
+                            continue
 
                         # Messages from non-chat sources (job/a2a): only load assistant side
                         working_source = msg.get("meta_data", {}).get("working_source", "chat")
@@ -539,6 +556,11 @@ class ChatModule(XYZBaseModule):
             # Collect all messages (no longer filtered by time)
             for msg in messages:
                 meta = msg.get("meta_data", {})
+
+                # Same activity-row filter as long_term — see
+                # hook_data_gathering for the why.
+                if meta.get("message_type") == "activity":
+                    continue
 
                 # Messages from non-chat sources (job/a2a): only load assistant side
                 working_source = meta.get("working_source", "chat")
@@ -768,8 +790,11 @@ class ChatModule(XYZBaseModule):
         # "do not retry" annotation instead of a fake completed pair.
         error_signal = _detect_error_in_agent_loop(params.agent_loop_response)
 
-        # Extract the user-visible response (from send_message_to_user_directly tool call)
-        assistant_content = self._extract_user_visible_response(params.agent_loop_response)
+        # Extract the user-visible response, dispatched by working_source
+        # so per-source reply tools (e.g. lark_cli for Lark) are recognised.
+        assistant_content = self._extract_user_visible_response(
+            params.agent_loop_response, working_source
+        )
         is_no_response = assistant_content == "(Agent decided no response needed)"
 
         # Attachments forwarded by the trigger (WebSocket / Lark / etc.)
