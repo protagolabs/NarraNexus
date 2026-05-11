@@ -1014,7 +1014,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                     </div>
                   </ScrollArea>
                 </div>
-              ) : (
+              ) : !getUserVisibleResponse() ? (
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <Loader2 className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
@@ -1022,7 +1022,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   </div>
                   <span className="text-sm text-[var(--text-secondary)]">{getInitStatus()}</span>
                 </div>
-              )}
+              ) : null}
             </div>
           );
         })()}

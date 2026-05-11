@@ -40,6 +40,16 @@ bubble persists into history with its data already attached, line
 drops the reply tool call so the same action doesn't appear twice
 (once as the bubble, once as a tool step).
 
+Defensive guard: inside the live preview, the `!hasActivity` fallback
+now renders the "Starting up..." banner only when
+`!getUserVisibleResponse()`. Without this, an LLM that emits no
+`agent_thinking` deltas and whose only progress step is the
+send_message tool call itself (which `toolSteps` filters out) would
+land on `hasActivity=false` *after* a reply already rendered above —
+visually contradicting "Starting up..." beneath a populated reply
+bubble. With the guard, the live preview cleanly disappears in that
+rare path instead.
+
 # ChatPanel.tsx — Unified timeline chat surface with streaming and history pagination
 
 ## 为什么存在
