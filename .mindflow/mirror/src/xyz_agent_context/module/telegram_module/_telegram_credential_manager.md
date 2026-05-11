@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/_telegram_credential_manager.py
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-05-11
 ---
 
 ## Why it exists
@@ -85,3 +85,21 @@ deltas captured here so the structural symmetry stays load-bearing.
   bind on a bot that previously had a webhook set. The runtime 409
   recovery in the trigger papers over this for already-bound bots
   but a brand-new bind would never even see the trigger.
+
+## update_owner — late owner resolution
+
+Added 2026-05-11 after discovering that Telegram's ``getChat`` API
+**does not accept @username for regular user accounts** (only for
+supergroups / channels / bots). At bind time the ``getChat("@handle")``
+call almost always returns ``chat_not_found`` for a user @username,
+even though the user is real and has DM'd the bot before.
+
+The canonical resolution path is now in ``TelegramTrigger._process_message``:
+when the FIRST DM arrives whose ``from.username`` matches the stored
+``owner_username``, the trigger calls ``update_owner()`` to populate
+``owner_user_id`` + ``owner_name``. ``bind()`` still attempts the
+``getChat`` for completeness (in case the @handle is actually a public
+channel / supergroup) but failure is benign and demoted from WARNING
+to INFO. Security is preserved by the username-as-lock invariant — a
+stranger can't claim ownership because their ``from.username`` won't
+match.

@@ -287,3 +287,228 @@ async def test_resolve_sender_name_returns_sender_id_fallback():
     trigger = TelegramTrigger()
     name = await trigger.resolve_sender_name("42", _cred())
     assert name == "42"
+
+
+# ── Late owner resolution via _maybe_resolve_owner ─────────────────────
+
+
+def _cred_pending(owner_username: str = "ctong201") -> TelegramCredential:
+    """Credential representing a fresh bind: owner_username set (the lock)
+    but owner_user_id still empty (getChat at bind couldn't resolve a
+    user @handle — expected per Telegram API)."""
+    return TelegramCredential(
+        agent_id="agent_a",
+        bot_token="1234:tok",
+        bot_user_id="1001",
+        bot_username="acme_bot",
+        owner_username=owner_username,
+        owner_user_id="",
+        owner_name="",
+    )
+
+
+def _make_parsed(raw: dict, sender_id: str = "8612707834"):
+    """Helper — produce ParsedMessage with .raw + .sender_id matching
+    what TelegramTrigger.parse_event would emit."""
+    from xyz_agent_context.schema.parsed_message import ParsedMessage, MessageContentType, ChatType
+    return ParsedMessage(
+        message_id="7",
+        chat_id="8612707834",
+        sender_id=sender_id,
+        sender_name="x",
+        content="hi",
+        content_type=MessageContentType.TEXT,
+        chat_type=ChatType.PRIVATE,
+        timestamp_ms=0,
+        raw=raw,
+    )
+
+
+@pytest.mark.asyncio
+async def test_late_owner_resolution_fires_on_username_match(
+    db_client, monkeypatch: pytest.MonkeyPatch
+):
+    """First DM whose from.username matches the stored owner_username
+    should populate owner_user_id + owner_name. This is the Telegram-
+    specific equivalent of Slack's bind-time users.lookupByEmail."""
+    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+        TelegramCredentialManager,
+    )
+
+    # Pre-create the pending credential row in DB
+    mgr = TelegramCredentialManager(db_client)
+    # Bypass bind() to avoid the SDK call — directly insert via underlying
+    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+        _encode_token,
+    )
+    await db_client.insert("channel_telegram_credentials", {
+        "agent_id": "agent_a",
+        "bot_token_encoded": _encode_token("1234:tok"),
+        "bot_user_id": "1001",
+        "bot_username": "acme_bot",
+        "owner_username": "ctong201",
+        "owner_user_id": "",
+        "owner_name": "",
+        "enabled": 1,
+        "created_at": "2026-05-11T00:00:00+00:00",
+        "updated_at": "2026-05-11T00:00:00+00:00",
+    })
+
+    trigger = TelegramTrigger()
+    trigger._db = db_client
+
+    raw = _msg(**{
+        "from": {
+            "id": 8612707834,
+            "username": "ctong201",  # matches lock
+            "first_name": "Chen",
+            "last_name": "Tong",
+        }
+    })
+    message = _make_parsed(raw)
+    credential = _cred_pending()
+
+    await trigger._maybe_resolve_owner(credential, message)
+
+    # In-memory mutation
+    assert credential.owner_user_id == "8612707834"
+    assert credential.owner_name == "Chen Tong"
+    # And persisted
+    after = await mgr.get("agent_a")
+    assert after is not None
+    assert after.owner_user_id == "8612707834"
+    assert after.owner_name == "Chen Tong"
+
+
+@pytest.mark.asyncio
+async def test_late_owner_resolution_ignores_username_mismatch(
+    db_client, monkeypatch: pytest.MonkeyPatch
+):
+    """SECURITY: a stranger DM'ing the bot first must NOT be able to
+    claim owner. owner_username is the lock; only matching usernames
+    unlock."""
+    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+        TelegramCredentialManager, _encode_token,
+    )
+
+    await db_client.insert("channel_telegram_credentials", {
+        "agent_id": "agent_a",
+        "bot_token_encoded": _encode_token("1234:tok"),
+        "bot_user_id": "1001",
+        "bot_username": "acme_bot",
+        "owner_username": "ctong201",
+        "owner_user_id": "",
+        "owner_name": "",
+        "enabled": 1,
+        "created_at": "2026-05-11T00:00:00+00:00",
+        "updated_at": "2026-05-11T00:00:00+00:00",
+    })
+
+    trigger = TelegramTrigger()
+    trigger._db = db_client
+
+    raw = _msg(**{
+        "from": {
+            "id": 9999999,
+            "username": "random_stranger",  # does NOT match
+            "first_name": "Eve",
+        }
+    })
+    message = _make_parsed(raw, sender_id="9999999")
+    credential = _cred_pending()
+
+    await trigger._maybe_resolve_owner(credential, message)
+
+    # No-op — stranger can't claim
+    assert credential.owner_user_id == ""
+    assert credential.owner_name == ""
+    after = await TelegramCredentialManager(db_client).get("agent_a")
+    assert after is not None
+    assert after.owner_user_id == ""
+
+
+@pytest.mark.asyncio
+async def test_late_owner_resolution_case_insensitive(db_client):
+    """Telegram usernames are case-preserving but case-insensitive at
+    match time (@CTONG201 == @ctong201). The lock must match the same way."""
+    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+        TelegramCredentialManager, _encode_token,
+    )
+
+    await db_client.insert("channel_telegram_credentials", {
+        "agent_id": "agent_a",
+        "bot_token_encoded": _encode_token("1234:tok"),
+        "bot_user_id": "1001",
+        "bot_username": "acme_bot",
+        "owner_username": "ctong201",  # lowercase lock
+        "owner_user_id": "",
+        "owner_name": "",
+        "enabled": 1,
+        "created_at": "2026-05-11T00:00:00+00:00",
+        "updated_at": "2026-05-11T00:00:00+00:00",
+    })
+
+    trigger = TelegramTrigger()
+    trigger._db = db_client
+
+    raw = _msg(**{
+        "from": {
+            "id": 8612707834,
+            "username": "Ctong201",  # different case — still owner
+            "first_name": "Chen",
+        }
+    })
+    message = _make_parsed(raw)
+    credential = _cred_pending()
+
+    await trigger._maybe_resolve_owner(credential, message)
+
+    assert credential.owner_user_id == "8612707834"
+
+
+@pytest.mark.asyncio
+async def test_late_owner_resolution_skips_when_no_owner_username(db_client):
+    """If owner_username wasn't set at bind, there's no lock — late
+    resolution must not fire, otherwise first-DM-wins becomes the
+    de-facto policy (security regression)."""
+    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+        TelegramCredentialManager,
+    )
+
+    trigger = TelegramTrigger()
+    trigger._db = db_client
+
+    raw = _msg(**{"from": {"id": 8612707834, "username": "ctong201", "first_name": "Chen"}})
+    message = _make_parsed(raw)
+    credential = TelegramCredential(
+        agent_id="agent_a",
+        bot_token="1234:tok",
+        bot_user_id="1001",
+        bot_username="acme_bot",
+        owner_username="",  # NO lock — no auto-resolve
+    )
+
+    await trigger._maybe_resolve_owner(credential, message)
+
+    assert credential.owner_user_id == ""
+    assert credential.owner_name == ""
+
+
+@pytest.mark.asyncio
+async def test_late_owner_resolution_skips_when_sender_has_no_username(db_client):
+    """A Telegram user without a public @username has empty
+    `from.username` in events. They can never satisfy the lock — must
+    not be claimed as owner. (Edge case: users without public usernames
+    need a different path, e.g. numeric user_id at bind. Phase 4 doesn't
+    support them.)"""
+    trigger = TelegramTrigger()
+    trigger._db = db_client
+
+    raw = _msg(**{"from": {"id": 8612707834, "first_name": "Chen"}})  # no username
+    message = _make_parsed(raw)
+    credential = _cred_pending()
+
+    await trigger._maybe_resolve_owner(credential, message)
+
+    assert credential.owner_user_id == ""
+    assert credential.owner_name == ""

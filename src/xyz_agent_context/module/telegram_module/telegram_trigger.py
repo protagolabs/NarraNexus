@@ -303,6 +303,83 @@ class TelegramTrigger(ChannelTriggerBase):
         )
 
     # ────────────────────────────────────────────────────────────────────
+    # Inbound preprocessing — late owner resolution
+    # ────────────────────────────────────────────────────────────────────
+
+    async def _process_message(
+        self, credential: TelegramCredential, message: ParsedMessage
+    ) -> None:
+        """Override to do late owner resolution before invoking AgentRuntime.
+
+        WHY this lives here (not in bind):
+            Telegram's ``getChat`` API does NOT accept @username for
+            regular user accounts (only supergroups/channels/bots). So
+            at bind time we cannot translate the user-supplied
+            ``owner_username`` to a numeric ``user_id``. The first
+            inbound DM is when the mapping becomes available — the
+            event payload carries both numeric ``from.id`` and current
+            ``from.username``.
+
+        SECURITY MODEL:
+            ``owner_username`` is the LOCK set at bind time. We only
+            populate ``owner_user_id`` when the inbound sender's
+            ``from.username`` matches the stored ``owner_username``
+            (case-insensitive). This is NOT "first DM wins" — a
+            stranger DM'ing the bot first won't claim ownership
+            because their ``from.username`` won't match. Telegram
+            @username ownership is globally unique, so matching the
+            handle on first contact functionally proves "you control
+            this handle on Telegram."
+
+        Idempotent: only fires when ``owner_username`` is set AND
+        ``owner_user_id`` is still empty. Once resolved it stays put
+        across restarts (persisted in DB).
+        """
+        if (
+            credential.owner_username
+            and not credential.owner_user_id
+            and isinstance(message.raw, dict)
+        ):
+            await self._maybe_resolve_owner(credential, message)
+        return await super()._process_message(credential, message)
+
+    async def _maybe_resolve_owner(
+        self, credential: TelegramCredential, message: ParsedMessage
+    ) -> None:
+        """Match inbound message's ``from.username`` against the stored
+        ``owner_username``. On match, write ``owner_user_id`` +
+        ``owner_name`` to DB and update the in-memory credential so
+        the agent run THIS turn sees the resolved owner (build_extra_data
+        re-fetches credential via TelegramCredentialManager.get)."""
+        raw_msg = message.raw.get("message") or {}
+        from_user = raw_msg.get("from") or {}
+        sender_username = (from_user.get("username") or "").strip().lstrip("@")
+        if not sender_username:
+            return
+        if sender_username.lower() != credential.owner_username.lower():
+            # Different sender — do NOT claim. owner_username is the lock.
+            return
+
+        first = (from_user.get("first_name") or "").strip()
+        last = (from_user.get("last_name") or "").strip()
+        owner_name = " ".join(p for p in (first, last) if p) or sender_username
+
+        if not self._db:
+            return
+
+        mgr = TelegramCredentialManager(self._db)
+        await mgr.update_owner(
+            credential.agent_id,
+            owner_user_id=message.sender_id,
+            owner_name=owner_name,
+        )
+        # In-memory mutation so the rest of THIS turn sees the resolved
+        # owner. Build_extra_data downstream re-fetches from DB but the
+        # update_owner() write above ensures consistency.
+        credential.owner_user_id = message.sender_id
+        credential.owner_name = owner_name
+
+    # ────────────────────────────────────────────────────────────────────
     # Reply-side overrides
     # ────────────────────────────────────────────────────────────────────
 

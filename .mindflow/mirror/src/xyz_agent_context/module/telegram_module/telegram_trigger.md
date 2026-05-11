@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_trigger.py
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-05-11
 ---
 
 ## Why it exists
@@ -88,3 +88,44 @@ Telegram-specific reasons it differs from the Slack trigger:
   >10-minute-old messages may double-process across restart — accept.
 - ``re`` is imported but currently unused at module scope (kept for
   future entity parsing). Don't strip it without checking.
+
+## Late owner resolution (`_process_message` override)
+
+Telegram's ``getChat`` Bot API **does not accept @username for regular
+user accounts** — only supergroups, channels, and bots can be looked up
+that way. (The doc explicitly says "username of the target supergroup or
+channel".) So at bind time we cannot resolve ``owner_username`` to a
+numeric ``user_id`` for a normal Telegram user. That call almost always
+returns ``Bad Request: chat_not_found`` for user @handles.
+
+The canonical resolution path moved INTO the trigger:
+
+1. Bind stores ``owner_username`` (the lock) + leaves ``owner_user_id``
+   empty.
+2. ``_process_message`` override checks: if ``owner_username`` is set
+   AND ``owner_user_id`` is still empty, call ``_maybe_resolve_owner``
+   BEFORE the base's processing.
+3. ``_maybe_resolve_owner`` extracts ``message.raw.message.from.username``,
+   compares case-insensitively to ``credential.owner_username``. On
+   match, writes ``owner_user_id`` and ``owner_name`` via
+   ``TelegramCredentialManager.update_owner``, plus mutates the
+   in-memory credential so the rest of THIS turn sees the resolved
+   owner.
+
+**Security model**: this is **NOT** "first DM wins". A stranger DM'ing
+the bot first cannot claim ownership because their ``from.username``
+won't match the stored lock. Telegram @username ownership is globally
+unique and stable — matching the handle on first contact functionally
+proves "you control this handle on Telegram". The lock is the same
+strength as Slack's bind-time ``users.lookupByEmail`` result, just
+deferred to first-DM-time because Telegram's API forces the deferral.
+
+Edge cases:
+- User without a public @username: ``message.raw.from.username`` is
+  empty → match always fails → owner stays unresolved. Phase 4 doesn't
+  support these users; they'd need a numeric-user_id binding path (not
+  built).
+- Username changed since bind: stored ``owner_username`` no longer
+  matches the new value → resolution never fires. User must rebind.
+- Already resolved: no-op (idempotent guard on ``owner_user_id`` being
+  empty).

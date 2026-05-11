@@ -338,3 +338,46 @@ async def test_list_active_filters_disabled_rows(
     agent_ids = {c.agent_id for c in active}
     assert "agent_on" in agent_ids
     assert "agent_off" not in agent_ids
+
+
+# ── update_owner — late owner resolution ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_owner_populates_fields(
+    db_client, monkeypatch: pytest.MonkeyPatch
+):
+    """update_owner writes user_id + name and bumps updated_at.
+
+    Called by TelegramTrigger when first DM arrives whose
+    from.username matches the bind-time owner_username.
+    """
+    _patch_ok(monkeypatch)
+    mgr = TelegramCredentialManager(db_client)
+    await mgr.bind("agent_a", "1234:tok", owner_username="ctong201")
+
+    # Before: owner_user_id empty (Telegram getChat refused @username)
+    cred = await mgr.get("agent_a")
+    assert cred is not None
+    assert cred.owner_username == "ctong201"
+    assert cred.owner_user_id == ""
+
+    # Late resolution
+    ok = await mgr.update_owner(
+        "agent_a", owner_user_id="8612707834", owner_name="Chen Tong"
+    )
+    assert ok is True
+
+    after = await mgr.get("agent_a")
+    assert after is not None
+    assert after.owner_user_id == "8612707834"
+    assert after.owner_name == "Chen Tong"
+    # owner_username stays — it's the lock
+    assert after.owner_username == "ctong201"
+
+
+@pytest.mark.asyncio
+async def test_update_owner_returns_false_when_no_row(db_client):
+    """No-op when the agent has no credential row."""
+    mgr = TelegramCredentialManager(db_client)
+    assert await mgr.update_owner("ghost", "x", "y") is False

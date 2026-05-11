@@ -150,7 +150,20 @@ class TelegramCredentialManager:
                     ),
                 }
 
-            # Optionally resolve owner identity by @username
+            # Best-effort owner resolution at bind time. Telegram's getChat
+            # API does NOT accept @username for regular user accounts —
+            # only for supergroups, channels, and bots. So this call
+            # almost always returns ``chat_not_found`` for a user
+            # @handle. We try anyway because:
+            #   1. If the @handle happens to be a channel/supergroup
+            #      (unusual for "owner") we get a real hit.
+            #   2. Future API surface might broaden — keep the path
+            #      warm so we benefit automatically.
+            # When it fails (the common case), bind succeeds with
+            # owner_user_id empty; the canonical resolution path is
+            # ``TelegramTrigger._process_message`` matching the first
+            # inbound DM's ``from.username`` against the stored
+            # ``owner_username``, then calling ``update_owner``.
             owner_user_id = ""
             owner_name = ""
             if owner_username:
@@ -161,9 +174,13 @@ class TelegramCredentialManager:
                     last = owner.get("last_name", "") or ""
                     owner_name = " ".join(p for p in (first, last) if p)
                 except TelegramSDKError as e:
-                    logger.warning(
-                        f"[telegram:{agent_id}] getChat(@{owner_username}) failed: "
-                        f"{e.code}; binding proceeds without owner trust signal"
+                    # Expected for user @usernames. Trigger will resolve
+                    # owner on first matching DM.
+                    logger.info(
+                        f"[telegram:{agent_id}] getChat(@{owner_username}) "
+                        f"returned {e.code} at bind — expected for user "
+                        f"accounts; owner will be resolved on first DM "
+                        f"whose from.username matches."
                     )
 
             # Upsert
@@ -229,6 +246,39 @@ class TelegramCredentialManager:
     async def list_active(self) -> list[TelegramCredential]:
         rows = await self._db.get(self.TABLE, {"enabled": 1})
         return [self._row_to_cred(r) for r in rows]
+
+    async def update_owner(
+        self,
+        agent_id: str,
+        owner_user_id: str,
+        owner_name: str,
+    ) -> bool:
+        """Late owner resolution — called by TelegramTrigger when an inbound
+        DM arrives whose ``from.username`` matches the bind-time
+        ``owner_username``. Telegram's getChat API doesn't accept @username
+        for regular users (only for supergroups/channels), so we can't
+        resolve the numeric user_id at bind time; the first matching DM is
+        when the mapping becomes available.
+
+        Returns True if the row was updated, False if no row exists.
+        """
+        row = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
+        if not row:
+            return False
+        await self._db.update(
+            self.TABLE,
+            {"agent_id": agent_id},
+            {
+                "owner_user_id": owner_user_id,
+                "owner_name": owner_name,
+                "updated_at": self._now_iso(),
+            },
+        )
+        logger.info(
+            f"[telegram:{agent_id}] owner late-resolved: "
+            f"user_id={owner_user_id} name={owner_name!r}"
+        )
+        return True
 
     # ------------------------------------------------------------------
     # Helpers

@@ -87,9 +87,23 @@ with it so the agent can recognise "this is the owner DM-ing me" vs
 
     tg_bind(bot_token="7981...", owner_username="@bin_liang")
 
-Or paste both into the dashboard. If the user doesn't supply @username,
-the bot still works but with NO trust signal — every Telegram sender
-is treated as untrusted.
+Or paste both into the dashboard.
+
+**Important — owner trust signal activates on FIRST DM, not at bind:**
+Telegram's API does not let bots look up users by @username at bind
+time (only supergroups/channels are looked up that way). So the bind
+stores the @username as a LOCK but cannot yet resolve it to a numeric
+user_id. The trust signal activates when the **owner sends the FIRST
+DM** to the bot — the inbound message carries their numeric user_id
+and current @username, and the trigger auto-matches against the lock
+to populate ``owner_user_id``.
+
+Tell the user: "After binding, open Telegram and send any message
+(``/start`` or 'hi') to the bot. That activates the owner trust signal."
+
+If the user doesn't supply @username, the bot still works but with NO
+trust signal — every Telegram sender is treated as untrusted (no
+auto-resolve will ever fire because there's no lock to match against).
 
 ### Iron rules during setup
 1. Refuse tokens that don't match ``<digits>:<base64>`` shape.

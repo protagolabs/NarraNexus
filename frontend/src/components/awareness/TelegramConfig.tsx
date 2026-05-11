@@ -226,7 +226,7 @@ export function TelegramConfig() {
                       Optional: send <code className="bg-[var(--bg-tertiary)] px-1">/setjoingroups</code> → bot → <strong>Enable</strong> if you want the bot to be addable to groups.
                     </li>
                     <li>
-                      Optional: paste <strong>your</strong> Telegram @username below so the agent recognises owner-vs-stranger DMs (we resolve it via getChat to your numeric user_id at bind time).
+                      Optional: paste <strong>your</strong> Telegram @username below so the agent recognises owner-vs-stranger DMs. <strong>After binding, send any message to the bot from your @username</strong> — Telegram's API only reveals your numeric user_id on a real DM, so the trust signal activates on first contact (not at bind time).
                     </li>
                   </ol>
                   <div className="text-[var(--text-secondary)] pt-1 border-t border-[var(--border-default)] mt-2">
@@ -294,6 +294,15 @@ export function TelegramConfig() {
               <div className="text-xs text-[var(--text-secondary)]">
                 Owner: <span className="text-[var(--text-primary)]">{credential.owner_name || `@${credential.owner_username}`}</span>{' '}
                 <span className="text-[var(--text-secondary)]">({credential.owner_user_id})</span>
+              </div>
+            ) : credential.owner_username ? (
+              <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+                ⏳ Owner registration pending — DM <strong>@{credential.bot_username || 'your bot'}</strong> on Telegram
+                from <strong>@{credential.owner_username}</strong> once to activate the trust signal.
+                <div className="mt-1 text-[var(--text-secondary)]">
+                  (Telegram's API doesn't let bots resolve @usernames at bind time —
+                  we wait for the first matching DM, then auto-link.)
+                </div>
               </div>
             ) : (
               <div className="text-xs text-[var(--color-yellow-500)]" role="note">
