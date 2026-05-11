@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { rawUrl } from '@/types/artifact';
+import { fetchArtifactText } from '@/services/artifactsApi';
 import { useArtifactStore, type ChartInstanceLike } from '@/stores/artifactStore';
 
 interface Props {
@@ -39,8 +40,8 @@ export default function ChartRenderer({ artifact, version }: Props) {
     (async () => {
       try {
         const echarts = await import('echarts');
-        const r = await fetch(rawUrl(artifact.agent_id, artifact.artifact_id, version));
-        const option = await r.json();
+        const text = await fetchArtifactText(rawUrl(artifact.agent_id, artifact.artifact_id, version));
+        const option = JSON.parse(text);
         if (disposed || !ref.current) return;
         const c = echarts.init(ref.current);
         c.setOption(option);

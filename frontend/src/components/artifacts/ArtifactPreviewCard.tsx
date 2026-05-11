@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { rawUrl } from '@/types/artifact';
 import { useArtifactStore } from '@/stores';
+import { fetchArtifactText, fetchArtifactBlobUrl } from '@/services/artifactsApi';
 
 interface Props {
   artifact: Artifact;
@@ -23,28 +24,47 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
   const setCollapsed = useArtifactStore((s) => s.setCollapsed);
   const [csvHead, setCsvHead] = useState<string[][] | null>(null);
   const [mdHead, setMdHead] = useState<string | null>(null);
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (artifact.kind !== 'text/csv' && artifact.kind !== 'text/markdown') return;
+    const isText = artifact.kind === 'text/csv' || artifact.kind === 'text/markdown';
+    const isImage = artifact.kind === 'image/png' || artifact.kind === 'image/jpeg';
+    if (!isText && !isImage) return;
+
     const url = rawUrl(artifact.agent_id, artifact.artifact_id, artifact.latest_version);
-    // Wrap in async IIFE so all setState calls — including the reset — happen
-    // inside the same async microtask batch, satisfying react-hooks/set-state-in-effect.
+    let cancelled = false;
+    let createdBlobUrl: string | null = null;
+
     (async () => {
       setPreviewError(null);
       try {
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const t = await r.text();
-        if (artifact.kind === 'text/csv') {
-          setCsvHead(t.split(/\r?\n/).slice(0, 5).map((row) => row.split(',')));
+        if (isImage) {
+          const blobUrl = await fetchArtifactBlobUrl(url);
+          if (cancelled) {
+            URL.revokeObjectURL(blobUrl);
+            return;
+          }
+          createdBlobUrl = blobUrl;
+          setImageSrc(blobUrl);
         } else {
-          setMdHead(t.slice(0, 200) + (t.length > 200 ? '…' : ''));
+          const t = await fetchArtifactText(url);
+          if (cancelled) return;
+          if (artifact.kind === 'text/csv') {
+            setCsvHead(t.split(/\r?\n/).slice(0, 5).map((row) => row.split(',')));
+          } else {
+            setMdHead(t.slice(0, 200) + (t.length > 200 ? '…' : ''));
+          }
         }
       } catch (e) {
-        setPreviewError(String(e));
+        if (!cancelled) setPreviewError(String(e));
       }
     })();
+
+    return () => {
+      cancelled = true;
+      if (createdBlobUrl) URL.revokeObjectURL(createdBlobUrl);
+    };
   }, [artifact.kind, artifact.agent_id, artifact.artifact_id, artifact.latest_version]);
 
   const open = () => {
@@ -60,9 +80,9 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
       <div className="text-xs uppercase opacity-60">{artifact.kind}</div>
       <div className="text-sm font-semibold">{artifact.title}</div>
       <div className="min-h-[80px]">
-        {(artifact.kind === 'image/png' || artifact.kind === 'image/jpeg') && (
+        {(artifact.kind === 'image/png' || artifact.kind === 'image/jpeg') && imageSrc && (
           <img
-            src={rawUrl(artifact.agent_id, artifact.artifact_id, artifact.latest_version)}
+            src={imageSrc}
             alt={artifact.title}
             className="max-h-24 object-contain"
           />

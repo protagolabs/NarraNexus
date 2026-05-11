@@ -15,7 +15,7 @@ import type { Artifact, ArtifactWithVersions } from '@/types/artifact';
 const base = (agentId: string) => `/api/agents/${agentId}/artifacts`;
 const userBase = (userId: string) => `/api/users/${userId}/artifacts`;
 
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   try {
     const raw = localStorage.getItem('narra-nexus-config');
     if (raw) {
@@ -27,6 +27,36 @@ function authHeaders(): Record<string, string> {
     /* localStorage may be unavailable / disabled — fall through */
   }
   return {};
+}
+
+/**
+ * Fetch an artifact's raw content with the JWT attached and return a blob:
+ * URL the caller can hand to <iframe src=> / <img src=> / <object data=>.
+ *
+ * Why this exists: cloud-mode auth middleware requires Authorization on every
+ * /api/* request, but native HTML elements (iframe, img, object) cannot
+ * attach headers when they fetch a `src` URL. Fetching the blob via JS lets
+ * us include the JWT, then handing the resulting blob URL to the element
+ * keeps the renderer markup unchanged.
+ *
+ * Caller MUST `URL.revokeObjectURL(returned)` when the blob is no longer in
+ * use (typically the cleanup function of the same useEffect that called this).
+ */
+export async function fetchArtifactBlobUrl(url: string): Promise<string> {
+  const r = await fetch(url, { headers: authHeaders() });
+  if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
+  const blob = await r.blob();
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Fetch text content with JWT — used by csv / markdown / json renderers
+ * that already parsed text client-side and don't need a blob URL.
+ */
+export async function fetchArtifactText(url: string): Promise<string> {
+  const r = await fetch(url, { headers: authHeaders() });
+  if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
+  return r.text();
 }
 
 export interface ArtifactQuotaInfo {

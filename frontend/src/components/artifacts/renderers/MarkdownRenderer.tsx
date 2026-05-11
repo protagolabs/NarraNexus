@@ -17,6 +17,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Artifact } from '@/types/artifact';
 import { rawUrl } from '@/types/artifact';
+import { fetchArtifactText } from '@/services/artifactsApi';
 
 interface Props {
   artifact: Artifact;
@@ -28,8 +29,7 @@ export default function MarkdownRenderer({ artifact, version }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(rawUrl(artifact.agent_id, artifact.artifact_id, version))
-      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    fetchArtifactText(rawUrl(artifact.agent_id, artifact.artifact_id, version))
       .then(setText)
       .catch((e) => setError(String(e)));
   }, [artifact.agent_id, artifact.artifact_id, version]);

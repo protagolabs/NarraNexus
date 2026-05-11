@@ -8,17 +8,16 @@
  * and WebKit/WKWebView has its own Preview-based viewer. The sandboxed iframe
  * approach (sandbox="allow-scripts" without allow-same-origin) breaks Firefox's
  * PDF.js because it requires same-origin XHR to load its own worker modules.
- * Chromium's PDFium silently ignores the sandbox attribute for plugin content,
- * making the sandbox a false safety guarantee. WKWebView (macOS/iOS desktop)
- * behaves differently still.
  *
- * <object> with an explicit MIME type lets each browser pick its native PDF
- * renderer. The response CSP on /raw for PDF kind remains
- * "default-src 'none'; object-src 'self'" which still blocks embedded actions.
+ * Cloud-mode auth: native <object data=...> can't attach the JWT Authorization
+ * header, so we fetch the PDF bytes via JS, wrap them in a blob URL, and hand
+ * that to <object>. Same pattern as HtmlRenderer / ImageRenderer.
  */
 
+import { useEffect, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { rawUrl } from '@/types/artifact';
+import { fetchArtifactBlobUrl } from '@/services/artifactsApi';
 
 interface Props {
   artifact: Artifact;
@@ -26,7 +25,37 @@ interface Props {
 }
 
 export default function PdfRenderer({ artifact, version }: Props) {
-  const src = rawUrl(artifact.agent_id, artifact.artifact_id, version);
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    (async () => {
+      setError(null);
+      try {
+        const url = await fetchArtifactBlobUrl(
+          rawUrl(artifact.agent_id, artifact.artifact_id, version),
+        );
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        createdUrl = url;
+        setSrc(url);
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [artifact.agent_id, artifact.artifact_id, version]);
+
+  if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
+  if (!src) return <div className="p-4 opacity-60">Loading…</div>;
+
   return (
     <object
       data={src}
