@@ -1,8 +1,37 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-04-28
+last_verified: 2026-05-08-r3
 stub: false
 ---
+
+## 2026-05-08-r3 simplification — artifact_ws_router removed
+
+`artifact_ws_router` (added 2026-05-08) has been removed from `main.py`.
+The in-process `ArtifactEventBus` / `artifact_ws.py` notification path was
+dropped entirely because the bus lived in the MCP server process while the
+`/ws/artifacts/{agent_id}` subscribers lived in the FastAPI process — cross-
+process `publish()` never delivered events. The frontend already receives
+artifact signals through the existing chat WebSocket stream (`tool_output`
+frames parsed in `ChatPanel.tsx`). One signal path is simpler and correct.
+
+The import line `from backend.routes.artifact_ws import router as artifact_ws_router`
+and the corresponding `app.include_router(artifact_ws_router, tags=["Artifacts"])` call
+were removed. All other routers are unchanged.
+
+## 2026-05-08 addition — agents_artifacts router wire-in
+
+`agents_artifacts_router` (from `backend.routes.agents_artifacts`) is now
+imported and registered at `/api/agents` with `["Artifacts"]` tags. This
+router provides CRUD endpoints for artifact management:
+
+- `GET /api/agents/{agent_id}/artifacts` — list artifacts in a session
+- `GET /api/agents/{agent_id}/artifacts/{artifact_id}` — fetch artifact detail with versions
+- `PATCH /api/agents/{agent_id}/artifacts/{artifact_id}` — pin/unpin artifacts
+- `DELETE /api/agents/{agent_id}/artifacts/{artifact_id}` — delete artifact and cleanup
+- `GET /api/agents/{agent_id}/artifacts/{artifact_id}/v{version}/raw` — raw artifact content with strict CSP
+
+All routes enforce agent isolation via the `agents_artifacts_auth_required`
+dependency, preventing agents from accessing other agents' artifacts.
 
 ## 2026-04-28 addition — unified logging + access middleware + admin logs router
 

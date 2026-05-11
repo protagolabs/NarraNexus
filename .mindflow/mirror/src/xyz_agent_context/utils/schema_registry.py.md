@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-04-28
+last_verified: 2026-05-09
 stub: false
 ---
+
+## 2026-05-09 hardening — I7 idx_artifact_agent_id added
+
+`instance_artifacts` now has a third index `idx_artifact_agent_id` on `["agent_id"]`.
+`total_bytes_for_agent` joins `instance_artifact_versions` to `instance_artifacts` on
+`artifact_id` and filters by `agent_id`. Without an `agent_id` index the planner may
+scan the full `instance_artifacts` table when an agent has many artifacts. The two
+existing composite indexes (`idx_artifact_agent_session`, `idx_artifact_agent_pinned`)
+cover query patterns with two conditions; the new single-column index covers the quota
+aggregation join path.
 
 ## 2026-04-28 addition — chat_message_embeddings folded in
 
@@ -71,3 +81,36 @@ Before this file, table schemas lived only as raw `CREATE TABLE` SQL strings in 
 `instance_jobs` 表新增 4 列：`next_run_at_local` / `next_run_tz` / `last_run_at_local` / `last_run_tz`（全部 TEXT/VARCHAR, nullable）。语义见 spec `reference/self_notebook/specs/2026-04-21-job-timezone-redesign-design.md` 第 4.1 节。
 
 这些列是 additive 变更，`auto_migrate` 启动时自动 `ALTER TABLE ADD COLUMN` 即可。**不改**原 `next_run_time` / `last_run_time` 列名或类型（它们在新协议下专职承载 UTC，对 LLM 不可见）。
+
+## 2026-05-08 · Agent Artifact Tabs — instance_artifacts + instance_artifact_versions
+
+Two new tables registered as part of the Agent Artifact Tabs feature
+(spec: `reference/self_notebook/specs/2026-05-08-agent-artifact-tabs-design.md`).
+
+**`instance_artifacts`** — one row per artifact emitted by the agent (chart,
+csv, markdown, html app, png/jpeg/pdf, etc.). Text primary key `artifact_id`
+(prefix `art_` + 8 random chars). Tracks `kind`, `title`, `description`,
+`pinned` flag, and `latest_version` counter. `agent_id` and `user_id` are
+`VARCHAR(128)` (aligned with `instance_jobs`, `module_instances` and other
+module-owned tables — the wider width prevents MySQL truncation for IDs that
+can exceed 64 chars in some generator configurations). Indexed on
+`(agent_id, session_id)` and `(agent_id, pinned)` for the two common query
+patterns: "all artifacts in this session" and "pinned artifacts for this agent".
+
+**`instance_artifact_versions`** — append-only version log. Each row stores the
+`file_path` to the artifact file on disk and `size_bytes`. The composite unique
+index on `(artifact_id, version)` enforces immutability: a given version of a
+given artifact cannot be overwritten. The `latest_version` counter in
+`instance_artifacts` is bumped on each new version write.
+
+Both tables are purely additive and take effect on next `auto_migrate()` call
+(i.e., next app startup).
+
+## 2026-05-08-r2 · original_session_id column added to instance_artifacts
+
+Added a nullable `original_session_id TEXT/VARCHAR(64)` column to
+`instance_artifacts`. This stores the `session_id` at the moment the artifact
+is pinned, so that `set_pinned(False)` can restore it instead of leaving the
+artifact orphaned with `session_id=NULL`. Purely additive — existing rows get
+`NULL` (no session to restore; the route layer surfaces a warning per review
+Important #1).

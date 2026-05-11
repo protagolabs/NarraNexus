@@ -30,6 +30,8 @@ export default defineConfig({
           'vendor-reactflow': ['reactflow'],
           // Markdown rendering (used by multiple panels, but not required for initial load)
           'vendor-markdown': ['react-markdown', 'remark-gfm', 'rehype-raw'],
+          // ECharts (only loaded when an echarts artifact tab is opened, ~700 KB)
+          'vendor-echarts': ['echarts'],
           // Radix UI component library
           'vendor-radix': [
             '@radix-ui/react-popover',

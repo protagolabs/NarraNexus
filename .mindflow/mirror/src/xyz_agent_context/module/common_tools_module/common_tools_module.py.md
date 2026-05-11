@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-04-29
+last_verified: 2026-05-08
 stub: false
 ---
 
@@ -12,8 +12,12 @@ Always-on capability module that hosts generic, domain-agnostic tools
 every agent benefits from. Today it owns:
 
 1. `web_search` MCP tool (DuckDuckGo or Brave depending on env)
-2. The system-prompt instruction block that tells the agent how to use
+2. `create_artifact` + `upload_artifact_file` MCP tools for emitting charts,
+   reports, CSV, markdown, and interactive HTML to side-panel tabs
+3. The system-prompt instruction block that tells the agent how to use
    the **built-in** `Read` tool to view user-uploaded attachments
+4. The system-prompt instruction block that tells the agent how to use
+   `create_artifact` / `upload_artifact_file` and when to use each kind
 
 Note: there is no MCP tool for attachments — Anthropic's SDK ships the
 multimodal `Read` primitive, and our marker text + dynamic instruction

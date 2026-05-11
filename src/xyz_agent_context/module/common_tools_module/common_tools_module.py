@@ -112,6 +112,21 @@ Rules:
   fabricate content.
 - Do NOT modify or delete user-uploaded files unless the user explicitly
   asks you to.
+
+#### Visual Artifacts
+
+`create_artifact(kind, content, title, target_artifact_id?, description?)` —
+text payloads. kind ∈ "application/vnd.echarts+json" (charts, send echarts
+option JSON), "text/markdown" (reports), "text/csv" (tables), "text/html"
+(self-contained, inline JS only, no network). Pass target_artifact_id to
+iterate an existing tab; kind must match.
+
+`upload_artifact_file(local_path, kind, title)` — image/png, image/jpeg,
+application/pdf from the agent workspace.
+
+Use these whenever the user wants to **see** numbers, trends, comparisons,
+or distributions — default to a chart, not a markdown table. Don't paste
+the result URL in your reply; the UI already shows the tab.
 """
 
 

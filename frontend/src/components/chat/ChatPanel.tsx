@@ -11,22 +11,120 @@
  * - 2026-03-17: Unified timeline (removed history/session split)
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, Square, Loader2, Sparkles, MessageSquare, CheckCircle2, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { useChatStore, useConfigStore } from '@/stores';
+import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { AudioRecorder } from './AudioRecorder';
 import { EmbeddingBanner } from '@/components/ui/EmbeddingBanner';
-import type { Attachment, SimpleChatMessage } from '@/types';
+import { ArtifactPreviewCard } from '@/components/artifacts';
+import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
+
+// Artifact tool names that produce an artifact_id in tool_output
+const ARTIFACT_TOOL_NAMES = new Set(['create_artifact', 'upload_artifact_file']);
+
+/**
+ * Fire-and-forget: if the artifact is not yet in the store, fetch and upsert it.
+ * Safe to call on every render — the store lookup short-circuits immediately when
+ * the artifact is already cached.
+ */
+function ensureArtifactLoaded(agentId: string, artifactId: string): void {
+  const { artifacts, upsert } = useArtifactStore.getState();
+  if (artifacts.find((a) => a.artifact_id === artifactId)) return;
+  artifactsApi
+    .getDetail(agentId, artifactId)
+    .then((d) => upsert(d.artifact))
+    .catch(() => undefined);
+}
+
+/**
+ * Renders ArtifactPreviewCard instances for any tool calls in `toolCalls` that
+ * reference an artifact. Reads `allArtifacts` from outside the map so hook
+ * rules are satisfied (no conditional hook calls inside a callback).
+ */
+interface ArtifactToolCallCardsProps {
+  toolCalls: AgentToolCall[];
+  agentId: string;
+  allArtifacts: ReturnType<typeof useArtifactStore.getState>['artifacts'];
+}
+
+const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
+  toolCalls, agentId, allArtifacts,
+}: ArtifactToolCallCardsProps) {
+  const cards: React.ReactNode[] = [];
+
+  for (const tc of toolCalls) {
+    if (!ARTIFACT_TOOL_NAMES.has(tc.tool_name)) continue;
+    if (!tc.tool_output) continue;
+
+    let artifactId: string | undefined;
+    try {
+      const parsed = JSON.parse(tc.tool_output) as {
+        artifact_id?: string;
+        error?: string;
+        code?: number;
+      };
+      // Detect ArtifactQuotaExceeded (HTTP 507) from the structured tool_output
+      // payload — surface a modal pointing to Settings → Artifacts. We only
+      // fire once per error message so re-renders during streaming don't spam.
+      if (parsed.error && parsed.code === 507) {
+        const current = useArtifactStore.getState().quotaError;
+        if (current !== parsed.error) {
+          useArtifactStore.getState().setQuotaError(parsed.error);
+        }
+        continue;
+      }
+      artifactId = parsed.artifact_id;
+    } catch {
+      // tool_output is not JSON — skip
+      continue;
+    }
+
+    if (!artifactId) continue;
+
+    // Trigger fetch if not yet in store (fire-and-forget)
+    ensureArtifactLoaded(agentId, artifactId);
+
+    const artifact = allArtifacts.find((a) => a.artifact_id === artifactId);
+    cards.push(
+      artifact ? (
+        <ArtifactPreviewCard key={artifactId} artifact={artifact} />
+      ) : (
+        <div
+          key={artifactId}
+          className="text-xs opacity-60 mt-2 px-3 py-2 border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/40"
+        >
+          Loading artifact…
+        </div>
+      ),
+    );
+  }
+
+  if (cards.length === 0) return null;
+  return <div className="mt-3 space-y-2">{cards}</div>;
+}, (prev, next) => {
+  // Custom shallow compare so React.memo skips re-renders triggered by
+  // unrelated keystrokes in the chat input. Each timeline item's `toolCalls`
+  // array is built once via useMemo and stays referentially stable until the
+  // streaming state actually advances, so the array identity check below is
+  // sufficient. allArtifacts swaps when the artifact store updates (which is
+  // exactly when we want to re-render to drop the "Loading artifact…" stub).
+  return (
+    prev.agentId === next.agentId &&
+    prev.toolCalls === next.toolCalls &&
+    prev.allArtifacts === next.allArtifacts
+  );
+});
 
 // Must match BOOTSTRAP_GREETING in src/xyz_agent_context/bootstrap/template.py
 const BOOTSTRAP_GREETING =
@@ -108,6 +206,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     getUserVisibleResponse, setActiveAgent,
   } = useChatStore();
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
+
+  // Read artifact list at component scope so it can be safely passed into
+  // ArtifactToolCallCards without calling a hook inside a .map() callback.
+  const allArtifacts = useArtifactStore((s) => s.artifacts);
 
   useEffect(() => {
     if (agentId) setActiveAgent(agentId);
@@ -785,8 +887,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             );
           }
 
-          // Normal message → bubble
+          // Normal message → bubble + optional artifact preview cards
           const isNewSession = item.source === 'session';
+          const hasArtifactTools =
+            item.role === 'assistant' &&
+            !!agentId &&
+            !!item.toolCalls?.some((tc) => ARTIFACT_TOOL_NAMES.has(tc.tool_name) && tc.tool_output);
           return (
             <div
               key={item.id}
@@ -805,6 +911,15 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 eventId={item.eventId}
                 agentId={agentId}
               />
+              {/* Render inline artifact preview cards for create_artifact /
+                  upload_artifact_file tool calls that returned an artifact_id */}
+              {hasArtifactTools && agentId && item.toolCalls && (
+                <ArtifactToolCallCards
+                  toolCalls={item.toolCalls}
+                  agentId={agentId}
+                  allArtifacts={allArtifacts}
+                />
+              )}
             </div>
           );
         })}
@@ -823,6 +938,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               }}
               isStreaming
             />
+            {/* Mid-stream artifact preview: as soon as a create_artifact /
+                upload_artifact_file tool finishes (tool_output populated), pull
+                the artifact into the store so ArtifactColumn shows it without
+                waiting for the whole turn to finish. */}
+            {agentId && currentToolCalls.length > 0 && (
+              <ArtifactToolCallCards
+                toolCalls={currentToolCalls}
+                agentId={agentId}
+                allArtifacts={allArtifacts}
+              />
+            )}
           </div>
         )}
 

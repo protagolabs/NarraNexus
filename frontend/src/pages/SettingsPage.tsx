@@ -11,6 +11,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Package, Upload, Users } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
+import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 import { ScrollArea, Button } from '@/components/ui';
 
@@ -54,6 +55,18 @@ export default function SettingsPage() {
             Import bundle…
           </Button>
         </div>
+      </section>
+
+      {/* Artifact management — Phase 1 of agent-artifact-tabs */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+          Artifacts
+        </h2>
+        <p className="text-sm text-[var(--text-secondary)] mb-3">
+          Manage every chart, report, and file your agents have produced for you.
+          Bulk-select to free up your quota when an agent reports it has hit the limit.
+        </p>
+        <ArtifactsSection />
       </section>
 
       {/* Batch agent management — issue 8.B replacement for "undo import" */}

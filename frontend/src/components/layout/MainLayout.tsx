@@ -5,16 +5,21 @@
  * @description: Main Layout - Bioluminescent Terminal Style
  *
  * Layout structure:
- * ┌──────────┬─────────────────────────────┬──────────────────┐
- * │          │                             │ [Tab] [Tab] [Bell]│
- * │  Agent   │        Chat Area            ├──────────────────┤
- * │  List    │                             │                  │
- * │          │     (Spacious chat area)    │  Context Panel   │
- * │          │                             │  (Tab content)   │
- * └──────────┴─────────────────────────────┴──────────────────┘
+ * ┌──────────┬──────────────────────┬──────────────────┬──────────────────┐
+ * │          │                      │                  │ [Tab] [Tab] [Bell]│
+ * │  Agent   │      Chat Area       │  Artifact Column ├──────────────────┤
+ * │  List    │                      │ (auto-hides when │                  │
+ * │          │  (Spacious chat)     │   no artifacts)  │  Context Panel   │
+ * │          │                      │                  │  (Tab content)   │
+ * └──────────┴──────────────────────┴──────────────────┴──────────────────┘
  *
  * Right-side tabs: Runtime, Awareness, Agent Inbox, Jobs
  * Top-right bell: User Inbox Popover
+ * Artifact column: auto-hides when no artifacts; collapses to sliver on demand.
+ *
+ * Signal source: artifact_id signals arrive via the chat WebSocket stream
+ * (tool_output frames parsed in ChatPanel.tsx). loadPinned is called on mount /
+ * agent change to hydrate agent-scoped artifacts. No dedicated artifact WS.
  */
 
 import { useState, useEffect, Suspense } from 'react';
@@ -25,7 +30,9 @@ import { ContextPanelHeader, type ContextTab } from './ContextPanelHeader';
 import { ContextPanelContent } from './ContextPanelContent';
 import { ChatPanel } from '@/components/chat';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
-import { useConfigStore, usePreloadStore } from '@/stores';
+import { ArtifactColumn } from '@/components/artifacts';
+import QuotaExceededModal from '@/components/artifacts/QuotaExceededModal';
+import { useConfigStore, usePreloadStore, useArtifactStore } from '@/stores';
 import { useAutoRefresh } from '@/hooks';
 
 /** Default chat view with context panel */
@@ -34,12 +41,27 @@ export function ChatView() {
   const { agentId, userId } = useConfigStore();
   const { refreshAll } = useAutoRefresh({ agentId, userId });
 
+  const loadPinned = useArtifactStore((s) => s.loadPinned);
+
+  // Load pinned artifacts whenever agentId changes.
+  // Note: chatStore does not expose a per-agent session ID, so loadForSession
+  // is not called here. Session-scoped artifacts arrive via the chat WS stream
+  // (tool_output frames parsed in ChatPanel.tsx).
+  // TODO: if chatStore gains a sessionId field, add loadForSession(agentId, sessionId) here.
+  useEffect(() => {
+    if (!agentId) return;
+    loadPinned(agentId);
+  }, [agentId, loadPinned]);
+
   return (
     <main className="flex-1 flex min-w-0 p-5 gap-5 overflow-hidden relative z-10">
       {/* Chat column — outer border gives the column a single frame */}
       <div className="flex-[3] min-w-[400px] animate-fade-in border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
         <ChatPanel onAgentComplete={refreshAll} />
       </div>
+
+      {/* Artifact column — auto-hides when no artifacts are loaded */}
+      {agentId && <ArtifactColumn agentId={agentId} />}
 
       {/* Context column */}
       <div
@@ -81,6 +103,12 @@ export function MainLayout() {
 
       {/* Background agent completion toasts */}
       <AgentCompletionToast />
+
+      {/* Quota-exceeded modal — driven by artifactStore.quotaError, shown over
+          everything when an agent's create_artifact call hits the per-user
+          limit. Mounted once at the layout root so it can pop regardless of
+          which sub-route the user is currently viewing. */}
+      <QuotaExceededModal />
 
       {/* Render sub-page via Outlet, or the default chat view */}
       {isSubPage ? (
