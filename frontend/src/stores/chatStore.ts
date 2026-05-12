@@ -17,6 +17,7 @@ import type {
   AgentThinking,
   AgentToolCall,
   ErrorMessage,
+  TurnEvent,
 } from '@/types';
 import { generateId } from '@/lib/utils';
 
@@ -34,6 +35,15 @@ export interface AgentChatState {
   isStreaming: boolean;
   history: ConversationRound[];
 
+  /** Inline timeline events for the *currently streaming* turn — append-only,
+   *  cleared on startStreaming. See TurnEvent for the per-event contract. */
+  currentEvents: TurnEvent[];
+  /** Snapshot of currentEvents the instant stopStreaming was called.
+   *  Cleared on the next startStreaming. ChatPanel keeps the most-recent
+   *  completed turn visible as an inline timeline (not collapsed yet) so
+   *  the user can still read it while composing their reply; the next
+   *  submit clears it and the bubble collapses into history. */
+  lastTurnEvents: TurnEvent[];
 }
 
 /** Toast notification for background-completed agents */
@@ -53,7 +63,8 @@ const DEFAULT_AGENT_STATE: AgentChatState = Object.freeze({
   currentAssistantMessage: '',
   isStreaming: false,
   history: Object.freeze([]) as unknown as ConversationRound[],
-
+  currentEvents: Object.freeze([]) as unknown as TurnEvent[],
+  lastTurnEvents: Object.freeze([]) as unknown as TurnEvent[],
 });
 
 /** Create a fresh mutable state for a new agent session */
@@ -67,7 +78,8 @@ function createDefaultAgentState(): AgentChatState {
     currentAssistantMessage: '',
     isStreaming: false,
     history: [],
-  
+    currentEvents: [],
+    lastTurnEvents: [],
   };
 }
 
@@ -89,7 +101,8 @@ interface ChatState {
   currentAssistantMessage: string;
   isStreaming: boolean;
   history: ConversationRound[];
-
+  currentEvents: TurnEvent[];
+  lastTurnEvents: TurnEvent[];
 
   getUserVisibleResponse: () => string | null;
 
@@ -145,6 +158,8 @@ function deriveFlatFields(state: { agentSessions: Record<string, AgentChatState>
     currentAssistantMessage: session.currentAssistantMessage,
     isStreaming: session.isStreaming,
     history: session.history,
+    currentEvents: session.currentEvents,
+    lastTurnEvents: session.lastTurnEvents,
   };
 }
 
@@ -225,6 +240,14 @@ export const useChatStore = create<ChatState>((_set, get) => {
           currentThinking: '',
           currentToolCalls: [],
           currentErrors: [],
+          currentEvents: [],
+          // Submitting a new turn collapses the previously visible
+          // "last turn" timeline into history (rendered by MessageBubble
+          // via the persisted ChatMessage). The events themselves are
+          // discarded because the persisted ChatMessage carries the
+          // round in summarised form; ephemeral timeline state is
+          // session-only by design (see chatStore docstring).
+          lastTurnEvents: [],
         })),
       }));
     },
@@ -309,6 +332,12 @@ export const useChatStore = create<ChatState>((_set, get) => {
             currentSteps: completedSteps,
             history: newHistory,
             isStreaming: false,
+            // Move the just-streamed events into lastTurnEvents so the
+            // ChatPanel can keep the inline timeline visible until the
+            // user starts a new turn. currentEvents is cleared (the
+            // stream has ended).
+            currentEvents: [],
+            lastTurnEvents: session.currentEvents,
           })),
           completedAgentIds: newCompletedIds,
           toastQueue: newToastQueue,
@@ -338,18 +367,45 @@ export const useChatStore = create<ChatState>((_set, get) => {
             };
 
             let newToolCalls = session.currentToolCalls;
-            if (progress.details?.tool_name && progress.details?.arguments) {
+            const newEvents: TurnEvent[] = [...session.currentEvents];
+            const toolName = (progress.details?.tool_name as string | undefined) || '';
+            const args = (progress.details?.arguments as Record<string, unknown> | undefined) || undefined;
+
+            if (toolName && args) {
               const toolCall: AgentToolCall = {
                 type: 'tool_call',
                 timestamp: progress.timestamp,
-                tool_name: progress.details.tool_name as string,
-                tool_input: progress.details.arguments as Record<string, unknown>,
+                tool_name: toolName,
+                tool_input: args,
               };
               const exists = session.currentToolCalls.some(
                 (t) => t.tool_name === toolCall.tool_name && t.timestamp === toolCall.timestamp
               );
               if (!exists) {
                 newToolCalls = [...session.currentToolCalls, toolCall];
+
+                // Inline timeline: a send_message_to_user_directly tool
+                // call carries the agent's actual reply in its content
+                // arg — surface it as a `reply` event so <TurnTimeline>
+                // can render it as the primary user-facing block.
+                if (toolName.includes('send_message_to_user_directly')) {
+                  newEvents.push({
+                    type: 'reply',
+                    id: generateId(),
+                    ts: progress.timestamp,
+                    content: (args.content as string) || '',
+                    reply_via: (progress.details?.reply_via as string | undefined),
+                  });
+                } else {
+                  newEvents.push({
+                    type: 'tool_call',
+                    id: generateId(),
+                    ts: progress.timestamp,
+                    tool_name: toolName,
+                    tool_input: args,
+                    tool_call_id: (progress.details?.tool_call_id as string | undefined),
+                  });
+                }
               }
             }
 
@@ -361,6 +417,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
               agentSessions: updateSession(state.agentSessions, agentId, () => ({
                 currentSteps: newSteps,
                 currentToolCalls: newToolCalls,
+                currentEvents: newEvents,
               })),
             };
           });
@@ -369,21 +426,59 @@ export const useChatStore = create<ChatState>((_set, get) => {
 
         case 'agent_response': {
           const delta = message as AgentTextDelta;
-          set((state) => ({
-            agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
-              currentAssistantMessage: s.currentAssistantMessage + delta.delta,
-            })),
-          }));
+          set((state) => {
+            const session = getSession(state.agentSessions, agentId);
+
+            // Dedup against the agent's own duplication habit (see
+            // 2026-05-12 review): thinking models often emit a
+            // condensed paraphrase via native LLM output *after*
+            // they've already called send_message_to_user_directly.
+            // The reply is the authoritative version; the native
+            // paraphrase repeats the same information in a degraded
+            // form. Drop the post-reply native_output here.
+            //
+            // TODO (post-launch): preferred long-term fix is a prompt
+            // constraint telling the agent not to repeat. Once that
+            // lands and noise drops to ~0, this dedup can be removed.
+            const alreadyReplied = session.currentEvents.some(
+              (ev) => ev.type === 'reply',
+            );
+            if (alreadyReplied) {
+              return {};
+            }
+
+            const nextEvent: TurnEvent = {
+              type: 'native_output',
+              id: generateId(),
+              ts: delta.timestamp ?? Date.now() / 1000,
+              content: delta.delta,
+            };
+            return {
+              agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+                currentAssistantMessage: s.currentAssistantMessage + delta.delta,
+                currentEvents: [...s.currentEvents, nextEvent],
+              })),
+            };
+          });
           break;
         }
 
         case 'agent_thinking': {
           const thinking = message as AgentThinking;
-          set((state) => ({
-            agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
-              currentThinking: s.currentThinking + thinking.thinking_content,
-            })),
-          }));
+          set((state) => {
+            const nextEvent: TurnEvent = {
+              type: 'thinking',
+              id: generateId(),
+              ts: thinking.timestamp ?? Date.now() / 1000,
+              content: thinking.thinking_content,
+            };
+            return {
+              agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+                currentThinking: s.currentThinking + thinking.thinking_content,
+                currentEvents: [...s.currentEvents, nextEvent],
+              })),
+            };
+          });
           break;
         }
 

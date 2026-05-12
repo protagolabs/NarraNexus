@@ -154,3 +154,68 @@ export interface ConversationRound {
   steps: Step[];
   timestamp: number;
 }
+
+/**
+ * TurnEvent — one block in the inline timeline that ChatPanel renders
+ * during streaming. Built up from the raw websocket frames by
+ * chatStore.processMessage and consumed by <TurnTimeline>.
+ *
+ * Design (see 2026-05-12 review with Xiong):
+ * - thinking / tool_call / tool_output / reply / native_output are the
+ *   only visible block types. Other progress frames (step markers like
+ *   3.5, 4, 5) are framework plumbing and don't appear in the timeline.
+ * - reply (from send_message_to_user_directly) is the authoritative
+ *   user-facing speech; native_output (raw LLM text after the agent
+ *   already used send_message in the same turn) is dropped at push
+ *   time as a duplicate. Long-term the agent prompt should stop
+ *   emitting that repetition — frontend dedup is a stopgap.
+ * - All blocks carry their own `id` so per-block expand/collapse can
+ *   be tracked across re-renders without losing state.
+ */
+export interface ThinkingEvent {
+  type: 'thinking';
+  id: string;
+  ts: number;
+  content: string;
+}
+
+export interface ToolCallEvent {
+  type: 'tool_call';
+  id: string;
+  ts: number;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_call_id?: string;
+  reply_via?: string;
+}
+
+export interface ToolOutputEvent {
+  type: 'tool_output';
+  id: string;
+  ts: number;
+  tool_call_id?: string;
+  tool_name: string;
+  output: string;
+}
+
+export interface ReplyEvent {
+  type: 'reply';
+  id: string;
+  ts: number;
+  content: string;
+  reply_via?: string;
+}
+
+export interface NativeOutputEvent {
+  type: 'native_output';
+  id: string;
+  ts: number;
+  content: string;
+}
+
+export type TurnEvent =
+  | ThinkingEvent
+  | ToolCallEvent
+  | ToolOutputEvent
+  | ReplyEvent
+  | NativeOutputEvent;

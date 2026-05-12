@@ -13,7 +13,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Square, Loader2, Sparkles, MessageSquare, CheckCircle2, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
+import { Send, Square, Loader2, Sparkles, MessageSquare, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
+import { TurnTimeline } from './TurnTimeline';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { AudioRecorder } from './AudioRecorder';
@@ -202,8 +203,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
   const {
     messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls,
+    currentEvents, lastTurnEvents,
     isStreaming, addUserMessage, startStreaming,
-    getUserVisibleResponse, setActiveAgent,
+    setActiveAgent,
   } = useChatStore();
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
 
@@ -415,7 +417,27 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }
     }
 
-    for (const msg of messages) {
+    // Find the index of the most-recent session assistant message, so
+    // we can skip it when lastTurnEvents is rendering the same content
+    // as an inline timeline below the bubble list. Without this, the
+    // user would see the reply twice: once as a collapsed bubble and
+    // once as the inline reply block in TurnTimeline.
+    let lastSessionAssistantIdx = -1;
+    if (lastTurnEvents.length > 0) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') {
+          lastSessionAssistantIdx = i;
+          break;
+        }
+      }
+    }
+
+    for (let mi = 0; mi < messages.length; mi++) {
+      const msg = messages[mi];
+      if (mi === lastSessionAssistantIdx) {
+        // Handled by TurnTimeline below (lastTurnEvents).
+        continue;
+      }
       const key = `${msg.role}:${msg.content}`;
       const historyTimestamps = historyByKey.get(key);
       const matchIdx = historyTimestamps
@@ -451,7 +473,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     });
 
     return items;
-  }, [historyMessages, messages]);
+  }, [historyMessages, messages, lastTurnEvents]);
 
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
@@ -924,39 +946,35 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           );
         })}
 
-        {/* Streaming assistant message (includes tool calls accumulated so far) */}
-        {isStreaming && getUserVisibleResponse() && (
+        {/* Inline TurnTimeline — replaces the old "streaming MessageBubble
+            + Live activity preview" pair. Renders thinking / tool /
+            reply blocks in chronological order as the events arrive,
+            so the user can see the agent's actual rhythm. See
+            TurnTimeline.tsx and the 2026-05-12 redesign mirror md. */}
+        {isStreaming && currentEvents.length > 0 && (
           <div className="animate-fade-in">
-            <MessageBubble
-              message={{
-                id: 'streaming',
-                role: 'assistant',
-                content: getUserVisibleResponse()!,
-                timestamp: Date.now(),
-                toolCalls: currentToolCalls.length > 0 ? [...currentToolCalls] : undefined,
-                thinking: currentThinking || undefined,
-              }}
-              isStreaming
-            />
-            {/* Mid-stream artifact preview: as soon as a create_artifact /
-                upload_artifact_file tool finishes (tool_output populated), pull
-                the artifact into the store so ArtifactColumn shows it without
-                waiting for the whole turn to finish. */}
+            <TurnTimeline events={currentEvents} isStreaming />
+            {/* Mid-stream artifact preview is independent of the timeline:
+                it surfaces created/uploaded artifacts inline as soon as
+                their tool_output lands, without waiting for the whole
+                turn to finish. */}
             {agentId && currentToolCalls.length > 0 && (
-              <ArtifactToolCallCards
-                toolCalls={currentToolCalls}
-                agentId={agentId}
-                allArtifacts={allArtifacts}
-              />
+              <div className="mt-3">
+                <ArtifactToolCallCards
+                  toolCalls={currentToolCalls}
+                  agentId={agentId}
+                  allArtifacts={allArtifacts}
+                />
+              </div>
             )}
           </div>
         )}
 
-        {/* Live activity preview — stays visible for the whole streaming
-            window so post-reply thinking / tool calls don't go silent.
-            See mirror md (2026-05-11) for why this is NOT gated by
-            `!getUserVisibleResponse()`. */}
-        {isStreaming && (() => {
+        {/* Initial "starting up..." indicator — shown only when streaming
+            has started but no event has arrived yet (the timeline is
+            empty). As soon as the first thinking / tool / reply event
+            comes in, the indicator is replaced by TurnTimeline. */}
+        {isStreaming && currentEvents.length === 0 && (() => {
           const getInitStatus = () => {
             if (currentSteps.length === 0) return 'Starting up...';
             const latestStep = currentSteps[currentSteps.length - 1];
@@ -968,64 +986,27 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             if (s === '3' && !currentSteps.some(st => st.step.startsWith('3.4'))) return 'Building context...';
             return 'Thinking...';
           };
-
-          const toolSteps = currentSteps.filter(
-            (s) => /^3\.4\.\d+$/.test(s.step) &&
-              !(s.details && typeof s.details === 'object' && typeof (s.details as Record<string, unknown>).tool_name === 'string' &&
-                ((s.details as Record<string, unknown>).tool_name as string).endsWith('send_message_to_user_directly'))
-          );
-
-          const hasThinking = !!(currentThinking || currentAssistantMessage);
-          const hasActivity = hasThinking || toolSteps.length > 0;
-
           return (
             <div className="animate-fade-in p-4">
-              {hasActivity ? (
-                <div className="flex gap-3">
-                  <div className="relative shrink-0 mt-1">
-                    <Loader2 className="w-4 h-4 text-[var(--accent-primary)] animate-spin" />
-                    <div className="absolute inset-0 bg-[var(--accent-primary)] blur-md opacity-30" />
-                  </div>
-                  <ScrollArea className="flex-1" style={{ maxHeight: '200px' }}>
-                    <div className="space-y-2">
-                    {hasThinking && (
-                      <div className="text-sm italic text-[var(--text-tertiary)] whitespace-pre-wrap leading-relaxed">
-                        {currentThinking || currentAssistantMessage}
-                      </div>
-                    )}
-                    {toolSteps.map((step) => (
-                      <div
-                        key={step.id}
-                        className="flex items-center gap-2 text-xs text-[var(--text-secondary)] py-1 px-2 rounded bg-[var(--bg-tertiary)]/50 border border-[var(--border-subtle)]"
-                      >
-                        {step.status === 'completed' ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[var(--color-success)] shrink-0" />
-                        ) : (
-                          <Loader2 className="w-3.5 h-3.5 text-[var(--accent-primary)] animate-spin shrink-0" />
-                        )}
-                        <span className="font-medium truncate">{step.title}</span>
-                        {step.description && (
-                          <span className="text-[var(--text-tertiary)] truncate hidden sm:inline">
-                            {step.description.length > 60 ? step.description.slice(0, 60) + '...' : step.description}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                    </div>
-                  </ScrollArea>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Loader2 className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
+                  <div className="absolute inset-0 bg-[var(--accent-primary)] blur-md opacity-30" />
                 </div>
-              ) : !getUserVisibleResponse() ? (
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <Loader2 className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
-                    <div className="absolute inset-0 bg-[var(--accent-primary)] blur-md opacity-30" />
-                  </div>
-                  <span className="text-sm text-[var(--text-secondary)]">{getInitStatus()}</span>
-                </div>
-              ) : null}
+                <span className="text-sm text-[var(--text-secondary)]">{getInitStatus()}</span>
+              </div>
             </div>
           );
         })()}
+
+        {/* Most-recent completed turn — keep its inline timeline visible
+            (not collapsed yet) until the user starts the next turn.
+            Cleared on startStreaming. */}
+        {!isStreaming && lastTurnEvents.length > 0 && (
+          <div>
+            <TurnTimeline events={lastTurnEvents} isStreaming={false} />
+          </div>
+        )}
 
         <div ref={messagesEndRef} />
       </div>
