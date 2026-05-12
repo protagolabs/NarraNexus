@@ -177,10 +177,27 @@ export interface EventLogToolCall {
   tool_output?: string;
 }
 
+// One step in the time-ordered timeline of a historical turn.
+// Mirrors backend EventLogTimelineEntry. Preserved as a discriminated
+// union of literal-typed entries so the frontend can switch on `type`
+// without runtime checks.
+export interface EventLogTimelineEntry {
+  type: 'thinking' | 'tool_call' | 'tool_output' | 'native_output' | 'reply';
+  content?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_output?: string;
+  reply_via?: string;
+}
+
 export interface EventLogResponse extends ApiResponse {
   event_id: string;
   thinking?: string;
   tool_calls: EventLogToolCall[];
+  // Ordered, time-preserving view; the UI prefers this when present and
+  // falls back to (thinking, tool_calls) only for old backends that
+  // haven't been redeployed yet.
+  timeline?: EventLogTimelineEntry[];
 }
 
 export interface ChatHistoryEvent {

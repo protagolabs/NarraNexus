@@ -28,6 +28,7 @@ from xyz_agent_context.schema import (
     SimpleChatMessage,
     SimpleChatHistoryResponse,
     EventLogToolCall,
+    EventLogTimelineEntry,
     EventLogResponse,
 )
 from xyz_agent_context.schema.api_schema import InstanceInfo
@@ -621,11 +622,67 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 ))
             i += 1
 
+        # Build the time-ordered timeline view. We walk event_log entries
+        # in their original order — that order IS the agent's actual
+        # think→tool→think→tool→reply rhythm, and we don't want to lose
+        # it the way the grouped thinking/tool_calls fields above do.
+        # Consecutive thinking deltas are concatenated into one entry so
+        # the UI doesn't render 50 tiny italic blocks.
+        timeline: List[EventLogTimelineEntry] = []
+        pending_thinking: List[str] = []
+
+        def _flush_thinking():
+            if pending_thinking:
+                timeline.append(EventLogTimelineEntry(
+                    type="thinking",
+                    content="".join(pending_thinking),
+                ))
+                pending_thinking.clear()
+
+        for entry in event_log:
+            content = entry.get("content", {}) if isinstance(entry.get("content"), dict) else entry
+            if not isinstance(content, dict):
+                continue
+            ctype = content.get("type")
+            if ctype == "thinking":
+                txt = content.get("content", "")
+                if txt:
+                    pending_thinking.append(txt)
+            elif ctype == "tool_call":
+                _flush_thinking()
+                # Some legacy stored entries carry a reply_via tag on the
+                # send_message tool — preserve it so the historical Reply
+                # block can render the "helper_llm fallback" badge.
+                timeline.append(EventLogTimelineEntry(
+                    type="tool_call",
+                    tool_name=content.get("tool_name", "unknown"),
+                    tool_input=content.get("arguments", {}) or {},
+                    reply_via=(content.get("details") or {}).get("reply_via"),
+                ))
+            elif ctype == "tool_output":
+                _flush_thinking()
+                timeline.append(EventLogTimelineEntry(
+                    type="tool_output",
+                    tool_name=content.get("tool_name", "unknown"),
+                    tool_output=content.get("output"),
+                ))
+            elif ctype in ("native_output", "agent_response"):
+                _flush_thinking()
+                txt = content.get("content", "")
+                if txt:
+                    timeline.append(EventLogTimelineEntry(
+                        type="native_output",
+                        content=txt,
+                    ))
+            # Other types (progress markers, etc.) intentionally skipped.
+        _flush_thinking()
+
         return EventLogResponse(
             success=True,
             event_id=event_id,
             thinking=thinking,
             tool_calls=tool_calls,
+            timeline=timeline,
         )
 
     except Exception as e:

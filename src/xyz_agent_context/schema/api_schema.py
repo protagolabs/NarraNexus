@@ -301,12 +301,38 @@ class EventLogToolCall(BaseModel):
     tool_output: Optional[str] = None
 
 
+class EventLogTimelineEntry(BaseModel):
+    """A single entry in the original event_log timeline.
+
+    Preserves the chronological order of thinking / tool_call / tool_output /
+    native_output events so the frontend can render history with the same
+    inline "think → tool → think → tool → reply" cadence as the live
+    streaming TurnTimeline, instead of the legacy "all thinking on top,
+    all tools below" grouping that lost time ordering.
+    """
+    # Discriminator: "thinking" | "tool_call" | "tool_output" | "native_output" | "reply"
+    type: str
+    # Plain-text content (thinking / native_output / reply); empty for tool entries.
+    content: Optional[str] = None
+    # Tool-call fields (only set when type == "tool_call" or "tool_output").
+    tool_name: Optional[str] = None
+    tool_input: Optional[Dict[str, Any]] = None
+    tool_output: Optional[str] = None
+    # Optional tag preserved from progress events (e.g. "helper_llm_fallback")
+    # so the UI can mark fallback replies in history just like live streams.
+    reply_via: Optional[str] = None
+
+
 class EventLogResponse(BaseModel):
     """Response for event log detail endpoint (on-demand loading)"""
     success: bool
     event_id: str = ""
     thinking: Optional[str] = None
     tool_calls: List[EventLogToolCall] = []
+    # Ordered, time-preserving view of the same data. The frontend prefers
+    # this when present; the legacy thinking / tool_calls fields remain for
+    # back-compat with any older client builds still in the wild.
+    timeline: List[EventLogTimelineEntry] = []
     error: Optional[str] = None
 
 

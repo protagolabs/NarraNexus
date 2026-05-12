@@ -164,7 +164,12 @@ function ToolOutputBlock({
         <span>output · {toolName.split('__').pop()}</span>
       </button>
       {expanded && (
-        <pre className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-all">
+        // No max-h / overflow — we deliberately want a single scroll
+        // surface (the parent message list). A bounded inner box here
+        // makes the user "double-scroll": once for the page, once for
+        // each tool output. Long outputs just push the rest of the
+        // turn down; the user can collapse the block to recover space.
+        <pre className="mt-1 whitespace-pre-wrap break-all">
           {output}
         </pre>
       )}
