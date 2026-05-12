@@ -145,30 +145,29 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 - **Discord** —— `即将上线`
 - **Twitter / X** —— `即将上线`
 - **邮件订阅** —— `即将上线`
-- **文档** —— [website.narra.nexus](https://website.narra.nexus/docs)
 - **反馈** —— [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
-
-做出了对别人有用的 template？私信我们，放进 README。
 
 ---
 
-## 致谢
+##  如何贡献
 
-NarraNexus 的可选长期记忆后端基于 **[EverMemOS](https://github.com/EverMind-AI/EverMemOS)**。感谢 EverMemOS 团队。
+### 我是用户，做了一个想分享的 template
+做出了对别人有用的 agent 团队？打包成 `.nxbundle`，从下面任一渠道投递：
 
-> Chuanrui Hu et al. *EverMemOS: A Self-Organizing Memory Operating System for Structured Long-Horizon Reasoning.* arXiv:2601.02163, 2026. [[论文]](https://arxiv.org/abs/2601.02163)
+- 💬 **Discord** —— `即将上线`
+- 📧 **邮件** —— `即将上线`
+- 🐦 **Twitter / X DM** —— `即将上线`
+- 🐛 **GitHub Issue** —— [开一个 issue](https://github.com/NetMindAI-Open/NarraNexus/issues)（带 `[template]` 前缀）
 
-## 引用
+我们 review 后会放进官方 Templates 库。
 
-```bibtex
-@software{narranexus2026,
-  title  = {NarraNexus: A Framework for Building Nexuses of Agents},
-  author = {NetMind.AI},
-  year   = {2026},
-  url    = {https://github.com/NetMindAI-Open/NarraNexus},
-  license = {CC-BY-NC-4.0}
-}
-```
+### 我是开发者，想改代码
+- **Bug 反馈** → [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
+- **新功能** → 先开 issue 讨论方向，再发 PR
+- **新 module** → 见 [开发指南](https://website.narra.nexus/docs/contributing/development-setup)
+- **Roadmap** → `即将上线`
+
+---
 
 ## 许可证
 
