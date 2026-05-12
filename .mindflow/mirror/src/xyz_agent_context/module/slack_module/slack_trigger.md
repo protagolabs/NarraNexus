@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_trigger.py
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-05-12
 ---
 
 ## Why it exists
@@ -40,6 +40,17 @@ an ``asyncio.Queue``.
   ``thread_broadcast`` skipped (would otherwise produce duplicate
   events for one user message). Re-enable methodically as features
   land.
+- **Phase 5 channel-type allow-list
+  (``_ACCEPTED_MESSAGE_CHANNEL_TYPES = {"im", "mpim"}``).** Reply
+  policy in channels is "only when @-mentioned". Slack delivers
+  @-mentions as ``app_mention`` events (filter-exempt — those still
+  pass), while regular ``message`` events from public/private channels
+  are dropped at the trigger boundary so the agent never sees them.
+  Defense in depth: the filter is applied both in ``_listener`` (the
+  production path) and ``parse_event`` (so tests, future webhook
+  callers, anything that bypasses ``_listener`` still gets the
+  policy). ``channel_type`` is absent on ``app_mention`` events — the
+  filter only runs for ``event_type == "message"``.
 - **``DEBOUNCE_WINDOW_MS = 1500``.** Slack users frequently fire
   rapid follow-ups ("hi", "actually one more thing"). The base's
   debounce window collapses these into one agent run.

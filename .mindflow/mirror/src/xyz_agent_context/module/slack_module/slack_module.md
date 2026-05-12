@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_module.py
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-05-12
 ---
 
 ## Why it exists
@@ -61,6 +61,18 @@ than ``LarkModule`` — the prompt simply names ``slack_cli`` /
   leave ``SlackCredential.bot_token`` / ``app_token``; what flows into
   ``ctx_data.extra_data["slack_info"]`` is identity-only
   (team_id/team_name/bot_user_id/enabled).
+- **Phase 5 reply policy is encoded in three layers.** (a) Iron rule
+  #1 in ``_SLACK_IRON_RULES`` tells the agent it replies only when
+  @-mentioned in channels; (b) the manifest under
+  ``SLACK_APP_MANIFEST_YAML`` no longer subscribes to
+  ``message.channels`` / ``message.groups`` so the bot is never sent
+  those events; (c) the trigger's ``_ACCEPTED_MESSAGE_CHANNEL_TYPES``
+  allow-list filters out anything Slack delivers anyway (e.g. because
+  an older bind still has the scope). L2 (manifest) is the cheapest,
+  L2.5 (trigger filter) is load-bearing, L1 (prompt) is the user-
+  visible backstop. Edits must keep all three in sync — see
+  ``slack_trigger.md`` for the filter; ``SlackConfig.tsx`` for the
+  frontend manifest copy.
 
 ## Upstream / downstream
 

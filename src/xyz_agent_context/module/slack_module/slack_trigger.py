@@ -11,8 +11,12 @@ Slack-specific concerns this class handles:
   - Bot self-message detection: match ``event.user`` against the bot's
     ``bot_user_id`` from auth.test (NOT against ``event.bot_id`` which
     is the App-level B-prefixed id).
-  - Event types: ``message`` (regular), ``app_mention`` (DM-equivalent in
-    public channels). Both treated as messages.
+  - Event types (Phase 5 reply policy): ``message`` events only count
+    when ``channel_type`` is ``im`` or ``mpim`` (DM / group DM);
+    public/private channel messages MUST come through as ``app_mention``.
+    Plain ``message.channels`` / ``message.groups`` events are dropped
+    at the trigger boundary so the bot stays silent in channels until
+    explicitly @-mentioned.
   - Subtype filtering: skip ``message_changed``, ``message_deleted``,
     ``channel_join``, etc. (Phase 3 doesn't react to edits/system events.)
   - Thread continuity: preserve ``thread_ts`` so replies land in-thread.
@@ -69,6 +73,16 @@ _IGNORED_SUBTYPES = frozenset({
     "thread_broadcast",  # opt-in; we'd see it twice otherwise
     "file_share",        # we'll re-enable in a later phase that handles files
 })
+
+# Channel types from which we accept plain ``message`` events. Anything
+# else (public channels, private channels, shared channels) requires an
+# ``app_mention`` event to reach us — see Phase 5 reply policy. This
+# allow-list is the canonical filter; the manifest also no longer
+# subscribes to ``message.channels`` / ``message.groups`` so new bots
+# don't even receive those events. The trigger-side filter exists
+# defensively for already-bound bots whose manifest can't be
+# retroactively changed without manual user action.
+_ACCEPTED_MESSAGE_CHANNEL_TYPES = frozenset({"im", "mpim"})
 
 
 class SlackTrigger(ChannelTriggerBase):
@@ -194,6 +208,18 @@ class SlackTrigger(ChannelTriggerBase):
             # Skip bot/edit/system subtypes
             if event.get("subtype") in _IGNORED_SUBTYPES:
                 return
+            # Phase 5 reply policy: plain ``message`` events only count
+            # in DM / group-DM contexts. Public/private channel messages
+            # MUST come through as ``app_mention`` — otherwise the bot
+            # would try to engage with every message in every joined
+            # channel. The manifest no longer subscribes to
+            # ``message.channels`` / ``message.groups`` for new bots,
+            # but already-bound bots still receive them; this filter
+            # drops them at the trigger boundary.
+            if event_type == "message":
+                channel_type = event.get("channel_type", "")
+                if channel_type not in _ACCEPTED_MESSAGE_CHANNEL_TYPES:
+                    return
             # Skip our own messages early (cheap pre-filter; is_echo is the
             # canonical check)
             if event.get("user") and event["user"] == credential.bot_user_id:
@@ -234,6 +260,14 @@ class SlackTrigger(ChannelTriggerBase):
             return None
         if raw.get("subtype") in _IGNORED_SUBTYPES:
             return None
+        # Phase 5 reply policy (defense-in-depth — same filter ``_listener``
+        # already runs, so production events shouldn't reach this branch.
+        # Kept here for callers that bypass ``_listener`` — tests, future
+        # webhook ingress code, etc.).
+        if event_type == "message":
+            channel_type = raw.get("channel_type", "")
+            if channel_type not in _ACCEPTED_MESSAGE_CHANNEL_TYPES:
+                return None
         # Tombstone-y messages without text/user
         sender_id = raw.get("user", "")
         if not sender_id:

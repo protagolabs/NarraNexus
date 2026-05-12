@@ -134,6 +134,26 @@ async def test_get_instructions_uses_unknown_workspace_when_team_name_missing():
     assert "(unknown workspace)" in text
 
 
+@pytest.mark.asyncio
+async def test_iron_rules_enforce_at_mention_only_in_channels():
+    """Phase 5: prompt must explicitly tell the agent that in channels/
+    groups it replies only when @-mentioned, and that DMs are exempt.
+    The L2 trigger filter is the load-bearing defence, but the prompt
+    rule is the L1 backstop and is the one users notice when behaviour
+    drifts."""
+    module = _make_module()
+    text = await module.get_instructions(_ctx(extra=None))
+
+    # Core directive
+    assert "reply ONLY when @-mentioned" in text
+    # Mechanism explanation so the agent doesn't try to compensate
+    assert "app_mention" in text
+    # Carve-out so it doesn't go silent in DMs
+    assert "DMs are different" in text
+    # Guardrail against historical-message replies
+    assert "conversations.history" in text
+
+
 # ── send_to_agent error path ───────────────────────────────────────────
 
 

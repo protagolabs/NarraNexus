@@ -191,8 +191,13 @@ class MessageBusTrigger:
 
                 handled_any = False
                 for channel_id, messages in by_channel.items():
-                    # Skip Lark channels — they are managed by LarkTrigger, not MessageBusTrigger
-                    if channel_id.startswith("lark_"):
+                    # Skip IM-channel-owned channels — each has its own dedicated trigger
+                    # (LarkTrigger, TelegramTrigger, SlackTrigger) that already processed
+                    # the message. ChannelInboxWriter writes these to bus_messages purely
+                    # for frontend Inbox display; re-consuming them here would fire
+                    # AgentRuntime a second time and send duplicate replies.
+                    _IM_CHANNEL_PREFIXES = ("lark_", "telegram_", "slack_")
+                    if channel_id.startswith(_IM_CHANNEL_PREFIXES):
                         latest = max(messages, key=lambda m: str(m.created_at))
                         await self._bus.ack_processed(agent_id, channel_id, str(latest.created_at))
                         continue

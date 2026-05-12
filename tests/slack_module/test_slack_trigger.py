@@ -56,11 +56,13 @@ def test_instantiates_without_db():
 
 
 def test_parse_event_message_returns_parsed_message():
+    """Regular ``message`` events are accepted in DM context (im)."""
     trigger = SlackTrigger()
     raw = {
         "type": "message",
         "user": "U123",
-        "channel": "C456",
+        "channel": "D456",
+        "channel_type": "im",
         "text": "hello world",
         "ts": "1700000000.000100",
         "client_msg_id": "msg-uuid-1",
@@ -70,10 +72,10 @@ def test_parse_event_message_returns_parsed_message():
     assert parsed is not None
     assert parsed.message_id == "msg-uuid-1"
     assert parsed.sender_id == "U123"
-    assert parsed.chat_id == "C456"
+    assert parsed.chat_id == "D456"
     assert parsed.content == "hello world"
     assert parsed.timestamp_ms == 1700000000000  # ts * 1000
-    assert parsed.chat_type == ChatType.GROUP  # C-prefixed
+    assert parsed.chat_type == ChatType.PRIVATE  # D-prefixed DM
     assert parsed.thread_id is None
 
 
@@ -133,12 +135,17 @@ def test_parse_event_missing_user_returns_none():
 
 
 def test_parse_event_preserves_thread_ts():
+    """thread_ts must propagate to ``ParsedMessage.thread_id``. Uses DM
+    context (channel_type=im) so the Phase 5 filter doesn't drop the
+    event — separately, thread replies in channels arrive as
+    ``app_mention`` which is filter-exempt anyway."""
     trigger = SlackTrigger()
     parsed = trigger.parse_event(
         {
             "type": "message",
             "user": "U2",
-            "channel": "C2",
+            "channel": "D2",
+            "channel_type": "im",
             "text": "in thread",
             "ts": "1700000002.000200",
             "thread_ts": "1700000000.000000",
@@ -155,6 +162,7 @@ def test_parse_event_dm_channel_classified_private():
             "type": "message",
             "user": "U2",
             "channel": "D123",  # DM
+            "channel_type": "im",
             "text": "secret",
             "ts": "1.0",
         }
@@ -169,13 +177,110 @@ def test_parse_event_falls_back_to_ts_when_no_client_msg_id():
         {
             "type": "message",
             "user": "U2",
-            "channel": "C2",
+            "channel": "D2",
+            "channel_type": "im",
             "text": "hi",
             "ts": "1700000003.000300",
         }
     )
     assert parsed is not None
     assert parsed.message_id == "1700000003.000300"
+
+
+# ── Phase 5: channel_type filter ────────────────────────────────────────
+
+
+def test_parse_event_dm_message_accepted():
+    """``channel_type='im'`` → accepted (1:1 DM)."""
+    trigger = SlackTrigger()
+    parsed = trigger.parse_event(
+        {
+            "type": "message",
+            "user": "U1",
+            "channel": "D1",
+            "channel_type": "im",
+            "text": "hi",
+            "ts": "1.0",
+        }
+    )
+    assert parsed is not None
+
+
+def test_parse_event_mpim_message_accepted():
+    """``channel_type='mpim'`` → accepted (multi-party DM)."""
+    trigger = SlackTrigger()
+    parsed = trigger.parse_event(
+        {
+            "type": "message",
+            "user": "U1",
+            "channel": "G1",
+            "channel_type": "mpim",
+            "text": "hi all",
+            "ts": "1.0",
+        }
+    )
+    assert parsed is not None
+
+
+def test_parse_event_channel_message_dropped():
+    """Public channel ``message`` event with no @-mention → dropped.
+
+    Phase 5 reply policy: in channels we only honour ``app_mention``;
+    everything else from ``channel_type='channel'`` is filtered out at the
+    trigger boundary so the agent never sees it.
+    """
+    trigger = SlackTrigger()
+    parsed = trigger.parse_event(
+        {
+            "type": "message",
+            "user": "U1",
+            "channel": "C1",
+            "channel_type": "channel",
+            "text": "general chatter",
+            "ts": "1.0",
+        }
+    )
+    assert parsed is None
+
+
+def test_parse_event_group_message_dropped():
+    """Private channel (``channel_type='group'``) ``message`` event → dropped."""
+    trigger = SlackTrigger()
+    parsed = trigger.parse_event(
+        {
+            "type": "message",
+            "user": "U1",
+            "channel": "G1",
+            "channel_type": "group",
+            "text": "private chatter",
+            "ts": "1.0",
+        }
+    )
+    assert parsed is None
+
+
+def test_parse_event_app_mention_in_channel_accepted():
+    """``app_mention`` events are exempt from the channel_type filter.
+
+    The whole point of Phase 5 is "only reply when @-mentioned in
+    channels", and ``app_mention`` is precisely how Slack delivers an
+    @-mention. It must still come through even though channel-message
+    events do not.
+    """
+    trigger = SlackTrigger()
+    parsed = trigger.parse_event(
+        {
+            "type": "app_mention",
+            "user": "U1",
+            "channel": "C1",
+            # No channel_type field — app_mention doesn't carry one and
+            # the filter must not apply to this event type.
+            "text": "<@U0BOT> ping",
+            "ts": "1.0",
+        }
+    )
+    assert parsed is not None
+    assert parsed.sender_id == "U1"
 
 
 # ── is_echo ─────────────────────────────────────────────────────────────
@@ -188,7 +293,8 @@ async def test_is_echo_detects_bot_user_id():
         {
             "type": "message",
             "user": "U0BOT",
-            "channel": "C1",
+            "channel": "D1",
+            "channel_type": "im",
             "text": "from bot",
             "ts": "1.0",
         }
@@ -204,7 +310,8 @@ async def test_is_echo_false_for_human_sender():
         {
             "type": "message",
             "user": "UHUMAN",
-            "channel": "C1",
+            "channel": "D1",
+            "channel_type": "im",
             "text": "hi bot",
             "ts": "1.0",
         }
@@ -220,7 +327,8 @@ async def test_is_echo_false_when_credential_has_no_bot_user_id():
         {
             "type": "message",
             "user": "U0BOT",
-            "channel": "C1",
+            "channel": "D1",
+            "channel_type": "im",
             "text": "x",
             "ts": "1.0",
         }

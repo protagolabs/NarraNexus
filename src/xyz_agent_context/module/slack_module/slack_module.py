@@ -90,8 +90,6 @@ settings:
   event_subscriptions:
     bot_events:
       - app_mention
-      - message.channels
-      - message.groups
       - message.im
       - message.mpim
   interactivity:
@@ -176,13 +174,24 @@ _SLACK_IRON_RULES = """\
 
 ## Iron rules
 
-1. NEVER send messages from another channel in response to a Slack
+1. **In channels/groups, you reply ONLY when @-mentioned in the
+   current turn's inbound message.** Slack delivers @-mentions as
+   `app_mention` events; everything else from public/private channels
+   is filtered out at the trigger boundary so you should never see
+   them. Do NOT proactively reply to messages you find in
+   conversation history (via `conversations.history`) — those have
+   either been replied to already, or were never addressed to you.
+   Only the `app_mention` event for the *current turn* is permission
+   to reply in a channel. When in doubt, stay silent.
+   **DMs are different** — there you reply naturally to every
+   relevant message.
+2. NEVER send messages from another channel in response to a Slack
    message unless the user explicitly asks you to bridge channels.
-2. Reply to threads with `thread_ts` so the conversation stays grouped.
-3. Use Slack `mrkdwn` formatting (`*bold*`, `_italic_`, `<URL|text>`),
+3. Reply to threads with `thread_ts` so the conversation stays grouped.
+4. Use Slack `mrkdwn` formatting (`*bold*`, `_italic_`, `<URL|text>`),
    NOT GitHub-flavoured markdown.
-4. Never include the user's tokens in messages or logs.
-5. Look up unknown Slack methods via `slack_skill(method)` BEFORE calling
+5. Never include the user's tokens in messages or logs.
+6. Look up unknown Slack methods via `slack_skill(method)` BEFORE calling
    `slack_cli` — the skill doc has the exact arg shape and required scope.
 """
 

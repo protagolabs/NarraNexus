@@ -71,8 +71,6 @@ settings:
   event_subscriptions:
     bot_events:
       - app_mention
-      - message.channels
-      - message.groups
       - message.im
       - message.mpim
   interactivity:
