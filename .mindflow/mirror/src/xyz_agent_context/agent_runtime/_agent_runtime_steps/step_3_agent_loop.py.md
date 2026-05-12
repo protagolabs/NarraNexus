@@ -1,8 +1,43 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-04-20
+last_verified: 2026-05-12
 stub: false
 ---
+
+## 2026-05-12 — Chat no-reply helper_llm fallback (P0 #3)
+
+After the agent loop completes, step 3 now inspects
+`agent_loop_response` for a `send_message_to_user_directly` tool call.
+When the turn was chat-triggered (`ctx.working_source == "chat"`) and
+no such call exists, step 3 invokes the helper_llm slot via
+`OpenAIAgentsSDK.llm_stream` and streams the resulting reply through
+`AgentTextDelta` events — exactly the same channel the frontend uses
+to render organic LLM stream, so users see the recovered reply in
+real time without any frontend change.
+
+After the stream completes, step 3 appends a synthetic
+`send_message_to_user_directly` ProgressMessage carrying
+`details.reply_via="helper_llm_fallback"`. Downstream:
+- `ChatModule._extract_user_visible_response` picks the synthetic call
+  up like any organic reply, so the assistant row persists the
+  helper-generated text — NOT `io_data.final_output` (reasoning).
+- `ChatModule.hook_after_event_execution` lifts the `reply_via` tag
+  onto the persisted row's `meta_data.reply_via`.
+
+Why this design (per 5/11 product review):
+- `io_data.final_output` is internal reasoning, not speech (project
+  iron rule: only `send_message_to_user_directly` counts as speaking).
+  The previous "persist final_output directly" shortcut violated this.
+- Only chat turns get the fallback. `message_bus` deliberately avoids
+  replying to prevent agent-to-agent loops; job/lark/etc. have their
+  own reply pathways.
+- Streaming the helper_llm output keeps the user experience identical
+  to a normal reply (no "blank then long pause then text" UX).
+
+If the helper_llm call itself fails, step 3 logs and lets the
+placeholder fall through — the honest record is "no reply" rather
+than a silent leak of reasoning.
+
 # step_3_agent_loop.py — Pipeline Step 3 Sub-path: Interactive Agent Loop
 
 ## Why It Exists

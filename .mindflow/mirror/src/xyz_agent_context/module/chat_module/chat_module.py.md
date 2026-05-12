@@ -3,6 +3,41 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-05-11
 ---
 
+## 2026-05-12 P0 #3 followup — drop final_output fallback, defer to step_3 helper_llm
+
+Reverted the 2026-05-11 "use io_data.final_output as reply content"
+fallback. That fallback violated the project's thinking-vs-speaking
+design (final_output is the agent's internal reasoning, not a
+user-facing reply) and could persist meta-talk like "Let me check the
+chat history first" as the assistant's spoken line, then poison the
+next turn's context. The 5/11 product review with Xiong explicitly
+ruled out this shortcut.
+
+The real no-reply recovery now lives one layer up in
+`step_3_agent_loop._generate_fallback_reply_stream`: when a chat-
+trigger turn ends without `send_message_to_user_directly`, step 3
+calls helper_llm with the agent's reasoning as background, streams a
+user-facing reply through `AgentTextDelta` (frontend renders it like
+any other agent reply), and finally emits a synthetic
+`send_message_to_user_directly` ProgressMessage carrying
+`details.reply_via="helper_llm_fallback"`.
+
+`hook_after_event_execution` is now a pure consumer:
+- the synthetic ProgressMessage flows through
+  `_extract_user_visible_response` like any organic send_message call,
+  so `assistant_content` is the helper_llm reply text (not reasoning).
+- a tiny scan of `agent_loop_response` lifts
+  `details.reply_via="helper_llm_fallback"` onto the persisted row's
+  `meta_data.reply_via` field so observability tooling can distinguish
+  organic vs. recovered replies.
+- if step 3's helper_llm fallback failed too, the row still carries
+  `(Agent decided no response needed)` placeholder — that's the honest
+  record, not a silent backfill of reasoning.
+
+Pinned by `tests/chat_module/test_error_severity_and_fallback.py`:
+- `test_helper_llm_fallback_marker_is_propagated`
+- `test_no_reply_tool_and_no_helper_llm_fallback_persists_placeholder`
+
 ## 2026-05-11 P0 #3 — error detail, no-reply differentiation, final_output fallback
 
 Three changes addressing the "Agent decided no response needed"

@@ -17,6 +17,7 @@ from loguru import logger
 from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import (
+    AgentTextDelta,
     ProgressMessage,
     ProgressStatus,
     PathExecutionResult,
@@ -28,6 +29,56 @@ from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 
 if TYPE_CHECKING:
     from .context import RunContext
+
+
+_FALLBACK_REPLY_INSTRUCTIONS = (
+    "You are converting an agent's internal reasoning into a direct, "
+    "user-facing reply. The agent finished its turn without invoking "
+    "the formal `send_message_to_user_directly` tool, so its raw "
+    "reasoning was never spoken to the user. Your job: read what the "
+    "agent thought and produce the single message it should have sent.\n\n"
+    "Rules:\n"
+    "- Reply in the same language as the user's question.\n"
+    "- Address the user directly, not the agent. Do NOT describe the "
+    "agent in third person.\n"
+    "- Do NOT mention tools, send_message_to_user_directly, the "
+    "agent's reasoning, this fallback path, or any internal state.\n"
+    "- Keep it natural, useful, and proportional to the user's question."
+)
+
+
+async def _generate_fallback_reply_stream(
+    user_input: str,
+    agent_reasoning: str,
+    db,
+    agent_id: str,
+):
+    """Stream a helper_llm reply that translates the agent's internal
+    reasoning into a user-facing message. Yields str deltas.
+
+    Wrapped in its own function for two reasons:
+    1. keeps the helper_llm import + cost-context setup out of the main
+       agent-loop generator body.
+    2. lets us test the fallback prompt in isolation."""
+    from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+    from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
+
+    set_cost_context(agent_id, db)
+    try:
+        sdk = OpenAIAgentsSDK()
+        user_input_for_helper = (
+            f"User's question (literal):\n{user_input!r}\n\n"
+            f"Agent's internal reasoning this turn (may include "
+            f"meta-talk about tools — ignore that):\n{agent_reasoning}\n\n"
+            "Write the single reply the agent should send to the user."
+        )
+        async for delta in sdk.llm_stream(
+            instructions=_FALLBACK_REPLY_INSTRUCTIONS,
+            user_input=user_input_for_helper,
+        ):
+            yield delta
+    finally:
+        clear_cost_context()
 
 
 @timed("step.3_agent_loop")
@@ -193,6 +244,86 @@ async def step_3_agent_loop(
         )
         agent_loop_response.append(error_msg)
         yield error_msg
+
+    # ------------- 3.4.X: No-reply fallback via helper_llm -------------
+    # If the agent loop finished without ever calling
+    # send_message_to_user_directly on a chat-triggered turn, the user
+    # gets a "(Agent decided no response needed)" placeholder. That's
+    # Xiong's recurring no-reply complaint. Bin's design from the 5/11
+    # review: instead of persisting the agent's raw final_output (which
+    # is internal reasoning, not speech), we ask the helper_llm to turn
+    # that reasoning into a real reply and stream it back through the
+    # same AgentTextDelta channel the frontend already renders.
+    #
+    # Why only chat: message_bus turns deliberately avoid replying to
+    # prevent agent-to-agent loops; job/lark/etc. have their own reply
+    # tooling. Only the human-facing chat path benefits from this guard.
+    if ctx.working_source == "chat":
+        called_user_reply_tool = False
+        for r in agent_loop_response:
+            if not isinstance(r, ProgressMessage) or not r.details:
+                continue
+            tool_name = (r.details.get("tool_name") or "") if isinstance(r.details, dict) else ""
+            if "send_message_to_user_directly" in tool_name:
+                called_user_reply_tool = True
+                break
+
+        if not called_user_reply_tool:
+            logger.warning(
+                f"[NO-REPLY-FALLBACK] chat turn finished without "
+                f"send_message_to_user_directly; invoking helper_llm to "
+                f"generate a real reply (final_output_chars={len(state.final_output)})"
+            )
+            fallback_chunks: list[str] = []
+            try:
+                async for delta_text in _generate_fallback_reply_stream(
+                    user_input=ctx.input_content,
+                    agent_reasoning=state.final_output,
+                    db=db_client,
+                    agent_id=ctx.agent_id,
+                ):
+                    fallback_chunks.append(delta_text)
+                    delta_msg = AgentTextDelta(delta=delta_text)
+                    agent_loop_response.append(delta_msg)
+                    yield delta_msg
+
+                fallback_full = "".join(fallback_chunks)
+
+                if fallback_full.strip():
+                    # Synthesize a send_message_to_user_directly tool call
+                    # so the downstream extractor + chat_module persists
+                    # the reply normally (no placeholder, no special-case
+                    # in chat_module needed). The reply_via tag lets
+                    # observability tooling separate organic replies from
+                    # helper-generated ones.
+                    synthetic = ProgressMessage(
+                        step="3.4.fallback",
+                        title="Reply (helper_llm fallback)",
+                        description="Agent did not call send_message_to_user_directly; helper_llm generated a reply.",
+                        status=ProgressStatus.COMPLETED,
+                        details={
+                            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+                            "arguments": {"content": fallback_full},
+                            "reply_via": "helper_llm_fallback",
+                        },
+                    )
+                    agent_loop_response.append(synthetic)
+                    yield synthetic
+                    logger.warning(
+                        f"[NO-REPLY-FALLBACK] helper_llm produced reply "
+                        f"(len={len(fallback_full)} chars); synthetic "
+                        f"send_message_to_user_directly emitted"
+                    )
+                else:
+                    logger.warning(
+                        "[NO-REPLY-FALLBACK] helper_llm returned empty output; "
+                        "leaving placeholder in place"
+                    )
+            except Exception as e:
+                logger.exception(
+                    f"[NO-REPLY-FALLBACK] helper_llm fallback failed: {e}; "
+                    f"placeholder will be persisted"
+                )
 
     # After Agent Loop completes, record final output
     state = state.finalize()

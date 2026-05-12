@@ -209,18 +209,30 @@ def _no_reply_progress() -> ProgressMessage:
 
 
 @pytest.mark.asyncio
-async def test_fallback_uses_final_output_when_no_reply_tool_called(chat_module):
-    """Agent reasoned for a while, produced final_output, but never
-    called send_message_to_user_directly. The fallback must persist the
-    real text (not the placeholder) so the next turn's history shows
-    what the user actually saw."""
-    real_reply = (
-        "I checked the chat history. There are 5 unread messages from "
-        "Loki — would you like me to summarise them?"
+async def test_helper_llm_fallback_marker_is_propagated(chat_module):
+    """When step_3_agent_loop's helper_llm fallback fires, it emits a
+    synthetic send_message_to_user_directly ProgressMessage carrying
+    `details.reply_via = "helper_llm_fallback"`. chat_module persists
+    the resulting assistant row with that same marker so observability
+    tooling can separate organic replies from recovered ones.
+
+    The fallback logic itself lives in step_3 now (see
+    test_step_3_agent_loop_helper_llm_fallback.py); this test pins
+    chat_module's downstream handling of the marker."""
+    synthetic_fallback = ProgressMessage(
+        step="3.4.fallback",
+        title="Reply (helper_llm fallback)",
+        description="Agent did not call send_message; helper_llm generated reply.",
+        status=ProgressStatus.COMPLETED,
+        details={
+            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "arguments": {"content": "Recovered reply text."},
+            "reply_via": "helper_llm_fallback",
+        },
     )
     params = _hook_params(
-        agent_loop_response=[_no_reply_progress()],
-        final_output=real_reply,
+        agent_loop_response=[synthetic_fallback],
+        final_output="agent internal reasoning that should NOT leak as reply",
     )
 
     await chat_module.hook_after_event_execution(params)
@@ -232,12 +244,12 @@ async def test_fallback_uses_final_output_when_no_reply_tool_called(chat_module)
     assistant_rows = [m for m in messages if m["role"] == "assistant"]
     assert len(assistant_rows) == 1
     row = assistant_rows[0]
-    # Real content, not the placeholder.
-    assert "5 unread messages from Loki" in row["content"]
-    assert row["content"] != "(Agent decided no response needed)"
-    # Marker so downstream tooling can distinguish reply-via-tool from
-    # reply-via-fallback.
-    assert row["meta_data"].get("reply_via") == "final_output_fallback"
+    # Content is the synthetic tool call's arguments.content (NOT the
+    # agent's raw final_output, which is reasoning).
+    assert row["content"] == "Recovered reply text."
+    assert "internal reasoning" not in row["content"]
+    # Marker propagated.
+    assert row["meta_data"].get("reply_via") == "helper_llm_fallback"
 
 
 @pytest.mark.asyncio
@@ -270,13 +282,18 @@ async def test_fallback_does_not_fire_when_send_message_was_called(chat_module):
 
 
 @pytest.mark.asyncio
-async def test_no_reply_and_empty_final_output_falls_back_to_placeholder(chat_module):
-    """When neither the reply tool nor final_output have content, we
-    still need to write something — keep the legacy placeholder so the
-    [NO-REPLY] warning log fires and ops can audit it."""
+async def test_no_reply_tool_and_no_helper_llm_fallback_persists_placeholder(chat_module):
+    """When neither the reply tool nor the synthetic helper_llm fallback
+    ProgressMessage are present, chat_module honestly records that the
+    turn had no user-facing reply. The [NO-REPLY] warning log fires so
+    ops can audit it. This is the upstream-helper-llm-also-failed
+    case — see step_3_agent_loop for the recovery path."""
     params = _hook_params(
         agent_loop_response=[_no_reply_progress()],
-        final_output="",
+        # final_output is irrelevant now — chat_module no longer copies
+        # it into the assistant row (that was the violation of the
+        # thinking-vs-speaking design that 2026-05-12 removed).
+        final_output="some internal reasoning that must NOT be persisted as reply",
     )
 
     await chat_module.hook_after_event_execution(params)
@@ -286,7 +303,10 @@ async def test_no_reply_and_empty_final_output_falls_back_to_placeholder(chat_mo
     )
     assistant_rows = [m for m in memory.get("messages", []) if m["role"] == "assistant"]
     assert assistant_rows[0]["content"] == "(Agent decided no response needed)"
-    assert assistant_rows[0]["meta_data"].get("reply_via") != "final_output_fallback"
+    # final_output / reasoning must NOT leak into content.
+    assert "internal reasoning" not in assistant_rows[0]["content"]
+    # No fallback marker — there was no fallback.
+    assert assistant_rows[0]["meta_data"].get("reply_via") is None
 
 
 # -------- regression: template format string --------------------------

@@ -841,27 +841,17 @@ class ChatModule(XYZBaseModule):
         )
         is_no_response = assistant_content == "(Agent decided no response needed)"
 
-        # 2026-05-11 Bug B fallback: when the agent produced LLM-native
-        # output but never called a registered reply tool, the per-source
-        # extractor returns the placeholder. Recover the actual text from
-        # `io_data.final_output` so the row persists the real reply
-        # content instead of "(Agent decided no response needed)".
-        # Without this, the next turn's prompt shows the agent saying
-        # "decided no response" — which is false (the user actually saw
-        # streamed output) and trains the agent to keep doing it.
-        final_output_fallback = (
-            (params.io_data.final_output if params.io_data else "") or ""
-        )
-        used_fallback = False
-        if is_no_response and final_output_fallback.strip():
-            logger.warning(
-                f"[FALLBACK] event_id={params.event_id} working_source={working_source} "
-                f"agent did not call a reply tool but produced final_output "
-                f"(len={len(final_output_fallback)}); persisting final_output as reply"
-            )
-            assistant_content = final_output_fallback
-            is_no_response = False
-            used_fallback = True
+        # NOTE (2026-05-12): the previous "use io_data.final_output as
+        # reply" fallback was removed — it violated the thinking-vs-
+        # speaking design (final_output is the agent's internal reasoning,
+        # not a user-facing reply). The real no-reply recovery now lives
+        # one layer up: step_3_agent_loop detects a chat turn that ended
+        # without send_message_to_user_directly and asks the helper_llm
+        # to generate a real reply, streamed to the frontend and emitted
+        # as a synthetic send_message ProgressMessage. By the time we get
+        # here, _extract_user_visible_response will have already picked
+        # that up; if it didn't, the helper_llm fallback failed too and
+        # persisting a placeholder is the honest record.
 
         # Attachments forwarded by the trigger (WebSocket / Lark / etc.)
         # land in ctx_data.extra_data via context_runtime's
@@ -907,8 +897,17 @@ class ChatModule(XYZBaseModule):
                 user_msg["attachments"] = turn_attachments
             messages.append(user_msg)
             asst_meta = {**assistant_meta}
-            if used_fallback:
-                asst_meta["reply_via"] = "final_output_fallback"
+            # If the upstream agent loop's helper_llm fallback fired
+            # (see step_3_agent_loop._generate_fallback_reply_stream),
+            # it emits a synthetic send_message_to_user_directly
+            # ProgressMessage tagged details.reply_via="helper_llm_fallback".
+            # Surface that tag on the persisted row so observability
+            # tooling can tell organic vs. recovered replies apart.
+            for r in (params.agent_loop_response or []):
+                d = getattr(r, "details", None)
+                if isinstance(d, dict) and d.get("reply_via") == "helper_llm_fallback":
+                    asst_meta["reply_via"] = "helper_llm_fallback"
+                    break
             messages.append({
                 "role": "assistant",
                 "content": assistant_content,

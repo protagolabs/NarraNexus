@@ -160,6 +160,116 @@ class OpenAIAgentsSDK:
         )
         return result
 
+    @timed("llm.openai.llm_stream", slow_threshold_ms=10000)
+    async def llm_stream(
+        self,
+        instructions: str,
+        user_input: str,
+        model: str = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream a helper_llm response delta-by-delta as plain text.
+
+        Used by the chat fallback path (agent finished without calling
+        send_message_to_user_directly): we ask the helper_llm to produce
+        a real reply for the user based on the agent's reasoning, and
+        yield each token-delta so the websocket can push it to the
+        frontend exactly like a normal agent reply.
+
+        No structured output, no schema enforcement — this is for plain
+        user-facing text. Cost is logged on stream completion.
+
+        Yields:
+            str: each content delta from the underlying chat completion.
+        """
+        model_name = self._resolve_model(model)
+        from xyz_agent_context.agent_framework.model_catalog import get_max_output_tokens
+        max_tokens = get_max_output_tokens(model_name)
+
+        client_kwargs: dict = {"api_key": openai_config.api_key}
+        if openai_config.base_url:
+            client_kwargs["base_url"] = openai_config.base_url
+        openai_client = AsyncOpenAI(**client_kwargs)
+
+        messages = [
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": user_input},
+        ]
+
+        # Mirror llm_function's max_tokens guards: try max_completion_tokens
+        # first, fall back to max_tokens for older providers.
+        async def _open_stream():
+            primary_kwargs = {}
+            if max_tokens is not None:
+                primary_kwargs["max_completion_tokens"] = max_tokens
+            try:
+                return await openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    stream=True,
+                    **primary_kwargs,
+                )
+            except Exception as primary_err:
+                logger.debug(
+                    f"[HelperLLM-Stream] max_completion_tokens path failed "
+                    f"({primary_err}); retrying with max_tokens"
+                )
+                fallback_kwargs = (
+                    {"max_tokens": max_tokens} if max_tokens is not None else {}
+                )
+                return await openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    stream=True,
+                    **fallback_kwargs,
+                )
+
+        stream = await _open_stream()
+        input_tokens = 0
+        output_tokens = 0
+        char_count = 0
+
+        async for chunk in stream:
+            try:
+                choices = chunk.choices or []
+            except Exception:
+                choices = []
+            if not choices:
+                continue
+            delta = getattr(choices[0].delta, "content", None) or ""
+            if delta:
+                char_count += len(delta)
+                yield delta
+            usage = getattr(chunk, "usage", None)
+            if usage:
+                input_tokens = (
+                    getattr(usage, "prompt_tokens", input_tokens) or input_tokens
+                )
+                output_tokens = (
+                    getattr(usage, "completion_tokens", output_tokens)
+                    or output_tokens
+                )
+
+        logger.info(
+            f"[HelperLLM-Stream] completed: model={model_name} "
+            f"chars={char_count} input_tokens={input_tokens} "
+            f"output_tokens={output_tokens}"
+        )
+
+        _agent_id, _db = self._resolve_cost_context(None, None)
+        if _agent_id and _db and (input_tokens > 0 or output_tokens > 0):
+            try:
+                await record_cost(
+                    db=_db,
+                    agent_id=_agent_id,
+                    event_id=None,
+                    call_type="llm_stream",
+                    model=model_name,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+            except Exception as e:
+                logger.warning(f"[HelperLLM-Stream] failed to record cost: {e}")
+
     async def _try_agents_sdk(
         self, client, model_name, instructions, user_input, output_type, max_tokens: Optional[int]
     ):
