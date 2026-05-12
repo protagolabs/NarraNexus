@@ -80,7 +80,21 @@ SQLITE_PROXY_PORT="${SQLITE_PROXY_PORT:-8100}"
 # httpx connects to ::1, gets ECONNREFUSED, and never falls back. This bit
 # every macOS contributor on a fresh checkout.
 SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:${SQLITE_PROXY_PORT}}"
-ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; cd '$PROJECT_ROOT'"
+# Forward narrative-related env vars set in the parent shell into each
+# tmux pane. Useful for A/B experiments — set NARRATIVE_JUDGE_MODEL /
+# NARRATIVE_CONTINUITY_MODEL / NARRATIVE_UPDATE_MODEL etc. before
+# `bash run.sh` and they reach the backend/poller/jobs/bus workers.
+NARRATIVE_ENV=""
+for var in NARRATIVE_JUDGE_MODEL NARRATIVE_JUDGE_EFFORT \
+           NARRATIVE_CONTINUITY_MODEL NARRATIVE_CONTINUITY_EFFORT \
+           NARRATIVE_UPDATE_MODEL NARRATIVE_UPDATE_EFFORT; do
+  value="${!var-}"
+  if [ -n "$value" ]; then
+    NARRATIVE_ENV+="export $var='$value'; "
+  fi
+done
+
+ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; ${NARRATIVE_ENV}cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"

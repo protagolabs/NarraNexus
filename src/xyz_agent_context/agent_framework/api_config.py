@@ -113,7 +113,14 @@ class OpenAIConfig:
     """OpenAI Chat Completions API configuration (used by helper_llm slot)"""
     api_key: str = ""
     base_url: str = ""  # Empty = default https://api.openai.com/v1
-    model: str = "gpt-5.1-2025-11-13"
+    # Fallback when the helper_llm slot is set to "default" on the
+    # official OpenAI endpoint AND a call site did not pass an
+    # explicit model. gpt-5.4-mini won out over 5.1 in our 2026-05-12
+    # benchmark: 0.85s/call vs 28s in EC2 on gpt-4o-mini, and the
+    # reasoning_effort=minimal path keeps narrative judge calls under
+    # a second. Per-call-site overrides still take precedence — see
+    # OpenAIAgentsSDK._resolve_model.
+    model: str = "gpt-5.4-mini-2026-03-17"
 
 
 @dataclass(frozen=True)

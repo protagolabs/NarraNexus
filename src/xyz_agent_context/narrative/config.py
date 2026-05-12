@@ -6,6 +6,18 @@
 
 All tunable parameters are centralized in this file for easy experimentation and tuning
 """
+import os
+
+
+def _env(name: str, default: str) -> str:
+    """Read an env override for a config knob, falling back to `default`.
+
+    Used for the narrative model / reasoning_effort knobs so two backends
+    can be started side-by-side with different settings for A/B comparison
+    without editing this file each time.
+    """
+    value = os.environ.get(name)
+    return value if value else default
 
 
 class NarrativeConfig:
@@ -31,14 +43,27 @@ class NarrativeConfig:
 
     # Continuity detection model
     # Description: LLM model used to determine topic continuity
-    # Recommended: gpt-4o-mini (best cost-effectiveness)
-    # Alternative: gpt-4o (higher accuracy but more expensive)
-    CONTINUITY_LLM_MODEL = "gpt-4o-mini"
+    # Default: gpt-5.4-mini-2026-03-17 (reasoning model, fast w/ low effort).
+    # Env override: NARRATIVE_CONTINUITY_MODEL
+    CONTINUITY_LLM_MODEL = _env("NARRATIVE_CONTINUITY_MODEL", "gpt-5.4-mini-2026-03-17")
+
+    # Continuity detection reasoning effort
+    # Description: reasoning_effort passed to GPT-5.4 reasoning models.
+    # Valid: "none" / "low" / "medium" / "high" / "xhigh" (or "" to omit).
+    # Default: "low" — narrative routing is a routing decision, not deep
+    # analysis, so the lightest non-trivial budget is the right baseline.
+    # Env override: NARRATIVE_CONTINUITY_EFFORT
+    CONTINUITY_LLM_REASONING_EFFORT = _env("NARRATIVE_CONTINUITY_EFFORT", "minimal")
 
     # Narrative judge model
-    # Description: LLM model used for narrative matching/judge decisions
-    # Recommended: gpt-4o-mini (best cost-effectiveness)
-    NARRATIVE_JUDGE_LLM_MODEL = "gpt-4o-mini"
+    # Description: LLM model used for narrative matching/judge decisions.
+    # Default: gpt-5.4-mini-2026-03-17. Env override: NARRATIVE_JUDGE_MODEL
+    NARRATIVE_JUDGE_LLM_MODEL = _env("NARRATIVE_JUDGE_MODEL", "gpt-5.4-mini-2026-03-17")
+
+    # Narrative judge reasoning effort
+    # Description: reasoning_effort passed to GPT-5.4 reasoning models.
+    # Default: "low". Env override: NARRATIVE_JUDGE_EFFORT
+    NARRATIVE_JUDGE_LLM_REASONING_EFFORT = _env("NARRATIVE_JUDGE_EFFORT", "minimal")
 
     # LLM call maximum retry count
     # Description: Number of retries when LLM API call fails
@@ -131,9 +156,15 @@ class NarrativeConfig:
     # Note: NARRATIVE_LLM_UPDATE_INTERVAL has been moved to global config xyz_agent_context/config.py
 
     # LLM model used for updates
-    # Description: LLM model used for generating Narrative summaries and metadata
-    # Recommended: gpt-4o-mini (best cost-effectiveness)
-    NARRATIVE_LLM_UPDATE_MODEL = "gpt-4o-mini"
+    # Description: LLM model used for generating Narrative summaries and metadata.
+    # Default: gpt-5.4-mini-2026-03-17. Env override: NARRATIVE_UPDATE_MODEL
+    NARRATIVE_LLM_UPDATE_MODEL = _env("NARRATIVE_UPDATE_MODEL", "gpt-5.4-mini-2026-03-17")
+
+    # Narrative update reasoning effort.
+    # Description: summary updates run post-turn in the background, so they
+    # are not on the critical path — "low" is fine. Env override:
+    # NARRATIVE_UPDATE_EFFORT
+    NARRATIVE_LLM_UPDATE_REASONING_EFFORT = _env("NARRATIVE_UPDATE_EFFORT", "minimal")
 
     # Number of recent Events considered during LLM update
     # Description: Generates summaries based on the most recent N Events
