@@ -12,6 +12,7 @@ Supports two modes:
 
 import json
 import re
+from contextvars import ContextVar
 from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
@@ -21,6 +22,38 @@ from openai import AsyncOpenAI
 from xyz_agent_context.agent_framework.api_config import openai_config
 from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
 from xyz_agent_context.utils.logging import timed
+
+
+# Per-async-task scratchpad so an outer `with timed(...) as t` can read
+# back which model + structured-output mode the inner SDK call ended up
+# using. Set by llm_function / llm_stream after model resolution; read
+# (and optionally tag) by the caller right after the await returns.
+# Contextvars propagate across `await` within the same task without
+# leaking across tasks, which matches our usage exactly.
+_last_llm_call_info: ContextVar[Optional[dict]] = ContextVar(
+    "_last_llm_call_info", default=None
+)
+
+
+def get_last_llm_call_info() -> Optional[dict]:
+    """Return ``{model, structured}`` for the most recent llm_function /
+    llm_stream call on this async task, or None if none has run.
+
+    ``structured`` values:
+      - ``"agents_sdk"`` — happy path, response_format honored
+      - ``"fallback_first_fail"`` — caller asked for output_type, model
+        rejected it on its first call, we added to blocklist and
+        fell back to JSON-in-prompt parse (this call cost 2 LLM hops)
+      - ``"fallback_blocklisted"`` — model already known to reject
+        response_format, skipped straight to fallback (1 LLM hop)
+      - ``"no_schema"`` — caller didn't pass output_type, no structured
+        output attempted in the first place
+      - ``"stream"`` — llm_stream call (always non-structured)
+
+    Read this right after an SDK call to avoid being overwritten by any
+    subsequent SDK call further down the same task.
+    """
+    return _last_llm_call_info.get()
 
 
 def _extract_json_from_llm_output(text: str) -> Optional[str]:
@@ -148,6 +181,7 @@ class OpenAIAgentsSDK:
         )
 
         # Try Agents SDK structured output (skip if model is blocklisted)
+        first_attempt_failed = False
         if output_type and model_name not in _structured_output_blocklist:
             try:
                 result = await self._try_agents_sdk(
@@ -155,9 +189,13 @@ class OpenAIAgentsSDK:
                     output_type, max_tokens, reasoning_effort,
                 )
                 await self._record_cost(result, model_name, agent_id, db)
+                _last_llm_call_info.set(
+                    {"model": model_name, "structured": "agents_sdk"}
+                )
                 return result
             except Exception as e:
                 _structured_output_blocklist.add(model_name)
+                first_attempt_failed = True
                 logger.info(
                     f"Model '{model_name}' does not support structured output, "
                     f"added to blocklist (will use fallback from now on): {e}"
@@ -167,6 +205,15 @@ class OpenAIAgentsSDK:
         result = await self._fallback_chat_completion(
             openai_client, model_name, instructions, user_input,
             output_type, max_tokens, reasoning_effort,
+        )
+        if not output_type:
+            structured_mode = "no_schema"
+        elif first_attempt_failed:
+            structured_mode = "fallback_first_fail"
+        else:
+            structured_mode = "fallback_blocklisted"
+        _last_llm_call_info.set(
+            {"model": model_name, "structured": structured_mode}
         )
         return result
 
@@ -193,6 +240,7 @@ class OpenAIAgentsSDK:
             str: each content delta from the underlying chat completion.
         """
         model_name = self._resolve_model(model)
+        _last_llm_call_info.set({"model": model_name, "structured": "stream"})
         from xyz_agent_context.agent_framework.model_catalog import get_max_output_tokens
         max_tokens = get_max_output_tokens(model_name)
 
