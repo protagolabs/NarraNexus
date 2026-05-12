@@ -36,7 +36,6 @@ interface TurnTimelineProps {
   isStreaming?: boolean;
 }
 
-const THINKING_PREVIEW_CHAR_LIMIT = 280;
 const TOOL_ARGS_PREVIEW_CHAR_LIMIT = 80;
 
 function ThinkingBlock({
@@ -46,34 +45,29 @@ function ThinkingBlock({
   content: string;
   isStreaming: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const isLong = content.length > THINKING_PREVIEW_CHAR_LIMIT;
-  const visibleText = expanded || !isLong
-    ? content
-    : content.slice(0, THINKING_PREVIEW_CHAR_LIMIT) + '…';
-
+  // Thinking is a peer of Reply in the timeline — both are bubbles, both
+  // get Markdown rendering, both expand inline. Reply is the user-facing
+  // speech (accent border) and Thinking is the agent's internal monologue
+  // (dashed/muted border) — same shape, different weight. No truncation
+  // or inner scroll: the user asked for the full thinking to be visible
+  // and to share a single scroll surface with the rest of the message
+  // list.
   return (
     <div
       className={cn(
-        'pl-3 border-l-2 border-[var(--rule)] text-[var(--text-tertiary)]',
+        'message-assistant px-4 py-3',
+        'border-l-4 border-dashed border-[var(--text-tertiary)]',
+        'text-[var(--text-secondary)]',
         isStreaming && 'animate-fade-in',
       )}
     >
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono mb-1">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)] mb-2">
         <Brain className="w-3 h-3" />
         <span>Thinking</span>
       </div>
-      <div className="text-xs italic leading-relaxed whitespace-pre-wrap">
-        {visibleText}
+      <div className="text-sm leading-relaxed">
+        <Markdown content={content} />
       </div>
-      {isLong && (
-        <button
-          onClick={() => setExpanded((p) => !p)}
-          className="mt-1 text-[10px] underline opacity-60 hover:opacity-100"
-        >
-          {expanded ? 'collapse' : `show full (${content.length} chars)`}
-        </button>
-      )}
     </div>
   );
 }
