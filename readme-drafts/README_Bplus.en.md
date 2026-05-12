@@ -1,22 +1,23 @@
 <!--
-Draft: Structure B+ (fresh user focused) — English — Emotion-driven hook
+Draft: Structure B+ (fresh user focused) — English — Hook in B2 style
 Date: 2026-05-12
 Notes:
-  - First three screens = zero technical explanation
-  - Hero demo: AI Manga Explanation (Hongyi Gu) — single 30s GIF
-  - Templates still at section 7 (per user); hero block has "more →" link to #7
-  - Templates: 金融市场晨报 (Bin Liang) / OpenClaw 迁移 (Jiaxi Chen) / Sales Agent Team (Jiaxi Chen)
-  - Merged hook alternative at bottom commented
+  - Synced to B+.zh v2 (cumulative rounds 1-7)
+  - First three screens: zero technical explanation
+  - Hero demo placeholder = weather GIF; manga GIF TODO
+  - Templates at section 7 (per user); hero block has "more →" link
+  - Templates: Financial Morning Brief / AI Manga Explanation (Hero) / Sales Agent Team / Migration from OpenClaw·Hermes·Claude Code
+  - Alternative hooks archived in HTML comment at bottom
 -->
 
 <div align="center">
 
-<img src="docs/NarraNexus_logo.png" alt="NarraNexus" width="480" />
+<img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/NarraNexus_logo.png" alt="NarraNexus" width="480" />
 
 <br/>
 <br/>
 
-# Your next teammate doesn't have to be human.
+# You bring the ideas. The AI team delivers.
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://website.narra.nexus/docs/getting-started/quick-start)
@@ -30,14 +31,14 @@ Notes:
 
 <br/>
 
+<!-- TODO: replace showcase-weather.gif placeholder with PLACEHOLDER_hero_manga.gif (manga input → narrated output, ~30s) once recorded -->
 <p align="center">
-  <img src="docs/images/PLACEHOLDER_hero_manga.gif" alt="Upload a manga page. Get back a narrated, effects-laden walkthrough." width="760" />
+  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/showcase-weather.gif" alt="Upload one chapter of manga. Get back a YouTube/Bilibili-style narrated video." width="760" />
 </p>
 
 <p align="center">
-  <em>Upload one manga page.<br/>
-  A team of four agents reads it, narrates it, scores it, animates it.<br/>
-  You get a shareable video in 90 seconds.</em>
+  <em>Upload one chapter of manga.<br/>
+  90 seconds later: a YouTube / Bilibili-style narrated video.</em>
 </p>
 
 <p align="center">
@@ -48,42 +49,66 @@ Notes:
 
 ---
 
-<br/>
+##  Get started in 60 seconds
 
-### NarraNexus is a desktop app where you *hire* a team of AI agents instead of building one.
+NarraNexus lets you use a ready-made AI team — or build your own from scratch.
+Ready templates put you in business in seconds; building your own is only a few more steps.
 
-Pick a template. Tell them what you want. They talk to each other, remember what they did last time, and ship the result.
+Cloud sign-up, desktop download, local build — pick whichever suits you.
 
-No code. No CLI. No `pip install`.
+### ☁️ Cloud (fastest)
 
-<br/>
+1. Open [website.narra.nexus](https://website.narra.nexus/)
+2. Sign up
+3. Pick a template and go
+
+<!-- TODO: cloud sign-up demo video, ~30s -->
+<p align="center">
+  <em>📽️ Cloud sign-up demo — TBD</em>
+</p>
+
+### 💻 macOS desktop app
+
+1. [Download the `.dmg`](https://github.com/NetMindAI-Open/NarraNexus/releases)
+2. Drag it into the Applications folder
+3. Launch → pick a template and go
+
+<!-- TODO: dmg install demo video, ~30s -->
+<p align="center">
+  <em>📽️ macOS desktop install demo — TBD</em>
+</p>
+
+### 🛠️ Local build (developers)
+
+```bash
+git clone https://github.com/NetMindAI-Open/NarraNexus.git
+cd NarraNexus
+bash run.sh
+```
+
+For detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-started/quick-start).
+
+<!-- TODO: local build demo video, ~30s -->
+<p align="center">
+  <em>📽️ Local build demo — TBD</em>
+</p>
+
+> Three doors, same place.
 
 ---
 
-##  Try it in 60 seconds
-
-| | |
-|---|---|
-| **macOS desktop app** | [Download `.dmg` →](https://github.com/NetMindAI-Open/NarraNexus/releases) · signed, notarized, in-app Claude Code login |
-| **Web Demo (Beta)** | [Open in browser →](https://website.narra.nexus/) · no install |
-| **From source** (devs) | `git clone … && bash run.sh` · [setup docs](https://website.narra.nexus/docs/getting-started/quick-start) |
-
-> Most people want the `.dmg`. Double-click. Done.
-
----
-
-##  How it works (without the architecture talk)
+##  How it works
 
 Three things make this different from a chatbot.
 
-**1. Your agents remember.**
-Not just the last message. The whole story. The agent who summarized your week last Friday will pick up where it left off this Friday.
+**1. They remember.**
+Not just the last message — the whole storyline. The agent who summarized your week last Friday will pick up where it left off this Friday.
 
-**2. Your agents talk to each other.**
-When the writer-agent needs a fact, it pings the researcher-agent. When the strategist-agent isn't sure, it escalates to you. Like a small team that knows when to ask for help.
+**2. They divide the work.**
+A task needs research + writing + visuals? They hand off and finish it together — you don't have to break it down. The result lands on your side already assembled.
 
-**3. You tell them in plain words.**
-Skills install by chat: *"install the manga skill from ClawHub."* Templates spin up a whole team in two clicks. The only thing you have to know is what you want done.
+**3. They stand on other people's work.**
+Don't know how to do something? Reuse a template someone has already validated. Missing a capability? Let the agent learn it on its own — you don't have to teach.
 
 > Under the hood there's a runtime, a context engine, a module system, MCP, a hook manager. You'll never touch any of it. [Read the docs](https://website.narra.nexus/docs/core-concepts/architecture) if you want to.
 
@@ -93,41 +118,48 @@ Skills install by chat: *"install the manga skill from ClawHub."* Templates spin
 
 ##  Templates — real teams, real work
 
-Five team templates ship in the box. The Hero above is one of them. Here are the rest.
+The Hero above is one of them. Below are more.
 
 ###  Financial Morning Brief
 
-<img src="docs/images/PLACEHOLDER_template_morning_brief.png" alt="" width="600" />
+For investors and analysts who read markets at 7am. **8 agents** — global market monitor, macro calendar, news filter, cross-asset reasoning, portfolio mapper, sector themes, charts, chief strategist. They answer *"what is the market trading today, and should I attack, defend, or watch?"* — not yet another news summary.
 
-For investors who read markets at 7am. **8 agents** — global market monitor, macro calendar, news filter, cross-asset reasoning, portfolio mapper, sector themes, charts, chief strategist. They answer *"what is the market trading today, and should I attack, defend, or watch?"* — not yet another news summary.
+<!-- TODO: morning brief template demo video, ~30s -->
+<p align="center">
+  <em>📽️ Financial Morning Brief demo — TBD</em>
+</p>
 
 ###  Sales Agent Team
 
-<img src="docs/images/PLACEHOLDER_template_sales_team.png" alt="" width="600" />
+For solo founders and small sales teams. One instruction kicks off a sales team — you talk to just one agent, the rest of the team handles the back-office work: multi-channel outreach, sorting daily replies, updating customer state.
 
-For solo founders and small sales teams. **5 agents** kick off a multi-channel outreach campaign from one instruction. You confirm content once with the manager agent. Daily replies are pulled and customer state is updated automatically.
+<!-- TODO: Sales team template demo video, ~30s -->
+<p align="center">
+  <em>📽️ Sales Agent Team demo — TBD</em>
+</p>
 
-###  Migrate from OpenClaw / Hermes / Claude Code
+###  One-click migration from OpenClaw / Hermes / Claude Code
 
-<img src="docs/images/PLACEHOLDER_template_openclaw_migrate.png" alt="" width="600" />
+Already using another AI tool? Two clicks bring your existing OpenClaw / Hermes / Claude Code agents over into a NarraNexus team — the setup and history you've already built come with them.
 
-Already using a single-agent tool? **A guided importer** turns your existing OpenClaw / Hermes / Claude Code agents and skills into a NarraNexus team in two clicks. Your familiar agents, now collaborating — and bringing their skills with them.
+<!-- TODO: migration template demo video, ~30s -->
+<p align="center">
+  <em>📽️ One-click migration demo — TBD</em>
+</p>
 
-###  More templates from the community → [browse all](https://website.narra.nexus/docs/modules/custom-modules)
+###  More community templates → [browse all](https://website.narra.nexus/docs/modules/custom-modules)
 
-> *Every template above runs on the same engine the Hero demo runs on. Nothing in this README is mocked up.*
+> *All built by NarraNexus agents themselves.*
 
 ---
 
 ##  Honest limitations
 
-A few things we'd rather tell you up-front.
+We'd rather tell you up-front.
 
-- **You still need an LLM API key.** NetMind.AI Power covers all three slots (Agent / Embedding / Helper) with one key.
-- **macOS-first today.** Windows / Linux work from source; native installers in progress.
-- **Some modules are experimental.** RAG runtime integration is in progress. EverMemOS (advanced episodic memory) is opt-in.
-- **No mobile app yet.**
-- **Web Demo is beta.** The desktop app is the real product.
+- **LLM API key**: the cloud version has a free trial quota. For daily or local use, you'll want your own LLM API key — one or two minutes to register at NetMind, OpenAI, or Anthropic.
+- **An agent isn't 100% out of the box**: it needs your corrections and feedback to get sharp. Treat it like a new hire, not a god.
+- **Collaboration isn't perfect on the first try**: complex tasks may take a couple of iterations before agents get the hang of it; some judgment calls always belong to you — the team handles the bulk, the key calls stay with you.
 
 ###  How we compare
 
@@ -135,9 +167,9 @@ A few things we'd rather tell you up-front.
 |--------------|------|
 | To build agents in Python | LangChain · AutoGen · CrewAI |
 | One personal assistant across your channels | OpenClaw · ZeroClaw · Claude Code |
-| **A team of agents that collaborate, remember, and ship work — without writing code** | **NarraNexus** |
+| **A team of agents that collaborate, remember, and ship real work** | **NarraNexus** |
 
-We don't replace those tools. We solve a different problem: **building agents is no longer the bottleneck — hiring them is.**
+We don't replace those tools. We solve a different problem: **building agents is no longer the bottleneck. Putting an AI team to real work is.**
 
 ---
 
@@ -148,42 +180,58 @@ We don't replace those tools. We solve a different problem: **building agents is
 - **Discord** — `coming soon`
 - **Twitter / X** — `coming soon`
 - **Email updates** — `coming soon`
-- **Docs** — [website.narra.nexus](https://website.narra.nexus/docs)
 - **Feedback** — [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
-
-If you ship a template that helps people, DM us — we'll feature it.
 
 ---
 
-## Acknowledgments
+##  Contributing
 
-NarraNexus's optional long-term memory backend is built on **[EverMemOS](https://github.com/EverMind-AI/EverMemOS)**. We thank the EverMemOS team.
+### I'm a user with a template to share
+Made an agent team that helps other people? Pack it into a `.nxbundle` and submit via any of these:
 
-> Chuanrui Hu et al. *EverMemOS: A Self-Organizing Memory Operating System for Structured Long-Horizon Reasoning.* arXiv:2601.02163, 2026. [[Paper]](https://arxiv.org/abs/2601.02163)
+- 💬 **Discord** — `coming soon`
+- 📧 **Email** — `coming soon`
+- 🐦 **Twitter / X DM** — `coming soon`
+- 🐛 **GitHub Issue** — [open an issue](https://github.com/NetMindAI-Open/NarraNexus/issues) (prefix the title with `[template]`)
 
-## Citation
+We review and add accepted ones to the official template library.
 
-```bibtex
-@software{narranexus2026,
-  title  = {NarraNexus: A Framework for Building Nexuses of Agents},
-  author = {NetMind.AI},
-  year   = {2026},
-  url    = {https://github.com/NetMindAI-Open/NarraNexus},
-  license = {CC-BY-NC-4.0}
-}
-```
+### I'm a developer who wants to change the code
+- **Bug reports** → [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
+- **New features** → open an issue to discuss direction first, then PR
+- **New modules** → see the [development guide](https://website.narra.nexus/docs/contributing/development-setup)
+- **Roadmap** → `coming soon`
+
+---
 
 ## License
 
 [CC BY-NC 4.0](./LICENSE)
 
 <!--
-ALTERNATIVE HOOK (merged, for boss's review):
+Alternative hooks (kept for record, in case we want to swap):
+
+Direction A · clean division (parallel role split):
+  - "You bring the ideas. The AI team delivers."  ← CURRENT (B2-en, V1)
+  - "Your ideas. Their execution."
+  - "You think it. They ship it."
+
+Direction B · soft / aspirational:
+  - "Your next teammate doesn't have to be human."  (original v1 hook, less product-focused)
+  - "Ideas in. Results out."
+
+Direction C · Huashu-style 3-beat (action-action-result):
+  - "Bring an idea. Say a sentence. The AI team delivers."
+
+Merged hook (for boss's review):
   "Most agent tools are built for developers. NarraNexus is built for everyone else."
 
 PLACEHOLDER ASSETS NEEDED:
-  - docs/images/PLACEHOLDER_hero_manga.gif (30s manga explanation — THE single most important visual asset)
-  - docs/images/PLACEHOLDER_template_morning_brief.png
-  - docs/images/PLACEHOLDER_template_sales_team.png
-  - docs/images/PLACEHOLDER_template_openclaw_migrate.png
+  - docs/images/PLACEHOLDER_hero_manga.gif (30s manga explanation demo — THE most important visual asset)
+  - docs/images/PLACEHOLDER_install_cloud.gif (~30s cloud sign-up flow)
+  - docs/images/PLACEHOLDER_install_dmg.gif (~30s macOS dmg install flow)
+  - docs/images/PLACEHOLDER_install_local.gif (~30s local build flow)
+  - docs/images/PLACEHOLDER_template_morning_brief.gif (~30s morning brief demo)
+  - docs/images/PLACEHOLDER_template_sales_team.gif (~30s sales team demo)
+  - docs/images/PLACEHOLDER_template_openclaw_migrate.gif (~30s migration demo)
 -->
