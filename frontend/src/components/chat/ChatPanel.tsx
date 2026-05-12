@@ -13,7 +13,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Square, Loader2, Sparkles, MessageSquare, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
+import { Send, Square, Loader2, Sparkles, MessageSquare, Paperclip, X, FileText, Image as ImageIcon, Mic, Bot } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
@@ -934,30 +934,55 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             + Live activity preview" pair. Renders thinking / tool /
             reply blocks in chronological order as the events arrive,
             so the user can see the agent's actual rhythm. See
-            TurnTimeline.tsx and the 2026-05-12 redesign mirror md. */}
+            TurnTimeline.tsx and the 2026-05-12 redesign mirror md.
+
+            Wrapped in the same Bot-avatar + flex-1 content shell as
+            MessageBubble uses for historical turns, so the in-flight
+            turn doesn't visually detach from the rest of the
+            conversation (it would otherwise be the only assistant
+            output with no left-side avatar). */}
         {isStreaming && currentEvents.length > 0 && (
-          <div className="animate-fade-in">
-            <TurnTimeline events={currentEvents} isStreaming />
-            {/* Mid-stream artifact preview is independent of the timeline:
-                it surfaces created/uploaded artifacts inline as soon as
-                their tool_output lands, without waiting for the whole
-                turn to finish. */}
-            {agentId && currentToolCalls.length > 0 && (
-              <div className="mt-3">
-                <ArtifactToolCallCards
-                  toolCalls={currentToolCalls}
-                  agentId={agentId}
-                  allArtifacts={allArtifacts}
-                />
+          <div className="flex gap-3 animate-fade-in">
+            <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
+              <Bot className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <TurnTimeline events={currentEvents} isStreaming />
+              {/* Mid-stream artifact preview is independent of the timeline:
+                  it surfaces created/uploaded artifacts inline as soon as
+                  their tool_output lands, without waiting for the whole
+                  turn to finish. */}
+              {agentId && currentToolCalls.length > 0 && (
+                <div className="mt-3">
+                  <ArtifactToolCallCards
+                    toolCalls={currentToolCalls}
+                    agentId={agentId}
+                    allArtifacts={allArtifacts}
+                  />
+                </div>
+              )}
+              {/* Inter-event "still working" indicator. Reassurance for
+                  the gap between two visible blocks (e.g. waiting on a
+                  tool result, or the next thinking hasn't started
+                  streaming yet) — without it the page goes silent
+                  and the user can't tell stuck from busy. Distinct from
+                  "Thinking" (whose content is already on screen): this
+                  signals the agent is *acting* between the visible
+                  blocks. Disappears the instant isStreaming flips. */}
+              <div className="mt-3 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
+                <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
+                <span>Acting…</span>
               </div>
-            )}
+            </div>
           </div>
         )}
 
         {/* Initial "starting up..." indicator — shown only when streaming
             has started but no event has arrived yet (the timeline is
             empty). As soon as the first thinking / tool / reply event
-            comes in, the indicator is replaced by TurnTimeline. */}
+            comes in, the indicator is replaced by TurnTimeline. Same
+            avatar shell as the streaming branch so the layout doesn't
+            jump when the first event arrives. */}
         {isStreaming && currentEvents.length === 0 && (() => {
           const getInitStatus = () => {
             if (currentSteps.length === 0) return 'Starting up...';
@@ -971,13 +996,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             return 'Thinking...';
           };
           return (
-            <div className="animate-fade-in p-4">
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <Loader2 className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
-                  <div className="absolute inset-0 bg-[var(--accent-primary)] blur-md opacity-30" />
+            <div className="flex gap-3 animate-fade-in">
+              <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
+                <Bot className="w-3.5 h-3.5" />
+              </div>
+              <div className="flex-1 min-w-0 py-2">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Loader2 className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
+                    <div className="absolute inset-0 bg-[var(--accent-primary)] blur-md opacity-30" />
+                  </div>
+                  <span className="text-sm text-[var(--text-secondary)]">{getInitStatus()}</span>
                 </div>
-                <span className="text-sm text-[var(--text-secondary)]">{getInitStatus()}</span>
               </div>
             </div>
           );
