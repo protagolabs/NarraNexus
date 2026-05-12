@@ -22,7 +22,7 @@
  * keeps the same TurnTimeline mounted across re-renders during a
  * single turn (clears on next user submit).
  */
-import { useState, useMemo } from 'react';
+import { memo, useState, useMemo } from 'react';
 import { Brain, Wrench, MessageSquare, ChevronDown, ChevronRight } from 'lucide-react';
 import type { TurnEvent } from '@/types';
 import { Markdown } from '@/components/ui';
@@ -38,7 +38,16 @@ interface TurnTimelineProps {
 
 const TOOL_ARGS_PREVIEW_CHAR_LIMIT = 80;
 
-function ThinkingBlock({
+// All block components are wrapped in React.memo because TurnTimeline
+// re-renders on every WebSocket delta during streaming. Without memo,
+// a single thinking delta forces every sibling block (tool calls,
+// prior thinking, reply) to reconcile too — for long turns with
+// dozens of events this scaled badly enough to make the input box
+// laggy on agent_5d8962… 2026-05-12. Each block now only re-renders
+// when its own primitive props change; React.memo's default shallow
+// equality on `content` / `output` / `isStreaming` is sufficient
+// because those props are primitive strings/booleans.
+const ThinkingBlock = memo(function ThinkingBlock({
   content,
   isStreaming,
 }: {
@@ -80,9 +89,9 @@ function ThinkingBlock({
       </div>
     </div>
   );
-}
+});
 
-function ToolCallBlock({
+const ToolCallBlock = memo(function ToolCallBlock({
   toolName,
   toolInput,
   isStreaming,
@@ -141,9 +150,9 @@ function ToolCallBlock({
       </div>
     </div>
   );
-}
+});
 
-function ToolOutputBlock({
+const ToolOutputBlock = memo(function ToolOutputBlock({
   toolName,
   output,
   isStreaming,
@@ -179,9 +188,9 @@ function ToolOutputBlock({
       )}
     </div>
   );
-}
+});
 
-function ReplyBlock({
+const ReplyBlock = memo(function ReplyBlock({
   content,
   isStreaming,
   isFallback,
@@ -227,9 +236,9 @@ function ReplyBlock({
       </div>
     </div>
   );
-}
+});
 
-function NativeOutputBlock({
+const NativeOutputBlock = memo(function NativeOutputBlock({
   content,
   isStreaming,
 }: {
@@ -251,7 +260,7 @@ function NativeOutputBlock({
       <div className="text-sm leading-relaxed whitespace-pre-wrap">{content}</div>
     </div>
   );
-}
+});
 
 export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps) {
   if (events.length === 0) return null;

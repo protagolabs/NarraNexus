@@ -439,6 +439,39 @@ export const useChatStore = create<ChatState>((_set, get) => {
               return {};
             }
 
+            // Coalesce native_output deltas into ONE growing bubble per
+            // "phase" (between tool_call/reply boundaries). Some models
+            // emit native text and thinking interleaved at the delta
+            // level (e.g. DeepSeek-V4 with visible reasoning); without
+            // this, every token would be its own bubble — the bug Bin
+            // hit on agent_5d8962… 2026-05-12. We walk backwards from
+            // the tail, skipping over thinking events (they're a
+            // peer-stream, not an interruption), and merge into the
+            // most-recent native_output. tool_call or reply mark a
+            // genuine boundary and reset the search.
+            const events = session.currentEvents;
+            let openIdx = -1;
+            for (let i = events.length - 1; i >= 0; i--) {
+              const t = events[i].type;
+              if (t === 'tool_call' || t === 'reply') break;
+              if (t === 'native_output') { openIdx = i; break; }
+            }
+
+            if (openIdx >= 0) {
+              const open = events[openIdx] as Extract<TurnEvent, { type: 'native_output' }>;
+              const merged: TurnEvent = { ...open, content: open.content + delta.delta };
+              return {
+                agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+                  currentAssistantMessage: s.currentAssistantMessage + delta.delta,
+                  currentEvents: [
+                    ...s.currentEvents.slice(0, openIdx),
+                    merged,
+                    ...s.currentEvents.slice(openIdx + 1),
+                  ],
+                })),
+              };
+            }
+
             const nextEvent: TurnEvent = {
               type: 'native_output',
               id: generateId(),
@@ -456,30 +489,45 @@ export const useChatStore = create<ChatState>((_set, get) => {
         }
 
         case 'agent_thinking': {
-          // Thinking is delivered as a delta stream. We coalesce
-          // consecutive deltas into ONE bubble — only break into a new
-          // bubble when a non-thinking event (tool_call, reply,
-          // native_output, ...) has interrupted the train of thought.
-          // Without this the user sees one tiny "Thinking" card per
-          // token, which is what Bin caught after the first deploy
-          // ("晚上好" rendered as 8 separate THINKING blocks).
+          // Thinking is delivered as a delta stream. We coalesce all
+          // deltas of the current "phase" (between tool_call/reply
+          // boundaries) into ONE bubble.
+          //
+          // Naive coalesce (`if last.type === 'thinking', merge`) is
+          // wrong for models that interleave thinking with native_output
+          // at the delta level (e.g. agent_5d8962… on 2026-05-12 was on
+          // a model that streamed both → every thinking delta saw the
+          // previous event as native_output → fell through to "new
+          // bubble" → user saw 50+ separate thinking blocks pop in).
+          // Walk backwards from the tail and skip over peer-stream
+          // events (native_output, other thinking) to find the open
+          // thinking bubble; only tool_call/reply truly interrupt the
+          // thought train.
           const thinking = message as AgentThinking;
           const delta = thinking.thinking_content;
           if (!delta) break;
           set((state) => ({
             agentSessions: updateSession(state.agentSessions, agentId, (s) => {
               const events = s.currentEvents;
-              const last = events[events.length - 1];
-              if (last && last.type === 'thinking') {
-                // Append to the open thinking bubble in place.
-                const merged: TurnEvent = { ...last, content: last.content + delta };
+              let openIdx = -1;
+              for (let i = events.length - 1; i >= 0; i--) {
+                const t = events[i].type;
+                if (t === 'tool_call' || t === 'reply') break;
+                if (t === 'thinking') { openIdx = i; break; }
+              }
+              if (openIdx >= 0) {
+                const open = events[openIdx] as Extract<TurnEvent, { type: 'thinking' }>;
+                const merged: TurnEvent = { ...open, content: open.content + delta };
                 return {
                   currentThinking: s.currentThinking + delta,
-                  currentEvents: [...events.slice(0, -1), merged],
+                  currentEvents: [
+                    ...events.slice(0, openIdx),
+                    merged,
+                    ...events.slice(openIdx + 1),
+                  ],
                 };
               }
-              // No open thinking bubble (first thinking event, or an
-              // action since the last one) — start a new one.
+              // No open thinking bubble in the current phase — start one.
               const nextEvent: TurnEvent = {
                 type: 'thinking',
                 id: generateId(),
