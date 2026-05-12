@@ -190,19 +190,29 @@ function ReplyBlock({
   isStreaming: boolean;
   isFallback: boolean;
 }) {
+  // Reply is the agent's actual user-facing speech, peer to Thinking but
+  // visually elevated (thicker accent border, faint accent fill, explicit
+  // "Reply" label) so the eye lands on it first even when surrounded by
+  // dense thinking + tool blocks. The asymmetry is intentional: thinking
+  // is process, reply is product. See 2026-05-12 redesign decision A+B1.
   return (
     <div
       className={cn(
         'message-assistant px-4 py-3',
-        'border-l-4 border-[var(--accent-primary)]',
+        'border-l-[6px] border-[var(--accent-primary)]',
+        'bg-[var(--accent-primary)]/5',
         isStreaming && 'animate-fade-in',
       )}
     >
-      {isFallback && (
-        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--color-yellow-500)] mb-1.5">
-          <span>↻ helper_llm fallback</span>
-        </div>
-      )}
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--accent-primary)] mb-2">
+        <MessageSquare className="w-3 h-3" />
+        <span>Reply</span>
+        {isFallback && (
+          <span className="ml-auto text-[var(--color-yellow-500)]">
+            ↻ helper_llm fallback
+          </span>
+        )}
+      </div>
       <div className="text-sm leading-relaxed">
         {/* Same streaming optimisation as ThinkingBlock: <Markdown>
             re-parses on every render, so we hand it plain text during

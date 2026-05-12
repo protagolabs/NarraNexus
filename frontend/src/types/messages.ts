@@ -132,6 +132,13 @@ export interface ChatMessage {
   isError?: boolean;  // True when displaying runtime errors (rate limit, API errors, etc.)
   warnings?: string[];  // Non-fatal errors that occurred during execution (e.g., module decision LLM failed)
   attachments?: Attachment[];  // User-uploaded files referenced by this message
+  // Inline timeline carried over from the live stream. Set on assistant
+  // messages at stopStreaming time so MessageBubble can render exactly
+  // the same chronological "think → tool → reply" sequence the user
+  // just watched, collapsed by default behind "View reasoning & tools".
+  // Reply events are kept here for fidelity; MessageBubble skips them
+  // when rendering because message.content already shows the reply.
+  timeline?: TurnEvent[];
 }
 
 // Step for display in StepsPanel

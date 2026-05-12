@@ -148,6 +148,7 @@ interface TimelineItem {
   thinking?: string;              // Reasoning content (from session messages)
   toolCalls?: import('@/types').AgentToolCall[];  // Tool calls (from session messages)
   attachments?: Attachment[];     // User-uploaded files referenced by this message
+  timeline?: import('@/types').TurnEvent[];  // Live-stream timeline carried over (just-finished turn)
 }
 
 interface ChatPanelProps {
@@ -203,7 +204,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
   const {
     messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls,
-    currentEvents, lastTurnEvents,
+    currentEvents,
     isStreaming, addUserMessage, startStreaming,
     setActiveAgent,
   } = useChatStore();
@@ -417,27 +418,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }
     }
 
-    // Find the index of the most-recent session assistant message, so
-    // we can skip it when lastTurnEvents is rendering the same content
-    // as an inline timeline below the bubble list. Without this, the
-    // user would see the reply twice: once as a collapsed bubble and
-    // once as the inline reply block in TurnTimeline.
-    let lastSessionAssistantIdx = -1;
-    if (lastTurnEvents.length > 0) {
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'assistant') {
-          lastSessionAssistantIdx = i;
-          break;
-        }
-      }
-    }
-
     for (let mi = 0; mi < messages.length; mi++) {
       const msg = messages[mi];
-      if (mi === lastSessionAssistantIdx) {
-        // Handled by TurnTimeline below (lastTurnEvents).
-        continue;
-      }
       const key = `${msg.role}:${msg.content}`;
       const historyTimestamps = historyByKey.get(key);
       const matchIdx = historyTimestamps
@@ -461,6 +443,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         thinking: msg.thinking,
         toolCalls: msg.toolCalls,
         attachments: msg.attachments,
+        timeline: msg.timeline,
       });
     }
 
@@ -473,7 +456,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     });
 
     return items;
-  }, [historyMessages, messages, lastTurnEvents]);
+  }, [historyMessages, messages]);
 
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
@@ -929,6 +912,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   thinking: item.thinking,
                   toolCalls: item.toolCalls,
                   attachments: item.attachments,
+                  timeline: item.timeline,
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
@@ -998,15 +982,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             </div>
           );
         })()}
-
-        {/* Most-recent completed turn — keep its inline timeline visible
-            (not collapsed yet) until the user starts the next turn.
-            Cleared on startStreaming. */}
-        {!isStreaming && lastTurnEvents.length > 0 && (
-          <div>
-            <TurnTimeline events={lastTurnEvents} isStreaming={false} />
-          </div>
-        )}
 
         <div ref={messagesEndRef} />
       </div>

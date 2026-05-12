@@ -36,14 +36,13 @@ export interface AgentChatState {
   history: ConversationRound[];
 
   /** Inline timeline events for the *currently streaming* turn — append-only,
-   *  cleared on startStreaming. See TurnEvent for the per-event contract. */
+   *  cleared on startStreaming. See TurnEvent for the per-event contract.
+   *  Once the turn settles, the snapshot is attached to the assistant
+   *  ChatMessage as `message.timeline` (so MessageBubble owns rendering of
+   *  the completed turn under "View reasoning & tools"). No separate
+   *  "last turn" buffer is kept — the just-finished turn is just a normal
+   *  history bubble that happens to have a `timeline`. */
   currentEvents: TurnEvent[];
-  /** Snapshot of currentEvents the instant stopStreaming was called.
-   *  Cleared on the next startStreaming. ChatPanel keeps the most-recent
-   *  completed turn visible as an inline timeline (not collapsed yet) so
-   *  the user can still read it while composing their reply; the next
-   *  submit clears it and the bubble collapses into history. */
-  lastTurnEvents: TurnEvent[];
 }
 
 /** Toast notification for background-completed agents */
@@ -64,7 +63,6 @@ const DEFAULT_AGENT_STATE: AgentChatState = Object.freeze({
   isStreaming: false,
   history: Object.freeze([]) as unknown as ConversationRound[],
   currentEvents: Object.freeze([]) as unknown as TurnEvent[],
-  lastTurnEvents: Object.freeze([]) as unknown as TurnEvent[],
 });
 
 /** Create a fresh mutable state for a new agent session */
@@ -79,7 +77,6 @@ function createDefaultAgentState(): AgentChatState {
     isStreaming: false,
     history: [],
     currentEvents: [],
-    lastTurnEvents: [],
   };
 }
 
@@ -102,7 +99,6 @@ interface ChatState {
   isStreaming: boolean;
   history: ConversationRound[];
   currentEvents: TurnEvent[];
-  lastTurnEvents: TurnEvent[];
 
   getUserVisibleResponse: () => string | null;
 
@@ -159,7 +155,6 @@ function deriveFlatFields(state: { agentSessions: Record<string, AgentChatState>
     isStreaming: session.isStreaming,
     history: session.history,
     currentEvents: session.currentEvents,
-    lastTurnEvents: session.lastTurnEvents,
   };
 }
 
@@ -241,13 +236,6 @@ export const useChatStore = create<ChatState>((_set, get) => {
           currentToolCalls: [],
           currentErrors: [],
           currentEvents: [],
-          // Submitting a new turn collapses the previously visible
-          // "last turn" timeline into history (rendered by MessageBubble
-          // via the persisted ChatMessage). The events themselves are
-          // discarded because the persisted ChatMessage carries the
-          // round in summarised form; ephemeral timeline state is
-          // session-only by design (see chatStore docstring).
-          lastTurnEvents: [],
         })),
       }));
     },
@@ -291,6 +279,12 @@ export const useChatStore = create<ChatState>((_set, get) => {
           warnings,
           thinking: session.currentThinking || undefined,
           toolCalls: session.currentToolCalls.length > 0 ? [...session.currentToolCalls] : undefined,
+          // Snapshot the streaming timeline onto the persisted message so
+          // MessageBubble renders it under "View reasoning & tools" (same
+          // affordance as historical messages). The just-finished turn is
+          // therefore a normal history bubble from the moment it settles —
+          // no separate flat-rendered "last turn" zone.
+          timeline: session.currentEvents.length > 0 ? [...session.currentEvents] : undefined,
         };
 
         // Mark all running steps as completed
@@ -332,12 +326,10 @@ export const useChatStore = create<ChatState>((_set, get) => {
             currentSteps: completedSteps,
             history: newHistory,
             isStreaming: false,
-            // Move the just-streamed events into lastTurnEvents so the
-            // ChatPanel can keep the inline timeline visible until the
-            // user starts a new turn. currentEvents is cleared (the
-            // stream has ended).
+            // Stream has ended; the snapshot of currentEvents is now
+            // carried by `assistantMessage.timeline` above. Clear the
+            // ephemeral buffer so the next turn starts clean.
             currentEvents: [],
-            lastTurnEvents: session.currentEvents,
           })),
           completedAgentIds: newCompletedIds,
           toastQueue: newToastQueue,

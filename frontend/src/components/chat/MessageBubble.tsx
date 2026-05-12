@@ -50,9 +50,19 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
   // duplicating it inside the timeline would print the reply twice.
   const inlineEvents: TurnEvent[] = useMemo(() => {
     if (isUser) return [];
+
+    // Path 0 — preferred for just-finished turns: the message was
+    // persisted with its live-stream timeline attached (chatStore
+    // stopStreaming). Use it as-is so the collapsed bubble for the
+    // most-recent assistant turn shows exactly what the user just
+    // watched stream, no fetch round trip needed.
+    if (message.timeline && message.timeline.length > 0) {
+      return message.timeline.filter((e) => e.type !== 'reply');
+    }
+
     const events: TurnEvent[] = [];
 
-    // Path 1 — preferred: the backend gave us a time-ordered timeline.
+    // Path 1 — historical: the backend gave us a time-ordered timeline.
     if (eventLogTimeline && eventLogTimeline.length > 0) {
       eventLogTimeline.forEach((entry, idx) => {
         const id = `tl-${idx}`;
@@ -115,7 +125,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
       });
     }
     return events;
-  }, [isUser, eventLogTimeline, message.thinking, message.toolCalls, eventLogThinking, eventLogToolCalls]);
+  }, [isUser, message.timeline, eventLogTimeline, message.thinking, message.toolCalls, eventLogThinking, eventLogToolCalls]);
 
   const hasRealTimeData = !!(message.thinking || message.toolCalls?.length);
   const canLoadEventLog = !isUser && !hasRealTimeData && !!eventId && !!agentId;
