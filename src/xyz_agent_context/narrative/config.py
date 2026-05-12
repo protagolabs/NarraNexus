@@ -49,11 +49,14 @@ class NarrativeConfig:
 
     # Continuity detection reasoning effort
     # Description: reasoning_effort passed to GPT-5.4 reasoning models.
-    # Valid: "none" / "low" / "medium" / "high" / "xhigh" (or "" to omit).
-    # Default: "low" — narrative routing is a routing decision, not deep
-    # analysis, so the lightest non-trivial budget is the right baseline.
+    # OpenAI's chat.completions API accepts: "none" / "low" / "medium"
+    # / "high" / "xhigh". Note: the openai-agents pydantic Literal still
+    # lists "minimal" instead of "none" (lib lag, 2026-05); don't trust
+    # it — sending "minimal" gives 400 invalid_request_error from
+    # OpenAI server-side, observed in prod 2026-05-12. "low" is the
+    # smallest budget that both layers accept, and benches sub-second.
     # Env override: NARRATIVE_CONTINUITY_EFFORT
-    CONTINUITY_LLM_REASONING_EFFORT = _env("NARRATIVE_CONTINUITY_EFFORT", "minimal")
+    CONTINUITY_LLM_REASONING_EFFORT = _env("NARRATIVE_CONTINUITY_EFFORT", "low")
 
     # Narrative judge model
     # Description: LLM model used for narrative matching/judge decisions.
@@ -62,8 +65,9 @@ class NarrativeConfig:
 
     # Narrative judge reasoning effort
     # Description: reasoning_effort passed to GPT-5.4 reasoning models.
-    # Default: "low". Env override: NARRATIVE_JUDGE_EFFORT
-    NARRATIVE_JUDGE_LLM_REASONING_EFFORT = _env("NARRATIVE_JUDGE_EFFORT", "minimal")
+    # See CONTINUITY_LLM_REASONING_EFFORT for why "low" (not "minimal").
+    # Env override: NARRATIVE_JUDGE_EFFORT
+    NARRATIVE_JUDGE_LLM_REASONING_EFFORT = _env("NARRATIVE_JUDGE_EFFORT", "low")
 
     # LLM call maximum retry count
     # Description: Number of retries when LLM API call fails
@@ -162,9 +166,10 @@ class NarrativeConfig:
 
     # Narrative update reasoning effort.
     # Description: summary updates run post-turn in the background, so they
-    # are not on the critical path — "low" is fine. Env override:
-    # NARRATIVE_UPDATE_EFFORT
-    NARRATIVE_LLM_UPDATE_REASONING_EFFORT = _env("NARRATIVE_UPDATE_EFFORT", "minimal")
+    # are not on the critical path — "low" is fine. See
+    # CONTINUITY_LLM_REASONING_EFFORT for why "low" (not "minimal").
+    # Env override: NARRATIVE_UPDATE_EFFORT
+    NARRATIVE_LLM_UPDATE_REASONING_EFFORT = _env("NARRATIVE_UPDATE_EFFORT", "low")
 
     # Number of recent Events considered during LLM update
     # Description: Generates summaries based on the most recent N Events
