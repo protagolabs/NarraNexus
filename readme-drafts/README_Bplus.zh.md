@@ -78,11 +78,11 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 **1. 它会记得。**
 不止上一条消息，是整段故事。上周五帮你写完周报的那个 agent，这周五能直接从上次的地方接着干。
 
-**2. 它们会互相喊一声。**
-写作 agent 缺一个事实，就去问研究员 agent。策略 agent 没把握，就升级给你。像一个小团队，知道什么时候该求助。
+**2. 它们自己分工。**
+一件事需要研究 + 写作 + 出图？它们接力做完，不用你来拆任务。结果交付给你时，已经组装好了。
 
-**3. 你用人话告诉它们。**
-装技能靠聊天：*"从 ClawHub 装一个漫画 skill"*。Templates 两下点击拉起一整个团队。你只需要知道自己想做什么。
+**3. 它们会站在别人肩上。**
+不会做的事？复用一个别人验证过的 template。缺一项能力？让 agent 自己去学，不用你教。
 
 > 底层有 runtime、context engine、module system、MCP、hook manager 这些东西，但你永远不需要碰。想看的话 [文档在这](https://website.narra.nexus/docs/core-concepts/architecture)。
 
