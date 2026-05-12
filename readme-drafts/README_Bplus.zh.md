@@ -11,12 +11,12 @@ Notes:
 
 <div align="center">
 
-<img src="docs/NarraNexus_logo.png" alt="NarraNexus" width="480" />
+<img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/NarraNexus_logo.png" alt="NarraNexus" width="480" />
 
 <br/>
 <br/>
 
-# 你的下一个团队成员，不一定是人类。
+# 你出想法，AI 团队出结果。
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://website.narra.nexus/docs/getting-started/quick-start)
@@ -30,14 +30,15 @@ Notes:
 
 <br/>
 
+<!-- TODO: replace showcase-weather.gif placeholder with PLACEHOLDER_hero_manga.gif (manga input → narrated output, ~30s) once recorded -->
 <p align="center">
-  <img src="docs/images/PLACEHOLDER_hero_manga.gif" alt="上传一页漫画，得到一个带配音和特效的解读视频。" width="760" />
+  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/showcase-weather.gif" alt="上传一章漫画，90 秒后发出去。" width="760" />
 </p>
 
 <p align="center">
-  <em>上传一页漫画。<br/>
-  四个 agent 组成的团队读它、讲它、配音、加特效。<br/>
-  90 秒后你拿到一个可分享的视频。</em>
+  <em>上传一章漫画。<br/>
+  90 秒后，你拿到一段带配音、特效、解说的视频。<br/>
+  发出去就行。</em>
 </p>
 
 <p align="center">
@@ -69,6 +70,11 @@ Notes:
 | **从源码安装**（开发者） | `git clone … && bash run.sh` · [详细文档](https://website.narra.nexus/docs/getting-started/quick-start) |
 
 > 大部分人只需要 `.dmg`。双击。完成。
+
+<!-- TODO: install flow GIF (download → double-click → see templates → pick one), ~15-20s. Slot reserved below. -->
+<p align="center">
+  <em>📽️ 安装到打开第一个 template 的 demo —— 待录制</em>
+</p>
 
 ---
 
@@ -178,11 +184,27 @@ NarraNexus 的可选长期记忆后端基于 **[EverMemOS](https://github.com/Ev
 [CC BY-NC 4.0](./LICENSE)
 
 <!--
+Alternative hooks (kept for record, in case we want to swap):
+
+Direction A · 双段式 (clean division):
+  - "你出想法，AI 团队出结果。"  ← CURRENT (B2)
+  - "你来想，它们来做。"  (B3, terser)
+  - "你的想法。AI 团队的执行。"
+
+Direction B · 改"想做的事"为"想法":
+  - "你的想法，让 AI 团队替你做完。"  (B1, minimal edit of original option c)
+  - "想到的事，让 AI 团队替你跑完。"  (B4)
+
+Direction C · 花叔三段式 (action-action-result):
+  - "想清楚一件事。说一句话。AI 团队交付。"  (B5)
+  - "你的想法，几句话，AI 团队替你做出来。"  (B6, explicit "几句话")
+
 合并版金句（备用，给老板挑）：
   "大多数 agent 工具是为开发者做的。NarraNexus 是为其他所有人做的。"
 
 待补素材：
   - docs/images/PLACEHOLDER_hero_manga.gif (30 秒漫画解读 demo — 整个 README 最关键的视觉资产)
+  - docs/images/PLACEHOLDER_install_flow.gif (15-20 秒安装到打开第一个 template，放 Quick Start 区)
   - docs/images/PLACEHOLDER_template_morning_brief.png
   - docs/images/PLACEHOLDER_template_sales_team.png
   - docs/images/PLACEHOLDER_template_openclaw_migrate.png
