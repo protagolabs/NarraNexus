@@ -4,6 +4,36 @@ last_verified: 2026-05-12
 stub: false
 ---
 
+## 2026-05-12 — Chat no-reply helper_llm fallback hardening
+
+Self-review of the initial fallback (same-day) caught four real holes;
+the fixes are pinned by
+`tests/agent_runtime/test_helper_llm_fallback_decision.py`:
+
+1. **Fatal error must skip the fallback**. If `agent_loop_response`
+   contains an ErrorMessage with `severity="fatal"` (CLI timeout, SDK
+   crash, etc.), `state.final_output` is partial reasoning; asking
+   helper_llm to summarise that hallucinates a reply from a half-
+   thought. chat_module's failed-turn path handles it instead.
+2. **Cancellation must skip — and abort mid-stream**. If the user
+   pressed stop, honouring the token is the whole point. The
+   pre-check + a mid-loop check on the streaming iteration cover
+   both "cancelled before fallback fires" and "cancelled mid-stream".
+3. **`state.finalize()` runs before reading `state.final_output`**.
+   The previous order read the unfinalized state.
+4. **Partial-stream recovery**. If helper_llm errors after some
+   deltas have already been yielded, the synthetic ProgressMessage
+   is still emitted from `fallback_chunks`, tagged
+   `details.fallback_partial=True` + `details.fallback_error`. The
+   user keeps the visible deltas and chat_module persists the matching
+   partial content — no half-reply + "decided not to respond"
+   mismatch in DB.
+
+The skip decision is factored into a pure function
+`_should_run_helper_llm_fallback(working_source, agent_loop_response,
+cancellation) -> (bool, skip_reason)` so the four guard cases can be
+exercised by unit tests without spinning up the full async generator.
+
 ## 2026-05-12 — Chat no-reply helper_llm fallback (P0 #3)
 
 After the agent loop completes, step 3 now inspects
