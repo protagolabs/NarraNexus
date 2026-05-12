@@ -68,7 +68,7 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 
 ### 💻 macOS 桌面应用
 
-1. [下载 .dmg](https://github.com/NetMindAI-Open/NarraNexus/releases)
+1. [下载 .dmg](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
 2. 拖入 Applications 文件夹
 3. 启动 → 选一个 template，开始
 
