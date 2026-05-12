@@ -92,7 +92,7 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 
 ##  Templates —— 真实团队，真实工作
 
-5 个内置团队 template。上面 hero 是其中一个，下面是其余的。
+上面 Hero 是其中一个。下面看其他的。
 
 ###  金融市场晨报
 
@@ -104,13 +104,13 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 
 <img src="docs/images/PLACEHOLDER_template_sales_team.png" alt="" width="600" />
 
-适合独立创业者和小型销售团队。**5 个 agent** 用一条指令启动多渠道触达 campaign。中间只跟 Master Agent 确认一次内容。每天自动 pull 客户回复，更新客户关系状态。
+适合独立创业者和小型销售团队。一条指令直接启动一支 sales team —— 你只对接一个 agent，剩下交给团队自动办公：多渠道客户触达、整理每天的回复、更新客户状态。
 
 ###  从 OpenClaw / Hermes / Claude Code 一键迁移
 
 <img src="docs/images/PLACEHOLDER_template_openclaw_migrate.png" alt="" width="600" />
 
-已经在用单 agent 工具？**一个引导式导入器**两次点击，把你现有的 OpenClaw / Hermes / Claude Code agent 和 skill，迁移成一个 NarraNexus 团队。你熟悉的 agent，现在会互相协作，还带着原来的 skill。
+已经在用其他 AI 工具？两次点击把你的 OpenClaw / Hermes / Claude Code agent 搬过来，立刻在 NarraNexus 团队里用 —— 之前积累的设定一起带上。
 
 ###  更多社区贡献的 template → [浏览全部](https://website.narra.nexus/docs/modules/custom-modules)
 
