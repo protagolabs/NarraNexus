@@ -111,20 +111,27 @@ export function RuntimePanel() {
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
               )}
             </div>
-            {/* Step list + (during run) the tool-call console.
-                Tool calls live in their own block above the step
-                cards: same scroll surface so the user doesn't lose
-                them as more steps arrive, but visually a different
-                language (terminal-log rows) from the chat panel's
-                inline tool pills — same data, different lens. */}
+            {/* Step list. The tool-call console is injected into the
+                "Execute Agent Loop" step (step "3") as extra expanded
+                content, so tool calls live under the step that owns
+                them rather than as a free-floating block above. Visual
+                language stays distinct from the chat panel's inline
+                tool pills — terminal log rows vs. rounded chat pills,
+                same data different lens. */}
             <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
               <ScrollArea className="h-full" viewportClassName="px-5 py-3">
-                {currentToolCalls.length > 0 && (
-                  <ToolCallLog toolCalls={currentToolCalls} />
-                )}
                 <div className="space-y-2">
               {mainSteps.map((step, index) => (
-                <StepCard key={step.id} step={step} isLast={index === mainSteps.length - 1} />
+                <StepCard
+                  key={step.id}
+                  step={step}
+                  isLast={index === mainSteps.length - 1}
+                  extraExpandedContent={
+                    step.step === '3' && currentToolCalls.length > 0
+                      ? <ToolCallLog toolCalls={currentToolCalls} />
+                      : undefined
+                  }
+                />
               ))}
                 </div>
               </ScrollArea>
@@ -216,8 +223,10 @@ function EmptyState({ icon: Icon, title, hint }: { icon: React.ElementType; titl
  * IS the order of execution, that's all the rank info that matters.
  */
 function ToolCallLog({ toolCalls }: { toolCalls: AgentToolCall[] }) {
+  // Rendered inside a StepCard's expanded section (the "Execute Agent
+  // Loop" step). Parent provides spacing; we only own the inner box.
   return (
-    <div className="mb-4 border border-[var(--border-subtle)] bg-[var(--bg-sunken)]/40">
+    <div className="border border-[var(--border-subtle)] bg-[var(--bg-sunken)]/40">
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-[var(--border-subtle)] text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
         <Terminal className="w-3 h-3 text-[var(--accent-primary)]" />
         <span>Tool calls</span>
