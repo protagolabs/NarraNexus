@@ -122,11 +122,9 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 
 我们愿意提前告诉你。
 
-- **你仍然需要一个 LLM API key。** NetMind.AI Power 一个 key 覆盖三个槽位（Agent / Embedding / Helper）。
-- **目前 macOS 优先。** Windows / Linux 可从源码运行；原生安装包在路上。
-- **部分模块仍是 experimental。** RAG 的 runtime 集成还在路上。EverMemOS（进阶情景记忆）默认关闭。
-- **暂无移动端。**
-- **Web Demo 是 beta。** 桌面端才是完整产品。
+- **LLM API key**：线上版有免费额度可以试用。日常或本地用，需要你自己的 LLM API key —— 一两分钟在 NetMind / OpenAI / Anthropic 注册一个就够。
+- **Agent 不是一上来就 100 分**：它需要你纠错、给反馈，越用越合手。把它当一个新员工，不是当神。
+- **协作不是一次完美**：复杂任务往往要 agent 跑两三轮才上手；总有一些判断只能你来做 —— 团队跑通大部分，关键的判断留给你自己。
 
 ###  和其他工具的不同
 
@@ -136,7 +134,7 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 | 一个 personal assistant 跑遍所有 channel | OpenClaw · ZeroClaw · Claude Code |
 | **一个会协作、有记忆、能交付真正工作的 agent 团队，不写代码** | **NarraNexus** |
 
-我们不替代上面那些工具。我们解决另一个问题：**搭 agent 不再是瓶颈了，雇 agent 才是。**
+我们不替代上面那些工具。我们解决另一个问题：**搭 agent 不再是瓶颈了。把 agent 团队真的用起来，才是。**
 
 ---
 
