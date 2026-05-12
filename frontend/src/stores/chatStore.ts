@@ -464,21 +464,42 @@ export const useChatStore = create<ChatState>((_set, get) => {
         }
 
         case 'agent_thinking': {
+          // Thinking is delivered as a delta stream. We coalesce
+          // consecutive deltas into ONE bubble — only break into a new
+          // bubble when a non-thinking event (tool_call, reply,
+          // native_output, ...) has interrupted the train of thought.
+          // Without this the user sees one tiny "Thinking" card per
+          // token, which is what Bin caught after the first deploy
+          // ("晚上好" rendered as 8 separate THINKING blocks).
           const thinking = message as AgentThinking;
-          set((state) => {
-            const nextEvent: TurnEvent = {
-              type: 'thinking',
-              id: generateId(),
-              ts: thinking.timestamp ?? Date.now() / 1000,
-              content: thinking.thinking_content,
-            };
-            return {
-              agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
-                currentThinking: s.currentThinking + thinking.thinking_content,
-                currentEvents: [...s.currentEvents, nextEvent],
-              })),
-            };
-          });
+          const delta = thinking.thinking_content;
+          if (!delta) break;
+          set((state) => ({
+            agentSessions: updateSession(state.agentSessions, agentId, (s) => {
+              const events = s.currentEvents;
+              const last = events[events.length - 1];
+              if (last && last.type === 'thinking') {
+                // Append to the open thinking bubble in place.
+                const merged: TurnEvent = { ...last, content: last.content + delta };
+                return {
+                  currentThinking: s.currentThinking + delta,
+                  currentEvents: [...events.slice(0, -1), merged],
+                };
+              }
+              // No open thinking bubble (first thinking event, or an
+              // action since the last one) — start a new one.
+              const nextEvent: TurnEvent = {
+                type: 'thinking',
+                id: generateId(),
+                ts: thinking.timestamp ?? Date.now() / 1000,
+                content: delta,
+              };
+              return {
+                currentThinking: s.currentThinking + delta,
+                currentEvents: [...events, nextEvent],
+              };
+            }),
+          }));
           break;
         }
 
