@@ -37,8 +37,7 @@ Notes:
 
 <p align="center">
   <em>上传一章漫画。<br/>
-  90 秒后，你拿到一段带配音、特效、解说的视频。<br/>
-  发出去就行。</em>
+  90 秒后，一段 YouTube / Bilibili 风格的解说视频。</em>
 </p>
 
 <p align="center">
@@ -54,24 +53,50 @@ Notes:
 NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的。
 现成 template 几秒上手；自建，也只是几步的事。
 
-桌面下载、云端注册、本地 build —— 选你顺手的一种：
+云端注册、桌面下载、本地 build —— 选你顺手的一种。
 
-| | |
-|---|---|
-| **macOS 桌面应用** | [下载 `.dmg` →](https://github.com/NetMindAI-Open/NarraNexus/releases) · 双击，直接对话 |
-| **云端注册** | [打开 →](https://website.narra.nexus/) · 注册即用 |
-| **本地 build**（开发者） | `git clone … && bash run.sh` · [详细文档](https://website.narra.nexus/docs/getting-started/quick-start) |
+### ☁️ 云端注册（最快）
+
+1. 打开 [website.narra.nexus](https://website.narra.nexus/)
+2. 注册账号
+3. 选一个 template，开始
+
+<!-- TODO: 云端注册 demo video, ~30s -->
+<p align="center">
+  <em>📽️ 云端注册 demo —— 待录制</em>
+</p>
+
+### 💻 macOS 桌面应用
+
+1. [下载 .dmg](https://github.com/NetMindAI-Open/NarraNexus/releases)
+2. 拖入 Applications 文件夹
+3. 启动 → 选一个 template，开始
+
+<!-- TODO: dmg 安装 demo video, ~30s -->
+<p align="center">
+  <em>📽️ macOS 桌面安装 demo —— 待录制</em>
+</p>
+
+### 🛠️ 本地 build（开发者）
+
+```bash
+git clone https://github.com/NetMindAI-Open/NarraNexus.git
+cd NarraNexus
+bash run.sh
+```
+
+详细安装步骤见 [开发文档](https://website.narra.nexus/docs/getting-started/quick-start)。
+
+<!-- TODO: 本地 build demo video, ~30s -->
+<p align="center">
+  <em>📽️ 本地 build demo —— 待录制</em>
+</p>
 
 > 三种入口，殊途同归。
 
-<!-- TODO: install flow GIF, ~15-20s -->
-<p align="center">
-  <em>📽️ 从零到第一个 template 的 demo —— 待录制</em>
-</p>
-
 ---
 
-##  它是怎么工作的（不讲架构）
+##  它是怎么工作的
 
 三件事让它不只是个 chatbot。
 
@@ -96,25 +121,34 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 
 ###  金融市场晨报
 
-<img src="docs/images/PLACEHOLDER_template_morning_brief.png" alt="" width="600" />
-
 适合每天 7 点要看市场的投资者、研究员。**8 个 agent** —— 全球行情监测、宏观日历、新闻过滤、跨资产推理、持仓映射、行业主线、图表生成、首席策略师。它们回答的是 *"今天市场在交易什么？我该进攻、防守还是观望？"* —— 不是又一份新闻摘要。
+
+<!-- TODO: 金融晨报 template demo video, ~30s -->
+<p align="center">
+  <em>📽️ 金融晨报 template 演示 —— 待录制</em>
+</p>
 
 ###  Sales Agent Team
 
-<img src="docs/images/PLACEHOLDER_template_sales_team.png" alt="" width="600" />
-
 适合独立创业者和小型销售团队。一条指令直接启动一支 sales team —— 你只对接一个 agent，剩下交给团队自动办公：多渠道客户触达、整理每天的回复、更新客户状态。
+
+<!-- TODO: Sales team template demo video, ~30s -->
+<p align="center">
+  <em>📽️ Sales Agent Team 演示 —— 待录制</em>
+</p>
 
 ###  从 OpenClaw / Hermes / Claude Code 一键迁移
 
-<img src="docs/images/PLACEHOLDER_template_openclaw_migrate.png" alt="" width="600" />
-
 已经在用其他 AI 工具？两次点击把你的 OpenClaw / Hermes / Claude Code agent 搬过来，立刻在 NarraNexus 团队里用 —— 之前积累的设定一起带上。
+
+<!-- TODO: 迁移 template demo video, ~30s -->
+<p align="center">
+  <em>📽️ 一键迁移演示 —— 待录制</em>
+</p>
 
 ###  更多社区贡献的 template → [浏览全部](https://website.narra.nexus/docs/modules/custom-modules)
 
-> *上面每个 template 都跑在 Hero demo 同一个引擎上，README 里没有任何造假。*
+> *全部由 NarraNexus agent 自主完成。*
 
 ---
 
@@ -132,7 +166,7 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 |------|----|
 | 用 Python 自己搭 agent | LangChain · AutoGen · CrewAI |
 | 一个 personal assistant 跑遍所有 channel | OpenClaw · ZeroClaw · Claude Code |
-| **一个会协作、有记忆、能交付真正工作的 agent 团队，不写代码** | **NarraNexus** |
+| **一个会协作、有记忆、能交付真正工作的 agent 团队** | **NarraNexus** |
 
 我们不替代上面那些工具。我们解决另一个问题：**搭 agent 不再是瓶颈了。把 agent 团队真的用起来，才是。**
 
@@ -194,8 +228,10 @@ Direction C · 花叔三段式 (action-action-result):
 
 待补素材：
   - docs/images/PLACEHOLDER_hero_manga.gif (30 秒漫画解读 demo — 整个 README 最关键的视觉资产)
-  - docs/images/PLACEHOLDER_install_flow.gif (15-20 秒安装到打开第一个 template，放 Quick Start 区)
-  - docs/images/PLACEHOLDER_template_morning_brief.png
-  - docs/images/PLACEHOLDER_template_sales_team.png
-  - docs/images/PLACEHOLDER_template_openclaw_migrate.png
+  - docs/images/PLACEHOLDER_install_cloud.gif (~30s 云端注册流程)
+  - docs/images/PLACEHOLDER_install_dmg.gif (~30s macOS dmg 安装流程)
+  - docs/images/PLACEHOLDER_install_local.gif (~30s 本地 build 流程)
+  - docs/images/PLACEHOLDER_template_morning_brief.gif (~30s 金融晨报演示)
+  - docs/images/PLACEHOLDER_template_sales_team.gif (~30s sales team 演示)
+  - docs/images/PLACEHOLDER_template_openclaw_migrate.gif (~30s 迁移演示)
 -->
