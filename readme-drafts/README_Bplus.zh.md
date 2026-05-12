@@ -49,31 +49,24 @@ Notes:
 
 ---
 
-<br/>
-
-### NarraNexus 是一个桌面应用 —— 在这里你*雇佣*一个 AI 团队，而不是*搭建*一个。
-
-挑一个 template，告诉它们你想要什么。它们自己沟通，记得上次做了什么，然后交付结果。
-
-不用写代码。不用打开终端。不用 `pip install`。
-
-<br/>
-
----
-
 ##  60 秒上手
+
+NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的。
+现成 template 几秒上手；自建，也只是几步的事。
+
+桌面下载、云端注册、本地 build —— 选你顺手的一种：
 
 | | |
 |---|---|
-| **macOS 桌面应用** | [下载 `.dmg` →](https://github.com/NetMindAI-Open/NarraNexus/releases) · 已签名公证、内置 Claude Code 登录 |
-| **Web Demo (Beta)** | [在浏览器试用 →](https://website.narra.nexus/) · 不用安装 |
-| **从源码安装**（开发者） | `git clone … && bash run.sh` · [详细文档](https://website.narra.nexus/docs/getting-started/quick-start) |
+| **macOS 桌面应用** | [下载 `.dmg` →](https://github.com/NetMindAI-Open/NarraNexus/releases) · 双击，直接对话 |
+| **云端注册** | [打开 →](https://website.narra.nexus/) · 注册即用 |
+| **本地 build**（开发者） | `git clone … && bash run.sh` · [详细文档](https://website.narra.nexus/docs/getting-started/quick-start) |
 
-> 大部分人只需要 `.dmg`。双击。完成。
+> 三种入口，殊途同归。
 
-<!-- TODO: install flow GIF (download → double-click → see templates → pick one), ~15-20s. Slot reserved below. -->
+<!-- TODO: install flow GIF, ~15-20s -->
 <p align="center">
-  <em>📽️ 安装到打开第一个 template 的 demo —— 待录制</em>
+  <em>📽️ 从零到第一个 template 的 demo —— 待录制</em>
 </p>
 
 ---
