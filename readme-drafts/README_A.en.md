@@ -92,7 +92,7 @@ For detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-
 
 ### 💻 macOS desktop app
 
-1. [Download the `.dmg`](https://github.com/NetMindAI-Open/NarraNexus/releases)
+1. [Download the `.dmg`](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
 2. Drag it into the Applications folder
 3. Launch → pick a template and go
 
@@ -103,7 +103,7 @@ For detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-
 
 ### ☁️ Cloud sign-up
 
-1. Open [website.narra.nexus](https://website.narra.nexus/)
+1. Open [agent.narra.nexus](https://agent.narra.nexus/login)
 2. Sign up
 3. Pick a template and go
 

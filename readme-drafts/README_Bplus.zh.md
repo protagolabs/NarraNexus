@@ -57,7 +57,7 @@ NarraNexus 让你直接用一个 AI 团队 —— 或者从零搭一个自己的
 
 ### ☁️ 云端注册（最快）
 
-1. 打开 [website.narra.nexus](https://website.narra.nexus/)
+1. 打开 [agent.narra.nexus](https://agent.narra.nexus/login)
 2. 注册账号
 3. 选一个 template，开始
 

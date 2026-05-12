@@ -92,7 +92,7 @@ bash run.sh
 
 ### 💻 macOS 桌面应用
 
-1. [下载 .dmg](https://github.com/NetMindAI-Open/NarraNexus/releases)
+1. [下载 .dmg](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
 2. 拖入 Applications 文件夹
 3. 启动 → 选一个 template，开始
 
@@ -103,7 +103,7 @@ bash run.sh
 
 ### ☁️ 云端注册
 
-1. 打开 [website.narra.nexus](https://website.narra.nexus/)
+1. 打开 [agent.narra.nexus](https://agent.narra.nexus/login)
 2. 注册账号
 3. 选一个 template，开始
 
