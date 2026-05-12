@@ -1,21 +1,26 @@
 <!--
-Draft: Structure A (General) — 中文 — Problem-driven hook
+Draft: Structure A (Dev-focused) — 中文 — A3 hook
 Date: 2026-05-12
 Notes:
-  - Hero demo: AI Manga Explanation (Hongyi Gu)
-  - Templates: 金融市场晨报 (Bin Liang) / OpenClaw 迁移 (Jiaxi Chen) / Sales Agent Team (Jiaxi Chen)
-  - Placeholders: docs/images/PLACEHOLDER_*.gif / .png
-  - 合并版金句 at bottom commented for boss option
+  - Audience: developers, tech-savvy evaluators, integrators
+  - Tone: concept-based with some emotion (not pure tech)
+  - 3 traits framed as "Capabilities" with dev language:
+      ① 类人 Agent (Awareness + Narrative memory + MCP tools)
+      ② 协作 (MessageBus protocol)
+      ③ 开箱即用 (10 modules + 3 deploy paths + multi-LLM)
+  - Hero: same template as B+ (AI Manga Explanation), placeholder = weather GIF
+  - Templates: same 3 as B+ (synced)
+  - 蹭势+差异化: 显式 callout single-agent paradigm (OpenClaw/ZeroClaw) in vs table
 -->
 
 <div align="center">
 
-<img src="docs/NarraNexus_logo.png" alt="NarraNexus" width="480" />
+<img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/NarraNexus_logo.png" alt="NarraNexus" width="480" />
 
 <br/>
 <br/>
 
-### 雇一个 AI 团队，不应该要先读十份文档。
+# 别只部署一个 Agent。直接组一支团队。
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://website.narra.nexus/docs/getting-started/quick-start)
@@ -27,44 +32,38 @@ Notes:
 
 ---
 
-## 痛点
-
-现在大多数 AI 工具仍然假定你是开发者。LangChain / AutoGen / CrewAI 很强 —— 前提是你会写 Python、能搭 state machine。OpenClaw / ZeroClaw / Claude Code 也很好 —— 前提是"一个 personal assistant 在多个 channel 跑"就是你要的。
-
-但如果你想要**一个 agent 团队** —— 它们会互相协作、记得彼此的工作、一起交付一件真实的事 —— 又不想打开 terminal，怎么办？
-
-## NarraNexus
-
-NarraNexus 是一个桌面应用，让任何人都能像招同事一样雇佣一支 AI 团队：挑一个 template，给它们目标，让它们自己沟通。
-
-- **不需要写代码。** 装 `.dmg`，双击，开始。
-- **Templates 直接交付真实工作**，不是 toy demo。
-- **Agent 会记忆、会协作**，跨天、跨会话、跨渠道。
-
 <br/>
 
 <p align="center">
-  <img src="docs/images/PLACEHOLDER_hero_manga.gif" alt="AI 漫画解读 demo" />
+  <em>懂记忆、懂协作、会用工具的 agent —— template 起步，也可以自己搭。</em>
 </p>
-<p align="center"><em>上传漫画 → agent 团队把它讲成一个带配音和特效的漫画解读视频。</em></p>
 
-> README 里展示的每一个 template 都跑在同一个引擎上，没有任何造假。
+<!-- TODO: replace showcase-weather.gif with PLACEHOLDER_hero_manga.gif once recorded -->
+<p align="center">
+  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/showcase-weather.gif" alt="上传一章漫画，90 秒后拿到解说视频。" width="760" />
+</p>
+
+<p align="center">
+  <em>上传一章漫画。<br/>
+  90 秒后，一段 YouTube / Bilibili 风格的解说视频。<br/>
+  <sub>(4 个 agent 接力：parse · narrate · score · render)</sub></em>
+</p>
+
+<p align="center">
+  <a href="#templates">看更多 templates →</a>
+</p>
+
+<br/>
 
 ---
 
-## 快速开始
+##  60 秒上手
 
-三选一，殊途同归。
+NarraNexus 是一个多 Agent 产品 —— 不是给开发者搭 agent 的 framework，是直接给你一支可以协作的 agent 团队。每个 agent 持久身份、自带协作通道，三种部署任选。
 
-###  桌面 App —— 推荐给所有人
+云端注册、桌面下载、本地 build —— 选你顺手的一种。
 
-> **[下载最新版本 →](https://github.com/NetMindAI-Open/NarraNexus/releases)** —— 选 `.dmg` 文件。已签名、已公证，内置 Claude Code 登录，不用打开终端。
-
-###  Web Demo (Beta)
-
-> **[在浏览器中试用 →](https://website.narra.nexus/)** —— 不用安装。
-
-###  从源码安装（开发者）
+### 🛠️ 本地从源码（推荐开发者）
 
 ```bash
 git clone https://github.com/NetMindAI-Open/NarraNexus.git
@@ -72,128 +71,187 @@ cd NarraNexus
 bash run.sh
 ```
 
-`run.sh` 自动处理依赖、环境、LLM 配置。详细见[文档](https://website.narra.nexus/docs/getting-started/quick-start)。
+`run.sh` 自动检测 `uv` / `node` / `tmux`，启动 7 个 service：
+
+| Service | Port | 作用 |
+|---------|------|------|
+| Backend | 8000 | FastAPI server |
+| DB Proxy | 8100 | SQLite HTTP proxy |
+| MCP servers | 7801+ | Per-module tool servers |
+| Frontend | 5173 | Vite dev server |
+| Poller | — | Instance state monitor |
+| Jobs Trigger | — | Scheduled job dispatcher |
+| BusTrigger | — | Inter-agent message bus |
+
+详细见 [开发文档](https://website.narra.nexus/docs/getting-started/quick-start)。
+
+<!-- TODO: 本地 build demo video, ~30s -->
+<p align="center">
+  <em>📽️ 本地 build demo —— 待录制</em>
+</p>
+
+### 💻 macOS 桌面应用
+
+1. [下载 .dmg](https://github.com/NetMindAI-Open/NarraNexus/releases)
+2. 拖入 Applications 文件夹
+3. 启动 → 选一个 template，开始
+
+<!-- TODO: dmg 安装 demo video, ~30s -->
+<p align="center">
+  <em>📽️ macOS 桌面安装 demo —— 待录制</em>
+</p>
+
+### ☁️ 云端注册
+
+1. 打开 [website.narra.nexus](https://website.narra.nexus/)
+2. 注册账号
+3. 选一个 template，开始
+
+<!-- TODO: 云端注册 demo video, ~30s -->
+<p align="center">
+  <em>📽️ 云端注册 demo —— 待录制</em>
+</p>
+
+> 三种入口，殊途同归。
 
 ---
 
-## 核心特性
+##  三大能力
 
-按"你得到什么"组织，不是按"我有什么 feature"组织。
+按"agent 实际能做什么"组织。
 
-| 你得到的 | 它的意思是 |
-|---------|-----------|
-| **雇一个团队，不是搭一个团队** | 选一个 template，agents 自带角色、记忆和工具 |
-| **会记忆的 agent** | 每段对话都被路由到一条 topic-aware 故事线，跨会话延续 |
-| **会互相喊一声的 agent** | 内置消息总线 —— agent 之间 @ 提及、交接任务、卡住时升级 |
-| **聊天就能装技能** | 跟 agent 说"从 ClawHub 装一个漫画 skill"，它就去装 |
-| **语音、图片、富文本输出** | 语音输入实时转写；图片附件；agent 能直接生成 HTML、PDF、图表、PPT |
-| **一键分享** | `.nxbundle` 打包整个 agent 团队，同事导入即用 |
-| **本地优先** | 数据在你机器上。云端只是可选。 |
-| **多 LLM** | Claude、OpenAI、Gemini 随时切换 |
+### 类人的 Agent 员工
 
-> 大多数 multi-agent framework 底层 feature 都差不多。NarraNexus 真正不同的，是**它是为谁做的**：不是给开发者搭 agent，是给任何想雇一个 agent 团队的人。
+每个 agent 有持久身份（**Awareness module** 管理偏好、风格、约束），跨会话记得"它是谁、它在为谁工作"。对话被自动归到不同的 storyline —— **Narrative memory** 用 embedding 检索话题，不是按时间无脑排。每个 agent 都能调用 MCP 工具，从 [ClawHub](https://website.narra.nexus/docs/modules/skills) 装一个新 skill 也是一句话的事，不用改代码。
 
----
+### Agent 间真协作
 
-## Templates / 使用场景
+不只是 chat —— agent 通过内置 **MessageBus** 协议直接对话：@mention、建房间、群聊。框架自带 rate limit 和 poison message 检测，防止 agent loop 失控。Agent 可以按能力被发现 —— 一个 agent 要找懂 SQL 的 helper，搜一下就有。
 
-5 个内置团队 template，每一个都是真实工作场景，不是 demo。
+### Batteries included
 
-###  金融市场晨报
-
-*适合：* 投资者、研究员、每天 7 点想看一份"能用"的晨报的人。
-*团队：* 8 个 agent —— 全球行情监测、宏观日历、新闻过滤、跨资产推理、持仓映射、行业主线、图表生成、首席策略师。
-*产出：* 一份 *可决策* 的晨报，回答"今天市场在交易什么？该进攻、防守，还是观望？" —— 不是新闻摘要。
-
-###  AI 漫画解读
-
-*适合：* 内容创作者、教育工作者、想把一页漫画变成讲解视频的人。
-*团队：* 上传解析 → 分镜叙述 → 特效合成 → 渲染输出。
-*产出：* 一个带配音、特效、逐格解读的可分享视频。（上面 hero demo 就是它。）
-
-###  Sales Agent Team
-
-*适合：* 独立创业者、小型销售团队。
-*团队：* 5 个 agent —— 内容生成、外发草拟、自动回复、CRM 更新、Master 经理。
-*产出：* 一句话指令 → 一个多渠道触达 campaign。中间只跟 Master Agent 确认一次内容。每天自动 pull 客户回复，更新客户关系状态。
-
-###  从 OpenClaw / Hermes / Claude Code 一键迁移
-
-*适合：* 已经在用单 agent 工具、想升级到团队的人。
-*团队：* 一个引导式导入器，把你现有的 OpenClaw / Hermes / Claude Code agent 和 skill，两次点击迁移成 NarraNexus 团队。
-*产出：* 你熟悉的 agent，现在会互相协作，还带着原来的 skill。
-
-###  （更多 template，社区贡献）
-
-Template 是一等公民。要做自己的 template，见 [Custom Templates](https://website.narra.nexus/docs/modules/custom-modules)。
+**10 个内置模块**直接能用：Memory · Awareness · Chat · SocialNetwork · Jobs · Skills · MessageBus · Lark · CommonTools · BasicInfo。每个模块自带 DB schema、MCP tools 和生命周期 hook。**多 LLM** 支持（Anthropic / OpenAI / Gemini）通过统一适配层接入。**4 种 Trigger** 模式（Chat / Job / MessageBus / Matrix·Lark）共用同一个 6 步流水线。
 
 ---
 
-## 诚实边界
+<a name="templates"></a>
 
-我们愿意提前告诉你。
+##  Reference Templates
 
-- **你仍然需要一个 LLM API key。** NetMind.AI Power 一个 key 覆盖三个槽位（Agent / Embedding / Helper），最快路径。
-- **目前 macOS 优先。** Windows / Linux 可从源码运行，原生安装包还在路上。
-- **部分模块仍是 experimental。** RAG 的文件管理 API 已经可用，runtime 模块集成还在路上。EverMemOS（进阶情景记忆）默认关闭。
-- **暂无移动端。**
-- **Web Demo 是 beta。** 延迟和限额都存在；桌面端才是完整产品。
+参考实现 —— 直接套用，或 fork 一份自己改。
 
-### 和其他工具的不同
+### 金融市场晨报
 
-我们不替代已经能解决问题的工具，我们解决另一个问题。
+适合每天 7 点要看市场的投资者、研究员。**8 个 agent** —— 全球行情监测、宏观日历、新闻过滤、跨资产推理、持仓映射、行业主线、图表生成、首席策略师。回答的是 *"今天市场在交易什么？我该进攻、防守还是观望？"* —— 不是又一份新闻摘要。
 
-| 如果你想… | 用… |
-|---------|----|
-| 用 Python 自己搭 agent | LangChain / AutoGen / CrewAI —— 它们很专业 |
-| 一个 personal assistant 跑遍你所有 channel | OpenClaw / ZeroClaw / Claude Code —— 它们很棒 |
-| **一个会协作、有记忆、能交付真正工作的 agent 团队，不写代码** | **NarraNexus** |
+<!-- TODO: 金融晨报 template demo video, ~30s -->
+<p align="center">
+  <em>📽️ 金融晨报演示 —— 待录制</em>
+</p>
+
+### Sales Agent Team
+
+适合独立创业者和小型销售团队。一条指令直接启动一支 sales team —— 你只对接一个 agent，剩下交给团队自动办公：多渠道客户触达、整理每天的回复、更新客户状态。
+
+<!-- TODO: Sales team template demo video, ~30s -->
+<p align="center">
+  <em>📽️ Sales Agent Team 演示 —— 待录制</em>
+</p>
+
+### 从 OpenClaw / Hermes / Claude Code 一键迁移
+
+已经在用其他 AI 工具？两次点击把你的 OpenClaw / Hermes / Claude Code agent 搬过来，立刻在 NarraNexus 团队里用 —— 之前积累的设定一起带上。
+
+<!-- TODO: 迁移 template demo video, ~30s -->
+<p align="center">
+  <em>📽️ 一键迁移演示 —— 待录制</em>
+</p>
+
+### 更多社区贡献的 template → [浏览全部](https://website.narra.nexus/docs/modules/custom-modules)
+
+> *全部由 NarraNexus agent 自主完成。*
 
 ---
 
-## 社群
+##  诚实边界
+
+- **LLM API key**：线上版有免费额度可以试用。日常或本地用，需要你自己的 LLM API key —— 一两分钟在 NetMind / OpenAI / Anthropic 注册一个就够。
+- **Agent 不是一上来就 100 分**：它需要你纠错、给反馈，越用越合手。把它当一个新员工，不是当神。
+- **协作不是一次完美**：复杂任务往往要 agent 跑两三轮才上手；总有一些判断只能你来做 —— 团队跑通大部分，关键的判断留给你自己。
+- **架构权衡**：每个 agent 启动自己的 MCP 进程，启动时大约多 100ms。chat-style workflow 不在意；高频 job 可以切到 Direct Trigger mode。
+
+###  和其他工具的不同
+
+| 你想… | 用… | 为什么 |
+|-------|-----|--------|
+| 用 Python 拼装 agent | LangChain · AutoGen · CrewAI | 库级别的零件，没有 opinionated runtime |
+| 一个 personal assistant 跑遍 channel | OpenClaw · ZeroClaw · Claude Code | single-agent + 多 channel 范式 |
+| **一支会协作、有记忆、能交付真正工作的 agent 团队** | **NarraNexus** | opinionated runtime + 热插拔模块 + 多 agent 协作 |
+
+我们不替代上面那些工具。我们解决另一个问题：**不止 personal assistant，是一支 agent 团队。**
+
+---
+
+##  社群
 
 <a name="社群"></a>
 
-- **Discord** —— `即将上线` *(链接占位)*
+- **Discord** —— `即将上线`
 - **Twitter / X** —— `即将上线`
-- **邮件订阅** —— `即将上线` *(在 star 变成匿名数字之前，我们想认识你)*
-- **文档** —— [website.narra.nexus](https://website.narra.nexus/docs)
-- **反馈 / Bug** —— [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
-
-> 如果你做出了一个 NarraNexus 上对别人有用的 template，私信我们 —— 我们想把它放进 README。
+- **邮件订阅** —— `即将上线`
+- **反馈** —— [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
 
 ---
 
-## 致谢
+##  如何贡献
 
-NarraNexus 的可选长期记忆后端基于 **[EverMemOS](https://github.com/EverMind-AI/EverMemOS)**。感谢 EverMemOS 团队的工作。
+### 我做了一个 template 想分享
+打包成 `.nxbundle`，从下面任一渠道投递：
 
-> Chuanrui Hu et al. *EverMemOS: A Self-Organizing Memory Operating System for Structured Long-Horizon Reasoning.* arXiv:2601.02163, 2026. [[论文]](https://arxiv.org/abs/2601.02163)
+- 💬 **Discord** —— `即将上线`
+- 📧 **邮件** —— `即将上线`
+- 🐦 **Twitter / X DM** —— `即将上线`
+- 🐛 **GitHub Issue** —— [开一个 issue](https://github.com/NetMindAI-Open/NarraNexus/issues)（带 `[template]` 前缀）
 
-## 引用
+我们 review 后会放进官方 Templates 库。
 
-```bibtex
-@software{narranexus2026,
-  title  = {NarraNexus: A Framework for Building Nexuses of Agents},
-  author = {NetMind.AI},
-  year   = {2026},
-  url    = {https://github.com/NetMindAI-Open/NarraNexus},
-  license = {CC-BY-NC-4.0}
-}
-```
+### 我想写一个 Module
+新 module 需要继承 `XYZBaseModule`、注册到 `MODULE_MAP`、补对应 schema 和 repository。详见 [新建 Module 指南](https://website.narra.nexus/docs/contributing/development-setup)。
+
+### 我想改代码
+- **Bug 反馈** → [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
+- **新功能** → 先开 issue 讨论方向，再发 PR
+- **Roadmap** → `即将上线`
+
+---
 
 ## 许可证
 
 [CC BY-NC 4.0](./LICENSE)
 
 <!--
+Alternative hooks (kept for record):
+
+Current (A3):
+  - "别只部署一个 agent。直接组一支团队。"  ← CURRENT (A3-zh)
+  - "Don't deploy an agent. Launch a team."   ← A3-en counterpart
+
+Other candidates considered:
+  - A1: "一支 agent 团队，一键启动。"
+  - A2: "一键启动你的 agent 团队。"
+  - A4: "一键。一支 agent 团队。上线。"
+  - A5: "不止 personal assistant —— 一键启动一支 agent 团队。"
+  - A6: "一个多 Agent 产品，一键启动。"
+
 合并版金句（备用，给老板挑）：
   "大多数 agent 工具是为开发者做的。NarraNexus 是为其他所有人做的。"
 
 待补素材：
   - docs/images/PLACEHOLDER_hero_manga.gif (30 秒漫画解读 demo)
-  - docs/images/PLACEHOLDER_template_morning_brief.png
-  - docs/images/PLACEHOLDER_template_sales_team.png
-  - docs/images/PLACEHOLDER_template_openclaw_migrate.png
+  - docs/images/PLACEHOLDER_install_local.gif (~30s 本地 build 流程)
+  - docs/images/PLACEHOLDER_install_dmg.gif (~30s macOS dmg 安装流程)
+  - docs/images/PLACEHOLDER_install_cloud.gif (~30s 云端注册流程)
+  - docs/images/PLACEHOLDER_template_morning_brief.gif
+  - docs/images/PLACEHOLDER_template_sales_team.gif
+  - docs/images/PLACEHOLDER_template_openclaw_migrate.gif
 -->
