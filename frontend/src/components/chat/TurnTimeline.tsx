@@ -46,12 +46,18 @@ function ThinkingBlock({
   isStreaming: boolean;
 }) {
   // Thinking is a peer of Reply in the timeline — both are bubbles, both
-  // get Markdown rendering, both expand inline. Reply is the user-facing
-  // speech (accent border) and Thinking is the agent's internal monologue
-  // (dashed/muted border) — same shape, different weight. No truncation
-  // or inner scroll: the user asked for the full thinking to be visible
-  // and to share a single scroll surface with the rest of the message
-  // list.
+  // get Markdown rendering when settled, both expand inline. Reply uses
+  // the accent border, Thinking uses a dashed muted border so the two
+  // are visually distinguishable without ranking.
+  //
+  // Streaming caveat: <Markdown> re-parses the entire content on every
+  // re-render, so feeding it a new full string per delta tanks input
+  // latency the longer the thinking gets (catch from Bin during the
+  // 2026-05-12 deploy). While streaming we therefore render plain
+  // pre-wrap text; once the turn settles (isStreaming=false, also the
+  // path used by historical timelines) we switch to Markdown so
+  // headings / bullets / code render properly. The content is the
+  // same in both modes; only the parser cost differs.
   return (
     <div
       className={cn(
@@ -66,7 +72,11 @@ function ThinkingBlock({
         <span>Thinking</span>
       </div>
       <div className="text-sm leading-relaxed">
-        <Markdown content={content} />
+        {isStreaming ? (
+          <div className="whitespace-pre-wrap">{content}</div>
+        ) : (
+          <Markdown content={content} />
+        )}
       </div>
     </div>
   );
@@ -194,7 +204,16 @@ function ReplyBlock({
         </div>
       )}
       <div className="text-sm leading-relaxed">
-        <Markdown content={content} />
+        {/* Same streaming optimisation as ThinkingBlock: <Markdown>
+            re-parses on every render, so we hand it plain text during
+            streaming and switch to full Markdown once the turn
+            settles. Keeps token-level latency flat regardless of how
+            long the reply gets. */}
+        {isStreaming ? (
+          <div className="whitespace-pre-wrap">{content}</div>
+        ) : (
+          <Markdown content={content} />
+        )}
       </div>
     </div>
   );
