@@ -11,6 +11,7 @@ NOT real encryption; production deployments should swap in KMS).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -117,7 +118,10 @@ class SlackCredentialManager:
         try:
             auth = await client.auth_test()
         except SlackSDKError as e:
-            return {"success": False, "error": f"slack auth.test failed: {e.code}"}
+            # Lazy import to avoid a circular reference (the service module
+            # imports this manager).
+            from ._slack_service import _friendly_slack_error
+            return {"success": False, "error": _friendly_slack_error(e.code or "")}
 
         team_id = auth.get("team_id", "")
         team_name = auth.get("team", "")
@@ -146,11 +150,25 @@ class SlackCredentialManager:
                 ),
             }
 
-        # Optionally resolve owner identity by email
+        # Optionally resolve owner identity by email. Wrap in a short
+        # timeout — Slack's users.lookupByEmail is Tier 3 (rate-limited)
+        # and can take ~200-800 ms normally, but tail latency / rate
+        # limiting can stretch it past 5-10s and block the bind round
+        # trip. Failure here is non-fatal (binding still works without
+        # the owner trust signal), so cap the wait and degrade gracefully.
         owner_user_id = ""
         owner_name = ""
         if owner_email:
-            owner = await client.lookup_user_by_email(owner_email)
+            try:
+                owner = await asyncio.wait_for(
+                    client.lookup_user_by_email(owner_email), timeout=3.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[slack:{agent_id}] users.lookupByEmail timed out for "
+                    f"{owner_email}; binding proceeds without owner trust signal"
+                )
+                owner = None
             if owner:
                 owner_user_id = owner.get("id", "") or ""
                 owner_name = (
@@ -219,6 +237,22 @@ class SlackCredentialManager:
             return False
         await self._db.delete(self.TABLE, {"agent_id": agent_id})
         logger.info(f"[slack:{agent_id}] credentials unbound")
+        return True
+
+    async def set_enabled(self, agent_id: str, enabled: bool) -> bool:
+        """Flip ``enabled`` flag without deleting the row.
+
+        Used by the trigger to disable a credential after detecting a
+        permanent auth failure (e.g. ``invalid_auth`` / ``token_revoked``)
+        so the watcher stops respawning subscribers against a dead token.
+        User can re-bind to re-enable.
+        """
+        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
+        if not existing:
+            return False
+        await self._db.update(
+            self.TABLE, {"agent_id": agent_id}, {"enabled": 1 if enabled else 0},
+        )
         return True
 
     async def list_active(self) -> list[SlackCredential]:

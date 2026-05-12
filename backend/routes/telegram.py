@@ -7,7 +7,7 @@ Endpoints:
   POST   /api/telegram/bind         — Bind a Telegram bot to an agent
   GET    /api/telegram/credential   — Get sanitized credential view (NO token)
   POST   /api/telegram/test         — Re-validate stored token via getMe
-  DELETE /api/telegram/unbind       — Remove the binding
+  POST   /api/telegram/unbind       — Remove the binding
 """
 
 from __future__ import annotations
@@ -63,6 +63,10 @@ async def _get_db():
 
 
 async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None:
+    # Local-mode caveat: in environments without the auth middleware,
+    # request.state.user_id is unset and EVERY route below is effectively
+    # unauthenticated. Mirror of slack.py's _verify_agent_ownership — see
+    # that docstring for the full posture note.
     if not hasattr(request.state, "user_id") or not request.state.user_id:
         return None
     user_id = request.state.user_id
@@ -137,11 +141,15 @@ async def test_telegram_connection(
     return await do_test_connection(mgr, body.agent_id)
 
 
-@router.delete("/unbind")
+@router.post("/unbind")
 async def unbind_telegram_bot(
     request: Request, body: AgentRequest
 ) -> dict[str, Any]:
-    """Remove the Telegram credential row for an agent."""
+    """Remove the Telegram credential row for an agent.
+
+    POST not DELETE: some proxies strip request bodies from DELETE. See
+    ``backend/routes/slack.py:unbind_slack_bot`` for the full rationale.
+    """
     auth_err = await _verify_agent_ownership(request, body.agent_id)
     if auth_err:
         return {"success": False, "error": auth_err}

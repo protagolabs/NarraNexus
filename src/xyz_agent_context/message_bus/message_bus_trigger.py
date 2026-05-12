@@ -73,6 +73,16 @@ class MessageBusTrigger:
         self._semaphore = asyncio.Semaphore(max_workers)
         self._rate_counters: Dict[str, List[float]] = {}
         self._current_interval = poll_interval
+        # Per-agent serialisation lock. The global ``_semaphore`` caps
+        # concurrent agents but does NOT prevent the same agent from
+        # being processed twice in parallel — `get_pending_messages`
+        # only filters on ``last_processed_at``, which is advanced
+        # after ``_invoke_runtime`` returns. AgentRuntime takes minutes
+        # for an LLM-heavy turn; the poll loop fires every 10s; without
+        # this lock the same bus_message gets handed to AgentRuntime
+        # 3+ times. Observed in production (2026-05-12 13:20 — agent
+        # processed one msg_4eb528dc three times, burned ~30K tokens).
+        self._agent_locks: Dict[str, asyncio.Lock] = {}
 
     async def start(self) -> None:
         """Start the polling loop with adaptive interval."""
@@ -178,8 +188,14 @@ class MessageBusTrigger:
         return True
 
     async def _process_agent(self, agent_id: str) -> bool:
-        """Process pending messages for an agent. Returns True if messages handled."""
-        async with self._semaphore:
+        """Process pending messages for an agent. Returns True if messages handled.
+
+        Acquires a per-agent lock so a slow ``_invoke_runtime`` does not let
+        the next poll fire a second AgentRuntime for the same pending
+        message. See ``__init__`` for the production incident this guards.
+        """
+        lock = self._agent_locks.setdefault(agent_id, asyncio.Lock())
+        async with lock, self._semaphore:
             try:
                 pending = await self._bus.get_pending_messages(agent_id)
                 if not pending:

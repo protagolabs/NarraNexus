@@ -100,7 +100,12 @@ class ChannelDedupStore:
         if value_ms > self._baseline_ms:
             self._baseline_ms = value_ms
 
-    async def classify(self, message_id: str, create_time_ms: int) -> dict:
+    async def classify(
+        self,
+        message_id: str,
+        create_time_ms: int,
+        agent_id: str = "",
+    ) -> dict:
         """
         Classify an incoming event. Returns a dict with at least:
 
@@ -111,6 +116,13 @@ class ChannelDedupStore:
 
         Plus optional diagnostic keys (``age_min`` for historic,
         ``error`` for db_fail_open).
+
+        ``agent_id`` partitions the in-memory hot cache: two agents in
+        different workspaces (e.g. two Slack binds in the same process)
+        could otherwise collide on a ``client_msg_id`` and silently drop
+        one agent's message because the other's already-seen entry is
+        cached. Defaults to "" for the no-multi-tenant case to keep
+        old callers working — the trigger base always passes it.
         """
         # Layer 1: historic-replay filter. Only applies when we know both
         # the event timestamp and the baseline.
@@ -126,11 +138,12 @@ class ChannelDedupStore:
 
         # Layer 2: in-memory hot cache. ``threading.Lock`` is intentional;
         # SDK callbacks may reach us from non-async threads.
+        cache_key = f"{agent_id}:{message_id}" if agent_id else message_id
         now = time.time()
         with self._memory_lock:
-            if message_id in self._memory_cache:
+            if cache_key in self._memory_cache:
                 return {"accept": False, "layer": "memory_dedup"}
-            self._memory_cache[message_id] = now
+            self._memory_cache[cache_key] = now
             cutoff_ts = now - self._ttl_seconds
             self._memory_cache = {
                 k: v for k, v in self._memory_cache.items() if v > cutoff_ts

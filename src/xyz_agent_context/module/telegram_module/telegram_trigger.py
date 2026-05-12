@@ -136,6 +136,22 @@ class TelegramTrigger(ChannelTriggerBase):
     def _subscriber_key(self, credential: TelegramCredential) -> str:  # type: ignore[override]
         return credential.agent_id
 
+    def is_permanent_auth_failure(self, exc: BaseException) -> bool:  # type: ignore[override]
+        # Telegram surfaces ``description="Unauthorized"`` (HTTP 401) when
+        # the token is revoked, never minted, or the bot account was
+        # deleted by the owner via @BotFather. Treat that as terminal —
+        # the watcher would otherwise reconnect every 120s forever.
+        if isinstance(exc, TelegramSDKError):
+            code = exc.code or ""
+            return code == "Unauthorized" or code.startswith("Unauthorized")
+        return False
+
+    async def disable_credential(self, credential: TelegramCredential) -> None:  # type: ignore[override]
+        if not self._db:
+            return
+        mgr = TelegramCredentialManager(self._db)
+        await mgr.set_enabled(credential.agent_id, False)
+
     async def connect(
         self, credential: TelegramCredential
     ) -> AsyncIterator[dict]:
@@ -181,10 +197,15 @@ class TelegramTrigger(ChannelTriggerBase):
                     if not self.running:
                         break
                     update_id = update.get("update_id")
+                    yield update
+                    # Advance offset ONLY after a clean yield. If the consumer
+                    # raises (e.g. crash, shutdown mid-batch, parse_event
+                    # error), the offset stays put and Telegram replays this
+                    # update on the next getUpdates. The dedup store catches
+                    # double-delivery on the happy path.
                     if update_id is not None:
                         offset = int(update_id) + 1
                         self._poll_offsets[key] = offset
-                    yield update
 
                 if not updates:
                     # No-op idle wake-up so self.running is checked

@@ -46,7 +46,11 @@ async def _get_manager() -> TelegramCredentialManager:
 
 
 def register_telegram_mcp_tools(mcp: Any) -> None:
-    """Register Telegram MCP tools on the given FastMCP server."""
+    """Register Telegram MCP tools on the given FastMCP server.
+
+    See ``register_slack_mcp_tools`` for the note on why caller agent_id
+    is NOT verified at this layer — the dev MCP server is multi-tenant.
+    """
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()

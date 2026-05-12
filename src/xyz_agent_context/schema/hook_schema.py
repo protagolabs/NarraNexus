@@ -112,9 +112,17 @@ class WorkingSource(str, Enum):
         Check if this is an automated (not directly user-triggered) execution
 
         Returns:
-            True if triggered by JOB, A2A, or CALLBACK
+            True if triggered by JOB, A2A, CALLBACK, MESSAGE_BUS, or any IM channel.
         """
-        return self in (WorkingSource.JOB, WorkingSource.A2A, WorkingSource.CALLBACK, WorkingSource.MESSAGE_BUS, WorkingSource.LARK)
+        return self in (
+            WorkingSource.JOB,
+            WorkingSource.A2A,
+            WorkingSource.CALLBACK,
+            WorkingSource.MESSAGE_BUS,
+            WorkingSource.LARK,
+            WorkingSource.SLACK,
+            WorkingSource.TELEGRAM,
+        )
 
     def is_user_initiated(self) -> bool:
         """

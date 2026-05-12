@@ -7,7 +7,7 @@ Endpoints:
   POST   /api/slack/bind         — Bind a Slack workspace to an agent
   GET    /api/slack/credential   — Get sanitized credential view (NO tokens)
   POST   /api/slack/test         — Re-validate stored tokens via auth.test
-  DELETE /api/slack/unbind       — Remove the binding
+  POST   /api/slack/unbind       — Remove the binding
 """
 
 from __future__ import annotations
@@ -65,6 +65,17 @@ async def _verify_agent_ownership(request: Request, agent_id: str) -> str | None
 
     Local mode (no JWT) skips enforcement; cloud mode requires the
     agent's ``created_by`` match the JWT user_id.
+
+    Security posture note: when this process runs without the auth
+    middleware that populates ``request.state.user_id`` (the local-mode
+    case), every Slack route is effectively unauthenticated — any HTTP
+    caller that can reach the backend port can bind / unbind / test any
+    bot. This is the intentional trade-off for developer ergonomics:
+    no real Docker bind exposes 8000 to the network by default. Do NOT
+    add sensitive operations behind this helper assuming auth — they
+    won't have any in local mode. The Telegram, Lark, and (future)
+    other IM-channel routes mirror this exact contract; keep them in
+    lockstep when changing.
     """
     if not hasattr(request.state, "user_id") or not request.state.user_id:
         return None
@@ -139,9 +150,14 @@ async def test_slack_connection(request: Request, body: AgentRequest) -> dict[st
     return await do_test_connection(mgr, body.agent_id)
 
 
-@router.delete("/unbind")
+@router.post("/unbind")
 async def unbind_slack_bot(request: Request, body: AgentRequest) -> dict[str, Any]:
-    """Remove the Slack credential row for an agent."""
+    """Remove the Slack credential row for an agent.
+
+    POST not DELETE: some proxies (Nginx default, AWS ALB) strip request
+    bodies from DELETE, which would make ``agent_id`` arrive as ``None``
+    and produce a generic 422. POST is well-behaved across infra.
+    """
     auth_err = await _verify_agent_ownership(request, body.agent_id)
     if auth_err:
         return {"success": False, "error": auth_err}

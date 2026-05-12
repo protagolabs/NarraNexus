@@ -18,6 +18,27 @@ from ._slack_credential_manager import SlackCredentialManager
 from .slack_sdk_client import SlackSDKClient, SlackSDKError
 
 
+# Map raw Slack error codes to actionable English. Anything not in the
+# map falls through with the raw code (the agent / power user can still
+# google it; we just hide the most opaque-looking strings from
+# first-time users).
+_SLACK_FRIENDLY_ERRORS: dict[str, str] = {
+    "invalid_auth": "Bot Token is invalid or revoked — copy a fresh xoxb-… from your Slack app's OAuth page and re-bind.",
+    "token_revoked": "Bot Token was revoked by the workspace admin. Re-install the app in Slack to mint a new token, then re-bind.",
+    "token_expired": "Bot Token expired. Re-install the Slack app, copy the new xoxb-… token, and re-bind.",
+    "account_inactive": "The Slack workspace this token belongs to is disabled. Re-activate the workspace or use a different one.",
+    "not_authed": "No authentication credentials were sent — the token field is probably empty. Re-bind with both xoxb-… and xapp-… filled in.",
+    "missing_scope": "The Slack app is missing an OAuth scope. Re-create the app from our manifest YAML (it pre-configures all required scopes), then re-bind.",
+    "not_in_channel": "The bot isn't a member of that channel. Invite it from Slack: /invite @<your-bot-name>.",
+    "channel_not_found": "Channel not found. Double-check the channel ID, or invite the bot to a channel it isn't in yet.",
+    "rate_limited": "Slack is rate-limiting requests right now. Wait a minute and try again.",
+}
+
+
+def _friendly_slack_error(code: str) -> str:
+    return _SLACK_FRIENDLY_ERRORS.get(code, f"Slack returned error: {code}")
+
+
 async def do_bind(
     mgr: SlackCredentialManager,
     agent_id: str,
@@ -47,7 +68,7 @@ async def do_test_connection(
         info = await client.auth_test()
     except SlackSDKError as e:
         logger.warning(f"[slack:{agent_id}] connection test failed: {e.code}")
-        return {"success": False, "error": f"slack auth.test failed: {e.code}"}
+        return {"success": False, "error": _friendly_slack_error(e.code or "")}
 
     return {
         "success": True,

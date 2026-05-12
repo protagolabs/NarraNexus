@@ -48,7 +48,21 @@ async def _get_manager() -> SlackCredentialManager:
 
 
 def register_slack_mcp_tools(mcp: Any) -> None:
-    """Register Slack MCP tools on the given FastMCP server."""
+    """Register Slack MCP tools on the given FastMCP server.
+
+    Cross-agent guard note (2026-05-12): an earlier draft pinned the
+    server to a single ``deployment_agent_id`` and rejected mismatching
+    caller agent_ids. That broke the actual deployment model: the dev
+    MCP server (``module_runner mcp``) is **multi-tenant** — one
+    process serves every agent in the workspace, demuxing on the
+    ``agent_id`` parameter of each tool call. Pinning broke legitimate
+    calls because every module was constructed with the placeholder
+    ``agent_id="mcp_deploy"``. Defence-in-depth against cross-agent
+    tool calls needs to happen at the AgentRuntime → MCP transport
+    layer (tagging the calling agent_id, not relying on tool
+    parameters); a tool-level check can't distinguish "wrong caller"
+    from "legitimate multi-tenant demux".
+    """
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()

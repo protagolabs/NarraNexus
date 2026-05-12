@@ -20,6 +20,7 @@ deltas vs Slack:
 from __future__ import annotations
 
 import base64
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -29,6 +30,14 @@ from loguru import logger
 from xyz_agent_context.utils.database import AsyncDatabaseClient
 
 from .telegram_sdk_client import TelegramSDKClient, TelegramSDKError
+
+
+# Telegram bot tokens have a stable shape: ``<digits>:<35+ char base64>``.
+# The previous check only verified the colon was present, so ``"1:x"``
+# was accepted and produced a confusing ``Unauthorized`` from getMe.
+# This regex catches obvious typos at the boundary, but the real
+# validation is still getMe.
+_TELEGRAM_TOKEN_RE = re.compile(r"^\d{6,}:[A-Za-z0-9_-]{20,}$")
 
 
 def _encode_token(raw: str) -> str:
@@ -102,11 +111,14 @@ class TelegramCredentialManager:
         bot_token = (bot_token or "").strip()
         owner_username = (owner_username or "").strip().lstrip("@")
 
-        # Telegram tokens look like ``123456789:AAH-...`` — digits, colon, base64ish
-        if not bot_token or ":" not in bot_token:
+        # Telegram tokens look like ``123456789:AAH-...`` — digits, colon, base64ish.
+        # The regex is intentionally loose enough to accept any real token while
+        # catching obvious typos / pasted partial strings before we waste a
+        # network round trip on getMe.
+        if not _TELEGRAM_TOKEN_RE.match(bot_token):
             return {
                 "success": False,
-                "error": "bot_token must look like '<digits>:<base64>'",
+                "error": "bot_token format looks wrong. Expected '<digits>:<base64>' (e.g. 7981632450:AAH-…).",
             }
 
         client = TelegramSDKClient(bot_token)
@@ -123,9 +135,11 @@ class TelegramCredentialManager:
             try:
                 me = await client.get_me()
             except TelegramSDKError as e:
+                # Lazy import — service module imports this manager.
+                from ._telegram_service import _friendly_telegram_error
                 return {
                     "success": False,
-                    "error": f"telegram getMe failed: {e.code}",
+                    "error": _friendly_telegram_error(e.code or ""),
                 }
 
             bot_user_id = str(me.get("id", ""))
@@ -243,9 +257,47 @@ class TelegramCredentialManager:
         logger.info(f"[telegram:{agent_id}] credentials unbound")
         return True
 
+    async def set_enabled(self, agent_id: str, enabled: bool) -> bool:
+        """Flip ``enabled`` flag without deleting the row. See
+        ``SlackCredentialManager.set_enabled`` for the rationale — used by
+        the trigger to break out of a reconnect loop against a revoked
+        token (Telegram ``Unauthorized``)."""
+        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
+        if not existing:
+            return False
+        await self._db.update(
+            self.TABLE, {"agent_id": agent_id}, {"enabled": 1 if enabled else 0},
+        )
+        return True
+
     async def list_active(self) -> list[TelegramCredential]:
         rows = await self._db.get(self.TABLE, {"enabled": 1})
         return [self._row_to_cred(r) for r in rows]
+
+    async def update_bot_identity(
+        self,
+        agent_id: str,
+        *,
+        bot_username: str = "",
+        bot_user_id: str = "",
+    ) -> bool:
+        """Refresh ``bot_username`` / ``bot_user_id`` after a successful Test.
+
+        Owners can rename their bot in @BotFather post-bind. Without this
+        refresh the UI's "DM @{bot_username} once" hint can point to a
+        non-existent handle.
+        """
+        updates: dict[str, Any] = {"updated_at": self._now_iso()}
+        if bot_username:
+            updates["bot_username"] = bot_username
+        if bot_user_id:
+            updates["bot_user_id"] = bot_user_id
+        if len(updates) == 1:  # only timestamp
+            return False
+        affected = await self._db.update(
+            self.TABLE, {"agent_id": agent_id}, updates,
+        )
+        return bool(affected)
 
     async def update_owner(
         self,
@@ -260,20 +312,28 @@ class TelegramCredentialManager:
         resolve the numeric user_id at bind time; the first matching DM is
         when the mapping becomes available.
 
-        Returns True if the row was updated, False if no row exists.
+        Compare-and-set: the update only fires when ``owner_user_id`` is
+        still empty. If two DMs race (legitimate owner + attacker who
+        squatted the username while the lock window was open), only one
+        wins, and once an ``owner_user_id`` is set this method becomes a
+        no-op until the user re-binds. Without the CAS the second write
+        would silently overwrite the first.
+
+        Returns True if the row was updated, False if no row exists OR
+        owner was already resolved (caller can ignore False — it means
+        "lock has already been consumed").
         """
-        row = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not row:
-            return False
-        await self._db.update(
+        affected = await self._db.update(
             self.TABLE,
-            {"agent_id": agent_id},
+            {"agent_id": agent_id, "owner_user_id": ""},
             {
                 "owner_user_id": owner_user_id,
                 "owner_name": owner_name,
                 "updated_at": self._now_iso(),
             },
         )
+        if not affected:
+            return False
         logger.info(
             f"[telegram:{agent_id}] owner late-resolved: "
             f"user_id={owner_user_id} name={owner_name!r}"

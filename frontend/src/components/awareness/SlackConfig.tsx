@@ -29,6 +29,8 @@ import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import type { SlackCredentialData } from '@/types';
 
+import type { ChannelConfigProps } from './IMChannelsSection';
+
 // Slack App Manifest — paste-and-go YAML for "Create app from manifest".
 //
 // Single source of truth for the BACKEND copy lives in
@@ -79,12 +81,17 @@ settings:
   token_rotation_enabled: false
 `;
 
-export function SlackConfig() {
+export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { agentId } = useConfigStore();
 
   const [credential, setCredential] = useState<SlackCredentialData | null>(null);
   const [loading, setLoading] = useState(false);
+  // Bind, Test and Unbind are independent actions and shouldn't disable
+  // each other. Bind keeps the shared `actionLoading` because the rest
+  // of the form is gated on it; Test and Unbind get their own state.
   const [actionLoading, setActionLoading] = useState(false);
+  const [testLoading, setTestLoading] = useState(false);
+  const [unbindLoading, setUnbindLoading] = useState(false);
   const [error, setError] = useState('');
 
   const [botToken, setBotToken] = useState('');
@@ -92,6 +99,10 @@ export function SlackConfig() {
   const [ownerEmail, setOwnerEmail] = useState('');
   const [setupOpen, setSetupOpen] = useState(false);
   const [manifestCopied, setManifestCopied] = useState(false);
+  // Transient green-flash state for Test — without this the user has no
+  // visual signal that "Test" passed because fetchCredential() usually
+  // produces an identical-looking re-render.
+  const [testPassed, setTestPassed] = useState(false);
 
   const handleCopyManifest = useCallback(async () => {
     try {
@@ -159,6 +170,7 @@ export function SlackConfig() {
         setAppToken('');
         setOwnerEmail('');
         await fetchCredential();
+        onBindStateChange?.();
       } else {
         setError(res.error || 'Bind failed');
       }
@@ -171,7 +183,7 @@ export function SlackConfig() {
 
   const handleTest = async () => {
     if (!agentId) return;
-    setActionLoading(true);
+    setTestLoading(true);
     setError('');
     try {
       const res = await api.testSlackConnection(agentId);
@@ -180,11 +192,18 @@ export function SlackConfig() {
       } else {
         // Refresh to show latest team/bot info
         await fetchCredential();
+        onBindStateChange?.();
+        if (mountedRef.current) {
+          setTestPassed(true);
+          setTimeout(() => {
+            if (mountedRef.current) setTestPassed(false);
+          }, 2000);
+        }
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Test failed');
     } finally {
-      if (mountedRef.current) setActionLoading(false);
+      if (mountedRef.current) setTestLoading(false);
     }
   };
 
@@ -197,19 +216,20 @@ export function SlackConfig() {
       variant: 'danger',
     });
     if (!ok) return;
-    setActionLoading(true);
+    setUnbindLoading(true);
     setError('');
     try {
       const res = await api.unbindSlackBot(agentId);
       if (res.success) {
         await fetchCredential();
+        onBindStateChange?.();
       } else {
         setError(res.error || 'Unbind failed');
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unbind failed');
     } finally {
-      if (mountedRef.current) setActionLoading(false);
+      if (mountedRef.current) setUnbindLoading(false);
     }
   };
 
@@ -402,22 +422,30 @@ export function SlackConfig() {
             <div className="flex gap-2">
               <Button
                 onClick={handleTest}
-                disabled={actionLoading}
+                disabled={testLoading}
                 variant="secondary"
                 size="sm"
                 className="flex-1"
               >
-                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                Test
+                {testLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : testPassed ? (
+                  <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-green-500)]" />
+                ) : null}
+                {testPassed ? 'Connected' : 'Test'}
               </Button>
               <Button
                 onClick={handleUnbind}
-                disabled={actionLoading}
+                disabled={unbindLoading}
                 variant="secondary"
                 size="sm"
                 className="flex-1"
               >
-                <Unlink className="w-4 h-4 mr-2" />
+                {unbindLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Unlink className="w-4 h-4 mr-2" />
+                )}
                 Unbind
               </Button>
             </div>

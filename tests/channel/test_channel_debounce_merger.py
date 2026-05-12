@@ -151,3 +151,37 @@ async def test_flush_all_drains_pending_buffers():
 def test_merger_rejects_zero_window():
     with pytest.raises(ValueError):
         ChannelDebounceMerger(window_ms=0)
+
+
+@pytest.mark.asyncio
+async def test_merge_does_not_mutate_input_messages():
+    """The merger MUST return a fresh ParsedMessage. Mutating the last
+    input leaks into anything else holding a reference (notably the
+    dedup store's hot cache) and, on a shutdown timer/flush_all race,
+    can cause the same payload to be processed twice."""
+    merger = ChannelDebounceMerger(window_ms=120)
+    received: list[ParsedMessage] = []
+
+    async def cb(merged):
+        received.append(merged)
+
+    m1 = _msg("m1", content="hello", media_urls=["http://x/1"])
+    m2 = _msg("m2", content="world", media_urls=["http://x/2"])
+
+    await merger.submit(m1, cb)
+    await merger.submit(m2, cb)
+    await asyncio.sleep(0.3)
+
+    assert len(received) == 1
+    merged = received[0]
+    # Merged result carries the combined payload.
+    assert merged.content == "hello\nworld"
+    assert merged.media_urls == ["http://x/1", "http://x/2"]
+    # Critical invariant: neither input was mutated.
+    assert m1.content == "hello"
+    assert m1.media_urls == ["http://x/1"]
+    assert m2.content == "world"
+    assert m2.media_urls == ["http://x/2"]
+    # And the returned object is not the same instance as m2 (the
+    # historical mutation bug returned `latest` directly).
+    assert merged is not m2

@@ -847,7 +847,7 @@ class ApiClient {
 
   async unbindLarkBot(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/lark/unbind', {
-      method: 'DELETE',
+      method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });
   }
@@ -883,7 +883,7 @@ class ApiClient {
 
   async unbindSlackBot(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/slack/unbind', {
-      method: 'DELETE',
+      method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });
   }
@@ -917,7 +917,7 @@ class ApiClient {
 
   async unbindTelegramBot(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/telegram/unbind', {
-      method: 'DELETE',
+      method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });
   }

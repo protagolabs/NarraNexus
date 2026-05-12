@@ -371,9 +371,17 @@ async def create_agent(request: CreateAgentRequest):
 
 
 @router.put("/agents/{agent_id}", response_model=UpdateAgentResponse)
-async def update_agent(agent_id: str, request: UpdateAgentRequest):
+async def update_agent(
+    agent_id: str,
+    body: UpdateAgentRequest,
+    http_request: Request,
+):
     """
     Update agent information (name, description)
+
+    Ownership: in cloud mode (JWT-bound user_id on ``request.state``),
+    only the creator may update. Local mode (no auth middleware) lets
+    everything through — same model as the Slack/Telegram bind routes.
     """
     logger.info(f"Updating agent: {agent_id}")
 
@@ -388,6 +396,19 @@ async def update_agent(agent_id: str, request: UpdateAgentRequest):
                 success=False,
                 error=f"Agent {agent_id} not found"
             )
+
+        # Ownership check: parallel to DELETE /agents/{agent_id} below
+        # and to ``_verify_agent_ownership`` in the IM routes. Mutating
+        # someone else's agent name from inside the same workspace was
+        # the actual gap — DELETE was guarded, PUT was not.
+        user_id = getattr(http_request.state, "user_id", None) or None
+        if user_id and agent.created_by != user_id:
+            return UpdateAgentResponse(
+                success=False,
+                error="Permission denied: only the creator can update this agent.",
+            )
+
+        request = body  # preserve old local var name in body below
 
         # Build update data
         update_data = {}

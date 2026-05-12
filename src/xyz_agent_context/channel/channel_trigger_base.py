@@ -264,6 +264,21 @@ class ChannelTriggerBase(ABC):
         if self._dedup_store is not None:
             self._dedup_store.update_baseline(int(time.time() * 1000))
 
+    # Override hook — return True when the exception means "this token is
+    # permanently broken; stop retrying." The default returns False, which
+    # keeps the old behaviour (back off forever). Subclasses that can
+    # identify revoked / invalid tokens override to True for those codes
+    # so the loop can disable the credential and exit cleanly.
+    def is_permanent_auth_failure(self, exc: BaseException) -> bool:
+        return False
+
+    # Override hook — flip the credential row's ``enabled`` flag to False
+    # so the watcher stops respawning subscribers against a dead token.
+    # Subclass implementations typically call ``mgr.set_enabled(agent_id,
+    # False)``. Default is a no-op for safety.
+    async def disable_credential(self, credential: Any) -> None:
+        return None
+
     # ────────────────────────────────────────────────────────────────────
     # PUSH mode stubs (Phase 6)
     # ────────────────────────────────────────────────────────────────────
@@ -529,6 +544,35 @@ class ChannelTriggerBase(ABC):
                 return
             except Exception as e:  # noqa: BLE001
                 ran = time.monotonic() - session_started
+                # Permanent auth failure (revoked token, etc) — stop
+                # hammering the upstream API. Disable the credential row
+                # so the watcher doesn't immediately respawn this loop on
+                # the next reconcile cycle. User has to re-bind to wake
+                # the subscriber back up.
+                if self.is_permanent_auth_failure(e):
+                    logger.warning(
+                        f"{type(self).__name__} permanent auth failure for "
+                        f"agent={agent_id} app={app_id} after {ran:.1f}s: "
+                        f"{type(e).__name__}: {e} — disabling credential"
+                    )
+                    await self._audit(
+                        EVENT_TRANSPORT_DISCONNECTED,
+                        agent_id=agent_id,
+                        app_id=app_id,
+                        details={
+                            "ran_seconds": ran,
+                            "error": f"{type(e).__name__}: {e}",
+                            "permanent": True,
+                        },
+                    )
+                    try:
+                        await self.disable_credential(credential)
+                    except Exception as disable_err:  # noqa: BLE001
+                        logger.exception(
+                            f"{type(self).__name__}: disable_credential raised "
+                            f"for {agent_id}: {disable_err}"
+                        )
+                    return
                 backoff = _compute_next_backoff(
                     current=backoff, ran_seconds=ran, max_backoff=max_backoff,
                 )
@@ -588,7 +632,9 @@ class ChannelTriggerBase(ABC):
             return
 
         decision = await self._dedup_store.classify(
-            message.message_id, message.timestamp_ms
+            message.message_id,
+            message.timestamp_ms,
+            agent_id=agent_id,
         )
 
         if decision["accept"]:

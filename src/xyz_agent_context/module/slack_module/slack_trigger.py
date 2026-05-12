@@ -48,7 +48,19 @@ from xyz_agent_context.schema.parsed_message import (
 
 from ._slack_credential_manager import SlackCredential, SlackCredentialManager
 from .slack_context_builder import SlackContextBuilder
-from .slack_sdk_client import SlackSDKClient
+from .slack_sdk_client import SlackSDKClient, SlackSDKError
+
+# Slack auth error codes that mean "this token is permanently dead." A
+# missed code here is benign (loop just keeps retrying); an over-broad
+# match here would disable healthy creds on a transient blip, so keep
+# this list narrow.
+_SLACK_PERMANENT_AUTH_CODES = frozenset({
+    "invalid_auth",
+    "token_revoked",
+    "token_expired",
+    "account_inactive",
+    "not_authed",
+})
 
 try:
     from slack_sdk.socket_mode.aiohttp import SocketModeClient
@@ -167,6 +179,17 @@ class SlackTrigger(ChannelTriggerBase):
 
     def _subscriber_key(self, credential: SlackCredential) -> str:  # type: ignore[override]
         return f"{credential.agent_id}:{credential.team_id}"
+
+    def is_permanent_auth_failure(self, exc: BaseException) -> bool:  # type: ignore[override]
+        if isinstance(exc, SlackSDKError):
+            return (exc.code or "") in _SLACK_PERMANENT_AUTH_CODES
+        return False
+
+    async def disable_credential(self, credential: SlackCredential) -> None:  # type: ignore[override]
+        if not self._db:
+            return
+        mgr = SlackCredentialManager(self._db)
+        await mgr.set_enabled(credential.agent_id, False)
 
     async def connect(
         self, credential: SlackCredential

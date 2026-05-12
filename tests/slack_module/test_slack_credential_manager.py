@@ -154,7 +154,11 @@ async def test_bind_propagates_auth_test_failure(
     result = await mgr.bind("agent_a", "xoxb-bad", "xapp-bad")
 
     assert result["success"] is False
-    assert "invalid_auth" in result["error"]
+    # Friendly mapping (added 2026-05-12) — surface user-actionable text,
+    # not the raw Slack code. Old assertion was ``"invalid_auth" in error``.
+    assert "Bot Token" in result["error"] and (
+        "invalid" in result["error"].lower() or "revoked" in result["error"].lower()
+    )
     row = await db_client.get_one("channel_slack_credentials", {"agent_id": "agent_a"})
     assert row is None
 

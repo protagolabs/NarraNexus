@@ -100,7 +100,7 @@ async def test_bind_valid_inserts_row_and_returns_metadata(
     _patch_ok(monkeypatch)
     mgr = TelegramCredentialManager(db_client)
 
-    result = await mgr.bind("agent_a", "7981632450:AAH-real")
+    result = await mgr.bind("agent_a", "7981632450:AAH-real-XXXXXXXXXXXXXXXX")
 
     assert result["success"] is True
     assert result["data"]["bot_user_id"] == "1001"
@@ -110,8 +110,8 @@ async def test_bind_valid_inserts_row_and_returns_metadata(
         "channel_telegram_credentials", {"agent_id": "agent_a"}
     )
     assert row is not None
-    assert row["bot_token_encoded"] != "7981632450:AAH-real"
-    assert _decode_token(row["bot_token_encoded"]) == "7981632450:AAH-real"
+    assert row["bot_token_encoded"] != "7981632450:AAH-real-XXXXXXXXXXXXXXXX"
+    assert _decode_token(row["bot_token_encoded"]) == "7981632450:AAH-real-XXXXXXXXXXXXXXXX"
 
 
 @pytest.mark.asyncio
@@ -142,10 +142,13 @@ async def test_bind_propagates_get_me_failure(
     )
     mgr = TelegramCredentialManager(db_client)
 
-    result = await mgr.bind("agent_a", "1234:bad-token")
+    result = await mgr.bind("agent_a", "123456789:AAH-bad-token-XXXXXXXXXX")
 
     assert result["success"] is False
-    assert "Unauthorized" in result["error"]
+    # Friendly mapping (added 2026-05-12) — surface user-actionable text,
+    # not the raw Telegram description. Old assertion was
+    # ``"Unauthorized" in result["error"]``.
+    assert "Bot Token" in result["error"] and "rejected" in result["error"].lower()
     row = await db_client.get_one(
         "channel_telegram_credentials", {"agent_id": "agent_a"}
     )
@@ -169,10 +172,10 @@ async def test_bind_rejects_same_bot_for_different_agent(
     )
     mgr = TelegramCredentialManager(db_client)
 
-    first = await mgr.bind("agent_a", "1234:tok-a")
+    first = await mgr.bind("agent_a", "123456789:AAH-toka-XXXXXXXXXXXXXXXX")
     assert first["success"] is True
 
-    second = await mgr.bind("agent_b", "1234:tok-b")
+    second = await mgr.bind("agent_b", "123456790:AAH-tokb-XXXXXXXXXXXXXXXX")
     assert second["success"] is False
     assert "already bound to another agent" in second["error"]
     assert "agent_a" in second["error"]
@@ -192,17 +195,17 @@ async def test_bind_same_bot_same_agent_is_rebind_not_conflict(
     )
     mgr = TelegramCredentialManager(db_client)
 
-    first = await mgr.bind("agent_a", "1234:tok-1")
+    first = await mgr.bind("agent_a", "123456789:AAH-tok1-XXXXXXXXXXXXXXXX")
     assert first["success"] is True
 
-    second = await mgr.bind("agent_a", "1234:tok-2")
+    second = await mgr.bind("agent_a", "123456789:AAH-tok2-XXXXXXXXXXXXXXXX")
     assert second["success"] is True
 
     rows = await db_client.get(
         "channel_telegram_credentials", {"agent_id": "agent_a"}
     )
     assert len(rows) == 1
-    assert _decode_token(rows[0]["bot_token_encoded"]) == "1234:tok-2"
+    assert _decode_token(rows[0]["bot_token_encoded"]) == "123456789:AAH-tok2-XXXXXXXXXXXXXXXX"
 
 
 # ── Owner resolution via @username ─────────────────────────────────────
@@ -228,7 +231,7 @@ async def test_bind_with_owner_username_resolves_user_id(
     )
     mgr = TelegramCredentialManager(db_client)
 
-    res = await mgr.bind("agent_a", "1234:tok", owner_username="@bin_liang")
+    res = await mgr.bind("agent_a", "123456789:AAH-tok-XXXXXXXXXXXXXXXXX", owner_username="@bin_liang")
     assert res["success"] is True
     assert res["data"]["owner_user_id"] == "555"
     assert res["data"]["owner_name"] == "Bin Liang"
@@ -252,7 +255,7 @@ async def test_bind_with_unresolvable_owner_username_still_succeeds(
     )
     mgr = TelegramCredentialManager(db_client)
 
-    res = await mgr.bind("agent_a", "1234:tok", owner_username="@ghost")
+    res = await mgr.bind("agent_a", "123456789:AAH-tok-XXXXXXXXXXXXXXXXX", owner_username="@ghost")
     assert res["success"] is True
     assert res["data"]["owner_user_id"] == ""
     assert res["data"]["owner_name"] == ""
@@ -272,7 +275,7 @@ async def test_get_public_omits_token_fields(
 ):
     _patch_ok(monkeypatch)
     mgr = TelegramCredentialManager(db_client)
-    await mgr.bind("agent_a", "1234:secret")
+    await mgr.bind("agent_a", "123456789:AAH-secret-XXXXXXXXXXXXXX")
 
     public = await mgr.get_public("agent_a")
 
@@ -290,7 +293,7 @@ async def test_get_public_omits_token_fields(
 async def test_unbind_removes_row(db_client, monkeypatch: pytest.MonkeyPatch):
     _patch_ok(monkeypatch)
     mgr = TelegramCredentialManager(db_client)
-    await mgr.bind("agent_a", "1234:tok")
+    await mgr.bind("agent_a", "123456789:AAH-tok-XXXXXXXXXXXXXXXXX")
 
     removed = await mgr.unbind("agent_a")
 
@@ -327,8 +330,8 @@ async def test_list_active_filters_disabled_rows(
     monkeypatch.setattr(cm_mod, "TelegramSDKClient", factory)
     mgr = TelegramCredentialManager(db_client)
 
-    await mgr.bind("agent_on", "1234:tok-on")
-    await mgr.bind("agent_off", "1234:tok-off")
+    await mgr.bind("agent_on", "123456789:AAH-tokon-XXXXXXXXXXXXXXX")
+    await mgr.bind("agent_off", "123456790:AAH-tokoff-XXXXXXXXXXXXXX")
     await db_client.update(
         "channel_telegram_credentials", {"agent_id": "agent_off"}, {"enabled": 0}
     )
@@ -354,7 +357,7 @@ async def test_update_owner_populates_fields(
     """
     _patch_ok(monkeypatch)
     mgr = TelegramCredentialManager(db_client)
-    await mgr.bind("agent_a", "1234:tok", owner_username="ctong201")
+    await mgr.bind("agent_a", "123456789:AAH-tok-XXXXXXXXXXXXXXXXX", owner_username="ctong201")
 
     # Before: owner_user_id empty (Telegram getChat refused @username)
     cred = await mgr.get("agent_a")
@@ -381,3 +384,34 @@ async def test_update_owner_returns_false_when_no_row(db_client):
     """No-op when the agent has no credential row."""
     mgr = TelegramCredentialManager(db_client)
     assert await mgr.update_owner("ghost", "x", "y") is False
+
+
+@pytest.mark.asyncio
+async def test_update_owner_is_cas_once_resolved(
+    db_client, monkeypatch: pytest.MonkeyPatch
+):
+    """Once ``owner_user_id`` is set, ``update_owner`` MUST not silently
+    overwrite it. Without the CAS, an attacker who briefly squatted the
+    locked username could replace the legitimate owner's user_id after
+    they had already DM'd the bot. The CAS makes the first writer win
+    forever (until user re-binds)."""
+    _patch_ok(monkeypatch)
+    mgr = TelegramCredentialManager(db_client)
+    await mgr.bind("agent_a", "123456789:AAH-tok-XXXXXXXXXXXXXXXXX", owner_username="ctong201")
+
+    # Legitimate owner DMs first — wins the lock.
+    first = await mgr.update_owner(
+        "agent_a", owner_user_id="legit_user_id", owner_name="Real Owner"
+    )
+    assert first is True
+
+    # Attacker (matching username) DMs second — must be rejected.
+    second = await mgr.update_owner(
+        "agent_a", owner_user_id="attacker_user_id", owner_name="Imposter"
+    )
+    assert second is False
+
+    after = await mgr.get("agent_a")
+    assert after is not None
+    assert after.owner_user_id == "legit_user_id"
+    assert after.owner_name == "Real Owner"

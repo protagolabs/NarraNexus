@@ -32,17 +32,25 @@ import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import type { TelegramCredentialData } from '@/types';
 
-export function TelegramConfig() {
+import type { ChannelConfigProps } from './IMChannelsSection';
+
+export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { agentId } = useConfigStore();
 
   const [credential, setCredential] = useState<TelegramCredentialData | null>(null);
   const [loading, setLoading] = useState(false);
+  // Bind, Test and Unbind are independent — see SlackConfig for the
+  // split rationale.
   const [actionLoading, setActionLoading] = useState(false);
+  const [testLoading, setTestLoading] = useState(false);
+  const [unbindLoading, setUnbindLoading] = useState(false);
   const [error, setError] = useState('');
 
   const [botToken, setBotToken] = useState('');
   const [ownerUsername, setOwnerUsername] = useState('');
   const [setupOpen, setSetupOpen] = useState(false);
+  // Transient green-flash state for Test — see SlackConfig for rationale.
+  const [testPassed, setTestPassed] = useState(false);
 
   const mountedRef = useRef(true);
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -101,6 +109,7 @@ export function TelegramConfig() {
         setBotToken('');
         setOwnerUsername('');
         await fetchCredential();
+        onBindStateChange?.();
       } else {
         setError(res.error || 'Bind failed');
       }
@@ -113,7 +122,7 @@ export function TelegramConfig() {
 
   const handleTest = async () => {
     if (!agentId) return;
-    setActionLoading(true);
+    setTestLoading(true);
     setError('');
     try {
       const res = await api.testTelegramConnection(agentId);
@@ -121,11 +130,18 @@ export function TelegramConfig() {
         setError(res.error || 'Telegram test failed');
       } else {
         await fetchCredential();
+        onBindStateChange?.();
+        if (mountedRef.current) {
+          setTestPassed(true);
+          setTimeout(() => {
+            if (mountedRef.current) setTestPassed(false);
+          }, 2000);
+        }
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Test failed');
     } finally {
-      if (mountedRef.current) setActionLoading(false);
+      if (mountedRef.current) setTestLoading(false);
     }
   };
 
@@ -138,19 +154,20 @@ export function TelegramConfig() {
       variant: 'danger',
     });
     if (!ok) return;
-    setActionLoading(true);
+    setUnbindLoading(true);
     setError('');
     try {
       const res = await api.unbindTelegramBot(agentId);
       if (res.success) {
         await fetchCredential();
+        onBindStateChange?.();
       } else {
         setError(res.error || 'Unbind failed');
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unbind failed');
     } finally {
-      if (mountedRef.current) setActionLoading(false);
+      if (mountedRef.current) setUnbindLoading(false);
     }
   };
 
@@ -313,22 +330,30 @@ export function TelegramConfig() {
             <div className="flex gap-2">
               <Button
                 onClick={handleTest}
-                disabled={actionLoading}
+                disabled={testLoading}
                 variant="secondary"
                 size="sm"
                 className="flex-1"
               >
-                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                Test
+                {testLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : testPassed ? (
+                  <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-green-500)]" />
+                ) : null}
+                {testPassed ? 'Connected' : 'Test'}
               </Button>
               <Button
                 onClick={handleUnbind}
-                disabled={actionLoading}
+                disabled={unbindLoading}
                 variant="secondary"
                 size="sm"
                 className="flex-1"
               >
-                <Unlink className="w-4 h-4 mr-2" />
+                {unbindLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Unlink className="w-4 h-4 mr-2" />
+                )}
                 Unbind
               </Button>
             </div>

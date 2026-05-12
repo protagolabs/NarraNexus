@@ -20,11 +20,21 @@ import { LarkConfig } from './LarkConfig';
 import { SlackConfig } from './SlackConfig';
 import { TelegramConfig } from './TelegramConfig';
 
+/**
+ * Props every IM-channel config component must accept. The parent passes
+ * ``onBindStateChange`` so that bind/unbind/test in the child fans out to
+ * the parent's connected-badge refresh — otherwise the parent badge stays
+ * stale until the user manually clicks "Refresh status".
+ */
+export interface ChannelConfigProps {
+  onBindStateChange?: () => void;
+}
+
 interface ChannelEntry {
   key: string;
   label: string;
   Icon: ComponentType<{ className?: string }>;
-  Component: ComponentType;
+  Component: ComponentType<ChannelConfigProps>;
   /** True iff this channel currently has a credential bound for the active agent. */
   fetchConnected: (agentId: string) => Promise<boolean>;
 }
@@ -181,7 +191,7 @@ export function IMChannelsSection() {
                 {/* Conditional render — heavy components don't fetch when collapsed */}
                 {isExpanded && (
                   <div className="px-3 pb-3 pt-1">
-                    <Component />
+                    <Component onBindStateChange={refreshConnected} />
                   </div>
                 )}
               </div>

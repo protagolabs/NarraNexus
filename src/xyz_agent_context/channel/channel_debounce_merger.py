@@ -29,6 +29,7 @@ Public surface:
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import Awaitable, Callable
 
 from loguru import logger
@@ -114,11 +115,18 @@ class ChannelDebounceMerger:
           view of the conversation.
         - Bodies join with newlines, in arrival order, skipping empties.
         - Media URLs concatenate.
+
+        Returns a NEW ParsedMessage. Never mutates the inputs — earlier
+        merger versions mutated ``latest`` in place, which leaked into
+        dedup-store entries and (under a shutdown timer/flush_all race)
+        could cause the same merged payload to be dispatched twice.
         """
         if len(messages) == 1:
             return messages[0]
         latest = messages[-1]
         bodies = [m.content for m in messages if m.content]
-        latest.content = "\n".join(bodies) if bodies else ""
-        latest.media_urls = [u for m in messages for u in m.media_urls]
-        return latest
+        return replace(
+            latest,
+            content="\n".join(bodies) if bodies else "",
+            media_urls=[u for m in messages for u in m.media_urls],
+        )
