@@ -69,18 +69,37 @@ import { getApiBaseUrl } from '@/stores/runtimeStore';
 
 class ApiClient {
   private getAuthHeaders(): Record<string, string> {
-    // Read JWT token from configStore (localStorage)
+    // Read identity from configStore (localStorage).
+    //
+    // Two headers, mutually compatible:
+    //   - Authorization: Bearer <jwt>  — cloud mode, signed identity
+    //   - X-User-Id: <user_id>         — local mode, unsigned identity
+    //
+    // We send both whenever they're available; backend auth_middleware
+    // decides which one to trust:
+    //   - cloud mode: only JWT, X-User-Id is ignored (defence in depth)
+    //   - local mode: only X-User-Id; JWT is irrelevant (no signing key)
+    //
+    // The single ApiClient is mode-agnostic for the same reason — the
+    // mode switch happens server-side in auth_middleware, not here.
+    const headers: Record<string, string> = {};
     try {
       const raw = localStorage.getItem('narra-nexus-config');
       if (raw) {
         const config = JSON.parse(raw);
         const token = config?.state?.token;
+        const userId = config?.state?.userId;
         if (token) {
-          return { 'Authorization': `Bearer ${token}` };
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        if (userId) {
+          headers['X-User-Id'] = userId;
         }
       }
-    } catch {}
-    return {};
+    } catch {
+      /* localStorage may be unavailable / disabled — fall through */
+    }
+    return headers;
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {

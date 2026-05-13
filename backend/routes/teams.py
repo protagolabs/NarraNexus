@@ -29,16 +29,18 @@ from xyz_agent_context.schema.team_schema import (
     TeamListResponse,
     TeamOperationResponse,
 )
-from backend.auth import _is_cloud_mode, get_local_user_id
+from backend.auth import resolve_current_user_id
 
 
 router = APIRouter()
 
 
 async def _user_id_for_request(request: Request) -> str:
-    if _is_cloud_mode():
-        return request.state.user_id
-    return await get_local_user_id()
+    # Unified across cloud (JWT) and local (X-User-Id header) modes —
+    # auth_middleware populates request.state.user_id either way, so
+    # downstream filtering is identical. See backend/auth.py for the
+    # mode-specific identity source.
+    return await resolve_current_user_id(request)
 
 
 @router.get("", response_model=TeamListResponse)

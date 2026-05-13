@@ -27,16 +27,16 @@ from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
 from xyz_agent_context.bundle.importer import preflight, confirm
 from xyz_agent_context.repository import SkillArchiveRepository
-from backend.auth import _is_cloud_mode, get_local_user_id
+from backend.auth import resolve_current_user_id
 
 
 router = APIRouter()
 
 
 async def _user_id_for_request(request: Request) -> str:
-    if _is_cloud_mode():
-        return request.state.user_id
-    return await get_local_user_id()
+    # Unified accessor — auth_middleware populates request.state.user_id
+    # from JWT (cloud) or X-User-Id header (local) before this runs.
+    return await resolve_current_user_id(request)
 
 
 class SkillExportSpec(BaseModel):
