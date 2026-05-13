@@ -206,9 +206,24 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
     }
   };
 
-  /** Render agent status icon (running spinner, completed badge, or default) */
-  const renderAgentStatusIcon = (id: string, isSelected: boolean) => {
-    const streaming = isAgentStreaming(id);
+  /** Render agent status icon (running spinner, completed badge, or default).
+   *
+   * Phase C (2026-05-13): "running" is now the OR of two signals:
+   *   1. local WS streaming state for the current tab (legacy)
+   *   2. backend BackgroundRun in 'running' state for this agent
+   *
+   * The second source lets the spinner appear even after a hard
+   * reload or in a completely different tab — backend has persisted
+   * lifecycle in events.state and surfaces it via /api/auth/agents
+   * (AgentInfo.active_run). Without this, "关 tab → 重开 → 啥也没
+   * 有" was the symptom Xiong reported.
+   */
+  const renderAgentStatusIcon = (
+    id: string,
+    isSelected: boolean,
+    hasBackendActiveRun: boolean = false,
+  ) => {
+    const streaming = isAgentStreaming(id) || hasBackendActiveRun;
     const completed = completedAgentIds.includes(id);
 
     if (streaming) {
@@ -272,7 +287,7 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                 style={{ animationDelay: `${index * 50}ms` }}
                 title={agent.agent_id}
               >
-                {renderAgentStatusIcon(agent.agent_id, isSelected)}
+                {renderAgentStatusIcon(agent.agent_id, isSelected, !!agent.active_run)}
               </button>
               {/* Completion badge dot */}
               {completed && !isSelected && (
@@ -382,7 +397,7 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                       'bg-[var(--bg-tertiary)] border-[var(--border-subtle)]'
                     )}
                   >
-                    {renderAgentStatusIcon(agent.agent_id, isSelected)}
+                    {renderAgentStatusIcon(agent.agent_id, isSelected, !!agent.active_run)}
                     {/* Completion badge dot */}
                     {completed && !isSelected && (
                       <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />

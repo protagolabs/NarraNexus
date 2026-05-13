@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-05-09
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Phase C: Backend active_run drives the running spinner
+
+`renderAgentStatusIcon` now ORs two signals: the legacy local
+``isAgentStreaming(id)`` (per-tab WS state) and a new
+``hasBackendActiveRun`` flag derived from ``agent.active_run`` in
+the fresh ``/api/auth/agents`` payload. Both call sites (collapsed
+icon strip + expanded list) pass ``!!agent.active_run``.
+
+Before this change, "关 tab → 重开 → 啥也没有" was the user-
+facing symptom: backend's BackgroundRun was happily writing
+event_stream rows but the spinner relied solely on local WS
+state, which resets on every tab reload. The new wiring makes the
+spinner persist across tabs / reloads / devices — the spinner is
+now a function of "the agent has a live BackgroundRun on the
+backend right now", which is the truth iron rule #14 establishes.
 
 # AgentList.tsx — Agent CRUD with real-time streaming + completion badges
 
