@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
@@ -89,13 +90,24 @@ class TelegramTrigger(ChannelTriggerBase):
     POLL_TIMEOUT_SECONDS = 30
     POLL_IDLE_SLEEP_SECONDS = 0.5
 
+    # "typing..." indicator pump cadence. Telegram's sendChatAction
+    # decays after 5s server-side, so we re-fire every 4s for a margin.
+    TYPING_REFRESH_SECONDS = 4.0
+
     def __init__(self, max_workers: int = 3):
         super().__init__(
             base_workers=max_workers,
+            # Telegram has no platform-side conversation history API, but
+            # ChannelInboxWriter persists every turn to bus_messages
+            # under channel_id=f"telegram_{chat_id}". The context builder
+            # reads from there — same load_conversation_history=True
+            # contract as Slack/Lark, just with a local data source.
+            # Without this, agents see zero prior context and treat
+            # follow-up messages like "再试一下" as fresh requests.
             history_config=ChannelHistoryConfig(
-                load_conversation_history=False,  # Telegram has no history API
-                history_limit=0,
-                history_max_chars=0,
+                load_conversation_history=True,
+                history_limit=20,
+                history_max_chars=20000,
             ),
         )
         # Per-credential long-poll offset (last consumed update_id + 1)
@@ -151,6 +163,70 @@ class TelegramTrigger(ChannelTriggerBase):
             return
         mgr = TelegramCredentialManager(self._db)
         await mgr.set_enabled(credential.agent_id, False)
+
+    @asynccontextmanager
+    async def processing_indicator(  # type: ignore[override]
+        self, credential: TelegramCredential, message: ParsedMessage
+    ) -> AsyncIterator[None]:
+        """Drive a "typing..." indicator on Telegram while the agent thinks.
+
+        ``sendChatAction(action="typing")`` clears after ~5s, so a
+        background task re-fires every ``TYPING_REFRESH_SECONDS`` until
+        the agent run finishes. The pump is best-effort — Telegram
+        failures (network, rate-limit, chat-gone) are swallowed so the
+        agent run itself never aborts because the cosmetic indicator
+        broke.
+
+        Uses the cached long-poll SDK client when available
+        (``self._sdk_clients[key]``) to share the aiohttp session; falls
+        back to a short-lived client otherwise so the indicator still
+        fires in tests / corner cases where the watcher hasn't populated
+        the cache.
+        """
+        key = self._subscriber_key(credential)
+        client = self._sdk_clients.get(key)
+        own_client = client is None
+        if own_client:
+            client = TelegramSDKClient(credential.bot_token)
+        chat_id = message.chat_id
+        stop_event = asyncio.Event()
+
+        async def _pump() -> None:
+            # First action fires immediately so the user sees "typing..."
+            # within the latency budget rather than 4s after acceptance.
+            while not stop_event.is_set():
+                try:
+                    await client.send_chat_action(chat_id, action="typing")
+                except Exception as e:  # noqa: BLE001 — cosmetic, never abort
+                    logger.debug(
+                        f"[telegram:{credential.agent_id}] typing indicator "
+                        f"sendChatAction failed (non-fatal): "
+                        f"{type(e).__name__}: {e}"
+                    )
+                try:
+                    await asyncio.wait_for(
+                        stop_event.wait(), timeout=self.TYPING_REFRESH_SECONDS
+                    )
+                    return  # stop_event signalled — exit cleanly
+                except asyncio.TimeoutError:
+                    continue  # refresh interval elapsed — fire again
+
+        pump_task = asyncio.create_task(_pump())
+        try:
+            yield
+        finally:
+            stop_event.set()
+            try:
+                await asyncio.wait_for(pump_task, timeout=1.0)
+            except asyncio.TimeoutError:
+                pump_task.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+            if own_client:
+                try:
+                    await asyncio.wait_for(client.close(), timeout=1.0)
+                except Exception:  # noqa: BLE001
+                    pass
 
     async def connect(
         self, credential: TelegramCredential
@@ -321,6 +397,10 @@ class TelegramTrigger(ChannelTriggerBase):
             message=message,
             credential=credential,
             agent_id=agent_id,
+            # Pass the trigger's DB handle so the builder can read history
+            # from bus_messages. ``self._db`` is set by the base class in
+            # ``start()`` before the first message is processed.
+            db_client=self._db,
         )
 
     # ────────────────────────────────────────────────────────────────────

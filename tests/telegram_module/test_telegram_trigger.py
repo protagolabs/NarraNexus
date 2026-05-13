@@ -17,6 +17,7 @@ Why this file exists:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -512,3 +513,129 @@ async def test_late_owner_resolution_skips_when_sender_has_no_username(db_client
 
     assert credential.owner_user_id == ""
     assert credential.owner_name == ""
+
+
+# ── processing_indicator — typing pump ──────────────────────────────────
+
+
+class _StubTelegramClient:
+    """Records every send_chat_action call. close() is a no-op."""
+
+    def __init__(self):
+        self.calls: list[tuple[str, str]] = []
+
+    async def send_chat_action(self, chat_id, action: str = "typing") -> bool:
+        self.calls.append((str(chat_id), action))
+        return True
+
+    async def close(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_processing_indicator_fires_once_for_fast_agent_run():
+    """Agent finishes faster than the refresh interval → one typing
+    ping covers the whole window. Validates the "fire immediately on
+    enter" contract — users see "typing..." within the latency budget,
+    not 4s later."""
+    trigger = TelegramTrigger()
+    trigger.TYPING_REFRESH_SECONDS = 1.0  # speed up the loop for tests
+    stub = _StubTelegramClient()
+    trigger._sdk_clients[trigger._subscriber_key(_cred())] = stub  # type: ignore[assignment]
+
+    msg = _make_parsed(_msg())
+    async with trigger.processing_indicator(_cred(), msg):
+        await asyncio.sleep(0.05)  # very short agent run
+
+    assert len(stub.calls) == 1
+    assert stub.calls[0] == (msg.chat_id, "typing")
+
+
+@pytest.mark.asyncio
+async def test_processing_indicator_refreshes_while_agent_runs():
+    """Agent run spans multiple refresh windows → typing fires
+    repeatedly. Without this the indicator would disappear after 5s,
+    leaving the user staring at silence while the agent thinks."""
+    trigger = TelegramTrigger()
+    trigger.TYPING_REFRESH_SECONDS = 0.1  # ~10 ticks per second
+    stub = _StubTelegramClient()
+    trigger._sdk_clients[trigger._subscriber_key(_cred())] = stub  # type: ignore[assignment]
+
+    msg = _make_parsed(_msg())
+    async with trigger.processing_indicator(_cred(), msg):
+        await asyncio.sleep(0.35)  # ≈ 3 refresh intervals
+
+    assert len(stub.calls) >= 3, (
+        f"Expected ≥3 typing pings during a 0.35s window with 0.1s refresh, "
+        f"got {len(stub.calls)}."
+    )
+
+
+@pytest.mark.asyncio
+async def test_processing_indicator_stops_promptly_on_exit():
+    """When the agent finishes mid-interval, the pump MUST exit on
+    stop_event rather than waiting out the full refresh window."""
+    trigger = TelegramTrigger()
+    trigger.TYPING_REFRESH_SECONDS = 5.0  # would block for 5s without proper signal
+    stub = _StubTelegramClient()
+    trigger._sdk_clients[trigger._subscriber_key(_cred())] = stub  # type: ignore[assignment]
+
+    msg = _make_parsed(_msg())
+    import time as _time
+    t0 = _time.monotonic()
+    async with trigger.processing_indicator(_cred(), msg):
+        pass  # exit immediately
+    elapsed = _time.monotonic() - t0
+
+    # Should be well under the 5s refresh interval — stop_event MUST
+    # short-circuit the asyncio.wait_for inside the pump.
+    assert elapsed < 1.0, (
+        f"processing_indicator took {elapsed:.2f}s to exit — pump is not "
+        f"honouring stop_event; future agents will hang on cleanup."
+    )
+
+
+@pytest.mark.asyncio
+async def test_processing_indicator_swallows_send_chat_action_errors():
+    """sendChatAction failure (rate limit, chat gone, network) MUST NOT
+    propagate out of the context manager — the indicator is cosmetic;
+    the agent run inside the ``async with`` block must always run."""
+
+    class _FailingClient:
+        async def send_chat_action(self, chat_id, action="typing"):
+            raise RuntimeError("simulated Telegram outage")
+
+        async def close(self):
+            return None
+
+    trigger = TelegramTrigger()
+    trigger.TYPING_REFRESH_SECONDS = 0.05
+    trigger._sdk_clients[trigger._subscriber_key(_cred())] = _FailingClient()  # type: ignore[assignment]
+
+    msg = _make_parsed(_msg())
+    # If the pump leaked the exception, ``async with`` would re-raise.
+    async with trigger.processing_indicator(_cred(), msg):
+        await asyncio.sleep(0.15)
+
+
+@pytest.mark.asyncio
+async def test_processing_indicator_falls_back_when_no_cached_client(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """If `_sdk_clients` doesn't have a client for this credential
+    (corner cases: tests, subscriber not yet spawned), the indicator
+    MUST still fire — it just creates a short-lived client."""
+    from xyz_agent_context.module.telegram_module import telegram_trigger as tt_mod
+
+    stub = _StubTelegramClient()
+    monkeypatch.setattr(tt_mod, "TelegramSDKClient", lambda _t: stub)
+
+    trigger = TelegramTrigger()
+    trigger.TYPING_REFRESH_SECONDS = 1.0
+    # NOTE: do NOT seed _sdk_clients — force the fallback path.
+
+    msg = _make_parsed(_msg())
+    async with trigger.processing_indicator(_cred(), msg):
+        await asyncio.sleep(0.05)
+
+    assert len(stub.calls) == 1

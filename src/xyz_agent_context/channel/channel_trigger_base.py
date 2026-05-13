@@ -37,6 +37,7 @@ import asyncio
 import re
 import time
 from abc import ABC, abstractmethod
+from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -278,6 +279,27 @@ class ChannelTriggerBase(ABC):
     # False)``. Default is a no-op for safety.
     async def disable_credential(self, credential: Any) -> None:
         return None
+
+    # Override hook — async context manager wrapping the actual
+    # ``_build_and_run_agent`` call. Subclasses MAY use this to drive a
+    # platform-side "processing" indicator that's visible to the human
+    # waiting on the reply:
+    #
+    #   - Telegram: ``sendChatAction(chat_id, action="typing")`` shows a
+    #     "typing..." hint. Decays after 5s, so the override re-fires
+    #     every ~4s in a background task and cancels on exit.
+    #   - Slack: ``assistant.threads.setStatus`` (assistant apps) or
+    #     ``reactions.add`` (regular channels) — TBD per channel design.
+    #   - Lark: ``bot/typing`` API — TBD.
+    #
+    # The default returns a no-op context manager so existing channels
+    # keep working unchanged. Failures inside the override MUST NOT
+    # propagate (the indicator is cosmetic; agent execution wins).
+    @asynccontextmanager
+    async def processing_indicator(
+        self, credential: Any, message: ParsedMessage
+    ) -> AsyncIterator[None]:
+        yield
 
     # ────────────────────────────────────────────────────────────────────
     # PUSH mode stubs (Phase 6)
@@ -815,9 +837,10 @@ class ChannelTriggerBase(ABC):
             f"{message.content[:100]}"
         )
 
-        output_text = await self._build_and_run_agent(
-            credential, message, sender_name
-        )
+        async with self.processing_indicator(credential, message):
+            output_text = await self._build_and_run_agent(
+                credential, message, sender_name
+            )
 
         try:
             await self._inbox_writer.write(

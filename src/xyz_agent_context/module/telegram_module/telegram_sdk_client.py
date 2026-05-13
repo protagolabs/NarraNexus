@@ -174,6 +174,28 @@ class TelegramSDKClient:
         resp = await self.api_call("deleteWebhook", {})
         return bool(resp.get("ok"))
 
+    async def send_chat_action(
+        self, chat_id: str | int, action: str = "typing"
+    ) -> bool:
+        """sendChatAction — shows a transient activity hint on the
+        recipient's client.
+
+        Telegram displays the indicator for ~5 seconds, after which it
+        auto-clears unless re-sent. The caller is responsible for
+        re-firing every ~4s if the action is supposed to span a longer
+        operation. Failures are non-fatal — the indicator is decorative,
+        not load-bearing — so we return False rather than raising.
+
+        Valid ``action`` values include ``typing``, ``upload_photo``,
+        ``record_video``, ``record_voice``, ``upload_document``,
+        ``choose_sticker``, ``find_location``. Anything else gets a 400
+        from Telegram, which we suppress.
+        """
+        resp = await self.api_call(
+            "sendChatAction", {"chat_id": chat_id, "action": action}
+        )
+        return bool(resp.get("ok"))
+
     async def get_chat(self, chat_id_or_handle: str | int) -> dict[str, Any]:
         """getChat — also resolves @username → numeric user_id (for the
         owner-trust signal at bind time)."""
