@@ -180,16 +180,6 @@ Already using another AI tool? Two clicks bring your existing OpenClaw / Hermes 
 - **Collaboration isn't perfect on the first try**: complex tasks may take a couple of iterations before agents get the hang of it; some judgment calls always belong to you — the team handles the bulk, the key calls stay with you.
 - **Architecture trade-off**: each agent launches its own MCP process, adding ~100ms of startup overhead. Negligible for chat-style workflows; switch to Direct Trigger mode for high-frequency jobs.
 
-###  How we compare
-
-| If you want… | Use… | Why |
-|--------------|------|------|
-| Python primitives to compose agents | LangChain · AutoGen · CrewAI | Library-level building blocks, no opinionated runtime |
-| One personal assistant across channels | OpenClaw · ZeroClaw · Claude Code | Single-agent, multi-channel paradigm |
-| **A team of agents that collaborate, remember, and ship real work** | **NarraNexus** | Opinionated runtime + hot-swappable modules + multi-agent collaboration |
-
-We don't replace those tools. We solve a different problem: **not just a personal assistant — an agent team.**
-
 ---
 
 ##  Community
