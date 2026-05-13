@@ -4,6 +4,52 @@ last_verified: 2026-05-13
 stub: false
 ---
 
+## 2026-05-13 — Phase C: agent 跟 WS 解耦 + reconnect 支持
+
+websocket_agent_run 大重构：
+
+**L1 — WS 断不杀 agent**
+
+`_listen_for_stop` 在 `WebSocketDisconnect` 时仅 log，**不再**调
+`cancellation.cancel()`。WS 断只代表"用户关 tab"，agent 该继续跑。
+Only path that cancels is explicit `{"action":"stop"}` from a live WS.
+
+**L2 — agent_runtime 跑成 BackgroundRun task**
+
+Fresh run 模式不再 `async for message in runtime.run(...)`，改成：
+1. 创建 BackgroundRun + cancellation
+2. `asyncio.create_task(bg.drive(...))` —— task 自己 own AgentRuntime
+3. `await bg.ready_event.wait()` 等到 step 0 yield 出 event_id、
+   BackgroundRun 完成自我注册
+4. 推 `{type: run_started, run_id: ...}` 给前端
+5. subscribe broadcaster + `async for event in subscriber: ws.send_json`
+6. WS 断 → `bg.broadcaster.unsubscribe()`；**不 cancel bg.task**
+
+**Reconnect 模式 (新增)**
+
+`AgentRunRequest.run_id` 字段设了即触发 reconnect 分支
+`_handle_reconnect()`：
+1. SELECT events row by event_id；user_id 必须匹配（防越权）
+2. 推 `{type: run_reconnect, run_id, state, started_at, ...}` 元数据
+3. SELECT event_stream rows ORDER BY seq ASC，逐条推
+   `{type: replay, kind, seq, payload}`
+4. state != running → 推 `{type: run_ended, final_output}` 关闭 WS
+5. state == running + active_runs 有该 run → subscribe broadcaster + 
+   forward live events
+6. state == running 但本进程 active_runs 没有（在另一台 backend
+   instance）→ 推 `reconnect_warning`、关 WS
+
+**协议变化**
+
+新增 ws inbound 字段：`run_id`（Optional，触发 reconnect 模式）
+新增 ws outbound type：
+- `run_started` —— fresh run 启动后立即推 run_id
+- `run_reconnect` —— reconnect 模式入口
+- `replay` —— history 回放
+- `run_ended` —— terminal state + final_output
+- `reconnect_warning` —— run 在其他 backend 实例上活着，本连接拿不到 live stream
+- 之前已有：`stopping`, `cancelled`, `error`, `heartbeat`, `complete`, ...
+
 ## 2026-05-13 — Stop 三段 ACK 协议（Phase A C3）
 
 用户点 Stop 后到 agent 真停的延迟可能从亚秒到几秒（取决于此时在 LLM

@@ -22,6 +22,7 @@ from loguru import logger
 
 from xyz_agent_context.utils.logging import setup_logging
 from xyz_agent_context.utils.db_factory import get_db_client, close_db_client
+from xyz_agent_context.utils.timezone import utc_now
 from backend.config import settings
 from backend.auth import _is_cloud_mode
 
@@ -113,6 +114,39 @@ async def lifespan(app: FastAPI):
         backfill_provider_metadata,
     )
     await backfill_provider_metadata(db)
+
+    # Agent Runtime Lifecycle (Phase C) — initialize the in-memory
+    # active_runs registry and reconcile stale rows.
+    #
+    # On every process start the registry is empty by definition; any
+    # `events.state = 'running'` row must therefore reference a
+    # BackgroundRun whose task died with the previous process. Flip
+    # those to `failed` so the UI doesn't claim "still running" for
+    # an agent that no longer exists in memory.
+    #
+    # See reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-stream-resilience-design.md §4.1.6
+    app.state.active_runs = {}
+    try:
+        running_rows = await db.get("events", {"state": "running"})
+        stale_count = 0
+        for row in running_rows or []:
+            try:
+                await db.update(
+                    "events",
+                    {"event_id": row["event_id"]},
+                    {
+                        "state": "failed",
+                        "error_message": "backend restarted, run lost",
+                        "finished_at": utc_now(),
+                    },
+                )
+                stale_count += 1
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[reconcile] failed to mark stale run {row.get('event_id')!r}: {e}")
+        if stale_count:
+            logger.info(f"[reconcile] flipped {stale_count} stale 'running' rows to 'failed' on startup")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[reconcile] sweep failed: {e}")
 
     # One-shot data migrations (idempotent; run after schema migration)
     from xyz_agent_context.utils.one_shot_migrations import (

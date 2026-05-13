@@ -152,6 +152,27 @@ _register(
             Column("user_id", "TEXT", "VARCHAR(128)"),
             Column("event_embedding", "TEXT", "MEDIUMTEXT"),
             Column("embedding_text", "TEXT", "TEXT"),
+            # --- Agent Runtime Lifecycle (Phase C, 2026-05-13) ---
+            # See reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-
+            # and-stream-resilience-design.md §4.1
+            #
+            # `state` describes the live status of the agent run associated
+            # with this event. Old rows default to 'completed' (they finished
+            # before this feature shipped — reconcile MUST NOT mistake them
+            # for stale running runs).
+            #
+            # `state` values:
+            #   running   — BackgroundRun task is alive in some backend process
+            #   completed — finished normally
+            #   cancelled — user pressed Stop
+            #   failed    — fatal error (timeout, SDK crash, backend restart)
+            Column("state", "TEXT", "VARCHAR(32)", nullable=False, default="'completed'"),
+            Column("started_at", "TEXT", "DATETIME(6)"),
+            Column("last_event_at", "TEXT", "DATETIME(6)"),
+            Column("finished_at", "TEXT", "DATETIME(6)"),
+            Column("tool_call_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("current_stage", "TEXT", "VARCHAR(64)"),
+            Column("error_message", "TEXT", "TEXT"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -163,6 +184,9 @@ _register(
             Index("idx_events_trigger", ["trigger"]),
             Index("idx_events_created_at", ["created_at"]),
             Index("idx_events_agent_created", ["agent_id", "created_at"]),
+            # Phase C: filter running rows for reconcile + active_run lookup
+            Index("idx_events_state", ["state"]),
+            Index("idx_events_agent_state", ["agent_id", "state"]),
         ],
     )
 )
@@ -860,6 +884,60 @@ _register(
         indexes=[
             Index("idx_un_user_unread", ["user_id", "read_at"]),
             Index("idx_un_user_created", ["user_id", "created_at"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# 30. event_stream — per-stream-chunk persistence for live agent runs.
+#
+# Introduced by the Agent Runtime Lifecycle work (spec
+# reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-
+# stream-resilience-design.md §4.1.2).
+#
+# Why we need it
+#   The user requirement is "重连等于没关过一样" — closing a browser tab
+#   mid-run and reopening it later must restore the full thinking / tool
+#   trace, not just the final reply. The events table only persists
+#   final_output (per-turn granularity); the streaming events themselves
+#   live on the WebSocket and disappear when the WS drops. This table
+#   captures every stream-level chunk so replay-on-reconnect works.
+#
+# Granularity decision (組合 B)
+#   Thinking is grouped into SEGMENTS — a segment is the contiguous
+#   stretch between two type switches (tool_call / tool_output / etc.).
+#   When a non-thinking event arrives or the run ends, the buffered
+#   segment is flushed as ONE row here. Tool_call and tool_output get
+#   one row each. Decision driver: 4408 raw thinking chunks per Xiong-
+#   style run collapse to ~50 segment rows; total row count per run is
+#   bounded by `2 × tool_call_count + small constant` rather than by
+#   token granularity.
+#
+# Layout
+#   * (event_id, seq) is the natural primary key but we keep a synthetic
+#     auto-increment `id` to make MySQL row inserts cheaper.
+#   * `kind` is small and bounded — VARCHAR(32) is plenty.
+#   * `payload` is JSON or plain text. For `thinking_segment` it is the
+#     raw concatenated text; for `tool_call` / `tool_output` it is a
+#     JSON object so the consumer can pull `tool_name` / `arguments` /
+#     `output` without a separate column per attribute.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="event_stream",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("event_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("seq", "INTEGER", "INT", nullable=False),
+            Column("kind", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("payload", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            # Replay-on-reconnect: SELECT ... WHERE event_id=? ORDER BY seq ASC
+            Index("idx_event_stream_event_seq", ["event_id", "seq"], unique=True),
+            Index("idx_event_stream_event_id", ["event_id"]),
         ],
     )
 )

@@ -4,6 +4,29 @@ last_verified: 2026-05-13
 stub: false
 ---
 
+## 2026-05-13 addition — Agent Runtime Lifecycle (Phase C)
+
+`events` 表加 7 个 Phase-C 字段：`state` / `started_at` / `last_event_at`
+/ `finished_at` / `tool_call_count` / `current_stage` / `error_message`。
+**`state` 的 DDL 默认值是 `completed`**——这是给已存在的旧 events 行的兜底，
+让它们不被启动期 reconcile 误判成 stale `running`。
+
+新增 `idx_events_state` + `idx_events_agent_state` 两个索引——前者给
+reconcile 扫 stale 行用，后者给 `/api/auth/agents` list 加 active_run
+字段的 N+1 SELECT 用（实际 endpoint 用了 IN-列表合并成单个 SELECT，但
+索引仍是底层优化）。
+
+新增 `event_stream` 表（编号 30.）——per stream-chunk 副表，跟 `events`
+1:N 关联。每段 thinking、每个 tool_call、每个 tool_output 一行。
+`(event_id, seq)` unique 复合索引让重连时的 replay 按 seq ASC 一次扫
+出全部。**永不清**——audit + 历史回看。
+
+数据量估算（Xiong-style 13 min run）：thinking 段约 50 行 + tool 约 80
+行（call + output 各 41）+ progress / text_delta 若干 ≈ 200 行/run。
+13 万 run/年 ≈ 2600 万行，~25GB——MySQL 无压力。
+
+Spec: `reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-stream-resilience-design.md` §4.1
+
 ## 2026-05-13 addition — Provider Unification (Phase 0)
 
 `user_providers` gains four nullable columns — `driver_type`, `owner_user_id`,

@@ -59,6 +59,22 @@ class RegisterResponse(BaseModel):
     initial_output_tokens: int = 0
 
 
+class ActiveRunInfo(BaseModel):
+    """Phase C — summary of the agent's currently running run, if any.
+
+    The frontend uses this to render the "Running" badge on the agent
+    card (pulse + glow, sharing the visual language of the Jobs
+    status badges). When no run is active, the parent AgentInfo
+    carries ``active_run = None``.
+    """
+    run_id: str
+    state: str  # running / cancelling / completed / cancelled / failed
+    started_at: Optional[str] = None
+    last_event_at: Optional[str] = None
+    tool_call_count: int = 0
+    current_stage: Optional[str] = None
+
+
 class AgentInfo(BaseModel):
     """Response model for agent info"""
     agent_id: str
@@ -69,6 +85,11 @@ class AgentInfo(BaseModel):
     is_public: bool = False
     created_by: Optional[str] = None
     bootstrap_active: bool = False
+    # Phase C (2026-05-13): summarise the agent's active run for the
+    # frontend "running" badge. None means the agent is not currently
+    # running for this user. The query is one event-table SELECT per
+    # agent in the list — bounded by agent count which is small.
+    active_run: Optional[ActiveRunInfo] = None
 
 
 class AgentListResponse(BaseModel):

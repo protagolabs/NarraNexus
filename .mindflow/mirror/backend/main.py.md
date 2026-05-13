@@ -4,6 +4,20 @@ last_verified: 2026-05-13
 stub: false
 ---
 
+## 2026-05-13 — Phase C: active_runs registry + reconcile
+
+`lifespan` 启动时初始化 `app.state.active_runs = {}` ——
+WS handler 和 BackgroundRun 共同使用的 in-memory map（`run_id` →
+BackgroundRun 对象）。
+
+之后跑 reconcile：UPDATE events SET state='failed' WHERE state='running'。
+理由：进程刚启动 active_runs 必空，任何 events.state=='running' 的行
+都是上次进程留下的孤儿 task。flip 成 `failed` 防止前端 polling 时
+误显示"还在跑"。`error_message='backend restarted, run lost'`。
+
+reconcile 必须在 backend 接受任何 WS 请求之前完成。所以放在 lifespan
+入口，紧跟 auto_migrate + provider_driver backfill 之后。
+
 ## 2026-05-13 — Provider Unification boot wiring
 
 `lifespan` now calls `provider_driver.backfill_provider_metadata(db)` right
