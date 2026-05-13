@@ -13,7 +13,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Square, Loader2, Sparkles, MessageSquare, CheckCircle2, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
+import { Send, Square, Loader2, Sparkles, MessageSquare, Paperclip, X, FileText, Image as ImageIcon, Mic, Bot } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
+import { TurnTimeline } from './TurnTimeline';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { AudioRecorder } from './AudioRecorder';
@@ -147,6 +148,7 @@ interface TimelineItem {
   thinking?: string;              // Reasoning content (from session messages)
   toolCalls?: import('@/types').AgentToolCall[];  // Tool calls (from session messages)
   attachments?: Attachment[];     // User-uploaded files referenced by this message
+  timeline?: import('@/types').TurnEvent[];  // Live-stream timeline carried over (just-finished turn)
 }
 
 interface ChatPanelProps {
@@ -202,8 +204,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
   const {
     messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls,
+    currentEvents,
     isStreaming, addUserMessage, startStreaming,
-    getUserVisibleResponse, setActiveAgent,
+    setActiveAgent,
   } = useChatStore();
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
 
@@ -221,13 +224,43 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
 
-  const { run, stop, isLoading } = useAgentWebSocket({
+  const { run, reconnect, stop, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
       refreshAgents();
       if (completedAgentId) checkAwarenessUpdate(completedAgentId);
       onAgentComplete?.();
     },
   });
+
+  // ── Phase C: auto-reconnect to an in-flight backend run ──────────
+  //
+  // When the user lands on this agent's chat panel and the backend
+  // already has a BackgroundRun in 'running' state for them, the
+  // panel should auto-reconnect (don't ask the user to "resend
+  // their last message" — the agent is still working on it).
+  //
+  // We key the effect on agentId + run_id so:
+  //   * switching agents drops the reconnect attempt for the previous
+  //     agent (its WS, if any, was tied to a different agentId map key)
+  //   * an agent transitioning into a NEW run later (different run_id)
+  //     triggers a fresh reconnect
+  //   * a run completing and the badge clearing won't infinitely
+  //     re-open WS connections — the active_run goes null
+  //
+  // We deliberately don't attempt to reconnect when isStreaming for
+  // this agent is already true: that means the local fresh-run flow
+  // is already in flight on this tab.
+  const activeRunId = currentAgent?.active_run?.run_id ?? null;
+  useEffect(() => {
+    if (!agentId || !userId) return;
+    if (!activeRunId) return;
+    if (isLoading) return; // already locally streaming → don't double-open
+    // Fire-and-forget; wsManager handles idempotency + replacement.
+    reconnect(agentId, userId, activeRunId, currentAgent?.name);
+    // We intentionally exclude `reconnect` from the dep list — it's a
+    // stable identity from useCallback in the hook.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, userId, activeRunId]);
 
   // ── History loading ─────────────────────────────────
   const HISTORY_PAGE_SIZE = 20;
@@ -415,7 +448,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }
     }
 
-    for (const msg of messages) {
+    for (let mi = 0; mi < messages.length; mi++) {
+      const msg = messages[mi];
       const key = `${msg.role}:${msg.content}`;
       const historyTimestamps = historyByKey.get(key);
       const matchIdx = historyTimestamps
@@ -439,6 +473,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         thinking: msg.thinking,
         toolCalls: msg.toolCalls,
         attachments: msg.attachments,
+        timeline: msg.timeline,
       });
     }
 
@@ -907,6 +942,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   thinking: item.thinking,
                   toolCalls: item.toolCalls,
                   attachments: item.attachments,
+                  timeline: item.timeline,
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
@@ -924,36 +960,60 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           );
         })}
 
-        {/* Streaming assistant message (includes tool calls accumulated so far) */}
-        {isStreaming && getUserVisibleResponse() && (
-          <div className="animate-fade-in">
-            <MessageBubble
-              message={{
-                id: 'streaming',
-                role: 'assistant',
-                content: getUserVisibleResponse()!,
-                timestamp: Date.now(),
-                toolCalls: currentToolCalls.length > 0 ? [...currentToolCalls] : undefined,
-                thinking: currentThinking || undefined,
-              }}
-              isStreaming
-            />
-            {/* Mid-stream artifact preview: as soon as a create_artifact /
-                upload_artifact_file tool finishes (tool_output populated), pull
-                the artifact into the store so ArtifactColumn shows it without
-                waiting for the whole turn to finish. */}
-            {agentId && currentToolCalls.length > 0 && (
-              <ArtifactToolCallCards
-                toolCalls={currentToolCalls}
-                agentId={agentId}
-                allArtifacts={allArtifacts}
-              />
-            )}
+        {/* Inline TurnTimeline — replaces the old "streaming MessageBubble
+            + Live activity preview" pair. Renders thinking / tool /
+            reply blocks in chronological order as the events arrive,
+            so the user can see the agent's actual rhythm. See
+            TurnTimeline.tsx and the 2026-05-12 redesign mirror md.
+
+            Wrapped in the same Bot-avatar + flex-1 content shell as
+            MessageBubble uses for historical turns, so the in-flight
+            turn doesn't visually detach from the rest of the
+            conversation (it would otherwise be the only assistant
+            output with no left-side avatar). */}
+        {isStreaming && currentEvents.length > 0 && (
+          <div className="flex gap-3 animate-fade-in">
+            <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
+              <Bot className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <TurnTimeline events={currentEvents} isStreaming />
+              {/* Mid-stream artifact preview is independent of the timeline:
+                  it surfaces created/uploaded artifacts inline as soon as
+                  their tool_output lands, without waiting for the whole
+                  turn to finish. */}
+              {agentId && currentToolCalls.length > 0 && (
+                <div className="mt-3">
+                  <ArtifactToolCallCards
+                    toolCalls={currentToolCalls}
+                    agentId={agentId}
+                    allArtifacts={allArtifacts}
+                  />
+                </div>
+              )}
+              {/* Inter-event "still working" indicator. Reassurance for
+                  the gap between two visible blocks (e.g. waiting on a
+                  tool result, or the next thinking hasn't started
+                  streaming yet) — without it the page goes silent
+                  and the user can't tell stuck from busy. Distinct from
+                  "Thinking" (whose content is already on screen): this
+                  signals the agent is *acting* between the visible
+                  blocks. Disappears the instant isStreaming flips. */}
+              <div className="mt-3 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
+                <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
+                <span>Acting…</span>
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Loading indicator / Live activity preview */}
-        {isStreaming && !getUserVisibleResponse() && (() => {
+        {/* Initial "starting up..." indicator — shown only when streaming
+            has started but no event has arrived yet (the timeline is
+            empty). As soon as the first thinking / tool / reply event
+            comes in, the indicator is replaced by TurnTimeline. Same
+            avatar shell as the streaming branch so the layout doesn't
+            jump when the first event arrives. */}
+        {isStreaming && currentEvents.length === 0 && (() => {
           const getInitStatus = () => {
             if (currentSteps.length === 0) return 'Starting up...';
             const latestStep = currentSteps[currentSteps.length - 1];
@@ -965,53 +1025,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             if (s === '3' && !currentSteps.some(st => st.step.startsWith('3.4'))) return 'Building context...';
             return 'Thinking...';
           };
-
-          const toolSteps = currentSteps.filter(
-            (s) => /^3\.4\.\d+$/.test(s.step) &&
-              !(s.details && typeof s.details === 'object' && typeof (s.details as Record<string, unknown>).tool_name === 'string' &&
-                ((s.details as Record<string, unknown>).tool_name as string).endsWith('send_message_to_user_directly'))
-          );
-
-          const hasThinking = !!(currentThinking || currentAssistantMessage);
-          const hasActivity = hasThinking || toolSteps.length > 0;
-
           return (
-            <div className="animate-fade-in p-4">
-              {hasActivity ? (
-                <div className="flex gap-3">
-                  <div className="relative shrink-0 mt-1">
-                    <Loader2 className="w-4 h-4 text-[var(--accent-primary)] animate-spin" />
-                    <div className="absolute inset-0 bg-[var(--accent-primary)] blur-md opacity-30" />
-                  </div>
-                  <ScrollArea className="flex-1" style={{ maxHeight: '200px' }}>
-                    <div className="space-y-2">
-                    {hasThinking && (
-                      <div className="text-sm italic text-[var(--text-tertiary)] whitespace-pre-wrap leading-relaxed">
-                        {currentThinking || currentAssistantMessage}
-                      </div>
-                    )}
-                    {toolSteps.map((step) => (
-                      <div
-                        key={step.id}
-                        className="flex items-center gap-2 text-xs text-[var(--text-secondary)] py-1 px-2 rounded bg-[var(--bg-tertiary)]/50 border border-[var(--border-subtle)]"
-                      >
-                        {step.status === 'completed' ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[var(--color-success)] shrink-0" />
-                        ) : (
-                          <Loader2 className="w-3.5 h-3.5 text-[var(--accent-primary)] animate-spin shrink-0" />
-                        )}
-                        <span className="font-medium truncate">{step.title}</span>
-                        {step.description && (
-                          <span className="text-[var(--text-tertiary)] truncate hidden sm:inline">
-                            {step.description.length > 60 ? step.description.slice(0, 60) + '...' : step.description}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                    </div>
-                  </ScrollArea>
-                </div>
-              ) : (
+            <div className="flex gap-3 animate-fade-in">
+              <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
+                <Bot className="w-3.5 h-3.5" />
+              </div>
+              <div className="flex-1 min-w-0 py-2">
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <Loader2 className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
@@ -1019,7 +1038,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   </div>
                   <span className="text-sm text-[var(--text-secondary)]">{getInitStatus()}</span>
                 </div>
-              )}
+              </div>
             </div>
           );
         })()}

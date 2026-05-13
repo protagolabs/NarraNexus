@@ -3,7 +3,9 @@
  * @description: The 4th column in the agent layout. Hosts ArtifactTabStrip plus a
  * lazy-rendered content area that dispatches to the appropriate renderer by
  * artifact kind. Collapses to a sliver button when the user dismisses it;
- * disappears entirely when no artifacts are loaded.
+ * also renders as a sliver (never fully hidden) when no artifacts exist yet,
+ * so the user always knows the panel is there. Auto-expands the moment a
+ * new artifact arrives.
  *
  * Renderer dispatch uses React.lazy so each renderer bundle is only downloaded
  * when the corresponding kind is first activated — avoids pulling ECharts or
@@ -14,7 +16,7 @@
  * sandboxed iframe pattern breaks it. See PdfRenderer.tsx for the full rationale.
  */
 
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { useArtifactStore } from '@/stores';
 import type { Artifact, ArtifactKind } from '@/types/artifact';
@@ -58,21 +60,58 @@ export default function ArtifactColumn({ agentId }: Props) {
   const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const restoreTab = useArtifactStore((s) => s.restoreTab);
 
-  if (artifacts.length === 0) return null;
+  // Auto-expand on artifact arrival.
+  //
+  // Pre-2026-05-13 behaviour: the column was unmounted entirely while
+  // `artifacts.length === 0`, then suddenly popped into existence when
+  // the first artifact landed — felt abrupt and a beat slow because the
+  // user wasn't aware the panel existed. New behaviour: always render
+  // the sliver (even with 0 artifacts) so the panel has a visual
+  // presence from day one, and auto-uncollapse it the moment a new
+  // artifact arrives so the user doesn't have to click the sliver to
+  // discover the freshly-created artifact.
+  //
+  // We track the previous length in a ref. Mount initialises prev =
+  // current, so first paint with cached artifacts (stale-while-
+  // revalidate after agent switch) does NOT auto-expand — only genuine
+  // growth past the previous tick triggers expansion. The "fights the
+  // user who just collapsed" edge case is accepted as a tradeoff —
+  // user explicitly asked for new-artifact-pops-it-open semantics
+  // (they can re-collapse, and the next growth event will pop it open
+  // again, which matches "tell me when something new is here").
+  const prevLengthRef = useRef(artifacts.length);
+  useEffect(() => {
+    if (artifacts.length > prevLengthRef.current && collapsed) {
+      setCollapsed(false);
+    }
+    prevLengthRef.current = artifacts.length;
+  }, [artifacts.length, collapsed, setCollapsed]);
 
-  if (collapsed) {
-    // Narrow vertical bar with the title at the top so the user understands
-    // what the column is and that it can be expanded by clicking.
+  // Sliver form: shown when the user collapsed the column OR when no
+  // artifacts exist yet. The empty-state sliver advertises the panel's
+  // existence so users know where artifacts will appear once the agent
+  // creates one.
+  const effectiveCollapsed = collapsed || artifacts.length === 0;
+  if (effectiveCollapsed) {
+    const hasArtifacts = artifacts.length > 0;
     return (
       <button
         onClick={() => setCollapsed(false)}
         className="w-9 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--bg-secondary)] flex flex-col items-center pt-3 pb-2 group transition-colors"
-        title={`Click to expand · ${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'}`}
-        aria-label={`Expand artifacts panel (${artifacts.length} items)`}
+        title={
+          hasArtifacts
+            ? `Click to expand · ${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'}`
+            : 'Artifacts will appear here once the agent creates one'
+        }
+        aria-label={
+          hasArtifacts
+            ? `Expand artifacts panel (${artifacts.length} items)`
+            : 'Artifacts panel (empty)'
+        }
       >
         {/* Top: vertical title so the user knows what this column is */}
         <span className="text-[11px] font-semibold [writing-mode:vertical-rl] tracking-wider whitespace-nowrap">
-          Artifacts ({artifacts.length})
+          {hasArtifacts ? `Artifacts (${artifacts.length})` : 'Artifacts'}
         </span>
         {/* Spacer to push the chevron to the bottom */}
         <span className="flex-1" />

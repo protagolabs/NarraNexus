@@ -22,6 +22,7 @@ from loguru import logger
 
 from xyz_agent_context.utils.logging import setup_logging
 from xyz_agent_context.utils.db_factory import get_db_client, close_db_client
+from xyz_agent_context.utils.timezone import utc_now
 from backend.config import settings
 from backend.auth import _is_cloud_mode
 
@@ -105,8 +106,51 @@ async def lifespan(app: FastAPI):
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")
 
+    # Provider Unification (Phase 0) — backfill new columns on legacy
+    # user_providers rows. Idempotent + cheap; runs every boot so a row
+    # added by an older codebase gets classified the moment we start.
+    # See reference/self_notebook/specs/2026-05-13-provider-unification-design.md
+    from xyz_agent_context.agent_framework.provider_driver import (
+        backfill_provider_metadata,
+    )
+    await backfill_provider_metadata(db)
+
+    # Agent Runtime Lifecycle (Phase C) — initialize the in-memory
+    # active_runs registry and reconcile stale rows.
+    #
+    # On every process start the registry is empty by definition; any
+    # `events.state = 'running'` row must therefore reference a
+    # BackgroundRun whose task died with the previous process. Flip
+    # those to `failed` so the UI doesn't claim "still running" for
+    # an agent that no longer exists in memory.
+    #
+    # See reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-stream-resilience-design.md §4.1.6
+    app.state.active_runs = {}
+    try:
+        running_rows = await db.get("events", {"state": "running"})
+        stale_count = 0
+        for row in running_rows or []:
+            try:
+                await db.update(
+                    "events",
+                    {"event_id": row["event_id"]},
+                    {
+                        "state": "failed",
+                        "error_message": "backend restarted, run lost",
+                        "finished_at": utc_now(),
+                    },
+                )
+                stale_count += 1
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[reconcile] failed to mark stale run {row.get('event_id')!r}: {e}")
+        if stale_count:
+            logger.info(f"[reconcile] flipped {stale_count} stale 'running' rows to 'failed' on startup")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[reconcile] sweep failed: {e}")
+
     # One-shot data migrations (idempotent; run after schema migration)
     from xyz_agent_context.utils.one_shot_migrations import (
+        heal_legacy_singleton_ownership,
         migrate_jobs_protocol_v2_timezone,
     )
     migration_stats = await migrate_jobs_protocol_v2_timezone(db)
@@ -115,6 +159,22 @@ async def lifespan(app: FastAPI):
             f"[migration] Cancelled {migration_stats['cancelled']} pre-v2 jobs "
             f"lacking timezone field; users will need to recreate them."
         )
+
+    # Self-heal pre-2026-05-13 local-mode singleton-ownership bug. Non-
+    # technical users hit "can't add agent to my own team" because team
+    # rows were created with owner_user_id='local-default' instead of
+    # their real user_id. This idempotently re-attributes those rows
+    # when (and only when) the user identity is unambiguous. See
+    # one_shot_migrations.py for the safety conditions.
+    try:
+        heal_stats = await heal_legacy_singleton_ownership(db)
+        if heal_stats.get("teams"):
+            logger.info(
+                f"[singleton-heal] re-attributed {heal_stats['teams']} legacy team(s)"
+            )
+    except Exception as e:  # noqa: BLE001
+        # Self-heal is best-effort — never block startup on it.
+        logger.warning(f"[singleton-heal] skipped due to error: {e}")
 
     # Wire system-default quota services. SystemProviderService is a
     # module-level singleton that reads env once; in local mode or when
@@ -206,6 +266,7 @@ from backend.routes.dashboard import router as dashboard_router
 from backend.routes.lark import router as lark_router
 from backend.routes.quota import router as quota_router
 from backend.routes.admin_quota import router as admin_quota_router
+from backend.routes.notifications import router as notifications_router
 from backend.routes.admin_logs import router as admin_logs_router
 from backend.routes.transcription import router as transcription_router
 from backend.routes.transcription_public import router as transcription_public_router
@@ -227,6 +288,7 @@ app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
+app.include_router(notifications_router, tags=["Notifications"])
 app.include_router(admin_logs_router, prefix="/api/admin/logs", tags=["AdminLogs"])
 app.include_router(
     transcription_router, prefix="/api/transcription", tags=["Transcription"],

@@ -20,6 +20,10 @@ from loguru import logger
 
 from xyz_agent_context.module.base import XYZBaseModule, mcp_host
 from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
+from xyz_agent_context.channel.message_source_handler import (
+    MessageSourceHandler,
+    MessageSourceRegistry,
+)
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -38,6 +42,74 @@ LARK_MCP_PORT = 7830
 
 # Shared CLI client (stateless)
 _cli = LarkCLIClient()
+
+
+def _extract_lark_reply(tool_name: str, arguments: dict) -> Optional[str]:
+    """MessageSourceRegistry extractor for `working_source="lark"`.
+
+    Lark agents reply via `lark_cli im +messages-send` / `+messages-reply`,
+    not via `send_message_to_user_directly`. The reply payload sits inside
+    `arguments.command` as the value of `--text` or `--markdown`. Without
+    this extractor, ChatModule.hook_after_event_execution treats every Lark
+    turn as is_no_response=True and writes an activity row that loses the
+    real reply content — the actual P0 we are fixing.
+
+    Mirrors LarkTrigger._extract_lark_reply so both write paths (this one
+    via chat_module, the trigger-level summary one inside LarkTrigger)
+    agree on what counts as a Lark reply.
+    """
+    import json
+    import shlex
+
+    args = arguments
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:
+            args = {}
+    if not isinstance(args, dict):
+        return None
+
+    # Default chat path: agents may still call send_message_to_user_directly
+    # on Lark turns (e.g. when also writing to the NarraNexus UI). Honour
+    # the chat-style content arg first.
+    if "send_message_to_user_directly" in (tool_name or ""):
+        content = args.get("content", "")
+        return content or None
+
+    if "lark_cli" not in (tool_name or ""):
+        return None
+
+    command = args.get("command", "")
+    if "+messages-send" not in command and "+messages-reply" not in command:
+        return None
+
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    for i, part in enumerate(parts):
+        if part in ("--text", "--markdown") and i + 1 < len(parts):
+            return parts[i + 1]
+    # Recognised as a send command but couldn't pull the text.
+    return "(sent via lark_cli)"
+
+
+# Register at module-import time so chat_module._extract_user_visible_response
+# sees the handler before any Lark turn lands. Idempotency is handled by
+# MessageSourceRegistry rejecting duplicates — if this file is imported
+# twice (unusual but possible under reload), it will surface as a hard
+# error in the second registration, which is the correct loud-fail.
+try:
+    MessageSourceRegistry.register(MessageSourceHandler(
+        name="lark",
+        user_reply_tool_names=("lark_cli", "send_message_to_user_directly"),
+        row_prefix_template="[Lark · {sender_name} in {room_name}]",
+        extract_reply_fn=_extract_lark_reply,
+    ))
+except ValueError:
+    # Re-import (test hot-reload, etc.) — handler already registered.
+    pass
 
 
 async def _lark_send_to_agent(

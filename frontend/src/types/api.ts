@@ -177,10 +177,27 @@ export interface EventLogToolCall {
   tool_output?: string;
 }
 
+// One step in the time-ordered timeline of a historical turn.
+// Mirrors backend EventLogTimelineEntry. Preserved as a discriminated
+// union of literal-typed entries so the frontend can switch on `type`
+// without runtime checks.
+export interface EventLogTimelineEntry {
+  type: 'thinking' | 'tool_call' | 'tool_output' | 'native_output' | 'reply';
+  content?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_output?: string;
+  reply_via?: string;
+}
+
 export interface EventLogResponse extends ApiResponse {
   event_id: string;
   thinking?: string;
   tool_calls: EventLogToolCall[];
+  // Ordered, time-preserving view; the UI prefers this when present and
+  // falls back to (thinking, tool_calls) only for old backends that
+  // haven't been redeployed yet.
+  timeline?: EventLogTimelineEntry[];
 }
 
 export interface ChatHistoryEvent {
@@ -232,6 +249,22 @@ export interface CreateAgentRequest {
   created_by: string;
 }
 
+/**
+ * Phase C: summary of an agent's currently running run, if any.
+ * Returned alongside AgentInfo when GET /api/auth/agents fires. The
+ * UI renders this to surface "this agent is still working" even
+ * across browser tabs / sessions — see iron rule #14 (agent runs are
+ * first-class and outlive any single WebSocket).
+ */
+export interface ActiveRunInfo {
+  run_id: string;
+  state: 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
+  started_at?: string;
+  last_event_at?: string;
+  tool_call_count: number;
+  current_stage?: string;
+}
+
 export interface AgentInfo {
   agent_id: string;
   name?: string;
@@ -241,6 +274,11 @@ export interface AgentInfo {
   is_public?: boolean;
   created_by?: string;
   bootstrap_active?: boolean;
+  /**
+   * Set when the backend has a BackgroundRun task in the running state
+   * for this agent + the current user. Null means "not currently running".
+   */
+  active_run?: ActiveRunInfo | null;
 }
 
 // Auth types

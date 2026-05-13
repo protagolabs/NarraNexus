@@ -53,6 +53,11 @@ export interface AgentToolCall extends BaseMessage {
   tool_name: string;
   tool_input: Record<string, unknown>;
   tool_output?: string;
+  // Backend tags the originating progress message with a step like
+  // "3.4.{N}"; the matching tool_output progress shares the same step.
+  // chatStore uses it to backfill tool_output onto the right call when
+  // the output frame arrives (live or via reconnect replay).
+  step?: string;
 }
 
 // Error message
@@ -132,6 +137,13 @@ export interface ChatMessage {
   isError?: boolean;  // True when displaying runtime errors (rate limit, API errors, etc.)
   warnings?: string[];  // Non-fatal errors that occurred during execution (e.g., module decision LLM failed)
   attachments?: Attachment[];  // User-uploaded files referenced by this message
+  // Inline timeline carried over from the live stream. Set on assistant
+  // messages at stopStreaming time so MessageBubble can render exactly
+  // the same chronological "think → tool → reply" sequence the user
+  // just watched, collapsed by default behind "View reasoning & tools".
+  // Reply events are kept here for fidelity; MessageBubble skips them
+  // when rendering because message.content already shows the reply.
+  timeline?: TurnEvent[];
 }
 
 // Step for display in StepsPanel
@@ -154,3 +166,68 @@ export interface ConversationRound {
   steps: Step[];
   timestamp: number;
 }
+
+/**
+ * TurnEvent — one block in the inline timeline that ChatPanel renders
+ * during streaming. Built up from the raw websocket frames by
+ * chatStore.processMessage and consumed by <TurnTimeline>.
+ *
+ * Design (see 2026-05-12 review with Xiong):
+ * - thinking / tool_call / tool_output / reply / native_output are the
+ *   only visible block types. Other progress frames (step markers like
+ *   3.5, 4, 5) are framework plumbing and don't appear in the timeline.
+ * - reply (from send_message_to_user_directly) is the authoritative
+ *   user-facing speech; native_output (raw LLM text after the agent
+ *   already used send_message in the same turn) is dropped at push
+ *   time as a duplicate. Long-term the agent prompt should stop
+ *   emitting that repetition — frontend dedup is a stopgap.
+ * - All blocks carry their own `id` so per-block expand/collapse can
+ *   be tracked across re-renders without losing state.
+ */
+export interface ThinkingEvent {
+  type: 'thinking';
+  id: string;
+  ts: number;
+  content: string;
+}
+
+export interface ToolCallEvent {
+  type: 'tool_call';
+  id: string;
+  ts: number;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_call_id?: string;
+  reply_via?: string;
+}
+
+export interface ToolOutputEvent {
+  type: 'tool_output';
+  id: string;
+  ts: number;
+  tool_call_id?: string;
+  tool_name: string;
+  output: string;
+}
+
+export interface ReplyEvent {
+  type: 'reply';
+  id: string;
+  ts: number;
+  content: string;
+  reply_via?: string;
+}
+
+export interface NativeOutputEvent {
+  type: 'native_output';
+  id: string;
+  ts: number;
+  content: string;
+}
+
+export type TurnEvent =
+  | ThinkingEvent
+  | ToolCallEvent
+  | ToolOutputEvent
+  | ReplyEvent
+  | NativeOutputEvent;

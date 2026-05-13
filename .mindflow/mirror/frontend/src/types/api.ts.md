@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-04-21
+last_verified: 2026-05-13
 stub: true
 ---
+
+## 2026-05-13 — Phase C: ActiveRunInfo + AgentInfo.active_run
+
+Adds the frontend mirror of the backend ActiveRunInfo type so the
+GET /api/auth/agents response carries enough metadata to render the
+"Running" indicator across tab reloads / devices. Field set matches
+`xyz_agent_context.schema.api_schema.ActiveRunInfo` exactly.
 
 # types/api.ts
 

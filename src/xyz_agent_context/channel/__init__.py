@@ -17,6 +17,7 @@ channels.
 
 from .channel_context_builder_base import ChannelContextBuilderBase, ChannelHistoryConfig
 from .channel_sender_registry import ChannelSenderRegistry
+from .message_source_handler import MessageSourceHandler, MessageSourceRegistry
 from .channel_contact_utils import (
     get_channel_info,
     set_channel_info,
@@ -31,6 +32,8 @@ __all__ = [
     "ChannelContextBuilderBase",
     "ChannelHistoryConfig",
     "ChannelSenderRegistry",
+    "MessageSourceHandler",
+    "MessageSourceRegistry",
     "get_channel_info",
     "set_channel_info",
     "get_preferred_channel",

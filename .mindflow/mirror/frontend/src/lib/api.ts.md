@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-05-06
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — getAuthHeaders 同时注入 X-User-Id
+
+之前只发 `Authorization: Bearer <jwt>`——只覆盖 cloud 模式。local 模式
+没 JWT 所以这个 header 是空的，后端 auth_middleware 在 local 分支
+无法识别请求者是谁，统一 fallback 到 users 表第一行 → 多用户串号
+（teams / dashboard / agents_cost / bundle 都被影响）。
+
+修复：`getAuthHeaders()` 同时读 `userId`（configStore），存在就
+注入 `X-User-Id`。两个 header 并存、互不干扰：
+
+- cloud 模式：后端只信 JWT，`X-User-Id` 完全忽略（defence-in-depth）
+- local 模式：后端只信 `X-User-Id`，JWT 在 local 模式没有签名秘钥
+  本来就是无效的
+
+ApiClient 保持 mode-agnostic——切换 cloud / local 的判断完全在
+后端 auth_middleware 内做，前端无需感知。详见
+`backend/auth.py.md` 2026-05-13 section。
 
 # api.ts — HTTP client singleton
 

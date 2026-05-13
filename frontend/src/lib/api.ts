@@ -69,18 +69,37 @@ import { getApiBaseUrl } from '@/stores/runtimeStore';
 
 class ApiClient {
   private getAuthHeaders(): Record<string, string> {
-    // Read JWT token from configStore (localStorage)
+    // Read identity from configStore (localStorage).
+    //
+    // Two headers, mutually compatible:
+    //   - Authorization: Bearer <jwt>  — cloud mode, signed identity
+    //   - X-User-Id: <user_id>         — local mode, unsigned identity
+    //
+    // We send both whenever they're available; backend auth_middleware
+    // decides which one to trust:
+    //   - cloud mode: only JWT, X-User-Id is ignored (defence in depth)
+    //   - local mode: only X-User-Id; JWT is irrelevant (no signing key)
+    //
+    // The single ApiClient is mode-agnostic for the same reason — the
+    // mode switch happens server-side in auth_middleware, not here.
+    const headers: Record<string, string> = {};
     try {
       const raw = localStorage.getItem('narra-nexus-config');
       if (raw) {
         const config = JSON.parse(raw);
         const token = config?.state?.token;
+        const userId = config?.state?.userId;
         if (token) {
-          return { 'Authorization': `Bearer ${token}` };
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        if (userId) {
+          headers['X-User-Id'] = userId;
         }
       }
-    } catch {}
-    return {};
+    } catch {
+      /* localStorage may be unavailable / disabled — fall through */
+    }
+    return headers;
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -130,7 +149,25 @@ class ApiClient {
           // ignore parse errors; still throw below
         }
       }
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      // Extract the FastAPI HTTPException `detail` field so callers get
+      // an actionable message ("Cannot add another user's agent") instead
+      // of just "API error: 403 Forbidden". Falls back to the status
+      // line if the body is missing / not JSON / has no `detail`.
+      let detail = '';
+      try {
+        const body = await response.clone().json();
+        if (typeof body?.detail === 'string') {
+          detail = body.detail;
+        } else if (body?.detail) {
+          detail = JSON.stringify(body.detail);
+        }
+      } catch {
+        /* not JSON — fall through to status line */
+      }
+      const label = detail
+        ? `API error ${response.status}: ${detail}`
+        : `API error: ${response.status} ${response.statusText}`;
+      throw new Error(label);
     }
 
     return response.json();

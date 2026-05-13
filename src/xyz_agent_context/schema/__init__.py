@@ -120,6 +120,7 @@ from .api_schema import (
     LoginResponse,
     RegisterRequest,
     RegisterResponse,
+    ActiveRunInfo,
     AgentInfo,
     AgentListResponse,
     CreateAgentRequest,
@@ -149,6 +150,7 @@ from .api_schema import (
     SimpleChatHistoryResponse,
     # Event Log Detail
     EventLogToolCall,
+    EventLogTimelineEntry,
     EventLogResponse,
     # Files
     FileInfo,
@@ -337,6 +339,7 @@ __all__ = [
     "LoginResponse",
     "RegisterRequest",
     "RegisterResponse",
+    "ActiveRunInfo",
     "AgentInfo",
     "AgentListResponse",
     "CreateAgentRequest",
@@ -366,6 +369,7 @@ __all__ = [
     "SimpleChatHistoryResponse",
     # Event Log Detail
     "EventLogToolCall",
+    "EventLogTimelineEntry",
     "EventLogResponse",
     # Files
     "FileInfo",

@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-05-09
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — local 多用户隔离修复
+
+`_user_id_for_request` 改走统一 helper
+`backend.auth.resolve_current_user_id`——cloud / local 共享同一条
+identity 路径。`.nxbundle` 导入导出现在按真实登录用户隔离，而不是
+全部塌缩到 singleton "local-default"。
 
 # bundle.py — REST routes for `.nxbundle` export / import
 

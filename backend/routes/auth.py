@@ -26,6 +26,7 @@ from xyz_agent_context.schema import (
     LoginResponse,
     RegisterRequest,
     RegisterResponse,
+    ActiveRunInfo,
     AgentInfo,
     AgentListResponse,
     CreateAgentRequest,
@@ -242,6 +243,38 @@ async def get_agents(
         """
         rows = await db_client.execute(query, (user_id,))
 
+        # Phase C: bulk-fetch any active runs in one SELECT so we don't
+        # do N+1 queries when the user has many agents.
+        agent_ids = [row['agent_id'] for row in rows]
+        active_runs_by_agent: dict[str, dict] = {}
+        if agent_ids:
+            placeholders = ",".join(["%s"] * len(agent_ids))
+            try:
+                run_rows = await db_client.execute(
+                    f"""
+                    SELECT event_id, agent_id, state, started_at, last_event_at,
+                           tool_call_count, current_stage
+                    FROM events
+                    WHERE state = 'running' AND user_id = %s
+                      AND agent_id IN ({placeholders})
+                    """,
+                    (user_id, *agent_ids),
+                )
+                # Keep the latest started_at per agent if there are
+                # somehow multiple (should not happen but defensive).
+                for r in run_rows or []:
+                    aid = r.get('agent_id')
+                    if not aid:
+                        continue
+                    existing = active_runs_by_agent.get(aid)
+                    if existing is None or (r.get('started_at') or "") > (existing.get('started_at') or ""):
+                        active_runs_by_agent[aid] = r
+            except Exception as e:  # noqa: BLE001
+                # Don't fail the whole listing because the active-run
+                # enrichment broke — log and continue with no active_run
+                # info attached.
+                logger.warning(f"[/api/auth/agents] active_run enrichment failed: {e}")
+
         agents = []
         for row in rows:
             description = row.get('agent_description')
@@ -255,6 +288,19 @@ async def get_agents(
                     "Bootstrap.md"
                 )
                 bootstrap_active = os.path.isfile(bootstrap_path)
+
+            active_run = None
+            ar_row = active_runs_by_agent.get(row['agent_id'])
+            if ar_row:
+                active_run = ActiveRunInfo(
+                    run_id=ar_row.get('event_id') or "",
+                    state=ar_row.get('state') or "running",
+                    started_at=format_for_api(ar_row.get('started_at')),
+                    last_event_at=format_for_api(ar_row.get('last_event_at')),
+                    tool_call_count=int(ar_row.get('tool_call_count') or 0),
+                    current_stage=ar_row.get('current_stage') or None,
+                )
+
             agent_info = AgentInfo(
                 agent_id=row['agent_id'],
                 name=row.get('agent_name') or row['agent_id'],
@@ -264,6 +310,7 @@ async def get_agents(
                 is_public=bool(row.get('is_public', 0)),
                 created_by=created_by,
                 bootstrap_active=bootstrap_active,
+                active_run=active_run,
             )
             agents.append(agent_info)
 

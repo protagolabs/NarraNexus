@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-05-08
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — local 多用户隔离修复
+
+`_user_id_for_request` 改成走统一 helper
+`backend.auth.resolve_current_user_id`——cloud / local 共享同一条
+路径，差异在 middleware 内消化。之前 local 模式 fallback 到
+singleton "first user" 导致所有 local 用户 owner 相同、teams 互相
+可见。详见 `auth.py.md`。
 
 # teams.py — REST routes for team membership (subproject 1)
 

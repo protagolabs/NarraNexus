@@ -1,8 +1,90 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Phase C: 自动 reconnect 到后端在跑的 run
+
+新增 useEffect 监听 `agentId + userId + currentAgent.active_run.run_id`：
+当用户打开（或切换到）一个已经在后端跑着的 agent，前端立刻调
+`reconnect(agentId, userId, activeRunId, agentName)`，让 `wsManager`
+重开一条带 `run_id` 的 WS。后端识别到 run_id 就走 replay 分支：把
+event_stream 里所有 seq ASC 的事件回放完，再 hook 到 broadcaster
+拿 live 接续。
+
+业内对这种模式的标准说法（用户在最近一次对话里直接问到）：
+**resumable / replayable streaming session**——event_stream 是事件
+存储（event sourcing），server-side run 是 long-running operation
+(LRO)，WS reconnect = last-event-id-style resumption（W3C SSE 把它
+做成 first-class，我们在 WS 上等价实现），整体是 "server-side
+session continuity"。
+
+useEffect 的边界条件（顺序 short-circuit）：
+1. 没 agentId / userId → 直接返回（panel 还没 ready）
+2. `activeRunId` 为 null → 后端没活跃 run，不重连（也是退出条件
+   防止 run 结束后死循环）
+3. 本地 `isLoading=true` → 当前 tab 自己刚发完 fresh-run 还在跑，
+   wsManager 已经管理着一条 WS，**不能**再开一条；reconnect 也
+   不需要——本地路径已经在收 live frames
+4. 上述都不满足 → fire-and-forget `reconnect()`；`wsManager` 内部
+   保证 idempotent（开新连接前 close 旧的）
+
+依赖数组 `[agentId, userId, activeRunId]` 是关键：
+- 用户切换 agent：activeRunId 跟着 currentAgent 变化（可能变 null
+  或变成新 agent 的 run_id），effect 重跑
+- run 结束后 `/api/auth/agents` 下一次拉到 active_run=null，
+  activeRunId 变 null，effect 重跑后第 2 步退出 —— **不会**继续
+  连旧 run
+
+`reconnect` 故意从 deps 里排除（eslint-disable-next-line）——它在
+hook 里是 useCallback 包过的稳定引用，写进去只会徒增噪音。
+
+## 2026-05-11 fix — live activity stays visible after first reply (P0)
+
+The streaming-state UI used to have two mutually exclusive render
+branches:
+
+1. `isStreaming && getUserVisibleResponse()` → render a streaming
+   `MessageBubble` with the reply content. `thinking` and `toolCalls`
+   are passed in but live inside the bubble's **collapsed** Reasoning
+   / Tool-calls sections (`MessageBubble.tsx` initialises `showThinking`
+   and `showTools` to `false`).
+2. `isStreaming && !getUserVisibleResponse()` → render the "Live
+   activity preview": italic streaming `currentThinking` text + a
+   spinner-decorated list of in-flight `toolSteps`. **Always visible,
+   no click required.**
+
+The instant the agent called `send_message_to_user_directly` for the
+first time, `getUserVisibleResponse()` flipped from `null` to a
+string, branch 2 unmounted, and branch 1 took over. Any subsequent
+thinking deltas or tool calls kept accumulating into
+`chatStore.currentThinking` / `currentToolCalls` but had **no
+always-visible UI surface** — the reply bubble looked finished even
+when the agent was still mid-loop running more tools. Xiong's P0
+"先回复一条信息后，不再显示思考过程" (`recvjhejbs2abv`).
+
+Fix: drop the `!getUserVisibleResponse()` gate so the live activity
+preview now stays mounted for the **entire** streaming window. The
+streaming MessageBubble keeps receiving `thinking` / `toolCalls` so a
+user who clicks "Reasoning" mid-stream still sees the full trace; the
+live preview below provides the always-visible "still working" signal
+until `stopStreaming` flips `isStreaming` to false (at which point the
+bubble persists into history with its data already attached, line
+269-270 of `chatStore.ts`). The `toolSteps` filter (regex
+`/^3\.4\.\d+$/` minus `*.send_message_to_user_directly`) intentionally
+drops the reply tool call so the same action doesn't appear twice
+(once as the bubble, once as a tool step).
+
+Defensive guard: inside the live preview, the `!hasActivity` fallback
+now renders the "Starting up..." banner only when
+`!getUserVisibleResponse()`. Without this, an LLM that emits no
+`agent_thinking` deltas and whose only progress step is the
+send_message tool call itself (which `toolSteps` filters out) would
+land on `hasActivity=false` *after* a reply already rendered above —
+visually contradicting "Starting up..." beneath a populated reply
+bubble. With the guard, the live preview cleanly disappears in that
+rare path instead.
 
 # ChatPanel.tsx — Unified timeline chat surface with streaming and history pagination
 
