@@ -53,6 +53,11 @@ export interface AgentToolCall extends BaseMessage {
   tool_name: string;
   tool_input: Record<string, unknown>;
   tool_output?: string;
+  // Backend tags the originating progress message with a step like
+  // "3.4.{N}"; the matching tool_output progress shares the same step.
+  // chatStore uses it to backfill tool_output onto the right call when
+  // the output frame arrives (live or via reconnect replay).
+  step?: string;
 }
 
 // Error message

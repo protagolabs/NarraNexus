@@ -373,6 +373,12 @@ export const useChatStore = create<ChatState>((_set, get) => {
             const newEvents: TurnEvent[] = [...session.currentEvents];
             const toolName = (progress.details?.tool_name as string | undefined) || '';
             const args = (progress.details?.arguments as Record<string, unknown> | undefined) || undefined;
+            const rawOutput = progress.details?.output;
+            const outputStr = typeof rawOutput === 'string'
+              ? rawOutput
+              : rawOutput !== undefined && rawOutput !== null
+                ? JSON.stringify(rawOutput)
+                : undefined;
 
             if (toolName && args) {
               const toolCall: AgentToolCall = {
@@ -380,6 +386,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
                 timestamp: progress.timestamp,
                 tool_name: toolName,
                 tool_input: args,
+                step: progress.step,
               };
               const exists = session.currentToolCalls.some(
                 (t) => t.tool_name === toolCall.tool_name && t.timestamp === toolCall.timestamp
@@ -409,6 +416,49 @@ export const useChatStore = create<ChatState>((_set, get) => {
                     tool_call_id: (progress.details?.tool_call_id as string | undefined),
                   });
                 }
+              }
+            } else if (outputStr !== undefined) {
+              // tool_output frame: backend emits a progress message with
+              // `details.output` and the SAME `step` as the originating
+              // tool_call (response_processor.py:410 uses 3.4.{N} for
+              // both, with N matching by arrival order). We backfill
+              // tool_output onto the matching tool_call so downstream
+              // consumers — ArtifactToolCallCards, MessageBubble's
+              // reasoning panel, anything else that branches on
+              // tc.tool_output — work mid-stream instead of waiting for
+              // history reload to reconstruct the linkage.
+              //
+              // Match strategy: prefer exact `step` equality; fall back
+              // to "latest tool_call without tool_output yet" only when
+              // step is absent (defensive — shouldn't happen with the
+              // current backend, but tolerates older streams and the
+              // reconnect-replay path which uses the same step value).
+              const matchByStep = progress.step
+                ? newToolCalls.findIndex((tc) => tc.step === progress.step && !tc.tool_output)
+                : -1;
+              const matchIdx = matchByStep >= 0
+                ? matchByStep
+                : (() => {
+                    for (let i = newToolCalls.length - 1; i >= 0; i--) {
+                      if (!newToolCalls[i].tool_output) return i;
+                    }
+                    return -1;
+                  })();
+              if (matchIdx >= 0) {
+                newToolCalls = newToolCalls.map((tc, i) =>
+                  i === matchIdx ? { ...tc, tool_output: outputStr } : tc,
+                );
+                // Also surface the output to TurnTimeline so live UI
+                // shows the "Execution completed" block, mirroring how
+                // historical turns render after persistence.
+                const tcMatched = newToolCalls[matchIdx];
+                newEvents.push({
+                  type: 'tool_output',
+                  id: generateId(),
+                  ts: progress.timestamp,
+                  tool_name: tcMatched.tool_name,
+                  output: outputStr,
+                });
               }
             }
 
