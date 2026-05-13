@@ -264,6 +264,8 @@ from backend.routes.providers import router as providers_router
 from backend.routes.inbox import router as inbox_router
 from backend.routes.dashboard import router as dashboard_router
 from backend.routes.lark import router as lark_router
+from backend.routes.slack import router as slack_router
+from backend.routes.telegram import router as telegram_router
 from backend.routes.quota import router as quota_router
 from backend.routes.admin_quota import router as admin_quota_router
 from backend.routes.notifications import router as notifications_router
@@ -286,6 +288,8 @@ app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
+app.include_router(slack_router, prefix="/api/slack", tags=["Slack"])
+app.include_router(telegram_router, prefix="/api/telegram", tags=["Telegram"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
 app.include_router(notifications_router, tags=["Notifications"])

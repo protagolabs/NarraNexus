@@ -826,6 +826,78 @@ _register(
 )
 
 
+# --- 27b. channel_slack_credentials -----------------------------------------
+# Phase 3: per-agent Slack bot binding (Bot Token + App-Level Token).
+# Tokens are stored as base64-encoded text (matching the lark_credentials
+# convention: trivially reversible, NOT encryption — production deployments
+# should swap in real KMS-backed crypto).
+_register(
+    TableDef(
+        name="channel_slack_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bot_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("app_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("bot_user_id", "TEXT", "VARCHAR(64)"),
+            Column("team_id", "TEXT", "VARCHAR(64)"),
+            Column("team_name", "TEXT", "VARCHAR(255)"),
+            # Owner identity — populated at bind via users.lookupByEmail when
+            # owner_email is supplied. Drives is_owner_interacting trust
+            # signal (sender_id == owner_user_id).
+            Column("owner_email", "TEXT", "VARCHAR(254)"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_slack_cred_agent_id", ["agent_id"], unique=True),
+            # Same Slack bot in same workspace can be bound to AT MOST one
+            # agent. Two agents sharing a bot would race on the single
+            # Socket Mode WebSocket slot Slack issues per app_token, and
+            # the trust signal would flip-flop between agents' owner_user_ids.
+            Index("idx_slack_cred_bot_identity", ["team_id", "bot_user_id"], unique=True),
+        ],
+    )
+)
+
+
+# --- 27c. channel_telegram_credentials -------------------------------------
+# Phase 4: per-agent Telegram bot binding (single Bot Token from @BotFather).
+# Telegram has no team/workspace concept — bot_user_id alone is the identity
+# for the uniqueness check.
+_register(
+    TableDef(
+        name="channel_telegram_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bot_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            # Telegram bot identity (from getMe). bot_user_id is int64 stored as string.
+            Column("bot_user_id", "TEXT", "VARCHAR(64)"),
+            Column("bot_username", "TEXT", "VARCHAR(128)"),
+            # Owner — populated at bind via getChat("@handle"). user_id is the
+            # immutable identity (username can change).
+            Column("owner_username", "TEXT", "VARCHAR(64)"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_tg_cred_agent_id", ["agent_id"], unique=True),
+            # Same Telegram bot can be bound to AT MOST one agent. Two agents
+            # racing on long-poll for the same token would flip-flop trust
+            # signal + drop events arbitrarily.
+            Index("idx_tg_cred_bot_identity", ["bot_user_id"], unique=True),
+        ],
+    )
+)
+
+
 # 28. user_quotas (system-default free-tier token quota per user)
 _register(
     TableDef(
@@ -1034,6 +1106,35 @@ _register(
     )
 )
 
+# ----------------------------------------------------------------------------
+# channel_seen_messages — multi-channel durable dedup (Phase 1 / IM abstraction)
+#
+# Same INSERT-or-UNIQUE atomicity as `lark_seen_messages`, but namespaced by
+# channel so Lark + Slack + Telegram dedup independently. The composite UNIQUE
+# `(channel, message_id)` lets the same `om_xxx` (or whatever the platform
+# emits) appear in multiple channels without colliding.
+#
+# `lark_seen_messages` is intentionally NOT migrated here — iron rule #6
+# forbids destructive DB changes. Phase 2 will switch the Lark trigger to
+# point at this generic table, double-write for one release, then drop the
+# old table in a separate cleanup PR once data has aged out.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="channel_seen_messages",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("channel", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("message_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("seen_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_channel_seen_messages_unique", ["channel", "message_id"], unique=True),
+            Index("idx_channel_seen_messages_seen_at", ["seen_at"]),
+        ],
+    )
+)
+
 _register(
     TableDef(
         name="team_members",
@@ -1091,6 +1192,37 @@ _register(
     )
 )
 
+# ----------------------------------------------------------------------------
+# channel_trigger_audit — multi-channel lifecycle audit (Phase 1 / IM abstraction)
+#
+# Generic version of `lark_trigger_audit` with an additional `channel` column
+# so all IM triggers write to one observable table. `details` stays JSON so
+# new fields can be added without migrations. 30-day retention matches Lark.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="channel_trigger_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("channel", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("event_time", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("event_type", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("message_id", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(128)"),
+            Column("app_id", "TEXT", "VARCHAR(128)"),
+            Column("chat_id", "TEXT", "VARCHAR(128)"),
+            Column("sender_id", "TEXT", "VARCHAR(128)"),
+            Column("details", "TEXT", "MEDIUMTEXT"),
+        ],
+        indexes=[
+            Index("idx_channel_trigger_audit_event_time", ["event_time"]),
+            Index("idx_channel_trigger_audit_channel_event_type", ["channel", "event_type"]),
+            Index("idx_channel_trigger_audit_agent_id", ["agent_id"]),
+            Index("idx_channel_trigger_audit_message_id", ["message_id"]),
+        ],
+    )
+)
+
 
 # ── Artifacts (agent visual outputs) ─────────────────────────────────────
 _register(
@@ -1132,6 +1264,7 @@ _register(
         indexes=[Index("idx_artifact_version", ["artifact_id", "version"], unique=True)],
     )
 )
+
 
 
 # ============================================================================
