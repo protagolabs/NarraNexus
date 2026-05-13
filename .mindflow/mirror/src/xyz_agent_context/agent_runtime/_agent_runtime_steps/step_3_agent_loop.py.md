@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-05-12
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Phase B caller migration (generator-based ResponseProcessor)
+
+`ResponseProcessor.process(...)` 在 Phase B 改成 generator。这里的 caller
+从 `result = response_processor.process(response, state)` 改成 `for result
+in response_processor.process(response, state):`——一个 raw event 可能
+产生 0..2 个 ProcessedResponse（thinking 累积时是 0，非 thinking 事件
+flush 残余 thinking 时是 2）。
+
+同时在两个出口点（try 末尾 + except 中）调 `flush_pending(state)`——保证
+stream 结束 / 异常退出时 batcher 里残留的 thinking 不丢。这是 batcher 设计
+明确要求 caller 履行的契约。
 
 ## 2026-05-12 — Chat no-reply helper_llm fallback hardening
 

@@ -266,13 +266,37 @@ async def step_3_agent_loop(
             extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
         ):
-            # Use ResponseProcessor to process responses
-            result = response_processor.process(response, state)
+            # ResponseProcessor.process is a generator yielding 0..N
+            # ProcessedResponse per raw event (Phase B 2026-05-13 —
+            # thinking deltas get coalesced via _ThinkingBatcher, and a
+            # non-thinking event may emit a buffered-thinking flush
+            # FIRST plus the actual event SECOND).
+            for result in response_processor.process(response, state):
+                state = response_processor.apply_state_update(state, result)
+                if result.message is not None:
+                    agent_loop_response.append(result.message)
+                    yield result.message
+        # End-of-stream — flush any residual thinking buffer so the last
+        # partial thinking segment is not silently dropped.
+        for result in response_processor.flush_pending(state):
             state = response_processor.apply_state_update(state, result)
             if result.message is not None:
                 agent_loop_response.append(result.message)
                 yield result.message
     except Exception as e:
+        # Before propagating the error to the frontend, drain any residual
+        # thinking buffer so the user does not lose their last partial
+        # thinking on an exception path. This is best-effort: errors here
+        # are logged but never re-raise.
+        try:
+            for result in response_processor.flush_pending(state):
+                state = response_processor.apply_state_update(state, result)
+                if result.message is not None:
+                    agent_loop_response.append(result.message)
+                    yield result.message
+        except Exception as flush_err:  # noqa: BLE001
+            logger.warning(f"Failed to flush thinking buffer on error path: {flush_err}")
+
         # Yield error to frontend so the user sees what went wrong
         # (instead of a cryptic "Agent decided no response needed").
         # Also append the ErrorMessage to agent_loop_response so
