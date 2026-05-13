@@ -25,6 +25,7 @@ Message Types:
 
 import asyncio
 import traceback
+from contextlib import suppress
 from typing import Optional
 import jwt
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -88,6 +89,19 @@ async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken
         while not cancellation.is_cancelled:
             data = await websocket.receive_json()
             if isinstance(data, dict) and data.get("action") == "stop":
+                # Stop ACK — stage 1 of 3 ("received").
+                #
+                # Without this ACK the user faces a dumb UI from the
+                # moment they click Stop until cleanup completes — which
+                # in the worst case (stuck tool call, slow Claude CLI
+                # shutdown) is many seconds. Stages 2 ("cleanup") and 3
+                # ("complete") fire later from agent_loop and the
+                # outer websocket_agent_run finally block.
+                with suppress(Exception):
+                    await websocket.send_json({
+                        "type": "stopping",
+                        "stage": "received",
+                    })
                 cancellation.cancel("User clicked stop")
                 return
     except WebSocketDisconnect as e:
@@ -345,13 +359,35 @@ async def websocket_agent_run(websocket: WebSocket):
 
         except CancelledByUser as e:
             logger.info(f"Agent run cancelled: {e.reason}")
-            try:
+            # Stop ACK — stages 2 ("cleanup") and 3 ("complete").
+            #
+            # By the time CancelledByUser propagates up here, the
+            # agent_loop's finally block has already disconnected the
+            # Claude CLI subprocess. Strictly speaking "cleanup" is
+            # done by now. We still emit both stages so the frontend
+            # state machine has a deterministic three-step pattern
+            # (received → cleanup → complete) regardless of how fast
+            # the underlying teardown happened — this lets the UI
+            # animate consistently and keeps the protocol future-proof
+            # if we add async post-cancel work later.
+            with suppress(Exception):
+                await websocket.send_json({
+                    "type": "stopping",
+                    "stage": "cleanup",
+                })
+            with suppress(Exception):
+                await websocket.send_json({
+                    "type": "stopping",
+                    "stage": "complete",
+                })
+            # Existing legacy "cancelled" message kept for backward
+            # compatibility with older frontend builds that don't yet
+            # listen for the stopping/* protocol.
+            with suppress(Exception):
                 await websocket.send_json({
                     "type": "cancelled",
                     "message": f"Agent run stopped: {e.reason}",
                 })
-            except RuntimeError:
-                pass
 
         finally:
             heartbeat_stop.set()

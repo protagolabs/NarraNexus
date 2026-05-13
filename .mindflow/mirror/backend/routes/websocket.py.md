@@ -1,8 +1,29 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-04-21
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Stop 三段 ACK 协议（Phase A C3）
+
+用户点 Stop 后到 agent 真停的延迟可能从亚秒到几秒（取决于此时在 LLM
+stream / tool call / cleanup 哪个阶段）。之前 UI 在这段时间是哑的——
+按了等回应，体验=卡死。
+
+加入三段 stopping 消息协议：
+
+1. `{"type":"stopping","stage":"received"}` —— `_listen_for_stop` 收到 stop action
+   立即推。给前端"我们听到了"的瞬时反馈
+2. `{"type":"stopping","stage":"cleanup"}` —— `websocket_agent_run` catch
+   `CancelledByUser` 时推。语义：cleanup（disconnect Claude CLI 等）已经完成
+3. `{"type":"stopping","stage":"complete"}` —— 紧跟 cleanup 推。终止
+   终态信号
+
+也保留旧的 `{"type":"cancelled","message":...}` 给老前端兼容。
+
+stage 2 和 3 实际上在代码层面是同步发出的（CancelledByUser propagate
+到这层时 finally 已经跑完）—— 但保留三段是为了前端状态机干净，未来若
+加 async post-cancel 工作也不需要改协议。
 
 ## 2026-04-21 更新 — WS 中途挂掉 + disconnect 诊断（Bug 32）
 
