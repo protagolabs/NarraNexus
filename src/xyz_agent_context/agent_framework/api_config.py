@@ -649,11 +649,35 @@ async def _use_system_default_strict(
 async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """Strict version: raises LLMConfigNotConfigured on any missing
     slot / broken provider. The public `get_user_llm_configs` wraps
-    this with a system-default fallback."""
+    this with a system-default fallback.
+
+    Provider Unification (2026-05-13): the body has been delegated to
+    ``provider_driver.resolve_user_llm_configs`` — the single-point
+    resolver that also handles reverse-validation self-heal for broken
+    slot/model bindings. The legacy hand-rolled code below remains as
+    a fallback so old call paths still work during the migration window
+    if the new resolver hits an unexpected edge case.
+    """
     from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+    from xyz_agent_context.agent_framework.provider_driver import (
+        resolve_user_llm_configs,
+    )
 
     db = await get_db_client()
+    try:
+        return await resolve_user_llm_configs(user_id, db)
+    except LLMConfigNotConfigured:
+        # Let the actionable message bubble up; the caller's UI surfaces it.
+        raise
+    except Exception as e:  # noqa: BLE001 — fall back during migration window
+        logger.warning(
+            f"[api_config] resolve_user_llm_configs raised {type(e).__name__}: {e}. "
+            f"Falling back to legacy resolution for user_id={user_id!r}."
+        )
+
+    # === Legacy fallback path (kept until Phase 1 confidence accumulates) ===
+    from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+
     service = UserProviderService(db)
     config = await service.get_user_config(user_id)
 

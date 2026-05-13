@@ -703,12 +703,31 @@ _register(
             # forward proxies. auto_migrate() will add this column to
             # pre-existing tables with the default value.
             Column("supports_anthropic_server_tools", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            # --- Provider Unification (2026-05-13) — see spec
+            # reference/self_notebook/specs/2026-05-13-provider-unification-design.md
+            #
+            # driver_type    : key into agent_framework.provider_driver.DRIVER_REGISTRY.
+            #                  null on existing rows; backfilled at startup via
+            #                  derive_driver_type(source, auth_type, protocol).
+            # owner_user_id  : null = system-shared card (cloud only); otherwise
+            #                  equals user_id. Local mode always self-owned.
+            # billing_policy : 'user_pays' (default) | 'system_quota' (cloud
+            #                  system row) | 'external_oauth' (Claude OAuth).
+            # auth_ref       : where to find the credential when api_key alone
+            #                  isn't enough — e.g. for OAuth this points at
+            #                  ~/.claude/.credentials.json on the host.
+            Column("driver_type", "TEXT", "VARCHAR(32)"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("billing_policy", "TEXT", "VARCHAR(32)", default="'user_pays'"),
+            Column("auth_ref", "TEXT", "VARCHAR(512)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_up_user_provider", ["user_id", "provider_id"], unique=True),
             Index("idx_up_user_id", ["user_id"]),
+            Index("idx_up_driver_type", ["driver_type"]),
+            Index("idx_up_owner", ["owner_user_id"]),
         ],
     )
 )
@@ -723,6 +742,11 @@ _register(
             Column("slot_name", "TEXT", "VARCHAR(32)", nullable=False),
             Column("provider_id", "TEXT", "VARCHAR(64)", nullable=False),
             Column("model", "TEXT", "VARCHAR(128)", nullable=False),
+            # Set by self_heal_if_broken() when a slot.model that no longer
+            # exists in its provider.models array is auto-repaired to the
+            # default. Used as a 24h debounce so a misbehaving slot doesn't
+            # write a notification on every LLM call.
+            Column("last_auto_repaired_at", "TEXT", "DATETIME(6)"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
@@ -802,6 +826,40 @@ _register(
         ],
         indexes=[
             Index("idx_user_quotas_user", ["user_id"], unique=True),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# 29. user_notifications — out-of-band messages to surface in UI
+#
+# Introduced by the Provider Unification work (spec
+# reference/self_notebook/specs/2026-05-13-provider-unification-design.md).
+# The first producer is the self-heal mechanism: when a slot.model is no
+# longer in the provider.models array, the resolver auto-swaps to a safe
+# default and writes a `slot_auto_repaired` row here so the user finds
+# out at the next time they open the app.
+#
+# Kept intentionally minimal — kind+payload+severity is enough for
+# Settings-page bell + future system messages. payload is JSON text so
+# producers don't need a schema migration per new notification kind.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="user_notifications",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("kind", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("payload", "TEXT", "MEDIUMTEXT"),
+            Column("severity", "TEXT", "VARCHAR(16)", nullable=False, default="'info'"),
+            Column("read_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_un_user_unread", ["user_id", "read_at"]),
+            Index("idx_un_user_created", ["user_id", "created_at"]),
         ],
     )
 )

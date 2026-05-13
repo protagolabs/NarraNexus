@@ -105,6 +105,15 @@ async def lifespan(app: FastAPI):
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")
 
+    # Provider Unification (Phase 0) — backfill new columns on legacy
+    # user_providers rows. Idempotent + cheap; runs every boot so a row
+    # added by an older codebase gets classified the moment we start.
+    # See reference/self_notebook/specs/2026-05-13-provider-unification-design.md
+    from xyz_agent_context.agent_framework.provider_driver import (
+        backfill_provider_metadata,
+    )
+    await backfill_provider_metadata(db)
+
     # One-shot data migrations (idempotent; run after schema migration)
     from xyz_agent_context.utils.one_shot_migrations import (
         migrate_jobs_protocol_v2_timezone,
@@ -206,6 +215,7 @@ from backend.routes.dashboard import router as dashboard_router
 from backend.routes.lark import router as lark_router
 from backend.routes.quota import router as quota_router
 from backend.routes.admin_quota import router as admin_quota_router
+from backend.routes.notifications import router as notifications_router
 from backend.routes.admin_logs import router as admin_logs_router
 from backend.routes.transcription import router as transcription_router
 from backend.routes.transcription_public import router as transcription_public_router
@@ -227,6 +237,7 @@ app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
+app.include_router(notifications_router, tags=["Notifications"])
 app.include_router(admin_logs_router, prefix="/api/admin/logs", tags=["AdminLogs"])
 app.include_router(
     transcription_router, prefix="/api/transcription", tags=["Transcription"],

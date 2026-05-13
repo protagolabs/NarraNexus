@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-09
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 addition — Provider Unification (Phase 0)
+
+`user_providers` gains four nullable columns — `driver_type`, `owner_user_id`,
+`billing_policy`, `auth_ref` — plus two indexes (`idx_up_driver_type`,
+`idx_up_owner`). `user_slots` gains `last_auto_repaired_at` (nullable) used
+as the 24h debounce timestamp for the reverse-validation self-heal path.
+
+New table `user_notifications` (29.) — minimal kind+payload+severity row
+written by the resolver when it auto-repairs a broken slot. Indexed on
+`(user_id, read_at)` for the "unread count" UI query.
+
+Driver inference (`derive_driver_type`) and one-shot backfill live in
+`src/xyz_agent_context/agent_framework/provider_driver/backfill.py`. New
+deploys get `driver_type` written at `add_provider` time; pre-existing rows
+get backfilled on the next backend boot via `auto_migrate` → `backfill_*`
+chain in `db_factory.get_db_client`. Both column-add and backfill are
+idempotent so re-running causes no drift.
+
+All new columns are nullable on purpose — older `bash run.sh` / desktop
+DMG users upgrade with zero schema drama: `auto_migrate` runs the
+ALTERs, the backfill fills the values, business code never sees a
+null after the first boot. Old columns (`source`, `auth_type`,
+`linked_group`, `prefer_system_override`) are untouched.
 
 ## 2026-05-09 hardening — I7 idx_artifact_agent_id added
 

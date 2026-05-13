@@ -1,8 +1,18 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-05-08-r3
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Provider Unification boot wiring
+
+`lifespan` now calls `provider_driver.backfill_provider_metadata(db)` right
+after `auto_migrate`. Idempotent; fills the four new `user_providers`
+columns on legacy rows so the unified resolver works on first boot after
+upgrade. Also registers `notifications_router` (`/api/notifications/*`)
+so the self-heal mechanism's notification feed has a public surface.
+
+See `reference/self_notebook/specs/2026-05-13-provider-unification-design.md`.
 
 ## 2026-05-08-r3 simplification — artifact_ws_router removed
 
