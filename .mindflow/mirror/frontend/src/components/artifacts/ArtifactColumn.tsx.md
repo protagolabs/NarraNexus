@@ -1,8 +1,35 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-05-09
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Always-visible sliver + auto-expand on new artifact
+
+行为变化：之前 `artifacts.length === 0` 直接 `return null` 整个 unmount，
+第一条 artifact 落地时面板"凭空冒出来"——视觉突兀、用户没有心理预期
+也来不及反应。
+
+改成：
+
+1. **永远渲染**（去掉 length-0 的 early-return），0 件 artifact 时
+   走极简的 sliver 形态——9px 宽的竖条带 "Artifacts" 标签 + chevron。
+   用户从一开始就知道这一列存在、artifact 会出现在这里。
+2. **新 artifact 到达自动展开**：useRef 跟踪上一帧长度，length
+   增长且当前 collapsed 时调 `setCollapsed(false)`。mount 时
+   prev=current 保证不会因为 stale-while-revalidate 缓存回填触发
+   误展开——只在真正"长出新条目"时弹开。
+3. **空态 sliver label** 不显示 `(0)`——纯 "Artifacts" + tooltip
+   "Artifacts will appear here once the agent creates one"。
+
+边界 case 取舍：用户手动 collapse 后又有新 artifact → 再次自动
+展开。这是用户在 2026-05-13 review 时明确要的语义（"新增就自动
+展开一下"）；如果实际用着烦再加 throttle / "only-on-first-growth"
+开关。
+
+`effectiveCollapsed = collapsed || artifacts.length === 0`：length 为
+0 时强制 sliver，长度 ≥1 时尊重用户的 collapsed 偏好（auto-expand
+useEffect 在 0→1 那一刻顺手把这个偏好翻成 false）。
 
 # ArtifactColumn.tsx — 4th layout column for artifact rendering
 
