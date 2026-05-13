@@ -92,7 +92,7 @@ For detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-
 
 ### 💻 macOS desktop app
 
-1. [Download the `.dmg`](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
+1. [Download the app](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
 2. Drag it into the Applications folder
 3. Launch → pick a template and go
 
