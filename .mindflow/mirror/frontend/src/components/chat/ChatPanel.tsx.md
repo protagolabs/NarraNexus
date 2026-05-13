@@ -1,8 +1,44 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-11
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Phase C: 自动 reconnect 到后端在跑的 run
+
+新增 useEffect 监听 `agentId + userId + currentAgent.active_run.run_id`：
+当用户打开（或切换到）一个已经在后端跑着的 agent，前端立刻调
+`reconnect(agentId, userId, activeRunId, agentName)`，让 `wsManager`
+重开一条带 `run_id` 的 WS。后端识别到 run_id 就走 replay 分支：把
+event_stream 里所有 seq ASC 的事件回放完，再 hook 到 broadcaster
+拿 live 接续。
+
+业内对这种模式的标准说法（用户在最近一次对话里直接问到）：
+**resumable / replayable streaming session**——event_stream 是事件
+存储（event sourcing），server-side run 是 long-running operation
+(LRO)，WS reconnect = last-event-id-style resumption（W3C SSE 把它
+做成 first-class，我们在 WS 上等价实现），整体是 "server-side
+session continuity"。
+
+useEffect 的边界条件（顺序 short-circuit）：
+1. 没 agentId / userId → 直接返回（panel 还没 ready）
+2. `activeRunId` 为 null → 后端没活跃 run，不重连（也是退出条件
+   防止 run 结束后死循环）
+3. 本地 `isLoading=true` → 当前 tab 自己刚发完 fresh-run 还在跑，
+   wsManager 已经管理着一条 WS，**不能**再开一条；reconnect 也
+   不需要——本地路径已经在收 live frames
+4. 上述都不满足 → fire-and-forget `reconnect()`；`wsManager` 内部
+   保证 idempotent（开新连接前 close 旧的）
+
+依赖数组 `[agentId, userId, activeRunId]` 是关键：
+- 用户切换 agent：activeRunId 跟着 currentAgent 变化（可能变 null
+  或变成新 agent 的 run_id），effect 重跑
+- run 结束后 `/api/auth/agents` 下一次拉到 active_run=null，
+  activeRunId 变 null，effect 重跑后第 2 步退出 —— **不会**继续
+  连旧 run
+
+`reconnect` 故意从 deps 里排除（eslint-disable-next-line）——它在
+hook 里是 useCallback 包过的稳定引用，写进去只会徒增噪音。
 
 ## 2026-05-11 fix — live activity stays visible after first reply (P0)
 

@@ -224,13 +224,43 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
 
-  const { run, stop, isLoading } = useAgentWebSocket({
+  const { run, reconnect, stop, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
       refreshAgents();
       if (completedAgentId) checkAwarenessUpdate(completedAgentId);
       onAgentComplete?.();
     },
   });
+
+  // ── Phase C: auto-reconnect to an in-flight backend run ──────────
+  //
+  // When the user lands on this agent's chat panel and the backend
+  // already has a BackgroundRun in 'running' state for them, the
+  // panel should auto-reconnect (don't ask the user to "resend
+  // their last message" — the agent is still working on it).
+  //
+  // We key the effect on agentId + run_id so:
+  //   * switching agents drops the reconnect attempt for the previous
+  //     agent (its WS, if any, was tied to a different agentId map key)
+  //   * an agent transitioning into a NEW run later (different run_id)
+  //     triggers a fresh reconnect
+  //   * a run completing and the badge clearing won't infinitely
+  //     re-open WS connections — the active_run goes null
+  //
+  // We deliberately don't attempt to reconnect when isStreaming for
+  // this agent is already true: that means the local fresh-run flow
+  // is already in flight on this tab.
+  const activeRunId = currentAgent?.active_run?.run_id ?? null;
+  useEffect(() => {
+    if (!agentId || !userId) return;
+    if (!activeRunId) return;
+    if (isLoading) return; // already locally streaming → don't double-open
+    // Fire-and-forget; wsManager handles idempotency + replacement.
+    reconnect(agentId, userId, activeRunId, currentAgent?.name);
+    // We intentionally exclude `reconnect` from the dep list — it's a
+    // stable identity from useCallback in the hook.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, userId, activeRunId]);
 
   // ── History loading ─────────────────────────────────
   const HISTORY_PAGE_SIZE = 20;
