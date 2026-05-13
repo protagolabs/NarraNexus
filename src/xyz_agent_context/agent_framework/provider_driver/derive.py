@@ -177,17 +177,32 @@ def _normalise_models(value) -> list[str]:
     return []
 
 
+# Sentinel values that ``slot.model`` is allowed to carry without being
+# considered broken. ``"default"`` in particular is the UI / config
+# convention meaning "use whatever the caller passed in OR the catalog
+# default" — see ``OpenAIAgentsSDK._resolve_model``. Auto-repairing
+# such a row would silently pin the slot to a concrete model and
+# defeat the per-call-site override behaviour.
+SLOT_MODEL_SENTINELS: frozenset[str] = frozenset({"default"})
+
+
 def is_slot_broken(slot_model: str, card_models) -> bool:
     """Return True if ``slot_model`` is NOT present in the card's
-    ``models`` array.
+    ``models`` array and is not a sentinel value.
 
     The check is intentionally against the card's array, NOT against
     the global catalog — a user who configured a private model that
     happens to not be in our catalog is fine; only a slot that points
     at a model the user's own card claims not to have is broken.
 
-    Empty ``slot_model`` is treated as broken (mis-configured row).
+    Special cases:
+
+    * ``"default"`` (or other sentinels in :data:`SLOT_MODEL_SENTINELS`)
+      → not broken. The resolver downstream handles sentinel resolution.
+    * Empty / None ``slot_model`` → broken (mis-configured row).
     """
+    if slot_model in SLOT_MODEL_SENTINELS:
+        return False
     if not slot_model:
         return True
     models = _normalise_models(card_models)
