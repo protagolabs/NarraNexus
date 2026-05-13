@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-04-10
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — addUserMessage 加可选 timestampMs
+
+签名扩成 `addUserMessage(agentId, content, attachments?, timestampMs?)`。
+默认仍然是 `Date.now()`——fresh-run 调用方都不传，含义不变。
+
+只有 Phase C reconnect 路径会传——把 `events.created_at`（即
+ChatModule 后续写进 `agent_messages.user_ts` 的同一个值）作为
+user 气泡的 timestamp。这样 ChatPanel 的 `role:content + 300_000ms`
+dedup 在 run 结束后从 history 拉回 user 行时能精准合并，避免"两条
+完全一样的 user 气泡"。
+
+非有限数会 fallback 到 `Date.now()`（NaN-safe）。
 
 # chatStore.ts — Multi-agent concurrent session state
 

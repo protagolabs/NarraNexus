@@ -24,6 +24,7 @@ Message Types:
 """
 
 import asyncio
+import json
 import traceback
 from contextlib import suppress
 from typing import Any, Optional
@@ -140,6 +141,31 @@ async def _handle_reconnect(
             await websocket.close()
         return
 
+    # Extract the user's original input + the canonical timestamp that
+    # ChatModule will later use when persisting this turn into
+    # agent_messages.user_ts (= event.created_at). Frontend uses these
+    # to inject the user bubble that triggered this run; the timestamp
+    # match guarantees ChatPanel's role:content + 60s dedup collapses
+    # the reconnect-injected bubble with the eventual history row,
+    # avoiding a duplicate user message after the run completes and
+    # history is reloaded.
+    #
+    # env_context is a JSON-encoded dict {"input": <str>, "timestamp": <iso>}
+    # populated by EventService.create_event() at step 0. Parsing failures
+    # are non-fatal — we just don't inject the bubble (reconnect still
+    # works, user just doesn't see their own question on first paint).
+    input_content_str: Optional[str] = None
+    try:
+        env_raw = events_row.get("env_context")
+        if env_raw:
+            env_decoded = json.loads(env_raw) if isinstance(env_raw, str) else env_raw
+            if isinstance(env_decoded, dict):
+                v = env_decoded.get("input")
+                if isinstance(v, str) and v:
+                    input_content_str = v
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[reconnect] env_context parse failed for run_id={run_id!r}: {e}")
+
     # Announce session start with the run_id echoed back so the client
     # can confirm + display.
     with suppress(Exception):
@@ -150,6 +176,15 @@ async def _handle_reconnect(
             "started_at": _format_dt(events_row.get("started_at")),
             "tool_call_count": events_row.get("tool_call_count") or 0,
             "current_stage": events_row.get("current_stage") or "",
+            # Phase C dedup: input_content + input_timestamp let the
+            # client paint the user-side bubble while replaying.
+            # input_timestamp is events.created_at — the same value
+            # ChatModule.hook_after_event_execution will write as
+            # agent_messages.user_ts after the run finishes, so the
+            # frontend's existing role:content + 60s dedup matches them
+            # by exact millisecond rather than by approximation.
+            "input_content": input_content_str,
+            "input_timestamp": _format_dt(events_row.get("created_at")),
         })
 
     # Replay all event_stream rows in seq ASC. Errors are non-fatal

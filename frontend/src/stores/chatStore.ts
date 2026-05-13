@@ -108,6 +108,7 @@ interface ChatState {
     agentId: string,
     content: string,
     attachments?: import('@/types').Attachment[],
+    timestampMs?: number,
   ) => string;
   startStreaming: (agentId: string) => void;
   stopStreaming: (agentId: string, agentName?: string) => void;
@@ -203,18 +204,28 @@ export const useChatStore = create<ChatState>((_set, get) => {
       }));
     },
 
-    // Add user message to a specific agent's session
+    // Add user message to a specific agent's session.
+    //
+    // ``timestampMs`` is optional and only used by the reconnect path:
+    // when the frontend joins a run that was started in a previous tab
+    // session, the server hands us ``events.created_at`` (same value
+    // ChatModule will later write into agent_messages.user_ts). Using
+    // that exact ms keeps ChatPanel's role:content + 60s dedup honest
+    // — the injected bubble and the eventual history row collapse
+    // into one timeline item. Fresh-run callers omit it so the
+    // user-pressed-Enter moment is captured locally as Date.now().
     addUserMessage: (
       agentId: string,
       content: string,
       attachments?: import('@/types').Attachment[],
+      timestampMs?: number,
     ) => {
       const id = generateId();
       const message: ChatMessage = {
         id,
         role: 'user',
         content,
-        timestamp: Date.now(),
+        timestamp: typeof timestampMs === 'number' && Number.isFinite(timestampMs) ? timestampMs : Date.now(),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
       };
       set((state) => ({

@@ -4,6 +4,31 @@ last_verified: 2026-05-13
 stub: false
 ---
 
+## 2026-05-13 — Reconnect: 注入触发本次 run 的 user bubble
+
+收到 `run_reconnect` 帧（reconnect WS 第一帧）时，如果带了
+`input_content`（非空字符串），就**额外**调一次
+`chatStore.addUserMessage(agentId, input_content, undefined, tsMs)`，
+其中 `tsMs = Date.parse(raw.input_timestamp)`（后端给的是
+`events.created_at` 的 ISO）。
+
+为什么时间戳要这么精确：`ChatModule.hook_after_event_execution`
+在 run 结束后会把 user 行持久化到 `agent_messages`，使用
+`user_ts = event.created_at.isoformat()`——和我们 inject 时用的是
+**同一个时间基准**。这样下一次拉 simple-chat-history 时，
+ChatPanel 的 `role:content + 300_000ms` dedup 自动匹配上、
+match-and-consume 掉那一对，不会出现"两条相同 user 气泡"。
+（5min 窗口足够覆盖 DB 端 `datetime('now')` 与 Python `utc_now()`
+之间几毫秒的偏差。）
+
+注入只发生一次（run_reconnect 是第一帧，没有重放可能），不需要
+idempotency 状态。`input_content` 缺失 / 非字符串 / 空串都跳过——
+reconnect 仍正常进行，只是首屏缺一条用户气泡，比 reconnect 整体
+崩掉好。
+
+随后照旧走 `translateReconnectFrame`——它对 `run_reconnect` 返回
+null，这帧不会再被 processMessage 处理一次。
+
 ## 2026-05-13 — Phase C: reconnect() + replay frame translation
 
 新增 `reconnect(agentId, userId, runId, options)` 方法，配合后端

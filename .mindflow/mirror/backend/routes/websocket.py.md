@@ -4,6 +4,31 @@ last_verified: 2026-05-13
 stub: false
 ---
 
+## 2026-05-13 — Reconnect 协议带回用户输入（dedup-safe）
+
+`_handle_reconnect` 在推 `run_reconnect` 元数据帧时多带两个字段：
+
+- `input_content` — 从 `events.env_context` JSON 里取 `input` 键。
+  这个 JSON 在 `EventService.create_event` 步骤 0 时写入，shape
+  是 `{"input": <user 文本>, "timestamp": <iso>}`。已经是落库的
+  数据，不需要 schema 改动。
+- `input_timestamp` — `events.created_at` 的 ISO（用
+  `_format_dt`）。
+
+**为什么是 `created_at` 而不是 `started_at`**：
+`ChatModule.hook_after_event_execution` 把 user 这条持久化进
+`agent_messages` 时用的 `user_ts = params.event.created_at.isoformat()`
+（chat_module.py:786）。前端 ChatPanel 的 dedup 走 `role:content`
++ ±300_000ms 窗口（SAME_MESSAGE_WINDOW_MS），如果时间戳基准不一致，
+即便差几秒也只是窗口在兜底——但用同一个字段作基准让"reconnect 注入
+的 user bubble"和"run 结束后从 agent_messages 拉回来的 user 行"
+匹配精度最高（只差 DB INSERT 时 SQL `datetime('now')` 与 Python
+`utc_now()` 之间的几个毫秒），不会出现双重 user 气泡。
+
+env_context 解析失败（JSON 损坏、列空）走 `suppress + warn-log`：
+reconnect 仍然继续，只是前端那一帧拿不到 input_content，user 气泡
+那一行就缺一下——比把整个 reconnect 路径搞挂好。
+
 ## 2026-05-13 — Phase D backend: force_stop 协议
 
 `_listen_for_stop` 增加 `{"action":"force_stop"}` 分支——前端在用户点

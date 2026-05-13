@@ -196,6 +196,34 @@ class WebSocketManager {
 
         if (raw.type === 'heartbeat') return;
 
+        // Phase C: inject the user message that triggered this run
+        // BEFORE any replay frames render. Backend hands us
+        // ``input_content`` (from events.env_context.input) and
+        // ``input_timestamp`` (events.created_at). The timestamp is
+        // the same value ChatModule.hook_after_event_execution
+        // eventually writes into agent_messages.user_ts, so once the
+        // turn completes and history reloads, ChatPanel's existing
+        // role:content + 60s timestamp-proximity dedup collapses
+        // the injected bubble with the persisted history row — no
+        // duplicate "user said X" rendering.
+        //
+        // We deliberately do this only once per reconnect (run_reconnect
+        // is the first frame the server sends for a reconnect WS), so
+        // there's no idempotency state to keep.
+        if (raw.type === 'run_reconnect') {
+          const inputContent = (raw.input_content as string | null | undefined) ?? '';
+          if (inputContent) {
+            const tsStr = raw.input_timestamp as string | null | undefined;
+            const tsMs = tsStr ? Date.parse(tsStr) : NaN;
+            store().addUserMessage(
+              agentId,
+              inputContent,
+              undefined,
+              Number.isFinite(tsMs) ? tsMs : undefined,
+            );
+          }
+        }
+
         // Translate Phase C reconnect-mode frames into RuntimeMessage
         // shapes the existing chatStore.processMessage already knows
         // how to render. live frames pass through untouched.
