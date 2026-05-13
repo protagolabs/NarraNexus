@@ -17,11 +17,16 @@ demand instead of carrying them all in prompt.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.channel.message_source_handler import (
+    MessageSourceHandler,
+    MessageSourceRegistry,
+)
 from xyz_agent_context.schema import (
     ContextData,
     ModuleConfig,
@@ -35,6 +40,89 @@ from .slack_sdk_client import SlackSDKClient, SlackSDKError
 
 
 SLACK_MCP_PORT = 7831
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# MessageSourceRegistry handler — let ChatModule extract the actual reply
+# Slack agents emit, instead of dumping a "Background activity (slack)"
+# placeholder. Symmetrical to lark_module._extract_lark_reply.
+#
+# Slack agents reply via ``slack_cli(method="chat.postMessage",
+# args={"channel": "...", "text": "..."})``. The default
+# MessageSourceHandler only knows about ``send_message_to_user_directly``,
+# so without this handler ChatModule.hook_after_event_execution treats every
+# Slack turn as "no response" and persists an activity row that the next
+# turn's hook_data_gathering then FILTERS OUT — agents see zero history
+# from prior Slack turns. Observed 2026-05-13: 100% of slack rows in
+# instance_json_format_memory_chat were "Background activity (slack)"
+# placeholders.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _extract_slack_reply(tool_name: str, arguments: dict) -> Optional[str]:
+    """Extract the user-visible reply text from a Slack agent tool call.
+
+    Recognises two patterns:
+      1. ``send_message_to_user_directly(content=...)`` — generic chat
+         path, may still be used on Slack turns when the agent also
+         echoes to the NarraNexus UI.
+      2. ``slack_cli(method="chat.postMessage",
+                     args={"channel": "...", "text": "..."})`` — the
+         canonical Slack reply path.
+
+    Returns the reply text on a match, ``None`` when the tool call isn't
+    a user reply at all (e.g. ``reactions.add``, ``conversations.history``,
+    or any non-Slack tool).
+    """
+    args = arguments
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:  # noqa: BLE001 — malformed args, treat as no reply
+            args = {}
+    if not isinstance(args, dict):
+        return None
+
+    # Generic chat-style content arg
+    if "send_message_to_user_directly" in (tool_name or ""):
+        content = args.get("content", "")
+        return content or None
+
+    if "slack_cli" not in (tool_name or ""):
+        return None
+
+    method = args.get("method", "")
+    if method != "chat.postMessage":
+        # reactions.add / conversations.history / chat.update / etc.
+        # are NOT user-visible reply text.
+        return None
+
+    inner_args = args.get("args") or {}
+    if isinstance(inner_args, str):
+        try:
+            inner_args = json.loads(inner_args)
+        except Exception:  # noqa: BLE001
+            return "(sent via slack_cli)"
+    if not isinstance(inner_args, dict):
+        return "(sent via slack_cli)"
+
+    return inner_args.get("text") or "(sent via slack_cli)"
+
+
+# Register at module-import time so chat_module._extract_user_visible_response
+# sees the handler before any Slack turn lands. Idempotency guarded by
+# MessageSourceRegistry: duplicate registration raises ValueError, which
+# we swallow under reload scenarios but let propagate on first import.
+try:
+    MessageSourceRegistry.register(MessageSourceHandler(
+        name="slack",
+        user_reply_tool_names=("slack_cli", "send_message_to_user_directly"),
+        row_prefix_template="[Slack · {sender_name} · {sender_id} · {chat_id}]",
+        extract_reply_fn=_extract_slack_reply,
+    ))
+except ValueError:
+    # Re-import (test hot-reload, etc.) — handler already registered.
+    pass
 
 
 # ── Slack App Manifest ──────────────────────────────────────────────────

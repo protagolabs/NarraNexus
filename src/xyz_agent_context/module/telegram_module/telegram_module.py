@@ -24,11 +24,16 @@ Mirrors slack_module.py shape; three deltas:
 
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.channel.message_source_handler import (
+    MessageSourceHandler,
+    MessageSourceRegistry,
+)
 from xyz_agent_context.schema import (
     ContextData,
     ModuleConfig,
@@ -42,6 +47,78 @@ from .telegram_sdk_client import TelegramSDKClient, TelegramSDKError
 
 
 TELEGRAM_MCP_PORT = 7832
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# MessageSourceRegistry handler — see slack_module._extract_slack_reply for
+# the full rationale. TL;DR: ChatModule's default extractor only knows
+# about ``send_message_to_user_directly``; Telegram agents reply via
+# ``tg_cli(method="sendMessage", args={"text": "..."})``, so without
+# this handler every Telegram turn is persisted as
+# "Background activity (telegram)" and the agent loses all multi-turn
+# context. Observed 2026-05-13: all telegram rows in
+# instance_json_format_memory_chat were "Background activity (telegram)".
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _extract_telegram_reply(tool_name: str, arguments: dict) -> Optional[str]:
+    """Extract the user-visible reply text from a Telegram agent tool call.
+
+    Recognises:
+      1. ``send_message_to_user_directly(content=...)`` — generic chat path.
+      2. ``tg_cli(method="sendMessage", args={"chat_id": ..., "text": ...})``
+         — the canonical Telegram reply path.
+
+    Returns the reply text on match, ``None`` when the tool call isn't
+    a user reply (e.g. ``sendChatAction`` for the typing indicator,
+    ``getUpdates``, or any non-Telegram tool).
+    """
+    args = arguments
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:  # noqa: BLE001
+            args = {}
+    if not isinstance(args, dict):
+        return None
+
+    # Generic chat-style content arg
+    if "send_message_to_user_directly" in (tool_name or ""):
+        content = args.get("content", "")
+        return content or None
+
+    if "tg_cli" not in (tool_name or ""):
+        return None
+
+    method = args.get("method", "")
+    if method != "sendMessage":
+        # sendChatAction (typing) / deleteMessage / editMessageText / etc.
+        # are NOT user-visible reply text.
+        return None
+
+    inner_args = args.get("args") or {}
+    if isinstance(inner_args, str):
+        try:
+            inner_args = json.loads(inner_args)
+        except Exception:  # noqa: BLE001
+            return "(sent via tg_cli)"
+    if not isinstance(inner_args, dict):
+        return "(sent via tg_cli)"
+
+    return inner_args.get("text") or "(sent via tg_cli)"
+
+
+# Register at module-import time. Idempotent guard mirrors lark_module.
+try:
+    MessageSourceRegistry.register(MessageSourceHandler(
+        name="telegram",
+        user_reply_tool_names=("tg_cli", "send_message_to_user_directly"),
+        row_prefix_template="[Telegram · {sender_name} · {sender_id} · {chat_id}]",
+        extract_reply_fn=_extract_telegram_reply,
+    ))
+except ValueError:
+    # Re-import (test hot-reload, etc.) — handler already registered.
+    pass
 
 
 # ── Discovery prompt (no credential bound) ─────────────────────────────
