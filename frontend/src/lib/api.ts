@@ -149,7 +149,25 @@ class ApiClient {
           // ignore parse errors; still throw below
         }
       }
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      // Extract the FastAPI HTTPException `detail` field so callers get
+      // an actionable message ("Cannot add another user's agent") instead
+      // of just "API error: 403 Forbidden". Falls back to the status
+      // line if the body is missing / not JSON / has no `detail`.
+      let detail = '';
+      try {
+        const body = await response.clone().json();
+        if (typeof body?.detail === 'string') {
+          detail = body.detail;
+        } else if (body?.detail) {
+          detail = JSON.stringify(body.detail);
+        }
+      } catch {
+        /* not JSON — fall through to status line */
+      }
+      const label = detail
+        ? `API error ${response.status}: ${detail}`
+        : `API error: ${response.status} ${response.statusText}`;
+      throw new Error(label);
     }
 
     return response.json();

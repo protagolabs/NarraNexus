@@ -72,6 +72,8 @@ export function TeamManagementModal({ open, onClose }: Props) {
       const tid = await createTeam({ name, color: newTeamColor });
       if (tid) setSelectedTeamId(tid);
       setNewTeamName('');
+    } catch (e) {
+      window.alert(`Create team failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setCreating(false);
     }
@@ -86,6 +88,8 @@ export function TeamManagementModal({ open, onClose }: Props) {
         color: editColor,
         intro_md: editIntro,
       });
+    } catch (e) {
+      window.alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSavingMeta(false);
     }
@@ -100,16 +104,32 @@ export function TeamManagementModal({ open, onClose }: Props) {
       danger: true,
     });
     if (!ok) return;
-    await deleteTeam(selected.team.team_id);
-    setSelectedTeamId(null);
+    try {
+      await deleteTeam(selected.team.team_id);
+      setSelectedTeamId(null);
+    } catch (e) {
+      window.alert(`Delete team failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   };
 
   const handleToggleMember = async (agentId: string) => {
     if (!selected) return;
-    if (selected.member_agent_ids.includes(agentId)) {
-      await removeMember(selected.team.team_id, agentId);
-    } else {
-      await addMember(selected.team.team_id, agentId);
+    // Surface API failures to the user. Pre-fix this handler relied on
+    // unhandled-rejection propagation, so a 403 (cross-user agent / team
+    // ownership mismatch) or 500 (schema drift, FK violation) silently
+    // did nothing — user saw "click Add, nothing happens". Now any
+    // backend rejection lands as an alert so they can report a real
+    // error string instead of guessing.
+    const inTeam = selected.member_agent_ids.includes(agentId);
+    try {
+      if (inTeam) {
+        await removeMember(selected.team.team_id, agentId);
+      } else {
+        await addMember(selected.team.team_id, agentId);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      window.alert(`${inTeam ? 'Remove' : 'Add'} failed: ${msg}`);
     }
   };
 

@@ -150,6 +150,7 @@ async def lifespan(app: FastAPI):
 
     # One-shot data migrations (idempotent; run after schema migration)
     from xyz_agent_context.utils.one_shot_migrations import (
+        heal_legacy_singleton_ownership,
         migrate_jobs_protocol_v2_timezone,
     )
     migration_stats = await migrate_jobs_protocol_v2_timezone(db)
@@ -158,6 +159,22 @@ async def lifespan(app: FastAPI):
             f"[migration] Cancelled {migration_stats['cancelled']} pre-v2 jobs "
             f"lacking timezone field; users will need to recreate them."
         )
+
+    # Self-heal pre-2026-05-13 local-mode singleton-ownership bug. Non-
+    # technical users hit "can't add agent to my own team" because team
+    # rows were created with owner_user_id='local-default' instead of
+    # their real user_id. This idempotently re-attributes those rows
+    # when (and only when) the user identity is unambiguous. See
+    # one_shot_migrations.py for the safety conditions.
+    try:
+        heal_stats = await heal_legacy_singleton_ownership(db)
+        if heal_stats.get("teams"):
+            logger.info(
+                f"[singleton-heal] re-attributed {heal_stats['teams']} legacy team(s)"
+            )
+    except Exception as e:  # noqa: BLE001
+        # Self-heal is best-effort — never block startup on it.
+        logger.warning(f"[singleton-heal] skipped due to error: {e}")
 
     # Wire system-default quota services. SystemProviderService is a
     # module-level singleton that reads env once; in local mode or when

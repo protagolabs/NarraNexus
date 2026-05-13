@@ -1418,3 +1418,107 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
         f"{indexes_created} indexes created "
         f"(total {len(TABLES)} tables in registry)"
     )
+
+    # Post-migration self-heal (2026-05-13). The CREATE / ALTER / INDEX
+    # loop above is supposed to be idempotent and leave every registered
+    # table in place, but field reports show it can quietly fail to
+    # create some tables (older backend booting on even-older DB, write
+    # lock contention, DDL generator edge case, half-applied migration
+    # from a previous abrupt shutdown, …). For non-technical users
+    # running ``bash run.sh`` or a packaged dmg, a missing table later
+    # surfaces as "click button, nothing happens" — they have no way to
+    # diagnose, no way to manually recover.
+    #
+    # So we explicitly re-verify, and if anything is missing we run
+    # CREATE TABLE for those entries one more time, with per-table
+    # error tolerance. If a table is STILL missing after the second
+    # attempt we log loudly but DO NOT raise — the rest of the app keeps
+    # working, only operations on that specific table will fail, which
+    # is strictly less bad than a backend that won't start.
+    await _self_heal_missing_tables(backend, dialect)
+
+
+async def _self_heal_missing_tables(
+    backend: "DatabaseBackend", dialect: str
+) -> None:
+    """Detect and re-create tables that the registry expects but the DB
+    is missing. Idempotent; safe to call multiple times.
+
+    The whole point is to let a non-technical user simply restart the
+    app (or even the same launch) and get a working DB without ever
+    having to look at logs or run SQL. If self-heal can't fix it on a
+    given boot, we still log loudly and keep going.
+    """
+    missing = await _verify_all_tables_present(backend, dialect)
+    if not missing:
+        logger.info(
+            f"Schema integrity verified: all {len(TABLES)} registered tables present"
+        )
+        return
+
+    logger.warning(
+        f"Schema self-heal: {len(missing)} table(s) missing after migrate — "
+        f"re-attempting CREATE for: {missing}"
+    )
+
+    for table_name in missing:
+        table_def = TABLES.get(table_name)
+        if table_def is None:
+            # Should be impossible — `missing` came from iterating TABLES — but
+            # be defensive.
+            continue
+        try:
+            ddl_stmts = generate_create_table_sql(table_def, dialect)
+            for stmt in ddl_stmts:
+                await backend.execute_write(stmt)
+            logger.info(f"Schema self-heal: re-created table `{table_name}`")
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                f"Schema self-heal: re-create of `{table_name}` failed: {e}. "
+                f"Routes touching this table will return 5xx until the next "
+                f"successful boot."
+            )
+
+    # Final verification.
+    still_missing = await _verify_all_tables_present(backend, dialect)
+    if still_missing:
+        # Don't raise — degrade gracefully. The user might be able to
+        # use the app's other features while this gets diagnosed.
+        logger.error(
+            f"Schema self-heal could NOT recover tables: {still_missing}. "
+            f"The backend will continue but operations on those tables "
+            f"will fail. Run `make db-doctor` to inspect, or stop the "
+            f"backend and rm the SQLite file if you want a clean reset "
+            f"(local mode only — you'll lose data)."
+        )
+    else:
+        logger.info(
+            f"Schema self-heal complete: all {len(TABLES)} tables present"
+        )
+
+
+async def _verify_all_tables_present(
+    backend: "DatabaseBackend", dialect: str
+) -> list[str]:
+    """Return the list of TABLES entries that don't actually exist in the
+    backend. Empty list means everything's fine.
+
+    Exposed as a module-level helper so `make db-doctor` (or any other
+    diagnostic CLI) can call it without re-running migration.
+    """
+    missing: list[str] = []
+    for table_name in TABLES.keys():
+        if dialect == "sqlite":
+            rows = await backend.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            )
+        else:
+            rows = await backend.execute(
+                "SELECT TABLE_NAME FROM information_schema.tables "
+                "WHERE table_schema=DATABASE() AND table_name=%s",
+                (table_name,),
+            )
+        if not rows:
+            missing.append(table_name)
+    return missing
