@@ -4,6 +4,20 @@ last_verified: 2026-05-13
 stub: false
 ---
 
+## 2026-05-13 — Phase D backend: force_stop 协议
+
+`_listen_for_stop` 增加 `{"action":"force_stop"}` 分支——前端在用户点
+graceful stop 后 10 秒没看到 cancelled 时弹"强制结束"，确认后发这条。
+后端立即推 `{"type":"stopping","stage":"received","force":true}` ACK，
+然后 cancel token；SIGKILL 实际由 Phase A C2 在 xyz_claude_agent_sdk
+disconnect 5 秒超时后的 `process.kill()` 完成。
+
+注意：force_stop 仍**走 finally / events-row 持久化**，state 写入
+`cancelled` + reason='User force-stopped (escalation)'。我们不绕过
+BackgroundRun 的清理路径——bypass 会留下 stale 内存对象 / 缺失的
+events terminal 行。"force" 在协议层指"用户提速 + UI 显示 force
+状态"，不是"硬杀 Python 内部状态"。
+
 ## 2026-05-13 — Phase C: agent 跟 WS 解耦 + reconnect 支持
 
 websocket_agent_run 大重构：

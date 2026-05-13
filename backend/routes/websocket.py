@@ -255,7 +255,10 @@ async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken
     try:
         while not cancellation.is_cancelled:
             data = await websocket.receive_json()
-            if isinstance(data, dict) and data.get("action") == "stop":
+            if not isinstance(data, dict):
+                continue
+            action = data.get("action")
+            if action == "stop":
                 # Stop ACK — stage 1 of 3 ("received").
                 #
                 # Without this ACK the user faces a dumb UI from the
@@ -270,6 +273,25 @@ async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken
                         "stage": "received",
                     })
                 cancellation.cancel("User clicked stop")
+                return
+            if action == "force_stop":
+                # Phase D: user-initiated escalation when the graceful
+                # stop above has been pending ≥10 s and the agent still
+                # has not torn down. We surface a louder cancellation
+                # reason so logs distinguish the path; the actual SIGKILL
+                # is performed by xyz_claude_agent_sdk's bounded
+                # disconnect (Phase A C2) — see the 5-second wait_for
+                # + process.kill() fallback. Note: even force_stop is
+                # cooperative at the asyncio layer — we don't bypass
+                # finally / events-row persistence so the run is left
+                # in a clean terminal state.
+                with suppress(Exception):
+                    await websocket.send_json({
+                        "type": "stopping",
+                        "stage": "received",
+                        "force": True,
+                    })
+                cancellation.cancel("User force-stopped (escalation)")
                 return
     except WebSocketDisconnect as e:
         # Phase C (2026-05-13) — WS disconnect NO LONGER cancels the
