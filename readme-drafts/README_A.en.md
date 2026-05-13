@@ -122,7 +122,7 @@ What an agent actually does for you.
 
 ### Agents like real teammates
 
-Every agent has persistent identity and preferences (managed by the **Awareness module**), so it remembers who it is and who it's working for across sessions. Conversations are auto-routed into storylines — **Narrative memory** uses embedding-based topic retrieval, not naive chronological order. Every agent can call MCP tools; installing a new skill from [ClawHub](https://website.narra.nexus/docs/modules/skills) is one chat line away — no code change.
+Every agent has persistent identity and preferences (managed by the **Awareness module**), so it remembers who it is and who it's working for across sessions. Conversations are auto-routed into storylines — **Narrative memory** uses embedding-based topic retrieval, not naive chronological order. Every agent can call MCP tools; installing a new skill is one chat line away — no code change.
 
 ### Agents that actually collaborate
 

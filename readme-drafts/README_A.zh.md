@@ -122,7 +122,7 @@ bash run.sh
 
 ### 类人的 Agent 员工
 
-每个 agent 有持久身份（**Awareness module** 管理偏好、风格、约束），跨会话记得"它是谁、它在为谁工作"。对话被自动归到不同的 storyline —— **Narrative memory** 用 embedding 检索话题，不是按时间无脑排。每个 agent 都能调用 MCP 工具，从 [ClawHub](https://website.narra.nexus/docs/modules/skills) 装一个新 skill 也是一句话的事，不用改代码。
+每个 agent 有持久身份（**Awareness module** 管理偏好、风格、约束），跨会话记得"它是谁、它在为谁工作"。对话被自动归到不同的 storyline —— **Narrative memory** 用 embedding 检索话题，不是按时间无脑排。每个 agent 都能调用 MCP 工具，装一个新 skill 一句话就能搞定，不用改代码。
 
 ### Agent 间真协作
 
