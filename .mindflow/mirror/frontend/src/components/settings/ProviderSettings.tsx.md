@@ -1,7 +1,29 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-05-05
+last_verified: 2026-05-14
 ---
+
+## 2026-05-14 — Quick Add auto-fills empty slots (NetMind)
+
+`handleQuickAdd` now sends `default_slots` so a brand-new user with just
+an API key is immediately usable — no manual slot wiring.
+
+- `PRESET_DEFAULT_SLOTS` maps a preset → recommended `{protocol, model}`
+  per slot. Only `netmind` is wired up: one NetMind key creates both an
+  Anthropic- and an OpenAI-protocol endpoint, so all three slots fill
+  from one key — `agent` → DeepSeek V4 Pro (anthropic), `helper_llm` →
+  DeepSeek V4 Flash (openai), `embedding` → BGE-M3 (openai). Model ids
+  must match `model_catalog.py` `DEFAULT_MODELS[("netmind", ...)]`.
+- Only **empty** slots are filled — `handleQuickAdd` skips any slot that
+  already has a `config`. The backend `set_slot` is an upsert, so
+  including an already-configured slot would clobber the user's choice.
+  This makes the feature safe for the "existing user re-adds NetMind"
+  path, not just fresh signups.
+- The backend hook (`POST /providers` `default_slots`) already existed
+  and was dormant — no backend change; this just started sending it.
+- After a Quick Add that auto-filled ≥1 slot, the `autoConfigured`
+  state drives a confirmation `Dialog` ("You're ready to go") listing
+  what was set and pointing at the slot section for overrides.
 
 # ProviderSettings.tsx — LLM provider CRUD and model-slot assignment
 

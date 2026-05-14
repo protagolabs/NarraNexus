@@ -108,6 +108,30 @@ const PRESET_PROVIDERS: WebPresetProvider[] = [
   { id: 'openrouter', name: 'OpenRouter',       description: 'Proxies official Claude & OpenAI APIs',           get_key_url: 'https://openrouter.ai/keys' },
 ]
 
+// When a preset provider is Quick-Added, auto-assign these models to any
+// slot the user hasn't configured yet — so a brand-new user with just an
+// API key is immediately usable, no manual slot wiring needed.
+//
+// Only NetMind is wired up today: a single NetMind key creates BOTH an
+// Anthropic-protocol and an OpenAI-protocol endpoint, so all three slots
+// can be filled from one key. `protocol` must match a protocol the preset
+// actually creates; `model` must be a model id that endpoint serves (see
+// model_catalog.py DEFAULT_MODELS[("netmind", ...)]). `label` is for the
+// post-add confirmation dialog only.
+//
+// This only ever fills EMPTY slots — set_slot is an upsert, so an
+// already-configured slot is left untouched (don't clobber user choices).
+const PRESET_DEFAULT_SLOTS: Record<
+  string,
+  Record<string, { protocol: string; model: string; label: string }>
+> = {
+  netmind: {
+    agent:      { protocol: 'anthropic', model: 'deepseek-ai/DeepSeek-V4-Pro',   label: 'DeepSeek V4 Pro' },
+    helper_llm: { protocol: 'openai',    model: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek V4 Flash' },
+    embedding:  { protocol: 'openai',    model: 'BAAI/bge-m3',                   label: 'BGE-M3' },
+  },
+}
+
 // =============================================================================
 // Agent Framework definitions
 // =============================================================================
@@ -437,6 +461,9 @@ export function ProviderSettings() {
   const [selectedPreset, setSelectedPreset] = useState<string>(PRESET_PROVIDERS[0].id)
   const [presetKey, setPresetKey] = useState('')
   const [presetAdding, setPresetAdding] = useState(false)
+  // Set after a Quick Add that auto-filled one or more empty slots —
+  // drives the "ready to go" confirmation dialog. null = dialog closed.
+  const [autoConfigured, setAutoConfigured] = useState<{ label: string; model: string }[] | null>(null)
   const [syncing, setSyncing] = useState(false)
   // Inline summary line for the sync-defaults action: success / error / null.
   // Cleared whenever the user re-runs the sync so the UI never lies.
@@ -551,8 +578,37 @@ export function ProviderSettings() {
   const handleQuickAdd = async () => {
     if (!presetKey.trim()) { setError('Please enter your API key'); return }
     setPresetAdding(true)
-    const ok = await addProvider({ card_type: selectedPreset, api_key: presetKey.trim() })
-    if (ok) setPresetKey('')
+
+    // Auto-fill any UNCONFIGURED slot with this preset's recommended model
+    // (NetMind today). A slot is "empty" when it has no `config`. Slots the
+    // user already configured are left out of `default_slots` entirely —
+    // backend set_slot is an upsert and would otherwise clobber them.
+    const presetDefaults = PRESET_DEFAULT_SLOTS[selectedPreset]
+    const defaultSlots: Record<string, { protocol: string; model: string }> = {}
+    const autoFilled: { label: string; model: string }[] = []
+    if (presetDefaults) {
+      for (const [slotKey, def] of Object.entries(presetDefaults)) {
+        if (!slots[slotKey]?.config) {
+          defaultSlots[slotKey] = { protocol: def.protocol, model: def.model }
+          autoFilled.push({
+            label: SLOT_DEFS.find((s) => s.key === slotKey)?.label ?? slotKey,
+            model: def.label,
+          })
+        }
+      }
+    }
+
+    const body: Record<string, unknown> = {
+      card_type: selectedPreset,
+      api_key: presetKey.trim(),
+    }
+    if (Object.keys(defaultSlots).length > 0) body.default_slots = defaultSlots
+
+    const ok = await addProvider(body)
+    if (ok) {
+      setPresetKey('')
+      if (autoFilled.length > 0) setAutoConfigured(autoFilled)
+    }
     setPresetAdding(false)
   }
 
@@ -1312,6 +1368,45 @@ export function ProviderSettings() {
           </Dialog>
         )
       })()}
+
+      {/* ================================================================= */}
+      {/* Quick Add auto-config confirmation                                 */}
+      {/* Shown after a preset Quick Add that auto-filled empty model slots. */}
+      {/* ================================================================= */}
+      <Dialog
+        isOpen={autoConfigured !== null}
+        onClose={() => setAutoConfigured(null)}
+        title="You're ready to go"
+      >
+        <DialogContent>
+          <p className="text-sm text-[var(--text-secondary)] mb-3">
+            Your key is in, and we&rsquo;ve set up your model slots so you can
+            start chatting right away:
+          </p>
+          <ul className="space-y-1.5 mb-4">
+            {autoConfigured?.map((a) => (
+              <li key={a.label} className="flex items-baseline gap-2 text-sm">
+                <span className="text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.1em] w-24 shrink-0">
+                  {a.label}
+                </span>
+                <span className="text-[var(--text-primary)] font-medium">{a.model}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-[var(--text-tertiary)]">
+            Want different models? Change any slot in the configuration section
+            below — your edits always win over these defaults.
+          </p>
+        </DialogContent>
+        <DialogFooter>
+          <button
+            onClick={() => setAutoConfigured(null)}
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary)]/90 transition-colors"
+          >
+            Got it
+          </button>
+        </DialogFooter>
+      </Dialog>
     </div>
   )
 }
