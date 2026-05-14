@@ -4,19 +4,43 @@ last_verified: 2026-05-14
 stub: false
 ---
 
-## 2026-05-14 — Thinking ↔ Reply contrast bumped
+## 2026-05-14 (r2) — two-tier styling: ANSWER vs PROCESS
 
-Thinking and Reply blocks were too close to tell apart mid-scroll. The
-contrast now runs on **two axes**:
-- `ThinkingBlock` body tone: `text-secondary` → `text-tertiary` (the
-  dimmest tone — it visibly recedes).
-- `ReplyBlock` body: `text-sm` → `text-[15px]` + explicit `text-primary`
-  (one notch larger, full strength — it pops).
+The first 2026-05-14 pass ("make Thinking dimmer, Reply larger") was a
+**no-op for settled content** and fixed the wrong pair. Two root causes:
 
-"Process" (thinking) reads dimmer, "product" (reply) reads larger, so
-the user distinguishes them without reading the labels. NB: the older
-"Thinking gets italics, smaller type" line below is **stale** — the code
-has never used italics; the real lever is tone + size as described here.
+1. **`.markdown-content` override.** Settled `thinking` / `reply` bodies
+   render through `<Markdown>`, whose `.markdown-content` rule sets an
+   explicit `color` and `font-size`. Those win over any ancestor utility
+   class — so `text-[var(--text-tertiary)]` on the ThinkingBlock
+   container and `text-[15px]` on the ReplyBlock body reached only the
+   label + the brief streaming plain-text path, never the settled body.
+2. **Wrong pair.** The hard-to-tell-apart pair was Thinking ↔
+   **NativeOutput** (both muted, both dashed-tertiary border), not
+   Thinking ↔ Reply. `native_output` had never been touched.
+
+r2 reworks all three "speech-ish" blocks into **two semantic tiers**,
+keyed by border style:
+
+- **ANSWER tier — SOLID left rule** (content the user should read):
+  - `reply` — peak: thick solid *accent* rule + faint accent fill +
+    accent label + body one notch larger.
+  - `native_output` — same tier, one notch below: solid *secondary*
+    rule, full-strength body, neutral tone, no fill. (Was: dashed
+    tertiary + `opacity-80` — i.e. visually identical to thinking.)
+- **PROCESS tier — DASHED left rule** (skimmable):
+  - `thinking` — dashed tertiary rule, dimmest tone throughout.
+  - `tool_call` / `tool_output` — unchanged mono affordances.
+
+**The override is now defeated properly:** two `markdown-*` variant
+classes in `index.css` (`.markdown-content.markdown-dim`,
+`.markdown-content.markdown-reply`) — two-class selectors, specificity
+0,2,0, beat `.markdown-content`'s 0,1,0. `ThinkingBlock` passes
+`className="markdown-dim"` and `ReplyBlock` passes
+`className="markdown-reply"` to `<Markdown>`. `native_output` never uses
+Markdown so its container styling applies directly.
+
+Order / position / event logic unchanged — styling only.
 
 # TurnTimeline.tsx — Inline event timeline for a streaming agent turn
 

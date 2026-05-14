@@ -3,19 +3,34 @@
  * turn's events (thinking · tool_call · tool_output · reply ·
  * native_output), in the order they arrived.
  *
- * Design (per 2026-05-12 review with Xiong):
- * - Each event is its own visual block; blocks are stacked in
- *   chronological order so the user sees the agent's actual rhythm
- *   ("think → tool → think → tool → reply → think").
- * - reply is the user-facing speech and is visually elevated
- *   (border + bigger type + markdown rendering).
- * - thinking is the agent's internal monologue, intentionally
- *   visually demoted (italic, smaller, muted) so it doesn't compete
- *   with reply for attention. Per-block expand/collapse lets users
- *   skim or dive in.
- * - tool_call is a single-line affordance (icon + tool name + one-
- *   line arg summary). Full args/output stay in the right-side
- *   Execution panel; chat keeps it terse.
+ * Design — order is chronological (so the user sees the agent's actual
+ * rhythm "think → tool → reply"); the *styling* sorts the blocks into
+ * two semantic tiers so the eye lands on what the user should read.
+ *
+ *   Tier ANSWER — content aimed at the user. Marked by a SOLID left rule.
+ *   - reply: the authoritative answer (the agent called
+ *     send_message_to_user_directly). Peak treatment — thick solid
+ *     accent rule, faint accent fill, accent label, body one notch
+ *     larger.
+ *   - native_output: raw model text aimed at the user but not routed
+ *     through the reply tool. Same tier, one notch below — solid
+ *     neutral rule, full-strength body, no fill, no accent.
+ *
+ *   Tier PROCESS — how the agent got there, skimmable. Marked by a
+ *   DASHED left rule.
+ *   - thinking: internal monologue. Dashed tertiary rule, dimmest tone
+ *     throughout — recedes.
+ *   - tool_call / tool_output: single-line mono affordances; full
+ *     args/output live in the right-side Execution panel.
+ *
+ * Solid-vs-dashed left rule is the at-a-glance tier signal; colour +
+ * size rank within a tier. (2026-05-12 review with Xiong established
+ * the chronological-blocks model; 2026-05-14 reworked the styling into
+ * these tiers after thinking and native_output proved hard to tell
+ * apart — the earlier "make thinking dimmer" pass was a no-op because
+ * .markdown-content's explicit color/size overrode the ancestor
+ * utility classes; the real hook is the markdown-* variant classes in
+ * index.css.)
  *
  * Per-block expand/collapse state is keyed by event.id and lives in
  * this component's local state — fine because the parent ChatPanel
@@ -54,10 +69,16 @@ const ThinkingBlock = memo(function ThinkingBlock({
   content: string;
   isStreaming: boolean;
 }) {
-  // Thinking is a peer of Reply in the timeline — both are bubbles, both
-  // get Markdown rendering when settled, both expand inline. Reply uses
-  // the accent border, Thinking uses a dashed muted border so the two
-  // are visually distinguishable without ranking.
+  // Tier: PROCESS. Thinking is the agent's internal monologue — not
+  // something the user must read. It recedes: a *dashed* left rule
+  // (dashed = process; solid = content-the-user-reads) and the dimmest
+  // tone throughout.
+  //
+  // The settled body goes through <Markdown>, whose `.markdown-content`
+  // sets an explicit `color` that wins over any ancestor utility class —
+  // so the `text-[var(--text-tertiary)]` on the container only reaches
+  // the label + the streaming plain-text path. The `markdown-dim`
+  // variant class (index.css) is what actually dims the settled body.
   //
   // Streaming caveat: <Markdown> re-parses the entire content on every
   // re-render, so feeding it a new full string per delta tanks input
@@ -65,11 +86,7 @@ const ThinkingBlock = memo(function ThinkingBlock({
   // 2026-05-12 deploy). While streaming we therefore render plain
   // pre-wrap text; once the turn settles (isStreaming=false, also the
   // path used by historical timelines) we switch to Markdown so
-  // headings / bullets / code render properly. The content is the
-  // same in both modes; only the parser cost differs.
-  // Thinking content is rendered in the dimmest text tone (text-tertiary)
-  // so it visibly recedes next to Reply's full-strength text — the user
-  // can tell "process" from "product" at a glance without reading labels.
+  // headings / bullets / code render properly.
   return (
     <div
       className={cn(
@@ -87,7 +104,7 @@ const ThinkingBlock = memo(function ThinkingBlock({
         {isStreaming ? (
           <div className="whitespace-pre-wrap">{content}</div>
         ) : (
-          <Markdown content={content} />
+          <Markdown content={content} className="markdown-dim" />
         )}
       </div>
     </div>
@@ -202,11 +219,13 @@ const ReplyBlock = memo(function ReplyBlock({
   isStreaming: boolean;
   isFallback: boolean;
 }) {
-  // Reply is the agent's actual user-facing speech, peer to Thinking but
-  // visually elevated (thicker accent border, faint accent fill, explicit
-  // "Reply" label) so the eye lands on it first even when surrounded by
-  // dense thinking + tool blocks. The asymmetry is intentional: thinking
-  // is process, reply is product. See 2026-05-12 redesign decision A+B1.
+  // Tier: ANSWER (peak). Reply is the agent's authoritative, user-facing
+  // speech — the one block the user should land on first. Strongest
+  // treatment in the timeline: a thick *solid* accent left rule, a faint
+  // accent fill, an accent label, and a body one notch larger than the
+  // default. The size bump comes from the `markdown-reply` variant class
+  // (index.css) — styling the container can't enlarge Markdown content
+  // because `.markdown-content` sets an explicit font-size.
   return (
     <div
       className={cn(
@@ -225,19 +244,15 @@ const ReplyBlock = memo(function ReplyBlock({
           </span>
         )}
       </div>
-      {/* Reply body is set one notch larger than Thinking (15px vs 14px)
-          and at full-strength text-primary — the size + colour gap is
-          what makes "product" read as more prominent than "process". */}
-      <div className="text-[15px] leading-relaxed text-[var(--text-primary)]">
-        {/* Same streaming optimisation as ThinkingBlock: <Markdown>
-            re-parses on every render, so we hand it plain text during
-            streaming and switch to full Markdown once the turn
-            settles. Keeps token-level latency flat regardless of how
-            long the reply gets. */}
+      {/* Streaming path renders plain pre-wrap text (the <Markdown>
+          re-parse cost per delta tanks input latency on long replies —
+          2026-05-12 catch); the settled path switches to <Markdown> with
+          the `markdown-reply` size variant. */}
+      <div className="leading-relaxed">
         {isStreaming ? (
-          <div className="whitespace-pre-wrap">{content}</div>
+          <div className="whitespace-pre-wrap text-[1.05rem]">{content}</div>
         ) : (
-          <Markdown content={content} />
+          <Markdown content={content} className="markdown-reply" />
         )}
       </div>
     </div>
@@ -251,19 +266,30 @@ const NativeOutputBlock = memo(function NativeOutputBlock({
   content: string;
   isStreaming: boolean;
 }) {
+  // Tier: ANSWER (secondary). native_output IS speech aimed at the user
+  // — the model just didn't route it through send_message_to_user_-
+  // directly. So it belongs in the same tier as Reply, one notch below:
+  // a *solid* left rule (content, not process) and a full-strength body,
+  // but in a neutral secondary tone instead of Reply's accent, and with
+  // no accent fill. Previously it shared Thinking's dashed-tertiary +
+  // opacity-80 treatment, which made the two indistinguishable.
+  //
+  // native_output never goes through <Markdown> (always plain pre-wrap),
+  // so the body colour is governed directly — full strength via
+  // `.message-assistant`'s text-primary, no dimming.
   return (
     <div
       className={cn(
-        'message-assistant px-4 py-3 opacity-80',
-        'border-l-2 border-dashed border-[var(--text-tertiary)]',
+        'message-assistant px-4 py-3',
+        'border-l-4 border-[var(--text-secondary)]',
         isStreaming && 'animate-fade-in',
       )}
     >
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)] mb-1.5">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-secondary)] mb-1.5">
         <MessageSquare className="w-3 h-3" />
         <span>Native output</span>
       </div>
-      <div className="text-sm leading-relaxed whitespace-pre-wrap">{content}</div>
+      <div className="text-[0.95rem] leading-relaxed whitespace-pre-wrap">{content}</div>
     </div>
   );
 });
