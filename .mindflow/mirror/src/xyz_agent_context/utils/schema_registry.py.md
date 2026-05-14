@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-13
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 addition — invite_codes
+
+New table `invite_codes` — backs the cloud-mode registration gate, replacing
+the single global `INVITE_CODE` env var (deleted from `backend/auth.py`).
+
+One row = one unique, single-use code issued to one email. `code` carries a
+unique index; `email` / `status` indexes drive idempotent re-requests (same
+email → resend existing issued code) and the Mode-B auto-issue cap count
+(`status IN (issued, used)` < cap). status flow: `issued → used` (consumed
+atomically by `/api/auth/register`), `waitlisted → issued` (admin promote
+when the cap is hit), `→ revoked` (admin kill). `email_sent` records whether
+the SMTP send actually succeeded so a failed send is visible/re-sendable in
+the admin list without blocking `/api/invite/request`.
+
+Purely additive — `auto_migrate` creates it on next startup. Design doc:
+`drafts/logs/invite_code_2026_05_14.md`.
 
 ## 2026-05-13 addition — Agent Runtime Lifecycle (Phase C)
 

@@ -120,6 +120,8 @@ from .api_schema import (
     LoginResponse,
     RegisterRequest,
     RegisterResponse,
+    InviteRequestRequest,
+    InviteRequestResponse,
     ActiveRunInfo,
     AgentInfo,
     AgentListResponse,
@@ -225,6 +227,9 @@ from .a2a_schema import (
     # Error Codes
     A2AErrorCodes,
 )
+
+# ===== Invite Code Schema =====
+from .invite_code_schema import InviteCode
 
 # ===== Artifact Schema (agent-emitted artifacts: charts, reports, html apps, csv, images, pdf) =====
 from .artifact_schema import (
@@ -339,6 +344,8 @@ __all__ = [
     "LoginResponse",
     "RegisterRequest",
     "RegisterResponse",
+    "InviteRequestRequest",
+    "InviteRequestResponse",
     "ActiveRunInfo",
     "AgentInfo",
     "AgentListResponse",
@@ -398,6 +405,9 @@ __all__ = [
     "SkillListResponse",
     "SkillOperationResponse",
     "SkillStudyResponse",
+
+    # Invite Code Schema
+    "InviteCode",
 
     # Artifact Schema
     "Artifact",

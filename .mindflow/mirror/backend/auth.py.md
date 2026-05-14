@@ -1,8 +1,18 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-05-13
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — 删除全局 INVITE_CODE 常量 + /api/invite/request 豁免
+
+`INVITE_CODE` 全局环境变量常量**已删除**。注册门禁改为 per-code 的 DB
+机制（`invite_codes` 表 + `InviteCodeRepository` + `backend/routes/invite.py`）。
+`backend/routes/auth.py::register()` 不再 import / 比对它。
+
+`AUTH_EXEMPT_PATHS` 新增 `/api/invite/request`——公开邀请码申请端点，调用
+者还没账号，是注册前的漏斗，不能要求 JWT。admin 侧操作在
+`/api/admin/invite`，仍需 staff JWT（落在 `/api/admin` 前缀下）。
 
 ## 2026-05-13 — Local 模式多用户支持（X-User-Id header）
 
@@ -70,13 +80,13 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 
 - **被谁用**：
   - `backend/main.py` — 注册 `auth_middleware` 作为全局 HTTP 中间件
-  - `backend/routes/auth.py` — 调用 `hash_password`, `verify_password`, `create_token`, `_is_cloud_mode`, `INVITE_CODE`
+  - `backend/routes/auth.py` — 调用 `hash_password`, `verify_password`, `create_token`, `_is_cloud_mode`
   - `backend/routes/websocket.py` — 调用 `_is_cloud_mode`, `decode_token`（WebSocket 无法用 HTTP 头传 token，所以 WS 端自己验证）
   - `backend/routes/providers.py` — 通过 `request.state.user_id` 读取中间件注入的用户信息
 - **依赖谁**：
   - `bcrypt` — 密码哈希
   - `PyJWT`（`jwt`）— token 生成和验证
-  - 运行时读取 `DATABASE_URL`（或 fallback 到 `DB_HOST`）、`JWT_SECRET`、`INVITE_CODE` 环境变量
+  - 运行时读取 `DATABASE_URL`（或 fallback 到 `DB_HOST`）、`JWT_SECRET` 环境变量
 
 ## 设计决策
 
@@ -99,7 +109,6 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 ## Gotcha / 边界情况
 
 - **JWT_SECRET 的默认值**：默认值是 `"dev-secret-do-not-use-in-production"`。云部署时如果忘记设置 `JWT_SECRET` 环境变量，应用正常启动并签发 token，但任何知道这个默认值的人都可以伪造合法 token。没有启动时的校验或警告。
-- **INVITE_CODE 的默认值**：`"narranexus2026"`，同样没有强制要求在生产环境中覆盖。
 - **token 有效期 7 天**：`JWT_EXPIRY_DAYS = 7`，没有 refresh token 机制。7 天后用户必须重新登录，前端会看到 401 并需要处理重定向到登录页。
 - **`CurrentUser` 依赖在 local 模式下返回 None**：`get_current_user` 在 local 模式下返回 `None`，如果有路由用了 `Depends(get_current_user)` 并假设返回值非 None，local 模式下会 `AttributeError`。目前鉴权主要走中间件，这个函数几乎没被路由使用。
 

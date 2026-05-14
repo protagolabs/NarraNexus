@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-04-21
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 addition — invite request DTOs
+
+`InviteRequestRequest` (email only) / `InviteRequestResponse` back the public
+`POST /api/invite/request` endpoint. `InviteRequestResponse.code` deliberately
+does not exist — the generated code is delivered ONLY by email; echoing it in
+the HTTP response would let a caller bypass the rate limiter. `status` is one
+of `issued | waitlisted | already_registered`.
 
 # api_schema.py
 
