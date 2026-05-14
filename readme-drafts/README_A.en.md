@@ -109,7 +109,7 @@ bash run.sh
 
 ---
 
-##  Three Core Capabilities
+##  Three Core Features
 
 What an agent actually does for you.
 
@@ -118,7 +118,7 @@ What an agent actually does for you.
 - **Identity** — every agent has a persistent identity and preferences (the **Awareness module**), so it remembers who it is and who it's working for across sessions.
 - **Memory** — conversations are auto-routed into storylines; **Narrative memory** uses embedding-based topic retrieval, not naive chronological order.
 - **Relationships** — the **Social Network module** lets an agent remember the people and entities it deals with, and build a customized interaction style for each.
-- **Tools** — every agent can call MCP tools; installing a new skill is one chat line away — no code change.
+- **ability** — every agent can call MCP tools; installing a new skill is one chat line away — no code change.
 
 ### Agents that actually collaborate
 
@@ -128,9 +128,9 @@ What an agent actually does for you.
 
 ### Batteries included
 
-- **10 built-in modules** — Memory · Awareness · Chat · SocialNetwork · Jobs · Skills · MessageBus · Lark · CommonTools · BasicInfo. Each ships with its own DB schema, MCP tools, and lifecycle hooks.
+- **built-in modules** — Memory · Awareness · Chat · SocialNetwork · Jobs · Skills · MessageBus · Lark · CommonTools · BasicInfo. Each ships with its own DB schema, MCP tools, and lifecycle hooks.
 - **Multi-LLM** — Anthropic / OpenAI / Gemini through a unified adapter.
-- **4 trigger modes** — Chat / Job / MessageBus / Matrix·Lark, all sharing the same 6-step pipeline.
+- **trigger modes with unified runtime** — Chat / Job / MessageBus / Matrix·Lark, all sharing the same 6-step runtime pipeline.
 
 ---
 
