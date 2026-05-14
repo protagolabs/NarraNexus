@@ -476,9 +476,35 @@ async def get_simple_chat_history(
                         timestamp = meta_data.get("timestamp") or msg.get("created_at")
                         message_type = meta_data.get("message_type", "chat")
 
+                        # Privacy guard for IM channels: agent replies sent
+                        # via platform tools (tg_cli sendMessage, slack_cli
+                        # chat.postMessage, lark_cli +messages-send) live in
+                        # the same instance memory as chat replies so the
+                        # agent's NEXT turn can still see them (long-term
+                        # memory). But surfacing the raw IM reply text to
+                        # the owner's chat panel mixes two contexts:
+                        #   (a) "owner ↔ agent direct chat"
+                        #   (b) "agent ↔ third party on IM"
+                        # The frontend chat panel is for (a); routine IM
+                        # chatter should stay on the IM platform. We
+                        # replace the content with a one-line activity
+                        # marker so the owner sees the agent was active
+                        # without leaking the actual conversation.
+                        # KNOWN LIMITATION: if an IM-triggered turn ALSO
+                        # called send_message_to_user_directly (the
+                        # "tell owner about this important thing" path),
+                        # that content gets hidden too because both reply
+                        # outputs are merged into ``assistant_content``
+                        # under the trigger's working_source. Untangling
+                        # that requires storing the two tool outputs
+                        # separately at write time — out of scope here.
+                        content = msg.get("content", "")
+                        if working_source != "chat" and role == "assistant":
+                            content = f"Background activity ({working_source})"
+
                         all_messages.append({
                             "role": role,
-                            "content": msg.get("content", ""),
+                            "content": content,
                             "timestamp": timestamp,
                             "narrative_id": narrative_id,
                             "instance_id": instance.instance_id,
