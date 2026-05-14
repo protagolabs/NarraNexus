@@ -488,8 +488,12 @@ async def get_simple_chat_history(
                         # The frontend chat panel is for (a); routine IM
                         # chatter should stay on the IM platform. We
                         # replace the content with a one-line activity
-                        # marker so the owner sees the agent was active
-                        # without leaking the actual conversation.
+                        # marker AND override ``message_type`` to
+                        # ``"activity"`` so the frontend renders it
+                        # compactly (small centered italic line) rather
+                        # than as a full agent reply bubble — see
+                        # ``ChatPanel.tsx`` ``if item.messageType ===
+                        # 'activity'`` branch.
                         #
                         # Carve-out: when the agent explicitly called
                         # ``send_message_to_user_directly`` during the IM
@@ -497,15 +501,22 @@ async def get_simple_chat_history(
                         # thing" path the iron rules carve out), the
                         # writer stashes that content on
                         # ``meta_data.owner_notify_content``. We surface
-                        # it verbatim here so the owner DOES see the
+                        # it verbatim as a real reply (message_type left
+                        # untouched) so the owner DOES see the
                         # important notification while routine IM
                         # chatter stays hidden.
                         content = msg.get("content", "")
                         if working_source != "chat" and role == "assistant":
                             owner_notify = meta_data.get("owner_notify_content", "")
-                            content = owner_notify if owner_notify else (
-                                f"Background activity ({working_source})"
-                            )
+                            if owner_notify:
+                                content = owner_notify
+                            else:
+                                content = f"Background activity ({working_source})"
+                                # Force compact rendering on the frontend.
+                                # Without this the row keeps the writer's
+                                # default message_type and renders as a
+                                # full chat bubble — observed 2026-05-13.
+                                message_type = "activity"
 
                         all_messages.append({
                             "role": role,
