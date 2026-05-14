@@ -67,12 +67,15 @@ const ThinkingBlock = memo(function ThinkingBlock({
   // path used by historical timelines) we switch to Markdown so
   // headings / bullets / code render properly. The content is the
   // same in both modes; only the parser cost differs.
+  // Thinking content is rendered in the dimmest text tone (text-tertiary)
+  // so it visibly recedes next to Reply's full-strength text — the user
+  // can tell "process" from "product" at a glance without reading labels.
   return (
     <div
       className={cn(
         'message-assistant px-4 py-3',
         'border-l-4 border-dashed border-[var(--text-tertiary)]',
-        'text-[var(--text-secondary)]',
+        'text-[var(--text-tertiary)]',
         isStreaming && 'animate-fade-in',
       )}
     >
@@ -222,7 +225,10 @@ const ReplyBlock = memo(function ReplyBlock({
           </span>
         )}
       </div>
-      <div className="text-sm leading-relaxed">
+      {/* Reply body is set one notch larger than Thinking (15px vs 14px)
+          and at full-strength text-primary — the size + colour gap is
+          what makes "product" read as more prominent than "process". */}
+      <div className="text-[15px] leading-relaxed text-[var(--text-primary)]">
         {/* Same streaming optimisation as ThinkingBlock: <Markdown>
             re-parses on every render, so we hand it plain text during
             streaming and switch to full Markdown once the turn

@@ -200,7 +200,7 @@ export function IMChannelsSection() {
           <div className="flex justify-end pt-1">
             <Button
               size="sm"
-              variant="secondary"
+              variant="outline"
               onClick={() => refreshConnected()}
               className="text-xs"
             >

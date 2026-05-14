@@ -1,8 +1,49 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-05-13
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — Manual refresh button (expanded header + sliver)
+
+Both modes gained a `RefreshCw` button → `artifactStore.loadPinned(agentId)`,
+with a local `refreshing` flag spinning the icon. Rationale: artifacts are
+**not** polled on a timer (event-driven — see `[[useAutoRefresh.ts]]`), so
+this button is the user's explicit escape hatch to force a re-sync. The
+normal paths are agent-complete `refreshAll` + the mid-stream `tool_output`
+discovery in `[[ChatPanel.tsx]]`.
+
+The **sliver** form was restructured from a single `<button>` into a
+`<div>` holding two stacked buttons (expand + refresh) — a single button
+couldn't host a nested refresh button. This matters most in the empty
+state: that's exactly when the user wants to force a re-sync, and the
+expanded-header refresh button isn't reachable then.
+
+## 2026-05-14 — Renderer extraction + zoom modal + parent-driven flex width
+
+- Renderer dispatch (`RENDERER_BY_KIND` + lazy imports) moved into
+  `[[ArtifactRenderer]]` so the new fullscreen `[[ArtifactZoomModal]]`
+  can reuse the exact same lazy chunks. `ArtifactColumn` now imports
+  `ArtifactRenderer` and renders `<ArtifactRenderer artifact={active} />`
+  for the body.
+- New per-column `zoomedId` state and `<ArtifactZoomModal>` mounted at
+  the bottom of the aside, **keyed by `zoomed?.artifact_id ?? 'closed'`**
+  so each open is a fresh mount (lets the modal reset its zoom level
+  via `useState` instead of an effect — see `[[ArtifactZoomModal]]`).
+  Opens via:
+  - "Zoom" button in the panel header (active artifact only).
+  - "Zoom" icon on each tab in `ArtifactTabStrip`.
+  - Double-click on a tab body.
+- New optional `flexGrow` prop. When the parent layout passes it
+  (expanded mode only), the aside switches from `flex-[2]` to
+  `style={{ flexGrow, flexBasis: 0 }}` so the chat ↔ artifacts split
+  in `MainLayout` can drive this column's width. Sliver mode continues
+  to use the fixed `w-9` button — flexGrow is ignored there. The split
+  only changes on divider-drag *release* (see `[[MainLayout]]` "Resize
+  perf" — ghost-line drag), so this column re-renders once per drag,
+  not per frame. (An interim version exposed a `forwardRef` for
+  per-frame imperative writes; that was dropped when the drag switched
+  to the ghost-line model.)
 
 ## 2026-05-13 — Always-visible sliver + auto-expand on new artifact
 
@@ -46,23 +87,9 @@ The agent layout has three primary columns (nav, chat, context). When the agent 
 
 ## Renderer dispatch
 
-`RENDERER_BY_KIND` is a `Record<ArtifactKind, RendererComponent>` lookup that maps each MIME kind to a lazy-loaded renderer. All seven `ArtifactKind` values are covered:
-
-| Kind | Renderer | Notes |
-|------|----------|-------|
-| `text/html` | HtmlRenderer | Sandboxed iframe |
-| `application/vnd.echarts+json` | ChartRenderer | ECharts canvas |
-| `text/csv` | CsvRenderer | Virtualised table |
-| `text/markdown` | MarkdownRenderer | Markdown → HTML |
-| `image/png` | ImageRenderer | `<img>` with zoom |
-| `image/jpeg` | ImageRenderer | Same as png |
-| `application/pdf` | PdfRenderer | PDF via `<object>` — see PdfRenderer.tsx |
-
-**PDF uses a dedicated PdfRenderer** (C4, 2026-05-09): PDF rendering was separated from HtmlRenderer because the `sandbox="allow-scripts"` iframe approach breaks Firefox's PDF.js renderer (which requires same-origin XHR to load its own worker) and is inconsistent in WKWebView. `PdfRenderer` uses `<object data type="application/pdf">` instead, letting each browser pick its native viewer. The lazy import is added to `ArtifactColumn`'s lazy registry alongside the other renderers.
-
-## Lazy loading rationale
-
-Each renderer is behind `React.lazy`. ECharts is ~500 KB minified; pulling it in on first load would bloat the initial bundle for users who never open a chart artifact. The same logic applies to the Markdown renderer (marked/remark) and the CSV renderer (any virtualised table library). The `<Suspense>` fallback shows a plain loading message while the chunk downloads.
+Dispatch lives in `[[ArtifactRenderer]]` (extracted 2026-05-14). See that
+file's md for the kind→renderer table and lazy-loading rationale.
+`ArtifactColumn` is now just a consumer.
 
 ## Collapsed state
 

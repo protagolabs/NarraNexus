@@ -1,8 +1,56 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-05-08-r3
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — User-resizable chat ↔ artifacts split
+
+- Chat column and `ArtifactColumn` now live inside a shared `flex-[5]`
+  inner group; the legacy `flex-[3]` / `flex-[2]` on each was the
+  default 3:2 ratio in disguise, so the joint share stays at 5 and the
+  Context column's `flex-[2]` is untouched.
+- New `chatSplit` state (fraction of joint area occupied by chat),
+  default 0.6 — equivalent to the legacy ratio. Persisted in
+  `localStorage` under the key `chat_artifact_split_v1` so refresh
+  preserves the user's choice.
+- `[[ResizableDivider]]` is rendered between the two panes.
+- The divider is **only rendered when the artifact column is in
+  expanded mode** (`agentId && artifacts.length > 0 && !collapsed`).
+  In sliver mode the artifact pane is a fixed 36-px button and
+  resizing it would be pointless / misleading.
+- `ArtifactColumn` accepts the optional `flexGrow` prop and switches to
+  `style={{ flexGrow, flexBasis: 0 }}` when set. The legacy `flex-[2]`
+  is kept as the fallback in case someone renders the column directly
+  without `MainLayout`.
+
+### Resize perf — ghost-line drag, commit on release (2026-05-14, 2 iterations)
+
+**Iteration 1** moved the columns imperatively during the drag (wrote
+`flexGrow` straight to the DOM, no React render). That killed the
+React-render cost, but the columns *still physically resized* every
+frame — and resizing the artifact pane reflows whatever it hosts. An
+HTML artifact is a sandboxed `<iframe>`; reflowing it 60×/s, especially
+while **shrinking**, was still visibly janky.
+
+**Iteration 2 (current)** stops moving the columns during the drag
+entirely. Only a thin "ghost" preview line tracks the cursor:
+- `computeSplit(clientX)` — pure helper, maps pointer X against the
+  group's `getBoundingClientRect()` to a clamped fraction (honours the
+  `MIN_CHAT_PX` / `MIN_ARTIFACT_PX` per-pane minimums).
+- `handleResize` — the divider's `onResize` (rAF-coalesced). Sets the
+  `ghostLineRef` element's `left` + `display:block`. The real columns
+  are **not touched** → zero reflow during the drag. Stashes the value
+  in `pendingSplitRef`.
+- `handleResizeEnd` — the divider's `onResizeEnd`. Hides the ghost line
+  and does one `setChatSplit` → one re-render → the columns resize and
+  their content reflows **exactly once**, and the persist `useEffect`
+  fires.
+- The ghost line is an `absolute`-positioned `<div>` inside the (now
+  `relative`) chat+artifact group; it only renders alongside the
+  divider (expanded mode). `ArtifactColumn` is back to a plain function
+  component — the `forwardRef` from iteration 1 is gone, nothing needs
+  a DOM handle to it anymore.
 
 ## v2.3-r3 改动（2026-05-08-r3）
 

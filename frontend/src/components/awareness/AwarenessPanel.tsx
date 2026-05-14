@@ -13,7 +13,6 @@ import { api } from '@/lib/api';
 
 import { EntityCard } from './EntityCard';
 import { FileUpload } from './FileUpload';
-import { MCPManager } from './MCPManager';
 import { IMChannelsSection } from './IMChannelsSection';
 import type { SocialNetworkEntity } from '@/types';
 
@@ -245,6 +244,16 @@ export function AwarenessPanel() {
             )}
           </section>
 
+          {/* ── Section: Workspace ── */}
+          <section className="border-t border-[var(--rule)] px-5 py-5">
+            <FileUpload />
+          </section>
+
+          {/* ── Section: IM Channels (Lark / Slack / Telegram) ── */}
+          <section className="border-t border-[var(--rule)] px-5 py-5">
+            <IMChannelsSection />
+          </section>
+
           {/* ── Section: Social Network ── */}
           <section className="px-5 pt-5 pb-6 border-t border-[var(--rule)]">
             <div className="flex items-center justify-between mb-3">
@@ -384,20 +393,6 @@ export function AwarenessPanel() {
             )}
           </section>
 
-          {/* ── Section: File Upload ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
-            <FileUpload />
-          </section>
-
-          {/* ── Section: MCP ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
-            <MCPManager />
-          </section>
-
-          {/* ── Section: IM Channels (Lark / Slack / future Telegram) ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
-            <IMChannelsSection />
-          </section>
         </ScrollArea>
         </CardContent>
       </Card>

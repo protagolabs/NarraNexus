@@ -222,6 +222,13 @@ class WebSocketManager {
               Number.isFinite(tsMs) ? tsMs : undefined,
             );
           }
+          // Record the run id (and backfill it onto the user message just
+          // added) so the reconnected turn's messages dedup against the
+          // persisted history rows by exact (role, event_id). The fresh-run
+          // path does this via the `run_started` frame in chatStore; the
+          // reconnect protocol absorbs `run_reconnect` before processMessage
+          // (translateReconnectFrame returns null), so we set it here.
+          store().setCurrentRunId(agentId, runId);
         }
 
         // Translate Phase C reconnect-mode frames into RuntimeMessage

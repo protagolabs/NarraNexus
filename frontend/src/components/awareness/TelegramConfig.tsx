@@ -151,7 +151,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       title: 'Unbind Telegram bot?',
       message: 'The agent will stop receiving Telegram messages and lose all Telegram tools until you bind again.',
       confirmText: 'Unbind',
-      variant: 'danger',
+      danger: true,
     });
     if (!ok) return;
     setUnbindLoading(true);
@@ -331,7 +331,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               <Button
                 onClick={handleTest}
                 disabled={testLoading}
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 className="flex-1"
               >
@@ -345,7 +345,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               <Button
                 onClick={handleUnbind}
                 disabled={unbindLoading}
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 className="flex-1"
               >

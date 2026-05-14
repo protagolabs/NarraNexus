@@ -21,6 +21,7 @@ import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { TurnTimeline } from './TurnTimeline';
@@ -31,8 +32,21 @@ import { EmbeddingBanner } from '@/components/ui/EmbeddingBanner';
 import { ArtifactPreviewCard } from '@/components/artifacts';
 import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
 
-// Artifact tool names that produce an artifact_id in tool_output
-const ARTIFACT_TOOL_NAMES = new Set(['create_artifact', 'upload_artifact_file']);
+// Artifact tool names that produce an artifact_id in tool_output.
+//
+// MCP tools arrive in the stream fully-qualified — `mcp__<server>__<tool>`
+// (e.g. `mcp__common_tools_module__create_artifact`), NOT the bare name.
+// An exact-match Set silently never matched, so artifact tool calls were
+// never recognised and the artifact panel only updated on an unrelated
+// reload (agent switch). Match the bare suffix instead so both the
+// qualified and unqualified forms are recognised.
+const ARTIFACT_TOOL_BASE_NAMES = ['create_artifact', 'upload_artifact_file'];
+
+function isArtifactToolName(toolName: string): boolean {
+  return ARTIFACT_TOOL_BASE_NAMES.some(
+    (base) => toolName === base || toolName.endsWith(`__${base}`),
+  );
+}
 
 /**
  * Fire-and-forget: if the artifact is not yet in the store, fetch and upsert it.
@@ -65,7 +79,7 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
   const cards: React.ReactNode[] = [];
 
   for (const tc of toolCalls) {
-    if (!ARTIFACT_TOOL_NAMES.has(tc.tool_name)) continue;
+    if (!isArtifactToolName(tc.tool_name)) continue;
     if (!tc.tool_output) continue;
 
     let artifactId: string | undefined;
@@ -135,21 +149,8 @@ const BOOTSTRAP_GREETING =
   "Would you like to tell me what I should be called? " +
   "And what should I call you?";
 
-/** Unified message item for the single timeline */
-interface TimelineItem {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
-  source: 'history' | 'session';  // Where this message came from (for dedup)
-  messageType?: string;           // "activity" for background activity records
-  workingSource?: string;         // "chat" | "job" | "lark"
-  eventId?: string;               // Associated Event ID (for loading event_log on demand)
-  thinking?: string;              // Reasoning content (from session messages)
-  toolCalls?: import('@/types').AgentToolCall[];  // Tool calls (from session messages)
-  attachments?: Attachment[];     // User-uploaded files referenced by this message
-  timeline?: import('@/types').TurnEvent[];  // Live-stream timeline carried over (just-finished turn)
-}
+// TimelineItem + the unified-timeline builder live in @/lib/buildTimeline
+// (pure + unit-tested). ChatPanel just consumes the result.
 
 interface ChatPanelProps {
   /** Called after agent execution completes, used to trigger full data refresh */
@@ -385,108 +386,15 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   }, [agentId, userId, historyLoaded]);
 
   // ── Build unified timeline ──────────────────────────
-  const timeline: TimelineItem[] = useMemo(() => {
-    const items: TimelineItem[] = [];
-
-    // 1. Add history messages (from DB)
-    for (let i = 0; i < historyMessages.length; i++) {
-      const msg = historyMessages[i];
-
-      // Filter out legacy junk
-      const isNonChat = msg.working_source && msg.working_source !== 'chat';
-      if (isNonChat && msg.content === '(Agent decided no response needed)') continue;
-
-      items.push({
-        id: `h-${i}`,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp ? new Date(msg.timestamp).getTime() : 0,
-        source: 'history',
-        messageType: msg.message_type,
-        workingSource: msg.working_source,
-        eventId: msg.event_id,
-        attachments: msg.attachments,
-      });
-    }
-
-    // 2. Add current session messages (from chatStore)
-    //
-    // Dedup by (role + content) AND timestamp proximity: if a history entry
-    // with identical role+content exists within SAME_MESSAGE_WINDOW_MS of the
-    // session message's timestamp, they are the same message (already
-    // persisted) — drop the session copy.
-    //
-    // Bug 19: the match MUST consume the history timestamp it pairs with,
-    // otherwise a single history row can dedup multiple session messages of
-    // the same role+content. Real-world trigger: user retries the exact
-    // same question after a failed turn — session then has both the
-    // original user message (which legitimately matches history) AND the
-    // retry (which must NOT, because the history row belongs to the first
-    // one). Without consumption, the retry disappears from the UI.
-    //
-    // The window is a safety net for browser/server clock skew. After the
-    // backend fix that stamps user messages at turn-start (Event.created_at)
-    // instead of turn-end (utc_now() after agent finishes), the real diff
-    // between session ts and history ts is just RTT — milliseconds. The
-    // window only needs to cover clock drift now:
-    //   - NTP-synced machine: < 1s drift (any window works)
-    //   - Laptop off-network a while: 10s–1min
-    //   - Neglected / post-sleep laptop: can hit a few minutes
-    // 5 min covers realistic drift without being so loose that repeat-text
-    // edge cases feel weird. Note: short identical content sent twice
-    // (e.g. "好" / "go on") is NOT a false-positive source — the
-    // "consume matched history timestamp" logic pairs them one-to-one.
-    const SAME_MESSAGE_WINDOW_MS = 300_000;
-    const historyByKey = new Map<string, number[]>();
-    for (const item of items) {
-      const key = `${item.role}:${item.content}`;
-      const list = historyByKey.get(key);
-      if (list) {
-        list.push(item.timestamp);
-      } else {
-        historyByKey.set(key, [item.timestamp]);
-      }
-    }
-
-    for (let mi = 0; mi < messages.length; mi++) {
-      const msg = messages[mi];
-      const key = `${msg.role}:${msg.content}`;
-      const historyTimestamps = historyByKey.get(key);
-      const matchIdx = historyTimestamps
-        ? historyTimestamps.findIndex(
-            (ts) => Math.abs(msg.timestamp - ts) < SAME_MESSAGE_WINDOW_MS,
-          )
-        : -1;
-      if (matchIdx >= 0 && historyTimestamps) {
-        // Consume the matched history timestamp so the next session
-        // message of the same role+content doesn't pair against it.
-        historyTimestamps.splice(matchIdx, 1);
-        continue;
-      }
-
-      items.push({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp,
-        source: 'session',
-        thinking: msg.thinking,
-        toolCalls: msg.toolCalls,
-        attachments: msg.attachments,
-        timeline: msg.timeline,
-      });
-    }
-
-    // Sort by timestamp, with id as tie-breaker so same-ms messages are still
-    // totally ordered (Array.sort is spec-stable but the input order can be
-    // wrong when history and session are interleaved).
-    items.sort((a, b) => {
-      if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-
-    return items;
-  }, [historyMessages, messages]);
+  // History (DB) + session (chatStore) merged + de-duplicated. The dedup
+  // (event_id-first, content heuristic fallback) lives in the pure,
+  // unit-tested @/lib/buildTimeline so the logic — burned twice now,
+  // Bug 19 and the "latest reply shown twice" bug — is testable in
+  // isolation instead of buried in a useMemo.
+  const timeline: TimelineItem[] = useMemo(
+    () => buildUnifiedTimeline(historyMessages, messages),
+    [historyMessages, messages],
+  );
 
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
@@ -927,7 +835,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           const hasArtifactTools =
             item.role === 'assistant' &&
             !!agentId &&
-            !!item.toolCalls?.some((tc) => ARTIFACT_TOOL_NAMES.has(tc.tool_name) && tc.tool_output);
+            !!item.toolCalls?.some((tc) => isArtifactToolName(tc.tool_name) && tc.tool_output);
           return (
             <div
               key={item.id}

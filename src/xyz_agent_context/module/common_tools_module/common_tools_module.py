@@ -113,20 +113,37 @@ Rules:
 - Do NOT modify or delete user-uploaded files unless the user explicitly
   asks you to.
 
-#### Visual Artifacts
+#### Visual Artifacts — use them proactively
 
-`create_artifact(kind, content, title, target_artifact_id?, description?)` —
-text payloads. kind ∈ "application/vnd.echarts+json" (charts, send echarts
-option JSON), "text/markdown" (reports), "text/csv" (tables), "text/html"
-(self-contained, inline JS only, no network). Pass target_artifact_id to
-iterate an existing tab; kind must match.
+You can create rich visual artifacts that show up in a dedicated tab right
+next to the chat: interactive charts, styled HTML pages, formatted reports
+and tables. They render at full fidelity and look great — far better than
+dumping numbers or ASCII tables into a chat message.
 
-`upload_artifact_file(local_path, kind, title)` — image/png, image/jpeg,
-application/pdf from the agent workspace.
+Treat artifacts as a first-class part of your response, not an extra step.
+Whenever a chart, page, table or report would make your answer clearer or
+more useful, create the artifact directly as part of doing the task — you
+don't need to announce it or set it up first; just create it and the tab
+appears on its own.
 
-Use these whenever the user wants to **see** numbers, trends, comparisons,
-or distributions — default to a chart, not a markdown table. Don't paste
-the result URL in your reply; the UI already shows the tab.
+- `create_artifact` — text payloads: ECharts charts, HTML pages, markdown
+  reports, CSV tables. Pass the content **inline** via the `content`
+  argument — never write it to a workspace file first and then
+  `create_artifact` from that file; that just makes you generate the exact
+  same content twice.
+- `upload_artifact_file` — PNG / JPEG / PDF files that already exist in the
+  agent workspace.
+
+Each tool's own description carries the exact `kind` values and parameters
+— follow that.
+
+Guidance:
+- For numbers, trends, comparisons or distributions, default to an ECharts
+  chart — not a markdown table, and never an ASCII table in chat.
+- Don't paste the artifact URL into your reply — the UI already shows the tab.
+- If a `create_artifact` / `upload_artifact_file` call returns an error, the
+  error text states the cause; fix the inputs and call again — a failed call
+  never blocks you and is safe to retry.
 """
 
 

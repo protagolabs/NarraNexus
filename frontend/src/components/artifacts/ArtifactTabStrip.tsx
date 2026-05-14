@@ -5,6 +5,7 @@
  * artifacts surface in the header bar above (rendered by ArtifactColumn).
  *
  * Per-tab actions:
+ *   ⛶   zoom (open the artifact in a fullscreen modal — owned by ArtifactColumn)
  *   ─   minimize (frontend-only hide, persisted to localStorage; the
  *       artifact stays in the DB and can be restored from the header)
  *   🗑️  delete permanently (with confirm; rmtree + DB delete)
@@ -17,15 +18,17 @@
  * (loadForSession wiring), the pin toggle can come back.
  */
 
-import { Minus, Trash2 } from 'lucide-react';
+import { Minus, Trash2, Maximize2 } from 'lucide-react';
 import { useArtifactStore } from '@/stores';
 import type { Artifact } from '@/types/artifact';
 
 interface Props {
   agentId: string;
+  /** Open the artifact in the fullscreen zoom modal. Owned by ArtifactColumn. */
+  onZoom: (artifactId: string) => void;
 }
 
-export default function ArtifactTabStrip({ agentId }: Props) {
+export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
   const artifacts = useArtifactStore((s) => s.artifacts);
   const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const activeId = useArtifactStore((s) => s.activeArtifactId);
@@ -59,6 +62,7 @@ export default function ArtifactTabStrip({ agentId }: Props) {
           artifact={a}
           active={a.artifact_id === activeId}
           onClick={() => setActive(a.artifact_id)}
+          onZoom={() => onZoom(a.artifact_id)}
           onMinimize={() => minimizeTab(a.artifact_id)}
           onDelete={() => handleDelete(a)}
         />
@@ -68,23 +72,34 @@ export default function ArtifactTabStrip({ agentId }: Props) {
 }
 
 function TabButton({
-  artifact, active, onClick, onMinimize, onDelete,
+  artifact, active, onClick, onZoom, onMinimize, onDelete,
 }: {
   artifact: Artifact;
   active: boolean;
   onClick: () => void;
+  onZoom: () => void;
   onMinimize: () => void;
   onDelete: () => void;
 }) {
   return (
     <div
       onClick={onClick}
+      onDoubleClick={(e) => { e.stopPropagation(); onZoom(); }}
       className={
         'flex items-center gap-2 px-3 py-2 cursor-pointer border-r border-[var(--border-default)] ' +
         (active ? 'bg-[var(--bg-primary)]' : 'opacity-70 hover:opacity-100')
       }
+      title="Click to select · Double-click to zoom"
     >
       <span className="text-sm truncate max-w-[12rem]">{artifact.title}</span>
+      <button
+        onClick={(e) => { e.stopPropagation(); onZoom(); }}
+        title="Zoom (open fullscreen)"
+        className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
+        aria-label="Zoom artifact"
+      >
+        <Maximize2 className="w-3.5 h-3.5" />
+      </button>
       <button
         onClick={(e) => { e.stopPropagation(); onMinimize(); }}
         title="Minimize (does not delete; restore from the bar above)"

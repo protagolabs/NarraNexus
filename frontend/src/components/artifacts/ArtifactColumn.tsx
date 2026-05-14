@@ -7,50 +7,34 @@
  * so the user always knows the panel is there. Auto-expands the moment a
  * new artifact arrives.
  *
- * Renderer dispatch uses React.lazy so each renderer bundle is only downloaded
- * when the corresponding kind is first activated — avoids pulling ECharts or
- * PDF viewer code on first load.
+ * Renderer dispatch is delegated to ArtifactRenderer (so the zoom modal can
+ * reuse the same lazy-loaded chunks).
  *
- * PDF artifacts use a dedicated PdfRenderer based on <object> rather than an
- * iframe sandbox, because PDF.js in Firefox requires same-origin XHR and the
- * sandboxed iframe pattern breaks it. See PdfRenderer.tsx for the full rationale.
+ * Each tab now has a "zoom" affordance — clicking it pops the artifact into
+ * a fullscreen modal (ArtifactZoomModal) with a blurred backdrop.
  */
 
-import { lazy, Suspense, useEffect, useRef } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, Maximize2, RefreshCw } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useArtifactStore } from '@/stores';
-import type { Artifact, ArtifactKind } from '@/types/artifact';
 import ArtifactTabStrip from './ArtifactTabStrip';
 import ArtifactDownloadMenu from './ArtifactDownloadMenu';
-
-const HtmlRenderer = lazy(() => import('./renderers/HtmlRenderer'));
-const ChartRenderer = lazy(() => import('./renderers/ChartRenderer'));
-const CsvRenderer = lazy(() => import('./renderers/CsvRenderer'));
-const ImageRenderer = lazy(() => import('./renderers/ImageRenderer'));
-const MarkdownRenderer = lazy(() => import('./renderers/MarkdownRenderer'));
-const PdfRenderer = lazy(() => import('./renderers/PdfRenderer'));
-
-type RendererComponent = React.LazyExoticComponent<
-  React.ComponentType<{ artifact: Artifact; version: number }>
->;
-
-const RENDERER_BY_KIND: Record<ArtifactKind, RendererComponent> = {
-  'text/html': HtmlRenderer,
-  'application/vnd.echarts+json': ChartRenderer,
-  'text/csv': CsvRenderer,
-  'text/markdown': MarkdownRenderer,
-  'image/png': ImageRenderer,
-  'image/jpeg': ImageRenderer,
-  // PDF: dedicated PdfRenderer uses <object> instead of the sandboxed iframe
-  // to avoid breaking Firefox PDF.js (needs same-origin XHR) and WKWebView.
-  'application/pdf': PdfRenderer,
-};
+import ArtifactRenderer from './ArtifactRenderer';
+import ArtifactZoomModal from './ArtifactZoomModal';
 
 interface Props {
   agentId: string;
+  /**
+   * Optional flex-grow override (used in expanded mode only). The parent
+   * layout passes this to drive the chat ↔ artifacts split via the
+   * ResizableDivider. When omitted, falls back to the legacy `flex-[2]`
+   * proportion. Sliver mode always uses the fixed 36 px width.
+   */
+  flexGrow?: number;
 }
 
-export default function ArtifactColumn({ agentId }: Props) {
+export default function ArtifactColumn({ agentId, flexGrow }: Props) {
   // All hooks must run in the same order on every render — no conditional hook
   // calls. Selectors first, then early returns.
   const artifacts = useArtifactStore((s) => s.artifacts);
@@ -59,6 +43,24 @@ export default function ArtifactColumn({ agentId }: Props) {
   const setCollapsed = useArtifactStore((s) => s.setCollapsed);
   const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const restoreTab = useArtifactStore((s) => s.restoreTab);
+  const loadPinned = useArtifactStore((s) => s.loadPinned);
+
+  const [zoomedId, setZoomedId] = useState<string | null>(null);
+  // Manual refresh: artifacts are intentionally NOT polled on a timer
+  // (event-driven — agent-complete reload + mid-stream tool_output
+  // discovery cover the real cases). This button is the escape hatch for
+  // when the user wants to force a re-sync anyway.
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await loadPinned(agentId);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Auto-expand on artifact arrival.
   //
@@ -94,30 +96,47 @@ export default function ArtifactColumn({ agentId }: Props) {
   const effectiveCollapsed = collapsed || artifacts.length === 0;
   if (effectiveCollapsed) {
     const hasArtifacts = artifacts.length > 0;
+    // A <div> wrapper (not a single <button>) so the sliver can hold TWO
+    // controls without nesting buttons: the expand affordance and a
+    // refresh button. The refresh button matters most in the empty state
+    // — that's exactly when the user wants to force a re-sync but the
+    // expanded-header refresh button isn't reachable.
     return (
-      <button
-        onClick={() => setCollapsed(false)}
-        className="w-9 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--bg-secondary)] flex flex-col items-center pt-3 pb-2 group transition-colors"
-        title={
-          hasArtifacts
-            ? `Click to expand · ${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'}`
-            : 'Artifacts will appear here once the agent creates one'
-        }
-        aria-label={
-          hasArtifacts
-            ? `Expand artifacts panel (${artifacts.length} items)`
-            : 'Artifacts panel (empty)'
-        }
-      >
-        {/* Top: vertical title so the user knows what this column is */}
-        <span className="text-[11px] font-semibold [writing-mode:vertical-rl] tracking-wider whitespace-nowrap">
-          {hasArtifacts ? `Artifacts (${artifacts.length})` : 'Artifacts'}
-        </span>
-        {/* Spacer to push the chevron to the bottom */}
-        <span className="flex-1" />
-        {/* Bottom: chevron pointing left to suggest "open out toward the chat" */}
-        <ChevronLeft className="w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity" aria-hidden />
-      </button>
+      <div className="w-9 border border-[var(--border-default)] bg-[var(--bg-primary)] flex flex-col items-center pt-3 pb-2 gap-2">
+        <button
+          onClick={() => setCollapsed(false)}
+          className="flex-1 flex flex-col items-center group hover:bg-[var(--bg-secondary)] transition-colors w-full"
+          title={
+            hasArtifacts
+              ? `Click to expand · ${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'}`
+              : 'Artifacts will appear here once the agent creates one'
+          }
+          aria-label={
+            hasArtifacts
+              ? `Expand artifacts panel (${artifacts.length} items)`
+              : 'Artifacts panel (empty)'
+          }
+        >
+          {/* Top: vertical title so the user knows what this column is */}
+          <span className="text-[11px] font-semibold [writing-mode:vertical-rl] tracking-wider whitespace-nowrap">
+            {hasArtifacts ? `Artifacts (${artifacts.length})` : 'Artifacts'}
+          </span>
+          {/* Spacer to push the chevron to the bottom */}
+          <span className="flex-1" />
+          {/* Bottom: chevron pointing left to suggest "open out toward the chat" */}
+          <ChevronLeft className="w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity" aria-hidden />
+        </button>
+        {/* Refresh — always available, even when the panel is empty. */}
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="opacity-50 hover:opacity-100 transition-opacity disabled:opacity-30"
+          title="Refresh artifacts"
+          aria-label="Refresh artifacts"
+        >
+          <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} />
+        </button>
+      </div>
     );
   }
 
@@ -129,10 +148,23 @@ export default function ArtifactColumn({ agentId }: Props) {
       ? activeId
       : visibleArtifacts[0]?.artifact_id ?? null;
   const active = visibleArtifacts.find((a) => a.artifact_id === effectiveActiveId);
-  const Renderer = active ? RENDERER_BY_KIND[active.kind] : null;
+  const zoomed = zoomedId
+    ? visibleArtifacts.find((a) => a.artifact_id === zoomedId) ?? null
+    : null;
+
+  // Expanded mode: respect parent's flex-grow override if provided; otherwise
+  // keep the legacy 2-share proportion via the `flex-[2]` shorthand. Setting
+  // flex-basis: 0 alongside an explicit flexGrow makes the column's actual
+  // width track grow ratios cleanly (no flex-basis: auto surprises).
+  const expandedStyle =
+    flexGrow !== undefined ? { flexGrow, flexBasis: 0 } : undefined;
+  const expandedClass =
+    flexGrow !== undefined
+      ? 'flex flex-col min-w-[320px] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden'
+      : 'flex flex-col min-w-[320px] flex-[2] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden';
 
   return (
-    <aside className="flex flex-col min-w-[320px] flex-[2] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
+    <aside className={expandedClass} style={expandedStyle}>
       {/* Minimized strip — only renders when something is minimized.
           Click a chip to restore the tab. */}
       {minimized.length > 0 && (
@@ -157,9 +189,28 @@ export default function ArtifactColumn({ agentId }: Props) {
           Shares its bottom border with the tab strip's own border-b. */}
       <div className="flex items-center justify-between min-w-0">
         <div className="flex-1 min-w-0">
-          <ArtifactTabStrip agentId={agentId} />
+          <ArtifactTabStrip agentId={agentId} onZoom={setZoomedId} />
         </div>
         <div className="flex items-center gap-1 px-1 border-b border-[var(--border-default)] self-stretch">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="text-xs opacity-60 hover:opacity-100 px-2 flex items-center disabled:opacity-40"
+            title="Refresh artifacts"
+            aria-label="Refresh artifacts"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} />
+          </button>
+          {active && (
+            <button
+              onClick={() => setZoomedId(active.artifact_id)}
+              className="text-xs opacity-60 hover:opacity-100 px-2 flex items-center"
+              title="Zoom artifact (open fullscreen)"
+              aria-label="Zoom artifact"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          )}
           {active && <ArtifactDownloadMenu artifact={active} />}
           <button
             onClick={() => setCollapsed(true)}
@@ -172,14 +223,20 @@ export default function ArtifactColumn({ agentId }: Props) {
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
-        {active && Renderer ? (
-          <Suspense fallback={<div className="p-4 opacity-60">Loading renderer…</div>}>
-            <Renderer artifact={active} version={active.latest_version} />
-          </Suspense>
+        {active ? (
+          <ArtifactRenderer artifact={active} />
         ) : (
           <div className="p-4 opacity-60">Select an artifact</div>
         )}
       </div>
+
+      {/* Fullscreen zoom modal — portal'd to body, dimmed + blurred backdrop.
+          Keyed by artifact id so each open is a fresh mount (zoom resets). */}
+      <ArtifactZoomModal
+        key={zoomed?.artifact_id ?? 'closed'}
+        artifact={zoomed}
+        onClose={() => setZoomedId(null)}
+      />
     </aside>
   );
 }

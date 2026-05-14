@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactTabStrip.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — Zoom affordance
+
+New required prop `onZoom(artifactId)` (provided by `[[ArtifactColumn]]`).
+Surfaces two ways:
+
+- `Maximize2` icon button on each tab, between title and the minimize
+  button.
+- Double-click on the tab body — `onDoubleClick` calls `onZoom`. Tooltip
+  on the tab body advertises both interactions.
+
+Single click still calls `setActive` (preserves the original tab-as-
+selector UX); zoom is strictly opt-in.
 
 # ArtifactTabStrip.tsx — Horizontal tab bar for artifact navigation
 

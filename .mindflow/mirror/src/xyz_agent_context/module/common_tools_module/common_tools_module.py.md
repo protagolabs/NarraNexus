@@ -40,6 +40,29 @@ Downstream:
   .format_attachments_for_system_prompt` renders the current-turn
   attachment block
 
+## 2026-05-14 — `#### Visual Artifacts` instruction rewrite
+
+The artifact block in `COMMON_TOOLS_INSTRUCTIONS` was rewritten:
+
+- **Leads with proactive-use philosophy** — artifacts render at full
+  fidelity and look great; the agent should create them *directly* as part
+  of the response, not as an announced extra step. (Framed as "just create
+  it", deliberately NOT as "don't ask the user" — the latter could bleed
+  into other behaviour.)
+- **"Pass content inline"** — explicit "don't write the HTML/JSON to a
+  workspace file first and then create_artifact from it" rule; doing so
+  makes the agent generate the same content twice.
+- **Defers the precise contract** (exact `kind` values, params) to each
+  tool's own `description=` in `[[artifact_tool.py]]` — the old block
+  duplicated it AND carried a wrong signature (omitted the required
+  `agent_id` / `user_id` params). One source of truth now.
+- **Dropped "no network"** — it was factually wrong. `HtmlRenderer`'s
+  iframe is `sandbox="allow-scripts"` with no CSP, so CDN assets (web
+  fonts, CSS) DO load. New wording: CDN assets are fine, but embed your
+  data in the page — don't fetch it at runtime.
+- Mentions the error → fix → retry contract so the agent knows a failed
+  call is non-blocking.
+
 ## Design decisions
 
 **`get_instructions` is dynamic, not a static string.** The base

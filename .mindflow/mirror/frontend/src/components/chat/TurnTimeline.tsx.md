@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-05-12
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — Thinking ↔ Reply contrast bumped
+
+Thinking and Reply blocks were too close to tell apart mid-scroll. The
+contrast now runs on **two axes**:
+- `ThinkingBlock` body tone: `text-secondary` → `text-tertiary` (the
+  dimmest tone — it visibly recedes).
+- `ReplyBlock` body: `text-sm` → `text-[15px]` + explicit `text-primary`
+  (one notch larger, full strength — it pops).
+
+"Process" (thinking) reads dimmer, "product" (reply) reads larger, so
+the user distinguishes them without reading the labels. NB: the older
+"Thinking gets italics, smaller type" line below is **stale** — the code
+has never used italics; the real lever is tone + size as described here.
 
 # TurnTimeline.tsx — Inline event timeline for a streaming agent turn
 

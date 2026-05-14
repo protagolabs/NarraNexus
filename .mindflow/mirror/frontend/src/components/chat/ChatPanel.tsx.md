@@ -1,8 +1,49 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-13
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — timeline dedup extracted; event_id-based dedup
+
+The unified-timeline merge + dedup (a ~50-line block inside the `timeline`
+`useMemo`) was extracted into the pure, unit-tested
+`[[buildTimeline.ts]]` — `buildUnifiedTimeline(historyMessages, messages)`.
+The `TimelineItem` type moved there too; ChatPanel imports both.
+
+The dedup itself was upgraded: **`(role, event_id)` exact match** instead
+of the old `${role}:${content}` exact-string key. The string key missed
+whenever the session-assembled content drifted from the DB-persisted
+content by even one whitespace char (two independent code paths) — that
+was the "latest reply shown twice" bug. Session messages now carry
+`event_id` (stamped by `[[chatStore.ts]]`); see `[[buildTimeline.ts]]`
+for the full dedup contract. The old `role:content` + window + consume
+logic survives only as the fallback for event-id-less messages.
+
+The "Match-and-consume semantics" / "5 min window" notes in the v2.4
+section below still describe the **fallback** path accurately, but the
+primary path is now event_id.
+
+## 2026-05-14 — artifact tool-name matching must tolerate the `mcp__…__` prefix
+
+**Bug:** the artifact panel never updated during/after a run — the
+artifact only appeared on an unrelated reload (agent switch). Root cause
+was here: MCP tools arrive in the event stream **fully-qualified** —
+`mcp__<server>__<tool>`, e.g. `mcp__common_tools_module__create_artifact`
+— but the code matched a bare-name `Set` exactly
+(`ARTIFACT_TOOL_NAMES.has(tc.tool_name)`). That `.has()` never returned
+true, so `hasArtifactTools` was always false, `ArtifactToolCallCards`
+never rendered, and `ensureArtifactLoaded` never fired.
+
+**Fix:** replaced the exact-match `Set` with `isArtifactToolName()` —
+matches the bare name OR a `…__<base>` suffix, so both qualified and
+unqualified forms work. `ARTIFACT_TOOL_BASE_NAMES` must stay in sync
+with the MCP tool names registered in `common_tools_module` — there is a
+reciprocal comment on the tool implementations in `[[artifact_tool.py]]`
+flagging this coupling.
+
+(Sibling fix: `tool_output` itself must be clean JSON for the
+`JSON.parse` here to work — see `[[output_transfer.py]]`.)
 
 ## 2026-05-13 — Phase C: 自动 reconnect 到后端在跑的 run
 

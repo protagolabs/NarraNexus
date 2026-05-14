@@ -208,8 +208,9 @@ async def create_text_artifact(
     """
     if kind not in _TEXT_KINDS:
         raise ArtifactError(
-            f"create_text_artifact does not accept kind={kind!r}; "
-            f"use upload_artifact_file for binaries"
+            f"create_artifact does not accept kind={kind!r}. Valid kinds are "
+            f"text/html, application/vnd.echarts+json, text/markdown, text/csv. "
+            f"For binary files (png/jpeg/pdf) use upload_artifact_file instead."
         )
 
     encoded = content.encode("utf-8")
@@ -226,7 +227,10 @@ async def create_text_artifact(
             raise ArtifactNotFound("artifact not found, omit target_artifact_id to create new")
         if existing.kind != kind:
             raise ArtifactKindMismatch(
-                f"cannot iterate {kind} on a {existing.kind} artifact"
+                f"cannot iterate a {kind} artifact onto target_artifact_id "
+                f"{target_artifact_id!r}, which is {existing.kind}. Either pass "
+                f"kind={existing.kind!r} to update it, or omit target_artifact_id "
+                f"to create a new artifact."
             )
         # Quota is checked AFTER existing-target validation so the user gets
         # a more specific error first (kind mismatch / not found > quota).
@@ -368,7 +372,10 @@ async def upload_binary_artifact(
             raise ArtifactNotFound("artifact not found, omit target_artifact_id to create new")
         if existing.kind != kind:
             raise ArtifactKindMismatch(
-                f"cannot iterate {kind} on a {existing.kind} artifact"
+                f"cannot iterate a {kind} artifact onto target_artifact_id "
+                f"{target_artifact_id!r}, which is {existing.kind}. Either pass "
+                f"kind={existing.kind!r} to update it, or omit target_artifact_id "
+                f"to create a new artifact."
             )
         await _enforce_quota(repo, user_id, size, is_iteration=True)
         artifact_id = target_artifact_id

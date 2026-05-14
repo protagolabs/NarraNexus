@@ -213,7 +213,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       title: 'Unbind Slack bot?',
       message: 'The agent will stop receiving Slack messages and lose all Slack tools until you bind again.',
       confirmText: 'Unbind',
-      variant: 'danger',
+      danger: true,
     });
     if (!ok) return;
     setUnbindLoading(true);
@@ -423,7 +423,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               <Button
                 onClick={handleTest}
                 disabled={testLoading}
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 className="flex-1"
               >
@@ -437,7 +437,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               <Button
                 onClick={handleUnbind}
                 disabled={unbindLoading}
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 className="flex-1"
               >

@@ -43,6 +43,14 @@ export interface AgentChatState {
    *  "last turn" buffer is kept — the just-finished turn is just a normal
    *  history bubble that happens to have a `timeline`. */
   currentEvents: TurnEvent[];
+
+  /** The run/event id of the current (or just-finished) turn — set from
+   *  the `run_started` frame (fresh run) or `setCurrentRunId` (reconnect),
+   *  reset to null on startStreaming. Stamped onto the user prompt and the
+   *  assistant reply so the unified timeline can dedup session copies
+   *  against persisted history rows by exact (role, event_id) — see
+   *  lib/buildTimeline.ts. */
+  currentRunId: string | null;
 }
 
 /** Toast notification for background-completed agents */
@@ -63,6 +71,7 @@ const DEFAULT_AGENT_STATE: AgentChatState = Object.freeze({
   isStreaming: false,
   history: Object.freeze([]) as unknown as ConversationRound[],
   currentEvents: Object.freeze([]) as unknown as TurnEvent[],
+  currentRunId: null,
 });
 
 /** Create a fresh mutable state for a new agent session */
@@ -77,6 +86,7 @@ function createDefaultAgentState(): AgentChatState {
     isStreaming: false,
     history: [],
     currentEvents: [],
+    currentRunId: null,
   };
 }
 
@@ -112,6 +122,10 @@ interface ChatState {
   ) => string;
   startStreaming: (agentId: string) => void;
   stopStreaming: (agentId: string, agentName?: string) => void;
+  /** Set the current run's event_id and backfill it onto the trailing
+   *  event-id-less user message. Called from the `run_started` frame
+   *  (fresh run) and from wsManager on reconnect. */
+  setCurrentRunId: (agentId: string, runId: string) => void;
   processMessage: (agentId: string, message: RuntimeMessage) => void;
   clearAgent: (agentId: string) => void;
   clearAll: () => void;
@@ -247,7 +261,30 @@ export const useChatStore = create<ChatState>((_set, get) => {
           currentToolCalls: [],
           currentErrors: [],
           currentEvents: [],
+          // Clean slate — the run id of this new turn arrives via the
+          // `run_started` frame (fresh) or setCurrentRunId (reconnect).
+          currentRunId: null,
         })),
+      }));
+    },
+
+    // Set the current run's event_id and backfill it onto the trailing
+    // event-id-less user message (the prompt that triggered this run), so
+    // both the user message and the eventual assistant reply carry the
+    // same event_id for exact (role, event_id) timeline dedup.
+    setCurrentRunId: (agentId: string, runId: string) => {
+      set((state) => ({
+        agentSessions: updateSession(state.agentSessions, agentId, (s) => {
+          const lastIdx = s.messages.length - 1;
+          const last = lastIdx >= 0 ? s.messages[lastIdx] : undefined;
+          const messages =
+            last && last.role === 'user' && !last.event_id
+              ? s.messages.map((m, i) =>
+                  i === lastIdx ? { ...m, event_id: runId } : m,
+                )
+              : s.messages;
+          return { currentRunId: runId, messages };
+        }),
       }));
     },
 
@@ -286,6 +323,11 @@ export const useChatStore = create<ChatState>((_set, get) => {
           role: 'assistant',
           content: displayContent,
           timestamp: Date.now(),
+          // Stamp the run's event_id so the unified timeline can dedup
+          // this session reply against the persisted history row (which
+          // carries the same event_id) by exact (role, event_id) — immune
+          // to whitespace/format drift between the two code paths.
+          event_id: session.currentRunId ?? undefined,
           isError,
           warnings,
           thinking: session.currentThinking || undefined,
@@ -351,6 +393,13 @@ export const useChatStore = create<ChatState>((_set, get) => {
     // Process incoming WebSocket message for a specific agent
     processMessage: (agentId: string, message: RuntimeMessage) => {
       switch (message.type) {
+        case 'run_started': {
+          // First meaningful frame of a fresh run — carries the run/event
+          // id. Record it (and backfill it onto the user prompt) so the
+          // turn's messages can be deduped against history by event_id.
+          get().setCurrentRunId(agentId, message.run_id);
+          break;
+        }
         case 'progress': {
           const progress = message as ProgressMessage;
           set((state) => {

@@ -85,6 +85,15 @@ export interface CancelledMessage extends BaseMessage {
   message: string;
 }
 
+// Run-started control frame — the first meaningful frame on a fresh run.
+// Carries the run/event id (= events.event_id) the client uses both for
+// reconnect and for exact (role, event_id) timeline dedup. Standalone
+// (not BaseMessage) because the backend frame has no `timestamp`.
+export interface RunStartedMessage {
+  type: 'run_started';
+  run_id: string;
+}
+
 // Union type for all runtime messages
 export type RuntimeMessage =
   | ProgressMessage
@@ -94,7 +103,8 @@ export type RuntimeMessage =
   | ErrorMessage
   | CompleteMessage
   | HeartbeatMessage
-  | CancelledMessage;
+  | CancelledMessage
+  | RunStartedMessage;
 
 // Attachment metadata (mirrors backend xyz_agent_context.schema.Attachment)
 export type AttachmentCategory =
@@ -132,6 +142,15 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  // The run/event id this message belongs to (= events.event_id). Stamped
+  // by chatStore: onto the user prompt when `run_started` arrives, and
+  // onto the assistant reply at stopStreaming. It is the exact, formatting-
+  // immune key used to dedup session messages against persisted history
+  // rows (which carry the same event_id) — see lib/buildTimeline.ts.
+  // Absent on legacy messages and on a session message created before
+  // `run_started` landed; the timeline builder falls back to a
+  // role:content heuristic for those.
+  event_id?: string;
   thinking?: string;
   toolCalls?: AgentToolCall[];
   isError?: boolean;  // True when displaying runtime errors (rate limit, API errors, etc.)
