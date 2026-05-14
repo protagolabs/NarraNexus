@@ -303,36 +303,87 @@ class ChatModule(XYZBaseModule):
         did reply via lark_cli would be misclassified as "no response"
         and persisted as activity rows — the actual P0 we are fixing.
         """
+        _im, direct, combined = self._split_user_visible_response(
+            agent_loop_response, working_source
+        )
+        if combined:
+            return combined
+        return "(Agent decided no response needed)"
+
+    def _split_user_visible_response(
+        self,
+        agent_loop_response: list,
+        working_source: str,
+    ) -> tuple[str, str, str]:
+        """Split the user-visible response into IM-tool vs direct-notify halves.
+
+        For IM working_sources (telegram/slack/lark/...), the agent may
+        legitimately fire BOTH paths in one turn:
+          - the platform reply tool (tg_cli sendMessage, slack_cli
+            chat.postMessage, lark_cli +messages-send/reply), which goes
+            back to the IM sender;
+          - ``send_message_to_user_directly``, which surfaces in the
+            owner's chat panel for the "this is important, the owner
+            should know about it" carve-out spelled out in the iron
+            rules.
+
+        Both currently get joined into one ``assistant_content`` string,
+        which means downstream consumers can't tell them apart. The
+        chat-history endpoint needs the split so it can render the
+        direct-notify text in full while replacing the routine IM reply
+        with a "Background activity" placeholder.
+
+        Returns ``(im_reply, direct_notify, combined)``:
+          - ``im_reply``: parts that came from non-direct platform tools.
+          - ``direct_notify``: parts from ``send_message_to_user_directly``.
+          - ``combined``: the original "\\n\\n"-joined string, preserved
+            for callers (long-term memory write, log lines) that want
+            the full picture.
+
+        For working_source="chat", direct_notify will hold everything
+        (the handler only matches ``send_message_to_user_directly``)
+        and im_reply will be empty — backward-compatible.
+        """
         from xyz_agent_context.schema import ProgressMessage
         from xyz_agent_context.channel.message_source_handler import (
             MessageSourceRegistry,
         )
 
         handler = MessageSourceRegistry.get(working_source)
-        parts: List[str] = []
+        im_parts: List[str] = []
+        direct_parts: List[str] = []
         for response in agent_loop_response:
             if not (isinstance(response, ProgressMessage) and response.details):
                 continue
             tool_name = response.details.get("tool_name", "")
             arguments = response.details.get("arguments", {})
             reply = handler.extract_reply_text(tool_name, arguments)
-            if reply:
-                parts.append(reply)
+            if not reply:
+                continue
+            # send_message_to_user_directly is the owner-notify path
+            # regardless of which channel triggered the turn.
+            if "send_message_to_user_directly" in tool_name:
+                direct_parts.append(reply)
+            else:
+                im_parts.append(reply)
 
-        if parts:
-            combined = "\n\n".join(parts)
+        im_reply = "\n\n".join(im_parts)
+        direct_notify = "\n\n".join(direct_parts)
+        combined = "\n\n".join(p for p in (im_reply, direct_notify) if p)
+
+        if combined:
             logger.info(
-                f"[CHAT-CTX] _extract_user_visible_response: working_source={working_source} "
-                f"handler={handler.name} replies={len(parts)} total_len={len(combined)}"
+                f"[CHAT-CTX] _split_user_visible_response: ws={working_source} "
+                f"handler={handler.name} im_parts={len(im_parts)} "
+                f"direct_parts={len(direct_parts)} total_len={len(combined)}"
             )
-            return combined
-
-        logger.info(
-            f"[CHAT-CTX] _extract_user_visible_response: working_source={working_source} "
-            f"handler={handler.name} no reply tool matched "
-            f"(checked patterns={handler.user_reply_tool_names})"
-        )
-        return "(Agent decided no response needed)"
+        else:
+            logger.info(
+                f"[CHAT-CTX] _split_user_visible_response: ws={working_source} "
+                f"handler={handler.name} no reply tool matched "
+                f"(checked patterns={handler.user_reply_tool_names})"
+            )
+        return im_reply, direct_notify, combined
 
     @staticmethod
     def _build_activity_summary(working_source: str, meta: dict) -> str:
@@ -836,9 +887,17 @@ class ChatModule(XYZBaseModule):
 
         # Extract the user-visible response, dispatched by working_source
         # so per-source reply tools (e.g. lark_cli for Lark) are recognised.
-        assistant_content = self._extract_user_visible_response(
-            params.agent_loop_response, working_source
+        # We split into two parts so the chat-history endpoint can render
+        # the owner-notify text in full while the routine IM reply gets a
+        # "Background activity" placeholder. ``assistant_content`` keeps
+        # the combined form for long-term memory and log lines.
+        im_reply_content, direct_notify_content, assistant_content = (
+            self._split_user_visible_response(
+                params.agent_loop_response, working_source
+            )
         )
+        if not assistant_content:
+            assistant_content = "(Agent decided no response needed)"
         is_no_response = assistant_content == "(Agent decided no response needed)"
 
         # NOTE (2026-05-12): the previous "use io_data.final_output as
@@ -908,6 +967,16 @@ class ChatModule(XYZBaseModule):
                 if isinstance(d, dict) and d.get("reply_via") == "helper_llm_fallback":
                     asst_meta["reply_via"] = "helper_llm_fallback"
                     break
+            # Stash the owner-notify portion on meta_data when the turn
+            # was IM-triggered AND the agent explicitly called
+            # send_message_to_user_directly. The chat-history endpoint
+            # shows this string verbatim, falling back to the
+            # "Background activity (...)" placeholder when absent. We
+            # only set it for non-chat triggers — on chat-triggered
+            # turns the assistant_content IS the owner-facing reply
+            # and the endpoint shows it as-is.
+            if working_source != "chat" and direct_notify_content:
+                asst_meta["owner_notify_content"] = direct_notify_content
             messages.append({
                 "role": "assistant",
                 "content": assistant_content,

@@ -760,3 +760,82 @@ export interface LarkAuthLoginResponse extends ApiResponse {
 export interface LarkAuthCompleteResponse extends ApiResponse {
   data?: Record<string, unknown>;
 }
+
+// Slack Integration types
+//
+// Note: bot_token / app_token are NEVER returned by the API. The backend
+// responds only with this sanitised view, which is everything the UI
+// needs to render binding state.
+export interface SlackCredentialData {
+  agent_id: string;
+  bot_user_id: string;
+  team_id: string;
+  team_name: string;
+  owner_email: string;
+  owner_user_id: string;
+  owner_name: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface SlackCredentialResponse extends ApiResponse {
+  data: SlackCredentialData | null;
+}
+
+export interface SlackBindResponse extends ApiResponse {
+  data?: {
+    team_id: string;
+    team_name: string;
+    bot_user_id: string;
+    owner_user_id: string;
+    owner_name: string;
+  };
+}
+
+export interface SlackTestResponse extends ApiResponse {
+  data?: {
+    team_id: string;
+    team_name: string;
+    bot_user_id: string;
+    bot_name?: string;
+  };
+}
+
+// Telegram Integration types
+//
+// Note: bot_token is NEVER returned by the API. The backend returns only
+// this sanitised view, which is everything the UI needs to render binding
+// state.
+export interface TelegramCredentialData {
+  agent_id: string;
+  bot_user_id: string;
+  bot_username: string;
+  owner_username: string;
+  owner_user_id: string;
+  owner_name: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface TelegramCredentialResponse extends ApiResponse {
+  data: TelegramCredentialData | null;
+}
+
+export interface TelegramBindResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
+    owner_user_id: string;
+    owner_name: string;
+  };
+}
+
+export interface TelegramTestResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
+    first_name?: string;
+  };
+}

@@ -476,9 +476,51 @@ async def get_simple_chat_history(
                         timestamp = meta_data.get("timestamp") or msg.get("created_at")
                         message_type = meta_data.get("message_type", "chat")
 
+                        # Privacy guard for IM channels: agent replies sent
+                        # via platform tools (tg_cli sendMessage, slack_cli
+                        # chat.postMessage, lark_cli +messages-send) live in
+                        # the same instance memory as chat replies so the
+                        # agent's NEXT turn can still see them (long-term
+                        # memory). But surfacing the raw IM reply text to
+                        # the owner's chat panel mixes two contexts:
+                        #   (a) "owner ↔ agent direct chat"
+                        #   (b) "agent ↔ third party on IM"
+                        # The frontend chat panel is for (a); routine IM
+                        # chatter should stay on the IM platform. We
+                        # replace the content with a one-line activity
+                        # marker AND override ``message_type`` to
+                        # ``"activity"`` so the frontend renders it
+                        # compactly (small centered italic line) rather
+                        # than as a full agent reply bubble — see
+                        # ``ChatPanel.tsx`` ``if item.messageType ===
+                        # 'activity'`` branch.
+                        #
+                        # Carve-out: when the agent explicitly called
+                        # ``send_message_to_user_directly`` during the IM
+                        # turn (the "tell owner about this important
+                        # thing" path the iron rules carve out), the
+                        # writer stashes that content on
+                        # ``meta_data.owner_notify_content``. We surface
+                        # it verbatim as a real reply (message_type left
+                        # untouched) so the owner DOES see the
+                        # important notification while routine IM
+                        # chatter stays hidden.
+                        content = msg.get("content", "")
+                        if working_source != "chat" and role == "assistant":
+                            owner_notify = meta_data.get("owner_notify_content", "")
+                            if owner_notify:
+                                content = owner_notify
+                            else:
+                                content = f"Background activity ({working_source})"
+                                # Force compact rendering on the frontend.
+                                # Without this the row keeps the writer's
+                                # default message_type and renders as a
+                                # full chat bubble — observed 2026-05-13.
+                                message_type = "activity"
+
                         all_messages.append({
                             "role": role,
-                            "content": msg.get("content", ""),
+                            "content": content,
                             "timestamp": timestamp,
                             "narrative_id": narrative_id,
                             "instance_id": instance.instance_id,

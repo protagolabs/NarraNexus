@@ -59,6 +59,12 @@ import type {
   BundlePreflightResponse,
   BundleConfirmResponse,
   SkillArchiveRecord,
+  SlackCredentialResponse,
+  SlackBindResponse,
+  SlackTestResponse,
+  TelegramCredentialResponse,
+  TelegramBindResponse,
+  TelegramTestResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -884,7 +890,77 @@ class ApiClient {
 
   async unbindLarkBot(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/lark/unbind', {
-      method: 'DELETE',
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // Slack Integration API
+  async getSlackCredential(agentId: string): Promise<SlackCredentialResponse> {
+    return this.request<SlackCredentialResponse>(`/api/slack/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindSlackBot(
+    agentId: string,
+    botToken: string,
+    appToken: string,
+    ownerEmail: string = '',
+  ): Promise<SlackBindResponse> {
+    return this.request<SlackBindResponse>('/api/slack/bind', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: agentId,
+        bot_token: botToken,
+        app_token: appToken,
+        owner_email: ownerEmail,
+      }),
+    });
+  }
+
+  async testSlackConnection(agentId: string): Promise<SlackTestResponse> {
+    return this.request<SlackTestResponse>('/api/slack/test', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async unbindSlackBot(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/slack/unbind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // Telegram Integration API
+  async getTelegramCredential(agentId: string): Promise<TelegramCredentialResponse> {
+    return this.request<TelegramCredentialResponse>(`/api/telegram/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindTelegramBot(
+    agentId: string,
+    botToken: string,
+    ownerUsername: string = '',
+  ): Promise<TelegramBindResponse> {
+    return this.request<TelegramBindResponse>('/api/telegram/bind', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: agentId,
+        bot_token: botToken,
+        owner_username: ownerUsername,
+      }),
+    });
+  }
+
+  async testTelegramConnection(agentId: string): Promise<TelegramTestResponse> {
+    return this.request<TelegramTestResponse>('/api/telegram/test', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async unbindTelegramBot(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/telegram/unbind', {
+      method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });
   }

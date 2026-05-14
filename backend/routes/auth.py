@@ -418,9 +418,17 @@ async def create_agent(request: CreateAgentRequest):
 
 
 @router.put("/agents/{agent_id}", response_model=UpdateAgentResponse)
-async def update_agent(agent_id: str, request: UpdateAgentRequest):
+async def update_agent(
+    agent_id: str,
+    body: UpdateAgentRequest,
+    http_request: Request,
+):
     """
     Update agent information (name, description)
+
+    Ownership: in cloud mode (JWT-bound user_id on ``request.state``),
+    only the creator may update. Local mode (no auth middleware) lets
+    everything through — same model as the Slack/Telegram bind routes.
     """
     logger.info(f"Updating agent: {agent_id}")
 
@@ -435,6 +443,19 @@ async def update_agent(agent_id: str, request: UpdateAgentRequest):
                 success=False,
                 error=f"Agent {agent_id} not found"
             )
+
+        # Ownership check: parallel to DELETE /agents/{agent_id} below
+        # and to ``_verify_agent_ownership`` in the IM routes. Mutating
+        # someone else's agent name from inside the same workspace was
+        # the actual gap — DELETE was guarded, PUT was not.
+        user_id = getattr(http_request.state, "user_id", None) or None
+        if user_id and agent.created_by != user_id:
+            return UpdateAgentResponse(
+                success=False,
+                error="Permission denied: only the creator can update this agent.",
+            )
+
+        request = body  # preserve old local var name in body below
 
         # Build update data
         update_data = {}
@@ -736,42 +757,35 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"Workspace cleanup failed (non-critical): {e}")
 
-        # 14. Lark credentials + CLI profile + workspace + inbox data
+        # 14. Channel cleanups — registry-driven walk over every
+        # ChannelModuleBase subclass in MODULE_MAP. Each subclass owns
+        # its own cleanup_for_agent (default: credential row + inbox
+        # channels by channel_id prefix; Lark overrides to also drop
+        # CLI profile + workspace dir). Adding a new IM channel requires
+        # zero edits here.
         try:
-            lark_cred = await db_client.get_one("lark_credentials", {"agent_id": agent_id})
-            if lark_cred:
-                # Remove CLI profile via the shared client — it handles HOME
-                # override and keychain cleanup regardless of which bind path
-                # created this credential.
-                from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
-                from xyz_agent_context.module.lark_module._lark_workspace import cleanup_workspace
-                try:
-                    await LarkCLIClient().profile_remove(agent_id)
-                except Exception as e:
-                    logger.debug(f"profile_remove best-effort failed for {agent_id}: {e}")
-                # Blow away the workspace directory (idempotent)
-                cleanup_workspace(agent_id)
+            from xyz_agent_context.channel.channel_module_base import (
+                ChannelModuleBase,
+            )
+            from xyz_agent_context.module import MODULE_MAP
 
-                # Clean up lark inbox channels
-                all_members = await db_client.get("bus_channel_members", {"agent_id": agent_id})
-                for m in all_members:
-                    cid = m.get("channel_id", "")
-                    if cid.startswith("lark_"):
-                        await db_client.delete("bus_channel_members", {"channel_id": cid, "agent_id": agent_id})
-                        remaining = await db_client.get("bus_channel_members", {"channel_id": cid})
-                        if not remaining:
-                            await db_client.delete("bus_messages", {"channel_id": cid})
-                            await db_client.delete("bus_channels", {"channel_id": cid})
-                # Delete credential
-                result = await db_client.execute(
-                    "DELETE FROM lark_credentials WHERE agent_id = %s",
-                    (agent_id,), fetch=False,
-                )
-                cnt = result if isinstance(result, int) else 0
-                if cnt > 0:
-                    stats["lark_credentials"] = cnt
-        except Exception as e:
-            logger.warning(f"Lark cleanup failed (non-critical): {e}")
+            for module_name, cls in MODULE_MAP.items():
+                if not (isinstance(cls, type) and issubclass(cls, ChannelModuleBase)):
+                    continue
+                try:
+                    mod = cls(
+                        agent_id=agent_id,
+                        user_id=user_id,
+                        database_client=db_client,
+                    )
+                    result_stats = await mod.cleanup_for_agent(agent_id, db_client)
+                    stats.update(result_stats)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        f"Channel cleanup for {module_name} failed (non-critical): {e}"
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Channel cleanup walk failed (non-critical): {e}")
 
         # 14b. team_members (subproject 1) — drop this agent from every team it's a member of.
         # Without this, the team panel keeps showing the deleted agent_id as a ghost member.
