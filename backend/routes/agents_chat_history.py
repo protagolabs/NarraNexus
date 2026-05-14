@@ -490,17 +490,22 @@ async def get_simple_chat_history(
                         # replace the content with a one-line activity
                         # marker so the owner sees the agent was active
                         # without leaking the actual conversation.
-                        # KNOWN LIMITATION: if an IM-triggered turn ALSO
-                        # called send_message_to_user_directly (the
-                        # "tell owner about this important thing" path),
-                        # that content gets hidden too because both reply
-                        # outputs are merged into ``assistant_content``
-                        # under the trigger's working_source. Untangling
-                        # that requires storing the two tool outputs
-                        # separately at write time — out of scope here.
+                        #
+                        # Carve-out: when the agent explicitly called
+                        # ``send_message_to_user_directly`` during the IM
+                        # turn (the "tell owner about this important
+                        # thing" path the iron rules carve out), the
+                        # writer stashes that content on
+                        # ``meta_data.owner_notify_content``. We surface
+                        # it verbatim here so the owner DOES see the
+                        # important notification while routine IM
+                        # chatter stays hidden.
                         content = msg.get("content", "")
                         if working_source != "chat" and role == "assistant":
-                            content = f"Background activity ({working_source})"
+                            owner_notify = meta_data.get("owner_notify_content", "")
+                            content = owner_notify if owner_notify else (
+                                f"Background activity ({working_source})"
+                            )
 
                         all_messages.append({
                             "role": role,
