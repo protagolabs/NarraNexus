@@ -874,9 +874,23 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   box-shadow: none;
 }
 
+/* Selection inside the inverted user bubble must contrast against the
+   dark/light bubble background, not the page background. Use a
+   semi-transparent white/black overlay so the selected text stays readable
+   regardless of which theme is active. */
+.message-user ::selection {
+  background: rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+}
+
 .dark .message-user {
   --on-bubble: var(--bg-deep);
   --on-bubble-bg: var(--text-primary);
+}
+
+.dark .message-user ::selection {
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--bg-deep);
 }
 
 .message-assistant {
