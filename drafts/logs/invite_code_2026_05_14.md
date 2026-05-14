@@ -2,7 +2,7 @@
 
 - **Trigger**：用户要为 NarraNexus web version 做邀请码机制，目的是控制注册用户数量
 - **Branch / commit**：`main` @ `b4aa5c4`
-- **Status**：waiting-for-user（SMTP 供应商待定；其余设计已拍板，可进入实现）
+- **Status**：implemented + pushed（见文末「## 更新 2026-05-14 — 实现完成」）；唯一未决：正式 SMTP 供应商（不阻塞，先用个人 Gmail）
 - **核心结论**：用 DB `invite_codes` 表替换现有的单一全局 `INVITE_CODE` 环境变量；Mode B（自动发码 + 全局上限 + waitlist），上限 200；先控用户数，不控 agent 数。
 
 ---
@@ -179,7 +179,53 @@
 ## 12. Next step
 
 - [ ] 用户拍板正式 SMTP 供应商（不阻塞，先用个人 Gmail 跑通链路）
-- [ ] 进入实现：按第 8 节逐文件做，先写测试（TDD）
-- [ ] 实现前 Read 对应 mirror md（铁律 #3）：`backend/routes/auth.py.md`、`backend/auth.py.md`、`backend/main.py.md`、`utils/schema_registry.py` 相关
-- [ ] website 改动在 `narranexus-website` 独立 repo，单独 commit
+- [x] 进入实现：按第 8 节逐文件做，先写测试（TDD）
+- [x] 实现前 Read 对应 mirror md（铁律 #3）
+- [x] website 改动在 `narranexus-website` 独立 repo，单独 commit
 - [ ] 已确认范围：只控用户数。若后续要控 agent 总量 → 另开 per-user agent 上限 PRD
+
+---
+
+## 更新 2026-05-14 — 实现完成
+
+**Branch**：两个 repo 都推到 `invitation_code_2026_05_14`
+- NarraNexus：commit `454922e`
+- narranexus-website：commit `a70de9d`
+
+**Status**：done（待用户配 SMTP + 自测）
+
+### 落地内容
+
+后端（NarraNexus）：
+- `invite_codes` 表（`schema_registry.py`）+ `InviteCode` schema
+- `invite_code_gen.py`（CSPRNG 生成器）+ `mailer.py`（通用 SMTP，stdlib，未配置即 no-op）
+- `InviteCodeRepository`：`consume` 是单条带条件 UPDATE，并发抢码的 race guard
+- `POST /api/invite/request`（public，JWT 豁免）：幂等 + IP/email 双限流 + Mode B cap(200)
+- `/api/admin/invite` list/promote/revoke（staff JWT）
+- `register()` 改为校验 + 原子消费 DB 码，user insert 失败回滚码
+- 删除全局 `INVITE_CODE` 环境变量
+- 全部 mirror md 同步（铁律 #10）
+
+website（narranexus-website）：
+- `/invite` 申请页 + `/api/invite` 服务端代理路由 + header "Request Access" 导航项
+
+### 取证记录（关键文件）
+
+- 表定义：`src/xyz_agent_context/utils/schema_registry.py`（`invite_codes`）
+- 原子消费：`src/xyz_agent_context/repository/invite_code_repository.py::consume`
+- 注册改造：`backend/routes/auth.py::register`
+- cap 配置：`backend/config.py::Settings.invite_auto_issue_cap`
+- 测试：`tests/{utils,repository,backend}/test_invite*` —— 26 个新测试全过，
+  `tests/{backend,repository,schema,utils}` 全套 190 passed / 3 skipped 无回归
+- ruff 干净；pyright 仅报 4 个 auth.py **既有** issue（login/update_agent/
+  delete_agent），新文件 0 error
+
+### Next step（待用户）
+
+- 配置 SMTP 环境变量（先个人 Gmail App Password 跑链路）：
+  `SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD/SMTP_FROM`
+- 云端部署设 `INVITE_AUTO_ISSUE_CAP`（默认已是 200）、删掉旧的 `INVITE_CODE` 环境变量
+- website 部署设 `NARRANEXUS_API_URL`（默认 `https://agent.narra.nexus`）
+- 自测：申请 → 收码 → 注册 → 重复码被拒；cap 触发 waitlist
+- 两个 repo 的 PR review + merge
+- 邀请码生成算法后续优化（见 §5，v1 已够用）
