@@ -20,7 +20,7 @@ Notes:
 <br/>
 <br/>
 
-# 别只部署一个 Agent。直接组一支团队。
+# 别从零搭一个 Agent。一键和一支专业团队协作。
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://website.narra.nexus/docs/getting-started/quick-start)
@@ -179,16 +179,6 @@ bash run.sh
 - **Agent 不是一上来就 100 分**：它需要你纠错、给反馈，越用越合手。把它当一个新员工，不是当神。
 - **协作不是一次完美**：复杂任务往往要 agent 跑两三轮才上手；总有一些判断只能你来做 —— 团队跑通大部分，关键的判断留给你自己。
 - **架构权衡**：每个 agent 启动自己的 MCP 进程，启动时大约多 100ms。chat-style workflow 不在意；高频 job 可以切到 Direct Trigger mode。
-
-###  和其他工具的不同
-
-| 你想… | 用… | 为什么 |
-|-------|-----|--------|
-| 用 Python 拼装 agent | LangChain · AutoGen · CrewAI | 库级别的零件，没有 opinionated runtime |
-| 一个 personal assistant 跑遍 channel | OpenClaw · ZeroClaw · Claude Code | single-agent + 多 channel 范式 |
-| **一支会协作、有记忆、能交付真正工作的 agent 团队** | **NarraNexus** | opinionated runtime + 热插拔模块 + 多 agent 协作 |
-
-我们不替代上面那些工具。我们解决另一个问题：**不止 personal assistant，是一支 agent 团队。**
 
 ---
 
