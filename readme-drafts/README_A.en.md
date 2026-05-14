@@ -59,38 +59,27 @@ Notes:
 
 ##  Get started in 60 seconds
 
-NarraNexus is a multi-agent product — not yet another framework where you wire agents together, but a ready-to-run team of agents that already collaborate. Every agent has persistent identity, built-in communication channels, and three deployment paths to choose from.
+NarraNexus is a multi-agent product — not yet another framework where you wire agents together, but a ready-to-run team of agents that already collaborate. Three deployment paths — pick whichever suits you.
 
-Cloud sign-up, desktop download, local build — pick whichever suits you.
+### ☁️ Cloud sign-up — fastest, with a free trial quota
 
-### 🛠️ From source (recommended for developers)
+1. Open [agent.narra.nexus](https://agent.narra.nexus/login)
+2. Sign up
+3. Pick a template and go
 
-```bash
-git clone https://github.com/NetMindAI-Open/NarraNexus.git
-cd NarraNexus
-bash run.sh
-```
-
-`run.sh` checks for `uv` / `node` / `tmux`, then launches 7 services:
-
-| Service | Port | What it does |
-|---------|------|--------------|
-| Backend | 8000 | FastAPI server |
-| DB Proxy | 8100 | SQLite HTTP proxy |
-| MCP servers | 7801+ | Per-module tool servers |
-| Frontend | 5173 | Vite dev server |
-| Poller | — | Instance state monitor |
-| Jobs Trigger | — | Scheduled job dispatcher |
-| BusTrigger | — | Inter-agent message bus |
-
-For detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-started/quick-start).
-
-<!-- TODO: local build demo video, ~30s -->
+<!-- TODO: cloud sign-up demo video, ~30s -->
 <p align="center">
-  <em>📽️ Local build demo — TBD</em>
+  <em>📽️ Cloud sign-up demo — TBD</em>
 </p>
 
+> [!NOTE]
+> **Running locally (desktop app or source)?** Two things to know:
+> - **Bring your own LLM API key.** The desktop app and local build run on your own key — use a Claude Code login, or grab a NetMind.AI Power key (one key, takes a minute). Configure it under **Settings** — see [Configure LLM Providers](https://website.narra.nexus/docs/getting-started/quick-start).
+> - **Free up local ports.** Both run several local services; make sure those ports aren't already taken.
+
 ### 💻 macOS desktop app
+
+The app bundles its own runtime — no Python / Node / Docker to install.
 
 1. [Download the app](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
 2. Drag it into the Applications folder
@@ -101,15 +90,19 @@ For detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-
   <em>📽️ macOS desktop install demo — TBD</em>
 </p>
 
-### ☁️ Cloud sign-up
+### 🛠️ From source (developers)
 
-1. Open [agent.narra.nexus](https://agent.narra.nexus/login)
-2. Sign up
-3. Pick a template and go
+```bash
+git clone https://github.com/NetMindAI-Open/NarraNexus.git
+cd NarraNexus
+bash run.sh
+```
 
-<!-- TODO: cloud sign-up demo video, ~30s -->
+`run.sh` checks prerequisites (`uv` / `node` / `tmux`) and launches all local services. For the full service/port list and detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-started/quick-start).
+
+<!-- TODO: local build demo video, ~30s -->
 <p align="center">
-  <em>📽️ Cloud sign-up demo — TBD</em>
+  <em>📽️ Local build demo — TBD</em>
 </p>
 
 > Three doors, same place.
@@ -122,15 +115,22 @@ What an agent actually does for you.
 
 ### Agents like real teammates
 
-Every agent has persistent identity and preferences (managed by the **Awareness module**), so it remembers who it is and who it's working for across sessions. Conversations are auto-routed into storylines — **Narrative memory** uses embedding-based topic retrieval, not naive chronological order. Every agent can call MCP tools; installing a new skill is one chat line away — no code change.
+- **Identity** — every agent has a persistent identity and preferences (the **Awareness module**), so it remembers who it is and who it's working for across sessions.
+- **Memory** — conversations are auto-routed into storylines; **Narrative memory** uses embedding-based topic retrieval, not naive chronological order.
+- **Relationships** — the **Social Network module** lets an agent remember the people and entities it deals with, and build a customized interaction style for each.
+- **Tools** — every agent can call MCP tools; installing a new skill is one chat line away — no code change.
 
 ### Agents that actually collaborate
 
-Not just chat — agents talk to each other over the built-in **MessageBus** protocol: @mentions, rooms, group chats. The framework includes rate limiting and poison-message detection to prevent agent loops from going off the rails. Agents are discoverable by capability — one needs a SQL-savvy helper, it finds one with a search.
+- **MessageBus protocol** — agents talk to each other directly: @mentions, rooms, group chats. Not just chatting with you.
+- **Loop-safe** — built-in rate limiting and poison-message detection keep agent loops from going off the rails.
+- **Discoverable by capability** — an agent that needs a SQL-savvy helper finds one with a search.
 
 ### Batteries included
 
-**10 built-in modules** ready to use: Memory · Awareness · Chat · SocialNetwork · Jobs · Skills · MessageBus · Lark · CommonTools · BasicInfo. Each module ships with its own DB schema, MCP tools, and lifecycle hooks. **Multi-LLM** support (Anthropic / OpenAI / Gemini) through a unified adapter. **4 trigger modes** (Chat / Job / MessageBus / Matrix·Lark) share the same 6-step pipeline.
+- **10 built-in modules** — Memory · Awareness · Chat · SocialNetwork · Jobs · Skills · MessageBus · Lark · CommonTools · BasicInfo. Each ships with its own DB schema, MCP tools, and lifecycle hooks.
+- **Multi-LLM** — Anthropic / OpenAI / Gemini through a unified adapter.
+- **4 trigger modes** — Chat / Job / MessageBus / Matrix·Lark, all sharing the same 6-step pipeline.
 
 ---
 

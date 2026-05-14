@@ -59,49 +59,9 @@ Notes:
 
 ##  60 秒上手
 
-NarraNexus 是一个多 Agent 产品 —— 不是给开发者搭 agent 的 framework，是直接给你一支可以协作的 agent 团队。每个 agent 持久身份、自带协作通道，三种部署任选。
+NarraNexus 是一个多 Agent 产品 —— 不是给开发者搭 agent 的 framework，是直接给你一支可以协作的 agent 团队。三种部署方式，选你顺手的一种。
 
-云端注册、桌面下载、本地 build —— 选你顺手的一种。
-
-### 🛠️ 本地从源码（推荐开发者）
-
-```bash
-git clone https://github.com/NetMindAI-Open/NarraNexus.git
-cd NarraNexus
-bash run.sh
-```
-
-`run.sh` 自动检测 `uv` / `node` / `tmux`，启动 7 个 service：
-
-| Service | Port | 作用 |
-|---------|------|------|
-| Backend | 8000 | FastAPI server |
-| DB Proxy | 8100 | SQLite HTTP proxy |
-| MCP servers | 7801+ | Per-module tool servers |
-| Frontend | 5173 | Vite dev server |
-| Poller | — | Instance state monitor |
-| Jobs Trigger | — | Scheduled job dispatcher |
-| BusTrigger | — | Inter-agent message bus |
-
-详细见 [开发文档](https://website.narra.nexus/docs/getting-started/quick-start)。
-
-<!-- TODO: 本地 build demo video, ~30s -->
-<p align="center">
-  <em>📽️ 本地 build demo —— 待录制</em>
-</p>
-
-### 💻 macOS 桌面应用
-
-1. [下载 .dmg](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
-2. 拖入 Applications 文件夹
-3. 启动 → 选一个 template，开始
-
-<!-- TODO: dmg 安装 demo video, ~30s -->
-<p align="center">
-  <em>📽️ macOS 桌面安装 demo —— 待录制</em>
-</p>
-
-### ☁️ 云端注册
+### ☁️ 云端注册 —— 最快，带免费体验额度
 
 1. 打开 [agent.narra.nexus](https://agent.narra.nexus/login)
 2. 注册账号
@@ -110,6 +70,39 @@ bash run.sh
 <!-- TODO: 云端注册 demo video, ~30s -->
 <p align="center">
   <em>📽️ 云端注册 demo —— 待录制</em>
+</p>
+
+> [!NOTE]
+> **想在本地跑（桌面端或源码）？** 两件事要知道：
+> - **需要你自己的 LLM API key。** 桌面端和本地 build 都用你自己的 key —— 可以用 Claude Code 登录，或申请一个 NetMind.AI Power key（一个 key，一分钟搞定）。在 **Settings** 里配置 —— 见 [Configure LLM Providers](https://website.narra.nexus/docs/getting-started/quick-start)。
+> - **本地端口要空着。** 两种方式都会起若干本地 service，确认对应端口没被占用。
+
+### 💻 macOS 桌面应用
+
+桌面端自带 runtime —— 不用装 Python / Node / Docker。
+
+1. [下载 app](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
+2. 拖入 Applications 文件夹
+3. 启动 → 选一个 template，开始
+
+<!-- TODO: dmg 安装 demo video, ~30s -->
+<p align="center">
+  <em>📽️ macOS 桌面安装 demo —— 待录制</em>
+</p>
+
+### 🛠️ 从源码（开发者）
+
+```bash
+git clone https://github.com/NetMindAI-Open/NarraNexus.git
+cd NarraNexus
+bash run.sh
+```
+
+`run.sh` 自动检测前置依赖（`uv` / `node` / `tmux`）并启动所有本地 service。完整的 service / 端口列表和详细安装见 [开发文档](https://website.narra.nexus/docs/getting-started/quick-start)。
+
+<!-- TODO: 本地 build demo video, ~30s -->
+<p align="center">
+  <em>📽️ 本地 build demo —— 待录制</em>
 </p>
 
 > 三种入口，殊途同归。
@@ -122,15 +115,22 @@ bash run.sh
 
 ### 类人的 Agent 员工
 
-每个 agent 有持久身份（**Awareness module** 管理偏好、风格、约束），跨会话记得"它是谁、它在为谁工作"。对话被自动归到不同的 storyline —— **Narrative memory** 用 embedding 检索话题，不是按时间无脑排。每个 agent 都能调用 MCP 工具，装一个新 skill 一句话就能搞定，不用改代码。
+- **身份** —— 每个 agent 有持久的身份和偏好（**Awareness module**），跨会话记得"它是谁、在为谁工作"。
+- **记忆** —— 对话被自动归到不同 storyline；**Narrative memory** 用 embedding 检索话题，不是按时间无脑排。
+- **人脉** —— **Social Network module** 让 agent 记住打交道的人和实体，并对每个对象形成定制化的互动风格。
+- **工具** —— 每个 agent 都能调用 MCP 工具，装一个新 skill 一句话就能搞定，不用改代码。
 
 ### Agent 间真协作
 
-不只是 chat —— agent 通过内置 **MessageBus** 协议直接对话：@mention、建房间、群聊。框架自带 rate limit 和 poison message 检测，防止 agent loop 失控。Agent 可以按能力被发现 —— 一个 agent 要找懂 SQL 的 helper，搜一下就有。
+- **MessageBus 协议** —— agent 之间直接对话：@mention、建房间、群聊，不只是跟你聊。
+- **防失控** —— 内置 rate limit 和 poison message 检测，防止 agent loop 跑飞。
+- **按能力发现** —— 一个 agent 要找懂 SQL 的 helper，搜一下就有。
 
 ### Batteries included
 
-**10 个内置模块**直接能用：Memory · Awareness · Chat · SocialNetwork · Jobs · Skills · MessageBus · Lark · CommonTools · BasicInfo。每个模块自带 DB schema、MCP tools 和生命周期 hook。**多 LLM** 支持（Anthropic / OpenAI / Gemini）通过统一适配层接入。**4 种 Trigger** 模式（Chat / Job / MessageBus / Matrix·Lark）共用同一个 6 步流水线。
+- **10 个内置模块** —— Memory · Awareness · Chat · SocialNetwork · Jobs · Skills · MessageBus · Lark · CommonTools · BasicInfo。每个模块自带 DB schema、MCP tools 和生命周期 hook。
+- **多 LLM** —— Anthropic / OpenAI / Gemini 通过统一适配层接入。
+- **4 种 Trigger 模式** —— Chat / Job / MessageBus / Matrix·Lark，共用同一个 6 步流水线。
 
 ---
 
