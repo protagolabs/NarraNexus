@@ -1,45 +1,52 @@
 ---
 code_file: backend/routes/invite.py
-last_verified: 2026-05-14
+last_verified: 2026-05-15
 stub: false
 ---
 
-# invite.py — 公开邀请码申请端点
+## 2026-05-15 — 重构成内部 endpoint(架构 pivot)
+
+原来的 `POST /api/invite/request` 是公开 endpoint,自己生成码 + 发邮件。
+现在改为 **server-to-server 内部 endpoint** `POST /api/invite/internal/issue`,
+理由:把 marketing funnel(申请 + 发邮件)从产品后端剥离到 `narranexus-website`,
+让 SMTP 凭证、UX 文案、限流跟着 funnel 走。
+
+- 鉴权:`X-Internal-Secret` header,匹配 env `INTERNAL_INVITE_SECRET`。
+  没设 → 503(opted-out);不匹配 → 401。**不**走 JWT(调用方是另一个 server)。
+- **不**做 `_is_cloud_mode()` 守卫:`invite_codes` 是张表,本地 SQLite / 云 MySQL
+  都能落码。注册侧仍 cloud-only,这是另一层。
+- **响应回传 `code`**(server-to-server 信任,website 拿来发邮件,不到浏览器)。
+- 限流交给 website 那一边做(它在公共边缘,可以加 Turnstile / per-IP / per-email)。
+  这里只校验输入 + 幂等 + cap,假定调用方可信。
+
+# invite.py — 邀请码内部签发
 
 ## 为什么存在
 
-云端注册门禁的"前门"。访客在 website 填邮箱 → 这个端点生成唯一邀请码、
-发邮件、按 Mode B 决定立即发码还是进 waitlist。是邀请码机制唯一的**公开**
-surface（admin 操作在 `/api/admin/invite`）。
+云端注册门禁需要"唯一、按邮箱、用后即焚"的邀请码。按"产品 vs marketing
+funnel"切分责任:
+- website 负责:申请表单 UI、限流、调本 endpoint、用 SMTP 发邮件
+- NarraNexus 负责:码的生成 + 落库 + 幂等 + cap + 注册时原子消费 + admin
 
 ## 上下游关系
 
-- **被谁用**：`narranexus-website` 的 `app/api/invite/route.ts` 代理转发；
-  `backend/main.py` 以 `/api/invite` 前缀挂载。
-- **依赖谁**：`InviteCodeRepository`（幂等判断 + cap + create）、
-  `utils.mailer.send_email`、`backend.config.settings.invite_auto_issue_cap`、
-  `backend.auth._is_cloud_mode`、`_rate_limiter.SlidingWindowRateLimiter`。
+- **被谁用**:`narranexus-website` 的 `app/api/invite/route.ts`(经
+  `X-Internal-Secret`)
+- **依赖谁**:`InviteCodeRepository`、`backend.config.settings.invite_auto_issue_cap`、
+  env `INTERNAL_INVITE_SECRET`。**不再依赖** `utils.mailer`(已删除)。
 
 ## 设计决策
 
-- **JWT 豁免**：申请者还没账号，所以 `/api/invite/request` 必须在
-  `backend/auth.py::AUTH_EXEMPT_PATHS` 里。admin 路由走 `/api/admin/invite`
-  另一前缀，仍需 staff JWT。
-- **响应永不回显 code**：`InviteRequestResponse` 没有 `code` 字段。code 只走
-  邮件——否则限流可被"读响应"绕过。
-- **幂等**：同邮箱已 `used` → 提示去登录；已 `issued` → **重发同一个码**，
-  绝不二次生成；已 `waitlisted` → 告知在排队。一个邮箱永远只有一个有效码。
-- **Mode B cap**：新申请时 `count_active()`（issued+used）≥ cap → 建
-  `waitlisted` 行（不发邮件）；否则建 `issued` 行并发邮件。
-- **双限流**：per-IP 5/10min + per-email 3/hour，process-local。更强的反滥用
-  靠 website 代理层的 Cloudflare Turnstile。
-- **失败不 500**：整个 DB 段包在 try/except 里，异常返回 `success=False` +
-  友好 error，不抛 500。邮件发送失败也不阻断——code 已落库，`email_sent=0`
-  在 admin 列表里可见、可重发。
+- **幂等优先级**:`used > issued > waitlisted > new`。同邮箱已 used → 拒;
+  已 issued → 返回同一个码(website 重发邮件);已 waitlisted → 告知。
+- **Cap 数法**:`InviteCodeRepository.count_active`(issued+used)≥ cap →
+  转 waitlisted,不发码不发邮件。
+- **secret 校验失败给 401/503 而非 200+success=False**:server-to-server 路径,
+  标准 HTTP 错误更清楚。
 
 ## Gotcha
 
-- `_ip_limiter` / `_email_limiter` 是模块级 process-local 状态；多 worker
-  部署下每个进程各算各的（可接受，单进程为主）。
-- `_client_ip` 信任 `X-Forwarded-For` 首跳——仅在确有反向代理时才准确。
-- local 模式直接返回 error（邀请码只对 cloud 生效），对齐 `register()`。
+- `code` 字段**只在 status='issued' 时**有值。website 必须按 status 分支
+  决定是否发邮件。
+- 没配 `INTERNAL_INVITE_SECRET` 时整条 endpoint 失效(503)——这是 opt-in
+  设计,部署时必须显式开启。

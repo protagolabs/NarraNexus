@@ -147,10 +147,12 @@ def require_auth(request: Request) -> CurrentUser:
 AUTH_EXEMPT_PATHS = {
     "/api/auth/login",
     "/api/auth/register",
-    # Public invite-code request — the caller has no account yet, so this
-    # is the pre-registration funnel and cannot require a JWT. Admin invite
+    # Internal invite-issuance endpoint — server-to-server, called by the
+    # narranexus-website backend. It authenticates via the
+    # X-Internal-Secret header (matched against INTERNAL_INVITE_SECRET env
+    # var) inside the route handler itself, NOT via JWT. Admin invite
     # operations live under /api/admin/invite and DO require a staff JWT.
-    "/api/invite/request",
+    "/api/invite/internal/issue",
     "/api/providers/claude-status",
     "/docs",
     "/openapi.json",

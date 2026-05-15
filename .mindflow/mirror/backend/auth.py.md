@@ -1,18 +1,28 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-05-14
+last_verified: 2026-05-15
 stub: false
 ---
 
-## 2026-05-14 — 删除全局 INVITE_CODE 常量 + /api/invite/request 豁免
+## 2026-05-15 — invite 路由改成 server-to-server
+
+公开的 `/api/invite/request` 已废弃(架构 pivot:申请 UI + 发邮件移到
+`narranexus-website`)。NarraNexus 现在只暴露 server-to-server 的
+`POST /api/invite/internal/issue`,调用方是 website backend。
+
+`AUTH_EXEMPT_PATHS` 相应:
+- 移除 `/api/invite/request`
+- 新增 `/api/invite/internal/issue`(它在路由 handler 内部用
+  `X-Internal-Secret` header 校验,匹配 env `INTERNAL_INVITE_SECRET`——
+  不走 JWT)
+
+admin 侧 `/api/admin/invite/*` 仍需 staff JWT,不变。
+
+## 2026-05-14 — 删除全局 INVITE_CODE 常量
 
 `INVITE_CODE` 全局环境变量常量**已删除**。注册门禁改为 per-code 的 DB
-机制（`invite_codes` 表 + `InviteCodeRepository` + `backend/routes/invite.py`）。
-`backend/routes/auth.py::register()` 不再 import / 比对它。
-
-`AUTH_EXEMPT_PATHS` 新增 `/api/invite/request`——公开邀请码申请端点，调用
-者还没账号，是注册前的漏斗，不能要求 JWT。admin 侧操作在
-`/api/admin/invite`，仍需 staff JWT（落在 `/api/admin` 前缀下）。
+机制(`invite_codes` 表 + `InviteCodeRepository`)。`routes/auth.py::register()`
+不再 import / 比对它。
 
 ## 2026-05-13 — Local 模式多用户支持（X-User-Id header）
 

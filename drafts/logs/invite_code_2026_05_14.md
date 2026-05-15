@@ -2,7 +2,7 @@
 
 - **Trigger**：用户要为 NarraNexus web version 做邀请码机制，目的是控制注册用户数量
 - **Branch / commit**：`main` @ `b4aa5c4`
-- **Status**：implemented + pushed（见文末「## 更新 2026-05-14 — 实现完成」）；唯一未决：正式 SMTP 供应商（不阻塞，先用个人 Gmail）
+- **Status**：架构 pivot 后实现完成 + 推送(见文末「## 更新 2026-05-15 — 架构 pivot:SMTP 移到 website」)。本地测邮件链路已可跑通(后端不依赖 cloud 模式),注册仍 cloud-only。
 - **核心结论**：用 DB `invite_codes` 表替换现有的单一全局 `INVITE_CODE` 环境变量；Mode B（自动发码 + 全局上限 + waitlist），上限 200；先控用户数，不控 agent 数。
 
 ---
@@ -229,3 +229,76 @@ website（narranexus-website）：
 - 自测：申请 → 收码 → 注册 → 重复码被拒；cap 触发 waitlist
 - 两个 repo 的 PR review + merge
 - 邀请码生成算法后续优化（见 §5，v1 已够用）
+
+---
+
+## 更新 2026-05-15 — 架构 pivot:SMTP 移到 website
+
+### 起因
+
+本地起 website 测申请,邀请码邮件没发出来。两层原因复合:
+1. 本地后端跑 SQLite(local 模式),原 `/api/invite/request` 第一行 `_is_cloud_mode()` 守卫直接 return,根本没到 mailer
+2. 项目的 `.env` → `os.environ` 桥**只转发 4 个 API key**(`settings.py::_API_KEY_FIELDS`),`SMTP_*` 和 `DB_HOST` 进了 `settings` 对象但没进 `os.environ`,而 `mailer.py` / `_is_cloud_mode()` 都是直接读 `os.environ`,所以看不到
+
+用户提的架构观察 → 走完全更干净的路:website 才是 marketing funnel 的所在地,SMTP 凭证、UX 文案、限流都应该跟着 funnel 走;NarraNexus 只负责"发码 + 存表 + 注册时消费"。
+
+### 新架构(option B)
+
+```
+浏览器 → website /invite 表单 → website /api/invite (Next route handler)
+                                  ├─ 校验邮箱 + 限流
+                                  ├─ POST NarraNexus /api/invite/internal/issue
+                                  │   (X-Internal-Secret header)
+                                  ├─ 拿到 {status, code}
+                                  └─ 若 issued → 用 nodemailer 发邮件
+
+注册:NarraNexus /api/auth/register → InviteCodeRepository.consume(原子)
+```
+
+`code` 在 server-to-server 这一段确实回传给 website server(它要发邮件),
+但不到浏览器。
+
+### NarraNexus 改动
+
+- `backend/routes/invite.py`:重写为 `POST /api/invite/internal/issue`
+  - `X-Internal-Secret` header 鉴权(匹配 env `INTERNAL_INVITE_SECRET`)
+  - 去掉 `_is_cloud_mode()` 守卫(invite_codes 是张表,SQLite/MySQL 都能落)
+  - 去掉发邮件逻辑(`_send_code_email` 删除)
+  - 响应**回传 code**
+  - 限流改为交由 website 那一边在公共边缘做
+- **删除** `src/xyz_agent_context/utils/mailer.py` + 对应 mirror md
+- `backend/auth.py::AUTH_EXEMPT_PATHS`:`/api/invite/request` → `/api/invite/internal/issue`
+- `admin_invite.py::promote`:不再补发邮件(NarraNexus 没有 SMTP 了),返回 `{code, email}` 给运营手动通知
+- `.env.cloud.example`:删 `SMTP_*`,加 `INTERNAL_INVITE_SECRET`
+- `api_schema.py`:删除短命的 `InviteRequestRequest/Response`(无人引用)
+- 测试改造:29 测全过(secret 强制 + idempotency + cap + register 端到端)
+- 所有 mirror md 同步刷新
+
+### website 改动(下一步)
+
+- 加 `nodemailer` 依赖,新建 `lib/mailer.ts`(SMTP 发邮件)
+- 重写 `app/api/invite/route.ts`:校验 → 限流 → 调 NarraNexus 内部 API → 发邮件
+- `.env.local` 加 `INTERNAL_INVITE_SECRET` + `SMTP_*`(凭证从 NarraNexus `.env` 迁移过来)
+
+### 取证记录(关键改动)
+
+- 新 endpoint:`backend/routes/invite.py::issue_invite`
+- 鉴权:`backend/routes/invite.py::_require_internal_secret`
+- 测试:`tests/backend/test_invite_routes.py` —— 含 secret 强制 + 503 fail-closed
+- 设计 mirror:`.mindflow/mirror/backend/routes/invite.py.md` 的 2026-05-15 dated entry
+
+### 本地能测什么(架构 pivot 之后)
+
+| 操作 | 本地能跑通 |
+|---|---|
+| 申请邀请码 + 收到邮件 | ✅(SQLite 也行,SMTP 在 website 端) |
+| 码落入 `invite_codes` 表 | ✅ |
+| 用邀请码注册账号 | ❌ 仍要 cloud 模式(`register()` 的 `_is_cloud_mode` 是 pre-existing 设计) |
+
+### Next step
+
+- 完成 website 那侧改动(nodemailer + route rewrite + .env)
+- 用户配 `INTERNAL_INVITE_SECRET`(两边一致)
+- 本地端到端验证邮件链路
+- 部署 NarraNexus 到 EC2 + website 到生产
+- 真实环境测注册闭环

@@ -59,24 +59,6 @@ class RegisterResponse(BaseModel):
     initial_output_tokens: int = 0
 
 
-class InviteRequestRequest(BaseModel):
-    """Request model for POST /api/invite/request — public, email only."""
-    email: str
-
-
-class InviteRequestResponse(BaseModel):
-    """Response model for an invite-code request.
-
-    `code` is intentionally NEVER populated — the code is delivered only
-    by email so that rate limiting cannot be bypassed by reading the HTTP
-    response. `status` is one of: issued | waitlisted | already_registered.
-    """
-    success: bool
-    status: Optional[str] = None
-    message: Optional[str] = None
-    error: Optional[str] = None
-
-
 class ActiveRunInfo(BaseModel):
     """Phase C — summary of the agent's currently running run, if any.
 

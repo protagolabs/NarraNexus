@@ -1,18 +1,23 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-05-14
+last_verified: 2026-05-15
 stub: false
 ---
 
+## 2026-05-15 — invite_router 改为 server-to-server
+
+挂载点没变(`/api/invite`),但其下的路由从公开的 `/request` 改成内部的
+`/internal/issue`(server-to-server,X-Internal-Secret header 鉴权)。
+详见 `backend/routes/invite.py` mirror md。`admin_invite_router` 不变。
+
+CORS 那行 `narra.nexus` 域名其实现在用不到了(website 调 NarraNexus 走
+server-to-server,不是浏览器跨域),但留着无害。
+
 ## 2026-05-14 — invite routers wired in
 
-新增两个 router：`invite_router`（`/api/invite`，公开邀请码申请）和
-`admin_invite_router`（自带 `/api/admin/invite` 前缀，staff 专用，故
-`include_router` 不再传 prefix——与 `admin_quota_router` 同 pattern）。
-
-CORS 默认列表（`backend/config.py`）加入 `https://narra.nexus` /
-`https://www.narra.nexus`。注：website 的邀请码表单走服务端代理路由，
-正常不需要 CORS；allowlist 是给"直接浏览器调用"兜底用。
+新增两个 router:`invite_router`(`/api/invite`)和 `admin_invite_router`
+(自带 `/api/admin/invite` 前缀,staff 专用,故 `include_router` 不再传
+prefix——与 `admin_quota_router` 同 pattern)。
 
 ## 2026-05-13 — Phase C: active_runs registry + reconcile
 

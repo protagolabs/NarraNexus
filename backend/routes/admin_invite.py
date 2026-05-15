@@ -5,7 +5,9 @@
 @description: Staff-only invite-code management routes.
 
 /codes    — list invite codes (optionally filtered by status) + cap summary
-/promote  — waitlisted -> issued, then email the code to the requester
+/promote  — waitlisted -> issued; returns the code so an operator can hand
+            it to the user via whatever channel (NarraNexus no longer holds
+            SMTP credentials — the website is the mailer now)
 /revoke   — issued|waitlisted -> revoked (a used code cannot be revoked)
 
 All require `role=staff` on the caller's JWT — same model as admin_quota.py.
@@ -21,7 +23,6 @@ from pydantic import BaseModel, Field
 
 from backend.auth import _is_cloud_mode
 from backend.config import settings
-from backend.routes.invite import _send_code_email
 from xyz_agent_context.repository import InviteCodeRepository
 from xyz_agent_context.schema.invite_code_schema import InviteCode
 from xyz_agent_context.utils.db_factory import get_db_client
@@ -50,6 +51,8 @@ def _code_to_dict(c: InviteCode) -> dict:
         "email": c.email,
         "status": c.status,
         "source": c.source,
+        # email_sent is no longer maintained by NarraNexus (mailer moved to
+        # website). The column stays for forward-compat / future write-back.
         "email_sent": c.email_sent,
         "created_at": str(c.created_at) if c.created_at else None,
         "issued_at": str(c.issued_at) if c.issued_at else None,
@@ -80,7 +83,12 @@ async def list_codes(request: Request, status: str | None = None) -> dict:
 
 @router.post("/promote")
 async def promote_code(request: Request, payload: CodeAction) -> dict:
-    """Promote a waitlisted code to issued, then email it to the requester."""
+    """Promote a waitlisted code to issued.
+
+    Returns the code + email so an operator can deliver it manually
+    (NarraNexus no longer holds SMTP credentials — that responsibility
+    moved to the narranexus-website's mailer).
+    """
     _require_staff_or_raise(request)
     db = await get_db_client()
     repo = InviteCodeRepository(db)
@@ -93,12 +101,13 @@ async def promote_code(request: Request, payload: CodeAction) -> dict:
         )
 
     row = await repo.get_by_code(payload.code)
-    sent = False
-    if row is not None:
-        sent = await _send_code_email(row.code, row.email)
-        await repo.mark_email_sent(row.code, sent)
-    logger.info("admin: promoted invite code {} (email_sent={})", payload.code, sent)
-    return {"success": True, "code": payload.code, "status": "issued", "email_sent": sent}
+    logger.info("admin: promoted invite code {}", payload.code)
+    return {
+        "success": True,
+        "code": payload.code,
+        "email": row.email if row else None,
+        "status": "issued",
+    }
 
 
 @router.post("/revoke")

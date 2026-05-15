@@ -1,16 +1,18 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-05-14
+last_verified: 2026-05-15
 stub: false
 ---
 
-## 2026-05-14 addition — invite request DTOs
+## 2026-05-15 — invite request DTOs removed
 
-`InviteRequestRequest` (email only) / `InviteRequestResponse` back the public
-`POST /api/invite/request` endpoint. `InviteRequestResponse.code` deliberately
-does not exist — the generated code is delivered ONLY by email; echoing it in
-the HTTP response would let a caller bypass the rate limiter. `status` is one
-of `issued | waitlisted | already_registered`.
+The short-lived `InviteRequestRequest` / `InviteRequestResponse` (added
+2026-05-14 for the public `POST /api/invite/request` endpoint) are deleted.
+After the architecture pivot — the public invite-request surface moved
+to `narranexus-website` and NarraNexus exposes only the server-to-server
+`POST /api/invite/internal/issue` — those DTOs no longer have a caller.
+The new internal endpoint uses inline Pydantic models defined in
+`backend/routes/invite.py` (private, single-caller).
 
 # api_schema.py
 
