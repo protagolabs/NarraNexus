@@ -34,19 +34,23 @@ jobs:
           workspaces: tauri/src-tauri
 
       - name: Install Tauri CLI
-        # `rustup default stable` first — without it this step is flaky.
-        # The macos-14 runner ships rustup with no default toolchain set,
-        # and `swatinem/rust-cache` can restore ~/.cargo in that same
-        # state. When no toolchain is the default, the `cargo` shim on
-        # PATH falls back to rustup-init behaviour and rejects the
-        # `install` subcommand ("unexpected argument 'install' found").
-        # Pinning the default toolchain here — after Setup Rust AND after
-        # the cache restore — makes the step deterministic. `rustup
-        # default` installs the toolchain if it is missing, so this also
-        # covers a cache that restored ~/.cargo without stable present.
+        # The macos-14 runner image (post 2026-05-15) ships a `cargo` shim
+        # under ~/.cargo/bin that re-execs `rustup-init` when no toolchain
+        # is "active for the current invocation". `rustup default stable`
+        # only sets the global default; the very next `cargo install` line
+        # is launched via the shim and resolves to rustup-init, which
+        # rejects `install` ("unexpected argument 'install' found").
+        #
+        # Invoking through `rustup run stable -- cargo install ...` (or the
+        # explicit path returned by `rustup which cargo`) bypasses the
+        # shim entirely and calls the real cargo binary directly. We use
+        # `rustup which` so `set -x` shows the absolute path in CI logs
+        # — handy when the runner image shifts under us again.
         run: |
+          set -eux
           rustup default stable
-          cargo install tauri-cli --version "^2"
+          CARGO_BIN="$(rustup which --toolchain stable cargo)"
+          "$CARGO_BIN" install tauri-cli --version "^2"
 
       # Import the Developer ID cert into a temp keychain so build-desktop.sh's
       # `codesign --sign "$APPLE_SIGNING_IDENTITY"` calls can find it.
