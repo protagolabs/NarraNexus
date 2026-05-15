@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/__tests__/HtmlRenderer.test.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — pointer model: drop `version` prop, mock `getRawUrl`
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+The renderer no longer accepts a `version` prop and the iframe `src` is set
+asynchronously from the view-token endpoint. The test mocks
+`artifactsApi.getRawUrl` to return a known token URL, then `waitFor`s the
+iframe to mount before asserting the sandbox attribute and `src`.
 
 # HtmlRenderer.test.tsx — Security regression test for HtmlRenderer sandbox
 

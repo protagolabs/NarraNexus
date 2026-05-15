@@ -1225,6 +1225,10 @@ _register(
 
 
 # ── Artifacts (agent visual outputs) ─────────────────────────────────────
+# Pointer model (2026-05-14): an artifact is a pointer to an entry file the
+# agent wrote inside its own workspace. `file_path` is the entry file relative
+# to settings.base_working_path; the entry file's directory is the artifact
+# root and is served wholesale (multi-file HTML apps + sibling assets).
 _register(
     TableDef(
         name="instance_artifacts",
@@ -1238,6 +1242,17 @@ _register(
             Column("kind",           "TEXT",    "VARCHAR(64)",  nullable=False),
             Column("description",    "TEXT",    "TEXT"),
             Column("pinned",         "INTEGER", "TINYINT(1)",   nullable=False, default="0"),
+            # Pointer-model columns. file_path = entry file relative to
+            # base_working_path; size_bytes = recursive size of the artifact
+            # root directory. Nullable so auto_migrate can add them to existing
+            # DBs without a backfill — old (versioned) rows keep file_path NULL
+            # and are hand-migrated per the cleanup TODO.
+            Column("file_path",      "TEXT",    "VARCHAR(512)"),
+            Column("size_bytes",     "INTEGER", "BIGINT",       nullable=False, default="0"),
+            # DEPRECATED (2026-05-14): versioning was dropped with the pointer
+            # model. Column kept so auto_migrate keeps provisioning it and
+            # colleagues can hand-migrate old rows. No code reads/writes it.
+            # Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
             Column("latest_version", "INTEGER", "INT",          nullable=False, default="1"),
             Column("created_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),
             Column("updated_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),
@@ -1245,11 +1260,16 @@ _register(
         indexes=[
             Index("idx_artifact_agent_session", ["agent_id", "session_id"]),
             Index("idx_artifact_agent_pinned",  ["agent_id", "pinned"]),
-            Index("idx_artifact_agent_id",      ["agent_id"]),  # for total_bytes_for_agent JOIN
+            Index("idx_artifact_agent_id",      ["agent_id"]),  # for total_bytes_for_agent
         ],
     )
 )
 
+# DEPRECATED (2026-05-14): the pointer model dropped per-version content rows.
+# This table is kept registered so auto_migrate keeps provisioning it and
+# colleagues with old saved HTML can hand-migrate from these rows. No code
+# reads or writes it anymore.
+# Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
 _register(
     TableDef(
         name="instance_artifact_versions",

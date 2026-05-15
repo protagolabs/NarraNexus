@@ -353,15 +353,22 @@ export interface DeleteAgentResponse extends ApiResponse {
   deleted_counts?: Record<string, number>;
 }
 
-// File Management types
+// File Management types — recursive workspace directory tree (2026-05-14).
 export interface FileInfo {
-  filename: string;
+  /** Basename, e.g. "index.html". */
+  name: string;
+  /** Workspace-relative path, e.g. "report/index.html". */
+  path: string;
+  is_dir: boolean;
+  /** 0 for directories. */
   size: number;
   modified_at: string;
+  /** Populated when `is_dir` is true; `null` for regular files. */
+  children?: FileInfo[] | null;
 }
 
 export interface FileListResponse extends ApiResponse {
-  files: FileInfo[];
+  tree: FileInfo[];
   workspace_path: string;
 }
 
@@ -372,7 +379,7 @@ export interface FileUploadResponse extends ApiResponse {
 }
 
 export interface FileDeleteResponse extends ApiResponse {
-  filename?: string;
+  path?: string;
 }
 
 // MCP Management types

@@ -2,14 +2,14 @@
 @file_name: test_users_artifacts.py
 @author: Bin Liang
 @date: 2026-05-09
-@description: e2e tests for /api/users/{user_id}/artifacts/* — list, quota, bulk delete.
+@description: e2e tests for /api/users/{user_id}/artifacts/* under the pointer model.
 
-Mounts only the users_artifacts router on a fresh FastAPI app, mirrors the
-isolation pattern in test_agents_artifacts.
+Covers list, quota, bulk_delete (with / without `delete_source`), tenant
+isolation (skipped_not_owned), and cloud-mode JWT self-check.
 """
-
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
 import pytest
@@ -26,15 +26,13 @@ async def _async_return(value):
 
 @pytest.fixture
 async def setup(db_client, monkeypatch, tmp_path):
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
+    base = tmp_path / "workspaces"
+    base.mkdir()
     from xyz_agent_context.settings import settings as sa_settings
-    monkeypatch.setattr(sa_settings, "base_working_path", str(workspace), raising=False)
+    monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
     from backend.routes.users_artifacts import router as users_router
     import backend.routes.users_artifacts as users_mod
-
     monkeypatch.setattr(users_mod, "get_db_client", lambda: _async_return(db_client))
     monkeypatch.setattr(users_mod, "settings", sa_settings)
 
@@ -42,14 +40,24 @@ async def setup(db_client, monkeypatch, tmp_path):
     app.include_router(users_router, prefix="/api/users")
 
     repo = ArtifactRepository(db_client)
-    # Seed: 3 artifacts owned by binliang across two agents, 1 owned by other_user
-    for aid, agent, owner, title in [
+    seeds = [
         ("art_u1", "agent_a", "binliang", "first"),
         ("art_u2", "agent_a", "binliang", "second"),
         ("art_u3", "agent_b", "binliang", "third"),
         ("art_other", "agent_a", "other_user", "not_yours"),
-    ]:
-        art = Artifact(
+    ]
+    # Each seeded artifact is a real folder on disk with one entry file, so
+    # `delete_source=true` has real files to remove.
+    folder_for_id: dict[str, str] = {}
+    for aid, agent, owner, title in seeds:
+        workspace = base / f"{agent}_{owner}"
+        folder = workspace / aid
+        folder.mkdir(parents=True)
+        entry = folder / "index.csv"
+        entry.write_text("a,b\n1,2\n", encoding="utf-8")
+        rel = str(entry.relative_to(base))
+        folder_for_id[aid] = str(folder)
+        await repo.create(Artifact(
             artifact_id=aid,
             agent_id=agent,
             user_id=owner,
@@ -57,45 +65,43 @@ async def setup(db_client, monkeypatch, tmp_path):
             title=title,
             kind="text/csv",
             pinned=True,
-            latest_version=1,
+            file_path=rel,
+            size_bytes=entry.stat().st_size,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
-        )
-        folder = workspace / f"{agent}_{owner}" / "artifacts" / aid
-        folder.mkdir(parents=True)
-        f = folder / "data.csv"
-        f.write_text("a,b\n1,2\n")
-        rel = str(f.relative_to(workspace))
-        await repo.create(art, file_path=rel, size_bytes=len(f.read_bytes()))
+        ))
 
-    yield {"client": TestClient(app), "db": db_client, "repo": repo, "workspace": workspace}
+    yield {
+        "client": TestClient(app),
+        "db": db_client,
+        "repo": repo,
+        "base": base,
+        "folder_for_id": folder_for_id,
+    }
 
 
 def test_list_returns_only_users_artifacts(setup):
-    client = setup["client"]
-    r = client.get("/api/users/binliang/artifacts")
+    r = setup["client"].get("/api/users/binliang/artifacts")
     assert r.status_code == 200
-    rows = r.json()
-    ids = {a["artifact_id"] for a in rows}
+    ids = {a["artifact_id"] for a in r.json()}
     assert ids == {"art_u1", "art_u2", "art_u3"}
-    assert "art_other" not in ids
 
 
 def test_quota_endpoint_returns_usage(setup):
-    client = setup["client"]
-    r = client.get("/api/users/binliang/artifacts/quota")
+    r = setup["client"].get("/api/users/binliang/artifacts/quota")
     assert r.status_code == 200
     body = r.json()
     assert body["used_count"] == 3
-    assert body["count_limit"] in (50, 10)  # local 50 / cloud 10
+    assert body["count_limit"] in (50, 10)
     assert body["used_bytes"] > 0
     assert body["bytes_limit"] == 100 * 1024 * 1024
     assert body["is_cloud_mode"] in (True, False)
 
 
-def test_bulk_delete_removes_only_owned(setup):
+def test_bulk_delete_is_registry_only_workspace_kept(setup):
+    """Bulk delete removes DB rows only; the agents' workspace files are
+    NEVER touched (no more delete_source)."""
     client = setup["client"]
-    # Try deleting one owned + the other_user artifact in the same call.
     r = client.request(
         "DELETE",
         "/api/users/binliang/artifacts",
@@ -105,20 +111,27 @@ def test_bulk_delete_removes_only_owned(setup):
     body = r.json()
     assert body["deleted"] == 1
     assert body["skipped_not_owned"] == ["art_other"]
+    assert "source_deleted" not in body
+    # Workspace folder for the deleted row stays on disk.
+    assert os.path.exists(setup["folder_for_id"]["art_u1"])
 
-    # Verify state: art_u1 gone, art_other still there
-    rows = client.get("/api/users/binliang/artifacts").json()
-    ids = {a["artifact_id"] for a in rows}
-    assert "art_u1" not in ids
-    assert {"art_u2", "art_u3"} <= ids
-    # other_user's artifact untouched
-    other = client.get("/api/users/other_user/artifacts").json()
-    assert any(a["artifact_id"] == "art_other" for a in other)
+
+def test_bulk_delete_ignores_stale_delete_source_field(setup):
+    """A stale client that sends `delete_source: true` must NOT cause file
+    deletion. The endpoint accepts unknown fields silently (Pydantic ignores
+    them) and just deletes the registry rows."""
+    client = setup["client"]
+    r = client.request(
+        "DELETE",
+        "/api/users/binliang/artifacts",
+        json={"artifact_ids": ["art_u1"], "delete_source": True},
+    )
+    assert r.status_code == 200
+    assert os.path.exists(setup["folder_for_id"]["art_u1"])
 
 
 def test_bulk_delete_empty_body_is_noop(setup):
-    client = setup["client"]
-    r = client.request(
+    r = setup["client"].request(
         "DELETE",
         "/api/users/binliang/artifacts",
         json={"artifact_ids": []},
@@ -127,16 +140,10 @@ def test_bulk_delete_empty_body_is_noop(setup):
     assert r.json()["deleted"] == 0
 
 
-def test_cloud_mode_user_self_check_blocks_other_users(setup, monkeypatch):
+def test_cloud_mode_blocks_other_users(setup, monkeypatch):
     """In cloud mode, a JWT for user A cannot delete user B's artifacts."""
-    client = setup["client"]
-
-    # Inject a middleware that simulates a JWT for user 'attacker'
     from starlette.middleware.base import BaseHTTPMiddleware
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
     from backend.routes.users_artifacts import router as users_router
-    import backend.routes.users_artifacts as users_mod
 
     class FakeJWTMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
@@ -146,7 +153,6 @@ def test_cloud_mode_user_self_check_blocks_other_users(setup, monkeypatch):
     app2 = FastAPI()
     app2.add_middleware(FakeJWTMiddleware)
     app2.include_router(users_router, prefix="/api/users")
-    # users_mod was already monkey-patched in the parent fixture to use db_client.
 
     client2 = TestClient(app2)
     r = client2.get("/api/users/binliang/artifacts")

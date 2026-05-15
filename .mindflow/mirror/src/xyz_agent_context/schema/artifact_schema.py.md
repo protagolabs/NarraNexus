@@ -1,63 +1,87 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-05-09
+last_verified: 2026-05-14
 stub: false
 ---
 
-## 2026-05-09 hardening — C5 description bounded to 2000 chars
+## 2026-05-14 — pointer model: versioning dropped
 
-`Artifact.description` now uses `Field(default=None, max_length=2000)` (was a bare
-`Optional[str] = None`). Pydantic enforces the limit at model construction time,
-raising `ValidationError` before the value reaches the DB. MySQL `TEXT` can hold 64KB,
-so without a bound an LLM could dump arbitrary data into the field and trigger
-a MySQL `1406 Data too long` error at the ORM layer (a 500). 2000 chars is generous
-for a human-readable description.
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`Artifact` switched from a copy/version model to a **pointer model**:
+- added `file_path` (entry file relative to `base_working_path`) and
+  `size_bytes` (recursive size of the artifact root directory);
+- dropped `latest_version`;
+- removed `ArtifactVersion` and `ArtifactWithVersions` entirely — there is no
+  version table in active use anymore. The DB table `instance_artifact_versions`
+  is kept (DEPRECATED) for hand-migration only; see the cleanup TODO.
+
+`CreateArtifactToolResult` dropped its `version` field.
 
 # artifact_schema.py
 
 ## Why it exists
 
-This schema defines the Pydantic shapes for agent-emitted Artifacts — structured outputs (charts, HTML apps, CSV tables, markdown reports, images, PDFs) that an agent produces during a conversation and that the frontend surfaces in a dedicated "Artifacts" tab alongside the chat.
+Defines the Pydantic shapes for agent-emitted Artifacts — structured outputs
+(charts, HTML apps, CSV tables, markdown reports, images, PDFs) that an agent
+produces and that the frontend surfaces in a dedicated "Artifacts" tab next to
+the chat.
 
-It is the single source of truth that ties together three distinct concerns:
-1. **Persistence**: `Artifact` is the metadata row stored in the database; `ArtifactVersion` tracks each content revision.
-2. **Tool contract**: `CreateArtifactToolResult` is what the MCP `create_artifact` tool returns to the LLM after writing a file, so the agent can reference the `url` in its reply.
-3. **API transport**: `ArtifactWithVersions` is the read-side shape that the REST endpoints serve to the frontend.
+Under the pointer model an Artifact is a **pointer to an entry file the agent
+wrote inside its own workspace**. Content is never copied into a managed store.
+`file_path` points at the live workspace file; that file's directory is the
+artifact root and is served wholesale, so a multi-file HTML app can reference
+sibling assets (css/js/json/images).
+
+It ties together:
+1. **Persistence**: `Artifact` is the metadata row in `instance_artifacts`.
+2. **Tool contract**: `CreateArtifactToolResult` is what the MCP
+   `register_artifact` tool returns to the LLM (artifact_id + url).
+3. **API transport**: `Artifact` is the read-side shape the REST endpoints serve.
 
 ## Upstream / Downstream
 
 **Producers:**
-- `ArtifactRepository` (repository layer) creates and updates `Artifact` + `ArtifactVersion` rows.
-- The MCP `create_artifact` tool (inside whatever Module hosts artifact creation) calls `ArtifactRepository` and returns a `CreateArtifactToolResult` to the LLM.
+- `ArtifactRepository` creates/updates `Artifact` rows.
+- `artifact_runner.register_artifact` validates the entry path and returns a
+  `CreateArtifactToolResult`.
 
 **Consumers:**
-- `backend/routes/artifacts.py` — REST endpoints that list, fetch, pin, and delete artifacts; returns `ArtifactWithVersions` to the frontend.
-- `frontend/src/stores/artifactStore.ts` — Zustand store that types its state against `Artifact` (mirrored as a TypeScript interface generated from this schema).
-- `frontend/src/components/chat/ArtifactPanel.tsx` — renders the Artifacts tab using `ArtifactWithVersions`.
+- `backend/routes/agents_artifacts.py` + `users_artifacts.py` — REST endpoints.
+- `frontend/src/types/artifact.ts` — mirrored TypeScript interface.
+- `frontend/src/stores/artifactStore.ts` — Zustand store.
 
 ## Design decisions
 
-**`ArtifactKind` as a `Literal` string, not an Enum.** Literals serialize directly to their string value in JSON (no `.value` indirection), are instantly readable in DB rows, and compose cleanly with `Annotated` validators. Extending the set means adding one string to the Literal — no migration of existing rows, no registry change.
+**`ArtifactKind` as a `Literal` string, not an Enum.** Serializes directly to
+its string value, readable in DB rows, composes with `Annotated` validators.
+Extending the set means adding one string — no migration.
 
-**7 predefined kinds, no "other".** The whitelist enforces that every artifact is renderable by the frontend. An "other/binary" escape hatch would let the agent emit content the UI cannot display, breaking the viewer guarantee. New kinds require a matching frontend renderer before they can be added here.
+**7 predefined kinds, no "other".** The whitelist enforces that every artifact
+is renderable by the frontend. New kinds require a matching frontend renderer.
 
-**`session_id` nullable ⇔ pinned scope.** When `session_id` is `None`, the artifact is agent-scoped ("pinned") and survives session cleanup. When set, it is session-scoped and can be garbage-collected with the session. The `pinned` boolean is a user-facing flag that promotes a session artifact to agent scope (sets `session_id = NULL`). This avoids a separate `pinned_artifacts` table.
+**`session_id` nullable ⇔ pinned scope.** `session_id is None` ⇔ agent-scoped
+("pinned"), survives session cleanup. Set ⇔ session-scoped. The `pinned` boolean
+is the user-facing flag; `set_pinned` keeps the two in sync.
 
-**Versioning via `ArtifactVersion` rows, not file mutation.** Each `create_artifact` or `update_artifact` tool call appends a new `ArtifactVersion` row and bumps `Artifact.latest_version`. The frontend can offer a version history dropdown without any additional API. File paths are immutable once written, so older versions remain accessible.
+**`file_path` is relative to `settings.base_working_path`.** Absolute paths would
+break across container restarts / environment migration. It points at the entry
+file; `dirname(file_path)` is the artifact root directory.
 
-**`file_path` is relative to `settings.base_working_path`.** Absolute paths would break when the working directory changes (container restart, environment migration). The repository layer resolves paths at read time by joining with the runtime base path.
+**`size_bytes` is the artifact root directory size**, not just the entry file —
+a multi-file HTML app's quota cost is the whole directory.
 
-**`artifact_id` uses the `art_` prefix + 8 random chars** (e.g., `art_a1b2c3d4`), matching the project-wide ID generation convention (铁律 #naming).
+**`artifact_id` uses the `art_` prefix + 8 random chars** (铁律 #naming).
 
 ## Gotchas
 
-- `ArtifactVersion.id` is the DB auto-increment integer; `artifact_id` is the business key. Never use `id` for cross-service references.
-- `Artifact` in `schema/__init__.py` is exported as `Artifact` (the canonical name). The A2A protocol model was renamed to `A2AArtifact` to free this name (2026-05-08). Internal code within `artifact_schema.py` and `ArtifactRepository` uses `Artifact` directly — no alias needed anywhere.
-- `size_bytes` on `ArtifactVersion` must be populated at write time by the tool implementation. The repository does not stat the file; it trusts the caller.
-
-## New-joiner traps
-
-- Do not confuse `Artifact` (this file) with `A2AArtifact` from `a2a_schema` — the A2A one represents a task output chunk in the Google A2A protocol and has a completely different shape.
-- `ArtifactKind` is a `Literal` type alias, not a class. `isinstance(x, ArtifactKind)` does not work — use `x in get_args(ArtifactKind)` if runtime membership checking is needed.
-- The `pinned` field is the user intent; `session_id is None` is the DB-level representation. Always keep them in sync when writing via the repository.
-- `original_session_id` stores the `session_id` value captured at pin time so that `set_pinned(False)` can restore it. `None` on rows that were never pinned, or on legacy rows pinned before this column was added.
+- Do not confuse `Artifact` (this file) with `A2AArtifact` from `a2a_schema` —
+  the A2A one is a task-output chunk in the Google A2A protocol, different shape.
+- `ArtifactKind` is a `Literal` type alias, not a class. Use
+  `x in get_args(ArtifactKind)` for runtime membership checks.
+- `pinned` is user intent; `session_id is None` is the DB representation. Keep
+  them in sync — always write via the repository.
+- `original_session_id` stores the `session_id` captured at pin time so
+  `set_pinned(False)` can restore it. `None` on never-pinned / agent-created rows.
+- `size_bytes` is populated by the runner at register time (it stats the
+  directory). The repository trusts the caller.

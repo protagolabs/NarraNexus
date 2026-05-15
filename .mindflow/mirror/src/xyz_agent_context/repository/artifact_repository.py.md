@@ -1,95 +1,79 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
+last_verified: 2026-05-14
 stub: false
-last_verified: 2026-05-09
 ---
 
-## 2026-05-09 hardening — C3 COALESCE for idempotent re-pin
+## 2026-05-14 — pointer model: version table dropped
 
-**C3 — `set_pinned(True)` now uses `COALESCE(original_session_id, ?)` instead of a bare
-`original_session_id = ?`.**
-Previously, re-pinning an already-pinned artifact would execute
-`original_session_id = existing.session_id` where `existing.session_id` is already `NULL`
-(cleared on the first pin), overwriting the original session memory with `NULL`. Subsequent
-unpin would then fail: `original_session_id = NULL` means there is nothing to restore,
-hitting the C1.5 guard with HTTP 400 ("agent-scoped").
-With `COALESCE(original_session_id, ?)`, the column is only written if it is currently
-`NULL` — the first pin sets it, every subsequent re-pin is a no-op on this column.
-Unpin continues to work correctly.
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+The repository no longer touches `instance_artifact_versions`. Changes:
+- `create()` is now a plain single-row insert — the entity carries `file_path`
+  + `size_bytes` (the runner computes both).
+- new `update_pointer()` overwrites `file_path` / `size_bytes` / `title` /
+  `description` in place — this is the `target_artifact_id` re-registration path.
+- `iterate()`, `list_versions()`, `_row_to_version()` removed.
+- `delete()` / `bulk_delete()` only remove the artifact row; on-disk source
+  cleanup is the route layer's job (gated on `delete_source`).
+- `total_bytes_for_user()` / `total_bytes_for_agent()` are plain `SUM(size_bytes)`
+  off `instance_artifacts` — no join.
 
 # Intent
 
-Pure DB I/O for `instance_artifacts` + `instance_artifact_versions`.
-Business rules (quota limits, URL generation, kind validation) live
-upstream in a future ArtifactService; this layer is deliberately dumb.
-
-Two tables, one logical entity:
-- `instance_artifacts` — the artifact metadata row (owner, session/pinned state, current version)
-- `instance_artifact_versions` — append-only content versions (file path + size)
+Pure DB I/O for `instance_artifacts`. One row = one artifact = one pointer to an
+entry file in the agent's workspace. Business rules (quota limits, path
+validation, kind checks) live upstream in `artifact_runner`; this layer is
+deliberately dumb.
 
 ## Upstream
 
-- ArtifactService (not yet written) — will be the only production caller
-- Tests (tests/repository/test_artifact_repository.py) — 6 TDD tests using
-  real in-memory SQLite via conftest `db_client` fixture
+- `artifact_runner.register_artifact` — the production caller.
+- `backend/routes/agents_artifacts.py` + `users_artifacts.py` — list / detail /
+  pin / delete endpoints.
+- Tests — `tests/repository/test_artifact_repository.py` (real in-memory SQLite).
 
 ## Downstream
 
-- AsyncDatabaseClient (utils/database.py) — CRUD helpers + `execute` for raw SQL
-- schema_registry `instance_artifacts` + `instance_artifact_versions` tables — row shape
-- BaseRepository[Artifact] — provides `get_by_id`, `get_by_ids`, `find`, `find_one`
+- `AsyncDatabaseClient` (utils/database.py) — CRUD helpers + `execute` for raw SQL.
+- `schema_registry` `instance_artifacts` table — row shape.
+- `BaseRepository[Artifact]` — `get_by_id`, `get_by_ids`, `find`, `find_one`.
 
 ## Design decisions
 
-- `create()` and `delete()` use `self._db.transaction()` context manager to ensure
-  the two-table writes are atomic. A partial write (artifact row without version 1,
-  or a version row orphaned after a failed artifact delete) would corrupt the quota
-  aggregation and leave unreachable file references.
+- **No version table, no transactions.** A single artifact row is one write.
+  `create()` / `update_pointer()` / `delete()` are each a single statement, so
+  the old two-table atomicity concern is gone.
 
-- `iterate()` also runs inside a transaction: it reads `latest_version` (within the
-  tx), increments, updates the artifact row, and appends the new version row atomically.
-  A read-modify-write outside a transaction would race under concurrent LLM responses
-  emitting new artifact versions.
-
-- `set_pinned` uses raw SQL for both the pin and unpin paths because `AsyncDatabaseClient.update()`
-  filters out `None` values, making it impossible to explicitly SET a column to NULL via the CRUD
-  helper. On pin: saves current `session_id` into `original_session_id` and sets `session_id = NULL`.
-  On unpin: restores `session_id` from `original_session_id` and sets `original_session_id = NULL`.
-  Legacy rows pinned before the `original_session_id` column existed will have `original_session_id = NULL`;
-  unpin leaves them orphaned (session_id stays NULL) — the route layer is responsible for surfacing a
-  warning (review Important #1).
+- `set_pinned` uses raw SQL for both pin and unpin because
+  `AsyncDatabaseClient.update()` filters out `None` values, making it impossible
+  to explicitly SET a column to NULL via the CRUD helper. On pin: saves current
+  `session_id` into `original_session_id` (via `COALESCE` so a re-pin is a no-op
+  on that column) and sets `session_id = NULL`. On unpin: restores `session_id`
+  from `original_session_id` and clears `original_session_id`.
 
 - `list_by_session()` uses raw SQL because the simple `filters` dict passed to
-  `BaseRepository.find()` cannot express `AND pinned = 0` alongside
-  `session_id = ?` through the high-level API without wrapping in a compound query.
+  `BaseRepository.find()` cannot express `AND pinned = 0` alongside `session_id`.
 
-- `total_bytes_for_agent()` joins across both tables to aggregate. Doing it in Python
-  (load all versions, sum) would be O(n) round-trips; a single SQL SUM avoids
-  the N+1 problem even when an agent has many artifacts and versions.
+- `total_bytes_for_*` use a single SQL `SUM` (with `COALESCE(..., 0)` because
+  `SUM` over an empty set returns NULL) instead of loading rows and summing in
+  Python.
 
-- `delete()` deletes versions before the artifact row to avoid orphan version rows.
-  There is no DB-level FK constraint, so the ordering is enforced here in code.
-
-- Placeholder style is `%s` (MySQL convention). AsyncDatabaseClient translates to `?`
-  automatically when the backend dialect is SQLite via `_mysql_to_sqlite_sql`.
+- Placeholder style is `%s` (MySQL convention). `AsyncDatabaseClient` translates
+  to `?` for SQLite via `_mysql_to_sqlite_sql`.
 
 ## Gotchas
 
-- `_entity_to_row()` uses `1 if entity.pinned else 0` because SQLite stores booleans
-  as INTEGER and `bool` in Python would serialize as `True`/`False` (string) if passed
-  directly in some paths. Explicit integer coercion is safe across both backends.
+- `_entity_to_row()` coerces `pinned` to `1`/`0` because SQLite stores booleans
+  as INTEGER.
 
-- `_row_to_entity()` calls `_parse_bool()` on the `pinned` column because SQLite
-  returns INTEGER (0/1), not Python `bool`, from the DB driver.
+- `_row_to_entity()` calls `_parse_bool()` on `pinned` because SQLite returns
+  INTEGER (0/1), not Python `bool`.
 
-- `ArtifactVersion.id` is a BIGINT UNSIGNED AUTO_INCREMENT surrogate key. SQLite maps
-  this to INTEGER PRIMARY KEY AUTOINCREMENT. The repository reads it back from the row
-  after SELECT — it never generates it in Python.
+- `_row_to_entity()` defaults `file_path` to `""` and `size_bytes` to `0` for
+  legacy (pre-pointer-model) rows that never had these columns populated — such
+  rows won't render but won't crash the list query either. They are hand-migrated
+  per the cleanup TODO.
 
-- `list_versions()` intentionally sorts by `version ASC` (not `id ASC`) because
-  version is the business sequence number and is guaranteed monotonically increasing
-  per artifact. Using `id` would also work but is an implementation detail.
-
-- `COALESCE(SUM(...), 0)` in `total_bytes_for_agent()` is needed because SQL `SUM()`
-  over an empty set returns NULL, not 0. Without the COALESCE, the Python `int()` cast
-  would raise `TypeError` for a new agent with no artifacts.
+- `COALESCE(SUM(...), 0)` is required — bare `SUM()` over an empty set returns
+  NULL and the `int()` cast would raise `TypeError` for a user with no artifacts.

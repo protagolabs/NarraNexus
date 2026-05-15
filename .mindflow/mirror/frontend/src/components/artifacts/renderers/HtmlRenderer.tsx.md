@@ -1,8 +1,38 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/HtmlRenderer.tsx
-last_verified: 2026-05-09
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-15 — keyed on `updated_at` for live refresh on re-register
+
+The renderer now passes `artifact.updated_at` as the `refreshKey` to
+`useArtifactRawUrl`, and the iframe element itself carries
+`key={artifact.updated_at}`. When the agent re-registers via
+`target_artifact_id`, ChatPanel refetches the artifact (via the
+`refreshArtifactFromToolCall` dedup helper), the store upserts the new
+`updated_at`, the hook re-mints a fresh token, and the iframe's `src`
+changes — so the document and its sibling assets reload with the
+latest bytes. Belt-and-braces: the explicit `key=` forces a React
+remount even on edge cases where two consecutive mints produce the
+same URL string.
+
+## 2026-05-14 — multi-file iframe via token-protected directory URL
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+The renderer switched from `blob:` URL to a real `iframe src=` pointing at
+the token-protected public directory URL minted by `useArtifactRawUrl`.
+Why: blob URLs break relative sub-resource resolution, so the previous
+design could not support multi-file HTML artifacts (entry html + ./style.css
++ ./data.json etc.) — the whole point of the pointer model. The CSP header
+on the entry response (built from the request origin) restricts sub-resource
+loading to the same host, so external destinations stay blocked. Combined
+with the unchanged `sandbox="allow-scripts"` (no allow-same-origin) the
+isolation guarantees are at least as strong as the blob: design.
+
+The `version` prop is gone — there is no version concept under the pointer
+model.
 
 # HtmlRenderer.tsx — Security-isolated HTML artifact renderer
 

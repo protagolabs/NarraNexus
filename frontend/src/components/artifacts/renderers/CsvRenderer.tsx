@@ -5,18 +5,19 @@
  * Fetches the raw CSV text and renders it as a scrollable HTML table.
  * Uses a naive comma-split parser — good enough for agent-generated tabular
  * output. Does NOT handle quoted fields containing commas (e.g. "a,b",c).
- * If the project ever needs proper RFC 4180 parsing, swap parseCsv() for
- * papaparse or csv-parse without touching any other part of this component.
+ * Swap parseCsv() for papaparse or csv-parse if proper RFC 4180 parsing is
+ * needed later, without touching the rest of this component.
+ *
+ * Pointer model: content is fetched from the token-protected directory URL.
  */
 
 import { useEffect, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
-import { rawUrl } from '@/types/artifact';
 import { fetchArtifactText } from '@/services/artifactsApi';
+import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 
 interface Props {
   artifact: Artifact;
-  version: number;
 }
 
 function parseCsv(text: string): string[][] {
@@ -26,16 +27,31 @@ function parseCsv(text: string): string[][] {
     .map((line) => line.split(','));
 }
 
-export default function CsvRenderer({ artifact, version }: Props) {
+export default function CsvRenderer({ artifact }: Props) {
+  const { url, error: urlError } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
   const [rows, setRows] = useState<string[][] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchArtifactText(rawUrl(artifact.agent_id, artifact.artifact_id, version))
-      .then((text) => setRows(parseCsv(text)))
-      .catch((e) => setError(String(e)));
-  }, [artifact.agent_id, artifact.artifact_id, version]);
+    if (!url) return;
+    let cancelled = false;
+    (async () => {
+      setError(null);
+      try {
+        const text = await fetchArtifactText(url);
+        if (!cancelled) setRows(parseCsv(text));
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [url]);
 
+  if (urlError) return <div className="p-4 text-red-400">Failed to load: {urlError}</div>;
   if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
   if (!rows) return <div className="p-4 opacity-60">Loading…</div>;
   if (rows.length === 0) return <div className="p-4 opacity-60">Empty CSV</div>;

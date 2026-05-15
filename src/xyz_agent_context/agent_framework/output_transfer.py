@@ -18,7 +18,7 @@ def _stringify_tool_result_content(content: Any) -> str:
     The Claude Agent SDK delivers a tool result either as a bare string or as
     a list of content blocks — dicts shaped like ``{"type": "text", "text":
     ...}`` or SDK block objects exposing a ``.text`` attribute. An MCP tool
-    that returns a dict (e.g. ``create_artifact``) arrives as a single text
+    that returns a dict (e.g. ``register_artifact``) arrives as a single text
     block whose ``text`` is the JSON-encoded result.
 
     The previous implementation used ``str(block.content)``, which on a list

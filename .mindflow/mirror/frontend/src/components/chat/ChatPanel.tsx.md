@@ -4,6 +4,31 @@ last_verified: 2026-05-14
 stub: false
 ---
 
+## 2026-05-15 — re-register signal: refetch (not ensure-loaded)
+
+`ensureArtifactLoaded` (which short-circuited on "already in store") was
+replaced with `refreshArtifactFromToolCall(agentId, artifactId, dedupKey)`.
+Reason: a `register_artifact` call with `target_artifact_id=<existing>` is
+the agent's refresh signal — same `artifact_id` arrives in the tool stream
+but with a bumped `updated_at`. The old guard would skip the fetch and
+renderers would never see the new timestamp, so the iframe wouldn't
+reload. The new helper always refetches, deduped per tool call by a key
+built from `tc.step + tc.tool_output` so the render loop doesn't trigger
+infinite refetches. The seen-Set is module-scope (small bounded growth
+per session, no leak concern).
+
+## 2026-05-14 — artifact tool name collapsed to `register_artifact`
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`ARTIFACT_TOOL_BASE_NAMES` is now `['register_artifact']` (was
+`['create_artifact', 'upload_artifact_file']`). The frontend's live artifact
+discovery keys off this list to recognise tool calls in the agent stream
+and surface `ArtifactPreviewCard`s — must stay in lockstep with the
+`@mcp.tool(name=...)` registration in `artifact_tool.py`. Also updated the
+`ensureArtifactLoaded` helper because `artifactsApi.getDetail` now returns
+`Artifact` directly (no `{artifact, versions}` wrapper).
+
 ## 2026-05-14 — timeline dedup extracted; event_id-based dedup
 
 The unified-timeline merge + dedup (a ~50-line block inside the `timeline`

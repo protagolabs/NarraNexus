@@ -4,77 +4,127 @@ last_verified: 2026-05-14
 stub: false
 ---
 
-# artifact_tool.py — MCP tool registration for create_artifact / upload_artifact_file
+## 2026-05-15 — description teaches the refresh-signal pattern
 
-## 2026-05-14 — Descriptions rewritten + catch-all error handling
+The tool description now spells out the **re-register-as-refresh-signal**
+contract: after the first register, the agent can keep editing the
+workspace file(s) freely, but the frontend doesn't auto-reload. To make
+the user see the update, call `register_artifact` again with
+`target_artifact_id=<existing id>` — that second call is what the
+frontend listens for to refetch the entry HTML and any sibling assets.
+The description also points the agent at the per-turn "Your registered
+artifacts" system-prompt block so it knows which ids are currently live.
 
-**Descriptions are now the self-contained source of truth.** The old
-`description=` strings were vague ("HTML apps, csv tables") and the precise
-`kind` enum lived only in the module instruction prose. They now carry the
-exact `kind` values, the param contract, the `{artifact_id,version,url}` /
-`{error,code}` return shapes, and the explicit "read the error, fix, call
-again — a failed call never blocks you" retry contract. They also lead with
-a **proactive-use** nudge (artifacts look great, create them directly as
-part of the response) and an explicit "pass content INLINE — don't write a
-workspace file first and then create_artifact from it" rule (that doubles
-the generation cost). The module-instruction block in `[[common_tools_module.py]]`
-was trimmed to just judgment guidance and now defers the precise contract
-here.
+## 2026-05-14-r3 — hard rule dropped; sibling-assets reframed as a capability
 
-**Catch-all error handling.** Both handlers now also `except Exception` —
-an unexpected failure (DB hiccup, disk error) returns a structured
-`{error, code: 500}` instead of propagating as an unhandled MCP exception.
-Rationale: an opaque tool crash can stall the agent loop; a structured,
-retryable error lets the agent read the cause and just call again. The
-`ArtifactError` path is unchanged (its messages were already actionable;
-`artifact_runner` messages were polished to name valid kinds / drop the
-internal `create_text_artifact` name leak).
+The "must sit in a subdirectory, NOT directly in the workspace root"
+non-negotiable rule is gone. With `delete_source` removed (deletion is now
+registry-only) and the serving route soft-degrading at the workspace root
+(only the entry serves), the rule had nothing left to enforce.
 
-## 为什么存在
+The description now phrases the subdirectory requirement as a **capability
+hint**: "for a multi-file artifact, put the files in a dedicated
+subdirectory so the entry's relative references resolve; single-file
+artifacts can sit anywhere including the workspace root". The agent gets a
+clean mental model — there are no register-time gotchas, the worst thing
+that can go wrong is "my entry HTML references ./style.css and gets 404
+because I put it at the workspace root", which is an immediate, fixable
+feedback loop.
 
-把 `artifact_runner` 里的 filesystem + DB 业务逻辑桥接成 LLM 可用的 MCP 工具。
-每次工具调用：获取 DB 连接 → 构建 Repository → 委托 runner → 捕获结构化异常 → 返回 LLM 可读的 dict。
+The catch-all error contract still mentions the cause categories ("path
+outside workspace, file missing, too large, quota") so the agent reads the
+error and retries.
 
-## 为什么在 common_tools_module，而不是独立的 ArtifactModule
+## 2026-05-14-r2 — tool description spells out *why* workspace root is rejected
 
-Artifact 工具是 LLM 在任一 session 里都可能触发的**能力性**工具，不是某个特定业务场景才有的专属 Module。把它塞进单独 ArtifactModule 只会带来额外的端口分配、进程管理、和 LLM prompt 工程成本——而 common_tools 已有完整的 MCP server 基础设施（factory、timeout 装饰器、backend dispatch 机制），共用是零成本的正确选择。
+The earlier description told the agent "must sit in a subdirectory of your
+workspace, not directly in the workspace root" but only implied the reason
+("entry file's folder becomes the artifact"). An agent could read that as a
+stylistic preference. The description now explicitly states the two
+consequences of an entry at the workspace root:
+- the whole workspace is served wholesale → every other file (Bootstrap.md,
+  other artifacts, drafts) is exposed via the public token URL;
+- a later `delete_source=true` would rmtree the entire workspace.
 
-## 上下游关系
+Same explanation is now in the module instruction (see
+[[common_tools_module.py]]). The runtime error message already mentioned
+"that whole folder becomes the artifact" — kept as-is for terseness.
 
-- **被谁用**：`_common_tools_mcp_tools.py` 的 `create_common_tools_mcp_server` 在函数结尾调 `artifact_tool.register(mcp)`
-- **依赖谁**：
-  - `artifact_runner`（同包 `_common_tools_impl`）——实际的 filesystem 写入、大小/quota/路径检查、DB 编排
-  - `ArtifactRepository`（`repository/artifact_repository.py`）——DB 访问层
-  - `get_db_client`（`utils/db_factory.py`）——每次调用取 per-loop AsyncDatabaseClient 单例
-- **不依赖 `with_mcp_timeout`**：artifact 操作是本地 I/O（写文件 + SQLite/MySQL），不涉及外部网络调用，不需要 timeout 保护
+## 2026-05-14 — collapsed to one `register_artifact` tool (pointer model)
 
-## 注册的工具
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
 
-### `create_artifact`
-- 用途：文本类 artifact（HTML/ECharts JSON/CSV/Markdown）
-- 返回：`CreateArtifactToolResult.model_dump(mode="json")` 包含 `artifact_id`、`version`、`url`、`created_at`
-- Tool description 说 "Returns a URL the user can already see"——这是故意的 prompt engineering，引导 LLM 不要在回复里再贴一遍 URL
+The two old tools — `create_artifact` (inline content) and
+`upload_artifact_file` (copy a workspace file) — are replaced by **one**
+`register_artifact(entry_path, kind, title, ...)`. The new tool registers a
+*pointer* to a file the agent already wrote in its workspace; it never copies,
+moves, or writes content.
 
-### `upload_artifact_file`
-- 用途：二进制 artifact（PNG/JPEG/PDF）从 agent workspace 上传
-- 同样返回 `CreateArtifactToolResult.model_dump(mode="json")`
-- `local_path` 会在 `artifact_runner.upload_binary_artifact` 里做 realpath escape check
+The description was rewritten around the core mental model the agent must hold:
+**files you write are invisible until you register them**; the tool only
+registers a pointer; put each artifact in its own dedicated subdirectory so an
+entry HTML can reference sibling assets. Catch-all `except Exception` → `{error,
+code: 500}` is preserved.
 
-## 错误处理设计
+## Why it exists
 
-两层 catch：
-1. `ArtifactError`（及所有子类：`ArtifactTooLarge`、`ArtifactNotFound`、`ArtifactKindMismatch`、`ArtifactPathEscape`、`ArtifactQuotaExceeded`）→ `{"error": str(e), "code": e.code}`。这些是预期内的结构化拒绝，消息本身已经 actionable。
-2. 兜底 `except Exception` → `{"error": "... likely transient — you can call the tool again", "code": 500}`。FastMCP 默认把未处理异常 swallow 成不透明 MCP error，可能 stall agent loop；显式兜底保证**任何**失败都返回结构化、可重试的 dict，LLM 读得懂、能自己重试。
+Bridges `artifact_runner`'s validation + DB logic into an LLM-callable MCP tool.
+Each call: resolve the per-loop DB client → build a Repository → delegate to
+`artifact_runner.register_artifact` → catch structured exceptions → return an
+LLM-readable dict.
 
-注意 `{error, code}` 这个 shape 前端也消费——`ChatPanel`/`QuotaExceededModal` 靠 `code === 507` 识别配额弹窗，不要改 shape。
+## Why it lives in common_tools_module, not a dedicated ArtifactModule
 
-## Gotcha / 边界情况
+Artifact registration is a **capability** tool the LLM may reach for in any
+session — not a scenario-specific Module. A dedicated Module would cost an extra
+MCP port, process, and prompt-engineering surface; common_tools already has the
+full MCP server infrastructure (factory, timeout decorator, backend dispatch).
 
-- `get_db_client()` 是异步工厂——每次 tool 调用都 `await get_db_client()`，拿到的是进程级单例，不是新建连接
-- Tool handler 内部函数（`create_artifact`、`upload_artifact_file`）是 `register` 作用域内的局部闭包，FastMCP 通过装饰器捕获它们；不要把它们提升为模块级函数，否则会破坏 `register(mcp)` 的封装模式（参考 web_search backend 文件的同一模式）
-- `kind` 参数用 `# type: ignore[arg-type]` 是因为 MCP tool schema 只能接受 `str`，而 runner 期望 `ArtifactKind` Literal；runtime validation 在 runner 内部做
+## Upstream / Downstream
 
-## 相关约束
+- **Called by**: `_common_tools_mcp_tools.py` → `create_common_tools_mcp_server`
+  calls `artifact_tool.register(mcp)`.
+- **Depends on**: `artifact_runner` (validation + DB orchestration),
+  `ArtifactRepository` (DB access), `get_db_client` (per-loop DB singleton).
+- Does **not** use `with_mcp_timeout` — registration is local I/O (path stat +
+  one DB write), no external network call to guard.
 
-- `artifact_runner.py` 内的业务逻辑文档见 `.mindflow/mirror/src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_runner.py.md`
-- MCP server factory 文档见 `.mindflow/mirror/src/xyz_agent_context/module/common_tools_module/_common_tools_mcp_tools.py.md`
+## The registered tool — `register_artifact`
+
+- Purpose: surface a workspace file (or multi-file folder via an entry HTML) as
+  a visual tab.
+- Params: `entry_path` (absolute or workspace-relative, must be in a
+  subdirectory of the workspace), `kind` (one of the 7), `title`,
+  `target_artifact_id` (optional, update-in-place).
+- Returns `CreateArtifactToolResult.model_dump(mode="json")` → `{artifact_id,
+  url, created_at}`. The description tells the LLM not to repeat the URL in its
+  reply (the tab is already visible).
+
+## Error handling
+
+Two layers:
+1. `ArtifactError` (+ subclasses `ArtifactTooLarge`, `ArtifactNotFound`,
+   `ArtifactKindMismatch`, `ArtifactPathEscape`, `ArtifactQuotaExceeded`) →
+   `{"error": str(e), "code": e.code}`. Expected, structured, actionable.
+2. Catch-all `except Exception` → `{"error": "... likely transient — you can
+   call the tool again", "code": 500}`. FastMCP swallows unhandled exceptions
+   into opaque MCP errors that can stall the agent loop; the catch-all
+   guarantees every failure is a structured, retryable dict.
+
+The `{error, code}` shape is also consumed by the frontend —
+`ChatPanel` / `QuotaExceededModal` keys the quota modal on `code === 507`.
+Don't change the shape.
+
+## Gotchas
+
+- ⚠️ **Frontend coupling**: the tool name `register_artifact` is matched by
+  `ARTIFACT_TOOL_BASE_NAMES` in `ChatPanel.tsx` for live artifact discovery.
+  Renaming the tool requires updating that constant in the same change.
+- `get_db_client()` returns a process-level singleton — `await` it per call,
+  don't cache.
+- The handler `register_artifact` is a closure inside `register(mcp)` captured
+  by the FastMCP decorator — don't lift it to module scope (breaks the
+  `register(mcp)` encapsulation pattern shared with the web_search tools).
+- `kind` is typed `str` in the MCP schema but `artifact_runner` expects the
+  `ArtifactKind` Literal — `# type: ignore[arg-type]`; runtime validation is in
+  the runner.

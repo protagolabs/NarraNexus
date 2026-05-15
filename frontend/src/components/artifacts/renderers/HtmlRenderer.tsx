@@ -2,80 +2,68 @@
  * @file_name: HtmlRenderer.tsx
  * @description: Security-hardened renderer for text/html artifacts.
  *
- * Renders agent-emitted HTML inside a fully isolated iframe.
+ * Renders agent-emitted HTML inside an isolated iframe. Supports
+ * multi-file artifacts: the entry HTML may reference sibling assets in its
+ * own folder (./style.css, ./app.js, ./data.json, images) — they are served
+ * from the same token-protected directory URL the iframe `src` points at.
  *
  * Security contract (must NOT be relaxed without a spec change):
  *   sandbox = "allow-scripts"        — inline JS may run
- *   ✗ allow-same-origin              — iframe is null-origin; cannot read parent DOM or cookies
- *   ✗ allow-top-navigation           — cannot break out of the iframe / redirect the top frame
+ *   ✗ allow-same-origin              — iframe is opaque-origin; cannot read parent DOM or cookies
+ *   ✗ allow-top-navigation           — cannot break out / redirect the top frame
  *   ✗ allow-popups-to-escape-sandbox — cannot spawn an unsandboxed window
- *   referrerPolicy = no-referrer     — no origin leak to any destination
+ *   referrerPolicy = no-referrer     — no origin leak to any external destination
  *
  * Why allow-scripts but no allow-same-origin?
  *   With allow-same-origin the iframe shares the parent origin and can read
  *   parent localStorage, cookies, and DOM — a trivial XSS escape. Without it,
- *   the iframe is null-origin and completely isolated. allow-scripts is needed
- *   for chart libraries and interactive visualisations that the agent may emit.
+ *   the iframe is opaque-origin and isolated. allow-scripts is needed for
+ *   chart libraries and interactive demos.
  *
- * Why blob: URL instead of src=/api/.../raw?
- *   Cloud-mode auth middleware rejects /api/* without an Authorization header,
- *   but iframe `src=` can't attach headers (it's a native browser fetch). We
- *   fetch the bytes via JS (which CAN attach the JWT), wrap them in a blob URL,
- *   and hand that to the iframe. Trade-off: the response CSP header is lost
- *   (blob: URLs don't carry HTTP headers), so the iframe sandbox becomes the
- *   sole isolation primitive. That's still load-bearing — null origin blocks
- *   parent access, all network, and cookie reads.
+ * Why iframe `src` (not blob: URL)?
+ *   blob: URLs break relative sub-resource resolution (the entry HTML's
+ *   `./style.css` would not resolve). The pointer model needs sibling assets
+ *   to work, so the iframe loads a real URL. Authentication uses the HMAC
+ *   token embedded in the URL path — see `_artifact_token.py` and
+ *   `artifacts_public.py` on the backend.
+ *
+ *   The CSP header on the entry response (built dynamically from the request
+ *   origin) restricts sub-resource loading to the same host — external
+ *   destinations stay blocked. Combined with the opaque-origin sandbox, this
+ *   gives the same isolation guarantees as the previous blob: design while
+ *   making multi-file artifacts actually work.
  */
 
-import { useEffect, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
-import { rawUrl } from '@/types/artifact';
-import { fetchArtifactBlobUrl } from '@/services/artifactsApi';
+import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 
 interface Props {
   artifact: Artifact;
-  version: number;
 }
 
-export default function HtmlRenderer({ artifact, version }: Props) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let createdUrl: string | null = null;
-    // Async IIFE — keeps every setState behind an await boundary so the
-    // react-hooks/set-state-in-effect rule passes.
-    (async () => {
-      setError(null);
-      try {
-        const url = await fetchArtifactBlobUrl(
-          rawUrl(artifact.agent_id, artifact.artifact_id, version),
-        );
-        if (cancelled) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-        createdUrl = url;
-        setSrc(url);
-      } catch (e) {
-        if (!cancelled) setError(String(e));
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (createdUrl) URL.revokeObjectURL(createdUrl);
-    };
-  }, [artifact.agent_id, artifact.artifact_id, version]);
+export default function HtmlRenderer({ artifact }: Props) {
+  // refreshKey = updated_at — when the agent re-registers via
+  // target_artifact_id, the row's updated_at bumps, our store upserts the
+  // new row, this hook re-mints a token, and the iframe `src` changes so
+  // the document and its sibling assets reload fresh.
+  const { url, error } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
 
   if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
-  if (!src) return <div className="p-4 opacity-60">Loading…</div>;
+  if (!url) return <div className="p-4 opacity-60">Loading…</div>;
 
+  // Belt-and-braces: keying the iframe on updated_at forces React to
+  // remount it even if the `src` somehow doesn't change (e.g. expired
+  // token re-mint that lands on the same string).
   return (
     <iframe
+      key={artifact.updated_at}
       title={artifact.title}
       sandbox="allow-scripts"
-      src={src}
+      src={url}
       referrerPolicy="no-referrer"
       loading="lazy"
       className="w-full h-full border-0 bg-white"

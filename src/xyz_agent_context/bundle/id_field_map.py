@@ -94,6 +94,14 @@ STRUCTURED_ID_FIELDS: Dict[str, Dict[str, str]] = {
         "team_id": "team",
         "agent_id": "agent",
     },
+    "instance_artifacts": {
+        "artifact_id": "artifact",
+        "agent_id": "agent",
+    },
+    "mcp_urls": {
+        "mcp_id": "mcp",
+        "agent_id": "agent",
+    },
 }
 
 
@@ -108,6 +116,7 @@ ID_KIND_PREFIXES: Dict[str, str] = {
     "team": "team",
     "channel": "ch",
     "mcp": "mcp",
+    "artifact": "art",
 }
 
 

@@ -8,19 +8,22 @@
  *   - Download original JSON
  *
  * For all other kinds, just exposes "Download original" — a vanilla
- * <a download> against the raw endpoint, served by the same backend route
- * with the kind-specific Content-Security-Policy headers applied.
+ * <a download> against the token-protected public raw URL.
  *
- * The chart export depends on a live ECharts instance which ChartRenderer
+ * The chart export depends on a live ECharts instance that ChartRenderer
  * registers into artifactStore.chartInstances on mount. If the menu is
  * opened before the chart has finished mounting/loading, PNG/JPEG buttons
  * surface a small "chart not ready" hint instead of silently failing.
+ *
+ * Pointer model: the download URL is the token-protected directory URL
+ * minted via `useArtifactRawUrl`. The TTL is generous (2h) so a click much
+ * later still works for the typical session.
  */
 
 import { Download } from 'lucide-react';
 import type { Artifact } from '@/types/artifact';
-import { rawUrl } from '@/types/artifact';
 import { useArtifactStore } from '@/stores/artifactStore';
+import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 
 const KIND_TO_EXT: Record<string, string> = {
   'text/html': 'html',
@@ -52,7 +55,11 @@ interface Props {
 
 export default function ArtifactDownloadMenu({ artifact }: Props) {
   const isChart = artifact.kind === 'application/vnd.echarts+json';
-  const url = rawUrl(artifact.agent_id, artifact.artifact_id, artifact.latest_version);
+  const { url } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
   const ext = KIND_TO_EXT[artifact.kind] ?? 'bin';
 
   const exportChartImage = (type: 'png' | 'jpeg') => {
@@ -105,14 +112,18 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
             <div className="my-1 border-t border-[var(--border-default)]" />
           </>
         )}
-        <a
-          href={url}
-          download={safeFilename(artifact.title, ext)}
-          className="block px-3 py-1.5 hover:bg-[var(--bg-secondary)] no-underline text-[var(--text-primary)]"
-          role="menuitem"
-        >
-          Download original (.{ext})
-        </a>
+        {url ? (
+          <a
+            href={url}
+            download={safeFilename(artifact.title, ext)}
+            className="block px-3 py-1.5 hover:bg-[var(--bg-secondary)] no-underline text-[var(--text-primary)]"
+            role="menuitem"
+          >
+            Download original (.{ext})
+          </a>
+        ) : (
+          <span className="block px-3 py-1.5 opacity-50">Preparing download…</span>
+        )}
       </div>
     </details>
   );

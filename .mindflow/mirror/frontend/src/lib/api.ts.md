@@ -1,8 +1,28 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-05-13
+last_verified: 2026-05-15
 stub: false
 ---
+
+## 2026-05-15 — bundle Artifacts + MCP preview
+
+Added `previewArtifacts(agentIds)` and `previewMcps(agentIds)` next to the
+existing `previewBusChannels` helper. Used by the redesigned BundleExportPage
+to populate the Artifacts tab and the MCP section of the renamed
+`Skills & MCP` tab.
+
+## 2026-05-14 — workspace tree + nested delete + raw helpers
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`listFiles` now returns a recursive tree (`FileListResponse.tree`) rather
+than a flat array. `deleteFile(agentId, userId, path)` accepts a
+workspace-relative path (potentially nested, e.g. `report/index.html` or
+`report`) — `encodeURI` preserves slashes so the backend `{path:path}`
+route receives the whole sub-path. Added `workspaceFileRawUrl(...)` for
+`<a href download>` and `fetchWorkspaceFileBlob(...)` for JWT-authed
+inline preview (Tauri `<a download>` can't carry headers, so the preview
+modal goes through fetch+blob).
 
 ## 2026-05-13 — getAuthHeaders 同时注入 X-User-Id
 

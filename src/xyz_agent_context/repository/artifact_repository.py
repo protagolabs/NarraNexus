@@ -2,18 +2,21 @@
 @file_name: artifact_repository.py
 @author: Bin Liang
 @date: 2026-05-08
-@description: Data-access layer for instance_artifacts + instance_artifact_versions tables.
+@description: Data-access layer for the instance_artifacts table (pointer model).
 
-Provides full CRUD for Artifact rows plus version management:
-- create(): atomic insert of artifact row + first version row
-- iterate(): bump latest_version and append a new version row (atomic)
+Pointer model (2026-05-14): one row = one artifact = a pointer to an entry file
+the agent wrote in its workspace. There is no version table anymore; "updating"
+an artifact overwrites the pointer in place.
+
+Provides:
+- create(): insert one artifact row
+- update_pointer(): overwrite file_path/size_bytes/title/description in place
 - set_pinned(): toggle pinned flag; pinning clears session_id
 - list_by_session(): non-pinned artifacts for a given session
 - list_pinned(): pinned artifacts for an agent
-- list_versions(): all versions for an artifact ordered ASC
-- delete(): atomic cascade — delete versions first, then artifact row
-- total_bytes_for_agent(): quota query — sum of size_bytes across all
-  versions belonging to a given agent's artifacts
+- list_by_user(): all artifacts for a user, newest first
+- delete() / bulk_delete(): remove artifact rows
+- count_for_user() / total_bytes_for_user() / total_bytes_for_agent(): quota queries
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from .base import BaseRepository
-from xyz_agent_context.schema.artifact_schema import Artifact, ArtifactVersion
+from xyz_agent_context.schema.artifact_schema import Artifact
 
 
 def _parse_dt(v: Any) -> datetime:
@@ -42,8 +45,6 @@ class ArtifactRepository(BaseRepository[Artifact]):
 
     Inherits generic helpers (get_by_id, get_by_ids, find, find_one, save,
     insert, update, delete, upsert) from BaseRepository.
-
-    Extended methods provide version management and quota aggregation.
     """
 
     table_name = "instance_artifacts"
@@ -51,88 +52,49 @@ class ArtifactRepository(BaseRepository[Artifact]):
 
     # ── write operations ───────────────────────────────────────────────────────
 
-    async def create(
-        self,
-        entity: Artifact,
-        *,
-        file_path: str,
-        size_bytes: int,
-    ) -> None:
+    async def create(self, entity: Artifact) -> None:
         """
-        Insert one artifact row and its first version row.
+        Insert one artifact row.
 
-        Note on atomicity: project-wide convention is single-statement writes
-        without explicit transactions (matches the SQLiteProxy backend, which
-        does not support nested BEGIN). The two inserts here run sequentially.
-        Crash window between the two leaves an artifact row with no version row
-        — `list_*` queries simply won't surface it; cleanup is done by deleting
-        the orphan via the route DELETE.
-
-        Args:
-            entity: The Artifact to persist.
-            file_path: Relative path of the content file for version 1.
-            size_bytes: Content size in bytes for version 1.
+        The entity already carries `file_path` (entry file relative to
+        base_working_path) and `size_bytes` (recursive size of the artifact
+        root directory) — the runner computes both before calling here.
         """
         await self._db.insert(self.table_name, self._entity_to_row(entity))
-        await self._db.insert(
-            "instance_artifact_versions",
-            {
-                "artifact_id": entity.artifact_id,
-                "version": 1,
-                "file_path": file_path,
-                "size_bytes": size_bytes,
-            },
-        )
 
-    async def iterate(
+    async def update_pointer(
         self,
         artifact_id: str,
         *,
         file_path: str,
         size_bytes: int,
-    ) -> int:
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> None:
         """
-        Bump latest_version by 1, append a new version row, and return the new version.
+        Overwrite an artifact's pointer (and optionally title/description) in place.
+
+        This is the `target_artifact_id` re-registration path: the agent
+        re-registers a new entry file onto an existing artifact tab. The kind
+        is intentionally NOT updated here — kind-match is validated upstream.
 
         Args:
-            artifact_id: ID of the artifact to iterate.
-            file_path: Relative path of the content file for the new version.
-            size_bytes: Content size in bytes for the new version.
-
-        Returns:
-            The newly created version number.
-
-        Note on concurrency: project-wide convention is single-statement writes
-        without explicit transactions (matches the SQLiteProxy backend). Two
-        concurrent iterates targeting the same artifact_id can race — both
-        could read latest_version=N and try to insert version=N+1 on
-        instance_artifact_versions. The unique index `(artifact_id, version)`
-        will reject the second insert with a constraint error, and the file on
-        disk uses a random hex token so the file naming itself never races.
-        Single-user agent flows do not hit this; documented as I9 follow-up.
+            artifact_id: ID of the artifact to update.
+            file_path: New entry file path relative to base_working_path.
+            size_bytes: New artifact root directory size in bytes.
+            title: New title if provided.
+            description: New description if provided.
         """
-        row = await self._db.get_one(self.table_name, {self.id_field: artifact_id})
-        if row is None:
-            raise ValueError(f"Artifact {artifact_id!r} not found")
-        new_version: int = int(row["latest_version"]) + 1
-        now = datetime.now(timezone.utc).isoformat()
-
-        await self._db.update(
-            self.table_name,
-            filters={self.id_field: artifact_id},
-            data={"latest_version": new_version, "updated_at": now},
-        )
-        await self._db.insert(
-            "instance_artifact_versions",
-            {
-                "artifact_id": artifact_id,
-                "version": new_version,
-                "file_path": file_path,
-                "size_bytes": size_bytes,
-            },
-        )
-
-        return new_version
+        data: Dict[str, Any] = {
+            "file_path": file_path,
+            "size_bytes": size_bytes,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if title is not None:
+            data["title"] = title[:200]
+        if description is not None:
+            data["description"] = description
+        await self._db.update(self.table_name, {self.id_field: artifact_id}, data)
 
     async def set_pinned(self, artifact_id: str, *, pinned: bool) -> None:
         """
@@ -142,10 +104,10 @@ class ArtifactRepository(BaseRepository[Artifact]):
         session_id (cross-session visibility).
         On unpin: restore session_id from original_session_id, clear
         original_session_id, set pinned=0.
-        If original_session_id was never set (legacy row pinned before this column
-        existed), unpin leaves the artifact orphaned with session_id=NULL — the
-        route layer is responsible for surfacing a warning to the user (Important #1
-        of the review).
+        If original_session_id was never set (agent-created artifact with no
+        session context), unpin leaves the artifact orphaned with
+        session_id=NULL — the route layer rejects that case and tells the user
+        to delete instead.
 
         Args:
             artifact_id: ID of the artifact.
@@ -187,26 +149,37 @@ class ArtifactRepository(BaseRepository[Artifact]):
 
     async def delete(self, artifact_id: str) -> None:  # type: ignore[override]
         """
-        Delete an artifact and all its version rows.
+        Delete an artifact row.
 
-        Deletes versions first to avoid FK-style orphan rows, then removes
-        the artifact row itself. Sequential deletes (no transaction — matches
-        project convention; SQLiteProxy backend does not support nested
-        BEGIN). Crash window between the two leaves orphan version rows with
-        no parent artifact — `list_versions` returns them but nothing else
-        references them; cleanup is best-effort via the route's DELETE retry.
+        Pointer model: there is no version table to cascade. On-disk cleanup
+        (when the caller asked to delete the source files too) is the route
+        layer's responsibility — this method only touches the DB.
 
         Args:
             artifact_id: ID of the artifact to delete.
         """
-        await self._db.delete(
-            "instance_artifact_versions",
-            {"artifact_id": artifact_id},
-        )
-        await self._db.delete(
-            self.table_name,
-            {self.id_field: artifact_id},
-        )
+        await self._db.delete(self.table_name, {self.id_field: artifact_id})
+
+    async def bulk_delete(self, artifact_ids: List[str]) -> int:
+        """
+        Delete multiple artifact rows in one call.
+
+        On-disk cleanup is the route's responsibility — this method only
+        touches the DB. Returns the number of rows actually removed.
+
+        Args:
+            artifact_ids: Artifact IDs to delete. Empty list → no-op.
+
+        Returns:
+            Number of rows deleted.
+        """
+        if not artifact_ids:
+            return 0
+        deleted = 0
+        for aid in artifact_ids:
+            n = await self._db.delete(self.table_name, {self.id_field: aid})
+            deleted += int(n or 0)
+        return deleted
 
     # ── query operations ───────────────────────────────────────────────────────
 
@@ -217,8 +190,7 @@ class ArtifactRepository(BaseRepository[Artifact]):
         Return non-pinned artifacts for a given session.
 
         Uses raw SQL because BaseRepository.find() cannot express
-        `pinned = 0 AND session_id = ?` with the simple filters dict API
-        without an explicit AND of two conditions that include an inequality.
+        `pinned = 0 AND session_id = ?` with the simple filters dict API.
 
         Args:
             agent_id: Agent scope.
@@ -246,88 +218,6 @@ class ArtifactRepository(BaseRepository[Artifact]):
         """
         return await self.find({"agent_id": agent_id, "pinned": 1})
 
-    async def list_versions(self, artifact_id: str) -> List[ArtifactVersion]:
-        """
-        Return all versions for an artifact ordered by version ASC.
-
-        Args:
-            artifact_id: Parent artifact ID.
-
-        Returns:
-            List of ArtifactVersion objects ordered by version ascending.
-        """
-        sql = """
-        SELECT * FROM instance_artifact_versions
-        WHERE artifact_id = %s
-        ORDER BY version ASC
-        """
-        rows = await self._db.execute(sql, params=(artifact_id,), fetch=True)
-        return [self._row_to_version(row) for row in rows]
-
-    async def total_bytes_for_agent(self, agent_id: str) -> int:
-        """
-        Return the total size_bytes across all versions of all artifacts owned by the agent.
-
-        Joins instance_artifacts to instance_artifact_versions on artifact_id
-        so the aggregation is scoped to the given agent's artifacts only.
-
-        Args:
-            agent_id: Agent whose quota to sum.
-
-        Returns:
-            Sum of size_bytes (0 if agent has no artifacts or versions).
-        """
-        sql = """
-        SELECT COALESCE(SUM(v.size_bytes), 0) AS total
-        FROM instance_artifact_versions v
-        JOIN instance_artifacts a ON a.artifact_id = v.artifact_id
-        WHERE a.agent_id = %s
-        """
-        rows = await self._db.execute(sql, params=(agent_id,), fetch=True)
-        if not rows:
-            return 0
-        return int(rows[0]["total"] or 0)
-
-    async def count_for_user(self, user_id: str) -> int:
-        """
-        Return the total artifact count for a user across all their agents.
-
-        Args:
-            user_id: User whose quota to count.
-
-        Returns:
-            Number of artifacts owned by the user (rows in instance_artifacts).
-        """
-        sql = "SELECT COUNT(*) AS n FROM instance_artifacts WHERE user_id = %s"
-        rows = await self._db.execute(sql, params=(user_id,), fetch=True)
-        if not rows:
-            return 0
-        return int(rows[0]["n"] or 0)
-
-    async def total_bytes_for_user(self, user_id: str) -> int:
-        """
-        Return the total size_bytes across all versions of all the user's artifacts.
-
-        Joins instance_artifacts to instance_artifact_versions and filters by
-        user_id so the aggregation is scoped per-user (cross-agent).
-
-        Args:
-            user_id: User whose quota to sum.
-
-        Returns:
-            Sum of size_bytes (0 if user has no artifacts or versions).
-        """
-        sql = """
-        SELECT COALESCE(SUM(v.size_bytes), 0) AS total
-        FROM instance_artifact_versions v
-        JOIN instance_artifacts a ON a.artifact_id = v.artifact_id
-        WHERE a.user_id = %s
-        """
-        rows = await self._db.execute(sql, params=(user_id,), fetch=True)
-        if not rows:
-            return 0
-        return int(rows[0]["total"] or 0)
-
     async def list_by_user(self, user_id: str) -> List[Artifact]:
         """
         Return all artifacts owned by a user, across every agent the user owns.
@@ -349,32 +239,57 @@ class ArtifactRepository(BaseRepository[Artifact]):
         rows = await self._db.execute(sql, params=(user_id,), fetch=True)
         return [self._row_to_entity(row) for row in rows]
 
-    async def bulk_delete(self, artifact_ids: List[str]) -> int:
+    async def count_for_user(self, user_id: str) -> int:
         """
-        Delete multiple artifacts (and their versions) in one call.
-
-        Order matters: versions first to mirror the per-row delete contract.
-        Uses one DELETE per id rather than a bulk IN(...) so callers that
-        wrap this in a transaction (when one is supported) can roll back
-        cleanly. Returns the number of artifact rows actually removed.
-
-        On-disk folder cleanup is the route's responsibility — this method
-        only touches the DB.
+        Return the total artifact count for a user across all their agents.
 
         Args:
-            artifact_ids: Artifact IDs to delete. Empty list → no-op.
+            user_id: User whose quota to count.
 
         Returns:
-            Number of parent rows deleted (filtered to those that existed).
+            Number of artifacts owned by the user.
         """
-        if not artifact_ids:
+        sql = "SELECT COUNT(*) AS n FROM instance_artifacts WHERE user_id = %s"
+        rows = await self._db.execute(sql, params=(user_id,), fetch=True)
+        if not rows:
             return 0
-        deleted = 0
-        for aid in artifact_ids:
-            await self._db.delete("instance_artifact_versions", {"artifact_id": aid})
-            n = await self._db.delete(self.table_name, {self.id_field: aid})
-            deleted += int(n or 0)
-        return deleted
+        return int(rows[0]["n"] or 0)
+
+    async def total_bytes_for_user(self, user_id: str) -> int:
+        """
+        Return the total size_bytes across all the user's artifacts.
+
+        Pointer model: size_bytes lives directly on instance_artifacts (the
+        recursive size of each artifact's root directory at register time), so
+        this is a plain SUM with no join.
+
+        Args:
+            user_id: User whose quota to sum.
+
+        Returns:
+            Sum of size_bytes (0 if user has no artifacts).
+        """
+        sql = "SELECT COALESCE(SUM(size_bytes), 0) AS total FROM instance_artifacts WHERE user_id = %s"
+        rows = await self._db.execute(sql, params=(user_id,), fetch=True)
+        if not rows:
+            return 0
+        return int(rows[0]["total"] or 0)
+
+    async def total_bytes_for_agent(self, agent_id: str) -> int:
+        """
+        Return the total size_bytes across all the agent's artifacts.
+
+        Args:
+            agent_id: Agent whose quota to sum.
+
+        Returns:
+            Sum of size_bytes (0 if agent has no artifacts).
+        """
+        sql = "SELECT COALESCE(SUM(size_bytes), 0) AS total FROM instance_artifacts WHERE agent_id = %s"
+        rows = await self._db.execute(sql, params=(agent_id,), fetch=True)
+        if not rows:
+            return 0
+        return int(rows[0]["total"] or 0)
 
     # ── conversion helpers ─────────────────────────────────────────────────────
 
@@ -389,7 +304,8 @@ class ArtifactRepository(BaseRepository[Artifact]):
             kind=row["kind"],
             description=row.get("description"),
             pinned=_parse_bool(row.get("pinned", 0)),
-            latest_version=int(row.get("latest_version", 1)),
+            file_path=row.get("file_path") or "",
+            size_bytes=int(row.get("size_bytes") or 0),
             created_at=_parse_dt(row["created_at"]),
             updated_at=_parse_dt(row["updated_at"]),
         )
@@ -405,17 +321,8 @@ class ArtifactRepository(BaseRepository[Artifact]):
             "kind": entity.kind,
             "description": entity.description,
             "pinned": 1 if entity.pinned else 0,
-            "latest_version": entity.latest_version,
+            "file_path": entity.file_path,
+            "size_bytes": entity.size_bytes,
             "created_at": entity.created_at.isoformat(),
             "updated_at": entity.updated_at.isoformat(),
         }
-
-    def _row_to_version(self, row: Dict[str, Any]) -> ArtifactVersion:
-        return ArtifactVersion(
-            id=int(row["id"]),
-            artifact_id=row["artifact_id"],
-            version=int(row["version"]),
-            file_path=row["file_path"],
-            size_bytes=int(row["size_bytes"]),
-            created_at=_parse_dt(row["created_at"]),
-        )

@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/CsvRenderer.tsx
-last_verified: 2026-05-09
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — drop `version` prop, fetch via `useArtifactRawUrl`
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+Renderer no longer takes a `version` prop. Uses `useArtifactRawUrl` for the
+token-protected public URL; `fetchArtifactText` no longer adds an Authorization
+header (raw is on the JWT-bypassed `/api/public/artifacts/...` prefix and the
+HMAC token in the path is the auth).
 
 # CsvRenderer.tsx — Tabular renderer for text/csv artifacts
 

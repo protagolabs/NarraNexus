@@ -80,6 +80,12 @@ class ExportRequest(BaseModel):
     # channel that has at least one closure agent as a member (default).
     # Selected channels still must satisfy ownership + ≥1 closure-agent member.
     bus_channel_selection: Optional[List[str]] = None
+    # Per-agent MCP allowlist; None or {} = ship no MCP (opt-in by design —
+    # MCP URLs frequently point at private services).
+    mcp_selection: Optional[Dict[str, List[str]]] = None
+    # Per-agent artifact allowlist; None = include all. Underlying files always
+    # travel with workspace.tar.gz; this filters only the DB pointer rows.
+    artifact_selection: Optional[Dict[str, List[str]]] = None
 
 
 @router.post("/export")
@@ -127,6 +133,8 @@ async def export_bundle(payload: ExportRequest, request: Request):
         event_selection=payload.event_selection,
         job_selection=payload.job_selection,
         bus_channel_selection=payload.bus_channel_selection,
+        mcp_selection=payload.mcp_selection,
+        artifact_selection=payload.artifact_selection,
     )
 
     try:
@@ -256,6 +264,80 @@ async def preview_bus_channels(payload: BusChannelsPreviewRequest, request: Requ
             "created_at": ch.get("created_at"),
         })
     return {"channels": out}
+
+
+class ArtifactsPreviewRequest(BaseModel):
+    agent_ids: List[str]
+
+
+@router.post("/export/preview/artifacts")
+async def preview_artifacts(payload: ArtifactsPreviewRequest, request: Request):
+    """Return ALL artifacts for each agent in the closure, grouped by agent_id.
+
+    The wizard's Artifacts tab uses this to render the per-artifact picker
+    (default = all selected). Same ownership pattern as the rest of the
+    wizard: each agent must belong to the requesting user.
+    """
+    user_id = await _user_id_for_request(request)
+    if not payload.agent_ids:
+        return {"agents": {}}
+    db = await get_db_client()
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for aid in payload.agent_ids:
+        agent_row = await db.get_one("agents", {"agent_id": aid})
+        if not agent_row or agent_row.get("created_by") != user_id:
+            # Silently skip non-owned agents. Wizard already filters at the
+            # closure level, but this guards direct API misuse.
+            continue
+        rows = await db.get("instance_artifacts", {"agent_id": aid})
+        out[aid] = [
+            {
+                "artifact_id": r.get("artifact_id"),
+                "title": r.get("title"),
+                "kind": r.get("kind"),
+                "size_bytes": int(r.get("size_bytes") or 0),
+                "pinned": bool(r.get("pinned")),
+                "session_id": r.get("session_id"),
+                "file_path": r.get("file_path"),
+                "created_at": r.get("created_at"),
+                "updated_at": r.get("updated_at"),
+            }
+            for r in rows
+        ]
+    return {"agents": out}
+
+
+class McpsPreviewRequest(BaseModel):
+    agent_ids: List[str]
+
+
+@router.post("/export/preview/mcps")
+async def preview_mcps(payload: McpsPreviewRequest, request: Request):
+    """Return all MCP URLs registered against each closure agent, grouped by
+    agent_id. The wizard's Skills & MCP tab uses this to render the MCP
+    picker (default = none selected — MCP is opt-in)."""
+    user_id = await _user_id_for_request(request)
+    if not payload.agent_ids:
+        return {"agents": {}}
+    db = await get_db_client()
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for aid in payload.agent_ids:
+        agent_row = await db.get_one("agents", {"agent_id": aid})
+        if not agent_row or agent_row.get("created_by") != user_id:
+            continue
+        rows = await db.get("mcp_urls", {"agent_id": aid, "user_id": user_id})
+        out[aid] = [
+            {
+                "mcp_id": r.get("mcp_id"),
+                "name": r.get("name"),
+                "url": r.get("url"),
+                "description": r.get("description"),
+                "is_enabled": bool(r.get("is_enabled")),
+                "connection_status": r.get("connection_status"),
+            }
+            for r in rows
+        ]
+    return {"agents": out}
 
 
 @router.get("/skills/archives")

@@ -272,6 +272,7 @@ from backend.routes.notifications import router as notifications_router
 from backend.routes.admin_logs import router as admin_logs_router
 from backend.routes.transcription import router as transcription_router
 from backend.routes.transcription_public import router as transcription_public_router
+from backend.routes.artifacts_public import router as artifacts_public_router
 from backend.routes.teams import router as teams_router
 from backend.routes.bundle import router as bundle_router
 
@@ -301,6 +302,11 @@ app.include_router(
     transcription_public_router,
     prefix="/api/public/transcription",
     tags=["TranscriptionPublic"],
+)
+app.include_router(
+    artifacts_public_router,
+    prefix="/api/public/artifacts",
+    tags=["ArtifactsPublic"],
 )
 
 

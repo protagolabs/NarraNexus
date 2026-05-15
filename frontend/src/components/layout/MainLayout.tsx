@@ -237,7 +237,7 @@ export function MainLayout() {
       <AgentCompletionToast />
 
       {/* Quota-exceeded modal — driven by artifactStore.quotaError, shown over
-          everything when an agent's create_artifact call hits the per-user
+          everything when an agent's register_artifact call hits the per-user
           limit. Mounted once at the layout root so it can pop regardless of
           which sub-route the user is currently viewing. */}
       <QuotaExceededModal />
