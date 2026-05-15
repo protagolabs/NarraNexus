@@ -29,7 +29,7 @@ import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { AudioRecorder } from './AudioRecorder';
 import { EmbeddingBanner } from '@/components/ui/EmbeddingBanner';
-import { ArtifactPreviewCard } from '@/components/artifacts';
+import { ArtifactInlineBadge } from '@/components/artifacts';
 import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
 
 // Artifact tool names that produce an artifact_id in tool_output.
@@ -86,9 +86,19 @@ function refreshArtifactFromToolCall(
 }
 
 /**
- * Renders ArtifactPreviewCard instances for any tool calls in `toolCalls` that
- * reference an artifact. Reads `allArtifacts` from outside the map so hook
- * rules are satisfied (no conditional hook calls inside a callback).
+ * Renders one-line ArtifactInlineBadge chips for any artifact-producing
+ * tool calls in `toolCalls`.
+ *
+ * History: this used to render full ArtifactPreviewCard thumbnails (with
+ * CSV head, image preview, etc). Users found them disruptive because each
+ * re-register (refresh signal) re-mounted the card — the card visibly
+ * flashed in/out and then evaporated on history reload (chat history
+ * doesn't persist tool_calls). The badge is a one-line chip instead;
+ * dedupe-by-artifact_id keeps a re-register from doubling the badges up.
+ *
+ * Quota error short-circuit stays: ArtifactQuotaExceeded fires before
+ * any artifact_id exists, so the modal must still trigger from the bare
+ * tool_output payload.
  */
 interface ArtifactToolCallCardsProps {
   toolCalls: AgentToolCall[];
@@ -99,7 +109,12 @@ interface ArtifactToolCallCardsProps {
 const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
   toolCalls, agentId, allArtifacts,
 }: ArtifactToolCallCardsProps) {
-  const cards: React.ReactNode[] = [];
+  // Collect unique artifact_ids in first-seen order across the turn's
+  // tool calls. Re-register on the same artifact yields the same id; we
+  // still refresh its metadata (via refreshArtifactFromToolCall) but
+  // render one badge.
+  const seenIds = new Set<string>();
+  const orderedIds: string[] = [];
 
   for (const tc of toolCalls) {
     if (!isArtifactToolName(tc.tool_name)) continue;
@@ -137,30 +152,41 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
     const dedupKey = `${tc.step ?? ''}::${tc.tool_output ?? ''}`;
     refreshArtifactFromToolCall(agentId, artifactId, dedupKey);
 
-    const artifact = allArtifacts.find((a) => a.artifact_id === artifactId);
-    cards.push(
-      artifact ? (
-        <ArtifactPreviewCard key={artifactId} artifact={artifact} />
-      ) : (
-        <div
-          key={artifactId}
-          className="text-xs opacity-60 mt-2 px-3 py-2 border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/40"
-        >
-          Loading artifact…
-        </div>
-      ),
-    );
+    if (!seenIds.has(artifactId)) {
+      seenIds.add(artifactId);
+      orderedIds.push(artifactId);
+    }
   }
 
-  if (cards.length === 0) return null;
-  return <div className="mt-3 space-y-2">{cards}</div>;
+  if (orderedIds.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {orderedIds.map((id) => {
+        const artifact = allArtifacts.find((a) => a.artifact_id === id);
+        // Metadata may lag the tool_output by a roundtrip — render a muted
+        // placeholder chip so layout doesn't jump when the artifact arrives.
+        return artifact ? (
+          <ArtifactInlineBadge key={id} artifact={artifact} />
+        ) : (
+          <span
+            key={id}
+            className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-[family-name:var(--font-mono)] border border-[var(--border-subtle)] text-[var(--text-tertiary)] opacity-60"
+            title={`Loading artifact ${id}…`}
+          >
+            <span className="truncate">artifact…</span>
+          </span>
+        );
+      })}
+    </div>
+  );
 }, (prev, next) => {
   // Custom shallow compare so React.memo skips re-renders triggered by
   // unrelated keystrokes in the chat input. Each timeline item's `toolCalls`
   // array is built once via useMemo and stays referentially stable until the
   // streaming state actually advances, so the array identity check below is
-  // sufficient. allArtifacts swaps when the artifact store updates (which is
-  // exactly when we want to re-render to drop the "Loading artifact…" stub).
+  // sufficient. allArtifacts swaps when the artifact store updates (exactly
+  // when we want to re-render to upgrade a placeholder chip to a real badge).
   return (
     prev.agentId === next.agentId &&
     prev.toolCalls === next.toolCalls &&
@@ -918,13 +944,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   their tool_output lands, without waiting for the whole
                   turn to finish. */}
               {agentId && currentToolCalls.length > 0 && (
-                <div className="mt-3">
-                  <ArtifactToolCallCards
-                    toolCalls={currentToolCalls}
-                    agentId={agentId}
-                    allArtifacts={allArtifacts}
-                  />
-                </div>
+                <ArtifactToolCallCards
+                  toolCalls={currentToolCalls}
+                  agentId={agentId}
+                  allArtifacts={allArtifacts}
+                />
               )}
               {/* Inter-event "still working" indicator. Reassurance for
                   the gap between two visible blocks (e.g. waiting on a

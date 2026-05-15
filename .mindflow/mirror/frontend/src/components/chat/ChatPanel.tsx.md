@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-15
 stub: false
 ---
+
+## 2026-05-15 — artifact card → inline badge
+
+`ArtifactToolCallCards` no longer renders `<ArtifactPreviewCard>` (the full-sized thumbnail with CSV/image/markdown previews). It now emits one `<ArtifactInlineBadge>` chip per **unique** artifact_id in the turn. Re-register on the same artifact is deduped down to a single badge. The card was visually disruptive (re-registers re-mounted it, producing a "flash and disappear" feeling) and the right-side ArtifactColumn is the canonical place to view content — the badge is just an affordance to jump there. ArtifactPreviewCard is kept in `components/artifacts/` for potential future re-use but is no longer mounted from chat.
 
 ## 2026-05-15 — re-register signal: refetch (not ensure-loaded)
 

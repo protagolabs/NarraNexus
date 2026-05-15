@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactPreviewCard.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-15
 stub: false
 ---
+
+## 2026-05-15 — no longer mounted from chat
+
+`ChatPanel` switched to `ArtifactInlineBadge` (a one-line chip). The card is still exported from `components/artifacts/index.ts` but currently has no mount site — kept as a building block in case a future "artifact list with thumbnails" view wants it. Re-introducing it in chat is discouraged: the visible flash on re-register is the exact symptom users complained about.
 
 ## 2026-05-14 — pointer model
 
