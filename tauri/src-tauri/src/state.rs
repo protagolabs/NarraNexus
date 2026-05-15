@@ -300,6 +300,34 @@ impl ServiceDef {
                 order: 6,
                 startup_delay_ms: None,
             },
+            ServiceDef {
+                id: "slack_trigger".to_string(),
+                label: "Slack Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.module.slack_module.run_slack_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 7,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "telegram_trigger".to_string(),
+                label: "Telegram Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.module.telegram_module.run_telegram_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 8,
+                startup_delay_ms: None,
+            },
         ]
     }
 
@@ -426,6 +454,38 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 6,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "slack_trigger".to_string(),
+                label: "Slack Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.module.slack_module.run_slack_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 7,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "telegram_trigger".to_string(),
+                label: "Telegram Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.module.telegram_module.run_telegram_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 8,
                 startup_delay_ms: None,
             },
         ]
