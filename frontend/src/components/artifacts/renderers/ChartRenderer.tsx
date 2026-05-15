@@ -31,7 +31,11 @@ interface Props {
 export default function ChartRenderer({ artifact }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { url, error: urlError } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
+  const { url, error: urlError } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
   const registerChartInstance = useArtifactStore((s) => s.registerChartInstance);
 
   useEffect(() => {

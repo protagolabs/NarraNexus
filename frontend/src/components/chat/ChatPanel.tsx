@@ -53,16 +53,35 @@ function isArtifactToolName(toolName: string): boolean {
 }
 
 /**
- * Fire-and-forget: if the artifact is not yet in the store, fetch and upsert it.
- * Safe to call on every render — the store lookup short-circuits immediately when
- * the artifact is already cached.
+ * Fetch the latest Artifact metadata and upsert into the store, deduped by
+ * tool_call_id so we run at most once per emitted tool call.
+ *
+ * Why always refetch (not just "if missing"): a `register_artifact` call
+ * with `target_artifact_id=<existing>` is the agent's refresh signal — same
+ * `artifact_id` returns but with a bumped `updated_at`. If we short-circuit
+ * on "already in store" the renderers never see the new timestamp and the
+ * iframe doesn't reload. Refetching every NEW tool call ensures the
+ * downstream `useArtifactRawUrl(refreshKey=updated_at)` keys re-mint and
+ * the artifact's iframe / blob reloads with the latest bytes.
+ *
+ * The seen-Set lives at module scope so the React render loop (which fires
+ * this from inside the timeline map) doesn't re-trigger fetches that would
+ * race with the upsert and cause an infinite re-render. A tool_call_id is
+ * globally unique within an agent session, so collisions across panels
+ * don't happen.
  */
-function ensureArtifactLoaded(agentId: string, artifactId: string): void {
-  const { artifacts, upsert } = useArtifactStore.getState();
-  if (artifacts.find((a) => a.artifact_id === artifactId)) return;
+const _seenArtifactToolCallIds = new Set<string>();
+
+function refreshArtifactFromToolCall(
+  agentId: string,
+  artifactId: string,
+  toolCallId: string,
+): void {
+  if (_seenArtifactToolCallIds.has(toolCallId)) return;
+  _seenArtifactToolCallIds.add(toolCallId);
   artifactsApi
     .getDetail(agentId, artifactId)
-    .then((d) => upsert(d))
+    .then((d) => useArtifactStore.getState().upsert(d))
     .catch(() => undefined);
 }
 
@@ -111,8 +130,12 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
 
     if (!artifactId) continue;
 
-    // Trigger fetch if not yet in store (fire-and-forget)
-    ensureArtifactLoaded(agentId, artifactId);
+    // Refetch fresh metadata for this tool call (deduped per call). Same
+    // `artifact_id` from a re-register lands here with a new tool_output
+    // string (new token+timestamp), so the dedup key naturally distinguishes
+    // first-register vs. subsequent refresh signals.
+    const dedupKey = `${tc.step ?? ''}::${tc.tool_output ?? ''}`;
+    refreshArtifactFromToolCall(agentId, artifactId, dedupKey);
 
     const artifact = allArtifacts.find((a) => a.artifact_id === artifactId);
     cards.push(

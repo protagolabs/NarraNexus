@@ -55,7 +55,11 @@ interface Props {
 
 export default function ArtifactDownloadMenu({ artifact }: Props) {
   const isChart = artifact.kind === 'application/vnd.echarts+json';
-  const { url } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
+  const { url } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
   const ext = KIND_TO_EXT[artifact.kind] ?? 'bin';
 
   const exportChartImage = (type: 'png' | 'jpeg') => {

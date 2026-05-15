@@ -42,13 +42,25 @@ interface Props {
 }
 
 export default function HtmlRenderer({ artifact }: Props) {
-  const { url, error } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
+  // refreshKey = updated_at — when the agent re-registers via
+  // target_artifact_id, the row's updated_at bumps, our store upserts the
+  // new row, this hook re-mints a token, and the iframe `src` changes so
+  // the document and its sibling assets reload fresh.
+  const { url, error } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
 
   if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
   if (!url) return <div className="p-4 opacity-60">Loading…</div>;
 
+  // Belt-and-braces: keying the iframe on updated_at forces React to
+  // remount it even if the `src` somehow doesn't change (e.g. expired
+  // token re-mint that lands on the same string).
   return (
     <iframe
+      key={artifact.updated_at}
       title={artifact.title}
       sandbox="allow-scripts"
       src={url}

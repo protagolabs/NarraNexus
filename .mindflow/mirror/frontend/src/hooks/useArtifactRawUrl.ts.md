@@ -37,10 +37,14 @@ Downstream:
 artifact tab; one token per mount is enough. Token TTL (2h) covers all
 sub-resource loads within a typical viewing session.
 
-**`refreshKey` for forced re-mint.** When an artifact is re-registered onto
-the same `artifact_id` (`target_artifact_id` in the runner), sibling assets
-on disk may change. Renderers can bump the key to fetch a fresh token and
-force the iframe / blob URL to reload.
+**`refreshKey` for forced re-mint = `artifact.updated_at`.** All renderers
+pass `artifact.updated_at` as the refreshKey. When the agent re-registers
+onto the same `artifact_id` (`target_artifact_id` in the runner), the row's
+`updated_at` bumps, ChatPanel refetches and upserts to the store, the
+renderer sees a new prop value, and this hook re-mints a fresh token. The
+iframe's `src` changes, the iframe reloads, the user sees the update.
+This is the **live refresh signal** the agent triggers explicitly by
+re-registering.
 
 **No retry on expiry.** Expired tokens return 410 from the public route. A
 sub-resource load that fails because the token expired is a degraded UX, not

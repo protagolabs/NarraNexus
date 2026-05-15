@@ -23,7 +23,11 @@ interface Props {
 }
 
 export default function MarkdownRenderer({ artifact }: Props) {
-  const { url, error: urlError } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
+  const { url, error: urlError } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
   const [text, setText] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 

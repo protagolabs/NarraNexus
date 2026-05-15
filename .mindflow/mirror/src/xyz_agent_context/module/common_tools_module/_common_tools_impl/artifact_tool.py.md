@@ -4,6 +4,17 @@ last_verified: 2026-05-14
 stub: false
 ---
 
+## 2026-05-15 — description teaches the refresh-signal pattern
+
+The tool description now spells out the **re-register-as-refresh-signal**
+contract: after the first register, the agent can keep editing the
+workspace file(s) freely, but the frontend doesn't auto-reload. To make
+the user see the update, call `register_artifact` again with
+`target_artifact_id=<existing id>` — that second call is what the
+frontend listens for to refetch the entry HTML and any sibling assets.
+The description also points the agent at the per-turn "Your registered
+artifacts" system-prompt block so it knows which ids are currently live.
+
 ## 2026-05-14-r3 — hard rule dropped; sibling-assets reframed as a capability
 
 The "must sit in a subdirectory, NOT directly in the workspace root"

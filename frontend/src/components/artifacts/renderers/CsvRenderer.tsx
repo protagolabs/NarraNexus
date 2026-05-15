@@ -28,7 +28,11 @@ function parseCsv(text: string): string[][] {
 }
 
 export default function CsvRenderer({ artifact }: Props) {
-  const { url, error: urlError } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
+  const { url, error: urlError } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
   const [rows, setRows] = useState<string[][] | null>(null);
   const [error, setError] = useState<string | null>(null);
 

@@ -19,7 +19,11 @@ interface Props {
 }
 
 export default function ImageRenderer({ artifact }: Props) {
-  const { url, error: urlError } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
+  const { url, error: urlError } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 

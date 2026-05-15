@@ -4,6 +4,19 @@ last_verified: 2026-05-14
 stub: false
 ---
 
+## 2026-05-15 — keyed on `updated_at` for live refresh on re-register
+
+The renderer now passes `artifact.updated_at` as the `refreshKey` to
+`useArtifactRawUrl`, and the iframe element itself carries
+`key={artifact.updated_at}`. When the agent re-registers via
+`target_artifact_id`, ChatPanel refetches the artifact (via the
+`refreshArtifactFromToolCall` dedup helper), the store upserts the new
+`updated_at`, the hook re-mints a fresh token, and the iframe's `src`
+changes — so the document and its sibling assets reload with the
+latest bytes. Belt-and-braces: the explicit `key=` forces a React
+remount even on edge cases where two consecutive mints produce the
+same URL string.
+
 ## 2026-05-14 — multi-file iframe via token-protected directory URL
 
 Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`

@@ -25,7 +25,11 @@ interface Props {
 export default function ArtifactPreviewCard({ artifact }: Props) {
   const setActive = useArtifactStore((s) => s.setActive);
   const setCollapsed = useArtifactStore((s) => s.setCollapsed);
-  const { url } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
+  const { url } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
   const [csvHead, setCsvHead] = useState<string[][] | null>(null);
   const [mdHead, setMdHead] = useState<string | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);

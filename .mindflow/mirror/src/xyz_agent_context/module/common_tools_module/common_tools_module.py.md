@@ -4,6 +4,27 @@ last_verified: 2026-05-14
 stub: false
 ---
 
+## 2026-05-15 — live artifact registry in data gathering + refresh-signal docs
+
+Two coupled additions:
+
+1. `get_instructions` now appends a **"Your registered artifacts"** block
+   built from `ArtifactRepository.list_pinned(agent_id)` — the agent sees
+   id / kind / title / workspace-relative path of every pinned artifact
+   live RIGHT NOW. (The `{agent_id}_{user_id}/` prefix is stripped from
+   the DB path because the agent thinks in workspace-relative terms.)
+   Empty list still renders a "(none registered yet)" line so the agent
+   knows the block is present and trustworthy. Implementation lives in
+   `_render_artifact_state_block`; DB errors degrade silently (best-effort).
+
+2. The static instruction explains the **refresh-signal pattern**: after
+   registering, the agent can edit the file(s) freely, but the frontend
+   doesn't auto-reload — to make the user see the update, call
+   `register_artifact` again with `target_artifact_id=<existing id>`.
+   That second call IS the refresh signal. Paired with the per-turn
+   artifact-list block, the agent always knows which ids are live and
+   can target them.
+
 ## 2026-05-14-r3 — instruction softened: sibling-assets is a capability, not a rule
 
 The "Always nest the entry inside a fresh, dedicated subdirectory" block
