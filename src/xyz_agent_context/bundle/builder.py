@@ -616,12 +616,24 @@ async def build_bundle(
         bus_channel_members = []
         bus_messages = []
         bus_agent_registry = []
-        # Channels: keep ones owned by the export user (created_by == user_id) AND
-        # having ≥1 closure-agent member. NB the column is `created_by`, not
-        # `owner_user_id` — the latter doesn't exist; only the message_bus
-        # subsystem owns this table and it uses created_by everywhere
-        # (message_bus_trigger.py, local_bus.py).
-        owned_chs = await db.get("bus_channels", {"created_by": user_id})
+        # Channels owned by an agent of this user. bus_channels.created_by
+        # actually stores the AGENT_ID of the channel owner (see
+        # local_bus.create_channel: `created_by = members[0] if members
+        # else "system"`). The message_bus_trigger uses this agent_id to
+        # implement "channel owner is always activated by new messages"
+        # (msg_bus_trigger.py:154). So to find channels belonging to a user
+        # we chain bus_channels.created_by → agents.agent_id → agents.created_by.
+        # An earlier version of this query passed `user_id` as the value
+        # of `created_by` — that silently dropped every agent-created
+        # channel from bundles.
+        owned_chs = await db.execute(
+            """SELECT ch.*
+               FROM bus_channels ch
+               JOIN agents a ON ch.created_by = a.agent_id
+               WHERE a.created_by = %s""",
+            params=(user_id,),
+            fetch=True,
+        )
         # User-provided allowlist (channel_ids). None = include all.
         channel_allowlist: Optional[Set[str]] = (
             set(selection.bus_channel_selection)
@@ -773,6 +785,14 @@ def _scrub_user_id(row: dict, user_id: str, table: Optional[str] = None) -> dict
             out.pop(k, None)
             continue
         if k.endswith("user_id") or k == "user_id" or k == "created_by":
+            # If this column is also declared as a structured ID field
+            # (e.g. bus_channels.created_by stores an agent_id, not a
+            # user_id), defer to the ID-column branch below — substring
+            # placeholder substitution would corrupt the cross-reference.
+            # The importer's rewrite_row + free_text_regex maps the
+            # agent_id from old → new on the receiving side.
+            if k in id_cols:
+                continue
             if v == user_id:
                 out[k] = placeholder
             continue

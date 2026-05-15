@@ -242,9 +242,20 @@ async def preview_bus_channels(payload: BusChannelsPreviewRequest, request: Requ
 
     db = await get_db_client()
     closure_set = set(payload.agent_ids)
-    # bus_channels.created_by is the owner column — see builder.py for the
-    # column-name rationale (no owner_user_id column exists on this table).
-    owned_chs = await db.get("bus_channels", {"created_by": user_id})
+    # bus_channels.created_by actually stores an AGENT_ID (the channel owner
+    # agent), not a user_id — see local_bus.create_channel for the source
+    # of truth. We chain it through agents.agent_id → agents.created_by to
+    # find channels owned by an agent of the current user. (An earlier
+    # query passed user_id directly to created_by and silently dropped
+    # every agent-created channel from this preview.)
+    owned_chs = await db.execute(
+        """SELECT ch.*
+           FROM bus_channels ch
+           JOIN agents a ON ch.created_by = a.agent_id
+           WHERE a.created_by = %s""",
+        params=(user_id,),
+        fetch=True,
+    )
     out: List[Dict[str, Any]] = []
     for ch in owned_chs:
         cid = ch["channel_id"]

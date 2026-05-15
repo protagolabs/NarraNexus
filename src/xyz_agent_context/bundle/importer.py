@@ -492,8 +492,16 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         # or owner_user_id should be set to the recipient's user_id (the source
         # value was scrubbed to the placeholder during export, but we re-assert
         # here in case some legacy bundle stored a literal source user_id).
+        #
+        # Exception: bus_channels.created_by stores an AGENT_ID (the channel
+        # owner agent), not a user_id. The structured-ID branch above already
+        # mapped it from old → new agent_id via id_map. Forcing it to user_id
+        # here would break the trigger's "channel owner always activated"
+        # logic (msg_bus_trigger.py:154 compares created_by against agent_id).
         for col in list(out.keys()):
             if col in ("user_id", "created_by", "owner_user_id"):
+                if table == "bus_channels" and col == "created_by":
+                    continue
                 v = out[col]
                 if isinstance(v, str) and (v == OWNER_PLACEHOLDER or v != user_id):
                     out[col] = user_id

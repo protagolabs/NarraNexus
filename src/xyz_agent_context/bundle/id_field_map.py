@@ -75,6 +75,16 @@ STRUCTURED_ID_FIELDS: Dict[str, Dict[str, str]] = {
     },
     "bus_channels": {
         "channel_id": "channel",
+        # `created_by` stores an AGENT_ID (the channel owner agent), not a
+        # user_id — see local_bus.create_channel:
+        #     created_by = members[0] if members else "system"
+        # Declaring it here makes import's rewrite_row map it old → new agent_id
+        # via id_map, instead of falling into importer's user-attribution loop
+        # which would force-overwrite it with the recipient user_id. That force-
+        # overwrite was breaking trigger's "channel owner always activated"
+        # semantics on the receiving side (msg_bus_trigger.py:154 compares
+        # created_by against an agent_id).
+        "created_by": "agent",
     },
     "bus_channel_members": {
         "channel_id": "channel",
