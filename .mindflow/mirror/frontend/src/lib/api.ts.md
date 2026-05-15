@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-05-13
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — workspace tree + nested delete + raw helpers
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`listFiles` now returns a recursive tree (`FileListResponse.tree`) rather
+than a flat array. `deleteFile(agentId, userId, path)` accepts a
+workspace-relative path (potentially nested, e.g. `report/index.html` or
+`report`) — `encodeURI` preserves slashes so the backend `{path:path}`
+route receives the whole sub-path. Added `workspaceFileRawUrl(...)` for
+`<a href download>` and `fetchWorkspaceFileBlob(...)` for JWT-authed
+inline preview (Tauri `<a download>` can't carry headers, so the preview
+modal goes through fetch+blob).
 
 ## 2026-05-13 — getAuthHeaders 同时注入 X-User-Id
 

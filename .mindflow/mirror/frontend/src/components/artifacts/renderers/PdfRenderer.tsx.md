@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/PdfRenderer.tsx
-last_verified: 2026-05-09
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — drop `version` prop, fetch via `useArtifactRawUrl`
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+Renderer no longer takes a `version` prop. Uses `useArtifactRawUrl` for the
+token-protected public URL, then `fetchArtifactBlobUrl` to hand a blob URL to
+`<object>`. The reason `<object>`+blob is still used (instead of a direct URL
+in `data=`) is the long-standing Firefox PDF.js same-origin-XHR requirement —
+unchanged from the pre-pointer-model design.
 
 # PdfRenderer.tsx — Native PDF renderer using `<object>`
 

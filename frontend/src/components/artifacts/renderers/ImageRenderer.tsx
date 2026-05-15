@@ -2,41 +2,41 @@
  * @file_name: ImageRenderer.tsx
  * @description: Lazy-loaded renderer for image artifacts (image/png, image/jpeg).
  *
- * Fetches the raw artifact bytes through fetch() so the JWT in the
- * Authorization header is attached (cloud-mode auth middleware rejects
- * /api/* without it, and a native <img src=...> can't carry headers).
- * The fetched blob is converted to a blob: URL and handed to <img>.
+ * Pointer model: bytes are fetched from a token-protected public URL minted
+ * via `useArtifactRawUrl`; no Authorization header is needed. The blob URL
+ * is handed to <img> because native <img src=...> cannot attach headers (the
+ * old reason was JWT; with token-in-URL it would now work, but the blob URL
+ * approach avoids re-fetching when the same image renders in multiple cards).
  */
 
 import { useEffect, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
-import { rawUrl } from '@/types/artifact';
 import { fetchArtifactBlobUrl } from '@/services/artifactsApi';
+import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 
 interface Props {
   artifact: Artifact;
-  version: number;
 }
 
-export default function ImageRenderer({ artifact, version }: Props) {
+export default function ImageRenderer({ artifact }: Props) {
+  const { url, error: urlError } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!url) return;
     let cancelled = false;
     let createdUrl: string | null = null;
     (async () => {
       setError(null);
       try {
-        const url = await fetchArtifactBlobUrl(
-          rawUrl(artifact.agent_id, artifact.artifact_id, version),
-        );
+        const blobUrl = await fetchArtifactBlobUrl(url);
         if (cancelled) {
-          URL.revokeObjectURL(url);
+          URL.revokeObjectURL(blobUrl);
           return;
         }
-        createdUrl = url;
-        setSrc(url);
+        createdUrl = blobUrl;
+        setSrc(blobUrl);
       } catch (e) {
         if (!cancelled) setError(String(e));
       }
@@ -45,8 +45,9 @@ export default function ImageRenderer({ artifact, version }: Props) {
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [artifact.agent_id, artifact.artifact_id, version]);
+  }, [url]);
 
+  if (urlError) return <div className="p-4 text-red-400">Failed to load: {urlError}</div>;
   if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
   if (!src) return <div className="p-4 opacity-60">Loading…</div>;
 

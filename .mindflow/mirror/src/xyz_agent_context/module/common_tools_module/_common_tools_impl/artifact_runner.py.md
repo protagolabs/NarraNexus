@@ -1,154 +1,114 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_runner.py
-last_verified: 2026-05-09
+last_verified: 2026-05-14
 stub: false
 ---
 
-## 2026-05-09 hardening — C2 token-based file naming; version from repo.iterate()
+## 2026-05-14-r3 — drop "must be in subdirectory" rule; single-file mode at workspace root
 
-**C2 — File naming changed from `v{n}.{ext}` to `{secrets.token_hex(8)}.{ext}`.**
-Both `create_text_artifact` and `upload_binary_artifact` now generate a random
-16-hex-char filename token for every version (including the first). This eliminates
-the race condition where two concurrent `iterate` calls both compute `version=N+1`
-outside the DB transaction and then race to write `vN+1.{ext}` — one overwriting the
-other's bytes. With random tokens, two concurrent calls always produce distinct filenames.
+We removed `delete_source` entirely (deletion is now registry-only — see the
+agents_artifacts and users_artifacts mirror md). With `rmtree` gone, the
+former "entry can't sit at the workspace root" hard rule had only one
+remaining reason: serving dirname-tree from workspace root would expose all
+other files. That's solved without a constraint by **soft-degrading at the
+serving layer**: when `artifact_root == workspace`, the public-raw route
+refuses sub-path requests (only serves the entry). Sibling-asset capability
+becomes opt-in via "put your files in a subdirectory" — a tool-description
+hint, not a hard error. The size calculation matches: entry-file size when
+at workspace root, recursive dir size otherwise.
 
-**Version is now authoritative from `repo.iterate()`.**
-In the `is_iteration` branch, the callers previously computed `version = existing.latest_version + 1`
-themselves and then called `repo.iterate()` (which did the same calculation inside a
-transaction). The local version was used for the result URL. After this change,
-`repo.iterate()` returns the new version number (it always did) and the runner uses
-that return value: `version = await repo.iterate(...)`. This ensures the URL in
-`CreateArtifactToolResult` always matches what the DB recorded, even if a concurrent
-call caused the DB-side version to differ from the pre-transaction read.
+## 2026-05-14 — rewritten for the pointer model
 
-**File layout note:**
-```
-{settings.base_working_path}/{agent_id}_{user_id}/artifacts/{artifact_id}/{token}.{ext}
-```
-The `v{n}` prefix is gone. The version number remains a pure DB concept — callers
-must look up `instance_artifact_versions.file_path` to find the file on disk.
-The `get_raw` endpoint already does this (it reads the version row's `file_path`
-before constructing the absolute path).
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
 
-## 2026-05-08-r3 — ArtifactEventBus removed; C1 auto-pin applied to upload_binary_artifact
+The whole file was rewritten. The old copy/version model
+(`create_text_artifact` writing inline content to a managed `artifacts/` folder,
+`upload_binary_artifact` copying a workspace file in, `repo.iterate()` appending
+version rows) is gone. There is now **one** function, `register_artifact`, that
+registers a pointer to an entry file the agent already wrote in its workspace.
 
-The `get_artifact_event_bus().publish(...)` calls have been removed from both
-`create_text_artifact` and `upload_binary_artifact`. The in-process event bus was
-dropped because it lived in the MCP server process, not the FastAPI process, so
-`publish()` never reached the `/ws/artifacts/{agent_id}` subscribers in FastAPI.
-The `from xyz_agent_context.utils.artifact_events import get_artifact_event_bus`
-import was removed accordingly.
+# artifact_runner.py — pointer registration for artifacts
 
-The **C1 auto-pin fix** (previously applied only to `create_text_artifact` in r2)
-is now also applied to `upload_binary_artifact`: `auto_pinned = session_id is None and not is_iteration`.
-When `session_id` is `None` at creation time (LLM-driven call with no session context),
-the artifact is created with `pinned=True` so it appears in `list_pinned` and is
-visible to the UI. Iterations are unaffected — they inherit the parent's pin state.
+## Why it exists
 
-## 2026-05-08 addition — ArtifactEventBus integration (superseded, removed in r3)
+The agent produces visual deliverables (ECharts JSON, HTML apps, CSV, Markdown,
+images, PDFs) by **writing files into its own workspace** — that is its natural
+working mode, and it lets a deliverable be multi-file (an entry `index.html`
+plus `style.css`, `app.js`, `data.json`, images).
 
-Both `create_text_artifact` and `upload_binary_artifact` called
-`get_artifact_event_bus().publish(agent_id, event)` just before returning.
-This was removed in r3 — see above for why.
+`register_artifact` is the bridge that makes such a workspace file *visible to
+the user*. It does not write, copy, or move anything — it validates the entry
+path, sizes the artifact root directory, enforces quota, and writes/updates one
+`instance_artifacts` row. Content stays in the workspace; the backend serves it
+straight off disk.
 
-# artifact_runner.py — 文件系统 + 数据库的 artifact 落地层
+## The model
 
-## 为什么存在
+- **artifact = entry file + its directory.** `artifact_root = dirname(entry)`.
+  The whole root directory is served, so the entry HTML can reference siblings.
+- The entry file must live in a **subdirectory** of the workspace, never
+  directly in the workspace root — registering the root would expose every
+  file the agent owns. `_resolve_entry` enforces this with a guiding error.
+- Single-file kinds (echarts JSON / csv / markdown / standalone HTML) are the
+  degenerate case: a root directory with one file. Same code path.
+- `target_artifact_id` re-registers onto an existing row (overwrites the
+  pointer + title/description in place). Kind must match.
 
-Agent 产出的可视化内容（ECharts JSON、HTML app、CSV 报告、Markdown 文档、图片、PDF）
-不能直接存到 DB（太大、不适合 TEXT），也不能只存文件（需要元数据查询、版本追踪、
-quota 控制）。
+## Upstream / Downstream
 
-`artifact_runner` 是"两条腿同时落地"的协调层：
+- **Called by**: `artifact_tool.py` (the `register_artifact` MCP tool) and
+  `backend/routes/agents_artifacts.py` (the manual `POST .../register` endpoint).
+- **Depends on**: `ArtifactRepository` (DB I/O), `settings.base_working_path`
+  (workspace root), `Artifact` / `ArtifactKind` / `CreateArtifactToolResult`.
+- **Deliberately does not depend on**: agent_runtime, NarrativeService, any
+  other Module — it is a generic tool, not scenario-bound.
 
-1. 写文件到固定目录结构
-2. 在 DB 里原子插入 / iterate artifact + version 行
+## Exception hierarchy (for the MCP wrapper / route layer)
 
-这样 HTTP serve 层可以用文件路径返回 raw 内容，查询层可以用 SQL 做过滤 / 分页 / 统计。
-
-## 上下游关系
-
-- **被谁用**：`_common_tools_mcp_tools.py` 里暴露给 LLM 的 MCP tool（`create_artifact` /
-  `upload_artifact_file`）直接调本模块的两个公开函数
-- **依赖谁**：
-  - `ArtifactRepository` — DB read/write (get_by_id, create, iterate)
-  - `settings.base_working_path` — workspace 根目录
-  - `Artifact` / `ArtifactKind` / `CreateArtifactToolResult` 来自 schema
-- **刻意不依赖谁**：agent_runtime、NarrativeService、任何其他 Module——这是通用工具，不绑场景
-
-## 文件布局约定
-
-```
-{settings.base_working_path}/{agent_id}_{user_id}/artifacts/{artifact_id}/v{n}.{ext}
-```
-
-- `{agent_id}_{user_id}` 是 workspace root；同 Attachment 的约定保持一致
-- `artifacts/` 子目录把 artifact 文件和其他工作文件分隔开
-- `v{n}.{ext}` 让 iterate 保留历史版本（v1.md、v2.md 并存）
-
-DB 里存的是相对于 `settings.base_working_path` 的 relpath，
-所以 `base_working_path` 换位置只需更新 settings，文件系统搬家后路径解析仍能工作。
-
-## 异常层级（供 MCP wrapper 转换用）
-
-| 异常 | code | 触发场景 |
+| Exception | code | Trigger |
 |---|---|---|
-| `ArtifactTooLarge` | 413 | content > 1MB（文字）或文件 > 10MB（二进制）|
-| `ArtifactNotFound` | 404 | target_artifact_id 对应的行不存在 |
-| `ArtifactKindMismatch` | 400 | iterate 时新 kind ≠ 旧 kind |
-| `ArtifactPathEscape` | 400 | upload_binary 时 local_path 不在 agent workspace 里 |
-| `ArtifactQuotaExceeded` | 507 | 加上本次 > 500MB per-agent quota |
-| `ArtifactError` (base) | 400 | kind 错误（文字函数收到二进制 kind 或反之）|
+| `ArtifactTooLarge` | 413 | artifact root directory > MAX_ARTIFACT_BYTES (25 MB) |
+| `ArtifactNotFound` | 404 | `target_artifact_id` row does not exist |
+| `ArtifactKindMismatch` | 400 | re-register kind ≠ existing kind |
+| `ArtifactPathEscape` | 400 | entry path missing / not a file / outside workspace / directly in workspace root |
+| `ArtifactQuotaExceeded` | 507 | per-user count or byte quota exceeded |
+| `ArtifactError` (base) | 400 | kind not in the 7-kind whitelist |
 
-`.code` 字段让 MCP wrapper 可以无分支地 map 到 HTTP status code。
+`.code` lets the wrapper map to an HTTP status with no branching.
 
-## 设计决策
+## Design decisions
 
-### 为什么用 os.path.realpath 做 path-escape 检查
+- **`realpath` for the path-escape check.** Resolves symlinks: a
+  workspace-interior symlink pointing at `/etc/passwd` is still rejected by the
+  `startswith(workspace + os.sep)` test. `abspath` alone is not enough.
 
-`realpath` 解析所有软链接。如果 local_path 是一个指向 `/etc/passwd` 的符号链接，
-`startswith(workspace + os.sep)` 仍然能正确拒绝它。只 `abspath` 不够用。
+- **Quota delta on re-register.** `_enforce_quota` receives the *delta* bytes —
+  the full size for a new artifact, `(new − old)` for a re-register — so
+  re-registering a shrunk artifact never trips the byte ceiling, and the count
+  check is skipped entirely for re-registers (no new row).
 
-### 为什么 quota 检查在写文件之前
+- **`size_bytes` is the recursive root directory size**, not the entry file
+  alone — a multi-file HTML app's quota cost is the whole folder.
 
-写文件是不可逆的（就算删 inode，磁盘块要到 GC 才回收）。先检查，通过才写，
-避免写了文件但 DB 插入因 quota 失败的不一致状态。
+- **`MAX_ARTIFACT_BYTES` (25 MB) caps a single artifact**; the per-user
+  aggregate quota (count + 100 MB bytes, deploy-mode aware) is enforced on top.
 
-### `now` 固定化 (2026-05-08-r2)
+- **No filesystem writes at all.** The old "quota check before writing the
+  file" ordering concern is gone — there is nothing to write. The only side
+  effect is the DB row.
 
-Both `create_text_artifact` and `upload_binary_artifact` previously called
-`datetime.now(timezone.utc)` twice — once for the DB row's `created_at`/`updated_at`
-and again for `CreateArtifactToolResult.created_at`. This caused a tiny clock skew
-between what the DB stores and what the LLM sees in the tool result. A single
-`now = datetime.now(timezone.utc)` is now captured at the top of the create branch
-and reused in both places.
+## Gotchas
 
-### 为什么 iterate 时不更新 artifact 的 updated_at
+- `entry_path` may be absolute or workspace-relative — `_resolve_entry` joins
+  relative paths against the workspace root before `realpath`.
 
-`ArtifactRepository.iterate()` 只更新 `latest_version` 列，保持 `updated_at` 不变。
-这是 Task 3 的仓库设计决策，artifact_runner 直接复用，不在这里额外 patch。
-如果将来需要追踪 `updated_at`，改 `repo.iterate()` 即可，runner 不用变。
+- The artifact content is **live**: it points at the agent's real file. If the
+  agent later edits or deletes the file/folder, the artifact changes or 404s.
+  This is intentional (the whole point of the pointer model); the serving route
+  returns 410 when the file is gone.
 
-### 为什么文字和二进制用两个独立函数而不是一个
+- `settings.base_working_path` is read at call time (via `_workspace_root` /
+  `_relative_to_base`), not cached at import — so tests can monkeypatch it.
 
-两者的 payload 类型不同（`str` vs 文件路径），size limit 不同（1MB vs 10MB），
-path-escape 检查只对二进制有意义。合并成一个函数会造成 Optional 参数激增 + 条件判断。
-拆开更清晰，MCP wrapper 的两个 tool 声明也更精确。
-
-## Gotcha / 边界情况
-
-- **`target_artifact_id` 的 kind 校验发生在 quota check 之后**：改变顺序会让用户看到
-  "kind mismatch"之前先做了一次额外的 DB 查询（`total_bytes_for_agent`）。
-  目前的顺序是：size check → quota check → kind check。
-  如果 kind check 更便宜（1 次 get_by_id vs 1 次 aggregate query），可以调整优先级——
-  但当前 quota 失败场景远比 kind mismatch 少见，现有顺序 acceptable。
-
-- **DB 事务由 `repo.create` / `repo.iterate` 内部管理**：runner 不需要额外包事务。
-  文件已写入、但 DB 插入失败时，orphan 文件会留在磁盘——接受这个 trade-off，
-  因为 artifact dir 在下次 create 时会被同 artifact_id 的文件覆盖（iterate 场景），
-  或留为无主文件（create 场景，清理脚本可扫描 orphan）。
-
-- **settings.base_working_path 在测试里通过 monkeypatch.setattr 替换**：
-  `_relative_to_base` 和 `_workspace_root` 在调用时读 `settings.base_working_path`
-  而不是 import 时缓存，所以 monkeypatch 能正确生效。
+- The DB `file_path` is relative to `base_working_path`, so moving the workspace
+  only needs a settings change; stored paths still resolve.

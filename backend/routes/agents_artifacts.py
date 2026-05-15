@@ -2,31 +2,39 @@
 @file_name: agents_artifacts.py
 @author: Bin Liang
 @date: 2026-05-08
-@description: REST endpoints for agent-emitted Artifact tabs.
+@description: JWT-authed REST endpoints for agent-emitted Artifact tabs (pointer model).
 
 Endpoints:
 - GET    /{agent_id}/artifacts                       list (scope=session|pinned, session_id?)
-- GET    /{agent_id}/artifacts/{aid}                 metadata + version list
-- GET    /{agent_id}/artifacts/{aid}/v{n}/raw        raw content with strict CSP header
+- POST   /{agent_id}/artifacts/register              manual register: register a workspace file as an artifact
+- GET    /{agent_id}/artifacts/{aid}                 metadata
+- GET    /{agent_id}/artifacts/{aid}/view-token      mint a short-TTL HMAC token for the public raw route
 - PATCH  /{agent_id}/artifacts/{aid}                 { pinned?, title? }
-- DELETE /{agent_id}/artifacts/{aid}                 hard delete (row + folder)
+- DELETE /{agent_id}/artifacts/{aid}                 remove DB row (workspace files are NOT touched)
+
+The raw-content route lives in `artifacts_public.py` under `/api/public/artifacts/raw/{token}/`
+(JWT-bypassed; the HMAC token IS the auth). That keeps multi-file HTML
+artifacts loadable via iframe `src=` in cloud mode.
+
+Deletion is registry-only by design (2026-05-14-r3): removing an artifact
+tab never deletes the agent's workspace files. The user can clean those up
+via the workspace section in the config panel.
 """
 
 from __future__ import annotations
 
-import os
-import shutil
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import FileResponse
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from xyz_agent_context.module.common_tools_module._common_tools_impl import artifact_runner
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact, ArtifactVersion
-from xyz_agent_context.settings import settings
+from xyz_agent_context.schema import Artifact
 from xyz_agent_context.utils.db_factory import get_db_client
+
+from backend.routes import _artifact_token
 
 
 router = APIRouter()
@@ -49,29 +57,18 @@ async def _verify_agent_ownership(request: Request, agent_id: str) -> None:
         raise HTTPException(403, "permission denied: you do not own this agent")
 
 
-CSP_BY_KIND = {
-    # text/html: Agent-emitted self-contained HTML rendered inside an
-    # iframe sandbox="allow-scripts" (no allow-same-origin). Inline scripts
-    # and inline event handlers (onclick=...) are explicitly allowed via
-    # script-src 'unsafe-inline' — required for interactive HTML artifacts.
-    # External script loads (<script src=...>), fetch(), XHR, and WebSocket
-    # all fall back to default-src 'none' and are blocked, so the document
-    # cannot phone home. Inline styles allowed for ergonomic markup.
-    "text/html":                       "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:",
-    "application/vnd.echarts+json":    "default-src 'none'",
-    "text/csv":                        "default-src 'none'",
-    "text/markdown":                   "default-src 'none'",
-    "image/png":                       "default-src 'none'; img-src 'self'",
-    "image/jpeg":                      "default-src 'none'; img-src 'self'",
-    "application/pdf":                 "default-src 'none'; object-src 'self'",
-}
+async def _resolve_agent_user_id(agent_id: str) -> str:
+    """Look up an agent's owner user_id (the workspace owner).
 
-SAFE_HEADERS = {
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "SAMEORIGIN",
-    "Referrer-Policy": "no-referrer",
-    "Cross-Origin-Resource-Policy": "same-origin",
-}
+    Used by the manual-register endpoint to resolve the workspace path
+    `{base}/{agent_id}_{user_id}/` exactly the way the agent loop and MCP tool
+    do (the agent_runtime overrides ctx.user_id with agent.created_by).
+    """
+    db = await get_db_client()
+    agent = await db.get_one("agents", {"agent_id": agent_id})
+    if not agent or not agent.get("created_by"):
+        raise HTTPException(404, "agent not found")
+    return str(agent["created_by"])
 
 
 class PatchArtifact(BaseModel):
@@ -79,9 +76,21 @@ class PatchArtifact(BaseModel):
     title: Optional[str] = None
 
 
-class ArtifactDetail(BaseModel):
-    artifact: Artifact
-    versions: List[ArtifactVersion]
+class RegisterRequest(BaseModel):
+    file_path: str = Field(..., description="Workspace-relative or absolute path to the entry file")
+    kind: str
+    title: str
+    description: Optional[str] = None
+    target_artifact_id: Optional[str] = None
+
+
+class ViewTokenResponse(BaseModel):
+    token: str
+    raw_url: str
+    expires_at: int
+
+
+# ── list / register ──────────────────────────────────────────────────────────
 
 
 @router.get("/{agent_id}/artifacts", response_model=List[Artifact])
@@ -95,14 +104,9 @@ async def list_artifacts(
     List artifacts for an agent.
 
     Args:
-        request: FastAPI request (used for ownership verification in cloud mode).
-        agent_id: Agent scope.
         scope: 'session' (default) returns non-pinned artifacts for the given
                session_id; 'pinned' returns all pinned artifacts for the agent.
         session_id: Required when scope='session'.
-
-    Returns:
-        List of Artifact objects.
     """
     await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
@@ -114,74 +118,89 @@ async def list_artifacts(
     return await repo.list_by_session(agent_id, session_id)
 
 
-@router.get("/{agent_id}/artifacts/{artifact_id}", response_model=ArtifactDetail)
-async def get_artifact(request: Request, agent_id: str, artifact_id: str):
+@router.post("/{agent_id}/artifacts/register", response_model=Artifact)
+async def register_artifact(request: Request, agent_id: str, body: RegisterRequest):
     """
-    Get artifact metadata and its version list.
+    Manually register a workspace file as an artifact.
 
-    Args:
-        request: FastAPI request (used for ownership verification in cloud mode).
-        agent_id: Agent scope (used to verify ownership).
-        artifact_id: Artifact ID.
+    Powers the "register as artifact" action in the workspace tree viewer.
+    Delegates to the same `artifact_runner.register_artifact` the MCP tool
+    uses, so validation, quota, and path-confinement rules are identical.
 
-    Returns:
-        ArtifactDetail containing the Artifact and its ArtifactVersion list.
-    """
-    await _verify_agent_ownership(request, agent_id)
-    db = await get_db_client()
-    repo = ArtifactRepository(db)
-    art = await repo.get_by_id(artifact_id)
-    if art is None or art.agent_id != agent_id:
-        raise HTTPException(404, "artifact not found")
-    versions = await repo.list_versions(artifact_id)
-    return ArtifactDetail(artifact=art, versions=versions)
-
-
-@router.get("/{agent_id}/artifacts/{artifact_id}/v{version}/raw")
-async def get_raw(request: Request, agent_id: str, artifact_id: str, version: int):
-    """
-    Serve the raw artifact file with strict Content-Security-Policy headers.
-
-    The CSP is selected per MIME kind — scripts are never permitted from
-    an external src, preventing XSS from arbitrary agent-generated HTML.
-
-    Args:
-        request: FastAPI request (used for ownership verification in cloud mode).
-        agent_id: Agent scope (ownership check).
-        artifact_id: Artifact ID.
-        version: Version number (integer path segment after 'v').
-
-    Returns:
-        FileResponse with kind-specific CSP and SAFE_HEADERS.
+    `file_path` may be absolute or workspace-relative; it must be inside the
+    agent's workspace AND in a subdirectory (not directly in the workspace
+    root). The entry file's directory becomes the artifact root.
     """
     await _verify_agent_ownership(request, agent_id)
+    user_id = await _resolve_agent_user_id(agent_id)
+
     db = await get_db_client()
     repo = ArtifactRepository(db)
-    art = await repo.get_by_id(artifact_id)
-    if art is None or art.agent_id != agent_id:
-        raise HTTPException(404, "artifact not found")
-    versions = await repo.list_versions(artifact_id)
-    match = next((v for v in versions if v.version == version), None)
-    if match is None:
-        raise HTTPException(404, "version not found")
-
-    # Path-confinement defence: prevent DB-injected path-traversal from escaping the workspace.
-    abs_path = os.path.realpath(os.path.join(settings.base_working_path, match.file_path))
-    base = os.path.realpath(settings.base_working_path)
-    if not (abs_path == base or abs_path.startswith(base + os.sep)):
-        logger.warning(
-            f"Path-escape attempt for artifact {artifact_id} v{version}: {match.file_path!r}"
+    try:
+        result = await artifact_runner.register_artifact(
+            repo=repo,
+            agent_id=agent_id,
+            user_id=user_id,
+            session_id=None,                  # manual registrations are always agent-scoped
+            kind=body.kind,                   # type: ignore[arg-type]
+            entry_path=body.file_path,
+            title=body.title,
+            description=body.description,
+            target_artifact_id=body.target_artifact_id,
         )
-        raise HTTPException(404, "artifact not found")
-    if not os.path.isfile(abs_path):
-        logger.warning(f"Artifact file missing on disk: {abs_path}")
-        raise HTTPException(410, "artifact file missing on disk")
+    except artifact_runner.ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
 
-    headers = {
-        **SAFE_HEADERS,
-        "Content-Security-Policy": CSP_BY_KIND.get(art.kind, "default-src 'none'"),
-    }
-    return FileResponse(path=abs_path, media_type=art.kind, headers=headers)
+    art = await repo.get_by_id(result.artifact_id)
+    if art is None:
+        # Should be impossible — the runner just wrote the row.
+        raise HTTPException(500, "artifact disappeared after registration")
+    return art
+
+
+# ── detail / view-token / patch / delete ─────────────────────────────────────
+
+
+@router.get("/{agent_id}/artifacts/{artifact_id}/view-token", response_model=ViewTokenResponse)
+async def mint_view_token(request: Request, agent_id: str, artifact_id: str):
+    """
+    Mint a short-TTL HMAC view token for an artifact's raw content.
+
+    The frontend calls this once before loading the iframe `src` for HTML
+    artifacts (and uses the same flow for non-HTML kinds for code symmetry —
+    no JWT header needed on the raw fetch).
+
+    The returned `raw_url` is the directory-style URL `/raw/{token}/`; the
+    entry file is served at that URL, sibling assets at `/raw/{token}/{name}`.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    db = await get_db_client()
+    repo = ArtifactRepository(db)
+    art = await repo.get_by_id(artifact_id)
+    if art is None or art.agent_id != agent_id:
+        raise HTTPException(404, "artifact not found")
+
+    token = _artifact_token.mint(agent_id=agent_id, artifact_id=artifact_id)
+    # Decode exp without re-verifying — the payload is the b64url part before '.'.
+    import base64
+    import json as _json
+    payload_b64 = token.split(".", 1)[0]
+    pad = "=" * (-len(payload_b64) % 4)
+    payload = _json.loads(base64.urlsafe_b64decode(payload_b64 + pad).decode("utf-8"))
+    raw_url = f"/api/public/artifacts/raw/{token}/"
+    return ViewTokenResponse(token=token, raw_url=raw_url, expires_at=int(payload["exp"]))
+
+
+@router.get("/{agent_id}/artifacts/{artifact_id}", response_model=Artifact)
+async def get_artifact(request: Request, agent_id: str, artifact_id: str):
+    """Get artifact metadata."""
+    await _verify_agent_ownership(request, agent_id)
+    db = await get_db_client()
+    repo = ArtifactRepository(db)
+    art = await repo.get_by_id(artifact_id)
+    if art is None or art.agent_id != agent_id:
+        raise HTTPException(404, "artifact not found")
+    return art
 
 
 @router.patch("/{agent_id}/artifacts/{artifact_id}", response_model=Artifact)
@@ -190,15 +209,8 @@ async def patch_artifact(request: Request, agent_id: str, artifact_id: str, body
     Update artifact metadata (pinned flag and/or title).
 
     Pinning an artifact clears its session_id, making it agent-scoped.
-
-    Args:
-        request: FastAPI request (used for ownership verification in cloud mode).
-        agent_id: Agent scope (ownership check).
-        artifact_id: Artifact ID.
-        body: Fields to update (all optional).
-
-    Returns:
-        Updated Artifact.
+    Unpinning an agent-created artifact (no session to restore) is rejected
+    with 400 — the caller should DELETE instead.
     """
     await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
@@ -211,8 +223,7 @@ async def patch_artifact(request: Request, agent_id: str, artifact_id: str, body
         if body.pinned is False and existing.original_session_id is None and existing.pinned:
             # Unpinning would restore a NULL session_id — the artifact would
             # become invisible (not in any session list, not in pinned list).
-            # This is the case for agent-created artifacts (LLM has no session
-            # context to bind them to). Force the user to delete instead.
+            # This is the case for agent-created artifacts. Force DELETE.
             raise HTTPException(
                 400,
                 "this artifact is agent-scoped (no session to restore); "
@@ -227,20 +238,13 @@ async def patch_artifact(request: Request, agent_id: str, artifact_id: str, body
 
 @router.delete("/{agent_id}/artifacts/{artifact_id}")
 async def delete_artifact(request: Request, agent_id: str, artifact_id: str):
-    """
-    Hard-delete an artifact: removes the on-disk folder first, then the DB row cascade.
+    """Delete an artifact's DB row.
 
-    The folder is removed before the DB row so that a filesystem failure aborts
-    the entire operation without leaving orphaned DB rows. If rmtree fails, the
-    endpoint returns 500 and the DB row is preserved (both-or-neither contract).
-
-    Args:
-        request: FastAPI request (used for ownership verification in cloud mode).
-        agent_id: Agent scope (ownership check).
-        artifact_id: Artifact ID.
-
-    Returns:
-        Dict with 'deleted' key containing the artifact_id.
+    Registry-only: the agent's workspace files are NEVER touched. The user
+    cleans those up via the workspace section in the config panel when they
+    want to free disk. Keeping this surgical removed a class of footguns
+    (workspace-root rmtree, shared-directory collisions) — see the 2026-05-14
+    architecture decision recorded in the artifact-pointer-model spec.
     """
     await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
@@ -249,19 +253,6 @@ async def delete_artifact(request: Request, agent_id: str, artifact_id: str):
     if existing is None or existing.agent_id != agent_id:
         raise HTTPException(404, "artifact not found")
 
-    folder = os.path.join(
-        settings.base_working_path,
-        f"{existing.agent_id}_{existing.user_id}",
-        "artifacts",
-        artifact_id,
-    )
-    if os.path.isdir(folder):
-        try:
-            shutil.rmtree(folder)  # no ignore_errors — surface real failures
-        except OSError as e:
-            logger.error(f"Failed to remove artifact folder {folder}: {e}")
-            raise HTTPException(500, "failed to remove artifact files; aborting deletion")
-        logger.info(f"Deleted artifact folder: {folder}")
-
     await repo.delete(artifact_id)
+    logger.info(f"Artifact registry row deleted: {artifact_id}")
     return {"deleted": artifact_id}

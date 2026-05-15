@@ -504,11 +504,40 @@ class ApiClient {
     return response.blob();
   }
 
-  async deleteFile(agentId: string, userId: string, filename: string): Promise<FileDeleteResponse> {
+  async deleteFile(agentId: string, userId: string, path: string): Promise<FileDeleteResponse> {
+    // Path may contain slashes (nested workspace path). encodeURI preserves
+    // them while still encoding spaces / unicode. The `{path:path}` route
+    // pattern on the backend accepts the full sub-path as one segment.
     return this.request<FileDeleteResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/files/${encodeURIComponent(filename)}?user_id=${encodeURIComponent(userId)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/files/${encodeURI(path)}?user_id=${encodeURIComponent(userId)}`,
       { method: 'DELETE' }
     );
+  }
+
+  /**
+   * Build a download / preview URL for a workspace file. Returns a string so
+   * callers can hand it to <a href download> or fetch it for inline preview.
+   * The route is JWT-authed via the global middleware; <a> elements load it
+   * with the page's cookie / no auth (in cloud mode that means it relies on
+   * the middleware exempting <a download> behaviour — currently it does not,
+   * so cloud-mode downloads need a fetch + blob flow if direct <a download>
+   * proves unauthenticated. For local mode the <a download> works directly).
+   */
+  workspaceFileRawUrl(agentId: string, userId: string, path: string): string {
+    return `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/files/raw?user_id=${encodeURIComponent(userId)}&path=${encodeURIComponent(path)}`;
+  }
+
+  /**
+   * Fetch a workspace file's bytes as a Blob (JWT attached). Use for inline
+   * preview or for cloud-mode downloads where <a download> can't carry auth.
+   */
+  async fetchWorkspaceFileBlob(agentId: string, userId: string, path: string): Promise<Blob> {
+    const url = this.workspaceFileRawUrl(agentId, userId, path);
+    const response = await fetch(url, { headers: this.getAuthHeaders() });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    return response.blob();
   }
 
   // MCP Management API

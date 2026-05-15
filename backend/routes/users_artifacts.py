@@ -5,24 +5,24 @@
 @description: User-scoped artifact endpoints — cross-agent list + bulk delete.
 
 Backs the Settings → Artifacts management UI. Distinct from
-agents_artifacts.py (agent-scoped routes) because the management UI needs
-to see the full user-owned set across every agent the user owns, and
-let them delete in bulk to free the per-user quota.
+agents_artifacts.py (agent-scoped routes) because the management UI needs to
+see the full user-owned set across every agent the user owns, and let them
+delete in bulk to free the per-user quota.
 
 Endpoints:
-- GET    /{user_id}/artifacts                   list every artifact owned by user
-- GET    /{user_id}/artifacts/quota             return current usage vs. limits
-- DELETE /{user_id}/artifacts                   bulk delete; body { artifact_ids: [...] }
+- GET    /{user_id}/artifacts                 list every artifact owned by user
+- GET    /{user_id}/artifacts/quota           return current usage vs. limits
+- DELETE /{user_id}/artifacts                 bulk delete registry rows only
+
+Registry-only delete (2026-05-14-r3): workspace files are never removed by
+this endpoint. The user cleans those up via the agent's workspace section.
 """
 
 from __future__ import annotations
 
-import os
-import shutil
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, HTTPException, Request
-from loguru import logger
 from pydantic import BaseModel, Field
 
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
@@ -76,9 +76,8 @@ async def list_user_artifacts(user_id: str, request: Request):
 async def get_user_quota(user_id: str, request: Request):
     """Return current artifact usage vs. configured limits.
 
-    Used by the Settings → Artifacts panel to render the "8 / 10" headline
-    and to colour the progress bar warning when the user is approaching
-    the cap.
+    Used by the Settings → Artifacts panel to render the "8 / 10" headline and
+    to colour the progress bar warning when the user is approaching the cap.
     """
     await _verify_user_self(request, user_id)
     db = await get_db_client()
@@ -100,13 +99,10 @@ async def bulk_delete_artifacts(
     request: Request,
     body: BulkDeleteRequest,
 ):
-    """Bulk-delete artifacts. Each ID is verified to belong to user_id.
-
-    Filesystem cleanup is best-effort per artifact: a failed rmtree is
-    logged but the DB row is still removed (matches the per-row delete
-    contract in agents_artifacts.delete_artifact and avoids leaving
-    half-deleted state across many rows).
-    """
+    """Bulk-delete artifact registry rows. Each ID is verified to belong to
+    `user_id`; unowned IDs are returned in `skipped_not_owned` (never silently
+    deleted). Workspace files are NOT touched — the user cleans those up via
+    the agent's workspace section."""
     await _verify_user_self(request, user_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
@@ -114,35 +110,14 @@ async def bulk_delete_artifacts(
     if not body.artifact_ids:
         return BulkDeleteResponse(deleted=0)
 
-    # Filter out artifacts the user does NOT own — never let a tenant
-    # delete another tenant's artifacts even by guessing IDs.
     ids_to_delete: List[str] = []
     skipped: List[str] = []
-    folder_paths: List[Optional[str]] = []
     for aid in body.artifact_ids:
         art = await repo.get_by_id(aid)
         if art is None or art.user_id != user_id:
             skipped.append(aid)
             continue
         ids_to_delete.append(aid)
-        folder_paths.append(
-            os.path.join(
-                settings.base_working_path,
-                f"{art.agent_id}_{art.user_id}",
-                "artifacts",
-                aid,
-            )
-        )
-
-    # Delete on-disk folders first so a partial DB delete doesn't leak
-    # files behind. ignore_errors=True for individual rmtree calls because
-    # one bad folder shouldn't block the rest of the batch.
-    for path in folder_paths:
-        if path and os.path.isdir(path):
-            try:
-                shutil.rmtree(path)
-            except OSError as e:
-                logger.warning(f"bulk_delete: rmtree failed for {path}: {e}")
 
     deleted = await repo.bulk_delete(ids_to_delete)
     return BulkDeleteResponse(deleted=deleted, skipped_not_owned=skipped)

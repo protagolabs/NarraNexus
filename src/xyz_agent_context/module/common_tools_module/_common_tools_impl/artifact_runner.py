@@ -2,23 +2,29 @@
 @file_name: artifact_runner.py
 @author: Bin Liang
 @date: 2026-05-08
-@description: Filesystem + DB orchestration for create_artifact / upload_artifact_file.
+@description: DB orchestration for register_artifact (pointer model).
 
-Public functions:
-- create_text_artifact(repo, agent_id, user_id, session_id, kind, content, title, description, target_artifact_id)
-- upload_binary_artifact(repo, agent_id, user_id, session_id, kind, local_path, title, description, target_artifact_id)
+`register_artifact` registers a *pointer* to an entry file the agent already
+wrote inside its own workspace. It does NOT copy, move, or write any content —
+it validates the path, computes the artifact root directory size, enforces the
+per-user quota, and writes (or updates) one `instance_artifacts` row.
 
-Both return CreateArtifactToolResult and raise structured exceptions for the
-MCP wrapper to convert into LLM-readable errors.
+An artifact = an entry file + the directory it lives in (the "artifact root").
+The whole root directory is served by the backend, so a multi-file HTML app can
+reference sibling assets (css/js/json/images).
 
-File layout: {base_working_path}/{agent_id}_{user_id}/artifacts/{artifact_id}/v{n}.{ext}
+Public function:
+- register_artifact(repo, agent_id, user_id, session_id, kind, entry_path,
+                    title, description, target_artifact_id) -> CreateArtifactToolResult
+
+Raises structured exceptions for the MCP wrapper / route layer to convert into
+caller-readable errors.
 """
 
 from __future__ import annotations
 
 import os
 import secrets
-import shutil
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -33,25 +39,22 @@ from xyz_agent_context.schema.artifact_schema import (
 from xyz_agent_context.settings import settings
 
 
-MAX_TEXT_BYTES = 1 * 1024 * 1024       # 1 MB per text artifact (content body)
-MAX_BINARY_BYTES = 10 * 1024 * 1024    # 10 MB per binary artifact (image / pdf)
+# Per-artifact ceiling: the recursive size of one artifact's root directory.
+# Caps a single runaway artifact; the per-user aggregate quota (count + bytes,
+# deploy-mode aware) lives in settings and is enforced on top of this.
+MAX_ARTIFACT_BYTES = 25 * 1024 * 1024  # 25 MB
 
-# Per-user aggregate quota lives in settings (count + bytes; deploy-mode aware).
-# Both must be satisfied; whichever fires first triggers ArtifactQuotaExceeded
-# with a message pointing the user at the Settings → Artifacts management UI.
-
-_KIND_TO_EXT: dict[str, str] = {
-    "text/html": "html",
-    "application/vnd.echarts+json": "json",
-    "text/csv": "csv",
-    "text/markdown": "md",
-    "image/png": "png",
-    "image/jpeg": "jpg",
-    "application/pdf": "pdf",
-}
-
-_TEXT_KINDS = frozenset({"text/html", "application/vnd.echarts+json", "text/csv", "text/markdown"})
-_BINARY_KINDS = frozenset({"image/png", "image/jpeg", "application/pdf"})
+ALL_KINDS = frozenset(
+    {
+        "text/html",
+        "application/vnd.echarts+json",
+        "text/csv",
+        "text/markdown",
+        "image/png",
+        "image/jpeg",
+        "application/pdf",
+    }
+)
 
 
 # ── structured exception hierarchy ────────────────────────────────────────────
@@ -94,17 +97,66 @@ def _workspace_root(agent_id: str, user_id: str) -> str:
     return os.path.join(settings.base_working_path, f"{agent_id}_{user_id}")
 
 
-def _artifact_dir(agent_id: str, user_id: str, artifact_id: str) -> str:
-    return os.path.join(_workspace_root(agent_id, user_id), "artifacts", artifact_id)
-
-
 def _relative_to_base(absolute_path: str) -> str:
     """Return path relative to settings.base_working_path."""
     return os.path.relpath(absolute_path, settings.base_working_path)
 
 
-def _build_url(agent_id: str, artifact_id: str, version: int) -> str:
-    return f"/api/agents/{agent_id}/artifacts/{artifact_id}/v{version}/raw"
+def _build_url(agent_id: str, artifact_id: str) -> str:
+    """Directory-serving URL. The trailing slash makes the entry file's relative
+    references (./style.css, ./data.json) resolve under the same path."""
+    return f"/api/agents/{agent_id}/artifacts/{artifact_id}/raw/"
+
+
+def _dir_size(path: str) -> int:
+    """Recursive sum of file sizes under `path`. Symlinks are not followed."""
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            fp = os.path.join(root, name)
+            try:
+                total += os.path.getsize(fp)
+            except OSError:
+                pass
+    return total
+
+
+def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, str]:
+    """Resolve and validate the entry file path.
+
+    `entry_path` may be absolute or relative to the agent workspace. The
+    resolved file must be an existing regular file, strictly inside the agent
+    workspace.
+
+    Returns:
+        (abs_entry, artifact_root) — both realpath-resolved absolute paths.
+        `artifact_root` is `dirname(abs_entry)`; the public-raw route serves
+        files under that root for multi-file artifacts. When the entry sits
+        directly in the workspace (artifact_root == workspace), the route
+        serves only the entry — sub-path requests 404 — so the agent's other
+        files are not exposed. The agent gets sibling-asset support by
+        putting the entry in a dedicated subdirectory.
+
+    Raises:
+        ArtifactPathEscape: file missing / not a file / outside the workspace.
+    """
+    workspace = os.path.realpath(_workspace_root(agent_id, user_id))
+    raw = entry_path if os.path.isabs(entry_path) else os.path.join(workspace, entry_path)
+    abs_entry = os.path.realpath(raw)
+
+    if not abs_entry.startswith(workspace + os.sep):
+        raise ArtifactPathEscape(
+            "entry_path is outside your agent workspace. Write the artifact "
+            "files inside your workspace first, then register the entry file."
+        )
+    if not os.path.isfile(abs_entry):
+        raise ArtifactPathEscape(
+            "entry_path does not point at an existing file. Write the file "
+            "into your workspace first, then register it."
+        )
+
+    artifact_root = os.path.dirname(abs_entry)
+    return abs_entry, artifact_root
 
 
 # ── quota enforcement ──────────────────────────────────────────────────────────
@@ -117,23 +169,22 @@ async def _enforce_quota(
     *,
     is_iteration: bool,
 ) -> None:
-    """Raise ArtifactQuotaExceeded if creating this artifact would exceed the
+    """Raise ArtifactQuotaExceeded if registering this artifact would exceed the
     per-user count or byte limit.
 
-    Both limits are user-scoped (cross-agent) per Bin's design: count is
-    50 local / 10 cloud (deploy-mode aware via settings.is_cloud_mode),
-    and bytes is 100 MB regardless of mode. Iterations don't consume a new
-    count slot (they only add a version row), so the count check is skipped
-    when ``is_iteration=True``.
+    Both limits are user-scoped (cross-agent): count is 50 local / 10 cloud
+    (deploy-mode aware via settings.is_cloud_mode), bytes is 100 MB regardless
+    of mode. `incoming_bytes` is the *delta* — the new artifact root size for a
+    fresh register, or (new size − old size) for a re-register — so a
+    re-register that shrinks an artifact never trips the byte ceiling.
 
-    Error messages explicitly mention "Settings → Artifacts" so the LLM can
-    relay actionable guidance to the user, and the frontend can pattern-
-    match the structured payload to surface a modal.
+    The count check is skipped for re-registrations (`is_iteration=True`) — they
+    update an existing row in place and don't grow the artifact count.
+
+    Error messages explicitly mention "Settings → Artifacts" so the agent can
+    relay actionable guidance, and the frontend can pattern-match the structured
+    payload to surface a modal.
     """
-    from xyz_agent_context.settings import settings
-
-    # Byte ceiling: applies to both new + iterate (each iteration writes a
-    # new version row, so the bytes truly accumulate).
     used_bytes = await repo.total_bytes_for_user(user_id)
     byte_limit = settings.artifact_total_bytes_per_user
     if used_bytes + incoming_bytes > byte_limit:
@@ -144,292 +195,156 @@ async def _enforce_quota(
             f"Manage in Settings → Artifacts."
         )
 
-    # Count ceiling: only applies when minting a NEW artifact, since iterate
-    # appends a version to an existing parent and therefore doesn't grow the
-    # parent count.
     if not is_iteration:
         used_count = await repo.count_for_user(user_id)
         count_limit = settings.artifact_count_limit_per_user
         if used_count + 1 > count_limit:
             raise ArtifactQuotaExceeded(
                 f"Artifact limit reached ({used_count}/{count_limit}). "
-                f"Manage in Settings → Artifacts before creating new ones."
+                f"Manage in Settings → Artifacts before registering new ones."
             )
 
 
 # ── public API ─────────────────────────────────────────────────────────────────
 
 
-async def create_text_artifact(
+async def register_artifact(
     *,
     repo: ArtifactRepository,
     agent_id: str,
     user_id: str,
     session_id: Optional[str],
     kind: ArtifactKind,
-    content: str,
+    entry_path: str,
     title: str,
     description: Optional[str],
     target_artifact_id: Optional[str],
 ) -> CreateArtifactToolResult:
     """
-    Persist a text artifact to disk and the database.
+    Register a pointer to an entry file the agent wrote in its workspace.
 
     Workflow:
-    1. Validate kind is a text kind.
-    2. Check content size vs. MAX_TEXT_BYTES.
-    3. Enforce per-agent quota.
-    4. If target_artifact_id given, validate it exists and kinds match,
-       then iterate; otherwise mint a new artifact_id and write version 1.
-    5. Write bytes to {base}/{agent}_{user}/artifacts/{id}/v{n}.{ext}.
-    6. Insert or iterate DB rows atomically.
-    7. Return CreateArtifactToolResult.
+    1. Validate kind is one of the 7 allowed kinds.
+    2. Resolve + validate the entry path (inside workspace, is a file).
+    3. Compute size: entry-file size if entry sits at the workspace root
+       (single-file artifact), else recursive size of `dirname(entry)`
+       (multi-file artifact, where siblings are served too). Reject if it
+       exceeds MAX_ARTIFACT_BYTES.
+    4. Enforce the per-user quota (count for new artifacts, bytes always).
+    5. New artifact → mint an art_ id and insert a row.
+       target_artifact_id → validate it exists and the kind matches, then
+       overwrite its pointer in place.
+    6. Return CreateArtifactToolResult (artifact_id, url, created_at).
+
+    No filesystem writes. No copy. The DB stores `file_path` = entry file
+    relative to settings.base_working_path; `size_bytes` matches what the
+    public-raw route serves (single file at root / dir tree otherwise).
 
     Args:
         repo: ArtifactRepository backed by the active DB client.
         agent_id: Agent that owns the artifact.
-        user_id: User that triggered the creation.
-        session_id: Session context; None means agent-scoped.
-        kind: One of the text ArtifactKind literals.
-        content: UTF-8 text payload.
+        user_id: User that triggered the registration.
+        session_id: Session context; None means agent-scoped (auto-pinned).
+        kind: One of the 7 ArtifactKind literals.
+        entry_path: Absolute or workspace-relative path to the entry file.
         title: Human-readable title (truncated to 200 chars).
         description: Optional freeform description.
-        target_artifact_id: If set, iterate on this existing artifact instead of creating new.
+        target_artifact_id: If set, re-register onto this existing artifact.
 
     Returns:
-        CreateArtifactToolResult with artifact_id, version, url, created_at.
+        CreateArtifactToolResult with artifact_id, url, created_at.
 
     Raises:
-        ArtifactError: If kind is not a text kind.
-        ArtifactTooLarge: If content exceeds MAX_TEXT_BYTES.
-        ArtifactQuotaExceeded: If adding bytes would exceed PER_AGENT_QUOTA_BYTES.
-        ArtifactNotFound: If target_artifact_id does not exist.
-        ArtifactKindMismatch: If target_artifact_id kind differs from requested kind.
+        ArtifactError: kind not in the allowed set.
+        ArtifactPathEscape: entry path invalid / outside workspace.
+        ArtifactTooLarge: artifact size exceeds MAX_ARTIFACT_BYTES.
+        ArtifactQuotaExceeded: registering would exceed the per-user quota.
+        ArtifactNotFound: target_artifact_id does not exist.
+        ArtifactKindMismatch: target_artifact_id kind differs from requested kind.
     """
-    if kind not in _TEXT_KINDS:
+    if kind not in ALL_KINDS:
         raise ArtifactError(
-            f"create_artifact does not accept kind={kind!r}. Valid kinds are "
-            f"text/html, application/vnd.echarts+json, text/markdown, text/csv. "
-            f"For binary files (png/jpeg/pdf) use upload_artifact_file instead."
+            f"register_artifact does not accept kind={kind!r}. Valid kinds are: "
+            f"text/html, application/vnd.echarts+json, text/markdown, text/csv, "
+            f"image/png, image/jpeg, application/pdf."
         )
 
-    encoded = content.encode("utf-8")
-    if len(encoded) > MAX_TEXT_BYTES:
-        raise ArtifactTooLarge("content too large (1MB max). For binaries use upload_artifact_file.")
-
-    is_iteration: bool
-    artifact_id: str
-    version: int
-
-    if target_artifact_id is not None:
-        existing = await repo.get_by_id(target_artifact_id)
-        if existing is None:
-            raise ArtifactNotFound("artifact not found, omit target_artifact_id to create new")
-        if existing.kind != kind:
-            raise ArtifactKindMismatch(
-                f"cannot iterate a {kind} artifact onto target_artifact_id "
-                f"{target_artifact_id!r}, which is {existing.kind}. Either pass "
-                f"kind={existing.kind!r} to update it, or omit target_artifact_id "
-                f"to create a new artifact."
-            )
-        # Quota is checked AFTER existing-target validation so the user gets
-        # a more specific error first (kind mismatch / not found > quota).
-        await _enforce_quota(repo, user_id, len(encoded), is_iteration=True)
-        artifact_id = target_artifact_id
-        version = existing.latest_version + 1
-        is_iteration = True
-    else:
-        # Quota check before minting a new artifact_id (count + bytes both apply).
-        await _enforce_quota(repo, user_id, len(encoded), is_iteration=False)
-        artifact_id = _new_artifact_id()
-        version = 1
-        is_iteration = False
-
-    folder = _artifact_dir(agent_id, user_id, artifact_id)
-    os.makedirs(folder, exist_ok=True)
-    ext = _KIND_TO_EXT[kind]
-    # Use a random token instead of v{n} so concurrent iterate calls never race on the filename.
-    # The version number is a pure DB concept — iterate() returns the authoritative value.
-    abs_path = os.path.join(folder, f"{secrets.token_hex(8)}.{ext}")
-    with open(abs_path, "wb") as fh:
-        fh.write(encoded)
-    rel_path = _relative_to_base(abs_path)
-
-    # If the caller has no session context (LLM-driven calls cannot know a
-    # session_id), default the new artifact to agent-scoped (pinned=true).
-    # Otherwise it would land with session_id=NULL and pinned=false, where
-    # neither list_by_session nor list_pinned would surface it. Iterations
-    # inherit their parent's pin state — don't touch.
-    auto_pinned = session_id is None and not is_iteration
-
-    now = datetime.now(timezone.utc)
-    if is_iteration:
-        version = await repo.iterate(artifact_id, file_path=rel_path, size_bytes=len(encoded))
-        logger.debug("Iterated artifact {} to v{}", artifact_id, version)
-    else:
-        await repo.create(
-            Artifact(
-                artifact_id=artifact_id,
-                agent_id=agent_id,
-                user_id=user_id,
-                session_id=session_id,
-                title=title[:200],
-                kind=kind,
-                description=description,
-                pinned=auto_pinned,
-                latest_version=1,
-                created_at=now,
-                updated_at=now,
-            ),
-            file_path=rel_path,
-            size_bytes=len(encoded),
-        )
-        logger.debug("Created artifact {} v1 kind={} pinned={}", artifact_id, kind, auto_pinned)
-
-    return CreateArtifactToolResult(
-        artifact_id=artifact_id,
-        version=version,
-        url=_build_url(agent_id, artifact_id, version),
-        created_at=now,
-    )
-
-
-async def upload_binary_artifact(
-    *,
-    repo: ArtifactRepository,
-    agent_id: str,
-    user_id: str,
-    session_id: Optional[str],
-    kind: ArtifactKind,
-    local_path: str,
-    title: str,
-    description: Optional[str],
-    target_artifact_id: Optional[str],
-) -> CreateArtifactToolResult:
-    """
-    Copy a binary file from within the agent workspace into the artifact store.
-
-    The source file must already reside inside the agent's workspace directory
-    (path-escape check via os.path.realpath). This prevents arbitrary file reads
-    from being promoted into user-visible artifacts.
-
-    Workflow:
-    1. Validate kind is a binary kind.
-    2. Realpath-compare local_path against workspace root (escape check).
-    3. Stat file, check size vs. MAX_BINARY_BYTES.
-    4. Enforce per-agent quota.
-    5. Same create/iterate logic as create_text_artifact.
-    6. shutil.copyfile into the artifact dir.
-    7. Insert or iterate DB rows.
-    8. Return CreateArtifactToolResult.
-
-    Args:
-        repo: ArtifactRepository backed by the active DB client.
-        agent_id: Agent that owns the artifact.
-        user_id: User that triggered the upload.
-        session_id: Session context; None means agent-scoped.
-        kind: One of the binary ArtifactKind literals.
-        local_path: Absolute path to the source file within the agent workspace.
-        title: Human-readable title (truncated to 200 chars).
-        description: Optional freeform description.
-        target_artifact_id: If set, iterate on this existing artifact instead of creating new.
-
-    Returns:
-        CreateArtifactToolResult with artifact_id, version, url, created_at.
-
-    Raises:
-        ArtifactError: If kind is not a binary kind.
-        ArtifactPathEscape: If local_path is outside the agent workspace or does not exist.
-        ArtifactTooLarge: If file size exceeds MAX_BINARY_BYTES.
-        ArtifactQuotaExceeded: If adding bytes would exceed PER_AGENT_QUOTA_BYTES.
-        ArtifactNotFound: If target_artifact_id does not exist.
-        ArtifactKindMismatch: If target_artifact_id kind differs from requested kind.
-    """
-    if kind not in _BINARY_KINDS:
-        raise ArtifactError(
-            f"upload_artifact_file does not accept kind={kind!r}; "
-            f"use create_artifact for text payloads"
-        )
-
-    abs_local = os.path.realpath(local_path)
+    abs_entry, artifact_root = _resolve_entry(agent_id, user_id, entry_path)
     workspace = os.path.realpath(_workspace_root(agent_id, user_id))
-    if not abs_local.startswith(workspace + os.sep):
-        raise ArtifactPathEscape("file not found or outside agent workspace")
-    if not os.path.isfile(abs_local):
-        raise ArtifactPathEscape("file not found or outside agent workspace")
+    # Single-file mode when entry sits at the workspace root: account only for
+    # the entry file (and serve only the entry — see artifacts_public.py).
+    # Otherwise account for the whole dir so the multi-file artifact's
+    # sibling assets are paid for by this artifact's quota.
+    if artifact_root == workspace:
+        size_bytes = os.path.getsize(abs_entry)
+    else:
+        size_bytes = _dir_size(artifact_root)
+    if size_bytes > MAX_ARTIFACT_BYTES:
+        raise ArtifactTooLarge(
+            f"artifact too large "
+            f"({size_bytes / 1024 / 1024:.1f} MB > {MAX_ARTIFACT_BYTES / 1024 / 1024:.0f} MB max). "
+            f"Trim the files and register again."
+        )
 
-    size = os.path.getsize(abs_local)
-    if size > MAX_BINARY_BYTES:
-        raise ArtifactTooLarge("file too large (10MB max)")
-
-    is_iteration: bool
-    artifact_id: str
-    version: int
+    rel_path = _relative_to_base(abs_entry)
+    now = datetime.now(timezone.utc)
 
     if target_artifact_id is not None:
         existing = await repo.get_by_id(target_artifact_id)
         if existing is None:
-            raise ArtifactNotFound("artifact not found, omit target_artifact_id to create new")
+            raise ArtifactNotFound(
+                "artifact not found — omit target_artifact_id to register a new one"
+            )
         if existing.kind != kind:
             raise ArtifactKindMismatch(
-                f"cannot iterate a {kind} artifact onto target_artifact_id "
-                f"{target_artifact_id!r}, which is {existing.kind}. Either pass "
+                f"cannot re-register a {kind} entry onto target_artifact_id "
+                f"{target_artifact_id!r}, which is {existing.kind}. Pass "
                 f"kind={existing.kind!r} to update it, or omit target_artifact_id "
-                f"to create a new artifact."
+                f"to register a new artifact."
             )
-        await _enforce_quota(repo, user_id, size, is_iteration=True)
-        artifact_id = target_artifact_id
-        version = existing.latest_version + 1
-        is_iteration = True
-    else:
-        await _enforce_quota(repo, user_id, size, is_iteration=False)
-        artifact_id = _new_artifact_id()
-        version = 1
-        is_iteration = False
-
-    folder = _artifact_dir(agent_id, user_id, artifact_id)
-    os.makedirs(folder, exist_ok=True)
-    ext = _KIND_TO_EXT[kind]
-    # Use a random token instead of v{n} so concurrent iterate calls never race on the filename.
-    # The version number is a pure DB concept — iterate() returns the authoritative value.
-    abs_path = os.path.join(folder, f"{secrets.token_hex(8)}.{ext}")
-    shutil.copyfile(abs_local, abs_path)
-    rel_path = _relative_to_base(abs_path)
-
-    # If the caller has no session context (LLM-driven calls cannot know a
-    # session_id), default the new artifact to agent-scoped (pinned=true).
-    # Otherwise it would land with session_id=NULL and pinned=false, where
-    # neither list_by_session nor list_pinned would surface it. Iterations
-    # inherit their parent's pin state — don't touch.
-    auto_pinned = session_id is None and not is_iteration
-
-    now = datetime.now(timezone.utc)
-    if is_iteration:
-        version = await repo.iterate(artifact_id, file_path=rel_path, size_bytes=size)
-        logger.debug("Iterated binary artifact {} to v{}", artifact_id, version)
-    else:
-        await repo.create(
-            Artifact(
-                artifact_id=artifact_id,
-                agent_id=agent_id,
-                user_id=user_id,
-                session_id=session_id,
-                title=title[:200],
-                kind=kind,
-                description=description,
-                pinned=auto_pinned,
-                latest_version=1,
-                created_at=now,
-                updated_at=now,
-            ),
-            file_path=rel_path,
-            size_bytes=size,
+        # Quota delta: only the growth (or shrink) relative to the old size.
+        await _enforce_quota(
+            repo, user_id, size_bytes - existing.size_bytes, is_iteration=True
         )
-        logger.debug("Created binary artifact {} v1 kind={} pinned={}", artifact_id, kind, auto_pinned)
+        await repo.update_pointer(
+            target_artifact_id,
+            file_path=rel_path,
+            size_bytes=size_bytes,
+            title=title[:200],
+            description=description,
+        )
+        logger.debug("Re-registered artifact {} -> {}", target_artifact_id, rel_path)
+        return CreateArtifactToolResult(
+            artifact_id=target_artifact_id,
+            url=_build_url(agent_id, target_artifact_id),
+            created_at=existing.created_at,
+        )
 
+    await _enforce_quota(repo, user_id, size_bytes, is_iteration=False)
+    artifact_id = _new_artifact_id()
+    # No session context (LLM-driven calls cannot know a session_id) → default
+    # to agent-scoped (pinned=True). Otherwise the artifact would land with
+    # session_id=NULL and pinned=False, where neither list_by_session nor
+    # list_pinned would surface it.
+    await repo.create(
+        Artifact(
+            artifact_id=artifact_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            session_id=session_id,
+            title=title[:200],
+            kind=kind,
+            description=description,
+            pinned=session_id is None,
+            file_path=rel_path,
+            size_bytes=size_bytes,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    logger.debug("Registered artifact {} kind={} -> {}", artifact_id, kind, rel_path)
     return CreateArtifactToolResult(
         artifact_id=artifact_id,
-        version=version,
-        url=_build_url(agent_id, artifact_id, version),
+        url=_build_url(agent_id, artifact_id),
         created_at=now,
     )

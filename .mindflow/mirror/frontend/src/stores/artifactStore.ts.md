@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-05-08-r3
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14-r3 — `delete` no longer takes `deleteSource`
+
+Deletion is registry-only; `delete(agentId, artifactId)` is the entire
+surface. Workspace files are never touched. See the artifactsApi mirror
+md for the rationale.
+
+## 2026-05-14 — `delete` accepts `deleteSource`
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`delete(agentId, artifactId, deleteSource?: boolean)` now passes the popup
+choice down to `artifactsApi.remove`. `false` (default) tears down the DB
+row only; `true` also `rmtree`s the artifact root directory in the agent
+workspace. The popup itself lives in `ArtifactTabStrip` / `ArtifactsSection`
+and decides which value to pass.
 
 ## 2026-05-08-r3 — WS subscription removed
 

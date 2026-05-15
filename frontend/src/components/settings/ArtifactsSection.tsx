@@ -15,7 +15,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Trash2, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Button, Dialog, DialogContent, DialogFooter } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import {
   artifactsApi,
@@ -60,6 +60,8 @@ export default function ArtifactsSection() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!userId) return;
@@ -101,20 +103,23 @@ export default function ArtifactsSection() {
     });
   };
 
+  const openBulkDelete = () => {
+    if (noneSelected) return;
+    setConfirmOpen(true);
+  };
+
   const handleBulkDelete = async () => {
     if (!userId || noneSelected) return;
-    const n = selected.size;
-    const ok = window.confirm(
-      `Permanently delete ${n} artifact${n === 1 ? '' : 's'}?\n\n` +
-      'This removes the file(s) from disk AND the database records. Cannot be undone.',
-    );
-    if (!ok) return;
+    setSubmitting(true);
     try {
       await artifactsApi.bulkDelete(userId, Array.from(selected));
       setSelected(new Set());
+      setConfirmOpen(false);
       await refresh();
     } catch (e) {
       window.alert(`Bulk delete failed: ${e}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -183,13 +188,44 @@ export default function ArtifactsSection() {
           variant="outline"
           size="sm"
           disabled={noneSelected}
-          onClick={handleBulkDelete}
+          onClick={openBulkDelete}
           className="gap-1 text-red-400 border-red-900/40 hover:bg-red-900/20"
         >
           <Trash2 className="w-3.5 h-3.5" />
           Delete {selected.size} selected
         </Button>
       </div>
+
+      <Dialog
+        isOpen={confirmOpen}
+        onClose={() => !submitting && setConfirmOpen(false)}
+        title={`Delete ${selected.size} artifact${selected.size === 1 ? '' : 's'}`}
+        size="md"
+      >
+        <DialogContent>
+          <div className="text-sm text-[var(--text-secondary)] space-y-3">
+            <p>
+              {selected.size === 1
+                ? 'Remove the selected artifact tab?'
+                : `Remove the ${selected.size} selected artifact tabs?`}
+            </p>
+            <p className="text-xs opacity-80">
+              Only the registry rows are removed. Each agent&rsquo;s workspace
+              files stay where they were written — clean those up from the
+              workspace section of each agent&rsquo;s config panel if you want
+              to free disk space.
+            </p>
+          </div>
+        </DialogContent>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setConfirmOpen(false)} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={handleBulkDelete} disabled={submitting}>
+            {submitting ? 'Deleting…' : `Delete ${selected.size}`}
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       {/* List */}
       {error && (

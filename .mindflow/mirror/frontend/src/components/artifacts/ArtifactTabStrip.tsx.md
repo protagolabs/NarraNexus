@@ -4,6 +4,29 @@ last_verified: 2026-05-14
 stub: false
 ---
 
+## 2026-05-14-r3 — delete popup simplified to a single confirm + notice
+
+The two-state checkbox dialog (delete tab only / delete tab + files) is
+gone. Deletion is registry-only end-to-end (see the agents_artifacts
+backend mirror md for the rationale). The dialog now just confirms the
+tab removal and tells the user where to clean up workspace files if they
+want to — "use the workspace section of the config panel".
+
+## 2026-05-14 — delete-source popup (pointer model)
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+The 🗑️ button no longer fires `window.confirm` + immediate delete. It opens
+an inline `Dialog` with a checkbox:
+
+> [ ] Also delete the workspace source files
+
+Off (default) → `delete(agentId, artifactId, false)` — drop the DB row,
+keep the agent's working files. On → `delete(agentId, artifactId, true)` —
+also rmtree the artifact root in the agent's workspace. The confirm
+button label flips to make the choice obvious ("Delete tab only" vs
+"Delete tab + files").
+
 ## 2026-05-14 — Zoom affordance
 
 New required prop `onZoom(artifactId)` (provided by `[[ArtifactColumn]]`).

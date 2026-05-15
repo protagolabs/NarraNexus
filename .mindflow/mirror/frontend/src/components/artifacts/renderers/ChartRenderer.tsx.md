@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/ChartRenderer.tsx
-last_verified: 2026-05-09
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — drop `version` prop, fetch via `useArtifactRawUrl`
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+The renderer no longer takes a `version` prop. It calls `useArtifactRawUrl`
+to mint a view token and fetches the chart JSON from the token-protected
+public directory URL (no Authorization header required — the token IS the auth).
 
 # ChartRenderer.tsx — ECharts renderer for application/vnd.echarts+json artifacts
 

@@ -1,19 +1,22 @@
 /**
  * @file_name: ArtifactPreviewCard.tsx
- * @description: Inline thumbnail card rendered inside chat messages when a tool
- * result references an artifact. Clicking opens the ArtifactColumn and focuses
- * the corresponding tab.
+ * @description: Inline thumbnail card rendered inside chat messages when a
+ * tool result references an artifact. Clicking opens the ArtifactColumn and
+ * focuses the corresponding tab.
  *
  * Renders real thumbnails for image/csv/markdown; placeholder labels for
  * chart/html/pdf so the chat thread does not have to fetch the full artifact
  * eagerly for kinds that require complex rendering environments.
+ *
+ * Pointer model: thumbnail content is fetched via the token-protected
+ * public URL (minted by `useArtifactRawUrl`).
  */
 
 import { useEffect, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
-import { rawUrl } from '@/types/artifact';
 import { useArtifactStore } from '@/stores';
 import { fetchArtifactText, fetchArtifactBlobUrl } from '@/services/artifactsApi';
+import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 
 interface Props {
   artifact: Artifact;
@@ -22,17 +25,18 @@ interface Props {
 export default function ArtifactPreviewCard({ artifact }: Props) {
   const setActive = useArtifactStore((s) => s.setActive);
   const setCollapsed = useArtifactStore((s) => s.setCollapsed);
+  const { url } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
   const [csvHead, setCsvHead] = useState<string[][] | null>(null);
   const [mdHead, setMdHead] = useState<string | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!url) return;
     const isText = artifact.kind === 'text/csv' || artifact.kind === 'text/markdown';
     const isImage = artifact.kind === 'image/png' || artifact.kind === 'image/jpeg';
     if (!isText && !isImage) return;
 
-    const url = rawUrl(artifact.agent_id, artifact.artifact_id, artifact.latest_version);
     let cancelled = false;
     let createdBlobUrl: string | null = null;
 
@@ -65,7 +69,7 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
       cancelled = true;
       if (createdBlobUrl) URL.revokeObjectURL(createdBlobUrl);
     };
-  }, [artifact.kind, artifact.agent_id, artifact.artifact_id, artifact.latest_version]);
+  }, [artifact.kind, url]);
 
   const open = () => {
     setCollapsed(false);

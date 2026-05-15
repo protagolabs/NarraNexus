@@ -1,5 +1,18 @@
 /**
- * Artifact type definitions — mirrors backend ArtifactSchema / ArtifactVersionSchema
+ * Artifact type definitions — mirrors backend Artifact (pointer model, 2026-05-14).
+ *
+ * An artifact is a pointer to an entry file the agent wrote in its workspace.
+ * `file_path` is the entry relative to base_working_path; the entry's
+ * directory is the artifact root (served wholesale so multi-file HTML apps
+ * can reference sibling assets).
+ *
+ * To load raw content, fetch a short-TTL view token first:
+ *
+ *     const dirUrl = await artifactsApi.getRawUrl(agentId, artifactId);
+ *     // dirUrl is something like "/api/public/artifacts/raw/{token}/"
+ *     // — point an iframe at it for HTML, or fetch from it for others.
+ *
+ * See `hooks/useArtifactRawUrl.ts` for the convenience hook.
  */
 
 export type ArtifactKind =
@@ -11,34 +24,20 @@ export type ArtifactKind =
   | 'image/jpeg'
   | 'application/pdf';
 
-export interface ArtifactVersion {
-  id: number;
-  artifact_id: string;
-  version: number;
-  file_path: string;
-  size_bytes: number;
-  created_at: string;
-}
-
 export interface Artifact {
   artifact_id: string;
   agent_id: string;
   user_id: string;
   session_id: string | null;
+  original_session_id?: string | null;
   title: string;
   kind: ArtifactKind;
   description: string | null;
   pinned: boolean;
-  latest_version: number;
+  /** Entry file, relative to settings.base_working_path. */
+  file_path: string;
+  /** Recursive size of the artifact root directory. */
+  size_bytes: number;
   created_at: string;
   updated_at: string;
-}
-
-export interface ArtifactWithVersions {
-  artifact: Artifact;
-  versions: ArtifactVersion[];
-}
-
-export function rawUrl(agentId: string, artifactId: string, version: number): string {
-  return `/api/agents/${agentId}/artifacts/${artifactId}/v${version}/raw`;
 }

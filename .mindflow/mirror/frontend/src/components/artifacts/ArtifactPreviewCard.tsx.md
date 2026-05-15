@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactPreviewCard.tsx
-last_verified: 2026-05-09
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — pointer model
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+The card mints a view token via `useArtifactRawUrl` and fetches the
+thumbnail content (csv head / markdown head / image bytes) from the
+token-protected public URL — no `Authorization` header is attached. Drops
+the `latest_version` dependency from the effect's deps array; it now keys
+off the minted URL instead.
 
 # ArtifactPreviewCard.tsx — Inline chat thumbnail for artifact references
 

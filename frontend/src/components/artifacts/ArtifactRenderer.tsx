@@ -3,9 +3,12 @@
  * @description: Shared kind → renderer dispatch for artifact content.
  *
  * Pulled out of ArtifactColumn so the embedded column view AND the
- * zoom modal can render artifacts through the same lazy-loaded
- * renderer chunks. Two renderer instances for the same kind do NOT
- * trigger duplicate chunk downloads — React.lazy memoises by import.
+ * zoom modal can render artifacts through the same lazy-loaded renderer
+ * chunks. Two renderer instances for the same kind do NOT trigger duplicate
+ * chunk downloads — React.lazy memoises by import.
+ *
+ * Pointer model: renderers no longer take a `version` prop; they mint a view
+ * token via `useArtifactRawUrl` and load content from the public raw route.
  */
 
 import { lazy, Suspense } from 'react';
@@ -19,7 +22,7 @@ const MarkdownRenderer = lazy(() => import('./renderers/MarkdownRenderer'));
 const PdfRenderer = lazy(() => import('./renderers/PdfRenderer'));
 
 type RendererComponent = React.LazyExoticComponent<
-  React.ComponentType<{ artifact: Artifact; version: number }>
+  React.ComponentType<{ artifact: Artifact }>
 >;
 
 const RENDERER_BY_KIND: Record<ArtifactKind, RendererComponent> = {
@@ -45,7 +48,7 @@ export default function ArtifactRenderer({ artifact }: Props) {
   }
   return (
     <Suspense fallback={<div className="p-4 opacity-60">Loading renderer…</div>}>
-      <Renderer artifact={artifact} version={artifact.latest_version} />
+      <Renderer artifact={artifact} />
     </Suspense>
   );
 }

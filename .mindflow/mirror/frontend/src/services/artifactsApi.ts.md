@@ -1,8 +1,34 @@
 ---
 code_file: frontend/src/services/artifactsApi.ts
-last_verified: 2026-05-08
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14-r3 — `deleteSource` dropped from `remove` / `bulkDelete`
+
+Deletion is now registry-only. `remove(agentId, artifactId)` (no third arg)
+and `bulkDelete(userId, ids)` (no third arg) just remove the DB rows;
+workspace files are never touched. `BulkDeleteResult` no longer carries
+`source_deleted`. Same change rationale as the backend (see
+[[agents_artifacts.py]] / [[users_artifacts.py]] mirror md).
+
+## 2026-05-14 — pointer model: token-based raw fetch, register from workspace, delete_source
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+- `getDetail` returns a plain `Artifact` (the old `{artifact, versions}` shape
+  is gone).
+- New `getRawUrl(agentId, artifactId)` mints an HMAC view token via
+  `GET .../view-token` and returns the directory-style raw URL
+  (`/api/public/artifacts/raw/{token}/`).
+- `fetchArtifactBlobUrl` / `fetchArtifactText` no longer attach
+  `authHeaders()` — the raw URL is on the JWT-bypassed public route and
+  carries the token in its path.
+- `remove(agentId, artifactId, deleteSource=false)` — propagates the popup
+  choice to the backend (`?delete_source=`).
+- New `registerFromWorkspace(agentId, params)` — backs the workspace tree
+  viewer's "register as artifact" action; same validation as the MCP tool.
+- `bulkDelete(userId, ids, deleteSource=false)` — bulk variant.
 
 # services/artifactsApi.ts — Artifacts REST API client
 

@@ -4,35 +4,38 @@
  *
  * ECharts (~700 KB) is loaded via dynamic import() so it is never included in
  * the initial bundle. The import fires only when this component mounts, which
- * itself only happens when the user opens an artifact tab whose kind is
- * application/vnd.echarts+json.
+ * only happens when the user opens an application/vnd.echarts+json tab.
  *
- * The JSON artifact content is expected to be a valid ECharts `option` object
+ * The JSON artifact content must be a valid ECharts `option` object
  * (https://echarts.apache.org/en/option.html). The agent is responsible for
- * emitting well-formed option JSON; this renderer makes no attempt to validate
- * or repair the payload.
+ * emitting well-formed option JSON; this renderer makes no attempt to
+ * validate or repair the payload.
  *
- * Cleanup: the `disposed` flag guards against setState-after-unmount races and
- * `chart.dispose()` is called in the cleanup function to release the canvas.
+ * Pointer model: JSON is fetched from a token-protected public URL minted
+ * via `useArtifactRawUrl`. No auth header is needed.
+ *
+ * Cleanup: the `disposed` flag guards against setState-after-unmount races
+ * and `chart.dispose()` is called in the cleanup function to release canvas.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
-import { rawUrl } from '@/types/artifact';
 import { fetchArtifactText } from '@/services/artifactsApi';
 import { useArtifactStore, type ChartInstanceLike } from '@/stores/artifactStore';
+import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 
 interface Props {
   artifact: Artifact;
-  version: number;
 }
 
-export default function ChartRenderer({ artifact, version }: Props) {
+export default function ChartRenderer({ artifact }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { url, error: urlError } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
   const registerChartInstance = useArtifactStore((s) => s.registerChartInstance);
 
   useEffect(() => {
+    if (!url) return;
     setError(null);
     let disposed = false;
     let chart: { dispose: () => void } | null = null;
@@ -40,13 +43,12 @@ export default function ChartRenderer({ artifact, version }: Props) {
     (async () => {
       try {
         const echarts = await import('echarts');
-        const text = await fetchArtifactText(rawUrl(artifact.agent_id, artifact.artifact_id, version));
+        const text = await fetchArtifactText(url);
         const option = JSON.parse(text);
         if (disposed || !ref.current) return;
         const c = echarts.init(ref.current);
         c.setOption(option);
         chart = c as unknown as { dispose: () => void };
-        // Register so ArtifactDownloadMenu can call getDataURL() for PNG/JPEG export.
         registerChartInstance(artifact.artifact_id, c as unknown as ChartInstanceLike);
       } catch (e) {
         setError(String(e));
@@ -58,8 +60,9 @@ export default function ChartRenderer({ artifact, version }: Props) {
       registerChartInstance(artifact.artifact_id, null);
       chart?.dispose();
     };
-  }, [artifact.agent_id, artifact.artifact_id, version, registerChartInstance]);
+  }, [url, artifact.artifact_id, registerChartInstance]);
 
+  if (urlError) return <div className="p-4 text-red-400">Chart failed: {urlError}</div>;
   if (error) return <div className="p-4 text-red-400">Chart failed: {error}</div>;
   return <div ref={ref} className="w-full h-full" />;
 }

@@ -35,12 +35,16 @@ import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
 // Artifact tool names that produce an artifact_id in tool_output.
 //
 // MCP tools arrive in the stream fully-qualified — `mcp__<server>__<tool>`
-// (e.g. `mcp__common_tools_module__create_artifact`), NOT the bare name.
+// (e.g. `mcp__common_tools_module__register_artifact`), NOT the bare name.
 // An exact-match Set silently never matched, so artifact tool calls were
 // never recognised and the artifact panel only updated on an unrelated
 // reload (agent switch). Match the bare suffix instead so both the
 // qualified and unqualified forms are recognised.
-const ARTIFACT_TOOL_BASE_NAMES = ['create_artifact', 'upload_artifact_file'];
+//
+// Pointer model (2026-05-14): the single tool is `register_artifact`; the
+// older `create_artifact` / `upload_artifact_file` names are gone — see the
+// artifact_runner + artifact_tool mirror md files.
+const ARTIFACT_TOOL_BASE_NAMES = ['register_artifact'];
 
 function isArtifactToolName(toolName: string): boolean {
   return ARTIFACT_TOOL_BASE_NAMES.some(
@@ -58,7 +62,7 @@ function ensureArtifactLoaded(agentId: string, artifactId: string): void {
   if (artifacts.find((a) => a.artifact_id === artifactId)) return;
   artifactsApi
     .getDetail(agentId, artifactId)
-    .then((d) => upsert(d.artifact))
+    .then((d) => upsert(d))
     .catch(() => undefined);
 }
 
@@ -855,8 +859,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 eventId={item.eventId}
                 agentId={agentId}
               />
-              {/* Render inline artifact preview cards for create_artifact /
-                  upload_artifact_file tool calls that returned an artifact_id */}
+              {/* Render inline artifact preview cards for register_artifact
+                  tool calls that returned an artifact_id */}
               {hasArtifactTools && agentId && item.toolCalls && (
                 <ArtifactToolCallCards
                   toolCalls={item.toolCalls}

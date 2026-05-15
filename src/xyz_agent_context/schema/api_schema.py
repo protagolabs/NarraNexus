@@ -360,16 +360,29 @@ class EventLogResponse(BaseModel):
 # ===== File Management Schemas =====
 
 class FileInfo(BaseModel):
-    """File information"""
-    filename: str
-    size: int
+    """One node in the agent-workspace directory tree.
+
+    Returned recursively: directories carry ``is_dir=True`` and a ``children``
+    list (which may be empty); regular files carry ``is_dir=False`` and
+    ``children=None``. Dotfolders (name starts with ``.``) are filtered out
+    on the server side and never appear in the tree.
+    """
+    name: str                          # basename (e.g. "index.html")
+    path: str                          # workspace-relative path (e.g. "report/index.html")
+    is_dir: bool
+    size: int                          # 0 for directories
     modified_at: str
+    children: Optional[List["FileInfo"]] = None
+
+
+# Resolve the self-referential ``children: Optional[List[FileInfo]]``.
+FileInfo.model_rebuild()
 
 
 class FileListResponse(BaseModel):
-    """Response for file list"""
+    """Response for the workspace tree GET. ``tree`` is the top-level node list."""
     success: bool
-    files: List[FileInfo] = []
+    tree: List[FileInfo] = []
     workspace_path: str = ""
     error: Optional[str] = None
 
@@ -384,9 +397,9 @@ class FileUploadResponse(BaseModel):
 
 
 class FileDeleteResponse(BaseModel):
-    """Response for file deletion"""
+    """Response for file/folder deletion"""
     success: bool
-    filename: Optional[str] = None
+    path: Optional[str] = None
     error: Optional[str] = None
 
 

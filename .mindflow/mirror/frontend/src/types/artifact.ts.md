@@ -1,10 +1,24 @@
 ---
 code_file: frontend/src/types/artifact.ts
-last_verified: 2026-05-08
+last_verified: 2026-05-14
 stub: false
 ---
 
-# types/artifact.ts — Artifact domain types + rawUrl helper
+## 2026-05-14 — pointer model (versioning dropped, rawUrl helper removed)
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`Artifact` mirror of the backend pointer model: dropped `ArtifactVersion`,
+`ArtifactWithVersions`, and `latest_version`; added `file_path` (entry file
+relative to base_working_path) and `size_bytes` (recursive size of the
+artifact root directory).
+
+The sync `rawUrl(agentId, artifactId, version)` helper is gone — raw content
+is no longer reachable via a deterministic agent-scoped URL. Callers fetch
+the directory-style URL via `artifactsApi.getRawUrl` (which mints a short-TTL
+HMAC token), or the `useArtifactRawUrl` hook.
+
+# types/artifact.ts — Artifact domain types
 
 ## Why it exists
 

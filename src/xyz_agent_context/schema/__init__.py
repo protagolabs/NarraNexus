@@ -230,8 +230,6 @@ from .a2a_schema import (
 from .artifact_schema import (
     Artifact,
     ArtifactKind,
-    ArtifactVersion,
-    ArtifactWithVersions,
     CreateArtifactToolResult,
 )
 
@@ -402,7 +400,5 @@ __all__ = [
     # Artifact Schema
     "Artifact",
     "ArtifactKind",
-    "ArtifactVersion",
-    "ArtifactWithVersions",
     "CreateArtifactToolResult",
 ]

@@ -6,43 +6,41 @@
  * iframe sandbox pattern. PDF rendering is plugin-based across browsers —
  * Chromium uses PDFium, Firefox uses PDF.js (which needs same-origin XHR),
  * and WebKit/WKWebView has its own Preview-based viewer. The sandboxed iframe
- * approach (sandbox="allow-scripts" without allow-same-origin) breaks Firefox's
- * PDF.js because it requires same-origin XHR to load its own worker modules.
+ * approach (sandbox="allow-scripts" without allow-same-origin) breaks
+ * Firefox's PDF.js because it requires same-origin XHR.
  *
- * Cloud-mode auth: native <object data=...> can't attach the JWT Authorization
- * header, so we fetch the PDF bytes via JS, wrap them in a blob URL, and hand
- * that to <object>. Same pattern as HtmlRenderer / ImageRenderer.
+ * Pointer model: bytes are fetched from a token-protected public URL minted
+ * via `useArtifactRawUrl` and wrapped in a blob URL handed to <object>.
  */
 
 import { useEffect, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
-import { rawUrl } from '@/types/artifact';
 import { fetchArtifactBlobUrl } from '@/services/artifactsApi';
+import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 
 interface Props {
   artifact: Artifact;
-  version: number;
 }
 
-export default function PdfRenderer({ artifact, version }: Props) {
+export default function PdfRenderer({ artifact }: Props) {
+  const { url, error: urlError } = useArtifactRawUrl(artifact.agent_id, artifact.artifact_id);
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!url) return;
     let cancelled = false;
     let createdUrl: string | null = null;
     (async () => {
       setError(null);
       try {
-        const url = await fetchArtifactBlobUrl(
-          rawUrl(artifact.agent_id, artifact.artifact_id, version),
-        );
+        const blobUrl = await fetchArtifactBlobUrl(url);
         if (cancelled) {
-          URL.revokeObjectURL(url);
+          URL.revokeObjectURL(blobUrl);
           return;
         }
-        createdUrl = url;
-        setSrc(url);
+        createdUrl = blobUrl;
+        setSrc(blobUrl);
       } catch (e) {
         if (!cancelled) setError(String(e));
       }
@@ -51,8 +49,9 @@ export default function PdfRenderer({ artifact, version }: Props) {
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [artifact.agent_id, artifact.artifact_id, version]);
+  }, [url]);
 
+  if (urlError) return <div className="p-4 text-red-400">Failed to load: {urlError}</div>;
   if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
   if (!src) return <div className="p-4 opacity-60">Loading…</div>;
 

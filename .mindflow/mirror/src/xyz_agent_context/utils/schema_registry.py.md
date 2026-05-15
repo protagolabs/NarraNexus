@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-13
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — artifact pointer model
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`instance_artifacts` gains two pointer-model columns: `file_path` (entry file
+relative to `base_working_path`, nullable so auto_migrate adds it to existing
+DBs without a backfill) and `size_bytes` (recursive size of the artifact root
+directory, `NOT NULL DEFAULT 0`).
+
+`instance_artifacts.latest_version` and the whole `instance_artifact_versions`
+table are now **DEPRECATED** — versioning was dropped with the pointer model.
+Both are kept registered (so auto_migrate keeps provisioning them) purely so
+colleagues with old saved HTML can hand-migrate from the old rows. No code reads
+or writes them. Cleanup tracked in
+`reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md`.
 
 ## 2026-05-13 addition — Agent Runtime Lifecycle (Phase C)
 

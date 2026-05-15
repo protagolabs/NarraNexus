@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/ImageRenderer.tsx
-last_verified: 2026-05-08
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — drop `version` prop, fetch via `useArtifactRawUrl`
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+Renderer no longer takes a `version` prop. Uses `useArtifactRawUrl` to get
+the token-protected public URL, then `fetchArtifactBlobUrl` (no auth header)
+to wrap the bytes as a blob URL for `<img>`.
 
 # ImageRenderer.tsx — Static image renderer for artifact tabs
 

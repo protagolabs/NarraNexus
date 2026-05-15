@@ -4,6 +4,18 @@ last_verified: 2026-05-14
 stub: false
 ---
 
+## 2026-05-14 — artifact tool name collapsed to `register_artifact`
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`ARTIFACT_TOOL_BASE_NAMES` is now `['register_artifact']` (was
+`['create_artifact', 'upload_artifact_file']`). The frontend's live artifact
+discovery keys off this list to recognise tool calls in the agent stream
+and surface `ArtifactPreviewCard`s — must stay in lockstep with the
+`@mcp.tool(name=...)` registration in `artifact_tool.py`. Also updated the
+`ensureArtifactLoaded` helper because `artifactsApi.getDetail` now returns
+`Artifact` directly (no `{artifact, versions}` wrapper).
+
 ## 2026-05-14 — timeline dedup extracted; event_id-based dedup
 
 The unified-timeline merge + dedup (a ~50-line block inside the `timeline`

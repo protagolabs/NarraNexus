@@ -56,7 +56,7 @@ interface ArtifactState {
   minimizedTabIds: Set<string>;
 
   /**
-   * Set when the agent's create_artifact tool call returns an
+   * Set when the agent's register_artifact tool call returns an
    * ArtifactQuotaExceeded error. Surfaced as a modal at the layout level
    * with a button that jumps the user to Settings → Artifacts. Cleared
    * automatically once the user dismisses the modal or navigates away.
