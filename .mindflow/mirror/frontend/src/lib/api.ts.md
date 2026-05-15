@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-05-14
+last_verified: 2026-05-15
 stub: false
 ---
+
+## 2026-05-15 — bundle Artifacts + MCP preview
+
+Added `previewArtifacts(agentIds)` and `previewMcps(agentIds)` next to the
+existing `previewBusChannels` helper. Used by the redesigned BundleExportPage
+to populate the Artifacts tab and the MCP section of the renamed
+`Skills & MCP` tab.
 
 ## 2026-05-14 — workspace tree + nested delete + raw helpers
 

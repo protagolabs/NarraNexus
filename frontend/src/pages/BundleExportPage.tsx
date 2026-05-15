@@ -33,6 +33,8 @@ import {
   ListTree,
   Hexagon,
   Radio,
+  Sparkles,
+  Server,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
 import { useConfigStore, useTeamsStore } from '@/stores';
@@ -43,18 +45,27 @@ import type {
   SkillExportSpec,
   SkillArchiveRecord,
   TeamWithMembers,
+  BundleArtifactPreview,
+  BundleMcpPreview,
 } from '@/types';
 
 const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: 'agents', label: 'Agents', icon: Users },
   { id: 'history', label: 'Chat history', icon: FileText },
-  { id: 'skills', label: 'Skills', icon: Wrench },
+  // Skills sidebar in-app merges Skills + MCP into one Card; the wizard
+  // follows the same grouping so users see one consistent surface for
+  // "agent tools" no matter whether they're managing or packaging.
+  { id: 'skills', label: 'Skills & MCP', icon: Wrench },
   { id: 'social', label: 'Social Network', icon: Hexagon },
   { id: 'bus', label: 'Message Bus', icon: Radio },
+  // Artifacts ride along inside workspace.tar.gz already; this tab controls
+  // whether the DB pointer rows ship so the recipient sees the artifact in
+  // their Settings → Artifacts table after import.
+  { id: 'artifacts', label: 'Artifacts', icon: Sparkles },
   { id: 'workspace', label: 'Workspace files', icon: ListTree },
 ];
 
-type TabId = 'agents' | 'history' | 'skills' | 'social' | 'bus' | 'workspace';
+type TabId = 'agents' | 'history' | 'skills' | 'social' | 'bus' | 'artifacts' | 'workspace';
 
 interface SocialEntity {
   entity_id: string;
@@ -162,6 +173,20 @@ export default function BundleExportPage() {
   // haven't, agent-closure changes auto-refresh defaults; if they have, we
   // preserve their picks across re-fetches.
   const [busSelectionTouched, setBusSelectionTouched] = useState(false);
+
+  // Artifacts available per agent (lazy-fetched when artifacts tab is opened
+  // or closure changes). null = pending; [] = loaded empty.
+  const [artifactsForAgents, setArtifactsForAgents] = useState<Record<string, BundleArtifactPreview[] | null>>({});
+  // Per-agent artifact selection. Default = all artifacts selected; user can
+  // untick individuals. Same Set semantics as socialSelected.
+  const [artifactSelected, setArtifactSelected] = useState<Record<string, Set<string>>>({});
+
+  // MCP URLs available per agent (lazy-fetched same as artifacts).
+  const [mcpsForAgents, setMcpsForAgents] = useState<Record<string, BundleMcpPreview[] | null>>({});
+  // Per-agent MCP selection. Default = NONE selected (MCP is opt-in by design
+  // — URLs frequently point at private services the bundle author may not
+  // want to redistribute by accident).
+  const [mcpSelected, setMcpSelected] = useState<Record<string, Set<string>>>({});
 
   // P9: bundle filename — defaults to <team_name>-YYYYMMDD.nxbundle when a
   // team is selected, else bundle-<YYYYMMDD>.nxbundle. Editable.
@@ -360,6 +385,65 @@ export default function BundleExportPage() {
     setBusSelected(new Set(busChannels.map((c) => c.channel_id)));
     setBusSelectionTouched(false);
   }, [mode, busChannels]);
+
+  // Fetch artifacts + MCPs per closure agent. Each agent is fetched once and
+  // cached; agent-deselection doesn't evict (cheap memory, avoids re-fetch
+  // when user toggles back). The "default = all artifacts selected" /
+  // "default = no MCP selected" semantics apply when the data first lands.
+  useEffect(() => {
+    Array.from(selectedAgents).forEach((aid) => {
+      if (artifactsForAgents[aid] === undefined) {
+        // Mark pending so we don't double-fire on re-render
+        setArtifactsForAgents((s) => ({ ...s, [aid]: null }));
+        api.previewArtifacts([aid])
+          .then((r) => {
+            const list = r.agents?.[aid] || [];
+            setArtifactsForAgents((s) => ({ ...s, [aid]: list }));
+            // Default: select every artifact for this agent.
+            setArtifactSelected((s) => {
+              if (s[aid]) return s;  // user already touched
+              return { ...s, [aid]: new Set(list.map((a) => a.artifact_id)) };
+            });
+          })
+          .catch(() => setArtifactsForAgents((s) => ({ ...s, [aid]: [] })));
+      }
+      if (mcpsForAgents[aid] === undefined) {
+        setMcpsForAgents((s) => ({ ...s, [aid]: null }));
+        api.previewMcps([aid])
+          .then((r) => {
+            const list = r.agents?.[aid] || [];
+            setMcpsForAgents((s) => ({ ...s, [aid]: list }));
+            // Default: NO MCP selected — user opts in.
+            setMcpSelected((s) => {
+              if (s[aid]) return s;
+              return { ...s, [aid]: new Set() };
+            });
+          })
+          .catch(() => setMcpsForAgents((s) => ({ ...s, [aid]: [] })));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAgents]);
+
+  // Full snapshot mode: opt-in to everything — every artifact AND every MCP
+  // for selected agents. Custom mode keeps user picks.
+  useEffect(() => {
+    if (mode !== 'full') return;
+    setArtifactSelected(() => {
+      const out: Record<string, Set<string>> = {};
+      Object.entries(artifactsForAgents).forEach(([aid, list]) => {
+        if (list) out[aid] = new Set(list.map((a) => a.artifact_id));
+      });
+      return out;
+    });
+    setMcpSelected(() => {
+      const out: Record<string, Set<string>> = {};
+      Object.entries(mcpsForAgents).forEach(([aid, list]) => {
+        if (list) out[aid] = new Set(list.map((m) => m.mcp_id));
+      });
+      return out;
+    });
+  }, [mode, artifactsForAgents, mcpsForAgents]);
 
   // Default skill choice per (agent, dirName) based on archive availability.
   // Note: skill_archives is keyed by skill_name (not dir), so two skills
@@ -563,8 +647,10 @@ export default function BundleExportPage() {
       socialEntities: Object.values(socialSelected).reduce((a, b) => a + b.size, 0),
       workspaceExcluded: Object.values(workspaceExcludes).reduce((a, b) => a + b.size, 0),
       busChannels: busSelected.size,
+      artifacts: Object.values(artifactSelected).reduce((a, b) => a + b.size, 0),
+      mcps: Object.values(mcpSelected).reduce((a, b) => a + b.size, 0),
     };
-  }, [selectedAgents, skillChoices, socialSelected, workspaceExcludes, busSelected]);
+  }, [selectedAgents, skillChoices, socialSelected, workspaceExcludes, busSelected, artifactSelected, mcpSelected]);
 
   // Full mode: pre-fill granularity to "everything for the selected agents",
   // but DO NOT touch the agent selection itself — the user picks which agents
@@ -720,6 +806,31 @@ export default function BundleExportPage() {
           && busSelected.size !== busChannels.length)
           ? Array.from(busSelected)
           : null,
+        // MCP: opt-in semantics. We always emit an explicit object (even if
+        // empty) so the backend's "None / {} = ship nothing" branch reliably
+        // triggers regardless of frontend version. Only include agents that
+        // actually have at least one MCP picked.
+        mcp_selection: (() => {
+          const out: Record<string, string[]> = {};
+          Object.entries(mcpSelected).forEach(([aid, set]) => {
+            if (set.size > 0) out[aid] = Array.from(set);
+          });
+          return Object.keys(out).length ? out : null;
+        })(),
+        // Artifacts: default-include semantics. Only emit selection when the
+        // user actually unchecked something for an agent (a.k.a. selection
+        // size < known list size); otherwise fall back to "include all".
+        artifact_selection: (() => {
+          const out: Record<string, string[]> = {};
+          Array.from(selectedAgents).forEach((aid) => {
+            const known = artifactsForAgents[aid];
+            const picked = artifactSelected[aid];
+            if (!known || !picked) return;
+            if (picked.size === known.length) return;  // include-all default
+            out[aid] = Array.from(picked);
+          });
+          return Object.keys(out).length ? out : null;
+        })(),
       };
       const { blob, filename: serverFilename, warningsCount, externalEdgesDropped } = await api.exportBundle(payload);
       // (filename sanitization happens just below; reuse `finalName`)
@@ -938,20 +1049,46 @@ export default function BundleExportPage() {
           />
         )}
         {tab === 'skills' && (
-          <SkillsTab
-            agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
-            userId={userId}
-            skillsForAgents={skillsForAgents}
-            skillArchives={skillArchives}
-            skillChoices={skillChoices}
-            mode={mode}
-            onChange={(agentId, dirName, spec) =>
-              setSkillChoices((s) => ({ ...s, [skillKey(agentId, dirName)]: { ...spec, agent_id: agentId, skill_dir: dirName } }))
-            }
-            onAfterBackup={() => {
-              api.listSkillArchives().then((r) => setSkillArchives(r.archives)).catch(() => {});
-            }}
-          />
+          <div className="flex flex-col">
+            <SkillsTab
+              agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
+              userId={userId}
+              skillsForAgents={skillsForAgents}
+              skillArchives={skillArchives}
+              skillChoices={skillChoices}
+              mode={mode}
+              onChange={(agentId, dirName, spec) =>
+                setSkillChoices((s) => ({ ...s, [skillKey(agentId, dirName)]: { ...spec, agent_id: agentId, skill_dir: dirName } }))
+              }
+              onAfterBackup={() => {
+                api.listSkillArchives().then((r) => setSkillArchives(r.archives)).catch(() => {});
+              }}
+            />
+            <McpSection
+              agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
+              mcpsByAgent={mcpsForAgents}
+              selectedByAgent={mcpSelected}
+              mode={mode}
+              onToggle={(aid, mid) => {
+                setMcpSelected((cur) => {
+                  const next = { ...cur };
+                  const set = new Set(next[aid] || []);
+                  if (set.has(mid)) set.delete(mid); else set.add(mid);
+                  next[aid] = set;
+                  return next;
+                });
+              }}
+              onSelectAllForAgent={(aid) => {
+                setMcpSelected((cur) => {
+                  const list = mcpsForAgents[aid] || [];
+                  return { ...cur, [aid]: new Set(list.map((m) => m.mcp_id)) };
+                });
+              }}
+              onClearForAgent={(aid) => {
+                setMcpSelected((cur) => ({ ...cur, [aid]: new Set() }));
+              }}
+            />
+          </div>
         )}
         {tab === 'social' && (
           <SocialTab
@@ -989,6 +1126,32 @@ export default function BundleExportPage() {
             onSelectNone={() => {
               setBusSelectionTouched(true);
               setBusSelected(new Set());
+            }}
+          />
+        )}
+        {tab === 'artifacts' && (
+          <ArtifactsTab
+            agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
+            artifactsByAgent={artifactsForAgents}
+            selectedByAgent={artifactSelected}
+            mode={mode}
+            onToggle={(aid, artId) => {
+              setArtifactSelected((cur) => {
+                const next = { ...cur };
+                const set = new Set(next[aid] || []);
+                if (set.has(artId)) set.delete(artId); else set.add(artId);
+                next[aid] = set;
+                return next;
+              });
+            }}
+            onSelectAllForAgent={(aid) => {
+              setArtifactSelected((cur) => {
+                const list = artifactsForAgents[aid] || [];
+                return { ...cur, [aid]: new Set(list.map((a) => a.artifact_id)) };
+              });
+            }}
+            onClearForAgent={(aid) => {
+              setArtifactSelected((cur) => ({ ...cur, [aid]: new Set() }));
             }}
           />
         )}
@@ -2348,6 +2511,257 @@ function ReviewSummaryModal({
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+// ── McpSection — rendered inside the Skills & MCP tab ─────────────────────
+// MCP defaults to NONE selected (opt-in). User picks which URLs to ship; the
+// importer writes them straight into mcp_urls on the recipient side with the
+// connection_status field reset so the local poller validates from scratch.
+function McpSection({
+  agents, mcpsByAgent, selectedByAgent, mode, onToggle, onSelectAllForAgent, onClearForAgent,
+}: {
+  agents: any[];
+  mcpsByAgent: Record<string, BundleMcpPreview[] | null>;
+  selectedByAgent: Record<string, Set<string>>;
+  mode: 'full' | 'custom';
+  onToggle: (agentId: string, mcpId: string) => void;
+  onSelectAllForAgent: (agentId: string) => void;
+  onClearForAgent: (agentId: string) => void;
+}) {
+  if (agents.length === 0) return null;
+  const readOnly = mode === 'full';
+  return (
+    <div className="mt-6 pt-5 border-t border-[var(--border-subtle)]">
+      <div className="text-xs font-mono text-[var(--text-secondary)] mb-2 flex items-center gap-2">
+        <Server className="w-3.5 h-3.5" />
+        MCP servers
+      </div>
+      <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed mb-3">
+        MCP URLs are <strong>not</strong> shipped by default — pick the ones to include.
+        On import, each row goes straight into the recipient&apos;s <code>mcp_urls</code>
+        with <code>connection_status</code> cleared so the local poller re-validates the URL.
+      </div>
+      <div className="space-y-4">
+        {agents.map((a) => {
+          const list = mcpsByAgent[a.agent_id];
+          const selected = selectedByAgent[a.agent_id] || new Set<string>();
+          return (
+            <div key={a.agent_id}>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="font-mono text-xs text-[var(--text-secondary)]">
+                  {a.name || a.agent_id}
+                  <span className="text-[var(--text-tertiary)] ml-2">
+                    {list ? `· ${list.length} MCP${list.length === 1 ? '' : 's'} · ${selected.size} selected` : '· loading…'}
+                  </span>
+                </div>
+                {list && list.length > 0 && !readOnly && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => onSelectAllForAgent(a.agent_id)}
+                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
+                    >Select all</button>
+                    <button
+                      onClick={() => onClearForAgent(a.agent_id)}
+                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
+                    >Clear</button>
+                  </div>
+                )}
+              </div>
+              {list === null ? (
+                <div className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)] py-2">
+                  <Loader2 className="w-3 h-3 animate-spin" /> loading
+                </div>
+              ) : list.length === 0 ? (
+                <div className="text-[11px] text-[var(--text-tertiary)] py-1.5">
+                  No MCP URLs registered.
+                </div>
+              ) : (
+                <div className="border border-[var(--border-subtle)]">
+                  {list.map((m) => {
+                    const checked = selected.has(m.mcp_id);
+                    return (
+                      <label
+                        key={m.mcp_id}
+                        className={cn(
+                          'flex items-start gap-2 px-2.5 py-2 border-b border-[var(--border-subtle)] last:border-b-0 cursor-pointer hover:bg-[var(--bg-tertiary)]',
+                          readOnly && 'cursor-default opacity-90'
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={readOnly}
+                          onChange={() => !readOnly && onToggle(a.agent_id, m.mcp_id)}
+                          className="mt-1"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-sm">{m.name || m.mcp_id}</span>
+                            {!m.is_enabled && (
+                              <span className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] text-[var(--text-tertiary)] font-mono">
+                                disabled
+                              </span>
+                            )}
+                            {m.connection_status && (
+                              <span className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] text-[var(--text-tertiary)] font-mono">
+                                {m.connection_status}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-[var(--text-tertiary)] mt-0.5 font-mono break-all">
+                            {m.url}
+                          </div>
+                          {m.description && (
+                            <div className="text-[11px] text-[var(--text-secondary)] mt-0.5">
+                              {m.description}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {readOnly && (
+        <div className="text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5 mt-3">
+          <AlertTriangle className="w-3 h-3" />
+          Full snapshot mode auto-includes every MCP. Switch to Custom to pick.
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── ArtifactsTab — DB pointer rows ship per agent ─────────────────────────
+// Underlying files always travel inside workspace.tar.gz (paths sit inside
+// the agent's workspace), so unchecking an artifact here only drops the DB
+// row from the bundle. On import the importer reapplies the recipient's
+// `{aid}_{uid}/` prefix to file_path, forces session_id NULL + pinned=1.
+function ArtifactsTab({
+  agents, artifactsByAgent, selectedByAgent, mode, onToggle, onSelectAllForAgent, onClearForAgent,
+}: {
+  agents: any[];
+  artifactsByAgent: Record<string, BundleArtifactPreview[] | null>;
+  selectedByAgent: Record<string, Set<string>>;
+  mode: 'full' | 'custom';
+  onToggle: (agentId: string, artifactId: string) => void;
+  onSelectAllForAgent: (agentId: string) => void;
+  onClearForAgent: (agentId: string) => void;
+}) {
+  const readOnly = mode === 'full';
+  if (agents.length === 0) {
+    return <div className="text-xs text-[var(--text-tertiary)]">Pick at least one agent first.</div>;
+  }
+  const fmtSize = (n: number) => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  };
+  return (
+    <div className="space-y-3">
+      <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
+        Artifacts are pointer rows linking to files in the agent&apos;s workspace.
+        The files themselves always ride along inside <code>workspace.tar.gz</code> — this
+        tab only controls whether the DB row ships. On import, the recipient&apos;s
+        session is unknown so each artifact is auto-pinned and its session_id is cleared.
+      </div>
+      <div className="space-y-4">
+        {agents.map((a) => {
+          const list = artifactsByAgent[a.agent_id];
+          const selected = selectedByAgent[a.agent_id] || new Set<string>();
+          return (
+            <div key={a.agent_id}>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="font-mono text-xs text-[var(--text-secondary)]">
+                  {a.name || a.agent_id}
+                  <span className="text-[var(--text-tertiary)] ml-2">
+                    {list ? `· ${list.length} artifact${list.length === 1 ? '' : 's'} · ${selected.size} selected` : '· loading…'}
+                  </span>
+                </div>
+                {list && list.length > 0 && !readOnly && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => onSelectAllForAgent(a.agent_id)}
+                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
+                    >Select all</button>
+                    <button
+                      onClick={() => onClearForAgent(a.agent_id)}
+                      className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
+                    >Clear</button>
+                  </div>
+                )}
+              </div>
+              {list === null ? (
+                <div className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)] py-2">
+                  <Loader2 className="w-3 h-3 animate-spin" /> loading
+                </div>
+              ) : list.length === 0 ? (
+                <div className="text-[11px] text-[var(--text-tertiary)] py-1.5">
+                  This agent has no artifacts.
+                </div>
+              ) : (
+                <div className="border border-[var(--border-subtle)]">
+                  {list.map((art) => {
+                    const checked = selected.has(art.artifact_id);
+                    return (
+                      <label
+                        key={art.artifact_id}
+                        className={cn(
+                          'flex items-start gap-2 px-2.5 py-2 border-b border-[var(--border-subtle)] last:border-b-0 cursor-pointer hover:bg-[var(--bg-tertiary)]',
+                          readOnly && 'cursor-default opacity-90'
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={readOnly}
+                          onChange={() => !readOnly && onToggle(a.agent_id, art.artifact_id)}
+                          className="mt-1"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-sm truncate">{art.title || art.artifact_id}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] text-[var(--text-tertiary)] font-mono">
+                              {art.kind}
+                            </span>
+                            <span className="text-[10px] text-[var(--text-tertiary)] font-mono">
+                              {fmtSize(art.size_bytes)}
+                            </span>
+                            {art.pinned && (
+                              <span className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] text-[var(--text-tertiary)] font-mono">
+                                pinned
+                              </span>
+                            )}
+                          </div>
+                          {art.file_path && (
+                            <div className="text-[11px] text-[var(--text-tertiary)] mt-0.5 font-mono break-all">
+                              {art.file_path}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {readOnly && (
+        <div className="text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5 mt-3">
+          <AlertTriangle className="w-3 h-3" />
+          Full snapshot mode auto-includes every artifact. Switch to Custom to pick.
+        </div>
+      )}
     </div>
   );
 }

@@ -390,6 +390,19 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                             id_map[jid] = gen_new_id("job")
                 except (OSError, json.JSONDecodeError):
                     pass
+            # artifacts (1.1+ bundles). Pre-collect artifact_id so the structured
+            # rewrite in the write phase doesn't fall through to "pass original
+            # value", which would either UNIQUE-conflict on re-import to the same
+            # instance or leave cross-references stale.
+            art_path = adir / "artifacts.json"
+            if art_path.exists():
+                try:
+                    for arec in json.loads(art_path.read_text(encoding="utf-8")):
+                        aiid = arec.get("artifact_id")
+                        if aiid and aiid not in id_map:
+                            id_map[aiid] = gen_new_id("artifact")
+                except (OSError, json.JSONDecodeError):
+                    pass
 
     # Bundle-level: bus channels (channel_id) and bus messages (message_id)
     bus_path = work_dir / "bus.json"
@@ -404,6 +417,20 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 mid = ms.get("message_id")
                 if mid and mid not in id_map:
                     id_map[mid] = gen_new_id("message")
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # Bundle-level: mcp_hints.json entries become live mcp_urls rows on import,
+    # so pre-collect their ids the same way. Pre-1.1 bundles wrote only name/url
+    # (no mcp_id field); those legacy entries just won't appear here and the
+    # write phase mints a fresh id at insert time.
+    mcp_hints_path = work_dir / "mcp_hints.json"
+    if mcp_hints_path.exists():
+        try:
+            for mh in json.loads(mcp_hints_path.read_text(encoding="utf-8")):
+                mhid = mh.get("mcp_id")
+                if mhid and mhid not in id_map:
+                    id_map[mhid] = gen_new_id("mcp")
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -502,6 +529,8 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         "jobs_created": 0,
         "narrative_links_created": 0,
         "memory_rows_created": 0,
+        "artifacts_created": 0,
+        "mcp_urls_created": 0,
         "bus_channels_created": 0,
         "bus_members_created": 0,
         "bus_messages_created": 0,
@@ -840,6 +869,44 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             ws_extracted = True
             ws_target = target
 
+        # instance_artifacts (1.1+ bundles). The bundle's file_path is
+        # workspace-relative (no `{aid}_{uid}/` prefix); re-prepend the
+        # recipient's prefix so the DB convention (file_path relative to
+        # settings.base_working_path) is preserved. We always reset session_id
+        # / original_session_id to NULL and force pinned=1 — sessions are not
+        # portable across instances, and pinning ensures the user can still
+        # find the artifact in the Settings → Artifacts page after import.
+        art_path = adir / "artifacts.json"
+        if art_path.exists():
+            try:
+                for arec in json.loads(art_path.read_text(encoding="utf-8")):
+                    new_ar = rewrite_row("instance_artifacts", arec)
+                    fp = (new_ar.get("file_path") or "").lstrip("/")
+                    if fp:
+                        new_ar["file_path"] = f"{new_aid}_{user_id}/{fp}"
+                    new_ar["user_id"] = user_id
+                    new_ar["session_id"] = None
+                    new_ar["original_session_id"] = None
+                    new_ar["pinned"] = 1
+                    new_ar.pop("created_at", None)
+                    new_ar.pop("updated_at", None)
+                    try:
+                        await db.insert("instance_artifacts", new_ar)
+                        written_summary["artifacts_created"] += 1
+                    except Exception as ae:
+                        logger.warning(
+                            f"bundle_import.artifact.insert_failed agent={old_aid} "
+                            f"old_id={arec.get('artifact_id')} reason={ae}"
+                        )
+                        written_summary["warnings"].append(
+                            f"agent {old_aid}: artifact {arec.get('artifact_id')} insert failed: {ae}"
+                        )
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning(f"bundle_import.artifacts.read_failed agent={old_aid} reason={e}")
+                written_summary["warnings"].append(
+                    f"agent {old_aid}: artifacts.json could not be read: {e}"
+                )
+
         # Per-agent delta log so the user can see counts attributable to THIS agent
         delta = {
             k: written_summary[k] - before.get(k, 0)
@@ -847,7 +914,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 "narratives_created", "events_created", "instances_created",
                 "messages_created", "social_entities_created", "rag_rows_created",
                 "awareness_rows_created", "jobs_created", "narrative_links_created",
-                "memory_rows_created",
+                "memory_rows_created", "artifacts_created",
             )
             if isinstance(written_summary.get(k), int) and (written_summary.get(k, 0) - before.get(k, 0)) > 0
         }
@@ -1128,12 +1195,85 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         f"failures={len(skill_install_failures)}"
     )
 
-    # -- mcp_hints --
+    # -- mcp_hints / mcp_urls --
+    #
+    # Pre-1.1 behavior was "show hints, let user manually re-create MCP rows".
+    # 1.1+ writes directly into mcp_urls: when the bundle author opted MCPs
+    # into the bundle, the recipient gets working rows immediately and the
+    # background MCP poller re-validates each URL (connection_status reset to
+    # None, last_check_time/last_error cleared). We keep mcp_hints_data on the
+    # response so the frontend can still surface "what was added" to the user.
+    #
+    # 1.0 bundles auto-included every closure-agent MCP without user consent;
+    # gating write-through on 1.1+ avoids surprise-creating rows on the
+    # recipient when they import an older bundle. Hint-only fallback is
+    # preserved for them.
+    bundle_version_str = str(manifest.get("bundle_format_version") or "1.0")
+    try:
+        _bv_parts = bundle_version_str.split(".")
+        _bv_major = int(_bv_parts[0])
+        _bv_minor = int(_bv_parts[1]) if len(_bv_parts) > 1 else 0
+    except (ValueError, IndexError):
+        _bv_major, _bv_minor = 1, 0
+    mcp_write_through_enabled = (_bv_major, _bv_minor) >= (1, 1)
+
     mcp_hints_path = work_dir / "mcp_hints.json"
     if mcp_hints_path.exists():
-        hints = json.loads(mcp_hints_path.read_text(encoding="utf-8"))
+        try:
+            hints = json.loads(mcp_hints_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(f"bundle_import.mcp_hints.read_failed reason={e}")
+            hints = []
         written_summary["mcp_hints"] = len(hints)
-        written_summary["mcp_hints_data"] = hints  # frontend prompts user
+        written_summary["mcp_hints_data"] = hints  # frontend surfaces the list
+
+        if not mcp_write_through_enabled:
+            logger.info(
+                f"bundle_import.mcp.skip_writethrough bundle_version={bundle_version_str} "
+                f"hint_rows={len(hints)} (legacy bundle — hint-only)"
+            )
+            hints = []  # short-circuit the write loop below
+
+        for hint in hints:
+            # rewrite_row handles mcp_id + agent_id via STRUCTURED_ID_FIELDS;
+            # for legacy 1.0 hints (no mcp_id field) we mint one inline.
+            row: Dict[str, Any] = {
+                "mcp_id": hint.get("mcp_id"),
+                "agent_id": hint.get("agent_id"),
+                "user_id": user_id,  # recipient
+                "name": hint.get("name") or "",
+                "url": hint.get("url") or "",
+                "description": hint.get("description"),
+                "is_enabled": int(hint.get("is_enabled", 1) or 0),
+                # Reset health so the poller re-validates against THIS instance.
+                "connection_status": None,
+                "last_check_time": None,
+                "last_error": None,
+                "metadata": hint.get("metadata"),
+            }
+            new_row = rewrite_row("mcp_urls", row)
+            # Legacy bundles without mcp_id: mint one now (rewrite_row passes
+            # None through unchanged).
+            if not new_row.get("mcp_id"):
+                new_row["mcp_id"] = gen_new_id("mcp")
+            # agent_id may not be in id_map for malformed bundles; skip those.
+            if not new_row.get("agent_id"):
+                logger.warning(
+                    f"bundle_import.mcp.skip reason=agent_id_missing mcp_id={new_row.get('mcp_id')}"
+                )
+                continue
+            try:
+                await db.insert("mcp_urls", new_row)
+                written_summary["mcp_urls_created"] += 1
+            except Exception as me:
+                logger.warning(f"bundle_import.mcp.insert_failed reason={me}")
+                written_summary["warnings"].append(
+                    f"mcp_urls insert failed for {new_row.get('name')}: {me}"
+                )
+        logger.info(
+            f"bundle_import.mcp.done created={written_summary['mcp_urls_created']} "
+            f"hint_rows={len(hints)}"
+        )
 
     # ---- Verification pass: re-query DB for the new agents and confirm row counts
     # match what we think we wrote. Helps catch silent failures that didn't raise.

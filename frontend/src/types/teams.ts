@@ -77,6 +77,34 @@ export interface BundleExportRequest {
   // Message Bus channel allowlist; omit/null = include all
   // owner-owned channels with ≥1 closure agent member
   bus_channel_selection?: string[] | null;
+  // Per-agent MCP allowlist; omit/null/{} = NO MCP shipped (opt-in by design)
+  mcp_selection?: Record<string, string[]> | null;
+  // Per-agent artifact allowlist; omit/null = include all
+  // (workspace files always travel inside workspace.tar.gz regardless)
+  artifact_selection?: Record<string, string[]> | null;
+}
+
+// ----- Bundle export previews (wizard helpers) -----
+
+export interface BundleArtifactPreview {
+  artifact_id: string;
+  title: string;
+  kind: string;
+  size_bytes: number;
+  pinned: boolean;
+  session_id?: string | null;
+  file_path?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface BundleMcpPreview {
+  mcp_id: string;
+  name: string;
+  url: string;
+  description?: string | null;
+  is_enabled: boolean;
+  connection_status?: string | null;
 }
 
 // ----- Bundle import -----
@@ -126,6 +154,9 @@ export interface BundleConfirmResponse {
   skills_imported: number;
   mcp_hints: number;
   mcp_hints_data?: { agent_id: string; name: string; url: string; description?: string }[];
+  // Added in bundle format 1.1
+  artifacts_created?: number;
+  mcp_urls_created?: number;
   warnings: string[];
 }
 

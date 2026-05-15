@@ -420,3 +420,219 @@ async def test_unknown_module_class_skipped_with_warning(db_client, tmp_workspac
     # A warning surfaced
     assert any("MatrixModule" in w for w in summary.get("warnings", [])), \
         f"expected MatrixModule warning in summary.warnings, got {summary.get('warnings')!r}"
+
+
+@pytest.mark.asyncio
+async def test_artifacts_roundtrip_strips_and_restores_prefix(db_client, tmp_workspace_root):
+    """instance_artifacts.file_path is stored relative to base_working_path
+    (always starts with `{aid}_{user_id}/...`). The bundle must store the
+    workspace-relative slice; the importer must reapply the new agent's
+    prefix. Plus session_id is cleared and pinned forced to 1."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+
+    user_id = "test_user"
+    aid = "agent_artifac00"
+    await _seed_agent(db_client, aid, "Drawer", user_id)
+    ws = tmp_workspace_root / f"{aid}_{user_id}"
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / "work").mkdir()
+    (ws / "work" / "output.html").write_text("<html>hello</html>", encoding="utf-8")
+
+    art_id = "art_artif001"
+    rel_path = f"{aid}_{user_id}/work/output.html"
+    await db_client.insert("instance_artifacts", {
+        "artifact_id": art_id,
+        "agent_id": aid,
+        "user_id": user_id,
+        "session_id": "session_xyz",
+        "original_session_id": None,
+        "title": "Welcome page",
+        "kind": "html",
+        "description": "auto-generated welcome",
+        "pinned": 0,
+        "file_path": rel_path,
+        "size_bytes": 19,
+        "latest_version": 1,
+        "created_at": "2026-05-15 10:00:00.000000",
+        "updated_at": "2026-05-15 10:00:00.000000",
+    })
+
+    bundle_path = tmp_workspace_root.parent / "art.nxbundle"
+    selection = ExportSelection(
+        agent_ids=[aid],
+        artifact_selection={aid: [art_id]},
+    )
+    await build_bundle(user_id, selection, bundle_path)
+
+    # Inspect bundle on disk: artifacts.json must use workspace-relative path
+    import zipfile
+    with zipfile.ZipFile(bundle_path, "r") as zf:
+        with zf.open(f"agents/{aid}/artifacts.json") as f:
+            shipped = json.loads(f.read().decode("utf-8"))
+    assert len(shipped) == 1
+    assert shipped[0]["file_path"] == "work/output.html", (
+        f"expected workspace-relative file_path; got {shipped[0]['file_path']!r}"
+    )
+
+    # Import as the SAME user — name clash forces a new agent_id
+    pre = await preflight(bundle_path, user_id)
+    summary = await confirm(pre["preflight_token"], user_id)
+    assert summary["artifacts_created"] == 1, summary
+
+    rows = await db_client.get("agents", {"created_by": user_id})
+    new_aid = next(r["agent_id"] for r in rows if r["agent_id"] != aid)
+    new_arts = await db_client.get("instance_artifacts", {"agent_id": new_aid})
+    assert len(new_arts) == 1
+    art = new_arts[0]
+    assert art["artifact_id"] != art_id
+    assert re.fullmatch(ID_KINDS["artifact"], art["artifact_id"])
+    assert art["file_path"] == f"{new_aid}_{user_id}/work/output.html"
+    assert art["session_id"] is None, f"session_id should be NULL; got {art['session_id']!r}"
+    assert int(art["pinned"]) == 1, f"pinned should be forced to 1; got {art['pinned']!r}"
+    assert art["user_id"] == user_id
+
+
+@pytest.mark.asyncio
+async def test_mcp_selection_default_is_empty(db_client, tmp_workspace_root):
+    """Without mcp_selection, the bundle must ship zero MCP rows even when
+    the agent has mcp_urls registered — MCP is opt-in by design."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+
+    user_id = "test_user"
+    aid = "agent_mcpemp000"
+    await _seed_agent(db_client, aid, "MCP-less", user_id)
+    (tmp_workspace_root / f"{aid}_{user_id}").mkdir()
+    await db_client.insert("mcp_urls", {
+        "mcp_id": "mcp_emp00001",
+        "agent_id": aid,
+        "user_id": user_id,
+        "name": "TestMCP",
+        "url": "http://example.invalid/mcp",
+        "is_enabled": 1,
+    })
+
+    bundle_path = tmp_workspace_root.parent / "mcpempty.nxbundle"
+    await build_bundle(user_id, ExportSelection(agent_ids=[aid]), bundle_path)
+    pre = await preflight(bundle_path, user_id)
+    summary = await confirm(pre["preflight_token"], user_id)
+
+    assert summary.get("mcp_urls_created", 0) == 0
+    assert summary.get("mcp_hints", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_mcp_selection_writes_through_with_reset_status(db_client, tmp_workspace_root):
+    """When mcp_selection is provided, the importer creates real mcp_urls rows
+    with rewritten mcp_id + agent_id and reset connection_status."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+
+    user_id = "test_user"
+    aid = "agent_mcpwrt00"
+    await _seed_agent(db_client, aid, "MCP-writer", user_id)
+    (tmp_workspace_root / f"{aid}_{user_id}").mkdir()
+    src_mcp_id = "mcp_wrt00001"
+    await db_client.insert("mcp_urls", {
+        "mcp_id": src_mcp_id,
+        "agent_id": aid,
+        "user_id": user_id,
+        "name": "WriterMCP",
+        "url": "http://example.invalid/mcp/wr",
+        "is_enabled": 1,
+        "connection_status": "connected",
+        "last_error": "stale info",
+    })
+
+    bundle_path = tmp_workspace_root.parent / "mcpwrt.nxbundle"
+    selection = ExportSelection(
+        agent_ids=[aid],
+        mcp_selection={aid: [src_mcp_id]},
+    )
+    await build_bundle(user_id, selection, bundle_path)
+
+    pre = await preflight(bundle_path, user_id)
+    summary = await confirm(pre["preflight_token"], user_id)
+    assert summary.get("mcp_urls_created", 0) == 1, summary
+
+    rows = await db_client.get("agents", {"created_by": user_id})
+    new_aid = next(r["agent_id"] for r in rows if r["agent_id"] != aid)
+    new_mcps = await db_client.get("mcp_urls", {"agent_id": new_aid})
+    assert len(new_mcps) == 1
+    m = new_mcps[0]
+    assert m["mcp_id"] != src_mcp_id
+    assert re.fullmatch(ID_KINDS["mcp"], m["mcp_id"])
+    assert m["name"] == "WriterMCP"
+    assert m["url"] == "http://example.invalid/mcp/wr"
+    assert m["user_id"] == user_id
+    # connection_status reset so the poller revalidates locally
+    assert (m["connection_status"] in (None, "")), (
+        f"connection_status must be reset; got {m['connection_status']!r}"
+    )
+    assert (m["last_error"] in (None, "")), (
+        f"last_error must be reset; got {m['last_error']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_legacy_bundle_without_artifacts_or_mcps_imports_clean(db_client, tmp_workspace_root):
+    """A 1.0-shaped bundle (no artifacts.json, mcp_hints.json that's just
+    {name,url,...} without mcp_id) must still import without crashing and
+    without auto-creating mcp_urls rows."""
+    from xyz_agent_context.bundle.importer import preflight, confirm
+
+    user_id = "test_user"
+    aid = "agent_legacy001"
+    # Hand-build a minimal bundle directory then zip it.
+    import tempfile, zipfile
+    with tempfile.TemporaryDirectory() as tmpd:
+        tmp = Path(tmpd)
+        (tmp / "agents" / aid).mkdir(parents=True)
+        # Minimum agent record so importer's name-dedup path is exercised
+        agent_record = {
+            "agent_id": aid,
+            "agent_name": "Legacy",
+            "agent_type": "default",
+            "agent_description": "legacy bundle",
+            "created_by": "<original_owner>",
+        }
+        (tmp / "agents" / aid / "agent.json").write_text(
+            json.dumps(agent_record), encoding="utf-8"
+        )
+        # Legacy mcp_hints style: no mcp_id, just hints to display.
+        legacy_hints = [
+            {"agent_id": aid, "name": "OldMCP", "url": "http://old.invalid"},
+        ]
+        (tmp / "mcp_hints.json").write_text(
+            json.dumps(legacy_hints), encoding="utf-8"
+        )
+        manifest = {
+            "bundle_format_version": "1.0",
+            "exported_at": "2026-04-01T00:00:00+00:00",
+            "owner_placeholder": "<original_owner>",
+            "agents": [aid],
+            "agents_summary": [],
+            "skills": [],
+            "stripped": [],
+            "warnings": [],
+            "info": [],
+            "info_counters": {},
+            "embedding": {"provider": None, "model": None, "dim": None},
+        }
+        (tmp / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        bundle_path = tmp_workspace_root.parent / "legacy.nxbundle"
+        with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for p in tmp.rglob("*"):
+                if p.is_file():
+                    zf.write(p, arcname=str(p.relative_to(tmp)))
+
+    pre = await preflight(bundle_path, user_id)
+    summary = await confirm(pre["preflight_token"], user_id)
+
+    # 1.0 bundle: write-through gated off; no mcp_urls rows created
+    assert summary.get("mcp_urls_created", 0) == 0
+    assert summary.get("mcp_hints", 0) == 1  # still surfaced as hints
+    # No artifacts.json => no instance_artifacts rows
+    assert summary.get("artifacts_created", 0) == 0

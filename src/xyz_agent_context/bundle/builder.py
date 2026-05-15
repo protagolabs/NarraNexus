@@ -38,7 +38,7 @@ from .security import (
 )
 
 
-BUNDLE_FORMAT_VERSION = "1.0"
+BUNDLE_FORMAT_VERSION = "1.1"
 
 
 # Tables that store per-agent state (closure-filtered).
@@ -49,6 +49,7 @@ AGENT_SCOPED_TABLES = [
     "agent_messages",
     "module_instances",
     "instance_jobs",
+    "instance_artifacts",
     "module_report_memory",
     "lark_trigger_audit",
 ]
@@ -109,6 +110,8 @@ class ExportSelection:
         event_selection: Optional[Dict[str, List[str]]] = None,
         job_selection: Optional[Dict[str, List[str]]] = None,
         bus_channel_selection: Optional[List[str]] = None,
+        mcp_selection: Optional[Dict[str, List[str]]] = None,
+        artifact_selection: Optional[Dict[str, List[str]]] = None,
     ):
         self.agent_ids = agent_ids
         self.team_id = team_id
@@ -147,6 +150,15 @@ class ExportSelection:
         # When provided, only channels in this list ship — but they still
         # must be owned by the user and have ≥1 closure-agent member.
         self.bus_channel_selection = bus_channel_selection
+        # MCP allowlist per agent: {agent_id: [mcp_id, ...]}. Unlike most other
+        # selections, default = empty (no MCP shipped). MCP URLs often point at
+        # private deployments; users must opt in. None and {} both mean "no MCP".
+        self.mcp_selection = mcp_selection
+        # Artifact allowlist per agent: {agent_id: [artifact_id, ...]}.
+        # None = include all (matches social/narrative semantics). Underlying
+        # files travel inside workspace.tar.gz regardless of this allowlist;
+        # deselecting an artifact just drops the DB pointer row from the bundle.
+        self.artifact_selection = artifact_selection
 
 
 async def build_bundle(
@@ -396,6 +408,54 @@ async def build_bundle(
                 encoding="utf-8",
             )
 
+            # instance_artifacts (pointer rows; actual files live in workspace
+            # and ride along inside workspace.tar.gz). file_path is stored DB-
+            # side relative to settings.base_working_path, which means it always
+            # starts with `{aid}_{user_id}/...`. Strip that prefix here so the
+            # bundle holds a clean workspace-relative path; the importer re-
+            # prepends `{new_aid}_{recipient_uid}/` after rewrite.
+            #
+            # artifact_selection semantics: None = include all (matches social /
+            # narrative defaults); per-agent allowlist filters by artifact_id.
+            allowed_artifacts = (
+                set(selection.artifact_selection.get(aid, []))
+                if selection.artifact_selection is not None else None
+            )
+            art_rows_raw = await db.get("instance_artifacts", {"agent_id": aid})
+            ws_prefix = f"{aid}_{user_id}/"
+            legacy_ws_prefix = f"{aid}_user_{user_id}/"
+            artifact_rows_out: List[Dict[str, Any]] = []
+            for r in art_rows_raw:
+                if allowed_artifacts is not None and r.get("artifact_id") not in allowed_artifacts:
+                    continue
+                # Strip the workspace prefix from file_path BEFORE handing the
+                # row to _scrub_user_id. The scrubber substring-replaces the
+                # raw user_id with the `<original_owner>` placeholder inside
+                # any non-ID string column, so doing it the other way around
+                # would leave the file_path with a placeholder embedded in the
+                # path segment (e.g. `agent_X_<original_owner>/...`) and our
+                # prefix match would silently fail.
+                raw = dict(r)
+                fp = raw.get("file_path") or ""
+                if fp.startswith(ws_prefix):
+                    raw["file_path"] = fp[len(ws_prefix):]
+                elif fp.startswith(legacy_ws_prefix):
+                    raw["file_path"] = fp[len(legacy_ws_prefix):]
+                elif fp:
+                    # Out-of-workspace pointer — should never happen under the
+                    # pointer model, but if it does we keep the value verbatim
+                    # and warn so the importer (and the user) can investigate.
+                    warnings.append(
+                        f"artifact {r.get('artifact_id')}: file_path outside agent "
+                        "workspace, exported verbatim"
+                    )
+                rec = _scrub_user_id(raw, user_id, "instance_artifacts")
+                artifact_rows_out.append(rec)
+            (agent_dir / "artifacts.json").write_text(
+                json.dumps(artifact_rows_out, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+
             # workspace tar.gz
             ws_path = await _pack_workspace(aid, user_id, agent_dir,
                                             excludes=selection.workspace_excludes.get(aid, []))
@@ -406,6 +466,7 @@ async def build_bundle(
                 "instances": len(agent_instance_ids),
                 "social_entities": len(social_entities_for_agent),
                 "rag_rows": len(rag_rows),
+                "artifacts": len(artifact_rows_out),
                 "workspace_size_bytes": ws_path.stat().st_size if ws_path else 0,
                 "workspace_path": "workspace.tar.gz" if ws_path else None,
             })
@@ -514,15 +575,34 @@ async def build_bundle(
             (tmpdir / "README.md").write_text(selection.team_intro_md, encoding="utf-8")
 
         # ---- mcp_hints.json ----
-        mcp_rows = []
+        # MCP is opt-in (mcp_selection != None). When the user picks rows here
+        # the bundle ships enough metadata for the importer to insert directly
+        # into the recipient's mcp_urls table — connection_status is reset on
+        # the import side so the poller re-validates against the new instance.
+        #
+        # Defaults: None / {} → no MCP shipped. Note this differs from social /
+        # narrative defaults; MCP URLs frequently point at private services
+        # the bundle author may not want to re-share.
+        mcp_rows: List[Dict[str, Any]] = []
+        mcp_allowlist = selection.mcp_selection or {}
         for aid in closure_set:
+            chosen_ids = set(mcp_allowlist.get(aid) or [])
+            if not chosen_ids:
+                continue
             rows = await db.get("mcp_urls", {"agent_id": aid, "user_id": user_id})
             for r in rows:
+                if r.get("mcp_id") not in chosen_ids:
+                    continue
                 mcp_rows.append({
+                    "mcp_id": r.get("mcp_id"),
                     "agent_id": aid,
                     "name": r["name"],
                     "url": r["url"],
                     "description": r.get("description"),
+                    "is_enabled": int(r.get("is_enabled") or 0),
+                    # metadata may contain non-secret hints (display name, version);
+                    # we ship it as-is. Use _scrub_user_id only via string columns.
+                    "metadata": r.get("metadata"),
                 })
         (tmpdir / "mcp_hints.json").write_text(
             json.dumps(mcp_rows, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
@@ -632,6 +712,7 @@ async def build_bundle(
             "agents_summary": agents_summary,
             "skills": skills_summary,
             "mcp_hints_count": len(mcp_rows),
+            "artifacts_count": sum(s.get("artifacts", 0) for s in agents_summary),
             "stripped": stripped_lists,
             "warnings": warnings,
             "info": info,

@@ -58,6 +58,8 @@ import type {
   BundleExportRequest,
   BundlePreflightResponse,
   BundleConfirmResponse,
+  BundleArtifactPreview,
+  BundleMcpPreview,
   SkillArchiveRecord,
   SlackCredentialResponse,
   SlackBindResponse,
@@ -1115,6 +1117,24 @@ class ApiClient {
     created_at?: string | null;
   }> }> {
     return this.request('/api/bundle/export/preview/bus-channels', {
+      method: 'POST',
+      body: JSON.stringify({ agent_ids: agentIds }),
+    });
+  }
+
+  async previewArtifacts(agentIds: string[]): Promise<{
+    agents: Record<string, BundleArtifactPreview[]>;
+  }> {
+    return this.request('/api/bundle/export/preview/artifacts', {
+      method: 'POST',
+      body: JSON.stringify({ agent_ids: agentIds }),
+    });
+  }
+
+  async previewMcps(agentIds: string[]): Promise<{
+    agents: Record<string, BundleMcpPreview[]>;
+  }> {
+    return this.request('/api/bundle/export/preview/mcps', {
       method: 'POST',
       body: JSON.stringify({ agent_ids: agentIds }),
     });
