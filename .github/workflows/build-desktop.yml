@@ -34,21 +34,35 @@ jobs:
           workspaces: tauri/src-tauri
 
       - name: Install Tauri CLI
-        # The macos-14 runner image (post 2026-05-15) ships a `cargo` shim
-        # under ~/.cargo/bin that re-execs `rustup-init` when no toolchain
-        # is "active for the current invocation". `rustup default stable`
-        # only sets the global default; the very next `cargo install` line
-        # is launched via the shim and resolves to rustup-init, which
-        # rejects `install` ("unexpected argument 'install' found").
+        # Two macos-14 runner regressions are guarded for here:
         #
-        # Invoking through `rustup run stable -- cargo install ...` (or the
-        # explicit path returned by `rustup which cargo`) bypasses the
-        # shim entirely and calls the real cargo binary directly. We use
-        # `rustup which` so `set -x` shows the absolute path in CI logs
-        # — handy when the runner image shifts under us again.
+        # 1. `cargo` shim → rustup-init. The runner now ships a `cargo`
+        #    binary under ~/.cargo/bin that re-execs `rustup-init` when
+        #    no toolchain is "active for the current invocation". The
+        #    shim dies on `install` with "unexpected argument 'install'
+        #    found". Resolve the real cargo binary via `rustup which`
+        #    and invoke that path directly.
+        #
+        # 2. cargo-install can trigger a `rustup` component fetch
+        #    (`rust-src` for some build scripts) and that download
+        #    fails intermittently on the runner's APFS (the `.partial`
+        #    file gets unlinked before the rename, giving
+        #    "No such file or directory (os error 2)"). Pre-installing
+        #    `rust-src` once outside the cargo-install path turns that
+        #    flake from "step fails, whole release blocked" into "one
+        #    fast `rustup component add` retries on its own"; wrap in
+        #    a 3x retry just in case.
+        #
+        # `set -eux` echoes the resolved cargo path so a future runner
+        # regression is diagnosable from the CI log alone.
         run: |
           set -eux
           rustup default stable
+          for i in 1 2 3; do
+            rustup component add rust-src --toolchain stable && break
+            echo "rustup component add rust-src failed (attempt $i), retrying…"
+            sleep 5
+          done
           CARGO_BIN="$(rustup which --toolchain stable cargo)"
           "$CARGO_BIN" install tauri-cli --version "^2"
 
