@@ -591,7 +591,17 @@ export function FileUpload() {
           Workspace is empty
         </div>
       ) : (
-        <ScrollArea className="max-h-[260px]">
+        // `type="auto"` reveals the scrollbar whenever content overflows
+        // (Radix default is "hover"). The previous max-h-[260px] combined
+        // with the default hover-only scrollbar made users believe the
+        // tree couldn't scroll at all — the bar only flashed on direct
+        // hover and the wheel chained to the outer AwarenessPanel
+        // ScrollArea. Pair this with overscroll-contain (default in
+        // ./ui/scroll-area.tsx) so the wheel stays in the inner viewport
+        // until its boundary. Bumping to max-h-[55vh] gives ~430 px on a
+        // 720-line laptop / ~590 px on a 1080-line monitor before falling
+        // back to inner scroll.
+        <ScrollArea type="auto" className="max-h-[55vh]">
           <div className="text-xs">
             {tree.map((node) => (
               <TreeNode

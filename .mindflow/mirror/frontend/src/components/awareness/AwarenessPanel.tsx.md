@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/awareness/AwarenessPanel.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-15
 stub: false
 ---
+
+## 2026-05-15 — awareness markdown inner-scroll discoverability
+
+Awareness thesis block's inner `<ScrollArea>` now uses `type="auto"` (always-visible scrollbar when overflow exists) and `max-h-[40vh]` instead of the original hover-only `max-h-[180px]`. Combined with `overscroll-contain` becoming a default in `ui/scroll-area.tsx`, the markdown content stays scrollable inside its own viewport without chaining to the outer panel's ScrollArea. Same fix was applied to `FileUpload.tsx`'s workspace tree — both inner-scrolls were invisible for the same reason and shipped together.
 
 # AwarenessPanel.tsx — Agent configuration hub (awareness + workspace + IM + social network)
 

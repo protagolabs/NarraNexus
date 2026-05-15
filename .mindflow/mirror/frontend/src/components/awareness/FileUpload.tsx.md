@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/awareness/FileUpload.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-15
 stub: false
 ---
+
+## 2026-05-15 — fix inner-scroll discoverability
+
+Tree's inner `<ScrollArea>` now uses `type="auto"` (always-visible scrollbar when overflow exists) and `max-h-[55vh]` instead of the original `max-h-[260px]` hover-only setup. The previous combination — hidden scrollbar + small cap + outer AwarenessPanel ScrollArea swallowing chained wheel events — made users think the tree couldn't scroll. Paired with `overscroll-contain` becoming a default in `ui/scroll-area.tsx` the wheel now stays inside the tree viewport until its boundary.
 
 ## 2026-05-14 — workspace tree viewer + manual register
 

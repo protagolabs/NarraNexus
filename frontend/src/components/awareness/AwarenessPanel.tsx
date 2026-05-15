@@ -226,7 +226,19 @@ export function AwarenessPanel() {
                 className="pl-4 pr-4 py-3 border-t border-r border-b border-[var(--rule)]"
                 style={{ borderLeft: '2px solid var(--text-primary)' }}
               >
-                <ScrollArea className="max-h-[180px] text-[13px] text-[var(--text-secondary)] leading-relaxed">
+                {/*
+                 * `type="auto"` reveals the scrollbar whenever the markdown
+                 * overflows; default `hover` made the inner-scroll feature
+                 * invisible and the wheel chained to the outer panel.
+                 * overscroll-contain (default in ./ui/scroll-area.tsx) keeps
+                 * the wheel inside the inner viewport until its boundary.
+                 * max-h-[40vh] roughly doubles the previous 180 px cap so the
+                 * thesis quote stays readable without forcing immediate scroll.
+                 */}
+                <ScrollArea
+                  type="auto"
+                  className="max-h-[40vh] text-[13px] text-[var(--text-secondary)] leading-relaxed"
+                >
                   <Markdown content={awareness} />
                 </ScrollArea>
                 {awarenessUpdateTime && (
