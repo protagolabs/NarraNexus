@@ -15,7 +15,7 @@ import { Settings, ArrowRight, SkipForward } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { useConfigStore } from '@/stores';
-import { getBaseUrl } from '@/lib/api';
+import { api } from '@/lib/api';
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -23,13 +23,14 @@ export function SetupPage() {
   const [providerCount, setProviderCount] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
-  // Check current provider count on mount and after changes
+  // Check current provider count on mount and after changes. Routed
+  // through api.getProviders so identity travels in the X-User-Id /
+  // JWT header — bare fetch used to send neither, and the backend
+  // happily fell back to "first user in users table".
   useEffect(() => {
     const check = async () => {
       try {
-        const baseUrl = getBaseUrl();
-        const res = await fetch(`${baseUrl}/api/providers?user_id=${encodeURIComponent(userId)}`);
-        const data = await res.json();
+        const data = await api.getProviders();
         if (data.success && data.data?.providers) {
           setProviderCount(Object.keys(data.data.providers).length);
         }

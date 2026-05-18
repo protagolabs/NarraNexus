@@ -7,7 +7,7 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
-import { api, getBaseUrl } from '@/lib/api';
+import { api } from '@/lib/api';
 import { getRuntimeConfig, isForcedCloud, isForcedLocal } from '@/lib/runtimeConfig';
 import { MockBanner } from '@/components/ui/MockBanner';
 
@@ -64,7 +64,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       return;
     }
     // Validate that the session is still valid (JWT token accepted by backend)
-    api.getAgents(userId)
+    api.getAgents()
       .then(res => {
         if (!res.success) logout();
       })
@@ -150,12 +150,14 @@ function RootRedirect() {
       setChecking(false);
       return;
     }
-    // Check if user has any providers configured
+    // Check if user has any providers configured. Use api.getProviders
+    // so the X-User-Id / JWT headers travel with the request — bare
+    // fetch sends neither, and the backend used to silently fall back
+    // to "first user in users table" which scoped this probe to the
+    // wrong account on multi-user local installs.
     const checkProviders = async () => {
       try {
-        const baseUrl = getBaseUrl();
-        const res = await fetch(`${baseUrl}/api/providers?user_id=${encodeURIComponent(userId)}`);
-        const data = await res.json();
+        const data = await api.getProviders();
         if (data.success && data.data?.providers) {
           const count = Object.keys(data.data.providers).length;
           setNeedsSetup(count === 0);

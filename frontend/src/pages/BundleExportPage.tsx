@@ -163,6 +163,17 @@ export default function BundleExportPage() {
   // regardless of this set.
   const [excludedJobs, setExcludedJobs] = useState<Record<string, Set<string>>>({});
 
+  // Per-narrative "how many events to render checkboxes for" cap.
+  // Default 30. UI exposes "Show 30 more" + "Show all" buttons to grow
+  // this value when a narrative has many events. This is *render-only*
+  // pagination — all events for the narrative are already loaded
+  // (getChatHistory called with event_limit=0), and the "Select all
+  // events" / "No events" buttons act on the full list regardless of
+  // the display cap. Stored separately from the data so changing the
+  // cap doesn't refetch.
+  const EVENT_PAGE_SIZE = 30;
+  const [eventDisplayLimit, setEventDisplayLimit] = useState<Record<string, number>>({});
+
   // Message Bus channels available for the selected agent closure. Lazy-fetched
   // when (a) the user opens the Bus tab, or (b) selectedAgents changes. Default
   // selection = all candidates (matches legacy auto-include behavior).
@@ -239,7 +250,7 @@ export default function BundleExportPage() {
   useEffect(() => {
     selectedAgents.forEach((aid) => {
       if (!skillsForAgents[aid]) {
-        api.listSkills(aid, userId, true)
+        api.listSkills(aid, true)
           .then((r) => {
             const list: SkillEntry[] = (r.skills || []).map((sk: any) => {
               const path: string = sk.path || '';
@@ -267,7 +278,7 @@ export default function BundleExportPage() {
           }).catch(() => {});
       }
       if (!workspaceFiles[aid]) {
-        api.listFiles(aid, userId)
+        api.listFiles(aid)
           .then((r: any) => {
             // Verified shape: { success, files: [{filename, size, modified_at}],
             //                   workspace_path, error }
@@ -287,12 +298,22 @@ export default function BundleExportPage() {
       // Plus we fetch jobs (/api/jobs?agent_id=...) and group by narrative_id (P7).
       if (!historyByAgent[aid]) {
         Promise.all([
-          api.getChatHistory(aid, userId).catch(() => null),
-          api.getJobs(aid, userId).catch(() => null),
+          // Pass event_limit=0 so the backend doesn't cap at its default
+          // 50 — users need to be able to cancel ANY event in a long
+          // narrative (one of ours has 1351 events). The handful of MB
+          // this brings into the page is fine; render-side pagination
+          // below keeps the DOM small.
+          api.getChatHistory(aid, 0).catch(() => null),
+          api.getJobs(aid).catch(() => null),
         ]).then(([chRaw, jobsRaw]: any[]) => {
           const ch: any = chRaw || {};
           const jobs: any = jobsRaw || {};
-          // Bucket events by narrative_id
+          // Bucket events by narrative_id, then sort each bucket
+          // newest → oldest. The bundle UI renders only the first
+          // `displayLimit` items in each list (default 30, expandable),
+          // so putting the most-recent events on top means "the chat
+          // I was just having" is what shows up by default — which is
+          // almost always what the user wants to inspect or strip.
           const eventsByNar: Record<string, ChatHistoryEvent[]> = {};
           for (const e of (ch.events || [])) {
             const nid = e.narrative_id;
@@ -303,6 +324,11 @@ export default function BundleExportPage() {
               created_at: e.created_at,
               preview: (e.final_output || '').slice(0, 100),
             });
+          }
+          for (const nid of Object.keys(eventsByNar)) {
+            eventsByNar[nid].sort((a, b) =>
+              (b.created_at || '').localeCompare(a.created_at || ''),
+            );
           }
           // Bucket jobs by narrative_id (jobs without parent narrative go in
           // a synthetic "(no narrative)" bucket the user can still skip)
@@ -1045,6 +1071,18 @@ export default function BundleExportPage() {
             onSelectNoneJobsInNarrative={(nid, allIds) => setExcludedJobs((s) => ({
               ...s, [nid]: new Set(allIds),
             }))}
+            eventDisplayLimit={eventDisplayLimit}
+            eventPageSize={EVENT_PAGE_SIZE}
+            onShowMoreEvents={(nid, total) => setEventDisplayLimit((s) => ({
+              ...s,
+              [nid]: Math.min(
+                (s[nid] ?? EVENT_PAGE_SIZE) + EVENT_PAGE_SIZE,
+                total,
+              ),
+            }))}
+            onShowAllEvents={(nid, total) => setEventDisplayLimit((s) => ({
+              ...s, [nid]: total,
+            }))}
             includeAll={includeChat}
           />
         )}
@@ -1702,6 +1740,7 @@ function HistoryTab({
   onSelectAllNarratives, onSelectNoneNarratives,
   onSelectAllEventsInNarrative, onSelectNoneEventsInNarrative,
   onSelectAllJobsInNarrative, onSelectNoneJobsInNarrative,
+  eventDisplayLimit, eventPageSize, onShowMoreEvents, onShowAllEvents,
   includeAll,
 }: {
   agents: any[];
@@ -1718,6 +1757,13 @@ function HistoryTab({
   onSelectNoneEventsInNarrative: (nid: string, allEventIds: string[]) => void;
   onSelectAllJobsInNarrative: (nid: string) => void;
   onSelectNoneJobsInNarrative: (nid: string, allJobIds: string[]) => void;
+  /** Per-narrative cap for how many event checkboxes to render. Defaults
+   *  to {@link eventPageSize}; "Show more" / "Show all" buttons mutate
+   *  the entry via the corresponding handlers. */
+  eventDisplayLimit: Record<string, number>;
+  eventPageSize: number;
+  onShowMoreEvents: (nid: string, total: number) => void;
+  onShowAllEvents: (nid: string, total: number) => void;
   includeAll: boolean;
 }) {
   if (agents.length === 0) {
@@ -1866,37 +1912,66 @@ function HistoryTab({
                         </div>
                       )}
                     </div>
-                    {!narExcluded && n.events.length > 0 && (
-                      <div className="border-t border-[var(--border-subtle)]">
-                        {n.events.slice(0, 30).map((e) => {
-                          const evExcluded = exEvts.has(e.event_id);
-                          return (
-                            <label key={e.event_id} className={cn(
-                              'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--bg-tertiary)]',
-                              evExcluded && 'opacity-40'
-                            )}>
-                              <input
-                                type="checkbox"
-                                checked={!evExcluded}
-                                onChange={() => onToggleEvent(n.narrative_id, e.event_id)}
-                                className="mt-0.5"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-mono text-[10px] text-[var(--text-tertiary)]">
-                                  {e.trigger || 'event'} · {(e.created_at || '').slice(0, 19)}
+                    {!narExcluded && n.events.length > 0 && (() => {
+                      // Render-side pagination. Events are pre-sorted
+                      // newest → oldest so the visible slice is the
+                      // most recent activity, which is what users
+                      // typically want to inspect when cancelling.
+                      // The 30-cap used to be hardcoded; now it's a
+                      // soft default the user can grow via the buttons
+                      // at the bottom of the list.
+                      const limit = eventDisplayLimit[n.narrative_id] ?? eventPageSize;
+                      const visible = n.events.slice(0, limit);
+                      const hidden = n.events.length - visible.length;
+                      return (
+                        <div className="border-t border-[var(--border-subtle)]">
+                          {visible.map((e) => {
+                            const evExcluded = exEvts.has(e.event_id);
+                            return (
+                              <label key={e.event_id} className={cn(
+                                'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--bg-tertiary)]',
+                                evExcluded && 'opacity-40'
+                              )}>
+                                <input
+                                  type="checkbox"
+                                  checked={!evExcluded}
+                                  onChange={() => onToggleEvent(n.narrative_id, e.event_id)}
+                                  className="mt-0.5"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-mono text-[10px] text-[var(--text-tertiary)]">
+                                    {e.trigger || 'event'} · {(e.created_at || '').slice(0, 19)}
+                                  </div>
+                                  <div className="truncate">{e.preview || '(no preview)'}</div>
                                 </div>
-                                <div className="truncate">{e.preview || '(no preview)'}</div>
+                              </label>
+                            );
+                          })}
+                          {hidden > 0 && (
+                            <div className="px-3 py-1.5 flex items-center justify-between gap-2 text-[10px] bg-[var(--bg-secondary)]/40 border-t border-[var(--border-subtle)]">
+                              <span className="text-[var(--text-tertiary)]">
+                                Showing {visible.length} / {n.events.length} events
+                                (oldest {hidden} hidden)
+                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  onClick={(ev) => { ev.stopPropagation(); onShowMoreEvents(n.narrative_id, n.events.length); }}
+                                  className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                >
+                                  Show {Math.min(eventPageSize, hidden)} more
+                                </button>
+                                <button
+                                  onClick={(ev) => { ev.stopPropagation(); onShowAllEvents(n.narrative_id, n.events.length); }}
+                                  className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                >
+                                  Show all ({n.events.length})
+                                </button>
                               </div>
-                            </label>
-                          );
-                        })}
-                        {n.events.length > 30 && (
-                          <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)]">
-                            +{n.events.length - 30} more events (all included by default; select narrative-level toggle to exclude entire narrative)
-                          </div>
-                        )}
-                      </div>
-                    )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {!narExcluded && n.jobs.length > 0 && (
                       <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/30">
                         <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">

@@ -78,6 +78,68 @@ STRIPPED_TABLES = {
 }
 
 
+def _scrub_narrative_chat_content(narrative_row: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip chat-derived content from a narratives row.
+
+    Called when ``include_chat_history=False``. The narrative skeleton
+    (id / type / agent_id / actors / name / instance refs / timestamps)
+    stays so that jobs and instance_narrative_links keep resolving on
+    import, but every column that carries past-conversation content is
+    reset to its empty default.
+
+    Background: until 2026-05-18 the "Include chat history" toggle in
+    the bundle export UI gated events.jsonl and agent_messages.jsonl
+    but not narrative.json. Real-world narrative_info blobs already
+    contain verbatim recent-N message transcripts (via the agent's
+    framing-prompt copy of the Matrix conversation history), so a
+    bundle exported with chat history "disabled" still leaked the most
+    recent rounds of dialogue. Same for dynamic_summary / topic_hint /
+    topic_keywords — all distilled from past conversation by the LLM
+    during NarrativeService.update_narrative. routing_embedding is the
+    vector of that content; not human-readable but extractable.
+
+    Fields scrubbed inside ``narrative_info`` (JSON string column):
+      - ``description`` and ``current_summary`` → ""
+      - ``name`` and ``actors`` preserved (non-chat metadata)
+
+    Standalone columns scrubbed:
+      - ``dynamic_summary``  →  "[]"
+      - ``topic_keywords``   →  "[]"
+      - ``topic_hint``       →  ""
+      - ``routing_embedding`` →  None
+      - ``event_ids``        →  "[]"  (events themselves aren't exported,
+                                       so leaving dangling references on
+                                       the row would be misleading)
+    """
+    row = dict(narrative_row)
+    raw_info = row.get("narrative_info")
+    if raw_info:
+        if isinstance(raw_info, str):
+            try:
+                info = json.loads(raw_info)
+            except json.JSONDecodeError:
+                info = {}
+        elif isinstance(raw_info, dict):
+            info = raw_info
+        else:
+            info = {}
+        if not isinstance(info, dict):
+            info = {}
+        scrubbed_info = {
+            "name": info.get("name", ""),
+            "description": "",
+            "current_summary": "",
+            "actors": info.get("actors", []),
+        }
+        row["narrative_info"] = json.dumps(scrubbed_info, ensure_ascii=False)
+    row["dynamic_summary"] = "[]"
+    row["topic_keywords"] = "[]"
+    row["topic_hint"] = ""
+    row["routing_embedding"] = None
+    row["event_ids"] = "[]"
+    return row
+
+
 class SensitiveZipDetected(Exception):
     """Raised when a zip-source skill's archive contains sensitive paths and
     the caller has not confirmed via `accept_sensitive_zips=True`."""
@@ -249,8 +311,19 @@ async def build_bundle(
                     continue
                 ndir = narratives_dir / n["narrative_id"]
                 ndir.mkdir(parents=True, exist_ok=True)
+                # When the caller disabled chat history, strip every
+                # chat-derived field from the narrative row before
+                # writing — see _scrub_narrative_chat_content for the
+                # exact list and rationale. The narrative skeleton
+                # remains so jobs / instance_narrative_links still
+                # resolve on import; only chat content is dropped.
+                n_for_export = (
+                    n
+                    if selection.include_chat_history
+                    else _scrub_narrative_chat_content(n)
+                )
                 (ndir / "narrative.json").write_text(
-                    json.dumps(_scrub_user_id(dict(n), user_id, "narratives"),
+                    json.dumps(_scrub_user_id(dict(n_for_export), user_id, "narratives"),
                                indent=2, ensure_ascii=False, default=str),
                     encoding="utf-8",
                 )

@@ -67,7 +67,7 @@ function EnvConfigDialog({
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await api.getSkillEnvConfig(skill.name, agentId, userId);
+        const res = await api.getSkillEnvConfig(skill.name, agentId);
         setRequiresEnv(res.requires_env);
         setEnvStatus(res.env_configured);
       } catch (err) {
@@ -95,7 +95,7 @@ function EnvConfigDialog({
     setSaving(true);
     setError(null);
     try {
-      const res = await api.setSkillEnvConfig(skill.name, agentId, userId, toSave);
+      const res = await api.setSkillEnvConfig(skill.name, agentId, toSave);
       if (res.success) {
         onSaved();
         onClose();

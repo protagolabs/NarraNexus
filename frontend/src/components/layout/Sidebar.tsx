@@ -131,7 +131,7 @@ export function Sidebar() {
 
     if (agentId) {
       try {
-        const result = await api.clearHistory(agentId, userId);
+        const result = await api.clearHistory(agentId);
         if (!result.success) {
           console.error('Failed to clear history:', result.error);
         }

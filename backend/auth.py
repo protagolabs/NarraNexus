@@ -148,10 +148,14 @@ def require_auth(request: Request) -> CurrentUser:
 # Middleware
 # =============================================================================
 
-# Paths that don't require authentication (even in cloud mode)
+# Paths that don't require authentication (even in cloud mode). Note:
+# in local mode, "no auth" means specifically "no X-User-Id required" —
+# these endpoints either don't need an identity (account creation,
+# health probes) or carry their own (login).
 AUTH_EXEMPT_PATHS = {
     "/api/auth/login",
     "/api/auth/register",
+    "/api/auth/create-user",
     "/api/providers/claude-status",
     "/docs",
     "/openapi.json",
@@ -214,24 +218,43 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     if not _is_cloud_mode():
-        # Local mode: no auth enforcement (the OS user is the security
-        # boundary), but we still resolve "who is calling right now" so
-        # routes can scope data by user just like in cloud mode. The
-        # frontend sets ``X-User-Id`` from configStore on every request;
-        # if absent (legacy frontend / bootstrap probe) we fall back to
-        # the singleton "first user" so the old single-user assumption
-        # still works.
+        # Local mode: the OS user is the security boundary, so we don't
+        # verify signatures — but we DO require the frontend to declare
+        # *which* logged-in user this request is for via the X-User-Id
+        # header (set by configStore.userId). No header → identity is
+        # genuinely unknown, so we reject (401) rather than silently
+        # picking a default.
+        #
+        # The previous version fell back to "the first row in users" when
+        # the header was missing. That assumption held in v1 (single
+        # local user) but turned into a cross-user write/read corruption
+        # bug once we supported multiple local accounts: anyone whose
+        # frontend hadn't populated configStore.userId yet (fresh login,
+        # cleared localStorage, pre-login probe by a different page) was
+        # silently writing to whoever happened to have user_id=1.
+        # Auth-exempt paths (login, register, public probes) bypass
+        # this so the frontend can still bootstrap.
         local_path = request.url.path
-        if local_path.startswith("/api/"):
+        if (
+            local_path.startswith("/api/")
+            and local_path not in AUTH_EXEMPT_PATHS
+            and not any(local_path.startswith(p) for p in AUTH_EXEMPT_PREFIXES)
+        ):
             header_uid = request.headers.get("x-user-id")
-            if header_uid:
-                request.state.user_id = header_uid
-            else:
-                request.state.user_id = await get_local_user_id()
+            if not header_uid:
+                return _json_response(401, {
+                    "success": False,
+                    "detail": (
+                        "Missing X-User-Id header. The frontend must send "
+                        "this header for every authenticated request in "
+                        "local mode. If you just registered, log in first."
+                    ),
+                })
+            request.state.user_id = header_uid
             # Mirror cloud mode: tag the cost-tracker ContextVar so usage
             # records get attributed to the right user even in local mode.
             from xyz_agent_context.agent_framework.api_config import set_current_user_id
-            set_current_user_id(request.state.user_id)
+            set_current_user_id(header_uid)
         response = await call_next(request)
         return response
 
@@ -336,20 +359,17 @@ async def resolve_current_user_id(request) -> str:
     return uid
 
 
-async def get_local_user_id() -> str:
-    """Return the singleton local user_id; bootstrap 'local-default' when empty.
+async def ensure_local_default_user() -> str:
+    """Bootstrap a 'local-default' user row if the users table is empty.
 
-    Historic helper kept for backwards compatibility AND used by
-    ``auth_middleware`` as the fallback when the frontend doesn't send
-    the ``X-User-Id`` header. New route handlers should prefer
-    :func:`resolve_current_user_id` so they automatically pick up the
-    real logged-in user rather than the first row in the table.
+    Called by OS-side scripts (CLI tools, one-shot migrations) that need
+    *some* user to exist before they can do work. NEVER called from a
+    request handler — request identity comes from the X-User-Id header
+    (local) or JWT (cloud), and falling back to "first row" is the bug
+    this function used to embody.
 
-    The original docstring's "single trusted user" assumption (TDR-12)
-    described the v1 design; the system since gained per-user isolation
-    in local mode via the X-User-Id header mechanism. This function now
-    only returns the singleton when no header is provided — that path
-    still serves bootstrap and OS-side scripts.
+    Returns the user_id of an existing row when one is present, or
+    creates 'local-default' and returns it. Idempotent.
     """
     from xyz_agent_context.utils.db_factory import get_db_client
     db = await get_db_client()

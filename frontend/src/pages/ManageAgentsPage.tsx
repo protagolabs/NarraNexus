@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 
 export default function ManageAgentsPage() {
   const navigate = useNavigate();
-  const { agents, userId, refreshAgents } = useConfigStore();
+  const { agents, refreshAgents } = useConfigStore();
   const { teams, refresh: refreshTeams, addMember, removeMember } = useTeamsStore();
   const { confirm, alert, dialog } = useConfirm();
 
@@ -125,7 +125,7 @@ export default function ManageAgentsPage() {
     let success = 0, failed: string[] = [];
     for (const aid of Array.from(selected)) {
       try {
-        await api.deleteAgent(aid, userId);
+        await api.deleteAgent(aid);
         success += 1;
       } catch (e: any) {
         failed.push(aid);

@@ -77,7 +77,7 @@ export function RegisterPage() {
 
       // Fetch agents (will be empty for new user)
       try {
-        const agentsRes = await api.getAgents(userId.trim());
+        const agentsRes = await api.getAgents();
         if (agentsRes.success && agentsRes.agents.length > 0) {
           setAgents(agentsRes.agents);
           setAgentId(agentsRes.agents[0].agent_id);

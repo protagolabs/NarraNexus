@@ -29,6 +29,23 @@ interface AgentListProps {
   filterAgentIds?: string[] | null;
 }
 
+/**
+ * Feature flag — temporary, 2026-05-18.
+ * Hides the "set agent public/private" toggle button in the sidebar
+ * while the public-agent feature is paused for product redesign.
+ *
+ * Scope of the flag:
+ *  - HIDES: the per-agent Globe/Lock toggle button (set-public entry point)
+ *  - KEEPS: the read-only Globe badge that marks other users' already-public
+ *           agents, and the dashboard's PublicCard for displaying them —
+ *           these aren't user-actionable controls, they're status indicators
+ *           for legacy `is_public=1` rows that may still exist.
+ *  - KEEPS: the backend endpoint and the `handleTogglePublic` function so
+ *           re-enabling is a one-line flip when the feature ships again.
+ *
+ * Flip this to `true` to bring the toggle back. */
+const SHOW_AGENT_PUBLIC_TOGGLE = false;
+
 export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
@@ -173,7 +190,7 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
 
     setDeletingAgentId(agent.agent_id);
     try {
-      const res = await api.deleteAgent(agent.agent_id, userId);
+      const res = await api.deleteAgent(agent.agent_id);
       if (res.success) {
         const remaining = agents.filter(a => a.agent_id !== agent.agent_id);
         setAgents(remaining);
@@ -462,7 +479,7 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                         </div>
                         {isSelected && (
                           <div className="flex items-center gap-0.5 mt-1.5">
-                            {agent.created_by === userId && (
+                            {SHOW_AGENT_PUBLIC_TOGGLE && agent.created_by === userId && (
                               <button
                                 onClick={(e) => handleTogglePublic(agent, e)}
                                 className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"

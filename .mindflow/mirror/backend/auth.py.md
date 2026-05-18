@@ -1,8 +1,33 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-05-13
+last_verified: 2026-05-18
 stub: false
 ---
+
+## 2026-05-18 — 杀掉 "first user" singleton fallback（彻底治本）
+
+2026-05-13 的修复留了一个口子：local 模式 middleware 在 `X-User-Id` header 缺失时 fallback 到 `get_local_user_id()` 的"users 表第一行"，理由是"老前端 / bootstrap 兼容"。这个口子在多用户下又咬了一次：
+
+**复现路径**：
+1. 在本地装了 `binliang` 帐号（id=1）跑了一段时间，user_slots / user_providers 都配好
+2. 用 `CreateUserDialog` 注册 `binliang3`（id=23），自动跳到 Settings 配 NetMind key + slots
+3. 前端 `ProviderSettings.tsx` 的 `authFetch` 这条专用 fetch path **只发 JWT 不发 X-User-Id**
+4. middleware 进 fallback → `request.state.user_id = "binliang"`
+5. `_get_user_id` 路由 helper 优先信任 middleware（query 参数 `user_id=binliang3` 被忽略）
+6. NetMind API key + 三个 slot 全部写到 `binliang` 名下
+7. binliang3 跑 agent → resolver 查不到 binliang3 的 slot → `LLMConfigNotConfigured`
+8. 用户视角："我明明配好了为什么不能用？"
+
+**修法（彻底，铁律 #5 治本不治标）**：
+- 移除 `get_local_user_id()`，改名 `ensure_local_default_user()` 只供 OS-side bootstrap 用，docstring 明禁 request-scoped 调用
+- `auth_middleware` local 模式：无 X-User-Id 时**直接 401**（除 `AUTH_EXEMPT_PATHS` / `AUTH_EXEMPT_PREFIXES` 之外）。不再静默 fallback
+- 前端 `ProviderSettings.tsx` 的 `authFetch` 改为同时发 JWT 和 X-User-Id（和 `api.ts` ApiClient 的 `getAuthHeaders` 对齐）
+- `backend/routes/providers.py` 的 `_get_user_id` 移除 query 参数 `user_id` 这条 backup 通道——身份只能来自 middleware 设置的 `request.state.user_id`，URL 不再是 identity channel
+- 所有 `/api/providers*` endpoint 删掉 `user_id: Optional[str] = Query(None)` 参数；前端相应去掉 `?user_id=...` 拼接
+
+**为什么不留兼容层**：铁律 #2（不做向后兼容）。query 参数 user_id 这个 channel 本身就是 IDOR 漏洞——客户端可以拼 `?user_id=alice` 当 bob 登录时，把 alice 的数据写花。把这个 channel 彻底关掉比留 deprecation 路径更安全。
+
+**已经落库的脏数据**：2026-05-18 03:57-03:58 之间 binliang3 的 NetMind key 落到 binliang 名下的两个 row（prov_d834ade2, prov_8f62e683） + 三个 slot row。debug branch 修完代码后用 SQL 删除，让 binliang3 重新走干净的 setup 流程。这次不写自动迁移——双用户场景下你不能确定哪条是"误写"，必须人工判断。
 
 ## 2026-05-13 — Local 模式多用户支持（X-User-Id header）
 

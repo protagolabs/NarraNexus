@@ -1,8 +1,40 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-05-15
+last_verified: 2026-05-18
 stub: false
 ---
+
+## 2026-05-18 — "Disable chat history" 实际上要 disable narrative_info 里的对话副本
+
+用户反馈："team 打包 bundle 的时候，disable chat history 这个 function 不 work"。复盘后发现 gate 只覆盖了 `events.jsonl`（行 257）和 `agent_messages.jsonl`（行 330），**没覆盖 `narrative.json`**。但 `narratives.narrative_info` 这个 JSON 列里塞了一堆 chat 派生数据：
+
+- `narrative_info.description` —— framing prompt 里 copy 过来的最近 N 条原文对话（Matrix conversation history 那种）
+- `narrative_info.current_summary` —— LLM 写的对话摘要
+- `narratives.dynamic_summary` —— 按 event 顺序的逐条 mini-summary
+- `narratives.topic_keywords` / `topic_hint` —— 从对话蒸出来的话题词
+- `narratives.routing_embedding` —— 对话内容的向量（不可读但可被攻击者反推话题）
+
+所以用户关掉 toggle、bundle 里没有 `events.jsonl` 也没有 `agent_messages.jsonl`，**但 `narratives/<id>/narrative.json` 里仍能读到几轮原文对话**。功能名义上 disable 了，实际隐私没堵住。
+
+**修法**（与 Bin哥 对齐的产品决策）：用户选了某个 narrative → 留 narrative 骨架（id/type/actors/name/instances/timestamps/related ids/is_special/round_counter/env_variables），剥所有 chat 派生字段。Jobs 仍然跟随 narrative_selection 走（不变）。helper `_scrub_narrative_chat_content(row)` 一处实现：
+
+- `narrative_info` JSON：仅保留 `name` + `actors`，把 `description` 和 `current_summary` 清空
+- `dynamic_summary` → `"[]"`
+- `topic_keywords` → `"[]"`
+- `topic_hint` → `""`
+- `routing_embedding` → `None`
+- `event_ids` → `"[]"`（events 没导出，留 dangling 引用反而误导）
+
+调用点：narrative 导出循环（builder.py 行 247-256），按 `include_chat_history` 二选一 —— True 走原 row，False 走 scrub helper。其他 chat-gate 行为（events.jsonl / agent_messages.jsonl 缺席）保持不变。
+
+**未处理的潜在 leak**（同源问题，Bin哥 没明确指示就先不动）：
+- `module_instances.config` 里 ChatModule 实例可能存近期 chat 状态
+- `instance_awareness` 里 agent 对用户的认知（基于对话形成）
+- `instance_social_entities.persona / description` 里"用户画像"也来自对话
+
+这些字段同样属于"chat 派生但藏在别处的副本"。未来如果用户反馈"还有泄漏"再扩 helper。
+
+E2E 测试：`real_case_e2e_test/cases/bundle_chat_history_scrub/run_test.py` 直接 seed 一个 `narrative_info.description` 含 SECRET 短语的 narrative，POST `/api/bundle/export` 两次（chat history on / off），unzip 后断言 off 那次 SECRET 不存在。
 
 # builder.py — bundle export pipeline
 

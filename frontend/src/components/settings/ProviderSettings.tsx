@@ -39,14 +39,30 @@ import { isTauri, triggerClaudeLogin, triggerClaudeLogout, cancelClaudeLogin } f
  *  the value is visible in one place + cheap to tune. */
 const CLAUDE_LOGIN_TIMEOUT_SEC = 600
 
-/** fetch wrapper that injects JWT auth header when available (cloud mode) */
+/** fetch wrapper that injects the identity headers configStore tracks.
+ *
+ * Two headers, mutually compatible (mirror of ApiClient.getAuthHeaders):
+ *   - Authorization: Bearer <jwt>  — cloud mode signed identity
+ *   - X-User-Id: <user_id>         — local mode unsigned identity
+ *
+ * Sending both is intentional. Backend auth_middleware picks the right
+ * one for the active mode and ignores the other (defence in depth: a
+ * cloud server won't honour X-User-Id even if a client sets it).
+ *
+ * History: until 2026-05-18 this wrapper only sent the JWT, which
+ * silently broke local mode. Settings calls landed under whatever user
+ * the backend's "first row in users" fallback resolved to (the eldest
+ * account), so a freshly-registered user's API key + slot bindings got
+ * written to someone else's row. Now we always send X-User-Id and the
+ * backend has lost the dangerous fallback — see auth.py 2026-05-18 note. */
 function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
   try {
     const raw = localStorage.getItem('narra-nexus-config')
     if (raw) {
-      const token = JSON.parse(raw)?.state?.token
-      if (token) headers.set('Authorization', `Bearer ${token}`)
+      const state = JSON.parse(raw)?.state || {}
+      if (state.token) headers.set('Authorization', `Bearer ${state.token}`)
+      if (state.userId) headers.set('X-User-Id', state.userId)
     }
   } catch {}
   return fetch(input, { ...init, headers })
@@ -431,15 +447,23 @@ function SectionHeader({ step, title, subtitle }: { step: number; title: string;
 export function ProviderSettings() {
   const userId = useConfigStore((s) => s.userId)
 
-  /** Build a provider API URL with user_id query param.
+  /** Build a provider API URL. Identity travels in headers (X-User-Id in
+   * local, JWT in cloud) — not the query string. The previous version
+   * appended `?user_id=...` which the backend used to fall back to when
+   * the X-User-Id header was missing; that turned the URL into a second,
+   * unsigned identity channel and made cross-user write/read bugs easy
+   * to trigger. Backend now requires identity from headers only.
    *
    * IMPORTANT: getApiBaseUrl() is called INSIDE the callback (not captured at
    * component mount), so it always reflects the current mode. When the user
    * switches between local and cloud, every fresh call returns the right host
    * without needing to re-mount this component. */
   const providerUrl = useCallback((path: string = '') => {
-    const sep = path.includes('?') ? '&' : '?'
-    return `${getApiBaseUrl()}/api/providers${path}${sep}user_id=${encodeURIComponent(userId)}`
+    return `${getApiBaseUrl()}/api/providers${path}`
+  // userId is intentionally a dependency: re-creating the callback on
+  // user switch is cheap and forces all consumers (refreshConfig etc.)
+  // to re-run under the new identity.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({})
@@ -679,7 +703,7 @@ export function ProviderSettings() {
     setSyncing(true)
     setSyncResult(null)
     try {
-      const resp = await api.syncProviderDefaults(userId)
+      const resp = await api.syncProviderDefaults()
       if (!resp.success) {
         setSyncResult({ kind: 'err', text: 'Sync failed.' })
         return

@@ -15,7 +15,7 @@ Provides endpoints for:
 
 import os
 from uuid import uuid4
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Request
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
@@ -44,6 +44,7 @@ from backend.auth import (
     verify_password,
     create_token,
     _is_cloud_mode,
+    resolve_current_user_id,
     INVITE_CODE,
 )
 from xyz_agent_context.utils import is_valid_timezone
@@ -213,16 +214,20 @@ async def register(request: RegisterRequest, http_request: Request):
 
 
 @router.get("/agents", response_model=AgentListResponse)
-async def get_agents(
-    user_id: str = Query(..., description="User ID (required), returns agents created by this user + public agents"),
-):
+async def get_agents(request: Request):
     """
-    Get the list of agents visible to the user
+    Get the list of agents visible to the user. Identity from auth_middleware.
 
     Visibility rules:
     - Agents created by the user (created_by = user_id)
     - Agents set as public (is_public = 1)
+
+    History: ``user_id`` used to be a Query param the client supplied
+    directly. That let any client list any other user's owned agents by
+    swapping the value, and (in cloud mode) bypass the JWT identity.
+    Identity is now strictly derived from auth_middleware.
     """
+    user_id = await resolve_current_user_id(request)
     logger.debug(f"Getting agents list for user: {user_id}")
 
     try:
@@ -519,12 +524,18 @@ async def update_agent(
 @router.delete("/agents/{agent_id}", response_model=DeleteAgentResponse)
 async def delete_agent(
     agent_id: str,
-    user_id: str = Query(..., description="Operator's user ID, used for permission verification"),
+    request: Request,
 ):
     """
     Cascade delete an Agent and all its associated data
 
     Permission: Only the Agent creator (created_by == user_id) can delete.
+    Identity comes from auth_middleware — the old "operator's user_id"
+    query param was directly compared against ``agent.created_by``,
+    which let a client pass any value (including the real creator's
+    user_id) to pass the permission check and nuke someone else's agent.
+    Now ``user_id`` is the JWT/X-User-Id identity and unforgeable.
+
     Deletion order is from leaf to root to ensure foreign key safety:
     1. Instance Memory dynamic tables
     2. Narrative Memory dynamic tables
@@ -538,6 +549,7 @@ async def delete_agent(
     10. Agent Messages
     11. The Agent itself
     """
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Delete agent request: agent_id={agent_id}, user_id={user_id}")
 
     try:

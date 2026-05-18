@@ -323,7 +323,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (!agentId || !userId) return;
     setIsLoadingHistory(true);
     try {
-      const response = await api.getSimpleChatHistory(agentId, userId, HISTORY_PAGE_SIZE);
+      const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
       if (response.success) {
         setHistoryMessages(response.messages);
         setHistoryTotalCount(response.total_count);
@@ -356,7 +356,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     try {
       const response = await api.getSimpleChatHistory(
-        agentId, userId, HISTORY_PAGE_SIZE, historyLengthRef.current
+        agentId, HISTORY_PAGE_SIZE, historyLengthRef.current
       );
       if (response.success && response.messages.length > 0) {
         // Use flushSync to ensure DOM updates synchronously before measuring scroll
@@ -403,7 +403,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     const poll = async () => {
       if (document.hidden) return;
       try {
-        const response = await api.getSimpleChatHistory(agentId, userId, HISTORY_PAGE_SIZE);
+        const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
         if (!response.success || response.messages.length === 0) return;
 
         const latestMsg = response.messages[response.messages.length - 1];
@@ -516,7 +516,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (!userId) return;
     let cancelled = false;
     api
-      .getTranscriptionAvailability(userId)
+      .getTranscriptionAvailability()
       .then((r) => {
         if (cancelled) return;
         setTranscriptionAvailable(r.available);
@@ -545,7 +545,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       setUploadingCount((n) => n + files.length);
       for (const file of files) {
         try {
-          const resp = await api.uploadAttachment(agentId, userId, file, opts);
+          const resp = await api.uploadAttachment(agentId, file, opts);
           if (resp.success && resp.file_id && resp.mime_type && resp.category) {
             setPendingAttachments((prev) => [
               ...prev,
@@ -1121,7 +1121,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               // mount-time useEffect.
               if (!userId) return false;
               try {
-                const r = await api.getTranscriptionAvailability(userId);
+                const r = await api.getTranscriptionAvailability();
                 setTranscriptionAvailable(r.available);
                 setTranscriptionReason(r.reason);
                 if (!r.available) {
