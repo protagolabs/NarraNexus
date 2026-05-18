@@ -4,7 +4,8 @@
  */
 
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { api, getBaseUrl } from '@/lib/api';
@@ -187,10 +188,60 @@ function RootRedirect() {
 function App() {
   const { effectiveTheme } = useTheme();
   useTimezoneSync();
+  const navigate = useNavigate();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', effectiveTheme === 'dark');
   }, [effectiveTheme]);
+
+  // Deep-link handler: route narranexus:// URLs from the website (or any
+  // app firing `open narranexus://...`) into the in-app install flow.
+  // The Rust side (tauri/src-tauri/src/lib.rs) registers an on_open_url
+  // callback that BOTH emits this event AND stashes the URL in
+  // AppState::pending_deep_link, so we cover the hot case (event listener
+  // already mounted) and the cold case (URL arrived during app launch,
+  // before React was alive to listen).
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    const handleUrl = (raw: string) => {
+      try {
+        const u = new URL(raw);
+        // narranexus://install?url=...&sha256=... — host segment is "install".
+        // Browsers/parsers sometimes surface custom-scheme URLs with the
+        // path "/install" instead, so accept both shapes.
+        if (u.host === 'install' || u.pathname === '/install' || u.pathname === 'install') {
+          navigate(`/app/templates/install${u.search}`);
+        } else {
+          console.warn('[deep-link] unhandled URL shape:', raw);
+        }
+      } catch (e) {
+        console.warn('[deep-link] failed to parse URL:', raw, e);
+      }
+    };
+
+    // (1) Cold-start: drain the URL Rust buffered before we mounted.
+    consumePendingDeepLink().then((url) => {
+      if (url) handleUrl(url);
+    });
+
+    // (2) Hot: subscribe to live URL arrivals (already-running case forwarded
+    //     via single-instance plugin's deep-link feature).
+    let unlisten: (() => void) | null = null;
+    listenTauri('deep-link-received', (ev) => {
+      const payload =
+        ev && typeof ev === 'object' && 'payload' in ev
+          ? (ev as { payload: unknown }).payload
+          : ev;
+      if (typeof payload === 'string') handleUrl(payload);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [navigate]);
 
   // Surface "quota exhausted" globally. api.ts dispatches a CustomEvent
   // on HTTP 402 + error_code=QUOTA_EXCEEDED_NO_USER_PROVIDER; we show a

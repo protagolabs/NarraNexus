@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-05-06
+last_verified: 2026-05-18
 stub: false
 ---
+
+## 2026-05-18 — deep-link receiver (Tauri-only)
+
+New `useEffect` listens for `narranexus://install?url=...&sha256=...`
+deep links delivered by the Tauri layer:
+1. On mount calls `consumePendingDeepLink()` (Tauri IPC) to drain any
+   URL the OS handed the process before React was alive.
+2. Subscribes to the `deep-link-received` Tauri event for URLs that
+   arrive while the app is already running (forwarded into the live
+   instance by `tauri-plugin-single-instance`'s deep-link feature).
+
+URLs are parsed; if the host segment is `install`, navigate to
+`/app/templates/install` carrying the same query string — that route
+points at `BundleImportPage` which detects URL mode and auto-fetches via
+`POST /api/bundle/import/from-url`.
+
+Hook is a no-op outside Tauri (web/cloud build), so `isTauri()` guard at
+top. Design context:
+`drafts/logs/template_sharing_2026_05_18.md`.
 
 # App.tsx — Root routing, route guards, and global side-effects
 
