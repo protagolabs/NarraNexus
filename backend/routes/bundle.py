@@ -249,14 +249,38 @@ async def import_confirm(payload: ConfirmRequest, request: Request):
 # Conservative defaults — production should override via env. Compatible with
 # Phase 1 (single template host on narra.nexus); object storage / R2 hosts
 # get added here when Phase 2+ moves files off public/.
-_DEFAULT_ALLOWED_HOSTS = "narra.nexus,www.narra.nexus"
+_DEFAULT_ALLOWED_HOSTS_CLOUD = "narra.nexus,www.narra.nexus"
+# Local mode (sqlite, desktop DMG, bash run.sh) also needs to fetch from
+# locally-served bundles — the website running on localhost:3001 during dev
+# and a future local-marketplace flow. Production locks this back down via
+# is_cloud_mode + the explicit env override.
+_DEFAULT_ALLOWED_HOSTS_LOCAL = (
+    "narra.nexus,www.narra.nexus,localhost,127.0.0.1,[::1]"
+)
 _FETCH_TIMEOUT_SEC = 30.0
 _FETCH_CHUNK_BYTES = 64 * 1024
 
 
 def _allowed_fetch_hosts() -> set[str]:
-    """Comma-separated env override; lowercased; empty entries dropped."""
-    raw = os.environ.get("BUNDLE_FETCH_ALLOWED_HOSTS", _DEFAULT_ALLOWED_HOSTS)
+    """Resolve allowed bundle-fetch hosts.
+
+    Priority:
+      1. `BUNDLE_FETCH_ALLOWED_HOSTS` env var (explicit override always wins —
+         cloud ops can lock this to exactly the prod hosts they trust, dev can
+         extend with object-storage or staging hosts)
+      2. Local mode default — includes localhost / loopback so a DMG or
+         `bash run.sh` user can install from a locally-served website bundle
+      3. Cloud mode default — narra.nexus only, no loopback (loopback in cloud
+         mode would be an SSRF foothold)
+    """
+    from xyz_agent_context.settings import settings  # late import — avoid cycle
+    explicit = os.environ.get("BUNDLE_FETCH_ALLOWED_HOSTS", "").strip()
+    if explicit:
+        raw = explicit
+    elif settings.is_cloud_mode:
+        raw = _DEFAULT_ALLOWED_HOSTS_CLOUD
+    else:
+        raw = _DEFAULT_ALLOWED_HOSTS_LOCAL
     return {h.strip().lower() for h in raw.split(",") if h.strip()}
 
 

@@ -13,8 +13,9 @@ review 页"的一键体验。
 
 **核心实现**:
 - 接受 `{url, expected_sha256?}`,JWT/X-User-Id 鉴权(跟 `/import/preflight` 同款)
-- URL 必须 http/https,host 必须在 `BUNDLE_FETCH_ALLOWED_HOSTS` env 白名单里
-  (默认 `narra.nexus,www.narra.nexus`,本地 dev 时加 `localhost,127.0.0.1`)
+- URL 必须 http/https,host 必须在 `BUNDLE_FETCH_ALLOWED_HOSTS` env 白名单里。
+  默认值**按 mode 分**:cloud(`settings.is_cloud_mode == True`)= `narra.nexus,www.narra.nexus`;local(sqlite,DMG / `bash run.sh`)= 上面加 `localhost,127.0.0.1,[::1]`。env 显式设置永远 override mode 默认。
+  这条 mode-aware 默认值是 2026-05-18 加的,起因:DMG 内嵌 backend 跑出去拉 `http://localhost:3001/...` 被默认 allowlist 拒,UI 显示 "Could not fetch the template / load failed"——local 模式装 marketplace bundle 是 first-class 场景,默认就要允许 loopback
 - httpx async stream 下载到临时文件,enforce `MAX_BUNDLE_BYTES`(复用
   `bundle/security.py`)+ `_FETCH_TIMEOUT_SEC=30s` + 不 follow redirects
 - 可选 sha256 校验(`file_sha256` 复用 security.py)
