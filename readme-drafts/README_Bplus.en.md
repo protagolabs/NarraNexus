@@ -88,9 +88,8 @@ bash run.sh
 
 For detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-started/quick-start).
 
-<!-- TODO: local build demo video, ~30s -->
 <p align="center">
-  <em>📽️ Local build demo — TBD</em>
+  <img src="../docs/images/install-local.gif" alt="Local build demo" width="720">
 </p>
 
 > Three doors, same place.
@@ -230,7 +229,7 @@ PLACEHOLDER ASSETS NEEDED:
   - docs/images/PLACEHOLDER_hero_manga.gif (30s manga explanation demo — THE most important visual asset)
   - docs/images/PLACEHOLDER_install_cloud.gif (~30s cloud sign-up flow)
   - docs/images/PLACEHOLDER_install_dmg.gif (~30s macOS dmg install flow)
-  - docs/images/PLACEHOLDER_install_local.gif (~30s local build flow)
+  - docs/images/install-local.gif ✅ (recorded — local build flow)
   - docs/images/PLACEHOLDER_template_morning_brief.gif (~30s morning brief demo)
   - docs/images/PLACEHOLDER_template_sales_team.gif (~30s sales team demo)
   - docs/images/PLACEHOLDER_template_openclaw_migrate.gif (~30s migration demo)

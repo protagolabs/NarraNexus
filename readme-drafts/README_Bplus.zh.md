@@ -87,9 +87,8 @@ bash run.sh
 
 详细安装步骤见 [开发文档](https://website.narra.nexus/docs/getting-started/quick-start)。
 
-<!-- TODO: 本地 build demo video, ~30s -->
 <p align="center">
-  <em>📽️ 本地 build demo —— 待录制</em>
+  <img src="../docs/images/install-local.gif" alt="本地 build demo" width="720">
 </p>
 
 > 三种入口，殊途同归。
@@ -230,7 +229,7 @@ Direction C · 花叔三段式 (action-action-result):
   - docs/images/PLACEHOLDER_hero_manga.gif (30 秒漫画解读 demo — 整个 README 最关键的视觉资产)
   - docs/images/PLACEHOLDER_install_cloud.gif (~30s 云端注册流程)
   - docs/images/PLACEHOLDER_install_dmg.gif (~30s macOS dmg 安装流程)
-  - docs/images/PLACEHOLDER_install_local.gif (~30s 本地 build 流程)
+  - docs/images/install-local.gif ✅ (已录制 — 本地 build 流程)
   - docs/images/PLACEHOLDER_template_morning_brief.gif (~30s 金融晨报演示)
   - docs/images/PLACEHOLDER_template_sales_team.gif (~30s sales team 演示)
   - docs/images/PLACEHOLDER_template_openclaw_migrate.gif (~30s 迁移演示)
