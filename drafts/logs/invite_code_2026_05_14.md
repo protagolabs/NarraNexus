@@ -302,3 +302,174 @@ website（narranexus-website）：
 - 本地端到端验证邮件链路
 - 部署 NarraNexus 到 EC2 + website 到生产
 - 真实环境测注册闭环
+
+---
+
+## 更新 2026-05-15 (#2) — Secret 机制 + .env 桥扩展 + 当前架构快照
+
+承接上一节(option B 架构 pivot 落地)。这一节是**当前架构的完整快照**和
+**`INTERNAL_INVITE_SECRET` 的运维手册**——重启会话来人也能 1 分钟 onboard。
+
+### 当前架构(option B 落地后)
+
+```
+浏览器 → /invite 表单 → website server (Next, narranexus-website)
+                            │  1. 校验 email + per-IP 限流
+                            │  2. POST /api/invite/internal/issue
+                            │     Header: X-Internal-Secret: <SECRET>
+                            ↓
+                       NarraNexus backend
+                            │  3. 校验 X-Internal-Secret
+                            │  4. 幂等 / cap / 生成码 / 写 invite_codes 表
+                            │  5. 返回 {status, code}
+                            ↑
+                       website server
+                            │  6. 若 status='issued' → nodemailer 发 SMTP
+                            │  7. 返回浏览器 {status, message},绝不带 code
+                            ↑
+                       浏览器看到 "Invite code sent"
+                            ↓
+                       邮箱收到邀请码 → 到 agent.narra.nexus 注册
+                            ↓
+                       NarraNexus /api/auth/register
+                            │  8. InviteCodeRepository.consume 原子消费
+                            │  9. 建 user 行
+                            ↓
+                       注册成功
+```
+
+**职责划分**:
+- **website**:申请 UI、限流、SMTP 发邮件、入口
+- **NarraNexus**:码生成 + 落表 + 幂等 + cap + 注册时原子消费 + admin
+
+### INTERNAL_INVITE_SECRET — 唯一鉴权
+
+`/api/invite/internal/issue` 是**公网可达**的(挂在 `agent.narra.nexus` 下),
+任何人都能 POST 它。`X-Internal-Secret` header + 服务端 env 变量比对,
+**两边相等才放行**——挡掉外部刷码 / 拿别人邮箱钓鱼 / 灌爆 RDS 的滥用。
+
+校验逻辑(`backend/routes/invite.py::_require_internal_secret`):
+```python
+expected = os.environ.get("INTERNAL_INVITE_SECRET", "")
+if not expected:                # 没配 → 503,fail-closed
+    raise HTTPException(503, ...)
+if request.headers.get("X-Internal-Secret", "") != expected:
+    raise HTTPException(401, ...)
+```
+
+JWT 这里不合适——调用方是另一个 server,不是用户。HTTPS 加密传输,
+secret 是"对暗号";两者职责不同。
+
+### Secret 在两个 repo 各放哪
+
+| 部署位置 | 本地开发 | 生产 |
+|---|---|---|
+| **narranexus-website** | `.env.local`(gitignored,`.env*.local` 规则) | 部署平台环境变量(Vercel UI / Docker `-e` / systemd `Environment=` 等) |
+| **NarraNexus** | `.env`(gitignored,见下方 `.env 桥`)或启动命令前置 | EC2 上 `.env`、systemd unit、Docker env、Secrets Manager 等 |
+| **占位模板**(committed) | — | `narranexus-website` 暂无;NarraNexus 在 `.env.cloud.example` 里有 `INTERNAL_INVITE_SECRET=CHANGE_ME_TO_...` 占位 |
+
+**真值永远不进 git**。占位字符串可以进。
+
+### NarraNexus `.env` 桥的陷阱 + 这次的修复
+
+`src/xyz_agent_context/settings.py` 在 import 时读 `.env` 并选择性注入
+`os.environ`。原本只白名单了 4 个 LLM API key,**其他变量进了 `settings`
+对象但没进 `os.environ`**——而 `backend/routes/invite.py` 用
+`os.environ.get("INTERNAL_INVITE_SECRET")` 直接读,以及 `backend/config.py`
+用 `os.getenv("INVITE_AUTO_ISSUE_CAP")` 直接读,所以放在 `.env` 里
+**没用**。
+
+**修复**:加一个并列的白名单 `_DOTENV_PASSTHROUGH`,把这类"需要进
+`os.environ` 但不是 API key"的变量列出来。改动在 `settings.py` 同一处:
+
+```python
+_API_KEY_FIELDS = {"OPENAI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"}
+_DOTENV_PASSTHROUGH = {
+    "INTERNAL_INVITE_SECRET",  # backend/routes/invite.py
+    "INVITE_AUTO_ISSUE_CAP",   # backend/config.py
+}
+for _k, _v in _dotenv_values.items():
+    if not _v:
+        continue
+    if _k in _API_KEY_FIELDS or _k in _DOTENV_PASSTHROUGH:
+        os.environ[_k] = _v
+```
+
+**今后新增"通过 os.environ 读的 backend 配置",都要在
+`_DOTENV_PASSTHROUGH` 加一行**,否则 `bash run.sh` 启动时它不会从 `.env`
+被加载,会很难 debug(没报错,只是悄悄拿不到值)。
+
+### 本地启动 NarraNexus(.env 已生效)
+
+任选一种,**都从 `.env` 加载 secret**,不再需要前置:
+```bash
+bash run.sh           # 推荐
+# 或
+make dev-backend
+```
+
+`.env` 里相关段(已配置):
+```
+INVITE_AUTO_ISSUE_CAP=200
+INTERNAL_INVITE_SECRET=<64-char hex>
+```
+
+注意:NarraNexus 端 **不需要** SMTP_*——邮件由 website 发。
+
+### EC2 生产部署清单
+
+1. **代码**:`git checkout invitation_code_2026_05_14`(merge 后是 main)
+2. **环境变量**(EC2 进程读取的位置,通常是 `.env` / systemd unit / docker env):
+   - `INTERNAL_INVITE_SECRET=<跟 website 部署一致的强随机>`
+   - `INVITE_AUTO_ISSUE_CAP=200`(可选,默认就是 200)
+   - 旧的 `INVITE_CODE=...` 可删可留(代码不再读)
+3. **数据库**:`auto_migrate` 启动时自动在 RDS 上建 `invite_codes` 表(additive,无风险)
+4. **重启后端**
+
+### website 生产部署清单
+
+1. **代码**:同分支
+2. **环境变量**(Vercel / 其它):
+   - `INTERNAL_INVITE_SECRET=<跟 NarraNexus EC2 一致>`
+   - `NARRANEXUS_API_URL=https://agent.narra.nexus`
+   - `SMTP_HOST=smtp.gmail.com`(或正式供应商)
+   - `SMTP_PORT=587`
+   - `SMTP_USER=<...>`
+   - `SMTP_PASSWORD=<App Password 或 SES SMTP password>`
+   - `SMTP_FROM=<发件人地址,生产建议用 narra.nexus 域>`
+3. **重新构建 / 部署 website**
+
+### Secret 轮换
+
+要换 secret:**两边同时改新值,各自重启进程**。中间窗口期(只改一边)
+所有 `/api/invite/internal/issue` 调用 401。所以最好部署窗口期通知好,
+或者临时让 website fallback 接受两个值(没必要,通常几秒到几十秒的窗口
+够了)。
+
+### 当前本地 secret(开发环境,可直接用)
+
+```
+INTERNAL_INVITE_SECRET=331c54403150e578ffc377e67e3b4fd27884c1c0b2db829e256730eb4d1b44a0
+```
+
+(已写入 `.env`(NarraNexus)+ `.env.local`(website),都 gitignored。
+生产换新值前可以一直用这个本地测;生产**必须**用一个全新的
+`openssl rand -hex 32`,这个不要带去线上。)
+
+### 本地能 / 不能测什么(再强调)
+
+- ✅ 申请邀请码 + 收到邮件(走完上面流程图第 1-7 步)——SQLite/MySQL/任何模式都行
+- ❌ 用码本地注册账号——`register()` 的 `_is_cloud_mode()` guard 是 pre-existing,
+  本地除非显式给 `DATABASE_URL=mysql://...`(且 DB_HOST 进 os.environ),
+  否则它返回"only available in cloud mode"
+
+注册闭环测试现在最快的路径:EC2 部署 + 本地 website 指过去(改
+`.env.local::NARRANEXUS_API_URL`)。
+
+### 改动文件(本次 2026-05-15 #2)
+
+- `src/xyz_agent_context/settings.py` —— 加 `_DOTENV_PASSTHROUGH`
+- `.mindflow/mirror/src/xyz_agent_context/settings.py.md` —— 同步
+- `.env` —— 加 `INTERNAL_INVITE_SECRET`,删 `SMTP_*`(配 website 那边)
+- `narranexus-website/.env.local` —— 强随机替换占位
+- 本文档新增本节
