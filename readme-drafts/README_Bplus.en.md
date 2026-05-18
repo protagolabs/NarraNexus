@@ -89,7 +89,9 @@ bash run.sh
 For detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-started/quick-start).
 
 <p align="center">
-  <img src="../docs/images/install-local.gif" alt="Local build demo" width="720">
+  <video src="../docs/videos/install-local.mp4" controls width="720">
+    Your browser does not support the video tag. <a href="../docs/videos/install-local.mp4">Download the demo (MP4)</a>.
+  </video>
 </p>
 
 > Three doors, same place.

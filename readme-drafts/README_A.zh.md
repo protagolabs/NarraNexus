@@ -101,7 +101,9 @@ bash run.sh
 `run.sh` 自动检测前置依赖（`uv` / `node` / `tmux`）并启动所有本地 service。完整的 service / 端口列表和详细安装见 [开发文档](https://website.narra.nexus/docs/getting-started/quick-start)。
 
 <p align="center">
-  <img src="../docs/images/install-local.gif" alt="本地 build demo" width="720">
+  <video src="../docs/videos/install-local.mp4" controls width="720">
+    你的浏览器不支持 video tag。<a href="../docs/videos/install-local.mp4">下载 demo (MP4)</a>。
+  </video>
 </p>
 
 > 三种入口，殊途同归。
