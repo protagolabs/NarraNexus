@@ -1076,6 +1076,21 @@ class ApiClient {
     });
   }
 
+  /** Deep-link install path: backend fetches the URL itself then preflights.
+   *  Used by the /app/templates/install page when called from narra.nexus. */
+  async importBundleFromUrl(
+    url: string,
+    expectedSha256?: string,
+  ): Promise<BundlePreflightResponse> {
+    return this.request<BundlePreflightResponse>('/api/bundle/import/from-url', {
+      method: 'POST',
+      body: JSON.stringify({
+        url,
+        expected_sha256: expectedSha256 ?? null,
+      }),
+    });
+  }
+
   async previewBusChannels(agentIds: string[]): Promise<{ channels: Array<{
     channel_id: string;
     name: string;

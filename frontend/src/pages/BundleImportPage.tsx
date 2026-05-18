@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Upload,
@@ -34,6 +34,13 @@ export default function BundleImportPage() {
   const { refresh: refreshTeams } = useTeamsStore();
   const { refreshAgents } = useConfigStore();
   const { dialog } = useConfirm();
+
+  // Deep-link mode: when mounted at /app/templates/install?url=…&sha256=…
+  // the page skips the upload step and auto-fetches the bundle via the
+  // server-side from-url endpoint. Used by the website templates page.
+  const [searchParams] = useSearchParams();
+  const urlMode = searchParams.get('url') || null;
+  const expectedSha256 = searchParams.get('sha256') || undefined;
 
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
@@ -78,6 +85,32 @@ export default function BundleImportPage() {
     }
   };
 
+  // URL-mode auto-fetch: fire once on mount when the route receives a
+  // ?url= query, before the user sees the upload step.
+  useEffect(() => {
+    if (!urlMode || preflight || busy) return;
+    let cancelled = false;
+    (async () => {
+      setBusy(true);
+      setError(null);
+      try {
+        const r = await api.importBundleFromUrl(urlMode, expectedSha256);
+        if (cancelled) return;
+        setPreflight(r);
+        setStep('review');
+      } catch (e: any) {
+        if (cancelled) return;
+        setError(e?.message || 'Failed to fetch template');
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlMode]);
+
   const runConfirm = async () => {
     if (!preflight) return;
     setBusy(true);
@@ -113,9 +146,13 @@ export default function BundleImportPage() {
           <ArrowLeft className="w-4 h-4" />
         </button>
         <Package className="w-5 h-5" />
-        <h1 className="font-mono text-base">Import bundle</h1>
+        <h1 className="font-mono text-base">
+          {urlMode ? 'Install template' : 'Import bundle'}
+        </h1>
         <div className="ml-auto flex items-center gap-2 text-xs">
-          <StepDot active={step === 'upload'} done={step !== 'upload'}>1. Upload</StepDot>
+          <StepDot active={step === 'upload'} done={step !== 'upload'}>
+            {urlMode ? '1. Fetch' : '1. Upload'}
+          </StepDot>
           <ChevronRight className="w-3 h-3 text-[var(--text-tertiary)]" />
           <StepDot active={step === 'review'} done={step === 'done'}>2. Review</StepDot>
           <ChevronRight className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -124,7 +161,30 @@ export default function BundleImportPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {step === 'upload' && (
+        {step === 'upload' && urlMode && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            <div className="border border-[var(--border-default)] rounded-md p-10 text-center bg-[var(--bg-secondary)]">
+              {busy && (
+                <>
+                  <Loader2 className="w-10 h-10 mx-auto text-[var(--text-tertiary)] animate-spin" />
+                  <p className="mt-3 text-sm text-[var(--text-secondary)]">
+                    Fetching template from <span className="font-mono break-all">{urlMode}</span>…
+                  </p>
+                </>
+              )}
+              {!busy && error && (
+                <>
+                  <AlertTriangle className="w-10 h-10 mx-auto text-[var(--color-red-500)]" />
+                  <p className="mt-3 text-sm text-[var(--text-secondary)]">
+                    Could not fetch the template.
+                  </p>
+                </>
+              )}
+            </div>
+            {error && <ErrorBanner error={error} />}
+          </div>
+        )}
+        {step === 'upload' && !urlMode && (
           <div className="max-w-2xl mx-auto space-y-4">
             <div
               ref={dropRef}

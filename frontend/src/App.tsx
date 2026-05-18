@@ -271,6 +271,10 @@ function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="bundle/export" element={<BundleExportPage />} />
           <Route path="bundle/import" element={<BundleImportPage />} />
+          {/* Deep-link entry point from narra.nexus templates marketplace.
+              Same component as bundle/import; URL query (?url=&sha256=)
+              triggers the auto-fetch-then-preflight path. */}
+          <Route path="templates/install" element={<BundleImportPage />} />
           <Route path="teams/:teamId" element={<TeamDetailPage />} />
           <Route path="manage-agents" element={<ManageAgentsPage />} />
         </Route>

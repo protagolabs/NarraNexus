@@ -1,3 +1,28 @@
+---
+code_file: src/xyz_agent_context/settings.py
+last_verified: 2026-05-18
+stub: false
+---
+
+## 2026-05-18 — extend .env→os.environ passthrough whitelist
+
+The bridge used to forward only the 4 LLM API keys from `.env` into
+`os.environ`. Backend code that reads `os.environ.get()` directly (here:
+`BUNDLE_FETCH_ALLOWED_HOSTS` in `backend/routes/bundle.py`'s
+`/import/from-url` SSRF guard) was silently ignored — `bash run.sh` /
+`make dev-backend` started without the value, the allowlist fell back to
+`narra.nexus,www.narra.nexus`, and local dev couldn't fetch from
+`localhost:3001`.
+
+Added `_DOTENV_PASSTHROUGH` alongside `_API_KEY_FIELDS`. API keys keep
+their "override shell env" semantic (operator wrote them in `.env` via
+desktop app, must win); passthrough vars also forward (no separate
+setdefault path — match the established pattern).
+
+**When introducing a new backend config that's read via
+`os.environ.get()` directly, add it to `_DOTENV_PASSTHROUGH`** —
+otherwise `.env` silently has no effect and dev/ops will be confused.
+
 # settings.py
 
 Process-wide configuration object — reads `.env` and environment variables once at import time and exposes them as a typed singleton.

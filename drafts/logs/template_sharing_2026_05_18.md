@@ -122,8 +122,12 @@ export interface Template {
   tags: string[];                // 更细颗粒度标签
   bundle_url: string;            // Phase 1 是 /templates/xxx.nxbundle 相对路径
   bundle_size_bytes: number;
-  bundle_sha256: string;         // 来自 manifest.integrity_sha256,
-                                 // Phase 1 不在 UI 展示,Phase 2 install 时校验
+  bundle_sha256: string;         // sha256 of the .nxbundle FILE (not the
+                                 // manifest.integrity_sha256 — that one hashes
+                                 // pre-zip content and won't match file bytes).
+                                 // 算法:`shasum -a 256 path/to/bundle.nxbundle`。
+                                 // Phase 2 install 时 backend 算下载后的文件
+                                 // sha256,跟这个比 → 防错装 / 防上游被攻破替换。
   author: { name: string; url?: string };
   license: string;               // "MIT" / "CC-BY-4.0" / etc.
   manifest_summary: TemplateManifestSummary;
