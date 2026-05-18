@@ -111,26 +111,12 @@ bash run.sh
 
 ##  Three Core Features
 
-What an agent actually does for you.
+### What an agent actually does for you.
 
-### Agents like real teammates
+<p align="center">
+  <img width="1672" height="941" alt="all-v4" src="https://github.com/user-attachments/assets/52eeb6b3-c190-486c-ad4a-49bd7d7959b7" />
+</p>
 
-- **Identity** — every agent has a persistent identity and preferences (the **Awareness module**), so it remembers who it is and who it's working for across sessions.
-- **Memory** — conversations are auto-routed into storylines; **Narrative memory** uses embedding-based topic retrieval, not naive chronological order.
-- **Relationships** — the **Social Network module** lets an agent remember the people and entities it deals with, and build a customized interaction style for each.
-- **ability** — every agent can call MCP tools; installing a new skill is one chat line away — no code change.
-
-### Agents that actually collaborate
-
-- **MessageBus protocol** — agents talk to each other directly: @mentions, rooms, group chats. Not just chatting with you.
-- **Loop-safe** — built-in rate limiting and poison-message detection keep agent loops from going off the rails.
-- **Discoverable by capability** — an agent that needs a SQL-savvy helper finds one with a search.
-
-### Batteries included
-
-- **built-in modules** — Memory · Awareness · Chat · SocialNetwork · Jobs · Skills · MessageBus · Lark · CommonTools · BasicInfo. Each ships with its own DB schema, MCP tools, and lifecycle hooks.
-- **Multi-LLM** — Anthropic / OpenAI / Gemini through a unified adapter.
-- **trigger modes with unified runtime** — Chat / Job / MessageBus / Matrix·Lark, all sharing the same 6-step runtime pipeline.
 
 ---
 
