@@ -15,8 +15,10 @@
 
 # ── Reference & internal docs ─────────────────────────────────────────────
 /reference/
-AGENT.md
 /deploy/synapse/
+# NOTE: AGENT.md used to be ignored as an internal scratch file.
+# It is now a tracked, vendor-neutral pointer for AI coding assistants
+# (mirrors CLAUDE.md) — committed as part of the repo governance setup.
 
 # ── Operator-local probe / benchmark scripts (often hold real API keys) ──
 # These are ad-hoc, single-machine investigations that read live provider

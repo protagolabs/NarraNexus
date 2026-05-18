@@ -1,0 +1,41 @@
+# CODEOWNERS — auto-request a review from the right person.
+#
+# Format: <path-glob> <@github-handle> [<@another-handle>]
+#
+# Right now there's one maintainer; everything routes to them. As the
+# team grows we add more handles below.
+#
+# Reference: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything.
+* @BinLiang2021
+
+# CLAUDE.md is the project's constitution. Only the lead maintainer
+# edits it (CLAUDE.md binding rule #11).
+/CLAUDE.md @BinLiang2021
+
+# Three-tier docs — second-review territory.
+/.mindflow/project/references/ @BinLiang2021
+/.mindflow/project/playbooks/   @BinLiang2021
+
+# Auth / identity — requires extra eyes.
+/backend/auth.py                       @BinLiang2021
+/backend/routes/auth.py                @BinLiang2021
+/src/xyz_agent_context/agent_framework/provider_driver/ @BinLiang2021
+
+# Bundle export / import — credentials and chat content flow here.
+/src/xyz_agent_context/bundle/ @BinLiang2021
+
+# Schema — never silently widen or narrow.
+/src/xyz_agent_context/utils/schema_registry.py @BinLiang2021
+
+# Release tooling.
+/.github/workflows/build-desktop.yml @BinLiang2021
+/pyproject.toml                      @BinLiang2021
+/tauri/src-tauri/                    @BinLiang2021
+
+# Governance docs themselves.
+/GOVERNANCE.md   @BinLiang2021
+/MAINTAINERS.md  @BinLiang2021
+/CODE_OF_CONDUCT.md @BinLiang2021
+/SECURITY.md     @BinLiang2021
