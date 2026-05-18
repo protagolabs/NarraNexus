@@ -333,9 +333,22 @@ async def build_bundle(
                         {"narrative_id": n["narrative_id"]},
                         order_by="created_at ASC",
                     )
+                    # event_selection semantics (2026-05-18, opt-in
+                    # default):
+                    # - None  → ship all events (legacy "no selection"
+                    #           default, kept for old clients)
+                    # - {}    → ship NO events for any narrative (new
+                    #           "user picked narratives but no events"
+                    #           path). `if dict:` treats {} as falsy
+                    #           and would silently fall back to "ship
+                    #           all"; explicit `is not None` keeps
+                    #           the distinction.
+                    # - {nid: [...]} → ship only those event_ids for
+                    #           nid; any narrative missing from the
+                    #           dict ships 0 events (`.get(nid, [])`).
                     allowed_events = (
                         set(selection.event_selection.get(n["narrative_id"], []))
-                        if selection.event_selection
+                        if selection.event_selection is not None
                         else None
                     )
                     e_path = ndir / "events.jsonl"
