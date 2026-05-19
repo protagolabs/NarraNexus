@@ -1,0 +1,37 @@
+# Skill isolation test config.
+#
+# Pipeline = Replay (install + study) -> QA (actual usage) -> Cleanup.
+#
+# What participates:
+#   - SkillModule:  active. The module under test.
+#   - JobModule:    active. Some skills create scheduled jobs (HEARTBEAT.md)
+#                   during study; we WANT that pathway alive so we can observe
+#                   skill->job linkage. Jobs are cleaned up at the end.
+#   - ChatModule:   no_qa. Needed in replay for send_message_to_user_directly;
+#                   QA prompt does not need chat history injected.
+#
+# What is suppressed:
+#   - AwarenessModule:  off. We don't care about preference capture here, and
+#                       skill registration phrases like "I'll be using X
+#                       weekly" would otherwise leak into the awareness profile.
+#   - MemoryModule:     off. Same reason: we don't want skill content
+#                       leaking into EverMemOS during the run.
+#   - SocialNetworkModule: off. No entity extraction wanted.
+#   - Narrative:        no_qa. A narrative is bound to every Event during
+#                       replay, but its summary should not influence the QA
+#                       phase (we want pure skill behaviour).
+#
+# Cleanup is enforced externally by scripts/cleanup_skill_state.py — every
+# Skill benchmark MUST call it after the run (success or failure) to keep
+# the test agent's workspace and DB state reproducible.
+
+sources:
+  AwarenessModule: off
+  MemoryModule: off
+  SocialNetworkModule: off
+  ChatModule: no_qa
+  Narrative: no_qa
+  # SkillModule defaults to "active".
+  # JobModule defaults to "active" (skill->job linkage stays observable).
+
+use_agent_loop: true

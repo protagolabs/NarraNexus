@@ -1,0 +1,208 @@
+# Skill benchmark catalog — practical real-world skills.
+#
+# Each entry feeds scripts/run_skill_install_and_qa.py:
+#   1. Phase 1 Replay drives the agent to install the skill (via install_turns).
+#   2. Phase 2 QA actually uses the skill (via qa_questions).
+#   3. Phase 3 Cleanup wipes the workspace + cancels related jobs.
+#
+# Selection criteria (per discussion):
+#   - Real-world practical task (job search, research, news, social info)
+#   - Zero / minimal API keys, zero account registration
+#   - Text output (markdown / structured plain text) — no images, no code
+#     generation required for verification
+#   - Easy to verify: agent answer contains specific facts (titles, URLs,
+#     counts, dates, authors) that can be grep'd or LLM-judged
+#
+# Install method is currently UNRESOLVED — see notes per entry. The
+# install_turns are written as natural-language user requests that hand
+# the install URL/method to the agent; we will refine these once we
+# decide on the canonical install path (git clone vs. claude plugin
+# install vs. clawhub install).
+
+skills:
+
+  # =========================================================================
+  # 1) Job search — find open roles at tech companies
+  # =========================================================================
+  - id: claude-jobs
+    name: claude-jobs
+    description: >-
+      Find job openings at 200+ tech companies (Stripe, Airbnb, Discord,
+      Figma, Notion, GitLab, Anthropic, OpenAI, Vercel, Cloudflare,
+      Datadog, Sentry, Coinbase, Databricks, etc.) by querying their
+      official careers pages. Filters by location, department, and level.
+      Returns markdown with title, department, location, salary range,
+      and apply URL.
+    source_url: https://github.com/jshchnz/claude-jobs
+    install_kind: github_clone
+    install_hint: |
+      git clone https://github.com/jshchnz/claude-jobs.git
+        skills/claude-jobs
+    env_to_inject: {}
+    install_turns:
+      - "I want you to learn a new skill so you can help me find jobs at tech
+        companies. Please install it from https://github.com/jshchnz/claude-jobs
+        — clone the repo into your skills/ directory as 'claude-jobs'."
+      - "Once installed, read its SKILL.md to understand how it works, then
+        save a study summary so I know what it can do."
+    qa_questions:
+      - "What software engineering jobs are open at Sentry right now?"
+      - "Show me senior engineering roles at Stripe in San Francisco."
+      - "Are there any open design positions at Figma in New York?"
+      - "Find remote engineering positions at Anthropic."
+      - "List all open roles at Discord across all departments."
+    verify_hints:
+      level_1_skill_used:
+        - The agent must read skills/claude-jobs/SKILL.md
+        - The agent's reply should reference specific company careers pages
+          (not generic LLM knowledge)
+      level_2_output_structure:
+        - Output contains a markdown table or list with job title + department
+          + location
+        - Salary or location info present where available
+        - Apply URL appears (links pointing to the company's careers domain)
+
+
+  # =========================================================================
+  # 2) Academic paper search — OpenAlex (250M+ papers, no API key)
+  # =========================================================================
+  - id: paper-search
+    name: paper-search
+    description: >-
+      Search 250M+ academic papers via the OpenAlex open API. Keyword
+      search, DOI/OpenAlex-ID lookup, sort by relevance / citations / date,
+      pagination. No API key, no account.
+    source_url: https://github.com/ykdojo/paper-search
+    install_kind: github_clone
+    install_hint: |
+      git clone https://github.com/ykdojo/paper-search.git
+        skills/paper-search
+      # Alt: claude plugin marketplace add ykdojo/paper-search
+      #      claude plugin install paper-search@paper-search
+    env_to_inject: {}
+    install_turns:
+      - "Please install the paper-search skill from
+        https://github.com/ykdojo/paper-search — clone it into your skills/
+        directory as 'paper-search'. It uses the OpenAlex public API so no
+        API key is needed."
+      - "Once installed, read its SKILL.md, verify you understand the
+        scripts/search.sh and scripts/paper.sh entry points, then save
+        a study summary."
+    qa_questions:
+      - "Find the most-cited papers on retrieval-augmented generation
+        from the last three years."
+      - "What recent papers discuss state space models like Mamba? Sort
+        by citation count."
+      - "Look up the paper at https://doi.org/10.1073/pnas.0407162101 and
+        summarize what it's about."
+      - "Show me 10 papers on machine learning interpretability, most
+        recent first."
+      - "What are the top-cited studies on long-context attention
+        mechanisms in transformers?"
+    verify_hints:
+      level_1_skill_used:
+        - The agent must invoke scripts/search.sh or scripts/paper.sh
+          (visible in Bash tool calls in the dump)
+        - HTTP calls hit api.openalex.org
+      level_2_output_structure:
+        - Output contains paper titles + author names + publication year
+        - Citation counts appear (specific numbers, not vague phrases)
+        - DOI or OpenAlex Work ID (W... format) appears for at least
+          one cited paper
+
+
+  # =========================================================================
+  # 3) Reddit fetch — public JSON API, no key
+  # =========================================================================
+  - id: reddit-fetch
+    name: reddit-fetch
+    description: >-
+      Retrieve posts and comments from any subreddit via Reddit's public
+      JSON API (appending .json to URLs). Lists hot/new/top posts, expands
+      comment threads, searches within subreddits. Uses curl + jq fallback
+      when Gemini CLI is unavailable. Rate-limited to ~1 request per 2-3s.
+    source_url: https://github.com/ykdojo/claude-code-tips/tree/main/skills/reddit-fetch
+    install_kind: github_sparse_clone
+    install_hint: |
+      # The skill lives in a subdir of a larger repo.
+      git clone --depth 1 --filter=blob:none --sparse \
+        https://github.com/ykdojo/claude-code-tips.git skills/_ycc_tmp
+      cd skills/_ycc_tmp && git sparse-checkout set skills/reddit-fetch
+      mv skills/_ycc_tmp/skills/reddit-fetch skills/reddit-fetch
+      rm -rf skills/_ycc_tmp
+    env_to_inject: {}
+    install_turns:
+      - "Install the reddit-fetch skill from
+        https://github.com/ykdojo/claude-code-tips — the skill lives in
+        the subdirectory skills/reddit-fetch. Use a sparse clone or download
+        just that subdirectory into your skills/ directory as 'reddit-fetch'."
+      - "Once installed, read its SKILL.md, verify the curl + jq paths work
+        (gemini CLI may not be available), then save a study summary."
+    qa_questions:
+      - "What are the top 10 hot posts in r/MachineLearning right now?
+        Include their scores and comment counts."
+      - "Summarize the most upvoted discussion in r/LocalLLaMA today,
+        including 2-3 key takeaways from the comments."
+      - "Find posts in r/programming from the past week that discuss
+        AI coding assistants. Show titles and links."
+      - "What is the sentiment in r/cscareerquestions about the
+        2026 tech job market? Pick out 5 high-engagement posts."
+      - "Search r/devops for posts about Kubernetes and summarize the top 5."
+    verify_hints:
+      level_1_skill_used:
+        - The agent must read skills/reddit-fetch/SKILL.md
+        - Bash tool calls show curl hitting reddit.com/r/.../.json endpoints
+          OR gemini CLI usage
+      level_2_output_structure:
+        - Output contains post titles + scores (specific numbers)
+        - Comment counts or top-comment excerpts present
+        - Reddit URLs (reddit.com or redd.it) appear for at least one post
+        - Rate-limit aware behaviour: no parallel fetch storms
+
+
+  # =========================================================================
+  # 4) AI daily digest — RSS-based news aggregator, zero deps, no API keys
+  # =========================================================================
+  - id: ai-daily-digest
+    name: ai-daily-digest
+    description: >-
+      RSS-based daily digest from 92 curated tech blogs (sourced from
+      Andrej Karpathy's recommendations). Fetches feeds, scores by
+      relevance and quality, then summarizes. Zero deps, no API keys —
+      uses the agent's own LLM for scoring. Output is a structured
+      markdown digest covering AI, security, engineering, tools.
+    source_url: https://github.com/HarrisHan/ai-daily-digest
+    install_kind: github_clone
+    install_hint: |
+      git clone https://github.com/HarrisHan/ai-daily-digest.git
+        skills/ai-daily-digest
+      # Alt: clawhub install ai-daily-digest
+    env_to_inject: {}
+    install_turns:
+      - "Install the AI daily digest skill from
+        https://github.com/HarrisHan/ai-daily-digest — clone it into your
+        skills/ directory as 'ai-daily-digest'. It uses RSS feeds from
+        92 curated tech blogs, no API keys needed."
+      - "Read its SKILL.md, confirm the references/sources.json file is
+        present, then save a study summary so I know how to trigger digests."
+    qa_questions:
+      - "Give me today's tech news digest — focus on AI and security."
+      - "What are the top tech stories from the last 48 hours? Score them
+        by relevance and quality."
+      - "Pull a digest of the most relevant articles from the last
+        72 hours about new AI model releases."
+      - "Summarize the best engineering and tooling articles from the
+        past 24 hours."
+      - "What important tech news did I miss in the past three days?
+        Group it by AI / security / engineering / tools."
+    verify_hints:
+      level_1_skill_used:
+        - The agent must read skills/ai-daily-digest/SKILL.md
+        - The agent must look at skills/ai-daily-digest/references/sources.json
+        - Bash tool calls show curl/wget fetching RSS feed URLs
+      level_2_output_structure:
+        - Output is a structured markdown digest (headings, sections)
+        - Per-article: title + source domain + 2-3 sentence summary
+        - At least 5 articles cited
+        - Topic categorization present (AI / security / engineering / tools
+          or similar)
