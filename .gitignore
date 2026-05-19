@@ -21,6 +21,13 @@
 # vendor-neutral pointer that redirects AI editors to CLAUDE.md per
 # the agents.md convention — committed as part of repo governance.
 
+# CLAUDE_zh.md is the Owner's local Chinese draft of CLAUDE.md.
+# Only the English CLAUDE.md is committed (so all contributors and
+# their AI tools read a consistent canonical version). The Chinese
+# copy stays local for the Owner to edit comfortably and is then
+# translated to update CLAUDE.md.
+CLAUDE_zh.md
+
 # ── Operator-local probe / benchmark scripts (often hold real API keys) ──
 # These are ad-hoc, single-machine investigations that read live provider
 # credentials inline. Keeping them untracked prevents another accidental
