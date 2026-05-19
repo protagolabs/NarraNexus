@@ -4,20 +4,26 @@ last_verified: 2026-05-18
 stub: false
 ---
 
-## 2026-05-18 — extend .env→os.environ passthrough whitelist
+## 2026-05-15 / 2026-05-18 — extend .env→os.environ passthrough whitelist
 
 The bridge used to forward only the 4 LLM API keys from `.env` into
-`os.environ`. Backend code that reads `os.environ.get()` directly (here:
-`BUNDLE_FETCH_ALLOWED_HOSTS` in `backend/routes/bundle.py`'s
-`/import/from-url` SSRF guard) was silently ignored — `bash run.sh` /
-`make dev-backend` started without the value, the allowlist fell back to
-`narra.nexus,www.narra.nexus`, and local dev couldn't fetch from
-`localhost:3001`.
+`os.environ`. Backend code that reads `os.environ.get()` directly
+(rather than through the `Settings` object) was silently ignored —
+`bash run.sh` / `make dev-backend` started without those values, and
+features that depended on them silently degraded.
+
+Current passthrough whitelist (`_DOTENV_PASSTHROUGH`):
+
+| Var | Read by | Symptom if missing |
+|---|---|---|
+| `INTERNAL_INVITE_SECRET` | `backend/routes/invite.py` (server-to-server auth from website) | invite endpoint returns 401 to the website mailer |
+| `INVITE_AUTO_ISSUE_CAP` | `backend/config.py` (per-day cap before invites go to waitlist) | falls back to default 200 |
+| `BUNDLE_FETCH_ALLOWED_HOSTS` | `backend/routes/bundle.py` (/import/from-url SSRF guard) | allowlist falls back to `narra.nexus,www.narra.nexus`; local dev can't fetch `localhost:3001` bundles |
 
 Added `_DOTENV_PASSTHROUGH` alongside `_API_KEY_FIELDS`. API keys keep
 their "override shell env" semantic (operator wrote them in `.env` via
-desktop app, must win); passthrough vars also forward (no separate
-setdefault path — match the established pattern).
+desktop app, must win); passthrough vars also forward to `os.environ`
+(no separate setdefault path — match the established pattern).
 
 **When introducing a new backend config that's read via
 `os.environ.get()` directly, add it to `_DOTENV_PASSTHROUGH`** —

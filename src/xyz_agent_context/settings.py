@@ -61,16 +61,18 @@ def _read_dotenv_raw(env_file: Path) -> dict[str, str]:
 #
 # Two whitelists drive the injection:
 #   _API_KEY_FIELDS     — LLM provider keys, original use case
-#   _DOTENV_PASSTHROUGH — other .env-only service config that backend code
-#                         reads via `os.environ.get()` directly (rather than
-#                         through the Settings object). Add new entries here
-#                         when introducing such a var, otherwise it silently
-#                         has no effect on os.environ and `bash run.sh` /
-#                         `make dev-backend` won't pick it up.
+#   _DOTENV_PASSTHROUGH — other .env-only service secrets / tuning knobs that
+#                         backend code reads via `os.environ.get()` directly
+#                         (rather than through the Settings object). Add a
+#                         var here whenever you introduce one, otherwise it
+#                         silently has no effect on os.environ and
+#                         `bash run.sh` / `make dev-backend` won't pick it up.
 _dotenv_values = _read_dotenv_raw(_PROJECT_ROOT / ".env")
 _API_KEY_FIELDS = {"OPENAI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"}
 _DOTENV_PASSTHROUGH = {
-    "BUNDLE_FETCH_ALLOWED_HOSTS",  # backend/routes/bundle.py — /import/from-url SSRF guard
+    "INTERNAL_INVITE_SECRET",       # backend/routes/invite.py — server-to-server auth
+    "INVITE_AUTO_ISSUE_CAP",        # backend/config.py
+    "BUNDLE_FETCH_ALLOWED_HOSTS",   # backend/routes/bundle.py — /import/from-url SSRF guard
 }
 for _k, _v in _dotenv_values.items():
     if not _v:

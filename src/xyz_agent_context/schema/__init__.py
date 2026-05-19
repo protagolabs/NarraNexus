@@ -226,6 +226,9 @@ from .a2a_schema import (
     A2AErrorCodes,
 )
 
+# ===== Invite Code Schema =====
+from .invite_code_schema import InviteCode
+
 # ===== Artifact Schema (agent-emitted artifacts: charts, reports, html apps, csv, images, pdf) =====
 from .artifact_schema import (
     Artifact,
@@ -398,6 +401,9 @@ __all__ = [
     "SkillListResponse",
     "SkillOperationResponse",
     "SkillStudyResponse",
+
+    # Invite Code Schema
+    "InviteCode",
 
     # Artifact Schema
     "Artifact",
