@@ -1,0 +1,158 @@
+{
+  "sample_id": "job_ongoing_sales_v1",
+  "seed": {
+    "preset_name": "job_ongoing_sales",
+    "seed_type": "ongoing_sales",
+    "description": "Sales manager assigns ONGOING follow-up tasks for THREE different prospects. Each requires job_type='ongoing' with end_condition (deal closed or declined) and related_entity_id pointing to the target customer (NOT the manager). Tests whether the agent correctly chooses 'ongoing' over 'scheduled' AND sets related_entity_id to the customer for sales-style tasks."
+  },
+  "target_modules": ["job"],
+  "initial_state": null,
+  "dialogue_rounds": [
+    {
+      "turn_index": 1,
+      "user_message": "I'm running our enterprise sales pipeline this quarter. Timezone is Asia/Shanghai. Need help managing customer follow-ups.",
+      "agent_reply": "Sure — what's the pipeline?",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Setup — establishes role and timezone."
+      }
+    },
+    {
+      "turn_index": 2,
+      "user_message": "First customer: Mr. Chen at Skylight Industries (his user_id is user_chen_skylight). We're pitching them an enterprise license. I want you to follow up with him daily — keep working until he either signs the contract or explicitly says they're not interested.",
+      "agent_reply": "Got it — daily follow-up with Mr. Chen at Skylight Industries until deal closes or they decline.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "ongoing",
+        "notes": "Classic ongoing sales pattern. interval_seconds=86400, end_condition mentions sign/decline. related_entity_id MUST be user_chen_skylight (the customer), NOT the manager."
+      }
+    },
+    {
+      "turn_index": 3,
+      "user_message": "Second: Sarah Liu at TechVerse (user_id user_sarah_techverse). She's evaluating us against two competitors. Same setup — daily check-in until decision is made either way.",
+      "agent_reply": "Daily ongoing follow-up with Sarah Liu at TechVerse until decision.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "ongoing",
+        "notes": "Same pattern, different customer. related_entity_id=user_sarah_techverse."
+      }
+    },
+    {
+      "turn_index": 4,
+      "user_message": "Third: David Park at Apex Holdings (user_id user_david_apex). This one is dormant — they expressed interest 2 months ago but went quiet. Reach out every 3 days, less aggressive cadence, until he either re-engages or says they're not moving forward.",
+      "agent_reply": "Every 3 days, gentle re-engagement with David Park at Apex Holdings, until response.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "ongoing",
+        "notes": "Ongoing with non-daily cadence. interval_seconds=259200 (3 days). related_entity_id=user_david_apex."
+      }
+    },
+    {
+      "turn_index": 5,
+      "user_message": "Also — at 6pm every day, give me a status report across all three deals.",
+      "agent_reply": "Daily 6pm status report scheduled.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "scheduled",
+        "notes": "Different intent — periodic report TO the manager. job_type='scheduled' with cron, related_entity_id=manager (self)."
+      }
+    },
+    {
+      "turn_index": 6,
+      "user_message": "Run me through what you've set up.",
+      "agent_reply": "PROBE — should list 3 ongoing customer follow-ups + 1 scheduled status report.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Behavior probe — verify agent's mental model of 4 jobs."
+      }
+    },
+    {
+      "turn_index": 7,
+      "user_message": "Right now, just draft the opening message I'd send Chen tomorrow.",
+      "agent_reply": "(drafts opening message for Chen)",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Negative — immediate task ('draft now'), not a recurring/scheduled instruction."
+      }
+    },
+    {
+      "turn_index": 8,
+      "user_message": "Looks good. Done for today.",
+      "agent_reply": "Talk later.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Closing."
+      }
+    }
+  ],
+  "expected_outcomes": {
+    "expected_job_count_range": [4, 4],
+    "expected_jobs": [
+      {
+        "label": "Chen Skylight follow-up",
+        "title_keywords": ["Chen", "Skylight"],
+        "job_type": "ongoing",
+        "trigger_must_contain": {"interval_seconds": 86400, "end_condition_keywords": ["sign", "decline", "not interested"], "timezone": "Asia/Shanghai"},
+        "payload_keywords": ["Chen", "Skylight", "enterprise license"],
+        "related_entity_hint": "user_chen_skylight",
+        "evidence_turn": 2
+      },
+      {
+        "label": "Sarah TechVerse follow-up",
+        "title_keywords": ["Sarah", "TechVerse"],
+        "job_type": "ongoing",
+        "trigger_must_contain": {"interval_seconds": 86400, "end_condition_keywords": ["decision"], "timezone": "Asia/Shanghai"},
+        "payload_keywords": ["Sarah", "TechVerse", "competitor"],
+        "related_entity_hint": "user_sarah_techverse",
+        "evidence_turn": 3
+      },
+      {
+        "label": "David Apex re-engagement",
+        "title_keywords": ["David", "Apex"],
+        "job_type": "ongoing",
+        "trigger_must_contain": {"interval_seconds": 259200, "end_condition_keywords": ["re-engage", "not moving forward"], "timezone": "Asia/Shanghai"},
+        "payload_keywords": ["David", "Apex", "dormant"],
+        "related_entity_hint": "user_david_apex",
+        "evidence_turn": 4
+      },
+      {
+        "label": "Daily 6pm pipeline status",
+        "title_keywords": ["status", "pipeline"],
+        "job_type": "scheduled",
+        "trigger_must_contain": {"cron_pattern_hint": "0 18 * * *", "timezone": "Asia/Shanghai"},
+        "payload_keywords": ["status", "report", "deals"],
+        "related_entity_hint": "self_manager",
+        "evidence_turn": 5
+      }
+    ],
+    "must_not_contain_jobs_for": ["draft opening message for Chen"],
+    "behavior_probe_turns": [6]
+  },
+  "qa_items": [
+    {
+      "question": "How many customers am I currently following up with?",
+      "tester_hint_answer": "Three: Mr. Chen at Skylight, Sarah Liu at TechVerse, and David Park at Apex Holdings.",
+      "target_modules": ["job"],
+      "evidence_turns": [2, 3, 4]
+    },
+    {
+      "question": "What's my follow-up cadence with David Park?",
+      "tester_hint_answer": "Every 3 days, less aggressive than the others.",
+      "target_modules": ["job"],
+      "evidence_turns": [4]
+    },
+    {
+      "question": "What is the end condition for the Chen follow-up?",
+      "tester_hint_answer": "Stop when he signs the contract or explicitly says they're not interested.",
+      "target_modules": ["job"],
+      "evidence_turns": [2]
+    }
+  ],
+  "module_coverage": {},
+  "postprocess_hints": {},
+  "warnings": []
+}

@@ -1,0 +1,27 @@
+# Job isolation test (Type A — creation only).
+#
+# Verify the agent correctly creates background Jobs via job_create MCP
+# in response to natural conversational signals about scheduled / recurring /
+# ongoing tasks.
+#
+# Type A scope:
+#   - We verify Job CREATION parameters by querying the instance_jobs table.
+#   - We do NOT verify execution outcomes (those need Type B + cleanup).
+#
+# WARNING — Test Hygiene:
+#   JobTrigger polls every 60s and will execute any job whose next_run_time
+#   has passed. Test seeds may use realistic time phrasing ("tomorrow at 9am")
+#   that resolves to near-future timestamps. After running benchmarks, manually
+#   cancel test agent jobs:
+#     UPDATE instance_jobs SET status='cancelled'
+#       WHERE agent_id LIKE 'agent_job_%';
+
+sources:
+  ChatModule: no_qa
+  MemoryModule: no_qa
+  SocialNetworkModule: no_qa
+  Narrative: no_qa
+  AwarenessModule: no_qa
+  # JobModule defaults to "active" — what we test.
+
+use_agent_loop: true

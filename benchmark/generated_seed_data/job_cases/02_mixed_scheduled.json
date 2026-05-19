@@ -1,0 +1,148 @@
+{
+  "sample_id": "job_mixed_scheduled_v1",
+  "seed": {
+    "preset_name": "job_mixed_scheduled",
+    "seed_type": "mixed_scheduled",
+    "description": "User sets up multiple recurring jobs with DIFFERENT trigger forms — cron expression and interval_seconds. Tests whether the agent picks the right trigger form for each scheduling pattern: 'every weekday at X' should produce a cron, 'every N hours' should produce interval_seconds. All scheduled type."
+  },
+  "target_modules": ["job"],
+  "initial_state": null,
+  "dialogue_rounds": [
+    {
+      "turn_index": 1,
+      "user_message": "Setting up some recurring routines. My timezone is America/New_York.",
+      "agent_reply": "Sure, what would you like to set up?",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Setup — timezone declared."
+      }
+    },
+    {
+      "turn_index": 2,
+      "user_message": "Set up a recurring task: every weekday at 9:30am, send me a brief summary of overnight market movements.",
+      "agent_reply": "Got it — weekday market summary at 9:30am ET.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "scheduled",
+        "notes": "Cron-natural pattern (every weekday at fixed time). Should use cron expression '30 9 * * 1-5' or equivalent."
+      }
+    },
+    {
+      "turn_index": 3,
+      "user_message": "Also: every 4 hours during the day, do a quick health check on our production API and ping me only if anything is degraded.",
+      "agent_reply": "Set — every 4 hours, API health check, alert only on degradation.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "scheduled",
+        "notes": "Interval-natural pattern (every N hours). Should use interval_seconds=14400."
+      }
+    },
+    {
+      "turn_index": 4,
+      "user_message": "And every Friday at 5pm, generate a weekly summary of all my open tasks.",
+      "agent_reply": "Friday 5pm weekly task summary scheduled.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "scheduled",
+        "notes": "Cron-natural again (specific weekday + time). Should use cron '0 17 * * 5' or equivalent."
+      }
+    },
+    {
+      "turn_index": 5,
+      "user_message": "What recurring tasks do I have running now?",
+      "agent_reply": "PROBE — agent should retrieve and list all 3 scheduled jobs.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Behavior probe — list all scheduled jobs."
+      }
+    },
+    {
+      "turn_index": 6,
+      "user_message": "Quick question — what does 'liquidity ratio' mean again?",
+      "agent_reply": "Liquidity ratio measures a company's ability to cover short-term obligations with its liquid assets.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Negative — immediate Q&A, no scheduling intent."
+      }
+    },
+    {
+      "turn_index": 7,
+      "user_message": "Also: every other day, scrape competitor pricing pages and save changes to a doc.",
+      "agent_reply": "Bi-daily competitor pricing scrape scheduled.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "scheduled",
+        "notes": "Interval-natural ('every other day' = interval_seconds=172800)."
+      }
+    },
+    {
+      "turn_index": 8,
+      "user_message": "Done.",
+      "agent_reply": "Set up.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Closing."
+      }
+    }
+  ],
+  "expected_outcomes": {
+    "expected_job_count_range": [4, 4],
+    "expected_jobs": [
+      {
+        "label": "Weekday market summary",
+        "title_keywords": ["market", "summary"],
+        "job_type": "scheduled",
+        "trigger_must_contain": {"cron_pattern_hint": "30 9 * * 1-5", "timezone": "America/New_York"},
+        "payload_keywords": ["market", "overnight"],
+        "evidence_turn": 2
+      },
+      {
+        "label": "API health check every 4h",
+        "title_keywords": ["health", "API"],
+        "job_type": "scheduled",
+        "trigger_must_contain": {"interval_seconds": 14400, "timezone": "America/New_York"},
+        "payload_keywords": ["API", "health", "production"],
+        "evidence_turn": 3
+      },
+      {
+        "label": "Weekly Friday task summary",
+        "title_keywords": ["weekly", "summary"],
+        "job_type": "scheduled",
+        "trigger_must_contain": {"cron_pattern_hint": "0 17 * * 5", "timezone": "America/New_York"},
+        "payload_keywords": ["weekly", "open tasks"],
+        "evidence_turn": 4
+      },
+      {
+        "label": "Competitor pricing bi-daily",
+        "title_keywords": ["competitor", "pricing"],
+        "job_type": "scheduled",
+        "trigger_must_contain": {"interval_seconds": 172800, "timezone": "America/New_York"},
+        "payload_keywords": ["competitor", "pricing", "scrape"],
+        "evidence_turn": 7
+      }
+    ],
+    "must_not_contain_jobs_for": ["liquidity ratio"],
+    "behavior_probe_turns": [5]
+  },
+  "qa_items": [
+    {
+      "question": "What recurring tasks do I have set up?",
+      "tester_hint_answer": "Four scheduled jobs: weekday market summary at 9:30am, API health check every 4 hours, weekly Friday 5pm task summary, and competitor pricing scrape every other day.",
+      "target_modules": ["job"],
+      "evidence_turns": [2, 3, 4, 7]
+    },
+    {
+      "question": "How often does the API health check run?",
+      "tester_hint_answer": "Every 4 hours.",
+      "target_modules": ["job"],
+      "evidence_turns": [3]
+    }
+  ],
+  "module_coverage": {},
+  "postprocess_hints": {},
+  "warnings": []
+}

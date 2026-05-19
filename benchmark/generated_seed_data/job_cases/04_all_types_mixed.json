@@ -1,0 +1,139 @@
+{
+  "sample_id": "job_all_types_mixed_v1",
+  "seed": {
+    "preset_name": "job_all_types_mixed",
+    "seed_type": "all_types_mixed",
+    "description": "ONE conversation that requires creating ONE of each job type (one_off, scheduled, ongoing). Tests whether the agent correctly discriminates between the three types based on conversational signals (specific date = one_off, recurring on cadence = scheduled, work-until-condition = ongoing) AND can hold all three intents in a single dialogue without confusing them."
+  },
+  "target_modules": ["job"],
+  "initial_state": null,
+  "dialogue_rounds": [
+    {
+      "turn_index": 1,
+      "user_message": "Helping me plan around a hire. Timezone Europe/London.",
+      "agent_reply": "OK, what's the situation?",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Setup."
+      }
+    },
+    {
+      "turn_index": 2,
+      "user_message": "We just made an offer to a senior PM candidate, Maya Patel (user_id user_maya_pm). She has 14 days to respond. Until she either accepts or declines, can you check in on her status every other day and prompt me if I need to nudge her?",
+      "agent_reply": "Ongoing follow-up every 2 days on Maya's offer status, until she accepts or declines.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "ongoing",
+        "notes": "ONGOING — clear end_condition (accepts/declines), interval_seconds=172800. related_entity_id=user_maya_pm (the candidate)."
+      }
+    },
+    {
+      "turn_index": 3,
+      "user_message": "If she accepts, her start date is January 15, 2027. Remind me on January 8, 2027 at 10am to prepare onboarding materials — I always forget to do prep early enough.",
+      "agent_reply": "Reminder set for January 8, 2027 at 10am: prepare onboarding for Maya.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "one_off",
+        "notes": "ONE_OFF — single specific date (Jan 8, 2027 10am). related_entity_id=self (manager)."
+      }
+    },
+    {
+      "turn_index": 4,
+      "user_message": "Also: while we're hiring, every Monday at 8am, give me a recruiting pipeline summary. This becomes our regular Monday rhythm.",
+      "agent_reply": "Monday 8am weekly recruiting summary scheduled.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "scheduled",
+        "notes": "SCHEDULED — recurring weekly (cron '0 8 * * 1'). related_entity_id=self."
+      }
+    },
+    {
+      "turn_index": 5,
+      "user_message": "Walk me through what you set up — and confirm the type of each.",
+      "agent_reply": "PROBE — agent should list 3 jobs and correctly identify their types.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Behavior probe — confirms agent's classification."
+      }
+    },
+    {
+      "turn_index": 6,
+      "user_message": "Quick aside — what's a typical onboarding timeline length for a senior PM?",
+      "agent_reply": "Typically 30-90 days, with structured weeks for ramp, shadowing, ownership.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Negative — generic Q&A, no scheduling intent."
+      }
+    },
+    {
+      "turn_index": 7,
+      "user_message": "OK that's everything for now.",
+      "agent_reply": "Talk later.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Closing."
+      }
+    }
+  ],
+  "expected_outcomes": {
+    "expected_job_count_range": [3, 3],
+    "expected_jobs": [
+      {
+        "label": "Maya offer status follow-up (ONGOING)",
+        "title_keywords": ["Maya", "offer"],
+        "job_type": "ongoing",
+        "trigger_must_contain": {"interval_seconds": 172800, "end_condition_keywords": ["accept", "decline"], "timezone": "Europe/London"},
+        "payload_keywords": ["Maya", "offer", "status"],
+        "related_entity_hint": "user_maya_pm",
+        "evidence_turn": 2
+      },
+      {
+        "label": "Onboarding prep reminder (ONE_OFF)",
+        "title_keywords": ["onboarding", "Maya"],
+        "job_type": "one_off",
+        "trigger_must_contain": {"run_at_year": 2027, "run_at_month": 1, "timezone": "Europe/London"},
+        "payload_keywords": ["onboarding", "Maya", "prepare"],
+        "related_entity_hint": "self",
+        "evidence_turn": 3
+      },
+      {
+        "label": "Monday recruiting summary (SCHEDULED)",
+        "title_keywords": ["recruiting", "summary"],
+        "job_type": "scheduled",
+        "trigger_must_contain": {"cron_pattern_hint": "0 8 * * 1", "timezone": "Europe/London"},
+        "payload_keywords": ["recruiting", "pipeline", "weekly"],
+        "related_entity_hint": "self",
+        "evidence_turn": 4
+      }
+    ],
+    "must_not_contain_jobs_for": ["onboarding timeline length explanation"],
+    "behavior_probe_turns": [5]
+  },
+  "qa_items": [
+    {
+      "question": "What jobs have I set up around the Maya hire?",
+      "tester_hint_answer": "Three: ongoing follow-up on her offer status (every 2 days until accept/decline), a one-off reminder Jan 8 2027 to prep onboarding, and a recurring Monday 8am recruiting pipeline summary.",
+      "target_modules": ["job"],
+      "evidence_turns": [2, 3, 4]
+    },
+    {
+      "question": "Is the Maya follow-up a one-time reminder or an ongoing task?",
+      "tester_hint_answer": "Ongoing — it runs until she accepts or declines.",
+      "target_modules": ["job"],
+      "evidence_turns": [2]
+    },
+    {
+      "question": "When is the onboarding prep reminder?",
+      "tester_hint_answer": "January 8, 2027 at 10am.",
+      "target_modules": ["job"],
+      "evidence_turns": [3]
+    }
+  ],
+  "module_coverage": {},
+  "postprocess_hints": {},
+  "warnings": []
+}

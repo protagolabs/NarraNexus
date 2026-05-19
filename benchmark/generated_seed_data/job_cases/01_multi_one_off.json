@@ -1,0 +1,133 @@
+{
+  "sample_id": "job_multi_one_off_v1",
+  "seed": {
+    "preset_name": "job_multi_one_off",
+    "seed_type": "multi_one_off",
+    "description": "User asks the agent to schedule THREE one-off reminders at distinct times in a single conversation. Tests whether the agent calls job_create exactly 3 times with job_type='one_off' and correct run_at + timezone for each. All three triggers should be far apart (different days) and have different payloads."
+  },
+  "target_modules": ["job"],
+  "initial_state": null,
+  "dialogue_rounds": [
+    {
+      "turn_index": 1,
+      "user_message": "I have a busy week coming up. I need help keeping track of a few things. I'm based in Shanghai, timezone Asia/Shanghai.",
+      "agent_reply": "Sure, what do you need scheduled?",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Setup turn — establishes timezone."
+      }
+    },
+    {
+      "turn_index": 2,
+      "user_message": "First: remind me to send the Q2 board deck to the chairperson on May 15th, 2027 at 9am.",
+      "agent_reply": "Got it — I'll set a reminder for May 15, 2027 at 9am to send the Q2 board deck.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "one_off",
+        "notes": "Explicit one-off with specific date+time."
+      }
+    },
+    {
+      "turn_index": 3,
+      "user_message": "Second: remind me to renew our SSL certificate on July 3rd, 2027 at 2pm. The cert expires that week.",
+      "agent_reply": "Reminder set for July 3, 2027 2pm — SSL certificate renewal.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "one_off",
+        "notes": "Second one-off with different date and unrelated payload."
+      }
+    },
+    {
+      "turn_index": 4,
+      "user_message": "Last one: I need to call my mentor on her birthday — March 22, 2028 at 7pm.",
+      "agent_reply": "Birthday call reminder scheduled for March 22, 2028 at 7pm.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "one_off",
+        "notes": "Third one-off, distinct year and personal context."
+      }
+    },
+    {
+      "turn_index": 5,
+      "user_message": "Can you confirm what's on my schedule now?",
+      "agent_reply": "PROBE — agent should list all 3 jobs created.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Behavior probe — agent should retrieve and confirm 3 jobs."
+      }
+    },
+    {
+      "turn_index": 6,
+      "user_message": "Good. By the way, can you also translate this French sentence right now: 'Bonne chance.'",
+      "agent_reply": "'Good luck.'",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Negative — immediate task, no scheduling intent. Should NOT trigger job_create."
+      }
+    },
+    {
+      "turn_index": 7,
+      "user_message": "Thanks. We're done.",
+      "agent_reply": "Anytime.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Closing."
+      }
+    }
+  ],
+  "expected_outcomes": {
+    "expected_job_count_range": [3, 3],
+    "expected_jobs": [
+      {
+        "label": "Q2 board deck reminder",
+        "title_keywords": ["Q2", "board deck"],
+        "job_type": "one_off",
+        "trigger_must_contain": {"run_at_year": 2027, "run_at_month": 5, "timezone": "Asia/Shanghai"},
+        "payload_keywords": ["board deck", "Q2", "chairperson"],
+        "related_entity_hint": "self",
+        "evidence_turn": 2
+      },
+      {
+        "label": "SSL renewal reminder",
+        "title_keywords": ["SSL", "certificate"],
+        "job_type": "one_off",
+        "trigger_must_contain": {"run_at_year": 2027, "run_at_month": 7, "timezone": "Asia/Shanghai"},
+        "payload_keywords": ["SSL", "renew", "certificate"],
+        "related_entity_hint": "self",
+        "evidence_turn": 3
+      },
+      {
+        "label": "Mentor birthday call",
+        "title_keywords": ["mentor", "birthday"],
+        "job_type": "one_off",
+        "trigger_must_contain": {"run_at_year": 2028, "run_at_month": 3, "timezone": "Asia/Shanghai"},
+        "payload_keywords": ["mentor", "birthday", "call"],
+        "related_entity_hint": "self",
+        "evidence_turn": 4
+      }
+    ],
+    "must_not_contain_jobs_for": ["French translation", "Bonne chance"],
+    "behavior_probe_turns": [5]
+  },
+  "qa_items": [
+    {
+      "question": "How many reminders did I schedule?",
+      "tester_hint_answer": "Three: Q2 board deck (May 15 2027), SSL certificate renewal (July 3 2027), and mentor birthday call (March 22 2028).",
+      "target_modules": ["job"],
+      "evidence_turns": [2, 3, 4]
+    },
+    {
+      "question": "When am I supposed to send the Q2 board deck?",
+      "tester_hint_answer": "May 15, 2027 at 9am Asia/Shanghai.",
+      "target_modules": ["job"],
+      "evidence_turns": [2]
+    }
+  ],
+  "module_coverage": {},
+  "postprocess_hints": {},
+  "warnings": []
+}

@@ -48,10 +48,9 @@ DEFAULT_SEED_CATALOG = DEFAULT_OUTPUT_DIR / "social_network_issue_seed_catalog.j
 DEFAULT_TURNS = 10
 TURN_CHUNK_SIZE = 10
 
-SUPPORTED_TARGET_MODULES = ("memory", "social_network", "awareness")
+SUPPORTED_TARGET_MODULES = ("memory", "social_network", "awareness", "job")
 DEFERRED_MODULES = {
     "rag": "RAG is deferred in v1 because this generator is conversation-only and RAG ingestion is a separate stage.",
-    "job": "Job is excluded in v1 because realistic validation requires explicit job creation and execution flows.",
     "matrix": "Matrix is excluded in v1 because it depends on Matrix registration, rooms, and external channel operations.",
     "skill": "Skill is excluded in v1 because it depends on real skill files, config persistence, and study lifecycle actions.",
 }
@@ -67,6 +66,11 @@ DEFAULT_QA_MODULE_DESCRIPTIONS = {
     "awareness": (
         "Awareness QA should ask about explicit collaboration preferences and whether the agent adapted "
         "to the user's requested communication style or working mode in later turns."
+    ),
+    "job": (
+        "Job QA should ask about background tasks the user asked the agent to schedule: their type "
+        "(one-off / scheduled / ongoing), trigger timing (specific date, cron cadence, interval, or "
+        "end_condition), payload intent, target entity (self vs. other), and dependencies between jobs."
     ),
 }
 FORBIDDEN_MARKERS = (
@@ -130,6 +134,77 @@ PRESETS: dict[str, SeedPreset] = {
         dialogue_seed="A user follows up with an agent on an ongoing project, reviews prior context, updates information about relevant team members, and restates how they want the agent to report progress and collaborate going forward.",
         recommended_modules=("memory", "social_network", "awareness"),
         tone_hint="Like a real project follow-up conversation: specific, restrained, and continuous.",
+    ),
+    # --------------------------------------------------------------------
+    # Job presets (Type A — creation testing)
+    # --------------------------------------------------------------------
+    "job_multi_one_off": SeedPreset(
+        name="job_multi_one_off",
+        dialogue_seed=(
+            "A busy professional asks the agent to set up several one-off reminders at distinct future dates "
+            "(e.g. a board deck send-off in a few months, a certificate renewal later in the year, a personal "
+            "anniversary call on a specific date). Each reminder has its own date, time, and concrete payload, "
+            "and the user expects the agent to schedule them as separate one-time background tasks."
+        ),
+        recommended_modules=("job",),
+        tone_hint="Brisk and organized — like someone running through a checklist with their assistant.",
+    ),
+    "job_mixed_scheduled": SeedPreset(
+        name="job_mixed_scheduled",
+        dialogue_seed=(
+            "A user sets up multiple recurring routines that mix two natural scheduling patterns: "
+            "fixed-clock-time recurring tasks (e.g. 'every weekday at 9:30am', 'every Friday at 5pm') AND "
+            "interval-based recurring tasks (e.g. 'every 4 hours', 'every other day'). The agent should "
+            "create scheduled jobs and pick the right trigger form for each phrasing."
+        ),
+        recommended_modules=("job",),
+        tone_hint="Practical operator setting up a daily/weekly rhythm — concise and instruction-oriented.",
+    ),
+    "job_ongoing_sales": SeedPreset(
+        name="job_ongoing_sales",
+        dialogue_seed=(
+            "A sales manager assigns ongoing follow-up tasks for several distinct prospects in a single conversation. "
+            "Each prospect has a name and id, a specific business context, an interaction cadence (daily, every few days), "
+            "and a clear end_condition tied to whether the deal closes or is declined. The user also asks for a daily "
+            "status report to themselves at a fixed time. The agent must distinguish ongoing customer follow-ups from "
+            "the scheduled status report, and route the target identity correctly (customer vs. manager)."
+        ),
+        recommended_modules=("job",),
+        tone_hint="Manager voice — directive but specific, mixes customer details with operational rhythm.",
+    ),
+    "job_all_types_mixed": SeedPreset(
+        name="job_all_types_mixed",
+        dialogue_seed=(
+            "A user runs through a single coherent scenario (e.g. a hire, a launch, a project cutover) that requires "
+            "ALL THREE job types in one conversation: an ongoing task with a clear end_condition, a one-off reminder "
+            "tied to a specific date, AND a recurring scheduled summary on a weekly cadence. The agent must hold the "
+            "three intents straight and create one job per type — no mixing up scheduled with ongoing, etc."
+        ),
+        recommended_modules=("job",),
+        tone_hint="A planner thinking out loud — natural transitions between the three intents.",
+    ),
+    "job_negative_no_jobs": SeedPreset(
+        name="job_negative_no_jobs",
+        dialogue_seed=(
+            "A user asks the agent for a series of immediate, in-conversation tasks (translation, drafting, summarizing, "
+            "research-right-now). The conversation deliberately includes phrases that LOOK schedulable — words like "
+            "'always', 'schedule', 'remind', 'from now on' — but in context every one is either an immediate one-shot "
+            "request, a long-term style preference, or a definition lookup. The agent must refrain from creating any "
+            "background job; over-triggering is the failure mode."
+        ),
+        recommended_modules=("job",),
+        tone_hint="Quick-fire, no-nonsense — someone burning through a to-do list, not delegating.",
+    ),
+    "job_dependent_jobs": SeedPreset(
+        name="job_dependent_jobs",
+        dialogue_seed=(
+            "A user describes a multi-step workflow where each step explicitly waits for the previous one to complete "
+            "(e.g. research → draft → review meeting). The agent must model this as a chain of one-off jobs with "
+            "dependencies wired through depends_on_job_ids — not as three independent reminders. The same conversation "
+            "also includes one INDEPENDENT recurring scheduled job that should NOT be wired into the chain."
+        ),
+        recommended_modules=("job",),
+        tone_hint="Deliberate workflow planner — names each step explicitly with 'first', 'once that's done', 'after that'.",
     ),
 }
 
@@ -238,7 +313,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--modules",
-        help="Comma-separated target modules. Supported: memory,social_network,awareness",
+        help="Comma-separated target modules. Supported: memory,social_network,awareness,job",
     )
     parser.add_argument(
         "--out",
@@ -521,6 +596,22 @@ def build_module_constraint_text(target_modules: list[str]) -> str:
                 "- Across the full conversation, include at least 2 explicit collaboration or communication preferences from the user.\n"
                 "- The agent must adapt in later turns to those preferences rather than only acknowledging them once.\n"
                 "- The preferences should sound natural and conversational, not like a synthetic checklist."
+            )
+        elif module == "job":
+            sections.append(
+                "## job constraints\n"
+                "- Across the full conversation, the user must request at least 2 distinct background tasks that span "
+                "more than one job_type out of {one_off, scheduled, ongoing}.\n"
+                "- Use natural conversational phrasing for timing — e.g. 'remind me on March 15 at 3pm', 'every weekday "
+                "at 9am', 'every 4 hours', 'until the deal closes'. Do NOT mention internal field names like 'cron', "
+                "'interval_seconds', 'trigger_config', or 'job_create' — those belong to the system, not the user.\n"
+                "- Include at least one negative trap: a sentence that LOOKS schedulable (uses 'always', 'schedule', "
+                "'remind') but is actually an immediate one-shot request, an awareness preference, or a definition lookup. "
+                "The agent should NOT create a job for the trap.\n"
+                "- The user must declare a timezone or location early in the conversation so the agent can resolve "
+                "absolute times.\n"
+                "- If applicable, include one ongoing task aimed at a third party (e.g. a customer or candidate). "
+                "Mention that person's name or user_id explicitly so the agent can record them as the target entity."
             )
     return "\n".join(sections)
 
@@ -984,7 +1075,7 @@ def build_postprocess_hints(target_modules: list[str]) -> list[str]:
 def build_warnings(target_modules: list[str], *, partial: bool = False) -> list[str]:
     warnings = [
         "This output is synthetic evaluation dialogue only. No replay, database write, or module execution has been performed.",
-        "Supported v1 targets are limited to memory, social_network, and awareness. RAG, job, matrix, and skill are intentionally excluded from this generator.",
+        "Supported v1 targets are limited to memory, social_network, awareness, and job. RAG, matrix, and skill are intentionally excluded from this generator.",
     ]
     if partial:
         warnings.append(

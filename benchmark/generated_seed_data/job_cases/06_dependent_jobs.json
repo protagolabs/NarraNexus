@@ -1,0 +1,160 @@
+{
+  "sample_id": "job_dependent_jobs_v1",
+  "seed": {
+    "preset_name": "job_dependent_jobs",
+    "seed_type": "dependent_jobs",
+    "description": "Tests whether the agent can create a CHAIN of jobs where downstream jobs reference upstream ones via depends_on_job_ids. User describes a multi-step workflow (research → draft → review meeting) that should be modeled as 3 jobs with dependencies, not 3 independent jobs. Tests both creation count AND dependency wiring."
+  },
+  "target_modules": ["job"],
+  "initial_state": null,
+  "dialogue_rounds": [
+    {
+      "turn_index": 1,
+      "user_message": "I'm preparing a major customer expansion proposal. Timezone Asia/Tokyo. It's a multi-step workflow.",
+      "agent_reply": "OK — what's the workflow?",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Setup — flags multi-step intent."
+      }
+    },
+    {
+      "turn_index": 2,
+      "user_message": "Step one: by next Friday, complete competitive research on the customer's industry — pull insights about their main competitors and recent moves.",
+      "agent_reply": "Job 1 — competitive research, due next Friday.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "one_off",
+        "notes": "First job in chain. one_off (specific deadline). No dependencies yet."
+      }
+    },
+    {
+      "turn_index": 3,
+      "user_message": "Step two: ONCE the research is done, draft a 5-page proposal building on those insights. Should be ready 4 days after the research finishes.",
+      "agent_reply": "Job 2 — draft proposal, depends on Job 1, due 4 days after research completes.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "one_off",
+        "notes": "Second job — explicitly depends on Job 1. Agent should set depends_on_job_ids=[<job1_id>]."
+      }
+    },
+    {
+      "turn_index": 4,
+      "user_message": "Step three: ONCE the proposal draft is ready, schedule a 60-minute review meeting with our VP of Sales — block it on her calendar 2 days after the draft is done. (Just create the reminder; I'll handle the actual calendar invite.)",
+      "agent_reply": "Job 3 — schedule VP review meeting, depends on Job 2.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "one_off",
+        "notes": "Third job — depends on Job 2. depends_on_job_ids=[<job2_id>]. Note: user said 'just create the reminder' so this is one_off, not creating a calendar invite."
+      }
+    },
+    {
+      "turn_index": 5,
+      "user_message": "Run me through the chain — make sure the dependencies are right.",
+      "agent_reply": "PROBE — agent should describe Job 1 → Job 2 → Job 3 with correct dependency wiring.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Behavior probe — verifies agent's understanding of the chain."
+      }
+    },
+    {
+      "turn_index": 6,
+      "user_message": "Also independent of the chain: once a week on Wednesdays at 4pm, give me a status check across all customer expansion proposals (not just this one).",
+      "agent_reply": "Weekly Wednesday 4pm proposals status check scheduled.",
+      "signal_annotation": {
+        "expected_action": "create_job",
+        "expected_job_type": "scheduled",
+        "notes": "INDEPENDENT scheduled job (cron '0 16 * * 3'). NO dependency on the chain."
+      }
+    },
+    {
+      "turn_index": 7,
+      "user_message": "And right now, can you describe what 'TAM expansion' means in this context?",
+      "agent_reply": "Total Addressable Market expansion — broadening the universe of potential customers we can serve, by adding segments, geographies, or use cases.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Negative — definition request, not job-worthy."
+      }
+    },
+    {
+      "turn_index": 8,
+      "user_message": "Done.",
+      "agent_reply": "Set.",
+      "signal_annotation": {
+        "expected_action": "ignore",
+        "expected_job_type": null,
+        "notes": "Closing."
+      }
+    }
+  ],
+  "expected_outcomes": {
+    "expected_job_count_range": [4, 4],
+    "expected_jobs": [
+      {
+        "label": "Step 1: Competitive research",
+        "title_keywords": ["competitive research"],
+        "job_type": "one_off",
+        "trigger_must_contain": {"timezone": "Asia/Tokyo"},
+        "payload_keywords": ["competitive", "research", "competitors"],
+        "depends_on_count": 0,
+        "evidence_turn": 2
+      },
+      {
+        "label": "Step 2: Proposal draft",
+        "title_keywords": ["proposal", "draft"],
+        "job_type": "one_off",
+        "trigger_must_contain": {"timezone": "Asia/Tokyo"},
+        "payload_keywords": ["proposal", "draft", "5-page"],
+        "depends_on_count": 1,
+        "depends_on_label_hint": "Step 1: Competitive research",
+        "evidence_turn": 3
+      },
+      {
+        "label": "Step 3: VP review meeting reminder",
+        "title_keywords": ["VP", "review"],
+        "job_type": "one_off",
+        "trigger_must_contain": {"timezone": "Asia/Tokyo"},
+        "payload_keywords": ["VP", "review", "meeting"],
+        "depends_on_count": 1,
+        "depends_on_label_hint": "Step 2: Proposal draft",
+        "evidence_turn": 4
+      },
+      {
+        "label": "Independent weekly proposals status",
+        "title_keywords": ["proposals", "status"],
+        "job_type": "scheduled",
+        "trigger_must_contain": {"cron_pattern_hint": "0 16 * * 3", "timezone": "Asia/Tokyo"},
+        "payload_keywords": ["proposals", "status", "weekly"],
+        "depends_on_count": 0,
+        "evidence_turn": 6
+      }
+    ],
+    "must_not_contain_jobs_for": ["TAM expansion definition"],
+    "behavior_probe_turns": [5]
+  },
+  "qa_items": [
+    {
+      "question": "How is the customer expansion proposal workflow structured?",
+      "tester_hint_answer": "Three sequential steps: (1) competitive research due Friday, (2) proposal draft 4 days after research finishes, depends on step 1, (3) VP review meeting reminder 2 days after the draft is done, depends on step 2.",
+      "target_modules": ["job"],
+      "evidence_turns": [2, 3, 4]
+    },
+    {
+      "question": "Is the proposal draft job dependent on anything?",
+      "tester_hint_answer": "Yes — it depends on the competitive research job completing first.",
+      "target_modules": ["job"],
+      "evidence_turns": [3]
+    },
+    {
+      "question": "Is the weekly Wednesday status check part of the proposal chain?",
+      "tester_hint_answer": "No — it's a separate scheduled recurring job that covers all customer expansion proposals, not just this one.",
+      "target_modules": ["job"],
+      "evidence_turns": [6]
+    }
+  ],
+  "module_coverage": {},
+  "postprocess_hints": {},
+  "warnings": []
+}
