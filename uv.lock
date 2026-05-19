@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
     "sys_platform == 'darwin'",
@@ -2317,7 +2317,7 @@ wheels = [
 
 [[package]]
 name = "xyz-agent-context"
-version = "1.1.0"
+version = "1.2.3"
 source = { editable = "." }
 dependencies = [
     { name = "aiomysql" },
