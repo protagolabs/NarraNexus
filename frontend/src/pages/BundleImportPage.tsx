@@ -85,31 +85,61 @@ export default function BundleImportPage() {
     }
   };
 
-  // URL-mode auto-fetch: fire once on mount when the route receives a
-  // ?url= query, before the user sees the upload step.
+  // Manual retry counter — incrementing re-fires the auto-fetch useEffect
+  // below. Used by the "Retry" button when auto-retry has exhausted.
+  const [retryNonce, setRetryNonce] = useState(0);
+
+  // URL-mode auto-fetch: fire on mount when the route receives a ?url=
+  // query, before the user sees the upload step. Builds in exponential-
+  // backoff retry so that the desktop-app cold-start race (~10-15s where
+  // the Tauri parent has loaded the frontend but the Python sidecar on
+  // :8000 isn't listening yet) doesn't surface as "Load failed" to the
+  // user. Retries are network-error-only — a 4xx from a reachable backend
+  // (allowlist reject, sha256 mismatch, malformed URL) is a real error
+  // and surfaces immediately.
   useEffect(() => {
-    if (!urlMode || preflight || busy) return;
+    if (!urlMode || preflight) return;
     let cancelled = false;
+    const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000]; // ~15s total
     (async () => {
       setBusy(true);
       setError(null);
-      try {
-        const r = await api.importBundleFromUrl(urlMode, expectedSha256);
+      for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
         if (cancelled) return;
-        setPreflight(r);
-        setStep('review');
-      } catch (e: any) {
-        if (cancelled) return;
-        setError(e?.message || 'Failed to fetch template');
-      } finally {
-        if (!cancelled) setBusy(false);
+        try {
+          const r = await api.importBundleFromUrl(urlMode, expectedSha256);
+          if (cancelled) return;
+          setPreflight(r);
+          setStep('review');
+          setBusy(false);
+          return;
+        } catch (e: any) {
+          if (cancelled) return;
+          const msg = e?.message || String(e);
+          // Distinguish "network-not-ready" from "real backend error".
+          // The former is retriable (cold-start race), the latter isn't.
+          const isNetworkLike =
+            /load failed|failed to fetch|network|fetch failed|connection|refused|econnrefused/i.test(msg);
+          if (isNetworkLike && attempt < RETRY_DELAYS_MS.length) {
+            setError(
+              `Waiting for backend (try ${attempt + 1}/${RETRY_DELAYS_MS.length + 1})…`,
+            );
+            await new Promise((r) => window.setTimeout(r, RETRY_DELAYS_MS[attempt]));
+            continue;
+          }
+          // Final failure: surface message + leave the Retry button to drive
+          // a manual re-fire (via retryNonce bump).
+          setError(msg || 'Failed to fetch template');
+          setBusy(false);
+          return;
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlMode]);
+  }, [urlMode, retryNonce]);
 
   const runConfirm = async () => {
     if (!preflight) return;
@@ -178,6 +208,14 @@ export default function BundleImportPage() {
                   <p className="mt-3 text-sm text-[var(--text-secondary)]">
                     Could not fetch the template.
                   </p>
+                  <Button
+                    onClick={() => setRetryNonce((n) => n + 1)}
+                    size="sm"
+                    className="mt-4 gap-1"
+                  >
+                    <Loader2 className="w-3.5 h-3.5" />
+                    Retry
+                  </Button>
                 </>
               )}
             </div>
