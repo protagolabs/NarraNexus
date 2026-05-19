@@ -2117,7 +2117,10 @@ function SensitiveZipConfirmModal({
 }) {
   const [confirmText, setConfirmText] = useState('');
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-sm"
+      style={{ background: 'var(--nm-backdrop)' }}
+    >
       <div className="w-[520px] max-w-[95vw] bg-[var(--bg-primary)] border-2 border-[var(--color-red-500)] flex flex-col">
         <div className="px-5 py-3 border-b border-[var(--border-default)] bg-[var(--color-red-500)]/10">
           <div className="flex items-center gap-2 text-[var(--color-red-500)]">
@@ -2655,7 +2658,10 @@ function ReviewSummaryModal({
     (s: SkillExportSpec) => s.install_method && s.install_method !== 'skip'
   ).length;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm"
+      style={{ background: 'var(--nm-backdrop)' }}
+    >
       <div className="w-[680px] max-w-[95vw] max-h-[90vh] bg-[var(--bg-primary)] border border-[var(--border-default)] flex flex-col">
         <div className="px-5 py-3 border-b border-[var(--border-default)] flex items-center justify-between">
           <h2 className="font-mono text-sm">Final review before download</h2>

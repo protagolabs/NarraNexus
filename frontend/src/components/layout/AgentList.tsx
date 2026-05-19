@@ -18,7 +18,7 @@ import {
   ListChecks,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
-import { RingAvatar, BracketSectionLabel, BracketEmptyState, Badge } from '@/components/nm';
+import { RingAvatar, BracketSectionLabel, BracketEmptyState } from '@/components/nm';
 import { useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
@@ -73,20 +73,54 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
   /**
-   * Derive the per-agent meta shown in each row: last message text + time
-   * and an unread count. Last message comes from the in-memory session
-   * (works for both fresh streams and historical messages loaded into
-   * the session). Unread count = messages whose timestamp is strictly
-   * newer than the localStorage `lastSeenAwarenessTime:<agent>` marker
-   * AND not authored by the local user. If the agent is the currently
-   * selected one we treat it as "all seen" so the count zeroes out.
+   * Derive the per-agent meta shown in each row: agent-reply preview +
+   * activity time and an unread count.
+   *
+   * Preview is the most recent **assistant** message — NM messenger UX:
+   * each row "belongs" to the agent, so the second line previews what
+   * the agent last said to the user, not what the user just typed.
+   *
+   * Data source priority (latest-wins by timestamp):
+   *   1. Local session — if the live stream just produced a reply that
+   *      has not yet been re-fetched from /agents, prefer it so the
+   *      sidebar updates in real-time without polling.
+   *   2. Server-supplied last_assistant_preview from /agents, which
+   *      covers the common case (other agents the user hasn't opened
+   *      yet in this session — their `messages` array is empty).
+   *   3. Empty (renders the agent description placeholder).
+   *
+   * Unread count = messages whose timestamp is strictly newer than the
+   * localStorage `lastSeenAwarenessTime:<agent>` marker AND not authored
+   * by the local user. If the agent is the currently selected one we
+   * treat it as "all seen" so the count zeroes out.
    */
   const getRowMeta = (aid: string) => {
     const session = agentSessions[aid];
     const messages = session?.messages ?? [];
-    const last = messages.length > 0 ? messages[messages.length - 1] : null;
-    const preview = last?.content ? last.content.replace(/\s+/g, ' ').slice(0, 60) : '';
-    const time = last ? formatTime(last.timestamp) : '';
+    let sessionLast: typeof messages[number] | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && messages[i].content) {
+        sessionLast = messages[i];
+        break;
+      }
+    }
+    const agent = rawAgents.find((a) => a.agent_id === aid);
+    const serverPreview = agent?.last_assistant_preview || '';
+    const serverAtMs = agent?.last_assistant_at
+      ? new Date(agent.last_assistant_at).getTime()
+      : 0;
+
+    const sessionAtMs = sessionLast?.timestamp ?? 0;
+    let preview = '';
+    let timeMs = 0;
+    if (sessionLast && sessionAtMs >= serverAtMs) {
+      preview = sessionLast.content.replace(/\s+/g, ' ').slice(0, 60);
+      timeMs = sessionAtMs;
+    } else if (serverPreview) {
+      preview = serverPreview.replace(/\s+/g, ' ').slice(0, 60);
+      timeMs = serverAtMs;
+    }
+    const time = timeMs ? formatTime(timeMs) : '';
     let unread = 0;
     if (aid !== agentId) {
       let lastSeenMs = 0;
@@ -346,48 +380,57 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
 
   // Expanded mode: full agent list
   return (
-    <div className="p-3">
+    <div>
       {confirmDialog}
-      <div className="flex items-center justify-between mb-3 px-1 gap-2">
-        <BracketSectionLabel
-          trailing={<span className="text-[10px] opacity-60">{agents.length}</span>}
-        >
-          Agents
-        </BracketSectionLabel>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleCreateAgent}
-            disabled={creatingAgent}
-            className="w-7 h-7"
-            title="Create New Agent"
+      {/* Header — pinned to the top of the scroll viewport so the
+          [ AGENTS ] label and its action icons stay anchored while the
+          agent rows scroll underneath. `bg-[--nm-paper]` matches the
+          sidebar paper so rows don't bleed through when they pass under
+          the stuck header. Padding mirrors the original `p-3 px-1` so
+          the visual placement is identical when not scrolling. */}
+      <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-3 pb-2">
+        <div className="flex items-center justify-between px-1 gap-2">
+          <BracketSectionLabel
+            trailing={<span className="text-[10px] opacity-60">{agents.length}</span>}
           >
-            <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate('/app/manage-agents')}
-            className="w-7 h-7"
-            title="Manage agents (batch · add / edit / delete)"
-            aria-label="Manage agents"
-          >
-            <ListChecks className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={fetchAgents}
-            disabled={loadingAgents}
-            className="w-7 h-7"
-            title="Refresh Agents"
-          >
-            <RefreshCw className={cn('w-3 h-3', loadingAgents && 'animate-spin')} />
-          </Button>
+            Agents
+          </BracketSectionLabel>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCreateAgent}
+              disabled={creatingAgent}
+              className="w-7 h-7"
+              title="Create New Agent"
+            >
+              <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/app/manage-agents')}
+              className="w-7 h-7"
+              title="Manage agents (batch · add / edit / delete)"
+              aria-label="Manage agents"
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={fetchAgents}
+              disabled={loadingAgents}
+              className="w-7 h-7"
+              title="Refresh Agents"
+            >
+              <RefreshCw className={cn('w-3 h-3', loadingAgents && 'animate-spin')} />
+            </Button>
+          </div>
         </div>
       </div>
 
+      <div className="px-3 pb-3">
       {agents.length === 0 ? (
         <BracketEmptyState
           label="No agents yet"
@@ -406,14 +449,13 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
           }
         />
       ) : (
-        /* NM messenger-style conversation list. Outer container is the
-           paper-warm panel; each row is a rounded filled card. Selected
-           row uses paper-raised; inactive rows use paper-warm with a
-           hover lift to paper-raised. */
-        <div
-          className="rounded-[var(--radius-md)] p-1.5 space-y-1.5"
-          style={{ background: 'var(--nm-paper-warm)' }}
-        >
+        /* NM messenger conversation list (FinChats:500-559 canonical).
+           Outer container sits directly on the sidebar's paper bg with
+           no wrapping panel. Each row is transparent by default; only
+           when the agent is the active one OR has unread messages does
+           the row get a silicon-soft (light-blue) rounded highlight.
+           Radius is 18px per NM spec, no borders ever. */
+        <div className="space-y-0.5">
           {agents.map((agent, index) => {
             const isSelected = agentId === agent.agent_id;
             const streaming = isAgentStreaming(agent.agent_id);
@@ -421,6 +463,18 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
             const { preview, time, unread } = getRowMeta(agent.agent_id);
             const displayName = agent.name || agent.agent_id;
             const isOwner = agent.created_by === userId;
+            // Row bg priority: selected wins over unread. Selected uses a
+            // theme-neutral ink overlay (--nm-row-active) so the highlight
+            // relates to the underlying paper instead of stealing the
+            // unread signal. Unread (only when not selected) keeps the
+            // NM-canonical silicon-soft tint. Hover is paper-warm, only on
+            // rows that are neither selected nor unread.
+            const rowBg = isSelected
+              ? 'var(--nm-row-active)'
+              : unread > 0
+                ? 'var(--color-silicon-soft)'
+                : 'transparent';
+            const allowHover = !isSelected && unread === 0;
 
             return (
               <div
@@ -428,15 +482,22 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                 onClick={() => handleSelectAgent(agent.agent_id)}
                 className={cn(
                   'w-full text-left px-3 py-2.5 cursor-pointer animate-slide-up',
-                  'rounded-[var(--radius-md)] transition-colors duration-150',
+                  'rounded-[18px] transition-colors duration-150',
                   'group',
-                  isSelected ? 'bg-[var(--nm-card)]' : 'bg-[var(--nm-card)] hover:bg-[var(--nm-raised)]'
                 )}
                 style={{
                   animationDelay: `${index * 50}ms`,
-                  border: isSelected
-                    ? '1px solid var(--nm-ink)'
-                    : '1px solid var(--nm-hairline)',
+                  background: rowBg,
+                }}
+                onMouseEnter={(e) => {
+                  if (allowHover) {
+                    (e.currentTarget as HTMLDivElement).style.background = 'var(--nm-paper-warm)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (allowHover) {
+                    (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+                  }
                 }}
               >
                 <div className="flex items-start gap-3">
@@ -568,11 +629,15 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                             )}
                           </div>
 
-                          {/* Right-aligned timestamp */}
+                          {/* Right-aligned timestamp. NM: unread rows use
+                              the species color (silicon) for time, read use
+                              ink50. Tabular-nums so the column doesn't shift
+                              when the time string changes. */}
                           <span
                             className="ml-auto pl-2 text-[10px] shrink-0"
                             style={{
-                              color: 'var(--nm-ink50)',
+                              color: unread > 0 ? 'var(--color-silicon)' : 'var(--nm-ink50)',
+                              fontWeight: unread > 0 ? 500 : 400,
                               fontFamily: 'var(--font-mono)',
                               fontVariantNumeric: 'tabular-nums',
                             }}
@@ -581,7 +646,10 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                           </span>
                         </div>
 
-                        {/* Row 2: [preview ...truncated] [unread badge] */}
+                        {/* Row 2: [preview ...truncated] [unread pill]. The
+                            unread pill is the NM count pattern: transparent
+                            bg, ink30 hairline, ink70 mono digit — NOT a
+                            saturated species-color chip (FinChats:546-552). */}
                         <div className="flex items-center gap-2 mt-0.5">
                           <p
                             className="flex-1 min-w-0 text-xs truncate leading-snug"
@@ -594,7 +662,22 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                             )}
                           </p>
                           {unread > 0 && (
-                            <Badge count={unread} species="carbon" />
+                            <span
+                              className="inline-flex items-center justify-center text-[10px] font-semibold shrink-0"
+                              style={{
+                                minWidth: 20,
+                                height: 18,
+                                padding: '0 6px',
+                                borderRadius: 9,
+                                background: 'transparent',
+                                border: '1px solid var(--nm-ink30)',
+                                color: 'var(--nm-ink70)',
+                                fontFamily: 'var(--font-mono)',
+                                letterSpacing: '0.02em',
+                              }}
+                            >
+                              {unread > 99 ? '99+' : unread}
+                            </span>
                           )}
                         </div>
                       </>
@@ -606,6 +689,7 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }

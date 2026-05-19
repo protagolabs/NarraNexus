@@ -126,6 +126,13 @@
 
   --nm-hairline:     rgba(42,38,32,0.08);
 
+  /* Row-active overlay — neutral "selected" tone for list rows that sit
+     directly on paper. Translucent ink so the result auto-relates to
+     whatever paper bg shows through (light: a hint of darker beige;
+     dark: a hint of lifted gray). Distinct from --nm-paper-warm (the
+     hover bg, opaque) so hover ≠ selected can read at a glance. */
+  --nm-row-active:    rgba(42,38,32,0.07);
+
   /* Surfaces — paper-raised (used for own-bubble paper variant,
      inputs, dropdowns, banners, OAuth chips). The shadow tokens
      are auto-swapped per theme. */
@@ -227,6 +234,10 @@
   --nm-subtle:       #7a6f5f;
 
   --nm-hairline:     rgba(242,239,232,0.10);
+
+  /* Row-active overlay — light ink at low alpha so dark warm paper
+     lifts to a slightly grayer feel without losing the temperature. */
+  --nm-row-active:   rgba(242,239,232,0.09);
 
   /* Species lifted for AA contrast on dark warm paper */
   --color-carbon:       #FF7A5C;

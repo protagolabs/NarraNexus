@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-05-13
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — `/api/auth/agents` 附加最近一条 assistant 回复（NM sidebar preview）
+
+每个 `AgentInfo` 现在带 `last_assistant_preview` + `last_assistant_at` 两个字段，供前端左边栏第二行显示"这个 agent 最近说了什么"。
+
+实现走窗口函数：`ROW_NUMBER() OVER (PARTITION BY agent_id ORDER BY created_at DESC)`，单条 SQL 一次性拿到列表里每个 agent 的最近一条非空 `events.final_output`。已有的 `idx_events_agent_created` 索引直接 cover 这个查询，不需要新加索引。过滤 `final_output IS NOT NULL AND final_output != ''` 把崩在中途的 run 和空回复都排掉。
+
+server 端把 `final_output` 拍平空白后截到 200 chars（前端再切到 60，多出来的 200 给前端将来调宽度留余量）。失败仅 warn-log，不阻塞 list 返回——和 active_run 一样定位为增强字段。
 
 ## 2026-05-13 — `/api/auth/agents` 返回 active_run 字段（Phase C）
 

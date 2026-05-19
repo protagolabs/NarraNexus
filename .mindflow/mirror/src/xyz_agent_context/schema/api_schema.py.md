@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-05-14
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — AgentInfo gains last_assistant_preview / last_assistant_at
+
+Two optional string fields added to `AgentInfo` so the frontend NM messenger sidebar can render "what did this agent last say" on rows the user hasn't opened in the current session — without first fetching that agent's chat history. The values are derived server-side in `routes/auth.py::get_agents` (one window-function SELECT over `events.final_output`) and are `None` for agents with no completed reply yet.
 
 ## 2026-05-14 — FileInfo becomes a recursive tree node
 

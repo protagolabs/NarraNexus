@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-05-13
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — NM messenger fidelity pass
+
+Three behavioral changes that together make the sidebar match the NM canonical messenger list, and one bug fix:
+
+- **Sticky `[ AGENTS ]` header**: the `BracketSectionLabel` row plus its action icons (+, Manage, Refresh) are wrapped in a `sticky top-0 z-10 bg-[--nm-paper]` div so they pin to the top of the scroll viewport while the agent rows scroll underneath.
+- **Row bg priority rewrite**: selected → `--nm-row-active` (theme-neutral ink overlay); unread but not selected → `--color-silicon-soft` (NM canonical unread bg, reserved for future multi-user fan-out); else transparent. Hover applies `--nm-paper-warm` only when neither selected nor unread. Replaces the earlier opaque card-with-border per-row treatment.
+- **Preview = most recent assistant reply**: `getRowMeta` now picks the latest `role === 'assistant'` message and treats `agent.last_assistant_preview` (server-supplied via `/api/auth/agents`) as the authoritative source. Local session is only preferred when it has a fresher assistant `timestamp` than the server value — covers the moment between live-stream finish and the next `/agents` refresh.
+- **Bug fix**: previous version referenced `var(--nm-silicon-soft)`, a token that does not exist. Real name is `--color-silicon-soft`; the bad reference silently fell back to transparent so the selected/unread highlight never painted.
 
 ## 2026-05-13 — Phase C: Backend active_run drives the running spinner
 

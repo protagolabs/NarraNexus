@@ -90,6 +90,16 @@ class AgentInfo(BaseModel):
     # running for this user. The query is one event-table SELECT per
     # agent in the list — bounded by agent count which is small.
     active_run: Optional[ActiveRunInfo] = None
+    # NM messenger sidebar preview — most recent persisted assistant
+    # reply for this agent, truncated server-side to a render-friendly
+    # length. The frontend prefers this over deriving from local session
+    # state so unselected sidebar rows can show "what did this agent
+    # last say" without first loading the conversation. ``None`` means
+    # this agent has never produced a reply (fresh, no completed runs).
+    # The companion ``last_assistant_at`` lets the row sort/anchor by
+    # the same message the preview came from.
+    last_assistant_preview: Optional[str] = None
+    last_assistant_at: Optional[str] = None
 
 
 class AgentListResponse(BaseModel):

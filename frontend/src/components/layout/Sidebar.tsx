@@ -147,8 +147,10 @@ export function Sidebar() {
     <aside
       className={cn(
         'h-full flex flex-col relative',
-        'bg-[var(--bg-secondary)]',
-        'border-r border-[var(--rule)]',
+        // NM canonical (FinChats:461): chat-list container bg = var(--nm-paper).
+        // Rows sit on paper directly with rounded highlight when active.
+        'bg-[color:var(--nm-paper)]',
+        'border-r border-[color:var(--nm-hairline)]',
         'transition-all duration-400 ease-out',
         collapsed ? 'w-[72px]' : 'w-72'
       )}

@@ -18,7 +18,7 @@ import type { Attachment, ChatMessage, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
 import { cn, formatTime } from '@/lib/utils';
 import { Markdown } from '@/components/ui';
-import { RingAvatar, BracketEdge } from '@/components/nm';
+import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
@@ -233,13 +233,17 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
           style={
             isUser
               ? {
-                  // Own bubble — paper variant per NM design (the v5 winner of
-                  // the 5-iteration "own bubble" exploration). bg + edge swap
-                  // automatically per theme via the --nm-own-paper-* tokens.
-                  background: 'var(--nm-own-paper)',
+                  // Own bubble — NM canonical "gray" variant (FinBubble:593-600).
+                  // CRITICAL: species colors (carbon/silicon) are reserved for
+                  // the OTHER party — when the room becomes multi-user, the
+                  // RECEIVER will see the sender in carbon/silicon. Your own
+                  // outgoing messages are always gray ("ownBubble" / "ownEdge")
+                  // because YOU don't need a species cue to identify yourself.
+                  // 3px stripe stays on the RIGHT (the "own" side) per NM.
+                  background: 'var(--nm-own-bubble)',
                   color: 'var(--nm-ink)',
-                  border: '1px solid var(--nm-own-paper-edge)',
-                  boxShadow: 'var(--nm-raised-shadow)',
+                  border: '1px solid var(--nm-own-hair)',
+                  borderRight: '3px solid var(--nm-own-edge)',
                 }
               : message.isError
                 ? {
@@ -248,19 +252,18 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
                     border: '1px solid var(--color-error)',
                   }
                 : {
-                    background: 'var(--nm-paper-warm)',
+                    // AI bubble — NM canonical FinBubble: silicon-soft fill,
+                    // silicon-hair border, 3px silicon stripe on the LEFT
+                    // edge. Light mode lands on light-blue bg + dark-blue
+                    // stripe; dark mode flips to grayish-blue bg + light-blue
+                    // stripe (driven entirely by token redefinition).
+                    background: 'var(--color-silicon-soft)',
                     color: 'var(--nm-ink)',
-                    border: '1px solid var(--nm-hairline)',
+                    border: '1px solid var(--color-silicon-hair)',
+                    borderLeft: '3px solid var(--color-silicon)',
                   }
           }
         >
-          {/* NM bracket-edge — carbon tr for own, silicon tl for AI, error tl for fail */}
-          {!message.isError && (
-            isUser
-              ? <BracketEdge corner="tr" species="ink" size={10} />
-              : <BracketEdge corner="tl" species="silicon" size={10} />
-          )}
-          {message.isError && <BracketEdge corner="tl" species="error" size={10} />}
           {/* Inline timeline (reasoning + tool calls + tool output)
               for assistant messages. Renders only when expanded; the
               user clicks the affordance below to reveal. Two cases:
@@ -394,40 +397,46 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
               ))}
             </div>
           )}
-        </div>
 
-        {/* Footer: timestamp + action buttons */}
-        <div
-          className={cn(
-            'mt-1.5 flex items-center gap-2 text-[10px] text-[var(--text-tertiary)] font-mono tracking-wide',
-            isUser ? 'justify-end pr-1' : 'justify-start pl-1'
-          )}
-        >
-          <span>{formatTime(message.timestamp)}</span>
-
-          {/* Copy & Download (assistant messages only, not during streaming) */}
-          {!isUser && !isStreaming && message.content && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleCopy}
-                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--bg-tertiary)] transition-all"
-                title="Copy Markdown"
-              >
-                {copied ? (
-                  <Check className="w-3 h-3 text-[var(--color-success)]" />
-                ) : (
-                  <Copy className="w-3 h-3" />
-                )}
-              </button>
-              <button
-                onClick={handleDownload}
-                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--bg-tertiary)] transition-all"
-                title="Download as .md"
-              >
-                <Download className="w-3 h-3" />
-              </button>
-            </div>
-          )}
+          {/* Bubble footer — NM canonical FinBubble pattern: time pinned to
+              the bottom-RIGHT of the bubble (regardless of own/other), with
+              the copy/download actions sitting just LEFT of the time. Mono
+              9.5px in the subtle token, matching FinBubble:651-657. */}
+          <div className="mt-2 flex items-center justify-end gap-1.5">
+            {!isUser && !isStreaming && message.content && (
+              <>
+                <button
+                  onClick={handleCopy}
+                  className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                  title="Copy Markdown"
+                >
+                  {copied ? (
+                    <Check className="w-3 h-3 text-[var(--color-success)]" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                  title="Download as .md"
+                >
+                  <Download className="w-3 h-3" />
+                </button>
+              </>
+            )}
+            <span
+              className="font-mono tracking-wide"
+              style={{
+                color: 'var(--nm-subtle)',
+                fontSize: '9.5px',
+                letterSpacing: '0.05em',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {formatTime(message.timestamp)}
+            </span>
+          </div>
         </div>
       </div>
     </div>
