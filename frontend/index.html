@@ -79,11 +79,9 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NarraNexus · NetMind.AI</title>
-    <!-- Fonts — Space Grotesk (display 500/700) + Barlow (body 300/500/600) + DM Mono (labels 400)
-         Aligned with internal.netmind.foundation brand; font-display=swap keeps render unblocked. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Barlow:wght@300;500;600&family=DM+Mono:wght@400;500&family=Inter:wght@500&display=swap" rel="stylesheet">
+    <!-- NM design system uses pure system font stack — no web font loaded here.
+         See frontend/src/index.css @theme --font-display / --font-sans / --font-mono
+         for the SF Pro + CJK fallback chain. -->
   </head>
   <body>
     <div id="root"></div>
