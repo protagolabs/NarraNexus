@@ -4,6 +4,20 @@ last_verified: 2026-05-19
 stub: false
 ---
 
+## 2026-05-19 — Source-aware history truncation
+
+Replaced the old "append history → `[:100_000]` the whole string" eviction
+with a source-aware loop that PROTECTS the system prompt. Background
+trigger rows (`_source ∈ {job, message_bus, lark, callback}`) are
+dropped oldest-first; chat rows are only dropped once all background
+rows are gone. Implementation reads `_source` (set by
+[[context_runtime.py]] from `meta_data.working_source`) — DB rows are
+never modified, this only governs what gets sent to the LLM this turn.
+Belt-and-braces char + UTF-8 byte ceilings stay as last-resort guards
+for the case where the system prompt itself overruns argv. Fixes the
+"system instructions tail gets chopped" bug observed when history grew
+large enough to push the combined string past 100K chars.
+
 ## 2026-05-19 — IDLE_TIMEOUT replaced with IDLE_PROBE (铁律 #14)
 
 `IDLE_TIMEOUT_SECONDS = 600` used to `raise TimeoutError(...)` whenever

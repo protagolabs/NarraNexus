@@ -266,16 +266,39 @@ async def step_4_persist_results(
 
     # =========================================================================
     # 4.5 Update Session (add last_response and persist)
+    #
+    # Only human-facing runs touch last_response — Step 1 already skipped
+    # last_query / current_narrative_id for background triggers (JOB /
+    # MESSAGE_BUS / CALLBACK / SKILL_STUDY), so last_response must follow
+    # the same rule. Otherwise the next real user message gets continuity
+    # scored against a cron-job / peer-agent reply.
     # =========================================================================
-    if ctx.session and execution_result.final_output:
+    from xyz_agent_context.schema.hook_schema import WorkingSource as _WS
+
+    src = getattr(ctx, "working_source", None)
+    if src is None:
+        is_user_chat = True
+    elif isinstance(src, _WS):
+        is_user_chat = src.is_from_human()
+    else:
+        try:
+            is_user_chat = _WS(str(src)).is_from_human()
+        except ValueError:
+            is_user_chat = True
+    src_str = src.value if hasattr(src, "value") else (str(src) if src else None)
+    if ctx.session and execution_result.final_output and is_user_chat:
         ctx.session.last_response = execution_result.final_output
         # Note: do not update last_query_time, it should remain as the user's query time (already updated in Step 1)
         logger.debug(f"Updated Session.last_response: {execution_result.final_output[:50]}...")
-        
+
         # Persist Session (including last_response)
         await session_service.save_session(ctx.session)
         ctx.substeps_4.append("[4.5] ✓ Session persisted (including last_response)")
         logger.debug(f"session persisted session_id={ctx.session.session_id}")
+    elif ctx.session and execution_result.final_output:
+        ctx.substeps_4.append(
+            f"[4.5] ↪ Session.last_response unchanged (background trigger source={src_str})"
+        )
 
     # =========================================================================
     # 4.6 Record LLM cost (fire-and-forget, never blocks the pipeline)

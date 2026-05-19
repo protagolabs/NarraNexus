@@ -96,10 +96,6 @@ function refreshArtifactFromToolCall(
  * flashed in/out and then evaporated on history reload (chat history
  * doesn't persist tool_calls). The badge is a one-line chip instead;
  * dedupe-by-artifact_id keeps a re-register from doubling the badges up.
- *
- * Quota error short-circuit stays: ArtifactQuotaExceeded fires before
- * any artifact_id exists, so the modal must still trigger from the bare
- * tool_output payload.
  */
 interface ArtifactToolCallCardsProps {
   toolCalls: AgentToolCall[];
@@ -125,19 +121,7 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
     try {
       const parsed = JSON.parse(tc.tool_output) as {
         artifact_id?: string;
-        error?: string;
-        code?: number;
       };
-      // Detect ArtifactQuotaExceeded (HTTP 507) from the structured tool_output
-      // payload — surface a modal pointing to Settings → Artifacts. We only
-      // fire once per error message so re-renders during streaming don't spam.
-      if (parsed.error && parsed.code === 507) {
-        const current = useArtifactStore.getState().quotaError;
-        if (current !== parsed.error) {
-          useArtifactStore.getState().setQuotaError(parsed.error);
-        }
-        continue;
-      }
       artifactId = parsed.artifact_id;
     } catch {
       // tool_output is not JSON — skip

@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/prompts.py
-last_verified: 2026-04-27
+last_verified: 2026-05-19
 ---
+
+## 2026-05-19 — warm-with-humans 范围扩到所有 IM 通道
+
+最初实现只覆盖 `working_source=chat`，但 Lark / Slack / Telegram 通道
+的实际对方也是真人——按 [[hook_schema.py]] 的 `is_from_human()`
+分类，这四类都该走 warm 风格。新版 Guidelines 把规则的适用范围明确写到
+**`chat / lark / slack / telegram`**，并在 Rule of Thumb 段把
+`job / message_bus / callback / skill_study` 归入"agent / system partner —
+brevity beats politeness"。配套：[[message_bus_module.py]] 的 Reply
+Discipline 段在 MESSAGE_BUS 触发时强制 brevity + `[NO_REPLY]` 纪律。
 
 # prompts.py — ChatModule 指令定义
 

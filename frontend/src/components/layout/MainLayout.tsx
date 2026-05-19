@@ -38,7 +38,6 @@ import { ResizableDivider } from './ResizableDivider';
 import { ChatPanel } from '@/components/chat';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { ArtifactColumn } from '@/components/artifacts';
-import QuotaExceededModal from '@/components/artifacts/QuotaExceededModal';
 import { useConfigStore, usePreloadStore, useArtifactStore } from '@/stores';
 import { useAutoRefresh } from '@/hooks';
 
@@ -244,12 +243,6 @@ export function MainLayout() {
 
       {/* Background agent completion toasts */}
       <AgentCompletionToast />
-
-      {/* Quota-exceeded modal — driven by artifactStore.quotaError, shown over
-          everything when an agent's register_artifact call hits the per-user
-          limit. Mounted once at the layout root so it can pop regardless of
-          which sub-route the user is currently viewing. */}
-      <QuotaExceededModal />
 
       {/* Render sub-page via Outlet, or the default chat view */}
       {isSubPage ? (

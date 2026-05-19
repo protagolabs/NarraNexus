@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-04-21
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — `_source` carried on final_messages
+
+`build_input_for_framework()` now stamps each long-term history row with
+an internal `_source` field copied from its `meta_data.working_source`
+(default `"chat"`). Consumed by [[xyz_claude_agent_sdk.py]] for
+source-aware truncation: when the system prompt + history would exceed
+the SDK's argv ceiling, oldest background-trigger rows
+(`job / message_bus / lark / callback`) are evicted first; chat rows
+are kept until the budget can't be met any other way. Other SDK
+adapters (OpenAI Agents, Gemini) build their own message dicts so this
+extra key never reaches them.
 
 # context_runtime.py — the assembly engine that turns raw Narrative + Module state into a ready-to-submit LLM payload
 

@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-04-10
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — 4.5 仅在「人-回复轮」写 `last_response`
+
+Background trigger runs (`JOB / MESSAGE_BUS / CALLBACK / SKILL_STUDY`)
+不再覆盖 `session.last_response`，跟 Step 1 的 `last_query` 守护对齐。
+判断口径统一走 [[hook_schema.py]] 的 `WorkingSource.is_from_human()` —
+CHAT / LARK / SLACK / TELEGRAM 是 True；上面 4 个是 False。`working_source`
+为 None / 未知字符串时默认按 human 处理（legacy safe default）。这是
+short-reply 连续性崩 bug 修复的另一半（详见 [[narrative_service.py]]
+2026-05-19 段）。
+
 # step_4_persist_results.py — Pipeline Step 4: Persist Turn Results
 
 ## Why It Exists

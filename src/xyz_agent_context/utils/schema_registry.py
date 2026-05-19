@@ -1260,7 +1260,7 @@ _register(
         indexes=[
             Index("idx_artifact_agent_session", ["agent_id", "session_id"]),
             Index("idx_artifact_agent_pinned",  ["agent_id", "pinned"]),
-            Index("idx_artifact_agent_id",      ["agent_id"]),  # for total_bytes_for_agent
+            Index("idx_artifact_agent_id",      ["agent_id"]),  # agent-scoped scans
         ],
     )
 )

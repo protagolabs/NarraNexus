@@ -630,6 +630,16 @@ class ContextRuntime:
             final_messages.append({
                 "role": msg.get("role", "user"),
                 "content": f"{prefix} {raw_content}" if prefix else raw_content,
+                # Internal field (leading underscore) — carried so the LLM
+                # adapter layer can do source-aware truncation when the
+                # combined system_prompt + history exceeds the SDK's argv
+                # ceiling. Background trigger messages (job / message_bus /
+                # lark / callback) are dropped first; chat history is dropped
+                # only after all background rows are gone, and from the
+                # oldest end. See xyz_claude_agent_sdk.agent_loop. Standard
+                # OpenAI/Anthropic SDKs ignore unknown keys, so this is
+                # forward-compatible.
+                "_source": ws,
             })
         logger.info(
             f"[CHAT-CTX] build_input_for_framework: long_term={len(long_term_messages)} "
