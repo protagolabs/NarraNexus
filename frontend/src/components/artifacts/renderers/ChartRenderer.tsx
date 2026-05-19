@@ -23,6 +23,7 @@ import type { Artifact } from '@/types/artifact';
 import { fetchArtifactText } from '@/services/artifactsApi';
 import { useArtifactStore, type ChartInstanceLike } from '@/stores/artifactStore';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
+import { pickNMTheme } from '@/lib/echarts-nm-theme';
 
 interface Props {
   artifact: Artifact;
@@ -50,7 +51,10 @@ export default function ChartRenderer({ artifact }: Props) {
         const text = await fetchArtifactText(url);
         const option = JSON.parse(text);
         if (disposed || !ref.current) return;
-        const c = echarts.init(ref.current);
+        // Pick the NM theme that matches the current dark/light state.
+        // lib/echarts-nm-theme registers nm-light / nm-dark at app boot
+        // (side-effect in main.tsx) so the names always resolve.
+        const c = echarts.init(ref.current, pickNMTheme());
         c.setOption(option);
         chart = c as unknown as { dispose: () => void };
         registerChartInstance(artifact.artifact_id, c as unknown as ChartInstanceLike);
