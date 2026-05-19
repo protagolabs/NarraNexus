@@ -6,7 +6,6 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  User,
   LogOut,
   Trash2,
   ChevronLeft,
@@ -19,7 +18,7 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { Button, ThemeToggle, ScrollArea, useConfirm } from '@/components/ui';
-import { useTheme } from '@/hooks';
+import { BracketMarkLogo, RingAvatar, StatusDot } from '@/components/nm';
 import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -45,7 +44,6 @@ export function Sidebar() {
   const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
   const clearPreload = usePreloadStore((s) => s.clearAll);
   const { confirm, dialog: confirmDialog } = useConfirm();
-  const { isDark } = useTheme();
 
   /**
    * Wipe all session + cached data before leaving the current mode.
@@ -155,27 +153,24 @@ export function Sidebar() {
     >
       {confirmDialog}
 
-      {/* Header — full-width logo replaces the old icon-tile + wordmark stack.
-          Collapsed state hides the logo and keeps only the toggle button. */}
+      {/* Header — NM BracketMarkLogo replaces the old image+wordmark stack.
+          Collapsed state shows mark-only; expanded shows mark + "narra" wordmark. */}
       <div className="p-4 border-b border-[var(--rule)]">
         <div className="flex items-center justify-between gap-2">
-          {!collapsed && (
-            <div className="flex items-center gap-0 animate-fade-in min-w-0">
-              <img
-                src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
-                alt="NarraNexus"
-                className="h-12 w-auto object-contain shrink-0"
-              />
-              <span className="text-[16px] font-medium leading-none text-[var(--text-primary)] font-[family-name:Inter,system-ui,sans-serif] tracking-[0.02em] truncate">
-                NarraNexus
-              </span>
+          {!collapsed ? (
+            <div className="flex items-center gap-2 animate-fade-in min-w-0">
+              <BracketMarkLogo size={28} showWordmark />
+            </div>
+          ) : (
+            <div className="mx-auto">
+              <BracketMarkLogo size={28} showWordmark={false} />
             </div>
           )}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setCollapsed(!collapsed)}
-            className={cn('shrink-0', collapsed && 'mx-auto')}
+            className={cn('shrink-0', collapsed && 'absolute top-3 right-2')}
           >
             {collapsed ? (
               <ChevronRight className="w-4 h-4" />
@@ -186,31 +181,28 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* User Info — avatar on the left, two-line stack on the right.
-          Use <div> not <p> to avoid inheriting global typography rules.
-          The online dot inside the "Online" label is the single source of
-          truth for status — no separate corner indicator on the avatar. */}
+      {/* User Info — NM RingAvatar carbon (human species), name + StatusDot status row.
+          Carbon ring marks "this is a human user" per Axiom #1. */}
       {!collapsed && (
         <div className="px-4 py-3 border-b border-[var(--rule)]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 shrink-0 bg-[var(--bg-tertiary)] flex items-center justify-center border border-[var(--border-subtle)]">
-              <User className="w-4 h-4 text-[var(--text-secondary)]" />
-            </div>
-            {/* Name + status stacked inside a 40px column matching the avatar,
-                centered vertically so the pair sits on the avatar's midline. */}
+            <RingAvatar species="carbon" label={userId || '?'} size="md" />
             <div className="flex-1 min-w-0 h-10 flex flex-col justify-center gap-1">
               <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
                 {userId}
               </div>
               <div className="flex items-center gap-1.5 text-[10px] leading-none text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-[family-name:var(--font-mono)]">
-                <span
-                  className="w-1.5 h-1.5 rounded-full allow-circle bg-[var(--color-green-500)] shrink-0"
-                  aria-hidden
-                />
+                <StatusDot status="success" size={6} />
                 <span>Online</span>
               </div>
             </div>
           </div>
+        </div>
+      )}
+      {/* Collapsed: just the carbon avatar centered */}
+      {collapsed && userId && (
+        <div className="px-4 py-3 border-b border-[var(--rule)] flex justify-center">
+          <RingAvatar species="carbon" label={userId} size="sm" title={userId} />
         </div>
       )}
 

@@ -6,7 +6,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Bot,
   RefreshCw,
   Plus,
   Pencil,
@@ -19,6 +18,7 @@ import {
   ListChecks,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
+import { RingAvatar, BracketSectionLabel, BracketEmptyState } from '@/components/nm';
 import { useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -223,42 +223,32 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
     }
   };
 
-  /** Render agent status icon (running spinner, completed badge, or default).
+  /** Render agent avatar — NM RingAvatar silicon (agents are AI) with
+   * running spinner overlay or completion badge.
    *
    * Phase C (2026-05-13): "running" is now the OR of two signals:
    *   1. local WS streaming state for the current tab (legacy)
    *   2. backend BackgroundRun in 'running' state for this agent
-   *
-   * The second source lets the spinner appear even after a hard
-   * reload or in a completely different tab — backend has persisted
-   * lifecycle in events.state and surfaces it via /api/auth/agents
-   * (AgentInfo.active_run). Without this, "关 tab → 重开 → 啥也没
-   * 有" was the symptom Xiong reported.
    */
-  const renderAgentStatusIcon = (
+  const renderAgentAvatar = (
+    agentLabel: string,
     id: string,
-    isSelected: boolean,
     hasBackendActiveRun: boolean = false,
+    size: 'sm' | 'md' = 'md',
   ) => {
     const streaming = isAgentStreaming(id) || hasBackendActiveRun;
-    const completed = completedAgentIds.includes(id);
 
     if (streaming) {
+      // Replace ring center with spinner while streaming
       return (
-        <Loader2 className="w-5 h-5 animate-spin text-[var(--color-yellow-500)]" />
+        <div className="relative inline-flex items-center justify-center">
+          <RingAvatar species="silicon" label={agentLabel} size={size} />
+          <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-yellow-500)]" />
+        </div>
       );
     }
 
-    return (
-      <Bot className={cn(
-        'w-5 h-5 transition-colors',
-        isSelected
-          ? 'text-[var(--text-primary)]'
-          : completed
-            ? 'text-[var(--color-yellow-500)]'
-            : 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
-      )} />
-    );
+    return <RingAvatar species="silicon" label={agentLabel} size={size} />;
   };
 
   // Collapsed mode: show compact agent icons
@@ -290,21 +280,19 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
         {agents.slice(0, 4).map((agent, index) => {
           const isSelected = agentId === agent.agent_id;
           const completed = completedAgentIds.includes(agent.agent_id);
+          const label = (agent.name || agent.agent_id).slice(0, 2);
           return (
-            <div key={agent.agent_id} className="relative">
+            <div key={agent.agent_id} className="relative flex justify-center">
               <button
                 onClick={() => handleSelectAgent(agent.agent_id)}
                 className={cn(
-                  'w-full aspect-square flex items-center justify-center transition-colors duration-150',
-                  'animate-fade-in border',
-                  isSelected
-                    ? 'bg-[var(--bg-elevated)] border-[var(--border-strong)]'
-                    : 'bg-[var(--bg-tertiary)] border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
+                  'p-1.5 rounded-full transition-colors duration-150 animate-fade-in',
+                  isSelected ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]'
                 )}
                 style={{ animationDelay: `${index * 50}ms` }}
                 title={agent.agent_id}
               >
-                {renderAgentStatusIcon(agent.agent_id, isSelected, !!agent.active_run)}
+                {renderAgentAvatar(label, agent.agent_id, !!agent.active_run, 'sm')}
               </button>
               {/* Completion badge dot */}
               {completed && !isSelected && (
@@ -321,11 +309,13 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   return (
     <div className="p-3">
       {confirmDialog}
-      <div className="flex items-center justify-between mb-3 px-1">
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.15em] font-[family-name:var(--font-mono)]">
+      <div className="flex items-center justify-between mb-3 px-1 gap-2">
+        <BracketSectionLabel
+          trailing={<span className="text-[10px] opacity-60">{agents.length}</span>}
+        >
           Agents
-        </span>
-        <div className="flex items-center gap-1">
+        </BracketSectionLabel>
+        <div className="flex items-center gap-1 shrink-0">
           <Button
             variant="ghost"
             size="icon"
@@ -360,22 +350,22 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
       </div>
 
       {agents.length === 0 ? (
-        <div className="text-center py-10 px-4">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[var(--bg-tertiary)] flex items-center justify-center border border-dashed border-[var(--border-default)]">
-            <Bot className="w-8 h-8 text-[var(--text-tertiary)]" />
-          </div>
-          <p className="text-sm text-[var(--text-tertiary)] mb-4">No agents found</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCreateAgent}
-            disabled={creatingAgent}
-            className="gap-1.5"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Create Agent
-          </Button>
-        </div>
+        <BracketEmptyState
+          label="No agents yet"
+          hint="Create your first agent to start a conversation."
+          cta={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCreateAgent}
+              disabled={creatingAgent}
+              className="gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Create Agent
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-1.5">
           {agents.map((agent, index) => {
@@ -405,17 +395,13 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                 )}
 
                 <div className="flex items-start gap-3">
-                  <div
-                    className={cn(
-                      'w-10 h-10 flex items-center justify-center shrink-0 transition-colors duration-150 relative border',
-                      /* Avatar chip border stays at the same weight in all states.
-                         The chip itself doesn't need to signal selection — the
-                         parent row's left rail + bg shift already does that. */
-                      'bg-[var(--bg-tertiary)] border-[var(--border-subtle)]'
+                  <div className="relative shrink-0">
+                    {renderAgentAvatar(
+                      (agent.name || agent.agent_id).slice(0, 2),
+                      agent.agent_id,
+                      !!agent.active_run,
+                      'md',
                     )}
-                  >
-                    {renderAgentStatusIcon(agent.agent_id, isSelected, !!agent.active_run)}
-                    {/* Completion badge dot */}
                     {completed && !isSelected && (
                       <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
                     )}
