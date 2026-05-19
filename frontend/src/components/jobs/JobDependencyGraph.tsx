@@ -29,14 +29,18 @@ interface JobDependencyGraphProps {
   selectedJobId?: string | null;
 }
 
-// Node color configuration
+// Node color configuration — NM warm-status palette.
+// The dependency graph carries status semantics on each node; the
+// border color is what the eye lands on first. Backgrounds are kept
+// as low-alpha tints of the same hue so the node still reads as
+// "warm paper card" not "saturated chip" (Axiom #2).
 const statusColors: Record<JobNodeStatus, { bg: string; border: string; text: string }> = {
-  pending: { bg: '#f3f4f6', border: '#9ca3af', text: '#6b7280' },
-  active: { bg: '#dbeafe', border: '#3b82f6', text: '#1d4ed8' },
-  running: { bg: '#fef3c7', border: '#f59e0b', text: '#b45309' },
-  completed: { bg: '#d1fae5', border: '#10b981', text: '#047857' },
-  failed: { bg: '#fee2e2', border: '#ef4444', text: '#b91c1c' },
-  cancelled: { bg: '#e5e7eb', border: '#6b7280', text: '#4b5563' },
+  pending:   { bg: 'var(--nm-paper-warm)',                        border: 'var(--nm-ink50)',       text: 'var(--nm-ink70)' },
+  active:    { bg: 'var(--color-silicon-soft, rgba(61,126,196,0.10))', border: 'var(--color-silicon)', text: 'var(--color-silicon)' },
+  running:   { bg: 'rgba(196,154,62,0.12)',                       border: 'var(--color-warning)',  text: 'var(--color-warning)' },
+  completed: { bg: 'rgba(107,148,102,0.12)',                      border: 'var(--color-success)',  text: 'var(--color-success)' },
+  failed:    { bg: 'rgba(201,90,77,0.12)',                        border: 'var(--color-error)',    text: 'var(--color-error)' },
+  cancelled: { bg: 'var(--nm-paper-warm)',                        border: 'var(--nm-ink30)',       text: 'var(--nm-ink50)' },
 };
 
 // Status display labels
@@ -139,7 +143,7 @@ export function JobDependencyGraph({ jobs, onNodeClick, selectedJobId }: JobDepe
           position: pos,
           style: {
             background: colors.bg,
-            border: `2px solid ${isSelected ? '#6366f1' : colors.border}`,
+            border: `2px solid ${isSelected ? 'var(--nm-ink)' : colors.border}`,
             borderRadius: 8,
             padding: '8px 12px',
             minWidth: 120,
@@ -166,12 +170,15 @@ export function JobDependencyGraph({ jobs, onNodeClick, selectedJobId }: JobDepe
               target: job.id,
               animated: isActive,
               style: {
-                stroke: isActive ? '#f59e0b' : '#94a3b8',
+                // NM: active edges in warm ochre (status warning), idle
+                // edges in ink-50. No more cool slate (#94a3b8) which
+                // didn't fit the warm-paper world.
+                stroke: isActive ? 'var(--color-warning)' : 'var(--nm-ink50)',
                 strokeWidth: isActive ? 2 : 1,
               },
               markerEnd: {
                 type: MarkerType.ArrowClosed,
-                color: isActive ? '#f59e0b' : '#94a3b8',
+                color: isActive ? 'var(--color-warning)' : 'var(--nm-ink50)',
               },
             } as Edge;
           })
