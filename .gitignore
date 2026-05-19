@@ -34,6 +34,11 @@
 CLAUDE.md
 CLAUDE_zh.md
 
+# README_advice.md — internal working notes for the teammate
+# rewriting README.md. Was briefly tracked during the
+# chore/repo-governance branch; now lives locally only.
+README_advice.md
+
 # ── Operator-local probe / benchmark scripts (often hold real API keys) ──
 # These are ad-hoc, single-machine investigations that read live provider
 # credentials inline. Keeping them untracked prevents another accidental
