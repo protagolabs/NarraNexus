@@ -8,8 +8,9 @@
 import { useNavigate } from 'react-router-dom';
 import { Monitor, Cloud } from 'lucide-react';
 import { useRuntimeStore } from '@/stores/runtimeStore';
+import { useTheme } from '@/hooks';
 import { cn } from '@/lib/utils';
-import { BracketMarkLogo, PaperCard } from '@/components/nm';
+import { PaperCard } from '@/components/nm';
 
 // Hardcoded cloud endpoint for locally-built clients (Tauri desktop, dev).
 const DEFAULT_CLOUD_URL = 'https://agent.narra.nexus/';
@@ -69,6 +70,7 @@ function ModeCard({ icon, title, description, species, onClick }: ModeCardProps)
 
 export function ModeSelectPage() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const { setMode, setCloudApiUrl } = useRuntimeStore();
 
   const handleLocal = () => {
@@ -87,14 +89,24 @@ export function ModeSelectPage() {
       className="h-screen w-screen flex flex-col items-center justify-center gap-12"
       style={{ background: 'var(--nm-paper)' }}
     >
-      {/* Brand header */}
+      {/* Brand header — original logo preserved */}
       <div className="flex flex-col items-center gap-4 animate-fade-in">
-        <BracketMarkLogo size={48} />
+        <img
+          src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
+          alt="NarraNexus"
+          className="h-14 w-auto object-contain"
+        />
+        <h1
+          className="text-3xl font-bold tracking-tight"
+          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+        >
+          Welcome to <span style={{ color: 'var(--color-carbon)' }}>NarraNexus</span>
+        </h1>
         <div
           className="text-[10px] uppercase tracking-[0.22em]"
           style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}
         >
-          Welcome · Choose your runtime
+          Choose your runtime
         </div>
       </div>
 

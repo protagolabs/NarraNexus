@@ -10,9 +10,9 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, UserPlus, Cloud } from 'lucide-react';
 import { useConfigStore, useRuntimeStore } from '@/stores';
+import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
 import {
-  BracketMarkLogo,
   Button,
   FormField,
   TextInput,
@@ -29,6 +29,7 @@ export function LoginPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const { login, setAgents, setAgentId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const setMode = useRuntimeStore((s) => s.setMode);
@@ -113,9 +114,19 @@ export function LoginPage() {
           </button>
         )}
 
-        {/* Brand header — NM BracketMarkLogo carries the identity */}
+        {/* Brand header — original NarraNexus logo preserved */}
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <BracketMarkLogo size={44} />
+          <img
+            src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
+            alt="NarraNexus"
+            className="h-12 w-auto object-contain"
+          />
+          <h1
+            className="text-2xl font-bold tracking-tight"
+            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+          >
+            NarraNexus
+          </h1>
           <div
             className="text-[10px] uppercase tracking-[0.22em]"
             style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}

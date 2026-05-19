@@ -18,7 +18,8 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { Button, ThemeToggle, ScrollArea, useConfirm } from '@/components/ui';
-import { BracketMarkLogo, RingAvatar, StatusDot } from '@/components/nm';
+import { RingAvatar, StatusDot } from '@/components/nm';
+import { useTheme } from '@/hooks';
 import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -44,6 +45,7 @@ export function Sidebar() {
   const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
   const clearPreload = usePreloadStore((s) => s.clearAll);
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const { isDark } = useTheme();
 
   /**
    * Wipe all session + cached data before leaving the current mode.
@@ -153,24 +155,27 @@ export function Sidebar() {
     >
       {confirmDialog}
 
-      {/* Header — NM BracketMarkLogo replaces the old image+wordmark stack.
-          Collapsed state shows mark-only; expanded shows mark + "narra" wordmark. */}
+      {/* Header — original NarraNexus logo image preserved.
+          Collapsed state hides the wordmark and keeps only the toggle button. */}
       <div className="p-4 border-b border-[var(--rule)]">
         <div className="flex items-center justify-between gap-2">
-          {!collapsed ? (
-            <div className="flex items-center gap-2 animate-fade-in min-w-0">
-              <BracketMarkLogo size={28} showWordmark />
-            </div>
-          ) : (
-            <div className="mx-auto">
-              <BracketMarkLogo size={28} showWordmark={false} />
+          {!collapsed && (
+            <div className="flex items-center gap-0 animate-fade-in min-w-0">
+              <img
+                src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
+                alt="NarraNexus"
+                className="h-12 w-auto object-contain shrink-0"
+              />
+              <span className="text-[16px] font-medium leading-none text-[var(--text-primary)] font-[family-name:Inter,system-ui,sans-serif] tracking-[0.02em] truncate">
+                NarraNexus
+              </span>
             </div>
           )}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setCollapsed(!collapsed)}
-            className={cn('shrink-0', collapsed && 'absolute top-3 right-2')}
+            className={cn('shrink-0', collapsed && 'mx-auto')}
           >
             {collapsed ? (
               <ChevronRight className="w-4 h-4" />
