@@ -37,6 +37,7 @@ import {
   Server,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
+import { BracketSectionLabel } from '@/components/nm';
 import { useConfigStore, useTeamsStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -953,19 +954,31 @@ export default function BundleExportPage() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-[var(--border-default)] flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/app/settings')} className="p-1 hover:bg-[var(--bg-tertiary)]">
+    <div className="h-full flex flex-col" style={{ background: 'var(--nm-card)' }}>
+      {/* Header — NM display title + bracket-section count line */}
+      <div
+        className="px-6 py-4 border-b flex items-center justify-between gap-3"
+        style={{ borderColor: 'var(--nm-hairline)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => navigate('/app/settings')}
+            className="p-1 rounded-[var(--radius-xs)] transition-colors hover:bg-[color:var(--nm-paper-warm)]"
+            aria-label="Back to settings"
+          >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <Package className="w-5 h-5" />
-          <h1 className="font-mono text-base">Export bundle</h1>
+          <Package className="w-5 h-5" style={{ color: 'var(--nm-ink50)' }} />
+          <h1
+            className="text-2xl font-bold tracking-tight"
+            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+          >
+            Export bundle
+          </h1>
         </div>
-        <div className="text-xs text-[var(--text-tertiary)]">
+        <BracketSectionLabel>
           {summary.agents} agents · {summary.skills} skills · {summary.socialEntities} entities · {summary.busChannels} channels
-        </div>
+        </BracketSectionLabel>
       </div>
 
       {/* Mode picker (PRD §5 议题 2) */}
@@ -2104,7 +2117,10 @@ function SensitiveZipConfirmModal({
 }) {
   const [confirmText, setConfirmText] = useState('');
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-sm"
+      style={{ background: 'var(--nm-backdrop)' }}
+    >
       <div className="w-[520px] max-w-[95vw] bg-[var(--bg-primary)] border-2 border-[var(--color-red-500)] flex flex-col">
         <div className="px-5 py-3 border-b border-[var(--border-default)] bg-[var(--color-red-500)]/10">
           <div className="flex items-center gap-2 text-[var(--color-red-500)]">
@@ -2642,7 +2658,10 @@ function ReviewSummaryModal({
     (s: SkillExportSpec) => s.install_method && s.install_method !== 'skip'
   ).length;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm"
+      style={{ background: 'var(--nm-backdrop)' }}
+    >
       <div className="w-[680px] max-w-[95vw] max-h-[90vh] bg-[var(--bg-primary)] border border-[var(--border-default)] flex flex-col">
         <div className="px-5 py-3 border-b border-[var(--border-default)] flex items-center justify-between">
           <h2 className="font-mono text-sm">Final review before download</h2>

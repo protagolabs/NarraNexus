@@ -258,18 +258,21 @@ class ClaudeAgentSDK:
 
 
         # Step 2: Create a ClaudeSDKClient instance, send the user message, and receive the response
-        # Idle timeout: if no message is received within this duration, assume CLI is stuck.
-        # Bug 20 (2026-04-20): lowered from 1200s → 600s. Every MCP tool handler now
-        # self-caps at ≤60s via `with_mcp_timeout` (see common_tools_module), and
-        # Claude CLI built-in tools (WebFetch/Bash) have their own short internal
-        # timeouts. 1200s was "20 minutes of complete silence" — that length of
-        # idle means something deeper is broken; 10 minutes gives reasonable
-        # margin for a legitimately long LLM thinking pass while surfacing true
-        # hangs an order of magnitude faster.
-        IDLE_TIMEOUT_SECONDS = 600
+        # IDLE_PROBE_SECONDS is NOT a hard cap — per CLAUDE.md 铁律 #14
+        # the agent_loop has no force-stop. It's just the cadence at
+        # which we log a WARNING ("CLI silent for Ns, subprocess alive,
+        # still waiting") and probe subprocess liveness. If the CLI
+        # subprocess has actually died we surface that as an error;
+        # otherwise we continue waiting indefinitely.
+        IDLE_PROBE_SECONDS = 600
 
         client = None
         message_count = 0
+        # `message_task` is bound inside the receive loop but referenced
+        # by the outer `finally:` for cleanup — hoist its declaration
+        # here so an early failure (e.g. connect() raising) does not
+        # cause the finally to NameError on the cleanup access.
+        message_task: asyncio.Task | None = None
         # 去重集合：include_partial_messages=True 时，partial AssistantMessage
         # 和 complete AssistantMessage 都会携带同一个 ToolUseBlock，导致重复
         # 的 tool_call_item。通过 tool_call_id 去重，只保留首次出现。
@@ -299,8 +302,13 @@ class ClaudeAgentSDK:
             # the time it takes a single await round-trip — sub-100 ms on
             # any realistic host — regardless of what the CLI is doing.
             response_iter = client.receive_response().__aiter__()
+            # `message_task` (declared at function scope above) lives
+            # ACROSS iterations so a silent-but-alive CLI does not lose
+            # its in-flight `__anext__()`. The outer finally below
+            # cancels it if a message is still in flight on exit.
             while True:
-                message_task = asyncio.create_task(response_iter.__anext__())
+                if message_task is None or message_task.done():
+                    message_task = asyncio.create_task(response_iter.__anext__())
                 cancel_task: asyncio.Task | None = None
                 if cancellation is not None:
                     cancel_task = asyncio.create_task(cancellation.await_cancelled())
@@ -312,47 +320,77 @@ class ClaudeAgentSDK:
                     done, pending = await asyncio.wait(
                         waiters,
                         return_when=asyncio.FIRST_COMPLETED,
-                        timeout=IDLE_TIMEOUT_SECONDS,
+                        timeout=IDLE_PROBE_SECONDS,
                     )
                 finally:
-                    # We must ALWAYS cancel still-pending waiters, even if
-                    # this block raises further down. Otherwise message_task
-                    # would dangle and consume the next yielded item later.
-                    for task in waiters:
-                        if not task.done():
-                            task.cancel()
+                    # cancel_task is per-iteration — always cancel the
+                    # still-pending one. message_task lives across
+                    # iterations; do NOT cancel it here.
+                    if cancel_task is not None and not cancel_task.done():
+                        cancel_task.cancel()
 
                 if cancellation is not None and cancellation.is_cancelled:
                     logger.info(
                         f"[ClaudeAgentSDK] Cancellation detected after "
                         f"{message_count} messages (mid-wait), stopping"
                     )
-                    # Suppress message_task exceptions when it was the one
-                    # we cancelled — silently consume so the event loop
-                    # doesn't log "Task exception was never retrieved".
-                    if message_task in pending:
-                        with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
-                            await message_task
+                    if not message_task.done():
+                        message_task.cancel()
+                    # Suppress message_task exceptions when it was the
+                    # one we cancelled — silently consume so the event
+                    # loop doesn't log "Task exception was never
+                    # retrieved".
+                    with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
+                        await message_task
+                    message_task = None
                     break
 
                 if message_task not in done:
-                    # IDLE_TIMEOUT_SECONDS elapsed with no message and no
-                    # cancellation. This is the legacy "CLI is stuck" path.
-                    logger.exception(
-                        f"[ClaudeAgentSDK] ⚠️ No response from Claude Code CLI for {IDLE_TIMEOUT_SECONDS}s. "
-                        f"Aborting agent loop. Messages received so far: {message_count}"
+                    # IDLE_PROBE_SECONDS elapsed with no message and no
+                    # cancellation. Per CLAUDE.md 铁律 #14 we do NOT
+                    # force-stop agent_loop on silence — DeepSeek-V4-Pro
+                    # CoT and other long-thinking models legitimately
+                    # produce minutes-long silent passes. Just probe
+                    # subprocess liveness and continue waiting.
+                    process = (
+                        getattr(getattr(client, "_transport", None), "_process", None)
+                        if client is not None else None
+                    )
+                    cli_returncode = getattr(process, "returncode", None) if process else None
+                    if process is None or cli_returncode is None:
+                        logger.warning(
+                            f"[ClaudeAgentSDK] No message for {IDLE_PROBE_SECONDS}s "
+                            f"({message_count} so far); CLI subprocess still alive — "
+                            f"continuing to wait."
+                        )
+                        # KEEP message_task across iterations; loop
+                        # re-awaits it on the next pass.
+                        continue
+                    # The subprocess actually exited — that is a real
+                    # failure, not LLM thinking time.
+                    logger.error(
+                        f"[ClaudeAgentSDK] CLI subprocess exited unexpectedly "
+                        f"(returncode={cli_returncode}) after {message_count} messages "
+                        f"with no in-flight response. Aborting agent loop."
                     )
                     if cli_stderr_lines:
-                        logger.exception("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
-                    raise TimeoutError(
-                        f"Claude Code CLI did not respond for {IDLE_TIMEOUT_SECONDS} seconds. "
-                        f"The service may be overloaded or unresponsive. Please try again."
+                        logger.error("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
+                    if not message_task.done():
+                        message_task.cancel()
+                    message_task = None
+                    raise RuntimeError(
+                        f"Claude Code CLI subprocess exited unexpectedly "
+                        f"(returncode={cli_returncode})."
                     )
 
                 try:
                     message = message_task.result()
                 except StopAsyncIteration:
-                    break  # Stream ended normally
+                    message_task = None
+                    break
+                # message_task has yielded its message; the next loop
+                # iteration must start a fresh one.
+                message_task = None
 
                 message_count += 1
                 msg_type = type(message).__name__
@@ -413,6 +451,13 @@ class ClaudeAgentSDK:
                 logger.exception("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
             raise
         finally:
+            # Make sure any still-pending message_task is cancelled and
+            # drained before we tear the client down — otherwise asyncio
+            # will log "Task exception was never retrieved" if it raises.
+            if message_task is not None and not message_task.done():
+                message_task.cancel()
+                with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
+                    await message_task
             if client is not None:
                 # Bounded disconnect with SIGKILL fallback.
                 #

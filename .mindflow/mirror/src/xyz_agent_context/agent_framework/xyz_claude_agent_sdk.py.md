@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-05-13
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — IDLE_TIMEOUT replaced with IDLE_PROBE (铁律 #14)
+
+`IDLE_TIMEOUT_SECONDS = 600` used to `raise TimeoutError(...)` whenever
+the CLI emitted no message for 10 minutes. This was a hard cap on
+`agent_loop` and violated 铁律 #14 — DeepSeek-V4-Pro CoT and other
+long-thinking models legitimately produce minutes-long silent passes,
+and memory `agent_long_silence_deepseek` (2026-04 notes) already
+recorded this as a known false positive.
+
+Renamed to `IDLE_PROBE_SECONDS` and turned into a *probe* cadence
+rather than a kill switch:
+
+1. Every IDLE_PROBE_SECONDS of silence, peek at the CLI subprocess
+   `_transport._process.returncode`.
+2. `returncode is None` (alive) → `logger.warning("...continuing to wait")`
+   and re-enter `asyncio.wait` with the **same** in-flight
+   `message_task` (so the SDK's `__anext__()` isn't lost across the
+   probe).
+3. `returncode is not None` (subprocess actually exited) → log ERROR
+   and `raise RuntimeError(...)` — this is a genuine failure, not LLM
+   thinking time.
+
+Mechanical changes that follow from "keep message_task across
+iterations":
+
+- The per-loop `finally:` now cancels only `cancel_task` (per-iteration);
+  `message_task` is owned by the outer function-scope `try`.
+- The function-scope `try` hoists `message_task: asyncio.Task | None =
+  None` before its first use so the outer `finally:` can cancel + drain
+  it without NameError even if `connect()` raised early.
+- `message_task = None` is assigned at every consume site (after
+  `.result()`, after `StopAsyncIteration`, after cancellation, after
+  the subprocess-dead path) so the next iteration creates a fresh task.
 
 ## 2026-05-13 — Phase A C1+C2 (race-with-cancel + SIGKILL fallback)
 

@@ -13,10 +13,11 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Square, Loader2, Sparkles, MessageSquare, Paperclip, X, FileText, Image as ImageIcon, Mic, Bot } from 'lucide-react';
+import { Send, Square, Loader2, Sparkles, Paperclip, X, FileText, Image as ImageIcon, Mic, Bot } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
+import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot, Kbd } from '@/components/nm';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
@@ -770,27 +771,29 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Header — archive document caption */}
-      <div className="px-5 flex items-center justify-between border-b border-[var(--rule)] min-h-[48px]">
+      {/* Header — NM mono section label + StatusDot per conversation state */}
+      <div className="px-5 flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
         <div className="flex items-center gap-2.5 min-w-0">
-          <span
-            className={cn(
-              'w-1.5 h-1.5 rounded-full allow-circle shrink-0 transition-colors',
-              isStreaming
-                ? 'bg-[var(--color-yellow-500)] animate-pulse'
-                : agentId ? 'bg-[var(--color-green-500)]' : 'bg-[var(--text-tertiary)]'
-            )}
+          <StatusDot
+            status={isStreaming ? 'warning' : agentId ? 'success' : 'neutral'}
+            size={8}
+            pulse={isStreaming}
           />
-          <span className="text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em] text-[var(--text-primary)]">
+          <BracketSectionLabel
+            trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px]">{agentId}</span> : undefined}
+          >
             Interaction
-          </span>
-          <span className="text-[11px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)] truncate">
-            · {agentId || 'no agent'}
-          </span>
+          </BracketSectionLabel>
         </div>
 
         {isStreaming && (
-          <span className="flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--color-yellow-500)]">
+          <span
+            className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em]"
+            style={{
+              color: 'var(--color-warning)',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
             <Sparkles className="w-3 h-3 animate-pulse" />
             Processing
           </span>
@@ -822,35 +825,30 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         }}
       >
       <div className="space-y-4">
-        {/* Loading more (top) */}
+        {/* Loading more (top) — NM bracket-loading placeholder */}
         {isLoadingMore && (
-          <div className="flex items-center justify-center gap-2 py-2">
-            <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
-            <span className="text-[10px] text-[var(--text-tertiary)]">Loading older messages...</span>
+          <div className="flex items-center justify-center py-2">
+            <BracketLoading label="Loading older messages" />
           </div>
         )}
 
         {/* Initial loading */}
         {isLoadingHistory && (
-          <div className="flex items-center justify-center gap-2 py-4">
-            <Loader2 className="w-4 h-4 text-[var(--text-tertiary)] animate-spin" />
-            <span className="text-xs text-[var(--text-tertiary)]">Loading chat history...</span>
+          <div className="flex items-center justify-center py-4">
+            <BracketLoading label="Loading chat history" />
           </div>
         )}
 
-        {/* Empty state */}
+        {/* Empty state — NM bracket-wrapped */}
         {showEmptyState && (
-          <div className="h-full flex flex-col items-center justify-center text-center px-8">
-            <MessageSquare className="w-8 h-8 text-[var(--text-tertiary)] opacity-40 mb-4" />
-            <p className="text-[var(--text-primary)] text-sm mb-1.5">
-              {!agentId ? 'Select an agent to start' : 'Start a conversation'}
-            </p>
-            <p className="text-[var(--text-tertiary)] text-xs max-w-[260px] leading-relaxed">
-              {!agentId
+          <BracketEmptyState
+            label={!agentId ? 'Select an agent' : 'Start a conversation'}
+            hint={
+              !agentId
                 ? 'Choose an agent from the sidebar to begin your interaction.'
-                : 'Send a message to interact with the AI agent.'}
-            </p>
-          </div>
+                : 'Send a message to interact with the AI agent.'
+            }
+          />
         )}
 
         {/* Bootstrap greeting */}
@@ -1204,13 +1202,16 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             </Button>
           )}
         </div>
-        <p className="mt-2 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-center">
-          <kbd className="font-[family-name:var(--font-mono)]">Enter</kbd> to send
-          <span className="opacity-40 mx-2">·</span>
-          <kbd className="font-[family-name:var(--font-mono)]">Shift + Enter</kbd> new line
-          <span className="opacity-40 mx-2">·</span>
-          <kbd className="font-[family-name:var(--font-mono)]">Drop</kbd> to attach
-        </p>
+        <div
+          className="mt-2 flex items-center justify-center gap-3 text-[10px] uppercase tracking-[0.12em]"
+          style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
+        >
+          <span className="inline-flex items-center gap-1"><Kbd keys={['Enter']} /> to send</span>
+          <span className="opacity-40">·</span>
+          <span className="inline-flex items-center gap-1"><Kbd keys={['Shift', 'Enter']} /> new line</span>
+          <span className="opacity-40">·</span>
+          <span className="inline-flex items-center gap-1"><Kbd keys={['Drop']} /> to attach</span>
+        </div>
       </div>
 
       {/* Voice-input unavailable dialog. Triggered by clicking the mic

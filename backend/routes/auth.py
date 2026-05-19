@@ -280,6 +280,43 @@ async def get_agents(request: Request):
                 # info attached.
                 logger.warning(f"[/api/auth/agents] active_run enrichment failed: {e}")
 
+        # NM sidebar preview — one window-function SELECT pulls the most
+        # recent persisted assistant reply per agent in this list. Uses
+        # ROW_NUMBER() so we get exactly one row per agent without an
+        # N+1 sweep. Both SQLite (>=3.25) and MySQL 8+ support window
+        # functions, which are the two backends auto_migrate ships.
+        # final_output IS NOT NULL filters out events that crashed before
+        # producing a reply; an empty string is treated the same since
+        # the user wouldn't want "" rendered as preview.
+        last_assistant_by_agent: dict[str, dict] = {}
+        if agent_ids:
+            placeholders = ",".join(["%s"] * len(agent_ids))
+            try:
+                preview_rows = await db_client.execute(
+                    f"""
+                    SELECT agent_id, final_output, created_at FROM (
+                        SELECT agent_id, final_output, created_at,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY agent_id ORDER BY created_at DESC
+                               ) AS rn
+                        FROM events
+                        WHERE agent_id IN ({placeholders})
+                          AND final_output IS NOT NULL
+                          AND final_output != ''
+                    ) ranked
+                    WHERE rn = 1
+                    """,
+                    tuple(agent_ids),
+                )
+                for r in preview_rows or []:
+                    aid = r.get('agent_id')
+                    if aid:
+                        last_assistant_by_agent[aid] = r
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[/api/auth/agents] last_assistant enrichment failed: {e}"
+                )
+
         agents = []
         for row in rows:
             description = row.get('agent_description')
@@ -306,6 +343,22 @@ async def get_agents(request: Request):
                     current_stage=ar_row.get('current_stage') or None,
                 )
 
+            # NM sidebar preview — flatten whitespace and truncate so the
+            # wire payload stays bounded. Frontend may slice further for
+            # its row width, but 200 chars covers both alphabetic and
+            # CJK width comfortably without bloating the response.
+            last_assistant_preview = None
+            last_assistant_at = None
+            la_row = last_assistant_by_agent.get(row['agent_id'])
+            if la_row:
+                raw = la_row.get('final_output') or ""
+                if raw:
+                    flat = " ".join(raw.split())
+                    last_assistant_preview = (
+                        flat[:200] if len(flat) <= 200 else flat[:200].rstrip() + "…"
+                    )
+                last_assistant_at = format_for_api(la_row.get('created_at'))
+
             agent_info = AgentInfo(
                 agent_id=row['agent_id'],
                 name=row.get('agent_name') or row['agent_id'],
@@ -316,6 +369,8 @@ async def get_agents(request: Request):
                 created_by=created_by,
                 bootstrap_active=bootstrap_active,
                 active_run=active_run,
+                last_assistant_preview=last_assistant_preview,
+                last_assistant_at=last_assistant_at,
             )
             agents.append(agent_info)
 

@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-05-18
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — "Disable chat history" 还漏了 ChatModule 的主消息存储表
+
+接 2026-05-18 那一轮 fix。Bin哥 复测发现：勾掉 chat history、打包再 import 之后，**imported agent 里的 chat history 仍然完整可读**（直接显示在前端对话视图里）。
+
+根因：上一轮把 `events.jsonl` / `agent_messages.jsonl` / `narrative.json` 全部 gate 住了，但**漏掉了 builder.py 行 469-481 那个 memory family 循环**。这个循环无条件导出 4 张存对话的表：
+
+- `instance_json_format_memory_chat` —— ChatModule 的主消息存储（`memory` 列是 `{"messages": [{role, content, timestamp}, ...]}` 原文 JSON）；`get_chat_history` MCP tool 直接查这张表（见 `module/chat_module/_chat_mcp_tools.py:73`）。**这就是用户在前端能看到的 chat history 的源头。**
+- `instance_json_format_memory` —— Slack / Telegram / EventMemory 等 IM 模块的对话缓存
+- `instance_module_report_memory` —— LLM 蒸馏的对话摘要（per-instance）
+- `module_report_memory` —— 同上但按 narrative 维度（EventMemoryModule 写）
+
+Import 侧（`importer.py:844-864`）也无条件读这 4 张表 → instance_id rewrite 后插入新 agent → 新 agent 的 `get_chat_history` 立刻返回原 owner 的对话。所以 toggle 名义上 disabled，bundle 里有数据，import 后又落回 DB，前端就看到了 chat history —— **隐私完全没堵住**。
+
+**修法**：把 4 张表的导出循环都 gate 在 `selection.include_chat_history` 上。False 时写 `[]`（不是跳过写文件 —— 保留空文件让 importer / bundle inspection 工具看到"该 section 存在但被刻意清空"，语义更明确）。
+
+测试：`tests/bundle/test_roundtrip.py::test_chat_history_disabled_strips_memory_chat`（seed 一个含 `SUPERSECRET_PASSPHRASE_42` 短语的 `instance_json_format_memory_chat` 行 → 导 bundle with disable → 断言 bundle 里 memory_chat JSON 为空 + 整个 zip 任何 member 都不含 SECRET 短语 + 重新 import 后新 agent 的 memory_chat 为空）+ `test_chat_history_enabled_keeps_memory_chat`（happy-path 反向断言，enable 时 round-trip 保留 memory）。两者都在 12 个 bundle 测试中 0 regression 通过。
 
 ## 2026-05-18 — "Disable chat history" 实际上要 disable narrative_info 里的对话副本
 

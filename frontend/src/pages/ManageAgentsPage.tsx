@@ -19,6 +19,7 @@ import {
   CheckSquare, Square, AlertTriangle,
 } from 'lucide-react';
 import { Button, ScrollArea, useConfirm } from '@/components/ui';
+import { BracketSectionLabel } from '@/components/nm';
 import { useConfigStore, useTeamsStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -172,17 +173,26 @@ export default function ManageAgentsPage() {
   return (
     <ScrollArea className="h-full" viewportClassName="px-6 py-5">
       <div className="max-w-5xl mx-auto space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/app/settings')} className="p-1 hover:bg-[var(--bg-tertiary)]">
+        {/* Header — NM display-font title + bracket-section meta */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => navigate('/app/settings')}
+              className="p-1 rounded-[var(--radius-xs)] hover:bg-[color:var(--nm-paper-warm)] transition-colors"
+              aria-label="Back to settings"
+            >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <h1 className="font-mono text-base">Manage agents (batch)</h1>
-            <span className="text-xs text-[var(--text-tertiary)]">
-              {filteredAgents.length} shown · {selected.size} selected · {agents.length} total
-            </span>
+            <h1
+              className="text-2xl font-bold tracking-tight"
+              style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+            >
+              Manage agents
+            </h1>
           </div>
+          <BracketSectionLabel>
+            {filteredAgents.length} shown · {selected.size} selected · {agents.length} total
+          </BracketSectionLabel>
         </div>
 
         {/* Filter bar */}
