@@ -16,12 +16,12 @@ import {
   Check,
   Loader2,
   Package,
-  ChevronRight,
   Eye,
   Info,
   FileText,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
+import { BracketDropzone, StepIndicator } from '@/components/nm';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -43,13 +43,14 @@ export default function BundleImportPage() {
   const [error, setError] = useState<string | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
+  const [dragActive, setDragActive] = useState(false);
   useEffect(() => {
     const el = dropRef.current; if (!el) return;
-    const onOver = (e: DragEvent) => { e.preventDefault(); el.classList.add('ring-2', 'ring-[var(--text-primary)]'); };
-    const onLeave = () => el.classList.remove('ring-2', 'ring-[var(--text-primary)]');
+    const onOver = (e: DragEvent) => { e.preventDefault(); setDragActive(true); };
+    const onLeave = () => setDragActive(false);
     const onDrop = (e: DragEvent) => {
       e.preventDefault();
-      el.classList.remove('ring-2', 'ring-[var(--text-primary)]');
+      setDragActive(false);
       const f = e.dataTransfer?.files?.[0];
       if (f) setFile(f);
     };
@@ -114,43 +115,52 @@ export default function BundleImportPage() {
         </button>
         <Package className="w-5 h-5" />
         <h1 className="font-mono text-base">Import bundle</h1>
-        <div className="ml-auto flex items-center gap-2 text-xs">
-          <StepDot active={step === 'upload'} done={step !== 'upload'}>1. Upload</StepDot>
-          <ChevronRight className="w-3 h-3 text-[var(--text-tertiary)]" />
-          <StepDot active={step === 'review'} done={step === 'done'}>2. Review</StepDot>
-          <ChevronRight className="w-3 h-3 text-[var(--text-tertiary)]" />
-          <StepDot active={step === 'done'} done={false}>3. Done</StepDot>
+        <div className="ml-auto w-[360px]">
+          <StepIndicator
+            steps={[
+              { key: 'upload', label: 'Upload' },
+              { key: 'review', label: 'Review' },
+              { key: 'done', label: 'Done' },
+            ]}
+            currentIndex={step === 'upload' ? 0 : step === 'review' ? 1 : 2}
+          />
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
         {step === 'upload' && (
           <div className="max-w-2xl mx-auto space-y-4">
-            <div
-              ref={dropRef}
-              className="border-2 border-dashed border-[var(--border-default)] rounded-md p-10 text-center bg-[var(--bg-secondary)]"
-            >
-              <Upload className="w-10 h-10 mx-auto text-[var(--text-tertiary)]" />
-              <p className="mt-3 text-sm text-[var(--text-secondary)]">Drag &amp; drop a .nxbundle here</p>
-              <p className="mt-1 text-xs text-[var(--text-tertiary)]">or</p>
-              <label className="mt-3 inline-block">
-                <input
-                  type="file"
-                  accept=".nxbundle,.zip"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  className="hidden"
-                />
-                <span className="px-3 py-1.5 border border-[var(--border-default)] cursor-pointer text-sm font-mono hover:bg-[var(--bg-tertiary)]">
-                  Choose file
-                </span>
-              </label>
-              {file && (
-                <div className="mt-4 inline-flex items-center gap-2 text-sm">
-                  <Check className="w-4 h-4 text-[var(--color-green-500)]" />
-                  <span className="font-mono">{file.name}</span>
-                  <span className="text-[var(--text-tertiary)]">({Math.round(file.size / 1024)} KB)</span>
-                </div>
-              )}
+            <div ref={dropRef}>
+              <BracketDropzone active={dragActive}>
+                <Upload className="w-10 h-10 mx-auto mb-3" />
+                <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>Drag &amp; drop a .nxbundle here</p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}>— or —</p>
+                <label className="mt-3 inline-block">
+                  <input
+                    type="file"
+                    accept=".nxbundle,.zip"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    className="hidden"
+                  />
+                  <span
+                    className="inline-flex items-center px-3 py-1.5 cursor-pointer text-sm font-mono transition-colors"
+                    style={{
+                      border: '1px solid var(--nm-ink)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--nm-ink)',
+                    }}
+                  >
+                    Choose file
+                  </span>
+                </label>
+                {file && (
+                  <div className="mt-4 inline-flex items-center gap-2 text-sm">
+                    <Check className="w-4 h-4" style={{ color: 'var(--color-success)' }} />
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink)' }}>{file.name}</span>
+                    <span style={{ color: 'var(--nm-ink50)' }}>({Math.round(file.size / 1024)} KB)</span>
+                  </div>
+                )}
+              </BracketDropzone>
             </div>
             {error && <ErrorBanner error={error} />}
             <div className="flex justify-end">
@@ -186,17 +196,6 @@ export default function BundleImportPage() {
       </div>
       {dialog}
     </div>
-  );
-}
-
-function StepDot({ active, done, children }: { active: boolean; done: boolean; children: any }) {
-  return (
-    <span className={cn(
-      'px-2 py-0.5 font-mono uppercase tracking-wider',
-      active && 'bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-strong)]',
-      done && !active && 'text-[var(--color-green-500)]',
-      !active && !done && 'text-[var(--text-tertiary)]',
-    )}>{children}</span>
   );
 }
 
