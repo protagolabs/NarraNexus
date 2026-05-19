@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-05-19
 ---
+
+## 2026-05-19 — register message_read no-op processor
+
+`_subscribe_loop` used to register only `register_p2_im_message_receive_v1`.
+Lark pushes `im.message.message_read_v1` (read receipts) by default; the
+SDK then logged an ERROR per event ("processor not found, type:
+im.message.message_read_v1"). We extracted the handler build into a
+static `_build_event_handler(on_recv, on_read)` and now register a no-op
+read-receipt processor alongside the real receive handler. We never act
+on read receipts — silencing the SDK noise is the only purpose.
+
+The build helper is staticmethod so the test in
+`tests/lark_module/test_message_read_handler.py` can introspect
+`handler._processorMap` without standing up a WebSocket.
 
 ## 2026-05-08 — Phase 2: refactor onto `ChannelTriggerBase`
 

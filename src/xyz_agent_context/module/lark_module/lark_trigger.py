@@ -557,11 +557,14 @@ class LarkTrigger(ChannelTriggerBase):
                     except Exception as e:
                         logger.warning(f"LarkTrigger SDK callback error: {e}")
 
-                handler = (
-                    lark.EventDispatcherHandler.builder("", "")
-                    .register_p2_im_message_receive_v1(on_message)
-                    .build()
-                )
+                # Register message-read receipts with a no-op processor so
+                # the SDK does not flood ERROR with "processor not found,
+                # type: im.message.message_read_v1" — Lark pushes one per
+                # IM read by default and we don't act on read receipts.
+                def _on_message_read(_data):
+                    pass
+
+                handler = self._build_event_handler(on_message, _on_message_read)
 
                 domain = (
                     lark.LARK_DOMAIN if cred.brand == "lark" else lark.FEISHU_DOMAIN
@@ -705,6 +708,25 @@ class LarkTrigger(ChannelTriggerBase):
     # ────────────────────────────────────────────────────────────────────
     # SDK event helpers
     # ────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_event_handler(on_message_receive, on_message_read):
+        """Build the Lark `EventDispatcherHandler` for our subscription.
+
+        Extracted from `_subscribe_loop` so the processor registration
+        can be asserted in isolation (see tests/lark_module/
+        test_message_read_handler.py). Production code must not skip the
+        `message_read_v1` registration — without it the SDK logs one ERROR
+        per IM read receipt.
+        """
+        import lark_oapi as lark
+
+        return (
+            lark.EventDispatcherHandler.builder("", "")
+            .register_p2_im_message_receive_v1(on_message_receive)
+            .register_p2_im_message_message_read_v1(on_message_read)
+            .build()
+        )
 
     @staticmethod
     def _sdk_event_to_dict(data) -> dict:
