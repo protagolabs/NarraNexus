@@ -17,7 +17,7 @@ import { Send, Square, Loader2, Sparkles, Paperclip, X, FileText, Image as Image
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot } from '@/components/nm';
+import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot, Kbd } from '@/components/nm';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
@@ -1202,13 +1202,16 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             </Button>
           )}
         </div>
-        <p className="mt-2 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-center">
-          <kbd className="font-[family-name:var(--font-mono)]">Enter</kbd> to send
-          <span className="opacity-40 mx-2">·</span>
-          <kbd className="font-[family-name:var(--font-mono)]">Shift + Enter</kbd> new line
-          <span className="opacity-40 mx-2">·</span>
-          <kbd className="font-[family-name:var(--font-mono)]">Drop</kbd> to attach
-        </p>
+        <div
+          className="mt-2 flex items-center justify-center gap-3 text-[10px] uppercase tracking-[0.12em]"
+          style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
+        >
+          <span className="inline-flex items-center gap-1"><Kbd keys={['Enter']} /> to send</span>
+          <span className="opacity-40">·</span>
+          <span className="inline-flex items-center gap-1"><Kbd keys={['Shift', 'Enter']} /> new line</span>
+          <span className="opacity-40">·</span>
+          <span className="inline-flex items-center gap-1"><Kbd keys={['Drop']} /> to attach</span>
+        </div>
       </div>
 
       {/* Voice-input unavailable dialog. Triggered by clicking the mic
