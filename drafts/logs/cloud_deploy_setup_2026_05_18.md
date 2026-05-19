@@ -55,7 +55,7 @@ git checkout template_sharing_2026_05_18 && git pull
 |---|---|---|---|
 | `INTERNAL_INVITE_SECRET` | invite | **是** | 跟 website 一侧设的同一个 64 字符 hex 字符串 |
 | `INVITE_AUTO_ISSUE_CAP` | invite | 否 | 默认 `200`;到这个数 cap 后 `/api/invite/request` 转 waitlist |
-| `BUNDLE_FETCH_ALLOWED_HOSTS` | templates | 否 | 默认 `narra.nexus,www.narra.nexus`(prod 已包含);要支持其他 bundle 来源(对象存储 host)再扩 |
+| `BUNDLE_FETCH_ALLOWED_HOSTS` | templates | 否 | 默认含 `narra.nexus,www.narra.nexus,website.narra.nexus`(2026-05-19 加入 website. 子域)。若 EC2 上**已经**显式设了这个 env,**记得跟着加 website.narra.nexus**,否则 prod website 上托管的 bundle 会被 403 拒。要支持其他 bundle 来源(对象存储 host)再扩 |
 | `INVITE_CODE`(**legacy**) | — | **删除** | 老的全局 invite code,代码不再读;留着无害但可以删 |
 
 **注意**:如果走 `.env` 加载,要确认 `settings.py::_DOTENV_PASSTHROUGH` 白名单包含上面前 3 个变量(merge 完后应该都在)。否则 `.env` 里有值但 `os.environ` 看不到。
@@ -240,7 +240,7 @@ Share-safe export + 上传 → marketplace。设计写在 `drafts/logs/template_
 ```
 INTERNAL_INVITE_SECRET=<openssl rand -hex 32>
 INVITE_AUTO_ISSUE_CAP=200
-BUNDLE_FETCH_ALLOWED_HOSTS=narra.nexus,www.narra.nexus
+BUNDLE_FETCH_ALLOWED_HOSTS=narra.nexus,www.narra.nexus,website.narra.nexus
 # (旧 INVITE_CODE 可以删除)
 ```
 
