@@ -12,26 +12,22 @@ resilient to anyone being away.
 
 ## Lead maintainers
 
-| Order | Name      | Role                                                |
-| ----- | --------- | --------------------------------------------------- |
-| 1     | Xiong     | Lead maintainer · project leader                    |
-| 2     | Bin Liang | Lead maintainer · NarraNexus founder & day-to-day driver |
+| Order | GitHub                                              | Email                                                | Role                                |
+| ----- | --------------------------------------------------- | ---------------------------------------------------- | ----------------------------------- |
+| 1     | [@johnsonice](https://github.com/johnsonice)        | 12380880+johnsonice@users.noreply.github.com         | Project leader (a.k.a. Xiong)       |
+| 2     | [@BinLiang2021](https://github.com/BinLiang2021)    | 92085318+BinLiang2021@users.noreply.github.com       | Day-to-day driver                   |
 
 Lead maintainers are the final reviewers on architecture decisions
 and edits to `CLAUDE.md` (per `CLAUDE.md` binding rule #11).
 
 ## Maintainers
 
-| Name           | Notes                                  |
-| -------------- | -------------------------------------- |
-| Hongyi Gu      | Backend & runtime                      |
-| Aoshine-T      | Backend & desktop                      |
-| UlyssesXC      | Module system & integrations           |
-| Chengyu Huang  | Frontend & UI                          |
-| henriklau17    | Docs & community                       |
-| Jiaming        | UI / frontend                          |
-| Xiny           | Frontend                               |
-| netmindCjx     | Infra / deployment                     |
+| GitHub                                              | Email                                                | Notes               |
+| --------------------------------------------------- | ---------------------------------------------------- | ------------------- |
+| [@ghydsgaaa](https://github.com/ghydsgaaa)          | 113628995+ghydsgaaa@users.noreply.github.com         | Backend & runtime   |
+| [@Aoshine-T](https://github.com/Aoshine-T)          | 87623951+Aoshine-T@users.noreply.github.com          | Backend & desktop   |
+| [@zzfana407](https://github.com/zzfana407)          | 149455951+zzfana407@users.noreply.github.com         | Frontend            |
+| [@netmindCjx](https://github.com/netmindCjx)        | 199633231+netmindCjx@users.noreply.github.com        | MKT                 |
 
 Areas are best-effort labels for routing review pings, not exclusive
 ownership. Any maintainer can review any PR.
