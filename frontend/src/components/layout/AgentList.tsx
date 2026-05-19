@@ -18,10 +18,10 @@ import {
   ListChecks,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
-import { RingAvatar, BracketSectionLabel, BracketEmptyState } from '@/components/nm';
+import { RingAvatar, BracketSectionLabel, BracketEmptyState, Badge } from '@/components/nm';
 import { useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { cn, formatTime } from '@/lib/utils';
 
 interface AgentListProps {
   collapsed: boolean;
@@ -64,7 +64,46 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
     ? rawAgents
     : rawAgents.filter((a) => filterAgentIds.includes(a.agent_id));
   const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds } = useChatStore();
+  // Live read of every agent's session so the row's last-message preview /
+  // time / unread count update as new messages stream in. Reading the
+  // sessions map (not per-agent slice) is the simplest path; zustand
+  // re-renders this component when ANY session updates, which is fine for
+  // a list of agents that's already small.
+  const agentSessions = useChatStore((s) => s.agentSessions);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
+
+  /**
+   * Derive the per-agent meta shown in each row: last message text + time
+   * and an unread count. Last message comes from the in-memory session
+   * (works for both fresh streams and historical messages loaded into
+   * the session). Unread count = messages whose timestamp is strictly
+   * newer than the localStorage `lastSeenAwarenessTime:<agent>` marker
+   * AND not authored by the local user. If the agent is the currently
+   * selected one we treat it as "all seen" so the count zeroes out.
+   */
+  const getRowMeta = (aid: string) => {
+    const session = agentSessions[aid];
+    const messages = session?.messages ?? [];
+    const last = messages.length > 0 ? messages[messages.length - 1] : null;
+    const preview = last?.content ? last.content.replace(/\s+/g, ' ').slice(0, 60) : '';
+    const time = last ? formatTime(last.timestamp) : '';
+    let unread = 0;
+    if (aid !== agentId) {
+      let lastSeenMs = 0;
+      try {
+        const v = localStorage.getItem(`lastSeenAwarenessTime:${aid}`);
+        if (v) lastSeenMs = new Date(v).getTime();
+      } catch {
+        lastSeenMs = 0;
+      }
+      for (const m of messages) {
+        if (m.role !== 'user' && m.timestamp > lastSeenMs) {
+          unread += 1;
+        }
+      }
+    }
+    return { preview, time, unread };
+  };
 
   // Fetch agents on mount
   useEffect(() => {
@@ -367,54 +406,70 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
           }
         />
       ) : (
-        <div className="space-y-1.5">
+        /* NM messenger-style conversation list. Outer container is the
+           paper-warm panel; each row is a rounded filled card. Selected
+           row uses paper-raised; inactive rows use paper-warm with a
+           hover lift to paper-raised. */
+        <div
+          className="rounded-[var(--radius-md)] p-1.5 space-y-1.5"
+          style={{ background: 'var(--nm-paper-warm)' }}
+        >
           {agents.map((agent, index) => {
             const isSelected = agentId === agent.agent_id;
             const streaming = isAgentStreaming(agent.agent_id);
             const completed = completedAgentIds.includes(agent.agent_id);
+            const { preview, time, unread } = getRowMeta(agent.agent_id);
+            const displayName = agent.name || agent.agent_id;
+            const isOwner = agent.created_by === userId;
 
             return (
               <div
                 key={agent.agent_id}
                 onClick={() => handleSelectAgent(agent.agent_id)}
                 className={cn(
-                  'w-full text-left p-3 transition-colors duration-150 cursor-pointer',
-                  'group relative animate-slide-up',
-                  /* Selected state expressed by left rail + bg shift only.
-                     No extra 1px border — that doubled the visual weight
-                     against neighbouring (non-selected) cards. */
-                  isSelected
-                    ? 'bg-[var(--bg-elevated)]'
-                    : 'hover:bg-[var(--bg-elevated)]'
+                  'w-full text-left px-3 py-2.5 cursor-pointer animate-slide-up',
+                  'rounded-[var(--radius-md)] transition-colors duration-150',
+                  'group',
+                  isSelected ? 'bg-[var(--nm-card)]' : 'bg-[var(--nm-card)] hover:bg-[var(--nm-raised)]'
                 )}
-                style={{ animationDelay: `${index * 50}ms` }}
+                style={{
+                  animationDelay: `${index * 50}ms`,
+                  border: isSelected
+                    ? '1px solid var(--nm-ink)'
+                    : '1px solid var(--nm-hairline)',
+                }}
               >
-                {/* Active indicator: 2px ink rail on the left edge. No glow. */}
-                {isSelected && (
-                  <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--text-primary)]" />
-                )}
-
                 <div className="flex items-start gap-3">
+                  {/* Avatar — Silicon ring with streaming overlay; completion
+                      dot stays on the avatar's top-right corner. */}
                   <div className="relative shrink-0">
                     {renderAgentAvatar(
-                      (agent.name || agent.agent_id).slice(0, 2),
+                      displayName.slice(0, 2),
                       agent.agent_id,
                       !!agent.active_run,
                       'md',
                     )}
                     {completed && !isSelected && (
-                      <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
+                      <div
+                        className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full allow-circle"
+                        style={{
+                          background: 'var(--color-warning)',
+                          border: '2px solid var(--nm-card)',
+                        }}
+                      />
                     )}
                   </div>
-                  <div className="flex-1 min-w-0 pt-0.5">
+
+                  {/* Right side: 2-row stack */}
+                  <div className="flex-1 min-w-0">
                     {editingAgentId === agent.agent_id ? (
-                      /* Editing Mode */
+                      /* Inline rename mode — full width, no preview while editing */
                       <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                         <input
                           type="text"
                           value={editingName}
                           onChange={e => setEditingName(e.target.value)}
-                          className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--text-primary)] focus:outline-none"
+                          className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--nm-ink)] bg-[var(--nm-paper-warm)] border border-[var(--nm-ink)] rounded-[var(--radius-xs)] focus:outline-none"
                           autoFocus
                           onKeyDown={e => {
                             if (e.key === 'Enter') handleSaveEdit(agent.agent_id, e as any);
@@ -424,93 +479,125 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                         <button
                           onClick={(e) => handleSaveEdit(agent.agent_id, e)}
                           disabled={savingName}
-                          className="p-1 shrink-0 hover:bg-[var(--bg-tertiary)] transition-colors"
+                          className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                           title="Save (Enter)"
                         >
-                          <Check className={cn('w-3.5 h-3.5 text-[var(--color-green-500)]', savingName && 'animate-pulse')} />
+                          <Check className={cn('w-3.5 h-3.5', savingName && 'animate-pulse')} style={{ color: 'var(--color-success)' }} />
                         </button>
                         <button
                           onClick={handleCancelEdit}
-                          className="p-1 shrink-0 hover:bg-[var(--bg-tertiary)] transition-colors"
+                          className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                           title="Cancel (Esc)"
                         >
-                          <X className="w-3.5 h-3.5 text-[var(--color-red-500)]" />
+                          <X className="w-3.5 h-3.5" style={{ color: 'var(--color-error)' }} />
                         </button>
                       </div>
                     ) : (
-                      /* Display Mode */
                       <>
+                        {/* Row 1: [name] [inline action buttons] [..flex-spacer..] [time] */}
                         <div className="flex items-center gap-1.5">
                           <span
                             className={cn(
-                              'font-mono text-sm truncate transition-colors',
-                              isSelected
-                                ? 'text-[var(--text-primary)] font-semibold'
-                                : 'text-[var(--text-primary)]'
+                              'text-sm truncate',
+                              isSelected ? 'font-semibold' : 'font-medium'
                             )}
+                            style={{
+                              color: 'var(--nm-ink)',
+                              fontFamily: 'var(--font-sans)',
+                            }}
                           >
-                            {agent.name || agent.agent_id}
+                            {displayName}
                           </span>
-                          {agent.is_public && agent.created_by !== userId && (
+                          {/* Inline status flags after the name */}
+                          {agent.is_public && !isOwner && (
                             <span title={`Public · by ${agent.created_by}`}>
-                              <Globe className="w-3 h-3 text-[var(--text-tertiary)] shrink-0" />
+                              <Globe className="w-3 h-3 shrink-0" style={{ color: 'var(--nm-ink50)' }} />
                             </span>
                           )}
-                          {/* Running indicator */}
                           {streaming && (
-                            <span className="text-[9px] px-1.5 py-0.5 text-[var(--color-yellow-500)] border border-[var(--color-yellow-500)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]">
+                            <span
+                              className="text-[9px] px-1.5 py-0.5 uppercase tracking-[0.10em] rounded-[var(--radius-xs)] shrink-0"
+                              style={{
+                                color: 'var(--color-warning)',
+                                border: '1px solid var(--color-warning)',
+                                fontFamily: 'var(--font-mono)',
+                              }}
+                            >
                               Running
                             </span>
                           )}
-                        </div>
-                        {isSelected && (
-                          <div className="flex items-center gap-0.5 mt-1.5">
-                            {SHOW_AGENT_PUBLIC_TOGGLE && agent.created_by === userId && (
+
+                          {/* Owner-only inline action buttons; visible on hover
+                              OR when this row is selected. */}
+                          <div
+                            className={cn(
+                              'flex items-center gap-0.5 shrink-0',
+                              isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                              'transition-opacity duration-150'
+                            )}
+                          >
+                            {SHOW_AGENT_PUBLIC_TOGGLE && isOwner && (
                               <button
                                 onClick={(e) => handleTogglePublic(agent, e)}
-                                className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"
+                                className="p-1 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                                 title={agent.is_public ? 'Set to Private' : 'Set to Public'}
                               >
                                 {agent.is_public ? (
-                                  <Globe className="w-3 h-3 text-[var(--text-primary)]" />
+                                  <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink)' }} />
                                 ) : (
-                                  <Lock className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors" />
+                                  <Lock className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
                                 )}
                               </button>
                             )}
                             <button
                               onClick={(e) => handleStartEdit(agent, e)}
-                              className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"
+                              className="p-1 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                               title="Edit name"
                             >
-                              <Pencil className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors" />
+                              <Pencil className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
                             </button>
-                            {agent.created_by === userId && (
+                            {isOwner && (
                               <button
                                 onClick={(e) => handleDeleteAgent(agent, e)}
                                 disabled={deletingAgentId === agent.agent_id}
-                                className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"
+                                className="p-1 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                                 title="Delete agent"
                               >
-                                <Trash2 className={cn(
-                                  'w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors',
-                                  deletingAgentId === agent.agent_id && 'animate-pulse'
-                                )} />
+                                <Trash2 className={cn('w-3 h-3', deletingAgentId === agent.agent_id && 'animate-pulse')} style={{ color: 'var(--color-error)' }} />
                               </button>
                             )}
                           </div>
-                        )}
+
+                          {/* Right-aligned timestamp */}
+                          <span
+                            className="ml-auto pl-2 text-[10px] shrink-0"
+                            style={{
+                              color: 'var(--nm-ink50)',
+                              fontFamily: 'var(--font-mono)',
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {time}
+                          </span>
+                        </div>
+
+                        {/* Row 2: [preview ...truncated] [unread badge] */}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p
+                            className="flex-1 min-w-0 text-xs truncate leading-snug"
+                            style={{ color: 'var(--nm-ink70)' }}
+                          >
+                            {preview || (
+                              <span style={{ color: 'var(--nm-ink30)' }}>
+                                {agent.description || 'No messages yet'}
+                              </span>
+                            )}
+                          </p>
+                          {unread > 0 && (
+                            <Badge count={unread} species="carbon" />
+                          )}
+                        </div>
                       </>
-                    )}
-                    {agent.description && editingAgentId !== agent.agent_id && (
-                      <p className="text-xs text-[var(--text-tertiary)] mt-1 line-clamp-2 leading-relaxed">
-                        {agent.description}
-                      </p>
-                    )}
-                    {agent.name && agent.name !== agent.agent_id && editingAgentId !== agent.agent_id && (
-                      <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 font-mono opacity-60">
-                        {agent.agent_id}
-                      </p>
                     )}
                   </div>
                 </div>
