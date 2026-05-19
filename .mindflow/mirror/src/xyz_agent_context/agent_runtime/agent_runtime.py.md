@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-04-28
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — LLMResolverError downgraded from logger.exception to logger.warning
+
+The `except LLMResolverError` branch previously did `logger.exception`,
+which emits ERROR + full traceback on every occurrence. For a single
+user with an exhausted free-tier quota this fires once per scheduled
+job — 1458 lines in 14h on EC2 jobs container 2026-05-19, drowning out
+real errors. The exception class itself carries an actionable user
+message ("Either turn off 'Use free quota' in Settings ..."), and per
+铁律 #15 the platform must not auto-switch providers — so the traceback
+adds zero diagnostic value. Now we log a single WARNING line with
+type + message and continue surfacing the structured `ErrorMessage`
+unchanged.
 
 ## 2026-04-28 change — trace injection + LoggingService removed (M4 / T15)
 

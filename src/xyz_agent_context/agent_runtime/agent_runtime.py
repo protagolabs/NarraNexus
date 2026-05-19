@@ -327,7 +327,14 @@ class AgentRuntime:
                 owner_claude, owner_openai, owner_embedding = await get_agent_owner_llm_configs(agent_id)
                 set_user_config(owner_claude, owner_openai, owner_embedding)
             except LLMResolverError as e:
-                logger.exception(
+                # Known-business error (quota exhausted, owner has not
+                # configured required slots, etc.). Per 铁律 #15 we do
+                # not auto-switch providers; the platform's only action
+                # is to surface the message via the structured
+                # `ErrorMessage` below. The traceback adds no value and
+                # floods logs when a single user's quota is exhausted
+                # (1458 lines in 14h for one user on EC2 2026-05-19).
+                logger.warning(
                     f"LLM config resolution failed for agent {agent_id}: "
                     f"{type(e).__name__}: {e}"
                 )
