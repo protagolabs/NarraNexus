@@ -134,32 +134,51 @@ _install_lark_oapi_loop_proxy()
 
 
 def _ws_loop_exception_filter(loop, context: dict) -> None:
-    """asyncio loop exception-handler that swallows known-transient
-    WebSocket disconnect noise from the Lark SDK.
+    """asyncio loop exception-handler that turns WS-disconnect exceptions
+    into a clean loop shutdown so the outer ``_subscribe_loop`` reconnect
+    machinery can take over.
 
-    The SDK fires `loop.create_task(...)` for incoming message handling
-    and reconnect plumbing. When the upstream WS resets, those tasks
-    raise `ConnectionResetError` / `OSError` / a `websockets.*` exception
-    with no awaiter, and the default handler logs "Task exception was
-    never retrieved" + full traceback per occurrence.
+    The SDK fires ``loop.create_task(...)`` for incoming message handling
+    and reconnect plumbing. When the upstream WS resets, those tasks raise
+    ``ConnectionResetError`` / ``OSError`` / a ``websockets.*`` exception
+    with no awaiter. The default asyncio handler would log "Task exception
+    was never retrieved" + traceback per occurrence and then continue
+    running the loop.
 
-    `_subscribe_loop` already handles the disconnect itself via its
-    outer `while t.is_alive() and self.running` loop (with backoff,
-    fresh credentials, and audit), so these dropped tasks are pure log
-    noise — but unknown exceptions are still surfaced via the loop's
-    default handler so real bugs are not silenced.
+    But the SDK's ``ws.Client.start()`` itself blocks on a forever-sleeping
+    ``_select()`` coroutine after spawning the receive task as
+    fire-and-forget. With ``auto_reconnect=False`` (H-6) the receive task
+    re-raises on disconnect, but that raise never propagates back to
+    ``start()`` — the only thing keeping ``start()`` running is ``_select()``,
+    which doesn't know anything died. Result: the daemon thread stays
+    "alive" forever with no WS underneath. The 2026-05-18 EC2 zombie
+    incident (11 h of silence + zero ``lark_trigger_audit`` rows) was
+    exactly this shape.
 
-    `websockets.*` exceptions are filtered by module-name prefix rather
-    than concrete type so we do not take a hard dependency on a
-    specific SDK exception class.
+    Fix: when this handler sees a connection-class exception, call
+    ``loop.stop()``. That terminates ``loop.run_until_complete(_select())``,
+    ``start()`` returns, ``run_ws`` exits, the daemon thread dies, and the
+    outer ``while t.is_alive() and self.running`` poll in ``_subscribe_loop``
+    falls through to the backoff + reconnect path.
+
+    Unknown / unrelated exceptions (e.g. application bugs) still go to
+    ``default_exception_handler`` so real bugs are not silenced. Contexts
+    with no exception (e.g. slow-callback warnings) also pass through —
+    the loop keeps running, which is correct for those.
+
+    ``websockets.*`` exceptions are matched by module-name prefix rather
+    than concrete type so we do not take a hard dependency on a specific
+    SDK exception class.
     """
     exc = context.get("exception")
     if exc is None:
         loop.default_exception_handler(context)
         return
     if isinstance(exc, (ConnectionResetError, ConnectionError, OSError)):
+        loop.stop()
         return
     if type(exc).__module__.startswith("websockets."):
+        loop.stop()
         return
     loop.default_exception_handler(context)
 

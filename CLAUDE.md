@@ -333,6 +333,52 @@ class EventRepository(BaseRepository[Event]):
 
 ---
 
+## 事故经验（incident-derived engineering lessons）
+
+以下是从生产事故里反复 burn 出来的经验，按出事概率从高到低排。设计长跑服务（trigger / poller / 流式 pipeline）时**逐条对照**，不能跳。
+
+### 1. 第三方库的"持续运行"函数不一定真因为底层故障而退出
+
+`auto_reconnect=False` 不等于"WS 断开时函数会 raise/return"。第三方库经常用 `fire-and-forget task + 主协程永远 sleep` 的模式来"持续运行"——主协程不感知子任务死活。**判定方法：实际读 `start()` / `run()` 这类入口的代码**，看它阻塞在哪条 `await` 上、那个 await 是什么。看名字会被骗。
+
+→ 案例：2026-05-18 lark_oapi WS 僵尸（`mirror/.../lark_trigger.md` 2026-05-19 PM 条目）。
+
+### 2. Fire-and-forget 协程是隐藏雷区
+
+`loop.create_task(coro)` 如果没人 `await` 那个 Task：
+- Task 里抛的异常**默认只会被 GC 时 log 一行 warning**，不会中断父任务，不会传播
+- 我们写的任何 `loop.create_task(...)` 必须**配套** `add_done_callback` 或在协程内部 `try/except` 兜住，否则就是埋雷
+- 第三方库里的 fire-and-forget 也是雷——必要时 monkey-patch / 子类化来加 callback
+
+### 3. 不要为了日志干净而盲目过滤异常
+
+异常过滤的合法理由只有一个："这个异常我已经在别的地方处理了"。
+**不合法**理由：
+- 这类异常太多、log 太烦 → 改 log level 或合并相邻 frame，不要静音
+- 这是"已知的瞬态噪声" → 那也得确认有别的机制在治本，否则你就是把告警关了
+- 过滤要精准到**具体异常类 + 具体上下文**，不要按"模块名 / 异常族"一刀切
+
+### 4. 健康检查不能只看"进程/线程在不在"
+
+线程活着 ≠ 线程在干活。设计健康检查的三档：
+
+- **L1（最弱）**：进程/线程在不在（`docker ps` / `t.is_alive()`）——只能挡硬挂
+- **L2**：有没有在做该做的事（心跳频率、最近一次事件时间）——挡僵尸
+- **L3**：业务侧端到端可观测（最近 N 分钟处理消息数、p99 延迟）——挡降级
+
+长跑服务**必须**至少有 L2，靠 L1 就是给僵尸开后门。
+
+### 5. 审计/业务事件落库 ＞ 应用日志
+
+debug 时优先去 DB 找痕迹，因为：
+- Docker log 会被 rotate / `docker restart` 清掉，DB 不会
+- log grep 容易漏（看的人决定了关键字），DB 是结构化的可以 SQL 反查
+- "**该有的事件 N 条都没有**"本身就是强证据（参见 #4 的 L2/L3）——log 缺失说不定是 grep 漏了，DB 缺失基本可信
+
+→ 设计任何 trigger / poller / 长跑任务时，**lifecycle 事件入 audit 表**是默认动作，不是 nice-to-have。落表的事件至少包括：started / stopped / error / heartbeat。
+
+---
+
 ## 易忘事项
 
 - 数据库表定义统一在 `utils/schema_registry.py`，**不再**有独立的 `create_*_table.py` / `modify_*_table.py` 脚本
