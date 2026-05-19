@@ -21,6 +21,7 @@ import type { Node, Edge } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import type { JobNode, JobNodeStatus } from '@/types/jobComplex';
+import { nmReactFlowConfig } from '@/lib/reactflow-nm-config';
 
 interface JobDependencyGraphProps {
   jobs: JobNode[];
@@ -214,9 +215,14 @@ export function JobDependencyGraph({ jobs, onNodeClick, selectedJobId }: JobDepe
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.5}
         maxZoom={2}
-        attributionPosition="bottom-left"
+        // NM defaults: ink-50 smoothstep edges, hide attribution badge,
+        // centered default viewport. Per-node visual identity still
+        // owned by custom node renderers below.
+        defaultEdgeOptions={nmReactFlowConfig.defaultEdgeOptions}
+        proOptions={nmReactFlowConfig.proOptions}
+        defaultViewport={nmReactFlowConfig.defaultViewport}
       >
-        <Background color="#e5e7eb" gap={16} />
+        <Background color="var(--nm-hairline)" gap={16} />
         <Controls showInteractive={false} />
         <MiniMap
           nodeColor={(node) => {
@@ -225,12 +231,12 @@ export function JobDependencyGraph({ jobs, onNodeClick, selectedJobId }: JobDepe
               if (job && statusColors[job.status]) {
                 return statusColors[job.status].border;
               }
-              return '#9ca3af';
+              return nmReactFlowConfig.speciesColors.ink;
             } catch {
-              return '#9ca3af';
+              return nmReactFlowConfig.speciesColors.ink;
             }
           }}
-          maskColor="rgba(0, 0, 0, 0.1)"
+          maskColor="var(--nm-backdrop)"
         />
       </ReactFlow>
     </div>
