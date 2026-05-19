@@ -249,13 +249,13 @@ async def import_confirm(payload: ConfirmRequest, request: Request):
 # Conservative defaults — production should override via env. Compatible with
 # Phase 1 (single template host on narra.nexus); object storage / R2 hosts
 # get added here when Phase 2+ moves files off public/.
-_DEFAULT_ALLOWED_HOSTS_CLOUD = "narra.nexus,www.narra.nexus"
+_DEFAULT_ALLOWED_HOSTS_CLOUD = "narra.nexus,www.narra.nexus,website.narra.nexus"
 # Local mode (sqlite, desktop DMG, bash run.sh) also needs to fetch from
 # locally-served bundles — the website running on localhost:3001 during dev
 # and a future local-marketplace flow. Production locks this back down via
 # is_cloud_mode + the explicit env override.
 _DEFAULT_ALLOWED_HOSTS_LOCAL = (
-    "narra.nexus,www.narra.nexus,localhost,127.0.0.1,[::1]"
+    "narra.nexus,www.narra.nexus,website.narra.nexus,localhost,127.0.0.1,[::1]"
 )
 _FETCH_TIMEOUT_SEC = 30.0
 _FETCH_CHUNK_BYTES = 64 * 1024
