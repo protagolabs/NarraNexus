@@ -12,12 +12,13 @@
  *   3. eventLogThinking + eventLogToolCalls (older backend; grouped)
  */
 
-import { User, Bot, Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
+import { Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
 import { useState, useCallback, useRef, useMemo } from 'react';
 import type { Attachment, ChatMessage, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
 import { cn, formatTime } from '@/lib/utils';
 import { Markdown } from '@/components/ui';
+import { RingAvatar, BracketEdge } from '@/components/nm';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
@@ -199,6 +200,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
     URL.revokeObjectURL(url);
   }, [message.content, message.timestamp]);
 
+  // NM: user = Carbon ring (human), assistant = Silicon ring (AI).
+  // Avatar shows the agent_id or user_id initial.
+  const avatarLabel = isUser
+    ? (userId || 'U').slice(0, 1)
+    : (message.role === 'assistant' ? 'A' : '?');
+
   return (
     <div
       className={cn(
@@ -206,46 +213,51 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
         isUser && 'flex-row-reverse'
       )}
     >
-      {/* Avatar — flat archive square */}
-      <div
-        className={cn(
-          'w-8 h-8 flex items-center justify-center shrink-0 transition-colors duration-150',
-          isUser
-            ? 'bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[var(--text-secondary)]'
-            // Bot avatar uses text-primary → bg-inverse so it inverts automatically.
-            : 'bg-[var(--text-primary)] text-[var(--text-inverse)]'
-        )}
-      >
-        {isUser ? (
-          <User className="w-3.5 h-3.5" />
-        ) : (
-          <Bot className="w-3.5 h-3.5" />
-        )}
-      </div>
+      {/* NM RingAvatar — carbon for human, silicon for AI */}
+      <RingAvatar
+        species={isUser ? 'carbon' : 'silicon'}
+        label={avatarLabel}
+        size="sm"
+        className="shrink-0"
+      />
 
       {/* Content */}
       <div className={cn('flex-1 min-w-0', isUser && 'text-right')}>
         <div
           className={cn(
-            'inline-block max-w-[85%] text-left',
+            'relative inline-block max-w-[85%] text-left',
             'px-4 py-3',
+            'rounded-[var(--radius-lg)]',
             'transition-colors duration-150',
-            isUser
-              ? [
-                  'message-user',
-                ]
-              : message.isError
-                ? [
-                    'message-assistant',
-                    'bg-[var(--bg-primary)]',
-                    'text-[var(--color-red-500)]',
-                    'border border-[var(--color-red-500)]',
-                  ]
-                : [
-                    'message-assistant',
-                  ]
           )}
+          style={
+            isUser
+              ? {
+                  background: 'var(--nm-own-paper)',
+                  color: 'var(--nm-ink)',
+                  border: '1px solid var(--nm-hairline)',
+                  boxShadow: '0 1px 0 rgba(42,38,32,0.04), 0 2px 4px rgba(42,38,32,0.04)',
+                }
+              : message.isError
+                ? {
+                    background: 'var(--color-error)',
+                    color: 'white',
+                    border: '1px solid var(--color-error)',
+                  }
+                : {
+                    background: 'var(--nm-paper-warm)',
+                    color: 'var(--nm-ink)',
+                    border: '1px solid var(--nm-hairline)',
+                  }
+          }
         >
+          {/* NM bracket-edge — carbon tr for own, silicon tl for AI, error tl for fail */}
+          {!message.isError && (
+            isUser
+              ? <BracketEdge corner="tr" species="ink" size={10} />
+              : <BracketEdge corner="tl" species="silicon" size={10} />
+          )}
+          {message.isError && <BracketEdge corner="tl" species="error" size={10} />}
           {/* Inline timeline (reasoning + tool calls + tool output)
               for assistant messages. Renders only when expanded; the
               user clicks the affordance below to reveal. Two cases:
