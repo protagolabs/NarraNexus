@@ -4,6 +4,23 @@ stub: false
 last_verified: 2026-05-19
 ---
 
+## 2026-05-19 — filter WS disconnect noise on fresh_loop
+
+`_subscribe_loop` now installs `_ws_loop_exception_filter` on the
+per-thread `fresh_loop` before `ws_client.start()`. The SDK creates
+fire-and-forget `loop.create_task(...)` jobs for incoming message
+handling and reconnect plumbing; on WS reset they raise
+`ConnectionResetError` / `OSError` / `websockets.*` exceptions with no
+awaiter, and the default asyncio handler dumps "Task exception was
+never retrieved" + traceback per occurrence.
+
+The outer `while t.is_alive() and self.running` loop owns the actual
+reconnect (backoff + fresh credentials + audit), so those dropped tasks
+are pure log noise. The filter only swallows the connection-class
+exceptions — anything else still goes through `default_exception_handler`
+so real bugs are not silenced. `websockets.*` is matched by module name
+to avoid hard-coupling to a specific SDK exception class.
+
 ## 2026-05-19 — register message_read no-op processor
 
 `_subscribe_loop` used to register only `register_p2_im_message_receive_v1`.

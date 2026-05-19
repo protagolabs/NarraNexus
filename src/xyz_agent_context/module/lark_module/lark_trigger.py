@@ -133,6 +133,37 @@ def _install_lark_oapi_loop_proxy() -> None:
 _install_lark_oapi_loop_proxy()
 
 
+def _ws_loop_exception_filter(loop, context: dict) -> None:
+    """asyncio loop exception-handler that swallows known-transient
+    WebSocket disconnect noise from the Lark SDK.
+
+    The SDK fires `loop.create_task(...)` for incoming message handling
+    and reconnect plumbing. When the upstream WS resets, those tasks
+    raise `ConnectionResetError` / `OSError` / a `websockets.*` exception
+    with no awaiter, and the default handler logs "Task exception was
+    never retrieved" + full traceback per occurrence.
+
+    `_subscribe_loop` already handles the disconnect itself via its
+    outer `while t.is_alive() and self.running` loop (with backoff,
+    fresh credentials, and audit), so these dropped tasks are pure log
+    noise — but unknown exceptions are still surfaced via the loop's
+    default handler so real bugs are not silenced.
+
+    `websockets.*` exceptions are filtered by module-name prefix rather
+    than concrete type so we do not take a hard dependency on a
+    specific SDK exception class.
+    """
+    exc = context.get("exception")
+    if exc is None:
+        loop.default_exception_handler(context)
+        return
+    if isinstance(exc, (ConnectionResetError, ConnectionError, OSError)):
+        return
+    if type(exc).__module__.startswith("websockets."):
+        return
+    loop.default_exception_handler(context)
+
+
 # L-12: characters that must not survive into a sanitised display name.
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -599,6 +630,13 @@ class LarkTrigger(ChannelTriggerBase):
                         # asyncio loop.
                         fresh_loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(fresh_loop)
+                        # Silence "Task exception was never retrieved"
+                        # noise for SDK-internal fire-and-forget tasks
+                        # that raise on WS disconnect (the outer reconnect
+                        # loop owns the recovery).
+                        fresh_loop.set_exception_handler(
+                            _ws_loop_exception_filter
+                        )
                         ws_client._lock = asyncio.Lock()
                         ws_client.start()
                     except Exception as e:
