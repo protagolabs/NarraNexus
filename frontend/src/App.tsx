@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
@@ -57,6 +57,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, userId, logout } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const [validating, setValidating] = useState(true);
+  const location = useLocation();
   useAutoRestoreForcedMode();
 
   useEffect(() => {
@@ -94,7 +95,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     if (isForcedCloud() || isForcedLocal()) return <PageFallback />;
     return <Navigate to="/mode-select" replace />;
   }
-  if (!isLoggedIn) return <Navigate to="/login" replace />;
+  if (!isLoggedIn) {
+    // Preserve the URL the user was trying to reach so LoginPage can send
+    // them back after auth. This is what makes "Install in NarraNexus →
+    // Cloud" from website.narra.nexus land on the import page, not /chat.
+    // RegisterPage does NOT read `next` yet — fresh signups still land on
+    // the default. Tracked as a known edge case.
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/login?next=${next}`} replace />;
+  }
   if (validating) return <PageFallback />;
   return <>{children}</>;
 }
