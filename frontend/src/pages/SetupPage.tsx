@@ -11,8 +11,9 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Settings, ArrowRight, SkipForward } from 'lucide-react';
+import { ArrowRight, SkipForward } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
+import { BracketMarkLogo, BracketSectionLabel } from '@/components/nm';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -51,14 +52,16 @@ export function SetupPage() {
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--bg-deep)]">
       {/* Header */}
-      <div className="flex flex-col items-center pt-10 pb-6 animate-fade-in">
-        <div className="w-12 h-12 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_20px_var(--accent-glow)] mb-4">
-          <Settings className="w-6 h-6 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
-        </div>
-        <h1 className="text-2xl font-bold text-[var(--text-primary)]">
+      <div className="flex flex-col items-center pt-10 pb-6 animate-fade-in gap-3">
+        <BracketMarkLogo size={36} />
+        <BracketSectionLabel>Setup · Configure LLM Providers</BracketSectionLabel>
+        <h1
+          className="text-2xl font-bold"
+          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+        >
           Configure LLM Providers
         </h1>
-        <p className="text-sm text-[var(--text-secondary)] mt-2">
+        <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
           Set up your API keys so NarraNexus can connect to language models.
         </p>
       </div>
