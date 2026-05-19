@@ -1,31 +1,40 @@
 # Maintainers
 
 The current maintainer team. See [`GOVERNANCE.md`](./GOVERNANCE.md)
-for how this list changes.
+for how this list changes (how people join, how roles work, how
+someone steps down).
 
-The names below are intentionally kept brief — for any kind of contact,
-please use the channels in the **Contact** section at the bottom of
-this file rather than the listed handles directly. That keeps requests
-visible to the whole maintainer team and resilient to one maintainer
-being away.
+The names below are intentionally kept brief — for any kind of
+contact, please use the channels in the **Contact** section at the
+bottom of this file rather than reaching out to individuals directly.
+That keeps requests visible to the whole maintainer team and
+resilient to anyone being away.
 
-## Lead maintainer
+## Lead maintainers
 
-The lead maintainer role rotates with the project. The current holder
-is the founder of NarraNexus — for contact, use the routes in
-**Contact** below.
+| Order | Name      | Role                                                |
+| ----- | --------- | --------------------------------------------------- |
+| 1     | Xiong     | Lead maintainer · project leader                    |
+| 2     | Bin Liang | Lead maintainer · NarraNexus founder & day-to-day driver |
+
+Lead maintainers are the final reviewers on architecture decisions
+and edits to `CLAUDE.md` (per `CLAUDE.md` binding rule #11).
 
 ## Maintainers
 
-<!--
-Add maintainers below as the team grows. Suggested format:
+| Name           | Notes                                  |
+| -------------- | -------------------------------------- |
+| Hongyi Gu      | Backend & runtime                      |
+| Aoshine-T      | Backend & desktop                      |
+| UlyssesXC      | Module system & integrations           |
+| Chengyu Huang  | Frontend & UI                          |
+| henriklau17    | Docs & community                       |
+| Jiaming        | UI / frontend                          |
+| Xiny           | Frontend                               |
+| netmindCjx     | Infra / deployment                     |
 
-| Name | GitHub | Areas |
-| ---- | ------ | ----- |
-| Jane Doe | @janedoe | Frontend, Tauri |
--->
-
-_(none yet — see "How to become a maintainer" in `GOVERNANCE.md`)_
+Areas are best-effort labels for routing review pings, not exclusive
+ownership. Any maintainer can review any PR.
 
 ## Contact
 
@@ -46,6 +55,7 @@ will reach out privately.
 ## Acknowledgements
 
 This project owes a lot to early contributors whose work shaped the
-codebase before the public open-source release. We list them in the
-README's credits section. Active maintainers shown here are the
-people on call for ongoing review and triage.
+codebase before the public open-source release. Running
+`git shortlog -sn` shows the full contribution history; the
+maintainers listed above are the people on call for ongoing review
+and triage right now.
