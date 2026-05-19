@@ -464,16 +464,49 @@ async def build_bundle(
                 encoding="utf-8",
             )
 
-            # Per-instance memory family
-            # Per-instance memory tables — keyed by instance_id.
+            # Per-instance memory family — keyed by instance_id.
+            #
+            # All four memory tables in this block carry chat-derived
+            # content and are gated on `selection.include_chat_history`.
+            # Until 2026-05-19 the gate was missing here, so a bundle
+            # exported with "disable chat history" still leaked the
+            # ChatModule's verbatim message store — exactly the leak
+            # the toggle is supposed to prevent.
+            #
+            #   instance_json_format_memory_chat
+            #     ChatModule's primary message store. `memory` is JSON
+            #     `{"messages": [{role, content, timestamp}, ...]}` —
+            #     query path: `get_chat_history` MCP tool
+            #     (see module/chat_module/_chat_mcp_tools.py:73). On
+            #     import, the message JSON travels intact even after
+            #     instance_id rewrite; querying the imported agent
+            #     surfaces the original user's dialogue word-for-word.
+            #
+            #   instance_json_format_memory
+            #     Same shape, shared by Slack / Telegram / EventMemory
+            #     for IM-style conversation cache.
+            #
+            #   instance_module_report_memory
+            #     LLM-generated per-instance summaries of past dialogue.
+            #
+            #   module_report_memory  (handled separately below;
+            #     narrative-keyed legacy version used by EventMemoryModule).
+            #
+            # When the gate is off we still emit empty JSON arrays so
+            # the importer (which reads these files unconditionally and
+            # tolerates missing files) sees well-formed input and creates
+            # zero rows.
             for memory_table in (
                 "instance_module_report_memory",
                 "instance_json_format_memory",
                 "instance_json_format_memory_chat",
             ):
-                mem_rows = []
-                for iid in agent_instance_ids:
-                    mem_rows.extend(await db.get(memory_table, {"instance_id": iid}))
+                if selection.include_chat_history:
+                    mem_rows = []
+                    for iid in agent_instance_ids:
+                        mem_rows.extend(await db.get(memory_table, {"instance_id": iid}))
+                else:
+                    mem_rows = []
                 (agent_dir / f"{memory_table}.json").write_text(
                     json.dumps([_scrub_user_id(dict(r), user_id, memory_table) for r in mem_rows],
                                indent=2, ensure_ascii=False, default=str),
@@ -483,11 +516,16 @@ async def build_bundle(
             # Legacy module_report_memory — keyed by (narrative_id, module_name),
             # NOT by instance_id (the table predates per-instance memory; it's still
             # actively written by EventMemoryModule). Query per narrative instead.
-            mrm_rows = []
-            for nrec in n_rows:
-                mrm_rows.extend(
-                    await db.get("module_report_memory", {"narrative_id": nrec["narrative_id"]})
-                )
+            # Gated on include_chat_history for the same reason as the per-instance
+            # family above — module reports are LLM-distilled past conversation.
+            if selection.include_chat_history:
+                mrm_rows = []
+                for nrec in n_rows:
+                    mrm_rows.extend(
+                        await db.get("module_report_memory", {"narrative_id": nrec["narrative_id"]})
+                    )
+            else:
+                mrm_rows = []
             (agent_dir / "module_report_memory.json").write_text(
                 json.dumps([_scrub_user_id(dict(r), user_id, "module_report_memory") for r in mrm_rows],
                            indent=2, ensure_ascii=False, default=str),
