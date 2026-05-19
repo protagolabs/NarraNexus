@@ -31,8 +31,11 @@ context out of the box:
   rules (`.cursorrules` etc.).
 - **Anything else** (ChatGPT, Gemini, Aider…) — paste the contents of
   both files into your AI's context. We also keep
-  [`AGENT.md`](./AGENT.md) at the repo root as a vendor-neutral
-  pointer for any agent / editor that auto-loads it.
+  [`AGENTS.md`](./AGENTS.md) at the repo root following the
+  [agents.md](https://agents.md/) convention — it's a one-line
+  pointer to `CLAUDE.md` so editors that auto-load `AGENTS.md`
+  (Cursor, Codex, Jules, Gemini CLI, Aider, Zed, Warp, Copilot, …)
+  land in the same place.
 
 With that context loaded, your AI will follow our conventions without
 you having to memorize them. **Read the rest of this file once for

@@ -26,8 +26,8 @@ Bin哥给的三条核心需求：
 
 具体做法：
 
-- README / CONTRIBUTING 顶部明确告诉用户 → CLAUDE.md / `.mindflow/` / AGENT.md 的存在
-- AGENT.md 是面向所有非 Claude AI editor 的 vendor-neutral pointer，与
+- README / CONTRIBUTING 顶部明确告诉用户 → CLAUDE.md / `.mindflow/` / AGENTS.md 的存在
+- AGENTS.md 是面向所有非 Claude AI editor 的 vendor-neutral pointer，与
   CLAUDE.md 内容对齐（CLAUDE.md 是 source of truth）
 - mirror md 同步规则（铁律 #10）写进 PR 模板和 CI 检查里，但 **非 blocking**
   —— 第一次 PR 不该卡在文档同步上，maintainer 兜底
@@ -41,7 +41,7 @@ Bin哥给的三条核心需求：
 | 文件                  | 状态  | 说明                                                              |
 | --------------------- | ----- | ----------------------------------------------------------------- |
 | `CONTRIBUTING.md`     | 重写  | 205 行 → 110 行；顶部 §0 是 AI-assisted briefing；§0.1 解释铁律 #10；下面是 issue / PR / 命令快捷；非 coding 用户在顶部 callout 引导到 §1 |
-| `AGENT.md`            | 新建  | Vendor-neutral 给 Cursor / Continue / Aider 等 AI editor 的入口。English 摘要 CLAUDE.md 的核心约束 + "common tasks" 索引到 playbook |
+| `AGENTS.md`            | 新建  | [agents.md](https://agents.md/) 规范文件名（复数）。仅一段 redirect 到 `CLAUDE.md`，保持单一 source of truth |
 | `CODE_OF_CONDUCT.md`  | 新建  | Contributor Covenant 2.1 标准条款                                 |
 | `SECURITY.md`         | 新建  | private vulnerability reporting + in-scope / out-of-scope         |
 | `GOVERNANCE.md`       | 新建  | 角色 / merge 规则 / 第二审查清单 / 如何成为 maintainer / 如何 step down |
@@ -83,13 +83,13 @@ Bin哥给的三条核心需求：
 
 ### 3.5 其他
 
-- `.gitignore` —— 把历史遗留的 `AGENT.md` 行删掉（新 AGENT.md 是要 track 的）
+- `.gitignore` —— 把历史遗留的 `AGENTS.md` 行删掉（新 AGENTS.md 是要 track 的）
 
 ## 4. 我没动的东西
 
 - **`CLAUDE.md`** —— 铁律 #11，只 Owner 改。Round 1 / 2 都发现 CLAUDE.md 是
   中文 + 内嵌 "Superpowers" 等内部概念可能让外部贡献者困惑，但应由 Owner
-  亲自决定要不要双语 / 清理。AGENT.md 里我加了三段缓冲（语言提示 / "三个名字"
+  亲自决定要不要双语 / 清理。AGENTS.md 里我加了三段缓冲（语言提示 / "三个名字"
   解释 / common tasks 英文索引）来弥补
 - **`README.md`** —— 同事在改。所有建议都写到 `README_advice.md`
 - **现有 workflows `ci.yml` / `build-desktop.yml`** —— 工作的不动
@@ -109,17 +109,17 @@ Bin哥给的三条核心需求：
 3. `.mindflow/project/playbooks/` 被到处引用但不存在 → 建了目录 + placeholder
    README + 第一个 playbook (`add_new_module.md`)
 4. README 没 link CONTRIBUTING → 写进 `README_advice.md` 给同事
-5. "三个名字"（NarraNexus / xyz_agent_context / NexusAgent）→ AGENT.md 顶部
+5. "三个名字"（NarraNexus / xyz_agent_context / NexusAgent）→ AGENTS.md 顶部
    加了解释段落
 
 ### Round 2 — 想加 Module 的 Cursor 开发者
 
 explorer agent 中断没完整产出。我自己做 mental walk-through，发现：
 
-- AGENT.md 没具体 "add a new module" 指引 → 加了 Common tasks 索引段
+- AGENTS.md 没具体 "add a new module" 指引 → 加了 Common tasks 索引段
 - `add_new_module.md` playbook 缺失 → 建了完整版（10 步 + checklist）
 - CLAUDE.md 「新建 Module 步骤」是中文，Cursor 用户读不顺 → playbook 用英文
-  写一遍 + AGENT.md 顶部加 CLAUDE.md 语言提示
+  写一遍 + AGENTS.md 顶部加 CLAUDE.md 语言提示
 
 ### Round 3 — 完全没用 AI 的 bug-reporter
 
@@ -167,7 +167,7 @@ triage / 7d 提名静默通过）。
 ## 7. 已知 limitation / 后续 TODO
 
 1. **CLAUDE.md 语言** — 中文，需要 Owner 决定是否双语 / 是否分内外
-   两份。AGENT.md 已经做了英文 buffer，但根上的问题在 CLAUDE.md
+   两份。AGENTS.md 已经做了英文 buffer，但根上的问题在 CLAUDE.md
 2. **`.mindflow/project/playbooks/` 只有 1 个真正的 playbook**
    （`add_new_module.md`）+ 1 个 README placeholder。CLAUDE.md 列了
    10 个 playbook 名字，剩 9 个等社区 / maintainer 补

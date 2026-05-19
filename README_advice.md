@@ -71,7 +71,7 @@ repo-governance audit.
 ## Contributing & governance
 
 - New contributors: start with [`CONTRIBUTING.md`](./CONTRIBUTING.md).
-- AI editors: read [`AGENT.md`](./AGENT.md) (vendor-neutral) or
+- AI editors: read [`AGENTS.md`](./AGENTS.md) (vendor-neutral) or
   [`CLAUDE.md`](./CLAUDE.md) directly.
 - How the project is run, how to become a maintainer:
   [`GOVERNANCE.md`](./GOVERNANCE.md), [`MAINTAINERS.md`](./MAINTAINERS.md).
@@ -194,7 +194,7 @@ After your edits, sanity-check from a new visitor's perspective:
    answer: *"What is this and how do I run it?"* — should be yes.
 2. From the README alone, can you find your way to:
    - The contributing guide → ✅ if CONTRIBUTING.md is linked at least once
-   - AGENT.md / CLAUDE.md → ✅ via the AI section
+   - AGENTS.md / CLAUDE.md → ✅ via the AI section
    - Security reporting → ✅ via the Contributing & governance block
 3. Click every internal link. Make sure no `.md` path 404s after
    your rename / move.
