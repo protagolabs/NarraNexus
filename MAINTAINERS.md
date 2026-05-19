@@ -12,22 +12,27 @@ resilient to anyone being away.
 
 ## Lead maintainers
 
-| Order | GitHub                                              | Email                                                | Role                                |
-| ----- | --------------------------------------------------- | ---------------------------------------------------- | ----------------------------------- |
-| 1     | [@johnsonice](https://github.com/johnsonice)        | 12380880+johnsonice@users.noreply.github.com         | Project leader (a.k.a. Xiong)       |
-| 2     | [@BinLiang2021](https://github.com/BinLiang2021)    | 92085318+BinLiang2021@users.noreply.github.com       | Day-to-day driver                   |
+| Order | GitHub                                              | Email                                  | Role                                |
+| ----- | --------------------------------------------------- | -------------------------------------- | ----------------------------------- |
+| 1     | [@johnsonice](https://github.com/johnsonice)        | huangchengyu16@gmail.com               | Project leader (a.k.a. Xiong)       |
+| 2     | [@BinLiang2021](https://github.com/BinLiang2021)    | bin.liangmathematicsstudent@gmail.com  | Day-to-day driver                   |
 
 Lead maintainers are the final reviewers on architecture decisions
 and edits to `CLAUDE.md` (per `CLAUDE.md` binding rule #11).
 
 ## Maintainers
 
-| GitHub                                              | Email                                                | Notes               |
-| --------------------------------------------------- | ---------------------------------------------------- | ------------------- |
-| [@ghydsgaaa](https://github.com/ghydsgaaa)          | 113628995+ghydsgaaa@users.noreply.github.com         | Backend & runtime   |
-| [@Aoshine-T](https://github.com/Aoshine-T)          | 87623951+Aoshine-T@users.noreply.github.com          | Backend & desktop   |
-| [@zzfana407](https://github.com/zzfana407)          | 149455951+zzfana407@users.noreply.github.com         | Frontend            |
-| [@netmindCjx](https://github.com/netmindCjx)        | 199633231+netmindCjx@users.noreply.github.com        | MKT                 |
+| GitHub                                              | Email                                                 | Notes               |
+| --------------------------------------------------- | ----------------------------------------------------- | ------------------- |
+| [@ghydsgaaa](https://github.com/ghydsgaaa)          | hongyi.gu@netmind.uk                                  | Backend & runtime   |
+| [@Aoshine-T](https://github.com/Aoshine-T)          | 150418765tc@gmail.com                                 | Backend & desktop   |
+| [@zzfana407](https://github.com/zzfana407)          | 149455951+zzfana407@users.noreply.github.com[^xiny]   | Frontend            |
+| [@netmindCjx](https://github.com/netmindCjx)        | jiaxi.chen@netmind.life                               | MKT                 |
+
+[^xiny]: @zzfana407 has only committed through GitHub's web UI, so
+    we don't have a non-noreply email on file. Update this entry the
+    first time they commit from a local clone with their personal
+    address.
 
 Areas are best-effort labels for routing review pings, not exclusive
 ownership. Any maintainer can review any PR.
