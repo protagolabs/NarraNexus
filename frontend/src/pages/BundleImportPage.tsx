@@ -109,6 +109,10 @@ export default function BundleImportPage() {
         try {
           const r = await api.importBundleFromUrl(urlMode, expectedSha256);
           if (cancelled) return;
+          // Clear the "Waiting for backend..." message a previous attempt
+          // may have set — otherwise the warning persists on the review
+          // page even though the fetch ultimately succeeded.
+          setError(null);
           setPreflight(r);
           setStep('review');
           setBusy(false);
