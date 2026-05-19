@@ -21,11 +21,17 @@
 # vendor-neutral pointer that redirects AI editors to CLAUDE.md per
 # the agents.md convention — committed as part of repo governance.
 
-# CLAUDE_zh.md is the Owner's local Chinese draft of CLAUDE.md.
-# Only the English CLAUDE.md is committed (so all contributors and
-# their AI tools read a consistent canonical version). The Chinese
-# copy stays local for the Owner to edit comfortably and is then
-# translated to update CLAUDE.md.
+# CLAUDE.md / CLAUDE_zh.md — the Owner edits CLAUDE.md locally in
+# Chinese for ease of authoring; only the English version travels to
+# GitHub. CLAUDE_zh.md is a working copy of the same Chinese draft.
+#
+# IMPORTANT: gitignore by itself does NOT untrack an already-tracked
+# file. CLAUDE.md is currently tracked (the English version is in the
+# tree). The Owner's local Chinese edits are hidden from git via
+# `git update-index --skip-worktree CLAUDE.md` on this clone. The
+# entry below is for clarity + to keep ignore behavior consistent on
+# fresh clones where someone might temporarily create a Chinese copy.
+CLAUDE.md
 CLAUDE_zh.md
 
 # ── Operator-local probe / benchmark scripts (often hold real API keys) ──
