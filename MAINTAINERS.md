@@ -14,7 +14,7 @@ resilient to anyone being away.
 
 | Order | GitHub                                              | Email                                  | Role                                |
 | ----- | --------------------------------------------------- | -------------------------------------- | ----------------------------------- |
-| 1     | [@johnsonice](https://github.com/johnsonice)        | huangchengyu16@gmail.com               | Project leader (a.k.a. Xiong)       |
+| 1     | [@johnsonice](https://github.com/johnsonice)        | huangchengyu16@gmail.com               | Project leader       |
 | 2     | [@BinLiang2021](https://github.com/BinLiang2021)    | bin.liangmathematicsstudent@gmail.com  | Day-to-day driver                   |
 
 Lead maintainers are the final reviewers on architecture decisions
@@ -24,9 +24,9 @@ and edits to `CLAUDE.md` (per `CLAUDE.md` binding rule #11).
 
 | GitHub                                              | Email                                                 | Notes               |
 | --------------------------------------------------- | ----------------------------------------------------- | ------------------- |
-| [@ghydsgaaa](https://github.com/ghydsgaaa)          | hongyi.gu@netmind.uk                                  | Backend & runtime   |
-| [@Aoshine-T](https://github.com/Aoshine-T)          | 150418765tc@gmail.com                                 | Backend & desktop   |
-| [@zzfana407](https://github.com/zzfana407)          | 149455951+zzfana407@users.noreply.github.com[^xiny]   | Frontend            |
+| [@ghydsgaaa](https://github.com/ghydsgaaa)          | hongyi.gu@netmind.uk                                  | Backend & Agent   |
+| [@Aoshine-T](https://github.com/Aoshine-T)          | 150418765tc@gmail.com                                 | Backend & Agent   |
+| [@zzfana407](https://github.com/zzfana407)          | 149455951+zzfana407@users.noreply.github.com[^xiny]   | Test & Product          |
 | [@netmindCjx](https://github.com/netmindCjx)        | jiaxi.chen@netmind.life                               | MKT                 |
 
 [^xiny]: @zzfana407 has only committed through GitHub's web UI, so

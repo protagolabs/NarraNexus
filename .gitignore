@@ -39,6 +39,10 @@ CLAUDE_zh.md
 # chore/repo-governance branch; now lives locally only.
 README_advice.md
 
+# Design source files (HTML mockups, PDFs, Figma exports). They're
+# large, change frequently, and not needed in git history.
+/ui_enhance_elements/
+
 # ── Operator-local probe / benchmark scripts (often hold real API keys) ──
 # These are ad-hoc, single-machine investigations that read live provider
 # credentials inline. Keeping them untracked prevents another accidental
