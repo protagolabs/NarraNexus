@@ -230,21 +230,35 @@ class ClaudeAgentSDK:
 
         # Read-only QA mode: block mutating MCP tools at the CLI level while
         # keeping send_message_to_user_directly and read-only query tools.
+        #
+        # Claude CLI's --disallowedTools accepts exact tool names or per-server
+        # wildcards (mcp__server__*) only. The cross-server pattern
+        # mcp__*__update_* does NOT expand and silently matches nothing, which
+        # let update_awareness slip through during QA in early benchmark runs.
+        # Enumerate explicit tool names instead.
         if read_only:
             disallowed_tools.extend([
-                "mcp__*__extract_*",
-                "mcp__*__create_*",
-                "mcp__*__update_*",
-                "mcp__*__delete_*",
-                "mcp__*__save_*",
-                "mcp__*__schedule_*",
-                "mcp__*__add_*",
-                "mcp__*__remove_*",
-                "mcp__*__set_*",
-                "mcp__*__upload_*",
-                "mcp__*__write_*",
+                # awareness
+                "mcp__awareness_module__update_awareness",
+                "mcp__awareness_module__update_agent_name",
+                # social_network (extract/delete/create/merge mutate; search/get are reads)
+                "mcp__social_network_module__extract_entity_info",
+                "mcp__social_network_module__delete_entity",
+                "mcp__social_network_module__create_agent",
+                "mcp__social_network_module__merge_entities",
+                # job (create/update/pause/cancel mutate; retrieval_* are reads)
+                "mcp__job_module__job_create",
+                "mcp__job_module__job_update",
+                "mcp__job_module__job_pause",
+                "mcp__job_module__job_cancel",
+                # skill (save_* mutate)
+                "mcp__skill_module__skill_save_config",
+                "mcp__skill_module__skill_save_study_summary",
+                # gemini_rag (upload mutates; query is read)
+                "mcp__gemini_rag_module__rag_upload_file",
+                "mcp__gemini_rag_module__rag_upload_text",
             ])
-            logger.info(f"🔒 Read-only mode: {len(disallowed_tools)} tool patterns blocked")
+            logger.info(f"🔒 Read-only mode: {len(disallowed_tools)} mutating tools blocked")
 
         # Build ClaudeAgentOptions; only pass model when explicitly configured
         options_kwargs: dict[str, Any] = dict(
