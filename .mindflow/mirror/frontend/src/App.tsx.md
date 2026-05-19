@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-05-06
+last_verified: 2026-05-18
 stub: false
 ---
 
@@ -31,6 +31,8 @@ Reads from `configStore` (`isLoggedIn`, `userId`, `logout`) and `runtimeStore` (
 **All pages are lazy-loaded.** Every `const Foo = lazy(() => import(...))` call creates a code-split chunk. `Suspense` with `PageFallback` shows a spinner while the chunk loads. The only performance trade-off is a ~100ms delay on first navigation to each page.
 
 **`/app/chat` renders `null` as content.** The chat content (`ChatPanel` etc.) is rendered by `MainLayout`'s child slot logic, not by a dedicated route element. The `<Route path="chat" element={null} />` declaration exists only to make the route valid for `Navigate` destinations.
+
+**`/nm-playground` is a public dev-mode route.** Added in M2 (NM design system Phase 1). Renders `NMPlaygroundPage` — a visual gallery of every NM primitive in light + dark side-by-side. No auth required so it can be loaded before login during visual review. Not linked from any navigation. Should ideally be tree-shaken from production builds, but harmless if left in.
 
 ## Gotchas
 

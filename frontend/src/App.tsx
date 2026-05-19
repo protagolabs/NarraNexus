@@ -23,6 +23,9 @@ const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const ManageAgentsPage = lazy(() => import('@/pages/ManageAgentsPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+// NM design system dev gallery — public (no auth) so it can be loaded
+// before login during visual review. Not linked from any nav.
+const NMPlaygroundPage = lazy(() => import('@/pages/NMPlaygroundPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -254,6 +257,9 @@ function App() {
           path="/register"
           element={<PublicRoute><RegisterPage /></PublicRoute>}
         />
+
+        {/* NM design system gallery — public dev tool, no auth required */}
+        <Route path="/nm-playground" element={<NMPlaygroundPage />} />
 
         {/* Setup — requires login */}
         <Route
