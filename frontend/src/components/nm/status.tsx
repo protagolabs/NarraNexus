@@ -212,7 +212,7 @@ export function Toast({
         border: '1px solid var(--nm-hairline)',
         borderLeftWidth: 4,
         borderLeftColor: c,
-        boxShadow: '0 1px 0 rgba(42,38,32,0.04), 0 4px 12px rgba(42,38,32,0.08)',
+        boxShadow: 'var(--nm-elev-2)',
         color: 'var(--nm-ink)',
       }}
     >

@@ -233,10 +233,13 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
           style={
             isUser
               ? {
+                  // Own bubble — paper variant per NM design (the v5 winner of
+                  // the 5-iteration "own bubble" exploration). bg + edge swap
+                  // automatically per theme via the --nm-own-paper-* tokens.
                   background: 'var(--nm-own-paper)',
                   color: 'var(--nm-ink)',
-                  border: '1px solid var(--nm-hairline)',
-                  boxShadow: '0 1px 0 rgba(42,38,32,0.04), 0 2px 4px rgba(42,38,32,0.04)',
+                  border: '1px solid var(--nm-own-paper-edge)',
+                  boxShadow: 'var(--nm-raised-shadow)',
                 }
               : message.isError
                 ? {

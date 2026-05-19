@@ -39,7 +39,7 @@ const PopoverContent = React.forwardRef<
         background: 'var(--nm-raised)',
         border: '1px solid var(--nm-hairline)',
         borderRadius: 'var(--radius-md)',
-        boxShadow: '0 1px 0 rgba(42,38,32,0.04), 0 4px 12px rgba(42,38,32,0.08)',
+        boxShadow: 'var(--nm-elev-2)',
         color: 'var(--nm-ink)',
       }}
       {...props}

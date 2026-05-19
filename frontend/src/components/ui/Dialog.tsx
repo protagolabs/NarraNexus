@@ -55,7 +55,7 @@ export function Dialog({ isOpen, onClose, title, children, className, size = 'md
       {/* NM warm-ink backdrop with subtle blur (Axiom #4 — paper feel preserved) */}
       <div
         className="fixed inset-0 animate-fade-in"
-        style={{ background: 'rgba(42,38,32,0.45)', backdropFilter: 'blur(2px)' }}
+        style={{ background: 'var(--nm-backdrop)', backdropFilter: 'blur(2px)' }}
         onClick={onClose}
       />
 
@@ -74,7 +74,7 @@ export function Dialog({ isOpen, onClose, title, children, className, size = 'md
               background: 'var(--nm-raised)',
               border: '1px solid var(--nm-hairline)',
               borderRadius: 'var(--radius-xl)',
-              boxShadow: '0 1px 0 rgba(42,38,32,0.04), 0 12px 36px rgba(42,38,32,0.16)',
+              boxShadow: 'var(--nm-elev-3)',
             }}
           >
             <div className="relative">

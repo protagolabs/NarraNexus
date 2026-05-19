@@ -144,8 +144,8 @@ export function MessageBubble({
         style={{
           background: v.bg,
           color: v.color,
-          ...(variant === 'own'
-            ? { boxShadow: '0 1px 0 rgba(42,38,32,0.04), 0 2px 4px rgba(42,38,32,0.04)' }
+          ...(variant === 'own' || variant === 'own-lilac'
+            ? { boxShadow: 'var(--nm-elev-1)' }
             : {}),
         }}
       >

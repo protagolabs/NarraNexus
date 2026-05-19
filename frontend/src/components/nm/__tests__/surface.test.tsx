@@ -25,10 +25,12 @@ describe('RaisedPanel', () => {
     expect(container.querySelector('[data-nm="raised-panel"]')).toBeInTheDocument();
   });
 
-  test('has paper-raised lift shadow inline', () => {
+  test('has paper-raised lift via --nm-elev-1 token', () => {
     const { container } = render(<RaisedPanel>x</RaisedPanel>);
     const el = container.firstChild as HTMLElement;
-    expect(el.style.boxShadow).toContain('rgba(42,38,32,0.04)');
+    // Use the elevation token so the shadow auto-swaps per theme
+    // (light = ink-warm-alpha, dark = pure-black-alpha).
+    expect(el.style.boxShadow).toBe('var(--nm-elev-1)');
   });
 });
 

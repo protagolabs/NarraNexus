@@ -25,7 +25,7 @@ function Backdrop({ onClick }: { onClick?: () => void }) {
       onClick={onClick}
       className="fixed inset-0 z-[1000] animate-fade-in"
       style={{
-        background: 'rgba(42,38,32,0.45)',
+        background: 'var(--nm-backdrop)',
         backdropFilter: 'blur(2px)',
       }}
     />
@@ -113,7 +113,7 @@ export function Dialog({
       style={{
         background: 'var(--nm-raised)',
         border: '1px solid var(--nm-hairline)',
-        boxShadow: '0 1px 0 rgba(42,38,32,0.04), 0 12px 36px rgba(42,38,32,0.16)',
+        boxShadow: 'var(--nm-elev-3)',
       }}
     >
       {(title || showClose) && (
@@ -277,8 +277,8 @@ export function Drawer({
           borderLeft: isRight ? '1px solid var(--nm-hairline)' : undefined,
           borderRight: !isRight ? '1px solid var(--nm-hairline)' : undefined,
           boxShadow: isRight
-            ? '-2px 0 12px rgba(42,38,32,0.06)'
-            : '2px 0 12px rgba(42,38,32,0.06)',
+            ? `-2px 0 var(--nm-elev-edge)`
+            : `2px 0 var(--nm-elev-edge)`,
         }}
       >
         {(title || showClose) && (
@@ -349,7 +349,7 @@ export function Sheet({
           borderTopLeftRadius: 'var(--radius-xl)',
           borderTopRightRadius: 'var(--radius-xl)',
           maxHeight: '85vh',
-          boxShadow: '0 -4px 16px rgba(42,38,32,0.10)',
+          boxShadow: 'var(--nm-elev-sheet)',
           display: 'flex',
           flexDirection: 'column',
         }}

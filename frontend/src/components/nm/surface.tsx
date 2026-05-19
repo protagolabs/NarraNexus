@@ -70,8 +70,7 @@ export const RaisedPanel = forwardRef<HTMLDivElement, RaisedPanelProps>(
           className
         )}
         style={{
-          boxShadow:
-            '0 1px 0 rgba(42,38,32,0.04), 0 2px 6px rgba(42,38,32,0.05)',
+          boxShadow: 'var(--nm-elev-1)',
           ...rest.style,
         }}
         {...rest}
