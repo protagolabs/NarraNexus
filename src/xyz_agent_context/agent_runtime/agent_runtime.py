@@ -615,6 +615,28 @@ class AgentRuntime:
                 yield msg
 
             # =============================================================================
+            # Step 4.6: Synchronous turn persistence (BEFORE background / WS close)
+            # =============================================================================
+            # The conversation row the NEXT turn reads must be durable NOW. Step 5
+            # (below) is dispatched to a background task that can lag seconds-to-
+            # tens-of-seconds (embeddings, entity extraction, LLM summaries); if the
+            # user replies the instant they see the answer, that next turn would read
+            # chat history MISSING this exchange -> the agent "forgets" (the reported
+            # short-reply amnesia). So each module's hook_persist_turn (ChatModule:
+            # write the conversation row) runs synchronously here. Placed AFTER Step 4
+            # so the P3 narrative-routing rebind (4.0) has already repointed the chat
+            # instance, and the message lands in the thread it now belongs to.
+            from ._agent_runtime_steps.step_5_execute_hooks import (
+                build_after_execution_params,
+            )
+            try:
+                await self.hook_manager.hook_persist_turn(
+                    ctx.module_list, build_after_execution_params(ctx)
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"hook_persist_turn phase failed (non-fatal): {e}")
+
+            # =============================================================================
             # Step 5: Execute Hooks
             # =============================================================================
             # [Function] Call each Module's hook_after_event_execution
