@@ -1,7 +1,36 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-05-11
+last_verified: 2026-05-20
 ---
+
+## 2026-05-20 (Fix #2 P1) — unified time-sorted chat history, tagged by narrative
+
+`hook_data_gathering` no longer produces a long-term list + a separate
+cross-narrative blob. It now builds ONE timeline: the current narrative loaded
+in FULL (the old 40-cap removed) + cross-narrative via `_load_short_term_memory`,
+merged by timestamp, capped at `MERGED_HISTORY_MAX` (30, latest by time). Every
+message is tagged `meta_data.narrative_id` (long-term = `ctx_data.narrative_id`;
+cross = the source instance's `linked_narrative_ids[0]`) and
+`_tag_narrative_aliases()` batch-resolves each id → narrative name for the
+`[time · topic · nar_id]` tag the agent sees. `_load_short_term_memory` is now
+PURE RECENCY (latest `SHORT_TERM_MAX_MESSAGES`=30 by time; the 2026-05-11
+per-instance fairness cap / `SHORT_TERM_PER_INSTANCE` removed — Owner's call).
+The reasoning-splice (carry-forward of device codes / job ids / URLs) is KEPT.
+Heavy `[ChatHistory]` logging makes assembly verifiable from logs alone. Each
+timeline tag now also carries `evt=<event_id>` so the agent can drill into a
+turn's full agent-loop/reasoning via view_event; `[ChatHistory] timeline
+event_ids` logs the loaded ids for debugging (no raw text). See
+[[context_runtime.py]] for rendering + the preamble.
+
+## 2026-05-20 (Fix #2 P2) — recent background-activity track
+
+`_load_recent_actions()` collects the latest `RECENT_ACTIONS_MAX` (10)
+`message_type='activity'` rows across the user's chat instances — the centered
+small-text items in the UI (job runs, IM/channel activations, bus pings the
+agent did WITHOUT replying). These are still filtered OUT of the conversation
+timeline; surfaced separately (stored on `ctx_data.extra_data['recent_actions']`)
+with each row's `event_id` (for view_event drill-down) and a best-effort job
+title pulled from the event's env_context. [[context_runtime.py]] renders them.
 
 ## 2026-05-12 P0 #3 followup — drop final_output fallback, defer to step_3 helper_llm
 

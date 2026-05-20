@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-05-19
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — continuity keys off the last *visible* message (query OR response)
+
+`select()`'s continuity gate changed from `if session.last_query:` to
+`if session.last_query or session.last_response:`. Reason: when the agent
+messages the user proactively (e.g. from a scheduled job), [[step_4_persist_results.py]]
+anchors `last_response` + `current_narrative_id` but `last_query` is empty
+(no preceding user query). The old gate skipped continuity entirely in that
+case, so the user's short reply ("好") fell through to vector retrieval and
+mis-routed. Now continuity runs whenever there is any prior visible exchange,
+and [[continuity.py]] frames the proactive case as "the user is replying to a
+message the agent sent". `is_continuous=True` still reuses
+`session.current_narrative_id` (unchanged) — that anchor is now the chat-box
+anchor, so it's the narrative the user is actually looking at.
 
 ## 2026-05-19 — select() 新增 `is_user_chat` 参数
 

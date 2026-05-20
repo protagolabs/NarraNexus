@@ -206,9 +206,15 @@ class ChatModule(XYZBaseModule):
     - Short-term memory: User's recent cross-Narrative conversations (most recent K messages, no time limit)
     """
 
-    # Short-term memory configuration parameters (2026-02-09 optimization: removed time limit)
-    SHORT_TERM_MAX_MESSAGES = 15    # Hard cap on total short-term rows (across all other ChatModule instances)
-    SHORT_TERM_PER_INSTANCE = 5      # Per-instance cap before global merge (fairness — see _load_short_term_memory)
+    # 2026-05-20 unified-timeline rework (Fix #2): chat history is ONE
+    # time-sorted timeline = current narrative (all of it) + the latest
+    # cross-narrative messages, merged by time and capped. Cross-narrative is
+    # pure recency (no per-instance fairness cap — Owner's call: "只看时间顺序最新的").
+    # Each message is tagged with its narrative_id + alias so the agent can tell
+    # threads apart and (P3) re-route via tools. The narrative summary + the
+    # view_narrative tool cover whatever the cap drops.
+    SHORT_TERM_MAX_MESSAGES = 30     # latest cross-narrative rows by time (candidates)
+    MERGED_HISTORY_MAX = 30          # final unified-timeline cap (current + cross, by time)
     # Note: Long-term memory count is controlled by EverMemOS retrieval top_k (see narrative/config.py)
 
     def __init__(
@@ -452,6 +458,10 @@ class ChatModule(XYZBaseModule):
                             msg["meta_data"] = {}
                         msg["meta_data"]["instance_id"] = instance_id
                         msg["meta_data"]["memory_type"] = "long_term"
+                        # Tag with the current narrative (for the unified-timeline
+                        # [time · alias · nar_id] prefix). Long-term = the current
+                        # conversation thread the user is looking at.
+                        msg["meta_data"]["narrative_id"] = getattr(ctx_data, "narrative_id", None)
 
                         # Drop background activity rows — they are agent
                         # housekeeping (Matrix/Lark cascade forwards a
@@ -500,19 +510,11 @@ class ChatModule(XYZBaseModule):
                         f"[ChatHistory-A] Instance {instance_id}: {len(messages)} messages loaded"
                     )
 
-        # Limit to most recent N messages (Part A: recency-based).
-        # 40 (raised from 30 on 2026-05-11) — long narratives were
-        # hitting the old cap and losing earlier context. 40 is a
-        # compromise: enough headroom for a meaningful conversation arc
-        # without bloating the prompt; if this becomes the limiting
-        # factor again, consider a token-based cap instead of a count.
-        MAX_RECENT_MESSAGES = 40
-        if len(long_term_messages) > MAX_RECENT_MESSAGES:
-            original_count = len(long_term_messages)
-            long_term_messages = long_term_messages[-MAX_RECENT_MESSAGES:]
-            logger.info(
-                f"[ChatHistory-A] Truncated: {original_count} → {MAX_RECENT_MESSAGES} messages"
-            )
+        # 2026-05-20: load the CURRENT narrative in full (no per-track cap).
+        # The unified timeline (current + cross) is capped once, by time, at
+        # MERGED_HISTORY_MAX below — so the current thread isn't pre-truncated
+        # before it competes with cross-narrative recency.
+        logger.info(f"[ChatHistory] long-term (current narrative) loaded: {len(long_term_messages)} messages")
 
         # ========== 2. Load short-term memory (recent cross-Narrative conversations) ==========
         short_term_messages = []
@@ -535,7 +537,10 @@ class ChatModule(XYZBaseModule):
         long_term_messages = _apply_failed_turn_filter(long_term_messages)
         short_term_messages = _apply_failed_turn_filter(short_term_messages)
 
-        # ========== 3. Merge and sort ==========
+        # ========== 3. Merge into ONE time-sorted timeline, cap, tag aliases ==========
+        # Current narrative (long-term) + cross-narrative (short-term) become a
+        # single timeline ordered by absolute time. The agent sees every line
+        # tagged [time · alias · nar_id] and can tell threads apart / re-route.
         all_messages = long_term_messages + short_term_messages
 
         if all_messages:
@@ -544,13 +549,41 @@ class ChatModule(XYZBaseModule):
                 timestamp = meta.get("timestamp", "")
                 return timestamp if timestamp else "0000-00-00T00:00:00"
 
-            all_messages.sort(key=get_timestamp)
-            logger.info(
-                f"ChatModule.hook_data_gathering: Dual-track loading complete - "
-                f"long-term memory {len(long_term_messages)} messages, "
-                f"short-term memory {len(short_term_messages)} messages, "
-                f"total {len(all_messages)} messages"
+            all_messages.sort(key=get_timestamp)  # oldest -> newest
+
+            # Cap the unified timeline at the latest MERGED_HISTORY_MAX by time.
+            # Whatever falls off is reachable via the view_narrative tool (P3).
+            pre_cap = len(all_messages)
+            if pre_cap > self.MERGED_HISTORY_MAX:
+                all_messages = all_messages[-self.MERGED_HISTORY_MAX:]
+
+            # Resolve narrative_id -> human alias (name) for the tags.
+            await self._tag_narrative_aliases(all_messages)
+
+            # Strong logging (Owner req): assembly must be verifiable from logs.
+            from collections import Counter
+            by_nar = Counter(
+                (m.get("meta_data") or {}).get("narrative_alias")
+                or (m.get("meta_data") or {}).get("narrative_id")
+                or "unknown"
+                for m in all_messages
             )
+            logger.info(
+                f"[ChatHistory] unified timeline assembled: "
+                f"long-term(current)={len(long_term_messages)}, "
+                f"short-term(cross)={len(short_term_messages)}, "
+                f"merged={pre_cap} -> kept latest {len(all_messages)} (cap={self.MERGED_HISTORY_MAX})"
+            )
+            logger.info(
+                "[ChatHistory] per-narrative in timeline: "
+                + ", ".join(f"{name}×{cnt}" for name, cnt in by_nar.most_common())
+            )
+            # Debug aid (Owner req): record WHICH events are in context so we can
+            # reconstruct/inspect later — ids only, not raw text. Each message's
+            # event_id is also surfaced to the agent in its timeline tag so it
+            # can drill in via view_event().
+            evt_ids = [(m.get("meta_data") or {}).get("event_id") for m in all_messages]
+            logger.info(f"[ChatHistory] timeline event_ids ({len(evt_ids)}): {evt_ids}")
         else:
             logger.debug("ChatModule.hook_data_gathering: No history messages retrieved")
 
@@ -574,9 +607,146 @@ class ChatModule(XYZBaseModule):
                 f"<reply_to_user>\n{_original}\n</reply_to_user>"
             )
 
+        # P2: recent background-activity records (the centered small-text items
+        # in the UI) — surfaced as a separate compact list, NOT mixed into the
+        # conversation timeline. context_runtime renders them with event_ids so
+        # the agent can drill into any via view_event().
+        try:
+            recent_actions = await self._load_recent_actions()
+            if getattr(ctx_data, "extra_data", None) is None:
+                ctx_data.extra_data = {}
+            ctx_data.extra_data["recent_actions"] = recent_actions
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"ChatModule.hook_data_gathering: recent-actions load failed: {e}")
+
         # Fill merged history messages into ctx_data
         ctx_data.chat_history = all_messages
         return ctx_data
+
+    RECENT_ACTIONS_MAX = 10  # latest background activity records to surface
+
+    async def _load_recent_actions(self) -> List[Dict[str, Any]]:
+        """Collect the latest background 'activity' records (Fix #2 P2).
+
+        These are the centered small-text items in the chat box: turns where the
+        agent did background work WITHOUT replying to the user (job runs, IM
+        activations, bus pings). They are intentionally kept OUT of the chat
+        timeline (filtered as message_type='activity' in the loaders); here we
+        surface the latest N as a compact list so the agent knows what happened.
+        Each carries its event_id for view_event() drill-down; job rows get a
+        best-effort job title from the event's env_context.
+
+        Returns: list of {timestamp, working_source, summary, event_id,
+        narrative_id, title?} sorted oldest -> newest.
+        """
+        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.repository import InstanceRepository
+
+        db = await get_db_client()
+        repo = InstanceRepository(db)
+        instances = await repo.get_chat_instances_by_user(
+            agent_id=self.agent_id, user_id=self.user_id, exclude_instance_ids=[]
+        )
+        actions: List[Dict[str, Any]] = []
+        for inst in instances:
+            memory = await self.event_memory_module.search_instance_json_format_memory(
+                self.config.name, inst.instance_id
+            )
+            if not memory or "messages" not in memory:
+                continue
+            nid = (inst.linked_narrative_ids or [None])[0]
+            for m in memory.get("messages", []):
+                meta = m.get("meta_data", {})
+                if meta.get("message_type") != "activity":
+                    continue
+                actions.append({
+                    "timestamp": meta.get("timestamp", ""),
+                    "working_source": meta.get("working_source", "?"),
+                    "summary": (m.get("content") or "").strip()[:200],
+                    "event_id": meta.get("event_id"),
+                    "narrative_id": nid,
+                })
+
+        actions.sort(key=lambda a: a.get("timestamp", ""), reverse=True)
+        actions = actions[:self.RECENT_ACTIONS_MAX]
+        actions.reverse()  # chronological for display
+
+        # Best-effort job-title enrichment from each job event's env_context.
+        job_eids = [a["event_id"] for a in actions if a["working_source"] == "job" and a["event_id"]]
+        if job_eids:
+            try:
+                import re
+                import json as _json
+                rows = await db.get_by_ids("events", "event_id", job_eids)
+                title_by_eid: Dict[str, str] = {}
+                for r in rows or []:
+                    if not r:
+                        continue
+                    ec = r.get("env_context")
+                    txt = ""
+                    if isinstance(ec, str):
+                        try:
+                            txt = (_json.loads(ec) or {}).get("input", "") or ec
+                        except Exception:
+                            txt = ec
+                    m = re.search(r"Title\**\s*[:：]\s*\**\s*([^\n*]+)", txt)
+                    if m and r.get("event_id"):
+                        title_by_eid[r["event_id"]] = m.group(1).strip()
+                for a in actions:
+                    if a["event_id"] in title_by_eid:
+                        a["title"] = title_by_eid[a["event_id"]]
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"_load_recent_actions: job-title enrich failed ({e})")
+
+        logger.info(
+            f"[RecentActions] loaded {len(actions)} activity records "
+            f"(sources={[a['working_source'] for a in actions]}, "
+            f"event_ids={[a['event_id'] for a in actions]})"
+        )
+        return actions
+
+    async def _tag_narrative_aliases(self, messages: List[Dict[str, Any]]) -> None:
+        """Stamp meta_data['narrative_alias'] (the narrative name) onto each
+        message, resolved in one batch from its narrative_id. Powers the
+        [time · alias · nar_id] tag the agent sees in the unified timeline.
+        Best-effort: on a miss the renderer falls back to the raw id.
+        """
+        nar_ids = {
+            (m.get("meta_data") or {}).get("narrative_id") for m in messages
+        }
+        nar_ids.discard(None)
+        if not nar_ids:
+            return
+        alias_by_id: Dict[str, str] = {}
+        try:
+            from xyz_agent_context.utils.db_factory import get_db_client
+            import json as _json
+            db = await get_db_client()
+            rows = await db.get_by_ids("narratives", "narrative_id", list(nar_ids))
+            for row in rows or []:
+                if not row:
+                    continue
+                nid = row.get("narrative_id")
+                info = row.get("narrative_info")
+                name = None
+                if isinstance(info, str):
+                    try:
+                        name = (_json.loads(info) or {}).get("name")
+                    except Exception:
+                        name = None
+                elif isinstance(info, dict):
+                    name = info.get("name")
+                if nid and name:
+                    alias_by_id[nid] = name
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"_tag_narrative_aliases: resolve failed ({e}); tags fall back to id")
+        for m in messages:
+            meta = m.get("meta_data") or {}
+            nid = meta.get("narrative_id")
+            if nid:
+                meta["narrative_alias"] = alias_by_id.get(nid)
+                m["meta_data"] = meta
+        logger.info(f"[ChatHistory] resolved {len(alias_by_id)}/{len(nar_ids)} narrative aliases for timeline tags")
 
     async def _load_short_term_memory(
         self,
@@ -617,15 +787,12 @@ class ChatModule(XYZBaseModule):
             logger.debug("ChatModule._load_short_term_memory: No other ChatModule instances")
             return []
 
-        # Two-stage budgeting (2026-05-11 fairness fix):
-        # Stage A — per instance, keep only the most recent K rows
-        #          (SHORT_TERM_PER_INSTANCE = 5). Prevents one chatty
-        #          instance from saturating the 15-slot global cap and
-        #          starving every other narrative the user has touched.
-        # Stage B — flatten all instances' Stage-A survivors, sort by
-        #          timestamp descending, take SHORT_TERM_MAX_MESSAGES.
+        # Pure recency (2026-05-20): flatten every other narrative's messages,
+        # then take the latest SHORT_TERM_MAX_MESSAGES by timestamp. No
+        # per-instance fairness cap — the agent sees the genuinely most recent
+        # cross-narrative activity, tagged by narrative, and can drill into any
+        # thread via the view_narrative tool.
         short_term_messages: List[Dict[str, Any]] = []
-        per_instance_kept = 0
 
         for instance in other_instances:
             memory = await self.event_memory_module.search_instance_json_format_memory(
@@ -635,6 +802,9 @@ class ChatModule(XYZBaseModule):
                 continue
 
             messages = memory.get("messages", [])
+            # The narrative this cross-narrative instance belongs to (for the
+            # [time · alias · nar_id] tag the agent sees in the unified timeline).
+            inst_nar_id = (instance.linked_narrative_ids or [None])[0]
 
             # Filter + tag this instance's messages.
             keepers: List[Dict[str, Any]] = []
@@ -651,11 +821,12 @@ class ChatModule(XYZBaseModule):
                 if working_source != "chat" and msg.get("role") != "assistant":
                     continue
 
-                # Mark as short-term memory
+                # Mark as short-term memory + tag its narrative.
                 if "meta_data" not in msg:
                     msg["meta_data"] = {}
                 msg["meta_data"]["instance_id"] = instance.instance_id
                 msg["meta_data"]["memory_type"] = "short_term"
+                msg["meta_data"]["narrative_id"] = inst_nar_id
 
                 # Append attachment markers for the in-memory chat-history
                 # copy without touching the persisted content. Path is
@@ -682,18 +853,9 @@ class ChatModule(XYZBaseModule):
 
                 keepers.append(msg)
 
-            # Stage A: per-instance cap.
-            if len(keepers) > self.SHORT_TERM_PER_INSTANCE:
-                keepers.sort(
-                    key=lambda m: m.get("meta_data", {}).get("timestamp", ""),
-                    reverse=True,
-                )
-                keepers = keepers[:self.SHORT_TERM_PER_INSTANCE]
-
             short_term_messages.extend(keepers)
-            per_instance_kept += len(keepers)
 
-        # Stage B: global cap + final chronological ordering.
+        # Global cap + final chronological ordering: latest N by time.
         if short_term_messages:
             short_term_messages.sort(
                 key=lambda m: m.get("meta_data", {}).get("timestamp", ""),

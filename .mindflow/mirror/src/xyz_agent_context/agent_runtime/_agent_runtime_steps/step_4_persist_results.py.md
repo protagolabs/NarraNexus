@@ -1,8 +1,46 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-05-19
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 (Fix #2 P3) — 4.0 narrative routing signal
+
+New step 4.0 honors the agent's switch_narrative / create_narrative tool calls
+(basic_info MCP — see [[basic_info_module.py]]). `_detect_narrative_routing_signal`
+scans `execution_result.agent_loop_response` for the LAST such call; on switch it
+loads the target narrative, on create it makes one via
+`narrative_service.create_narrative`. The target then becomes the head of
+`ctx.narrative_list` (note: `ctx.main_narrative` is a read-only property over
+`narrative_list[0]`, so we override the list, not the property) + the local
+`main_narrative`, so the event attribution (4.4), markdown stats (4.2), summary
+updates, and the session anchor (4.5) all flow to it; `session.current_narrative_id`
+is repointed so the NEXT turn continues there. It ALSO re-binds THIS turn's chat
+persistence: step_5's ChatModule hook writes to the module object's
+`self.instance_id` (bound in step_1 to the ORIGINAL narrative's chat instance),
+so 4.0 calls `_ensure_user_chat_instance(target)` and resets every ChatModule in
+`ctx.module_list` (`instance_id`/`instance_ids`) + `ctx.user_chat_instances[target]`
+BEFORE step_5 runs — so the message lands in the thread it now belongs to, not
+the original. (Rebind is best-effort/try-except: on failure the event is still
+re-attributed and the message just stays in the original thread.)
+
+## 2026-05-20 — 4.5 anchor on ANY user-visible delivery (not just human turns)
+
+Supersedes the 2026-05-19 "仅在人-回复轮写 last_response" rule below. The session
+continuity anchor must track the **last message visible in the user's chat
+box** — which includes a message the agent DELIVERED to the user this turn even
+from a background trigger (a scheduled job / heartbeat can call
+`send_message_to_user_directly`; from the user's POV that's the latest
+interaction). New module-level `_turn_delivered_user_message(agent_loop_response,
+working_source)` reuses the `MessageSourceRegistry` reply-tool detection (no
+chat_module import — modules stay hot-pluggable, 铁律 #3). Anchor condition is
+now `is_user_chat OR delivered_user_message`. For a proactive (non-human)
+delivery, Step 1 skipped the anchor, so step_4 sets `current_narrative_id`
+= this turn's narrative, clears `last_query`/`last_query_embedding` (no prior
+user query) and sets `last_query_time=now`; `last_response` = the delivered
+message. Pure machine traffic (a job/bus turn that did NOT message the user)
+still leaves the anchor untouched. See [[narrative_service.py]] /
+[[session_service.py]] 2026-05-20.
 
 ## 2026-05-19 — 4.5 仅在「人-回复轮」写 `last_response`
 

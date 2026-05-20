@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-05-19
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 (Fix #2 P1) — render the unified timeline; drop the cross-narrative system-prompt section
+
+`build_input_for_framework` no longer splits chat_history into long/short and
+no longer injects cross-narrative memory as a separate system-prompt section
+(via `_build_short_term_memory_prompt` + `SHORT_TERM_MEMORY_HEADER` — now
+DEPRECATED/unused). It renders the single unified timeline (built by
+[[chat_module.py]]) as real role messages, each prefixed by
+`_format_timeline_tag()` → `[time · topic · nar_id]` plus the channel source
+prefix, and prepends `CHAT_HISTORY_TIMELINE_PREAMBLE` to the system prompt to
+teach the agent how to read it (tags, how it was assembled, and what the user
+can/can't see — reasoning is private). `[CHAT-CTX] unified timeline rendered`
+log line reports total / cross / current counts. `_format_timeline_tag` now also
+emits `evt=<event_id>` per line (for view_event drill-down).
+
+## 2026-05-20 (Fix #2 P2) — recent-actions section in the system prompt
+
+`_build_recent_actions_section` renders `ctx_data.extra_data['recent_actions']`
+(populated by [[chat_module.py]] `_load_recent_actions`) as a compact
+`RECENT_ACTIONS_HEADER` block appended to the system prompt — one line per
+background activity `- [time] <source>: <job title / summary> (evt=<id>)`. Kept
+separate from the conversation timeline so background work doesn't pollute it.
 
 ## 2026-05-19 — `_source` carried on final_messages
 

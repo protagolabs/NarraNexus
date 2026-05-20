@@ -159,7 +159,12 @@ class NarrativeService:
         # the "everything else" bucket.
         is_continuous = False
         continuity_reason = ""
-        if session and session.last_query:
+        # Run continuity against the last *user-visible* exchange — that is
+        # either the user's previous query OR the agent's last reply the user
+        # is now responding to (a proactive job/heartbeat message anchors only
+        # last_response, with last_query empty). Was `if session.last_query`,
+        # which skipped continuity entirely for proactive-message replies.
+        if session and (session.last_query or session.last_response):
             try:
                 detector = self._get_continuity_detector()
                 if detector:
