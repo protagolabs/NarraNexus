@@ -13,11 +13,11 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Square, Loader2, Sparkles, Paperclip, X, FileText, Image as ImageIcon, Mic, Bot } from 'lucide-react';
+import { Send, Square, Loader2, Sparkles, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot, Kbd } from '@/components/nm';
+import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot, Kbd, RingAvatar } from '@/components/nm';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
@@ -889,6 +889,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
+                agentName={currentAgent?.name || agentId}
               />
               {/* Render inline artifact preview cards for register_artifact
                   tool calls that returned an artifact_id */}
@@ -916,9 +917,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             output with no left-side avatar). */}
         {isStreaming && currentEvents.length > 0 && (
           <div className="flex gap-3 animate-fade-in">
-            <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
-              <Bot className="w-3.5 h-3.5" />
-            </div>
+            <RingAvatar
+              species="silicon"
+              label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
+              size="sm"
+              className="shrink-0"
+            />
             <div className="flex-1 min-w-0">
               <TurnTimeline events={currentEvents} isStreaming />
               {/* Mid-stream artifact preview is independent of the timeline:
@@ -968,9 +972,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           };
           return (
             <div className="flex gap-3 animate-fade-in">
-              <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
-                <Bot className="w-3.5 h-3.5" />
-              </div>
+              <RingAvatar
+                species="silicon"
+                label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
+                size="sm"
+                className="shrink-0"
+              />
               <div className="flex-1 min-w-0 py-2">
                 <div className="flex items-center gap-3">
                   <div className="relative">

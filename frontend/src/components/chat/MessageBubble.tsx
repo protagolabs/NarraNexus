@@ -30,9 +30,10 @@ interface MessageBubbleProps {
   isStreaming?: boolean;
   eventId?: string;    // For lazy-loading event log from history
   agentId?: string;    // Needed for the event log API call
+  agentName?: string;  // Drives the assistant avatar label (matches the sidebar AgentList)
 }
 
-export function MessageBubble({ message, isStreaming = false, eventId, agentId }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName }: MessageBubbleProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
   const userId = useConfigStore((s) => s.userId);
@@ -201,10 +202,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
   }, [message.content, message.timestamp]);
 
   // NM: user = Carbon ring (human), assistant = Silicon ring (AI).
-  // Avatar shows the agent_id or user_id initial.
+  // Assistant avatar mirrors the sidebar AgentList: first 2 chars of the
+  // agent name (falling back to 'AI' only when no name is available),
+  // instead of a hardcoded 'A'.
   const avatarLabel = isUser
     ? (userId || 'U').slice(0, 1)
-    : (message.role === 'assistant' ? 'A' : '?');
+    : (message.role === 'assistant' ? (agentName?.slice(0, 2) || 'AI') : '?');
 
   return (
     <div

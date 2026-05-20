@@ -451,10 +451,9 @@ export function AwarenessPanel() {
             Cancel
           </Button>
           <Button
-            variant="default"
+            variant="accent"
             onClick={handleSaveAwareness}
             disabled={isSaving}
-            className="bg-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/80"
           >
             {isSaving ? (
               <>

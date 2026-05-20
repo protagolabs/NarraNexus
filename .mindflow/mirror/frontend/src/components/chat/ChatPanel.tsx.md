@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-15
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — streaming avatar: Bot icon → name-driven RingAvatar
+
+Both in-flight streaming rows (the "events arriving" branch and the
+"Starting up…" branch) used to render a hardcoded lucide `<Bot>` icon as the
+left avatar — the "old robot" that didn't match the agent's real identity or
+the historical `MessageBubble` avatar. Replaced both with
+`<RingAvatar species="silicon" label={(currentAgent?.name || agentId || 'AI').slice(0, 2)} />`,
+so the live turn shows the same name-initial avatar as finished turns and the
+sidebar. Also threads `agentName={currentAgent?.name || agentId}` into
+`MessageBubble` (see its mirror md). `Bot` import dropped (now unused).
 
 ## 2026-05-15 — artifact card → inline badge
 
