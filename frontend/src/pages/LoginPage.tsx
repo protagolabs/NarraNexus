@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, UserPlus, Cloud } from 'lucide-react';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { useTheme } from '@/hooks';
@@ -19,6 +19,7 @@ import {
   Chip,
   Divider,
 } from '@/components/nm';
+import { isSafeReturnTo } from '@/lib/safe-return';
 import { CreateUserDialog } from './CreateUserDialog';
 
 export function LoginPage() {
@@ -29,6 +30,7 @@ export function LoginPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const { isDark } = useTheme();
   const { login, setAgents, setAgentId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
@@ -71,7 +73,14 @@ export function LoginPage() {
         setAgents(agentsRes.agents);
         setAgentId(agentsRes.agents[0].agent_id);
       }
-      navigate('/');
+      // Return-URL flow: ProtectedRoute redirects unauthenticated visitors
+      // to /login?next=<encoded-path>. After auth, send them back to that
+      // URL — but only if it's a same-origin relative path (open-redirect
+      // guard, see lib/safe-return). For unknown / unsafe / absent next,
+      // fall through to the default RootRedirect at "/".
+      const params = new URLSearchParams(location.search);
+      const next = params.get('next');
+      navigate(isSafeReturnTo(next) ? next : '/');
     } catch (err) {
       setError('Connection failed. Please try again.');
       console.error('Login error:', err);
