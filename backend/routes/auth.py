@@ -20,7 +20,11 @@ from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.repository import AgentRepository, UserRepository
+from xyz_agent_context.repository import (
+    AgentRepository,
+    UserRepository,
+    InviteCodeRepository,
+)
 from xyz_agent_context.schema import (
     LoginRequest,
     LoginResponse,
@@ -45,7 +49,6 @@ from backend.auth import (
     create_token,
     _is_cloud_mode,
     resolve_current_user_id,
-    INVITE_CODE,
 )
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.settings import settings as app_settings
@@ -133,23 +136,6 @@ async def register(request: RegisterRequest, http_request: Request):
         if not _is_cloud_mode():
             return RegisterResponse(success=False, error="Registration is only available in cloud mode")
 
-        # Validate invite code. INVITE_CODE has no default — when the
-        # operator hasn't set it, every comparison fails, registration
-        # stays closed. Surface a clearer error so an admin can spot the
-        # missing config quickly instead of debugging "invalid invite
-        # code" reports from real users.
-        if INVITE_CODE is None:
-            logger.warning(
-                "Registration attempted but server has no INVITE_CODE configured. "
-                "Set the INVITE_CODE environment variable to enable registration."
-            )
-            return RegisterResponse(
-                success=False,
-                error="Registration is currently disabled on this server.",
-            )
-        if request.invite_code != INVITE_CODE:
-            return RegisterResponse(success=False, error="Invalid invite code")
-
         # Validate password length
         if len(request.password) < 6:
             return RegisterResponse(success=False, error="Password must be at least 6 characters")
@@ -160,22 +146,52 @@ async def register(request: RegisterRequest, http_request: Request):
 
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
+        invite_repo = InviteCodeRepository(db_client)
+        invite_code = (request.invite_code or "").strip()
+
+        # Validate the invite code: it must exist and still be 'issued'.
+        # This is a fast pre-check purely for a clear error message — the
+        # atomic consume() below is the real gate against concurrent reuse.
+        invite = await invite_repo.get_by_code(invite_code)
+        if invite is None:
+            return RegisterResponse(success=False, error="Invalid invite code")
+        if invite.status != "issued":
+            if invite.status == "used":
+                return RegisterResponse(success=False, error="This invite code has already been used")
+            return RegisterResponse(success=False, error="This invite code is no longer valid")
 
         # Check if user already exists
         existing = await user_repo.get_user(request.user_id)
         if existing:
             return RegisterResponse(success=False, error="Username already taken")
 
-        # Create user with password
-        password_hash = hash_password(request.password)
-        await db_client.insert("users", {
-            "user_id": request.user_id,
-            "password_hash": password_hash,
-            "role": "user",
-            "user_type": "individual",
-            "display_name": request.display_name or request.user_id,
-            "status": "active",
-        })
+        # Atomically consume the invite code (issued -> used). The
+        # `status = 'issued'` filter inside consume() is the race guard:
+        # if another registration already claimed this code, `consumed`
+        # is False and we stop here.
+        consumed = await invite_repo.consume(invite_code, request.user_id)
+        if not consumed:
+            return RegisterResponse(success=False, error="This invite code has already been used")
+
+        # Create user with password. If the insert fails, revert the code
+        # back to 'issued' so a failed registration doesn't burn it.
+        try:
+            password_hash = hash_password(request.password)
+            await db_client.insert("users", {
+                "user_id": request.user_id,
+                "password_hash": password_hash,
+                "role": "user",
+                "user_type": "individual",
+                "display_name": request.display_name or request.user_id,
+                "status": "active",
+            })
+        except Exception as insert_err:
+            await invite_repo.revert_consume(invite_code)
+            logger.exception(
+                f"register: user insert failed, reverted invite code "
+                f"{invite_code}: {insert_err}"
+            )
+            return RegisterResponse(success=False, error="Registration failed, please try again")
 
         # Generate token
         token = create_token(request.user_id, "user")

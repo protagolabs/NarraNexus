@@ -8,6 +8,16 @@ stub: false
 
 Two optional string fields added to `AgentInfo` so the frontend NM messenger sidebar can render "what did this agent last say" on rows the user hasn't opened in the current session — without first fetching that agent's chat history. The values are derived server-side in `routes/auth.py::get_agents` (one window-function SELECT over `events.final_output`) and are `None` for agents with no completed reply yet.
 
+## 2026-05-15 — invite request DTOs removed
+
+The short-lived `InviteRequestRequest` / `InviteRequestResponse` (added
+2026-05-14 for the public `POST /api/invite/request` endpoint) are deleted.
+After the architecture pivot — the public invite-request surface moved
+to `narranexus-website` and NarraNexus exposes only the server-to-server
+`POST /api/invite/internal/issue` — those DTOs no longer have a caller.
+The new internal endpoint uses inline Pydantic models defined in
+`backend/routes/invite.py` (private, single-caller).
+
 ## 2026-05-14 — FileInfo becomes a recursive tree node
 
 `FileInfo` was flat (`filename`, `size`, `modified_at`). It now models a node

@@ -1,3 +1,28 @@
+---
+code_file: src/xyz_agent_context/settings.py
+last_verified: 2026-05-15
+stub: false
+---
+
+## 2026-05-15 — extend dotenv→os.environ passthrough whitelist
+
+The `.env → os.environ` bridge used to whitelist only the four LLM API keys.
+Backend code that reads `os.environ.get()` directly (rather than through the
+Settings object) — e.g. `backend/routes/invite.py` reading
+`INTERNAL_INVITE_SECRET`, `backend/config.py` reading `INVITE_AUTO_ISSUE_CAP` —
+got silently ignored: `.env` value never made it into `os.environ`, so
+`bash run.sh` / `make dev-backend` would launch without seeing them.
+
+Added `_DOTENV_PASSTHROUGH` alongside `_API_KEY_FIELDS`:
+
+- API keys still get the original "override shell env" semantic (the
+  desktop app writes them to `.env` and they must win)
+- Passthrough vars also forward to `os.environ`, same write-unconditional
+  behaviour (no separate setdefault path — match the established pattern)
+
+Add new entries to `_DOTENV_PASSTHROUGH` whenever introducing a backend
+config that's read via `os.environ.get()` and you want `.env` support.
+
 # settings.py
 
 Process-wide configuration object — reads `.env` and environment variables once at import time and exposes them as a typed singleton.
