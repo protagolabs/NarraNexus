@@ -3,6 +3,18 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-05-20
 ---
 
+## 2026-05-20 — conversation write moved to synchronous `hook_persist_turn`
+
+The conversation-row write (build user+assistant messages → `add_instance_json_format_memory`)
+moved OUT of `hook_after_event_execution` into the new SYNCHRONOUS `hook_persist_turn`
+(see [[base.py]] / [[hook_manager.py]] / [[agent_runtime.py]] Step 4.6). Reason: the
+old write lived in the backgrounded hook, which lags 3–19s; a user replying instantly
+raced it and the next turn read history missing the exchange ("short-reply amnesia").
+`hook_persist_turn` now writes it in-request, before the WS closes. What stays in the
+background `hook_after_event_execution` is ONLY the heavy Part-B embedding
+(`_embed_message_pair`), which re-locates this turn's user+assistant pair by `event_id`
+(robust to a later turn appending more messages before the background task runs).
+
 ## 2026-05-20 (Fix #2 hotfix) — resolve cross-narrative tag via links table
 
 P1 originally read each cross-narrative chat instance's narrative off
