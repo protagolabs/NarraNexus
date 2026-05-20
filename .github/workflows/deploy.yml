@@ -23,6 +23,11 @@ concurrency:
 
 jobs:
   deploy:
+    # Only the protagolabs fork owns the EC2s. On the upstream
+    # (NetMindAI-Open/NarraNexus) or any other fork this is false, so the
+    # job is SKIPPED (neutral grey, NOT a red X) — upstream never deploys
+    # and never needs the EC2_SSH_KEY secret.
+    if: github.repository == 'protagolabs/NarraNexus'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
