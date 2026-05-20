@@ -72,6 +72,7 @@ _API_KEY_FIELDS = {"OPENAI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANT
 _DOTENV_PASSTHROUGH = {
     "INTERNAL_INVITE_SECRET",  # backend/routes/invite.py — server-to-server auth
     "INVITE_AUTO_ISSUE_CAP",   # backend/config.py
+    "BUNDLE_FETCH_ALLOWED_HOSTS",  # backend/routes/bundle.py — /import/from-url SSRF guard
 }
 for _k, _v in _dotenv_values.items():
     if not _v:
