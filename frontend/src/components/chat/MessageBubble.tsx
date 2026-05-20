@@ -374,7 +374,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
 
           {/* Message content */}
           <div className={cn(
-            'text-sm break-words leading-relaxed',
+            'text-base break-words leading-relaxed',
             message.isError && 'text-[var(--color-red-500)]'
           )}>
             {isUser ? (
