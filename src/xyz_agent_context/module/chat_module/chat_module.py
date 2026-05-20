@@ -647,6 +647,9 @@ class ChatModule(XYZBaseModule):
         instances = await repo.get_chat_instances_by_user(
             agent_id=self.agent_id, user_id=self.user_id, exclude_instance_ids=[]
         )
+        nar_by_instance = await self._resolve_instance_narratives(
+            [i.instance_id for i in instances]
+        )
         actions: List[Dict[str, Any]] = []
         for inst in instances:
             memory = await self.event_memory_module.search_instance_json_format_memory(
@@ -654,7 +657,7 @@ class ChatModule(XYZBaseModule):
             )
             if not memory or "messages" not in memory:
                 continue
-            nid = (inst.linked_narrative_ids or [None])[0]
+            nid = nar_by_instance.get(inst.instance_id)
             for m in memory.get("messages", []):
                 meta = m.get("meta_data", {})
                 if meta.get("message_type") != "activity":
@@ -748,6 +751,32 @@ class ChatModule(XYZBaseModule):
                 m["meta_data"] = meta
         logger.info(f"[ChatHistory] resolved {len(alias_by_id)}/{len(nar_ids)} narrative aliases for timeline tags")
 
+    async def _resolve_instance_narratives(
+        self, instance_ids: List[str]
+    ) -> Dict[str, Optional[str]]:
+        """
+        Map each chat instance_id -> its linked narrative_id.
+
+        InstanceRepository.get_chat_instances_by_user returns base
+        ModuleInstanceRecord objects, which do NOT carry linked_narrative_ids:
+        that field lives only on the ModuleInstance runtime subclass and is not
+        populated by the SELECT. So the narrative each cross-narrative chat
+        instance belongs to must be resolved from instance_narrative_links here,
+        not read off the record attribute.
+        """
+        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.repository.instance_link_repository import (
+            InstanceNarrativeLinkRepository,
+        )
+
+        db = await get_db_client()
+        link_repo = InstanceNarrativeLinkRepository(db)
+        result: Dict[str, Optional[str]] = {}
+        for iid in instance_ids:
+            nids = await link_repo.get_narratives_for_instance(iid)
+            result[iid] = nids[0] if nids else None
+        return result
+
     async def _load_short_term_memory(
         self,
         module_name: str,
@@ -787,6 +816,10 @@ class ChatModule(XYZBaseModule):
             logger.debug("ChatModule._load_short_term_memory: No other ChatModule instances")
             return []
 
+        nar_by_instance = await self._resolve_instance_narratives(
+            [i.instance_id for i in other_instances]
+        )
+
         # Pure recency (2026-05-20): flatten every other narrative's messages,
         # then take the latest SHORT_TERM_MAX_MESSAGES by timestamp. No
         # per-instance fairness cap — the agent sees the genuinely most recent
@@ -804,7 +837,9 @@ class ChatModule(XYZBaseModule):
             messages = memory.get("messages", [])
             # The narrative this cross-narrative instance belongs to (for the
             # [time · alias · nar_id] tag the agent sees in the unified timeline).
-            inst_nar_id = (instance.linked_narrative_ids or [None])[0]
+            # Resolved from instance_narrative_links (NOT off the record — the
+            # base ModuleInstanceRecord has no linked_narrative_ids attribute).
+            inst_nar_id = nar_by_instance.get(instance.instance_id)
 
             # Filter + tag this instance's messages.
             keepers: List[Dict[str, Any]] = []

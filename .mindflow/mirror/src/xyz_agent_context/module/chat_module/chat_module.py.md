@@ -3,6 +3,24 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-05-20
 ---
 
+## 2026-05-20 (Fix #2 hotfix) — resolve cross-narrative tag via links table
+
+P1 originally read each cross-narrative chat instance's narrative off
+`instance.linked_narrative_ids[0]`. That was wrong and crashed in prod:
+`InstanceRepository.get_chat_instances_by_user` returns BASE
+`ModuleInstanceRecord` objects, which have NO `linked_narrative_ids` attribute
+(that field lives only on the `ModuleInstance` subclass in [[instance_schema.py]]
+and isn't populated by the SELECT anyway). The access raised `AttributeError`,
+the whole short-term load was swallowed by the try/except → the agent saw zero
+cross-narrative history → "amnesia". New
+`_resolve_instance_narratives(instance_ids)` maps each instance_id → narrative_id
+via `InstanceNarrativeLinkRepository.get_narratives_for_instance`
+(`instance_narrative_links`), used by BOTH `_load_short_term_memory` and
+`_load_recent_actions`. The unit tests now build REAL base records (no attr) +
+mock the link repo, so they fail the way prod did if anyone reads the attribute
+off the record again. (Below, "the source instance's `linked_narrative_ids[0]`"
+is superseded by this resolution.)
+
 ## 2026-05-20 (Fix #2 P1) — unified time-sorted chat history, tagged by narrative
 
 `hook_data_gathering` no longer produces a long-term list + a separate

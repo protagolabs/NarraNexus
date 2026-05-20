@@ -19,10 +19,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from xyz_agent_context.module.chat_module.chat_module import ChatModule
+from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord
 
 
 def _ts(minutes_ago: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()
+
+
+def _real_record(instance_id: str) -> ModuleInstanceRecord:
+    # What get_chat_instances_by_user actually returns: a base record with NO
+    # linked_narrative_ids attribute. The narrative is resolved via the links
+    # table (mocked here), never read off the record.
+    return ModuleInstanceRecord(
+        instance_id=instance_id, module_class="ChatModule", agent_id="a_act"
+    )
+
+
+def _patch_links(nar_map):
+    async def _get_nars(instance_id):
+        nid = nar_map.get(instance_id)
+        return [nid] if nid else []
+
+    return patch(
+        "xyz_agent_context.repository.instance_link_repository."
+        "InstanceNarrativeLinkRepository.get_narratives_for_instance",
+        new=AsyncMock(side_effect=_get_nars),
+    )
 
 
 @pytest.fixture
@@ -40,10 +62,8 @@ def _msg(role, content, ts, event_id, activity=False, ws="chat"):
 
 
 async def test_recent_actions_collects_activity_rows_only_latest_first(chat_module):
-    fake_instances = [
-        type("FI", (), {"instance_id": "chat_cur", "linked_narrative_ids": ["nar_cur"]})(),
-        type("FI", (), {"instance_id": "chat_other", "linked_narrative_ids": ["nar_other"]})(),
-    ]
+    fake_instances = [_real_record("chat_cur"), _real_record("chat_other")]
+    nar_map = {"chat_cur": "nar_cur", "chat_other": "nar_other"}
     fake_memories = {
         "chat_cur": {"messages": [
             _msg("user", "hi", _ts(50), "evt_chat1"),                      # not activity
@@ -63,7 +83,7 @@ async def test_recent_actions_collects_activity_rows_only_latest_first(chat_modu
     ), patch(
         "xyz_agent_context.repository.InstanceRepository.get_chat_instances_by_user",
         new=AsyncMock(return_value=fake_instances),
-    ):
+    ), _patch_links(nar_map):
         actions = await chat_module._load_recent_actions()
 
     # Only the 2 activity rows, oldest -> newest, with event_id + narrative_id.
@@ -76,7 +96,7 @@ async def test_recent_actions_collects_activity_rows_only_latest_first(chat_modu
 async def test_recent_actions_caps_at_max(chat_module):
     cap = ChatModule.RECENT_ACTIONS_MAX
     msgs = [_msg("assistant", f"act {i}", _ts(cap + 5 - i), f"evt_{i}", activity=True, ws="job") for i in range(cap + 5)]
-    fake_instances = [type("FI", (), {"instance_id": "chat_cur", "linked_narrative_ids": ["nar_cur"]})()]
+    fake_instances = [_real_record("chat_cur")]
     chat_module.event_memory_module.search_instance_json_format_memory = AsyncMock(
         return_value={"messages": msgs}
     )
@@ -86,7 +106,7 @@ async def test_recent_actions_caps_at_max(chat_module):
     ), patch(
         "xyz_agent_context.repository.InstanceRepository.get_chat_instances_by_user",
         new=AsyncMock(return_value=fake_instances),
-    ):
+    ), _patch_links({"chat_cur": "nar_cur"}):
         actions = await chat_module._load_recent_actions()
 
     assert len(actions) == cap
