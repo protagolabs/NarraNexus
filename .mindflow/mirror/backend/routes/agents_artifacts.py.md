@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/agents_artifacts.py
-last_verified: 2026-05-19
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — stale "quota" wording removed
+
+The per-user artifact quota was removed in v1.7.0 (see [[artifact_runner.py]]).
+Two leftover mentions of a "validation/quota path" / "same quota" in this doc
+were factually wrong (no quota is enforced anywhere) and have been corrected to
+just "validation" / path-confinement.
 
 ## 2026-05-19 — new POST /{aid}/heal endpoint
 
@@ -54,7 +61,7 @@ New / changed endpoints in this file:
 - POST `/{agent_id}/artifacts/register` — manual register (the workspace tree
   viewer "register as artifact" action). Delegates to
   `artifact_runner.register_artifact` so MCP and UI go through the same
-  validation/quota path.
+  validation path.
 - GET `/{agent_id}/artifacts/{aid}/view-token` — mints a short-TTL HMAC token
   and returns `{token, raw_url, expires_at}`. Frontend calls this once per
   artifact view; `raw_url` is the directory-style URL the iframe `src=` (or
@@ -109,7 +116,7 @@ Reasoning above — iframe `src=` for multi-file HTML cannot carry an
 Authorization header. The HMAC token in the URL path is the auth.
 
 **Manual register and the MCP tool share `artifact_runner.register_artifact`.**
-Same path-confinement, same quota, same "must be in a subdirectory" rule.
+Same path-confinement, same "must be in a subdirectory" rule.
 
 **`delete_source=false` is the default** so accidental dismissal cannot wipe
 the agent's working files. The frontend confirm popup makes this an explicit

@@ -171,7 +171,7 @@ Guidance:
   markdown table, and never an ASCII table in chat.
 - Don't paste the artifact URL into your reply — the UI already shows the tab.
 - If `register_artifact` returns an error, the error text states the cause
-  (path outside workspace, file missing, too large, quota); fix the inputs
+  (path outside workspace, file missing, too large); fix the inputs
   and call again — a failed call never blocks you and is safe to retry.
 """
 

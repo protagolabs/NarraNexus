@@ -167,7 +167,7 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
 
     Powers the "register as artifact" action in the workspace tree viewer.
     Delegates to the same `artifact_runner.register_artifact` the MCP tool
-    uses, so validation, quota, and path-confinement rules are identical.
+    uses, so validation and path-confinement rules are identical.
 
     `file_path` may be absolute or workspace-relative; it must be inside the
     agent's workspace AND in a subdirectory (not directly in the workspace

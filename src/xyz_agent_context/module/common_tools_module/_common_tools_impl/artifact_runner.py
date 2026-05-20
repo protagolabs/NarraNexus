@@ -6,8 +6,8 @@
 
 `register_artifact` registers a *pointer* to an entry file the agent already
 wrote inside its own workspace. It does NOT copy, move, or write any content —
-it validates the path, computes the artifact root directory size, enforces the
-per-user quota, and writes (or updates) one `instance_artifacts` row.
+it validates the path, computes the artifact root directory size, and writes
+(or updates) one `instance_artifacts` row.
 
 An artifact = an entry file + the directory it lives in (the "artifact root").
 The whole root directory is served by the backend, so a multi-file HTML app can
@@ -40,8 +40,10 @@ from xyz_agent_context.settings import settings
 
 
 # Per-artifact ceiling: the recursive size of one artifact's root directory.
-# Caps a single runaway artifact; the per-user aggregate quota (count + bytes,
-# deploy-mode aware) lives in settings and is enforced on top of this.
+# Caps a single runaway artifact. This is the ONLY artifact limit — there is no
+# per-user count or aggregate-byte quota. The old deploy-mode-aware quota
+# (50 local / 10 cloud + 100 MB total) was removed in v1.7.0; users may now
+# register any number of artifacts.
 MAX_ARTIFACT_BYTES = 25 * 1024 * 1024  # 25 MB
 
 ALL_KINDS = frozenset(
