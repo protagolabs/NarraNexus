@@ -33,6 +33,14 @@ read "Already completed" as success, re-minted instead of polling the
 device_code carried in its reasoning. (Carry works — reasoning is spliced
 back across turns via meta_data.reasoning; the agent took the wrong flow.) +1 test.
 
+Third bullet (from a live test of a freshly-bound agent): once the scope is
+satisfied, a downstream Lark API error (`403 permission deny` / `failed to
+query`) is NOT an auth problem — more auth/clicks won't fix it (resource-level
+/ Lark-side / lark-cli). Agent must stop minting/re-polling and tell the user.
+Why: after scopes were granted, `vc +notes --minute-tokens` returned `ok:true`
+(scope) then `403 permission deny` on the specific minute, and the agent
+looped retrying to timeout. +1 test.
+
 ## 2026-05-08 — Phase 2: subclass `ChannelModuleBase`
 
 `LarkModule` now inherits `xyz_agent_context.channel.ChannelModuleBase`

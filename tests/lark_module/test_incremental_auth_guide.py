@@ -491,3 +491,21 @@ def test_guide_separates_incremental_topup_from_three_click_binding():
     assert "already completed" in lower
     # must mention it's not the binding flow / not success
     assert any(s in lower for s in ["not the three-click", "binding flow", "first-time bot binding"])
+
+
+def test_guide_distinguishes_post_scope_resource_failure_from_auth():
+    """Once the scope is satisfied, a downstream Lark API error (403
+    permission deny / failed to query) is NOT fixable by more auth —
+    it's a resource-level / Lark-side / lark-cli issue. The agent must
+    stop re-minting/re-polling and tell the user, rather than loop
+    (which is what it did during the Xiong transcript saga after scopes
+    were granted).
+    """
+    from xyz_agent_context.module.lark_module.lark_module import (
+        _INCREMENTAL_AUTH_GUIDE,
+    )
+
+    lower = _INCREMENTAL_AUTH_GUIDE.lower()
+    assert "permission deny" in lower or "permission denied" in lower
+    assert "lark-cli" in lower  # names the possibility it's a Lark/CLI-side issue
+    assert any(s in lower for s in ["not an auth", "will not fix", "stop chasing", "do not mint or re-poll"])
