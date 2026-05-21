@@ -219,19 +219,34 @@ def test_post_message_extracts_title_and_body_text() -> None:
 
 
 def test_post_message_with_multiple_language_blocks_picks_first_non_empty() -> None:
+    """The post walker iterates language blocks and stops at the first
+    one with non-empty content. To verify "first non-empty wins" (not
+    "all blocks concatenated"), put DIFFERENT content in each language
+    block and assert only the winning block's content appears, NOT a
+    concatenation of both. ``en_us`` is empty so ``zh_cn`` wins.
+    """
     payload = {
         "en_us": {"title": "", "content": []},
         "zh_cn": {
-            "title": "标题",
-            "content": [[{"tag": "text", "text": "正文"}]],
+            "title": "中文标题",
+            "content": [[{"tag": "text", "text": "中文正文"}]],
+        },
+        "ja_jp": {  # extra language with DIFFERENT content
+            "title": "日本語タイトル",
+            "content": [[{"tag": "text", "text": "日本語本文"}]],
         },
     }
     parsed = _make_trigger().parse_event(
         _raw(message_type="post", content_payload=payload)
     )
     assert parsed is not None
-    assert "标题" in parsed.content
-    assert "正文" in parsed.content
+    # zh_cn won (first non-empty after en_us skipped).
+    assert "中文标题" in parsed.content
+    assert "中文正文" in parsed.content
+    # Negative assertions: ja_jp's content MUST NOT leak — proves
+    # the walker didn't concatenate all language blocks.
+    assert "日本語タイトル" not in parsed.content
+    assert "日本語本文" not in parsed.content
 
 
 def test_post_message_empty_payload_produces_empty_content() -> None:

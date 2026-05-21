@@ -408,3 +408,227 @@ async def test_fetch_attachments_never_raises_even_on_cli_exception(monkeypatch)
     # Must not raise.
     out = await t.fetch_attachments(parsed, _cred())
     assert out == []
+
+
+# ─────────────────────────────────────────────────────────────────────
+# M3 regression: attachments → trigger_extra_data wiring
+# Lark fully overrides _build_and_run_agent, so the base's attachment
+# injection logic does NOT run on Lark paths. Pin the Lark-side wiring
+# so a future refactor can't silently break the contract.
+# ─────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_attachments_wired_into_trigger_extra_data(monkeypatch, tmp_path):
+    """A non-empty ``attachments`` kwarg into ``_build_and_run_agent``
+    MUST populate ``trigger_extra_data["attachments"]`` with the
+    ``model_dump(mode="json")`` of each Attachment. The receiver
+    (ChatModule) keys on this exact dict shape — drift here would
+    silently break the attachment marker injection in chat_history.
+    """
+    from dataclasses import dataclass
+    from xyz_agent_context.schema.attachment_schema import (
+        Attachment, AttachmentCategory,
+    )
+    from xyz_agent_context.schema.parsed_message import ParsedMessage
+
+    # Redirect workspace so we don't write outside tmp.
+    from xyz_agent_context import settings as settings_mod
+    monkeypatch.setattr(
+        settings_mod.settings, "base_working_path", str(tmp_path)
+    )
+
+    # Capture trigger_extra_data forwarded to collect_run.
+    captured: dict = {}
+
+    async def _capture_collect_run(runtime, **kwargs):
+        captured.update(kwargs)
+
+        @dataclass
+        class _R:
+            output_text: str = ""
+            is_error: bool = False
+            error: object = None
+            raw_items: list = None
+
+            def __post_init__(self):
+                if self.raw_items is None:
+                    self.raw_items = []
+
+        return _R()
+
+    class _FakeRuntime:
+        def __init__(self, *a, **kw):
+            pass
+
+    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
+    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeRuntime)
+    monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
+    # Lark imports collect_run at module top, also patch the local symbol.
+    import xyz_agent_context.module.lark_module.lark_trigger as lt_mod
+    monkeypatch.setattr(lt_mod, "collect_run", _capture_collect_run)
+
+    # Avoid making real network calls / DB queries in the builder path.
+    async def _fake_resolve_owner(self, agent_id):
+        return "user_test_owner"
+
+    monkeypatch.setattr(
+        "xyz_agent_context.channel.channel_trigger_base.ChannelTriggerBase._resolve_agent_owner",
+        _fake_resolve_owner,
+    )
+
+    # Bypass the real context builder — return a tiny prompt.
+    class _FakeBuilder:
+        async def build_prompt(self, _cfg):
+            return "fake prompt"
+
+    t = LarkTrigger()
+    monkeypatch.setattr(t, "create_context_builder", lambda *a, **kw: _FakeBuilder())
+
+    parsed = ParsedMessage(
+        message_id="om_test_msg",
+        chat_id="oc_test_chat",
+        sender_id="ou_test_sender",
+        sender_name="Test Sender",
+        content="caption text",
+        timestamp_ms=1700000000000,
+        raw={},
+    )
+    fake_atts = [
+        Attachment(
+            file_id="att_abcdef01",
+            mime_type="application/pdf",
+            original_name="report.pdf",
+            size_bytes=12345,
+            category=AttachmentCategory.DOCUMENT,
+        ),
+        Attachment(
+            file_id="att_abcdef02",
+            mime_type="image/jpeg",
+            original_name="photo.jpg",
+            size_bytes=6789,
+            category=AttachmentCategory.IMAGE,
+        ),
+    ]
+
+    await t._build_and_run_agent(
+        _cred(),
+        message=parsed,
+        sender_name="Test Sender",
+        attachments=fake_atts,
+    )
+
+    # collect_run was called with trigger_extra_data containing attachments.
+    extra = captured.get("trigger_extra_data") or {}
+    assert "attachments" in extra, (
+        f"trigger_extra_data must carry 'attachments' when non-empty list "
+        f"passed. Got: {extra=}"
+    )
+    dumped = extra["attachments"]
+    assert isinstance(dumped, list) and len(dumped) == 2
+
+    # Each entry MUST be the model_dump(mode="json") dict — enum values
+    # serialized as strings (not enum instances), this matches the
+    # WS upload route shape that ChatModule consumes.
+    assert dumped[0]["file_id"] == "att_abcdef01"
+    assert dumped[0]["category"] == AttachmentCategory.DOCUMENT.value
+    assert dumped[1]["file_id"] == "att_abcdef02"
+    assert dumped[1]["category"] == AttachmentCategory.IMAGE.value
+
+
+@pytest.mark.asyncio
+async def test_empty_attachments_does_NOT_set_trigger_extra_data_key(
+    monkeypatch, tmp_path,
+):
+    """When ``attachments`` is empty or None, the key MUST NOT appear in
+    ``trigger_extra_data``. Matches the WS / base / Slack pattern so
+    ChatModule's ``ctx_data.extra_data.get("attachments")`` returns
+    None and chat_history flows text-only.
+    """
+    from dataclasses import dataclass
+    from xyz_agent_context.schema.parsed_message import ParsedMessage
+
+    from xyz_agent_context import settings as settings_mod
+    monkeypatch.setattr(
+        settings_mod.settings, "base_working_path", str(tmp_path)
+    )
+
+    captured: dict = {}
+
+    async def _capture_collect_run(runtime, **kwargs):
+        captured.update(kwargs)
+
+        @dataclass
+        class _R:
+            output_text: str = ""
+            is_error: bool = False
+            error: object = None
+            raw_items: list = None
+
+            def __post_init__(self):
+                if self.raw_items is None:
+                    self.raw_items = []
+
+        return _R()
+
+    class _FakeRuntime:
+        def __init__(self, *a, **kw):
+            pass
+
+    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
+    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import xyz_agent_context.module.lark_module.lark_trigger as lt_mod
+    monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeRuntime)
+    monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
+    monkeypatch.setattr(lt_mod, "collect_run", _capture_collect_run)
+
+    async def _fake_resolve_owner(self, agent_id):
+        return "user_test_owner"
+
+    monkeypatch.setattr(
+        "xyz_agent_context.channel.channel_trigger_base.ChannelTriggerBase._resolve_agent_owner",
+        _fake_resolve_owner,
+    )
+
+    class _FakeBuilder:
+        async def build_prompt(self, _cfg):
+            return "fake prompt"
+
+    t = LarkTrigger()
+    monkeypatch.setattr(t, "create_context_builder", lambda *a, **kw: _FakeBuilder())
+
+    parsed = ParsedMessage(
+        message_id="om_text_only",
+        chat_id="oc_test",
+        sender_id="ou_test",
+        sender_name="Test",
+        content="hello",
+        timestamp_ms=1700000000000,
+        raw={},
+    )
+
+    # Pass empty list — must NOT set "attachments" key.
+    await t._build_and_run_agent(
+        _cred(),
+        message=parsed,
+        sender_name="Test",
+        attachments=[],
+    )
+    extra = captured.get("trigger_extra_data") or {}
+    assert "attachments" not in extra, (
+        f"empty attachments list must NOT set the key. Got: {extra=}"
+    )
+
+    # Same with None.
+    captured.clear()
+    await t._build_and_run_agent(
+        _cred(),
+        message=parsed,
+        sender_name="Test",
+        attachments=None,
+    )
+    extra = captured.get("trigger_extra_data") or {}
+    assert "attachments" not in extra, (
+        f"None attachments must NOT set the key. Got: {extra=}"
+    )

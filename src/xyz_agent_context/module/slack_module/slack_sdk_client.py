@@ -174,6 +174,14 @@ class SlackSDKClient:
 
         Raises ``SlackSDKError`` on upstream failure. Returns the
         ``file`` sub-object (not the wrapping ``{ok, file}`` envelope).
+
+        TODO (Phase 2 cleanup): Slack ``files.info`` is Tier-3
+        rate-limited (~50/min). In a burst of caption-less multi-file
+        uploads this method is called serially per file with no retry /
+        backoff — a rate-limit error simply audits ``attachment_fetch_failed``
+        and skips the file. Acceptable for Phase 1b (rare path, never-raise
+        contract honored), but a structured retry with exponential backoff
+        on ``rate_limited`` error code would let bursts succeed.
         """
         try:
             resp = await self._client.files_info(file=file_id)
@@ -213,6 +221,14 @@ class SlackSDKClient:
 
         Raises ``SlackSDKError`` on HTTP non-2xx, network error, or
         oversize.
+
+        TODO (Phase 2 cleanup): a fresh ``aiohttp.ClientSession`` is
+        created per call. For a Slack DM with N files (multi-file
+        upload), this opens / tears down N sessions serially — each
+        with its own SSL handshake. Slack file downloads are infrequent
+        enough that this is fine for Phase 1b, but a long-lived shared
+        session (or session-per-credential pool) would amortize the
+        SSL cost. Defer until we observe real throughput pain.
         """
         headers = {"Authorization": f"Bearer {self._bot_token}"}
         timeout = aiohttp.ClientTimeout(total=timeout_seconds)

@@ -465,13 +465,21 @@ class LarkTrigger(ChannelTriggerBase):
                 "mime_hint":          <best guess; "" if unknown>,
                 "size_hint":          <bytes or 0 if not provided>,
                 "lark_message_id":    <msg_id>,        # needed for resource fetch URL
-                "lark_resource_type": <"file"|"image"|"audio"|"video"|"media">,
+                "lark_resource_type": <"file"|"image"|"audio"|"media">,
             }
 
         ``sticker`` is intentionally skipped — Lark stickers are reusable
         platform assets (emoji-like), not user uploads, and there's no
         useful target for the agent's Read tool. text / post produce no
         refs (their content already lives in ``ParsedMessage.content``).
+
+        Note on ``lark_resource_type``: Lark's "video+audio" container is
+        ``media`` (which is what ``message_type`` reports). There is no
+        Lark message_type named ``"video"`` at the time of writing — if
+        Lark ever adds a pure-video type, both ``message_type`` and the
+        resource_type would shift accordingly. Earlier docstring versions
+        listed ``"video"`` here speculatively; removed to avoid implying
+        the code emits a kind it never produces.
         """
         if message_type not in ("image", "file", "audio", "media"):
             return []

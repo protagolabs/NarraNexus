@@ -333,6 +333,19 @@ class ChannelTriggerBase(ABC):
             ``message.content`` text — attachment loss is graceful
             degradation, not a worker crash. Mirrors the never-raise
             contract on ``ChannelModuleBase.hook_data_gathering``.
+
+        Cross-platform ``kind`` field vocabulary is INTENTIONALLY
+        non-normalized: each subclass uses its platform's native taxonomy:
+          - Telegram: ``"document"`` / ``"photo"`` / ``"voice"`` /
+            ``"audio"`` / ``"video"``
+          - Slack:    ``"file"`` (single value — Slack treats every
+            upload as a generic file)
+          - Lark:     ``"image"`` / ``"file"`` / ``"audio"`` / ``"media"``
+        The base class does NOT read ``kind`` anywhere. If you add
+        cross-channel logic that switches on it, you MUST normalize
+        first; otherwise the same ``"file"`` upload behaves differently
+        across platforms. Cross-platform normalization is deferred to a
+        post-Phase-2 cleanup (would touch all three subclass parsers).
         """
         return []
 

@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
@@ -440,10 +439,10 @@ class TelegramTrigger(ChannelTriggerBase):
         reply_to_str: Optional[str] = str(reply_to_id) if reply_to_id is not None else None
 
         # Stash refs in ``raw`` so fetch_attachments can read them later
-        # without polluting the canonical ParsedMessage schema. We pass
-        # the original ``raw`` dict through; mutating it is fine here
-        # because each Update is consumed exactly once before being
-        # discarded (we own it after yield).
+        # without polluting the canonical ParsedMessage schema. We make
+        # a shallow copy first (``raw = dict(raw)``) so the caller's dict
+        # is never mutated — matches the immutability contract used by
+        # SlackTrigger and LarkTrigger's parse_event implementations.
         if refs:
             raw = dict(raw)
             raw["attachment_refs"] = refs
@@ -828,7 +827,3 @@ class TelegramTrigger(ChannelTriggerBase):
             f"Sorry, I hit an error processing your message: "
             f"{getattr(error, 'message', '') or 'unknown'}"
         )
-
-
-# Convenience for `re` users — keep import explicit to avoid lint warning
-_ = re  # currently unused at module scope, retained for future entity parsing
