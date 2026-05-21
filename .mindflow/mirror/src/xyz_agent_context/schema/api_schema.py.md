@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-05-19
+last_verified: 2026-05-21
 stub: false
 ---
+
+## 2026-05-21 — Onboarding schemas
+
+Added `OnboardingProgress` / `OnboardingResponse` / `UpdateOnboardingRequest`
+for the new-user onboarding checklist (see `backend/routes/auth.py.md`).
+`OnboardingProgress` carries three write-once-true flags
+(`first_agent_created`, `template_applied`, `dismissed`); it is stored
+inside `users.metadata`, not as its own table. Also re-exported from
+`schema/__init__.py` (both the import block and `__all__`).
 
 ## 2026-05-19 — AgentInfo gains last_assistant_preview / last_assistant_at
 

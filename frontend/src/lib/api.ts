@@ -40,6 +40,7 @@ import type {
   AgentListResponse,
   CreateUserResponse,
   UpdateTimezoneResponse,
+  OnboardingResponse,
   SkillListResponse,
   SkillOperationResponse,
   SkillStudyResponse,
@@ -344,6 +345,25 @@ class ApiClient {
         user_id: userId,
         timezone: timezone,
       }),
+    });
+  }
+
+  /** New-user onboarding checklist state (cloud version). */
+  async getOnboarding(userId: string): Promise<OnboardingResponse> {
+    return this.request<OnboardingResponse>(
+      `/api/auth/onboarding?user_id=${encodeURIComponent(userId)}`,
+    );
+  }
+
+  /** Mark a single onboarding step complete. Write-once-true on the
+   *  backend — passing a step here can only ever set it, never clear it. */
+  async markOnboardingStep(
+    userId: string,
+    step: 'first_agent_created' | 'template_applied' | 'dismissed',
+  ): Promise<OnboardingResponse> {
+    return this.request<OnboardingResponse>('/api/auth/onboarding', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, [step]: true }),
     });
   }
 

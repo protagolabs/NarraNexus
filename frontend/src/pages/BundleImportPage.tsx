@@ -32,7 +32,7 @@ type Step = 'upload' | 'review' | 'done';
 export default function BundleImportPage() {
   const navigate = useNavigate();
   const { refresh: refreshTeams } = useTeamsStore();
-  const { refreshAgents } = useConfigStore();
+  const { refreshAgents, userId } = useConfigStore();
   const { dialog } = useConfirm();
 
   // Deep-link mode: when mounted at /app/templates/install?url=…&sha256=…
@@ -156,6 +156,12 @@ export default function BundleImportPage() {
       setStep('done');
       await refreshTeams();
       await refreshAgents();
+      // A confirmed import counts as "applied a template" for the
+      // onboarding checklist. Best-effort — never let it surface as an
+      // import error.
+      if (userId) {
+        api.markOnboardingStep(userId, 'template_applied').catch(() => {});
+      }
     } catch (e: any) {
       const msg = e?.message || String(e);
       // Special case: preflight session expired (>6h since upload, or

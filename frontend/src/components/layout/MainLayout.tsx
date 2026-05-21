@@ -36,6 +36,7 @@ import { ContextPanelHeader, type ContextTab } from './ContextPanelHeader';
 import { ContextPanelContent } from './ContextPanelContent';
 import { ResizableDivider } from './ResizableDivider';
 import { ChatPanel } from '@/components/chat';
+import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { ArtifactColumn } from '@/components/artifacts';
 import { useConfigStore, usePreloadStore, useArtifactStore } from '@/stores';
@@ -154,9 +155,11 @@ export function ChatView() {
         className="relative flex-[5] min-w-0 flex overflow-hidden"
       >
         {/* Chat column — NM paper card (the actual conversation surface,
-            --nm-card sits on top of the warm nm-paper background). */}
+            --nm-card sits on top of the warm nm-paper background).
+            flex-col so the (cloud-only, self-hiding) onboarding checklist
+            can sit above the chat without ChatPanel losing its height. */}
         <div
-          className="min-w-[400px] animate-fade-in overflow-hidden rounded-[var(--radius-md)]"
+          className="min-w-[400px] animate-fade-in overflow-hidden rounded-[var(--radius-md)] flex flex-col"
           style={{
             background: 'var(--nm-card)',
             border: '1px solid var(--nm-hairline)',
@@ -165,7 +168,10 @@ export function ChatView() {
               : { flexGrow: 1, flexBasis: 0 }),
           }}
         >
-          <ChatPanel onAgentComplete={refreshAll} />
+          <OnboardingChecklist />
+          <div className="flex-1 min-h-0">
+            <ChatPanel onAgentComplete={refreshAll} />
+          </div>
         </div>
 
         {/* Resizable divider (chat ↔ artifacts). Hidden in sliver mode.

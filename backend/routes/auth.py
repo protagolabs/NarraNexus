@@ -42,6 +42,9 @@ from xyz_agent_context.schema import (
     CreateUserResponse,
     UpdateTimezoneRequest,
     UpdateTimezoneResponse,
+    OnboardingProgress,
+    OnboardingResponse,
+    UpdateOnboardingRequest,
 )
 from backend.auth import (
     hash_password,
@@ -1196,3 +1199,86 @@ async def update_timezone(request: UpdateTimezoneRequest):
             success=False,
             error=str(e)
         )
+
+
+# =============================================================================
+# Onboarding checklist
+# =============================================================================
+
+# Key under users.metadata where the onboarding checklist state lives. The
+# metadata column is a shared JSON blob, so reads must merge-and-write to
+# avoid clobbering sibling keys.
+_ONBOARDING_METADATA_KEY = "onboarding_progress"
+
+
+def _read_onboarding(metadata: Optional[dict]) -> OnboardingProgress:
+    """Extract OnboardingProgress from a user's metadata dict (or defaults)."""
+    raw = (metadata or {}).get(_ONBOARDING_METADATA_KEY) or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    return OnboardingProgress(
+        first_agent_created=bool(raw.get("first_agent_created", False)),
+        template_applied=bool(raw.get("template_applied", False)),
+        dismissed=bool(raw.get("dismissed", False)),
+    )
+
+
+@router.get("/onboarding", response_model=OnboardingResponse)
+async def get_onboarding(user_id: str):
+    """Return the new-user onboarding checklist state for `user_id`.
+
+    The frontend calls this on chat-page mount to decide whether to show
+    the checklist card and which rows are already checked.
+    """
+    try:
+        db_client = await get_db_client()
+        user_repo = UserRepository(db_client)
+        user = await user_repo.get_user(user_id)
+        if not user:
+            return OnboardingResponse(success=False, error="User not found")
+        return OnboardingResponse(
+            success=True,
+            progress=_read_onboarding(user.metadata),
+        )
+    except Exception as e:
+        logger.exception(f"Error reading onboarding state: {e}")
+        return OnboardingResponse(success=False, error=str(e))
+
+
+@router.post("/onboarding", response_model=OnboardingResponse)
+async def update_onboarding(request: UpdateOnboardingRequest):
+    """Mark one or more onboarding steps complete.
+
+    Write-once-true: only fields explicitly True in the request are
+    applied; None / False are ignored so a completed step can never be
+    reverted. The merge reads the user's full metadata, updates only the
+    `onboarding_progress` sub-key, and writes the whole dict back so
+    sibling metadata keys are preserved.
+    """
+    try:
+        db_client = await get_db_client()
+        user_repo = UserRepository(db_client)
+        user = await user_repo.get_user(request.user_id)
+        if not user:
+            return OnboardingResponse(success=False, error="User not found")
+
+        current = _read_onboarding(user.metadata)
+        merged = OnboardingProgress(
+            first_agent_created=current.first_agent_created
+            or request.first_agent_created is True,
+            template_applied=current.template_applied
+            or request.template_applied is True,
+            dismissed=current.dismissed or request.dismissed is True,
+        )
+
+        metadata = dict(user.metadata or {})
+        metadata[_ONBOARDING_METADATA_KEY] = merged.model_dump()
+        await user_repo.update_user(request.user_id, {"metadata": metadata})
+
+        logger.info(
+            f"Onboarding updated for {request.user_id}: {merged.model_dump()}"
+        )
+        return OnboardingResponse(success=True, progress=merged)
+    except Exception as e:
+        logger.exception(f"Error updating onboarding state: {e}")
+        return OnboardingResponse(success=False, error=str(e))
