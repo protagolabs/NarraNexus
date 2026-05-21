@@ -378,7 +378,11 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
             message.isError && 'text-[var(--color-red-500)]'
           )}>
             {isUser ? (
-              <span className="whitespace-pre-wrap">{message.content}</span>
+              // Match the Agent reply's font size: the Markdown wrapper
+              // (.markdown-content) renders at 0.95rem, but a plain user span
+              // would inherit the parent .text-sm (0.85rem) and look smaller.
+              // Pin 0.95rem here so both bubbles read at the same size.
+              <span className="whitespace-pre-wrap text-[0.95rem]">{message.content}</span>
             ) : message.isError ? (
               <span className="whitespace-pre-wrap">{message.content}</span>
             ) : (

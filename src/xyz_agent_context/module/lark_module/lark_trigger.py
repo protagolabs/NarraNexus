@@ -484,10 +484,20 @@ class LarkTrigger(ChannelTriggerBase):
     async def resolve_sender_name(
         self, sender_id: str, credential: LarkCredential
     ) -> str:
-        """lark-cli get-user lookup. Best-effort — returns 'Unknown' on miss."""
+        """Resolve a sender's display name via the owner's user token.
+
+        Best-effort — returns 'Unknown' on miss. We look up names with
+        `--as user` (see ``LarkCLIClient.get_user``); the bot tenant token
+        can't read names. An agent that never completed the three-click
+        user authorization has no user token, so we skip the doomed CLI
+        call and stay 'Unknown' rather than spawning a subprocess that can
+        only fail.
+        """
+        if not credential.user_oauth_ok():
+            return "Unknown"
         try:
             user_info = await self._cli.get_user(
-                credential.agent_id, user_id=sender_id
+                credential.agent_id, user_id=sender_id, identity="user"
             )
             if user_info.get("success"):
                 outer = user_info.get("data", {})

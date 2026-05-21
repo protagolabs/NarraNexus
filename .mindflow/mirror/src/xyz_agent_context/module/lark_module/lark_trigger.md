@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-05-19
+last_verified: 2026-05-21
 ---
+
+## 2026-05-21 — `resolve_sender_name` resolves via owner user token
+
+Every sender was logging as "Unknown" because `get_user --as bot` can't
+read names (bot lacks `contact:user.base:readonly`). The agent then
+hallucinated identities (famously calling user "kz" "Zehua" from its
+roster). Fix in two parts:
+
+- `get_user` now uses `--as user` (see `lark_cli_client.md`).
+- `resolve_sender_name` gates on `credential.user_oauth_ok()`: an agent
+  that never completed the three-click user auth has no user token, so
+  we return "Unknown" immediately instead of spawning a CLI call that can
+  only fail. This is the accepted boundary — bot-only binds stay
+  anonymous until the owner finishes Click 3.
 
 ## 2026-05-19 (PM) — `_ws_loop_exception_filter` now `loop.stop()`s instead of swallowing
 
