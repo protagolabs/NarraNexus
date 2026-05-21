@@ -126,16 +126,10 @@ export function LoginPage() {
         {/* Brand header — original NarraNexus logo preserved */}
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <img
-            src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
+            src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
             alt="NarraNexus"
-            className="h-12 w-auto object-contain"
+            className="h-16 w-auto object-contain"
           />
-          <h1
-            className="text-2xl font-bold tracking-tight"
-            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
-          >
-            NarraNexus
-          </h1>
           <div
             className="text-[10px] uppercase tracking-[0.22em]"
             style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}

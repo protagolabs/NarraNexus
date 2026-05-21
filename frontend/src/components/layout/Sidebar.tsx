@@ -164,13 +164,10 @@ export function Sidebar() {
           {!collapsed && (
             <div className="flex items-center gap-0 animate-fade-in min-w-0">
               <img
-                src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
+                src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
                 alt="NarraNexus"
-                className="h-12 w-auto object-contain shrink-0"
+                className="h-11 w-auto object-contain shrink-0"
               />
-              <span className="text-[16px] font-medium leading-none text-[var(--text-primary)] font-[family-name:Inter,system-ui,sans-serif] tracking-[0.02em] truncate">
-                NarraNexus
-              </span>
             </div>
           )}
           <Button

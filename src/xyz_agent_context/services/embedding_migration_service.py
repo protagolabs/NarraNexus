@@ -335,9 +335,18 @@ def _job_count_sql() -> str:
 
 
 def _entity_count_sql() -> str:
-    """Entities owned by user (via module_instances.user_id)."""
+    """Entities owned by user (via module_instances.user_id).
+
+    COUNT(DISTINCT entity_id), not COUNT(*): the same entity_id can appear
+    under multiple module_instances (one social-network instance per agent),
+    so the JOIN fans out to one row per (entity_id, instance_id). But
+    embeddings_store is keyed on (entity_type, entity_id, model) — one vector
+    per entity_id. Counting raw rows would over-count and leave a permanent
+    "N missing" the rebuild can never close. Must stay in sync with
+    `_user_entity_ids('entity')` (also DISTINCT).
+    """
     return (
-        "SELECT COUNT(*) AS cnt FROM instance_social_entities ise "
+        "SELECT COUNT(DISTINCT ise.entity_id) AS cnt FROM instance_social_entities ise "
         "JOIN module_instances mi ON mi.instance_id = ise.instance_id "
         f"WHERE mi.user_id = %s AND ({_ENTITY_TEXT_FILTER})"
     )
@@ -568,8 +577,11 @@ class EmbeddingMigrationService:
             rows = await self.db.execute(sql, (self.user_id,), fetch=True)
             return [r["job_id"] for r in rows]
         if entity_type == "entity":
+            # DISTINCT — entity_id can recur across module_instances; the
+            # embedding store holds one vector per entity_id (see
+            # _entity_count_sql).
             sql = (
-                "SELECT ise.entity_id FROM instance_social_entities ise "
+                "SELECT DISTINCT ise.entity_id FROM instance_social_entities ise "
                 "JOIN module_instances mi ON mi.instance_id = ise.instance_id "
                 f"WHERE mi.user_id = %s AND ({_ENTITY_TEXT_FILTER})"
             )
@@ -682,6 +694,21 @@ class EmbeddingMigrationService:
             progress.completed[entity_type] = 0
             progress.failed[entity_type] = 0
             return
+
+        # Dedup by id — a fan-out JOIN (e.g. an entity_id under several
+        # module_instances) can return the same id more than once. The
+        # embedding store keys on the id, so embedding it twice is wasted
+        # work and would also double the progress totals vs get_status's
+        # distinct count. Keep the first row per id.
+        seen_ids: set = set()
+        deduped_rows = []
+        for row in rows:
+            rid = row[id_field]
+            if rid in seen_ids:
+                continue
+            seen_ids.add(rid)
+            deduped_rows.append(row)
+        rows = deduped_rows
 
         all_ids = [row[id_field] for row in rows]
         existing = await self.emb_repo.get_vectors_by_ids(

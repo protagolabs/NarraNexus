@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Favicon follows OS color scheme. Source logos are 1360x840 with transparent
-      // padding; rendering them raw makes the favicon look stretched/tiny. We crop
-      // to the alpha bounding box, then contain-fit (preserving aspect ratio) onto
-      // a square transparent canvas before handing the data URL to <link rel="icon">.
+      // Favicon follows OS color scheme, using the icon-only mark SVGs
+      // (favicon-light/dark.svg) — the wordmark logo would be unreadable at
+      // tab size. We crop to the alpha bounding box, then contain-fit
+      // (preserving aspect ratio) onto a square transparent canvas before
+      // handing the rasterized data URL to <link rel="icon">.
       (function () {
         var SIZE = 128;
         var cache = {};
@@ -58,7 +59,7 @@
         }
 
         function apply(isDark) {
-          var src = isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png';
+          var src = isDark ? '/favicon-dark.svg' : '/favicon-light.svg';
           build(src, function (href) {
             var head = document.head;
             var existing = head.querySelector("link[rel~='icon'][data-runtime]");
