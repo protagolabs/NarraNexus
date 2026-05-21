@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_sdk_client.py
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-05-20
 ---
 
 ## Why it exists
@@ -55,6 +55,15 @@ to the trigger / credential manager directly.
   MarkdownV2 escape rules are aggressive (``_*[]()~>#+-=|{}.!\``);
   Phase 4 stays plain-text to avoid a class of 400 Bad Request
   errors. Caller can opt in.
+- **Phase 1a — ``download_file`` is a two-step call.** Step 1:
+  ``getFile(file_id)`` returns ``{file_path, file_size}``. Step 2:
+  HTTP GET against ``https://api.telegram.org/file/bot{TOKEN}/{file_path}``
+  returns raw bytes. Token is embedded in the file-host URL path; no
+  ``Authorization`` header. We deliberately do NOT log this URL
+  (would leak the token). The platform's 20 MiB bot download cap
+  lives as ``TELEGRAM_BOT_DOWNLOAD_CAP_BYTES``; ``size_hint`` (from
+  the Update's ``file_size`` field) gates a pre-check so oversized
+  refs fail fast without hitting the API at all.
 
 ## Upstream / downstream
 
