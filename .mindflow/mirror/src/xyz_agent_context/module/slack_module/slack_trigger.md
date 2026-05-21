@@ -139,3 +139,23 @@ an ``asyncio.Queue``.
   Never-raises: per-ref failures audit and skip; partial successes
   still flow to the agent. Pin tested in
   ``test_slack_attachment_ingest.py::test_fetch_attachments_partial_success``.
+
+- **``SocketModeClient`` proxy plumbing (Phase 1b follow-up).**
+  ``connect`` now reads ``HTTPS_PROXY`` / ``HTTP_PROXY`` env vars at
+  subscriber-start time and passes ``proxy=`` to ``SocketModeClient``.
+  Why: slack_sdk's SocketModeClient builds its own aiohttp
+  ClientSession internally and **does NOT honour the ``trust_env``
+  flag** the way our SDK clients do. Without an explicit ``proxy=``,
+  the wss to ``wss-primary.slack.com`` bypasses any local proxy. In
+  restrictive networks (mainland China is the canonical case) the
+  TCP/TLS handshake to ``wss-primary.slack.com`` usually succeeds —
+  Slack's edge IPs aren't blanket-blocked — but the ongoing event
+  frames are dropped / reordered by middleboxes. The result is a
+  "connected but no events" zombie: ``transport_connected`` fires,
+  ``socket mode connected, team=X`` logs once, then ``stale.
+  Reconnecting... reason: disconnected for 182+ seconds`` repeats
+  indefinitely with zero ingress_processed audit rows in between.
+  Outbound ``chat.postMessage`` keeps working because the
+  ``SlackSDKClient.web`` aiohttp session is independent and honours
+  the env vars. Symptom signature: agent self-test message succeeds
+  but inbound is silent.

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
@@ -211,10 +212,35 @@ class SlackTrigger(ChannelTriggerBase):
         assert _HAS_SLACK_SOCKET, "guarded in start()"
 
         web_client = credential and SlackSDKClient(credential.bot_token).web
+
+        # Honour HTTPS_PROXY / HTTP_PROXY env vars when establishing the
+        # Socket Mode wss connection. slack_sdk's SocketModeClient builds
+        # its own aiohttp ClientSession internally and does NOT respect
+        # the trust_env flag by default — without explicit proxy=, the
+        # wss bypass any local Clash / V2Ray / corporate proxy. In
+        # restrictive networks (mainland China is the canonical case)
+        # the wss-primary.slack.com TCP/TLS handshake often succeeds but
+        # subsequent event frames are dropped or reordered by the GFW,
+        # producing a "connected but no events" zombie. Symptom in our
+        # audit log: socket_mode_connected fires, then repeated
+        # "stale. Reconnecting... reason: disconnected for 182+ seconds"
+        # without a single ingress_processed event between them.
+        proxy_url = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("http_proxy")
+        )
         socket_client = SocketModeClient(
             app_token=credential.app_token,
             web_client=web_client,
+            proxy=proxy_url,
         )
+        if proxy_url:
+            logger.info(
+                f"[slack:{credential.agent_id}] Socket Mode using proxy "
+                f"{proxy_url}"
+            )
 
         queue: asyncio.Queue[dict] = asyncio.Queue()
 
