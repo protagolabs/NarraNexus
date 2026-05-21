@@ -392,23 +392,34 @@ class LarkTrigger(ChannelTriggerBase):
     def parse_event(self, raw: dict) -> Optional[ParsedMessage]:
         """Convert a Lark dict event → ``ParsedMessage``.
 
-        Lark content arrives as a JSON-encoded string for text messages
-        (``'{"text": "hi"}'``); we extract the inner text. The full raw
-        dict is stashed in ``ParsedMessage.raw`` so ``is_echo`` can read
-        Lark-specific fields like ``sender_type``.
+        Lark content arrives as a JSON-encoded string whose shape depends
+        on ``message_type``:
+
+          - ``text``   → ``{"text": "..."}``                   — extract ``text``
+          - ``post``   → ``{"<lang>": {"title", "content"}}``  — walk segments
+          - ``file`` / ``image`` / ``audio`` / ``media`` /
+            ``sticker``                                        — payload carries
+            file/image metadata only, NO user-visible text. ``content`` MUST
+            be empty (file metadata flows via ``raw["attachment_refs"]`` in
+            Phase 1c, NOT through the prompt body).
+
+        Historical bug pinned by ``tests/lark_module/test_lark_parse_event.py``:
+        the previous implementation did ``json.loads(text).get("text", text)``
+        for any content starting with ``{``. For file/image/etc messages
+        there is no top-level ``text`` key, so the fallback returned the
+        original JSON STRING — which then leaked into the agent's prompt
+        as ``{"file_key":"...","file_name":"..."}`` gibberish. Phase 1c T9a
+        fixes this by branching on ``message_type`` and routing each kind
+        to a typed extractor.
         """
         msg_id = raw.get("message_id", raw.get("id", ""))
         chat_id = raw.get("chat_id", "")
         sender_id = raw.get("sender_id", "")
         sender_name = raw.get("sender_name", "Unknown")
-        content_str = raw.get("content", "")
+        content_str = raw.get("content", "") or ""
+        message_type = raw.get("message_type", "") or ""
 
-        text = content_str
-        if text.startswith("{"):
-            try:
-                text = json.loads(text).get("text", text)
-            except (json.JSONDecodeError, TypeError):
-                pass
+        content = self._extract_user_visible_content(content_str, message_type)
 
         try:
             create_time_ms = int(raw.get("create_time", "0") or 0)
@@ -420,10 +431,67 @@ class LarkTrigger(ChannelTriggerBase):
             chat_id=chat_id,
             sender_id=sender_id,
             sender_name=sender_name,
-            content=text.strip(),
+            content=content.strip(),
             timestamp_ms=create_time_ms,
             raw=raw,
         )
+
+    @staticmethod
+    def _extract_user_visible_content(content_str: str, message_type: str) -> str:
+        """Pull the human-readable text out of a Lark ``content`` field.
+
+        Returns ``""`` for media-only messages so their metadata never
+        leaks into the agent prompt. Plain (non-JSON) ``content_str`` is
+        passed through unchanged so legacy fixtures keep working.
+        """
+        if not content_str:
+            return ""
+        if not content_str.startswith("{"):
+            # Plain text content (legacy test fixtures, or non-JSON payloads).
+            return content_str
+        try:
+            payload = json.loads(content_str)
+        except (json.JSONDecodeError, TypeError):
+            return ""
+        if not isinstance(payload, dict):
+            return ""
+        # Any payload that carries a top-level ``text`` field is treated as
+        # text — covers ``message_type == "text"`` AND any future Lark type
+        # whose payload still includes ``text``.
+        if "text" in payload:
+            return payload.get("text", "") or ""
+        if message_type == "post":
+            return LarkTrigger._extract_post_text(payload)
+        # file / image / audio / media / sticker / unknown → no user text.
+        return ""
+
+    @staticmethod
+    def _extract_post_text(payload: dict) -> str:
+        """Flatten a Lark ``post``-type payload to a single text string.
+
+        Lark post payloads are multi-language:
+            {"zh_cn": {"title": "...", "content": [[seg, seg], [seg]]}}
+        Each line is a list of segments, each segment is a dict possibly
+        carrying a ``text`` field. We return the first non-empty language
+        block's title + concatenated segment texts. Mirrors the walker in
+        ``_preview_message_content`` (kept separate so the preview helper
+        can stay frozen — refactoring it risks regressing the audit log).
+        """
+        for lang_block in payload.values():
+            if not isinstance(lang_block, dict):
+                continue
+            title = lang_block.get("title", "") or ""
+            body_bits: list[str] = []
+            for line in lang_block.get("content", []) or []:
+                if not isinstance(line, list):
+                    continue
+                for seg in line:
+                    if isinstance(seg, dict):
+                        body_bits.append(seg.get("text", "") or "")
+            text = (title + " " + " ".join(body_bits)).strip()
+            if text:
+                return text
+        return ""
 
     async def _is_echo(
         self, credential: LarkCredential, raw: dict, sender_id: str = ""

@@ -1,8 +1,95 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-05-19
+last_verified: 2026-05-21
 ---
+
+## 2026-05-21 — Phase 1c T9a: `parse_event` JSON-fallback bug fix
+
+### The bug
+
+Before this commit, `parse_event` did:
+
+```python
+text = content_str
+if text.startswith("{"):
+    try:
+        text = json.loads(text).get("text", text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+```
+
+For `message_type == "text"` this works (Lark sends `{"text": "..."}`).
+But for `file` / `image` / `audio` / `media` / `sticker` messages, the
+content payload has NO top-level `"text"` key:
+
+```jsonc
+// file message:
+{"file_key": "file_v3_xxxxxxxxxxxxxxxx", "file_name": "report.pdf", "file_size": 154823}
+// image message:
+{"image_key": "img_v3_xxxxxxxxxxxxxxxx"}
+```
+
+`json.loads(payload).get("text", text)` falls back to `text` — the
+**original JSON string**. So `ParsedMessage.content` ended up holding
+the raw JSON, which then leaked into the agent's prompt as user-visible
+content. Real-world symptom: the agent received literal
+`{"file_key":"...","file_name":"report.pdf"}` instead of an empty
+caption + an attachment ref, and replied to the JSON.
+
+This bug was independent of (but bundled with) the multimodal ingestion
+work — Phase 1c needed to touch the same parse_event lines, so 治本不
+治标 (CLAUDE.md 铁律 #5) said fix both in one pass.
+
+### The fix
+
+Branch on `message_type`, route to typed extractors:
+
+- `text` payload with `"text"` key → return the text (also catches any
+  future message type that still carries `text` at top level)
+- `post` payload → `_extract_post_text(payload)` (mirrors the walker in
+  `_preview_message_content`)
+- everything else → empty string. File metadata flows via
+  `raw["attachment_refs"]` in Phase 1c T9b/c/d, NOT through the prompt body.
+
+New helpers (both `@staticmethod` on `LarkTrigger`):
+
+- `_extract_user_visible_content(content_str, message_type) -> str` —
+  dispatcher; handles JSON parse-failure / plain-string / empty fallback.
+- `_extract_post_text(payload) -> str` — flattens multi-language post
+  payloads to title + segment texts.
+
+Kept `_preview_message_content` (the audit-log preview) untouched to
+avoid risk of breaking the existing audit format; the two walkers
+diverge intentionally (preview is 160-char capped, content is full).
+
+### Tests
+
+`tests/lark_module/test_lark_parse_event.py` (20 tests):
+
+- happy path for `text` (ASCII, unicode, empty text field)
+- regression pins: `file`, `image`, `audio`, `media`, `sticker` MUST
+  produce empty content (this is the bug pin — TDD'd RED→GREEN)
+- `post` extraction (title + nested segments + multi-language picking)
+- edge cases: unknown type with text field still extracts, malformed
+  JSON doesn't crash, missing fields don't crash, plain-string content
+  still passes through (legacy fixtures)
+- `raw` dict preserved verbatim on `ParsedMessage.raw` (downstream
+  `is_echo` still reads `sender_type` etc.)
+
+### Why not refactor `_preview_message_content` to share code
+
+It WOULD save ~20 lines, but:
+
+1. The preview helper's 160-char truncation + flattening pipeline is
+   subtly different from full-content extraction (preview wants gist;
+   content wants user-visible).
+2. Touching it risks regressing the audit-log format — the preview is
+   embedded in `lark_trigger_audit.details.content_preview` and ops
+   tooling greps on its shape.
+3. The duplication is ~15 lines of trivial dict-walking. Cost low.
+
+Keep them separate; revisit only if a third caller appears.
 
 ## 2026-05-19 (PM) — `_ws_loop_exception_filter` now `loop.stop()`s instead of swallowing
 
