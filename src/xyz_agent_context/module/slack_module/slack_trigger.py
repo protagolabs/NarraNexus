@@ -392,6 +392,22 @@ class SlackTrigger(ChannelTriggerBase):
         thread_ts = raw.get("thread_ts")  # None when not a threaded reply
         text = raw.get("text", "") or ""
 
+        # === TEMP DEBUG: dump raw files[] layout to compare against assumptions ===
+        if raw.get("files"):
+            try:
+                first = raw["files"][0] if isinstance(raw["files"], list) and raw["files"] else None
+                logger.info(
+                    f"[slack] DBG parse_event raw.files[0] keys="
+                    f"{sorted(list(first.keys())) if isinstance(first, dict) else type(first).__name__}"
+                    f"  id={first.get('id') if isinstance(first, dict) else '-'}"
+                    f"  name={first.get('name') if isinstance(first, dict) else '-'}"
+                    f"  mimetype={first.get('mimetype') if isinstance(first, dict) else '-'}"
+                    f"  url_private={'YES' if (isinstance(first, dict) and first.get('url_private')) else 'NO'}"
+                    f"  size={first.get('size') if isinstance(first, dict) else '-'}"
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[slack] DBG parse_event files dump failed: {e}")
+
         # Phase 1b — extract files[] into normalized refs. Slack messages
         # can carry multiple files in one upload (drag-drop multi-select).
         refs: list[dict[str, Any]] = []
@@ -411,6 +427,13 @@ class SlackTrigger(ChannelTriggerBase):
                 # fetch_attachments falls back to files.info when missing.
                 "url_private": f.get("url_private", "") or "",
             })
+
+        # === TEMP DEBUG: how many refs got extracted ===
+        if raw.get("files"):
+            logger.info(
+                f"[slack] DBG parse_event refs_extracted={len(refs)} "
+                f"from files_count={len(raw.get('files') or [])}"
+            )
 
         # Derive content_type from the leading ref. If MIXED kinds are
         # attached, FILE is the catch-all so the agent treats it as a
@@ -469,7 +492,19 @@ class SlackTrigger(ChannelTriggerBase):
         are audited and skipped; remaining refs still flow.
         """
         refs = (message.raw or {}).get("attachment_refs") or []
+        # === TEMP DEBUG ===
+        logger.info(
+            f"[slack:{credential.agent_id}] DBG fetch_attachments entry "
+            f"refs_count={len(refs)} "
+            f"raw_has_files={'files' in (message.raw or {})} "
+            f"raw_has_attachment_refs={'attachment_refs' in (message.raw or {})} "
+            f"message_id={message.message_id!r}"
+        )
         if not refs:
+            logger.info(
+                f"[slack:{credential.agent_id}] DBG fetch_attachments early-return "
+                f"(no refs in message.raw['attachment_refs'])"
+            )
             return []
 
         # Per-credential Socket Mode client also has the SDK client we
