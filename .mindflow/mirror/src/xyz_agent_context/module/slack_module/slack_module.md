@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_module.py
 stub: false
-last_verified: 2026-05-12
+last_verified: 2026-05-21
 ---
 
 ## Why it exists
@@ -108,3 +108,19 @@ than ``LarkModule`` — the prompt simply names ``slack_cli`` /
   discover the bot via global search or @-mention. Drop this and the
   bot looks "broken" to anyone expecting the standard one-click DM
   flow.
+
+## Phase 1b additions (attachment ingestion)
+
+- **Iron rule 7 added** to ``_SLACK_IRON_RULES``. It tells the agent
+  it now RECEIVES file uploads (PDFs / images / audio / data / code),
+  describes the
+  ``[User uploaded <kind>: name=..., path=/.../att_XXXXXXXX.<ext>,
+  mime=..., transcript=...]`` marker shape that ChatModule injects
+  into chat history, and instructs the agent to call the built-in
+  ``Read`` tool against the absolute ``path=`` (multimodal — returns
+  PDF/image content blocks natively for vision-capable models).
+  For audio uploads the ``transcript=`` field carries the Whisper
+  output, usable directly without Read. Lesson learned from Phase 1a:
+  trigger capability changes MUST be paired with same-PR instruction
+  updates or the agent will keep telling users it can't do things it
+  actually can.

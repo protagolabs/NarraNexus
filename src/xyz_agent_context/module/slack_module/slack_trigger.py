@@ -34,11 +34,17 @@ from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_ATTACHMENT_FETCH_FAILED,
+    EVENT_ATTACHMENT_PERSISTED,
+    EVENT_INGRESS_DROPPED_OVERSIZED,
+)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
     ChannelHistoryConfig,
 )
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import (
     ChatType,
@@ -277,7 +283,15 @@ class SlackTrigger(ChannelTriggerBase):
             self._socket_clients.pop(key, None)
 
     def parse_event(self, raw: dict) -> Optional[ParsedMessage]:
-        """Slack event → ParsedMessage. None means "skip"."""
+        """Slack event → ParsedMessage. None means "skip".
+
+        Phase 1b: extracts ``files: [...]`` from message events into
+        ``raw["attachment_refs"]``. We do NOT consume ``file_share``
+        subtype — modern Slack delivers the file as a regular
+        ``message`` event with the ``files`` array populated, while
+        ``file_share`` is a legacy / sometimes-duplicate delivery. Keeping
+        ``file_share`` in ``_IGNORED_SUBTYPES`` prevents double-processing.
+        """
         event_type = raw.get("type", "")
         if event_type not in ("message", "app_mention"):
             return None
@@ -291,7 +305,7 @@ class SlackTrigger(ChannelTriggerBase):
             channel_type = raw.get("channel_type", "")
             if channel_type not in _ACCEPTED_MESSAGE_CHANNEL_TYPES:
                 return None
-        # Tombstone-y messages without text/user
+        # Tombstone-y messages without user
         sender_id = raw.get("user", "")
         if not sender_id:
             return None
@@ -312,11 +326,57 @@ class SlackTrigger(ChannelTriggerBase):
         thread_ts = raw.get("thread_ts")  # None when not a threaded reply
         text = raw.get("text", "") or ""
 
+        # Phase 1b — extract files[] into normalized refs. Slack messages
+        # can carry multiple files in one upload (drag-drop multi-select).
+        refs: list[dict[str, Any]] = []
+        for f in raw.get("files") or []:
+            if not isinstance(f, dict):
+                continue
+            file_id = f.get("id") or ""
+            if not file_id:
+                continue
+            refs.append({
+                "kind": "file",
+                "platform_ref": file_id,
+                "original_name": f.get("name") or f.get("title") or file_id,
+                "mime_hint": f.get("mimetype", "") or "",
+                "size_hint": int(f.get("size", 0) or 0),
+                # url_private may or may not be present at this stage;
+                # fetch_attachments falls back to files.info when missing.
+                "url_private": f.get("url_private", "") or "",
+            })
+
+        # Derive content_type from the leading ref. If MIXED kinds are
+        # attached, FILE is the catch-all so the agent treats it as a
+        # generic upload (it still gets multiple Attachment objects in
+        # extra_data — they're all readable).
+        content_type = MessageContentType.TEXT
+        if refs:
+            primary_mime = refs[0]["mime_hint"]
+            if primary_mime.startswith("image/"):
+                content_type = MessageContentType.IMAGE
+            elif primary_mime.startswith("audio/"):
+                content_type = MessageContentType.AUDIO
+            elif primary_mime.startswith("video/"):
+                content_type = MessageContentType.VIDEO
+            else:
+                content_type = MessageContentType.FILE
+
+        # Drop empty events: no text AND no refs means nothing actionable.
+        if not text and not refs:
+            return None
+
         # Mentions: <@U12345> tokens in text
         mentions: list[str] = []
         if "<@" in text:
             import re
             mentions = re.findall(r"<@([A-Z0-9]+)>", text)
+
+        # Stash refs on a fresh raw dict so fetch_attachments can read
+        # them later without polluting the canonical schema.
+        if refs:
+            raw = dict(raw)
+            raw["attachment_refs"] = refs
 
         return ParsedMessage(
             message_id=message_id,
@@ -324,7 +384,7 @@ class SlackTrigger(ChannelTriggerBase):
             sender_id=sender_id,
             sender_name="",  # filled in by resolve_sender_name later
             content=text,
-            content_type=MessageContentType.TEXT,
+            content_type=content_type,
             # Slack channels behave like groups; even DMs (channel starting with D)
             # are 2-person channels.
             chat_type=ChatType.GROUP if chat_id.startswith(("C", "G")) else ChatType.PRIVATE,
@@ -333,6 +393,196 @@ class SlackTrigger(ChannelTriggerBase):
             mentions=mentions,
             raw=raw,
         )
+
+    async def fetch_attachments(  # type: ignore[override]
+        self, message: ParsedMessage, credential: SlackCredential
+    ) -> list[Attachment]:
+        """Download every Slack file ref via Bearer-auth GET and persist.
+
+        Never-raises. Per-ref failures (HTTP, files.info miss, oversize)
+        are audited and skipped; remaining refs still flow.
+        """
+        refs = (message.raw or {}).get("attachment_refs") or []
+        if not refs:
+            return []
+
+        # Per-credential Socket Mode client also has the SDK client we
+        # need (via the same token). We construct a short-lived
+        # SlackSDKClient per fetch — Slack's download uses a fresh
+        # aiohttp session per call anyway, so there's no resource saving
+        # from caching.
+        client = SlackSDKClient(credential.bot_token)
+
+        from backend.config import settings as backend_settings
+        max_bytes = backend_settings.max_upload_bytes
+
+        out: list[Attachment] = []
+        for ref in refs:
+            platform_ref = ref.get("platform_ref") or ""
+            if not platform_ref:
+                continue
+            size_hint = int(ref.get("size_hint", 0) or 0)
+            original_name = ref.get("original_name") or platform_ref
+            mime_hint = ref.get("mime_hint", "") or ""
+            url = ref.get("url_private") or ""
+
+            # Pre-check backend cap.
+            if size_hint and size_hint > max_bytes:
+                logger.info(
+                    f"[slack:{credential.agent_id}] refusing oversized "
+                    f"attachment {original_name!r}: size_hint={size_hint} "
+                    f"> max_upload_bytes={max_bytes}"
+                )
+                await self._audit(
+                    EVENT_INGRESS_DROPPED_OVERSIZED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    app_id=getattr(credential, "app_id", ""),
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={
+                        "platform_ref": platform_ref,
+                        "size_hint": size_hint,
+                        "max_upload_bytes": max_bytes,
+                        "reason": "backend_max_upload_bytes",
+                    },
+                )
+                continue
+
+            # If event didn't carry url_private, hydrate via files.info.
+            # Slack sometimes ships file events with only the id during
+            # high-traffic windows; the canonical metadata comes back
+            # complete here.
+            if not url:
+                try:
+                    info = await client.files_info(platform_ref)
+                except SlackSDKError as e:
+                    logger.warning(
+                        f"[slack:{credential.agent_id}] files.info failed "
+                        f"for {platform_ref}: {e.code}: {e}"
+                    )
+                    await self._audit(
+                        EVENT_ATTACHMENT_FETCH_FAILED,
+                        message_id=message.message_id,
+                        agent_id=credential.agent_id,
+                        app_id=getattr(credential, "app_id", ""),
+                        chat_id=message.chat_id,
+                        sender_id=message.sender_id,
+                        details={
+                            "platform_ref": platform_ref,
+                            "stage": "files_info",
+                            "error": f"{e.code}:{e}",
+                        },
+                    )
+                    continue
+                url = info.get("url_private") or ""
+                # Patch any newer mime/size info if the event lacked it.
+                if not mime_hint:
+                    mime_hint = info.get("mimetype", "") or ""
+                if not size_hint:
+                    size_hint = int(info.get("size", 0) or 0)
+                if not url:
+                    logger.warning(
+                        f"[slack:{credential.agent_id}] no url_private for {platform_ref}"
+                    )
+                    await self._audit(
+                        EVENT_ATTACHMENT_FETCH_FAILED,
+                        message_id=message.message_id,
+                        agent_id=credential.agent_id,
+                        app_id=getattr(credential, "app_id", ""),
+                        chat_id=message.chat_id,
+                        sender_id=message.sender_id,
+                        details={
+                            "platform_ref": platform_ref,
+                            "stage": "no_url_private",
+                        },
+                    )
+                    continue
+
+            # Stream-download with per-attachment cap.
+            try:
+                raw_bytes = await client.download_url(url, max_bytes=max_bytes)
+            except SlackSDKError as e:
+                # ``oversized`` from the streaming cap is a distinct
+                # audit event so ops can tell platform-cap from network.
+                if e.code == "oversized":
+                    await self._audit(
+                        EVENT_INGRESS_DROPPED_OVERSIZED,
+                        message_id=message.message_id,
+                        agent_id=credential.agent_id,
+                        app_id=getattr(credential, "app_id", ""),
+                        chat_id=message.chat_id,
+                        sender_id=message.sender_id,
+                        details={
+                            "platform_ref": platform_ref,
+                            "reason": "stream_cap_exceeded",
+                            "max_upload_bytes": max_bytes,
+                        },
+                    )
+                else:
+                    logger.warning(
+                        f"[slack:{credential.agent_id}] download_url failed "
+                        f"for {platform_ref}: {e.code}: {e}"
+                    )
+                    await self._audit(
+                        EVENT_ATTACHMENT_FETCH_FAILED,
+                        message_id=message.message_id,
+                        agent_id=credential.agent_id,
+                        app_id=getattr(credential, "app_id", ""),
+                        chat_id=message.chat_id,
+                        sender_id=message.sender_id,
+                        details={
+                            "platform_ref": platform_ref,
+                            "stage": "download",
+                            "error": f"{e.code}:{e}",
+                        },
+                    )
+                continue
+
+            try:
+                att = await self._persist_attachment(
+                    agent_id=credential.agent_id,
+                    raw_bytes=raw_bytes,
+                    original_name=original_name,
+                    mime_hint=mime_hint,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[slack:{credential.agent_id}] persist failed for "
+                    f"{original_name!r}: {type(e).__name__}: {e}"
+                )
+                await self._audit(
+                    EVENT_ATTACHMENT_FETCH_FAILED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    app_id=getattr(credential, "app_id", ""),
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={
+                        "platform_ref": platform_ref,
+                        "stage": "persist",
+                        "error": f"{type(e).__name__}:{e}",
+                    },
+                )
+                continue
+
+            out.append(att)
+            await self._audit(
+                EVENT_ATTACHMENT_PERSISTED,
+                message_id=message.message_id,
+                agent_id=credential.agent_id,
+                app_id=getattr(credential, "app_id", ""),
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details={
+                    "file_id": att.file_id,
+                    "mime_type": att.mime_type,
+                    "size_bytes": att.size_bytes,
+                    "category": att.category.value,
+                    "has_transcript": bool(att.transcript),
+                },
+            )
+        return out
 
     async def is_echo(
         self, message: ParsedMessage, credential: SlackCredential

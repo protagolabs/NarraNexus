@@ -281,6 +281,29 @@ _SLACK_IRON_RULES = """\
 5. Never include the user's tokens in messages or logs.
 6. Look up unknown Slack methods via `slack_skill(method)` BEFORE calling
    `slack_cli` — the skill doc has the exact arg shape and required scope.
+7. **Inbound attachments are SUPPORTED.** When a user uploads a file
+   to Slack (drag-drop, paste, or paperclip → "Add file"), the bot
+   RECEIVES the file alongside any caption text and the file is
+   downloaded to the agent's workspace. You will see a marker in the
+   chat history like:
+
+       [User uploaded <kind>: name=foo.pdf,
+        path=/.../user_upload_files/2026-MM-DD/att_XXXXXXXX.pdf,
+        mime=application/pdf — use Read tool to view]
+
+   - To VIEW the file, call your built-in `Read` tool against the
+     absolute `path=` shown in the marker. Read is multimodal —
+     PDFs and images return native content blocks; text / code / data
+     files return their text contents.
+   - For audio uploads the marker carries an extra `transcript=...`
+     field if Whisper transcription succeeded. **Use the transcript
+     directly** — it IS the spoken content. If `transcript=` is absent
+     the file is still on disk but transcription was unavailable;
+     say so, do NOT fabricate spoken content.
+   - Slack lets users attach **multiple files in one message** — each
+     becomes its own marker line; read them one by one.
+   - To SEND files back to the user, call `files.upload` (or
+     `files.upload.url` for >5 MB) via `slack_cli`.
 """
 
 

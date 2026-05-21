@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_trigger.py
 stub: false
-last_verified: 2026-05-12
+last_verified: 2026-05-21
 ---
 
 ## Why it exists
@@ -34,12 +34,18 @@ an ``asyncio.Queue``.
   ``U...``) which we stored on the credential. They are different
   identifiers — getting it wrong silently causes the bot to reply to
   itself.
-- **Subtype filter (``_IGNORED_SUBTYPES``) is conservative for Phase
-  3.** ``message_changed``/``deleted`` skipped (no edit-react UX yet),
-  ``file_share`` skipped (file ingestion is a future phase),
+- **Subtype filter (``_IGNORED_SUBTYPES``) is conservative.**
+  ``message_changed``/``deleted`` skipped (no edit-react UX yet),
   ``thread_broadcast`` skipped (would otherwise produce duplicate
-  events for one user message). Re-enable methodically as features
-  land.
+  events for one user message). **``file_share`` is INTENTIONALLY
+  kept** in the ignore list even after Phase 1b enabled attachment
+  ingestion — modern Slack delivers file uploads as a regular
+  ``message`` event with ``files[]`` populated, while ``file_share``
+  is a legacy / sometimes-duplicate envelope for the same file. Letting
+  both through would double-process: same ``file.id`` arrives twice
+  via different paths and ``message_id`` (``client_msg_id``-first,
+  ``ts``-fallback) doesn't catch the duplicate. Pin tested in
+  ``test_slack_attachment_ingest.py::test_parse_event_file_share_subtype_still_dropped``.
 - **Phase 5 channel-type allow-list
   (``_ACCEPTED_MESSAGE_CHANNEL_TYPES = {"im", "mpim"}``).** Reply
   policy in channels is "only when @-mentioned". Slack delivers
@@ -97,7 +103,39 @@ an ``asyncio.Queue``.
 - ``ChatType.GROUP if chat_id.startswith(("C", "G"))`` — Slack DMs
   start with ``D``. Keep the prefix logic; ``app_mention`` events
   always come from ``C`` (public channels).
-- Phase 3 maps every accepted event to ``MessageContentType.TEXT``,
-  even when there are file attachments. Attachment handling is a
-  later phase — bumping the type without the rest of the pipeline
-  would break the agent's reply path.
+- Phase 1b now derives ``content_type`` from the primary attachment's
+  mime: ``image/*`` → IMAGE, ``audio/*`` → AUDIO, ``video/*`` → VIDEO,
+  anything else → FILE. Text-only messages still get TEXT. The
+  Anthropic-style ``Read`` tool in the agent SDK uses this hint as a
+  rendering signal; the rest of the pipeline doesn't branch on it,
+  so the historical "everything is TEXT" choice is no longer needed.
+
+## Phase 1b additions (attachment ingestion)
+
+- **``parse_event`` extracts ``files[]`` into
+  ``raw["attachment_refs"]``**. Each file entry produces one ref
+  dict carrying ``platform_ref`` (Slack ``file.id``),
+  ``original_name``, ``mime_hint``, ``size_hint``, and the
+  ``url_private`` if Slack delivered it inline. Multi-file uploads
+  produce multiple refs; malformed entries (string, missing id) are
+  skipped without breaking the whole event. A message with no text
+  AND no refs returns ``None`` (sticker / system event analogue).
+
+- **``fetch_attachments`` override**. Per-ref pipeline:
+  1. Pre-check ``size_hint > max_upload_bytes`` → audit
+     ``EVENT_INGRESS_DROPPED_OVERSIZED`` (``reason: "backend_max_upload_bytes"``).
+  2. If ``url_private`` is missing from the event, call
+     ``files.info`` to hydrate it. Slack occasionally ships file
+     events with only ``file.id`` populated during high-traffic
+     windows; ``files_info`` recovery is the canonical workaround.
+  3. ``download_url`` with stream-cap = ``max_upload_bytes``. Streaming
+     cap raises ``SlackSDKError("oversized")`` mid-stream — audited
+     as ``EVENT_INGRESS_DROPPED_OVERSIZED`` with
+     ``reason: "stream_cap_exceeded"`` so ops can tell platform-cap
+     refusals from network failures.
+  4. Hand bytes to ``ChannelTriggerBase._persist_attachment`` (MIME
+     sniff + on-disk store + Whisper STT for audio/*).
+
+  Never-raises: per-ref failures audit and skip; partial successes
+  still flow to the agent. Pin tested in
+  ``test_slack_attachment_ingest.py::test_fetch_attachments_partial_success``.
