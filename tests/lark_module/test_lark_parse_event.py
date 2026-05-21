@@ -292,14 +292,29 @@ def test_missing_content_field_does_not_crash() -> None:
 # Pass-through verification — raw dict + IDs + timestamp preserved.
 # ─────────────────────────────────────────────────────────────────────
 
-def test_raw_dict_is_preserved_verbatim_on_parsed() -> None:
+def test_raw_dict_original_fields_preserved_on_parsed() -> None:
     raw = _raw(message_type="file", content_payload={"file_key": "fk", "file_name": "x.pdf"})
     parsed = _make_trigger().parse_event(raw)
     assert parsed is not None
-    # ParsedMessage.raw must hold the original dict so is_echo and downstream
-    # consumers can read Lark-specific fields (sender_type, etc.).
-    assert parsed.raw is raw or parsed.raw == raw
+    # ParsedMessage.raw must carry every original Lark field so is_echo and
+    # downstream consumers can read Lark-specific data (sender_type, etc.).
+    # Phase 1c may ADD ``attachment_refs`` for media-type messages — the
+    # parser shallow-copies before adding so the caller's dict is untouched,
+    # but parsed.raw is allowed to be a superset of the input.
+    for k, v in raw.items():
+        assert parsed.raw.get(k) == v, f"missing/changed field: {k}"
     assert parsed.raw["message_type"] == "file"
+
+
+def test_raw_dict_input_not_mutated_when_refs_added() -> None:
+    """parse_event must not mutate the caller's raw dict."""
+    raw = _raw(message_type="file", content_payload={"file_key": "fk", "file_name": "x.pdf"})
+    snapshot = dict(raw)
+    parsed = _make_trigger().parse_event(raw)
+    assert parsed is not None
+    # Caller's raw dict must NOT gain attachment_refs (parser uses a copy).
+    assert "attachment_refs" not in raw
+    assert raw == snapshot
 
 
 def test_create_time_parsed_to_milliseconds() -> None:
