@@ -281,3 +281,100 @@ async def test_exec_lark_cli_capture_binary_still_surfaces_error_envelope(
     )
     assert result["success"] is False
     assert "scope missing" in result["error"]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# HIGH-4 regression: identifier format validation.
+# message_id and file_key originate from Lark events (server-controlled
+# but bug-prone). create_subprocess_exec blocks shell injection, but a
+# malformed id like "om_x/../../../admin" would still construct an
+# unintended URL path. Hard-gate the format before the URL is built.
+# ─────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fetch_message_resource_rejects_message_id_with_slash(
+    client, monkeypatch
+):
+    """Path traversal pattern in message_id must raise BEFORE subprocess."""
+    called = {"hit": False}
+
+    async def _fake_run(self, args, agent_id, **kw):
+        called["hit"] = True
+        return {"success": True, "data": {}}
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.lark_module.lark_cli_client.LarkCLIClient._run_with_agent_id",
+        _fake_run,
+    )
+
+    with pytest.raises(RuntimeError, match="invalid message_id"):
+        await client.fetch_message_resource(
+            "agent_a",
+            message_id="om_x/../../../admin",
+            file_key="file_v3_abc",
+            resource_type="file",
+        )
+    assert called["hit"] is False, "subprocess must NOT be invoked"
+
+
+@pytest.mark.asyncio
+async def test_fetch_message_resource_rejects_file_key_with_query_string(
+    client, monkeypatch
+):
+    """URL-injection pattern in file_key (query-string smuggling) rejected."""
+    called = {"hit": False}
+
+    async def _fake_run(self, args, agent_id, **kw):
+        called["hit"] = True
+        return {"success": True, "data": {}}
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.lark_module.lark_cli_client.LarkCLIClient._run_with_agent_id",
+        _fake_run,
+    )
+
+    with pytest.raises(RuntimeError, match="invalid file_key"):
+        await client.fetch_message_resource(
+            "agent_a",
+            message_id="om_abc",
+            file_key="file_v3_abc?type=elevated_scope",
+            resource_type="file",
+        )
+    assert called["hit"] is False
+
+
+@pytest.mark.asyncio
+async def test_fetch_message_resource_accepts_real_lark_id_formats(
+    client, monkeypatch, tmp_path
+):
+    """The actual Lark IDs (om_xxx, file_v3_xxx, img_xxx) MUST pass validation."""
+    out_path = tmp_path / "out.bin"
+    out_path.write_bytes(b"%PDF-1.4 fake content")
+
+    async def _fake_run(self, args, agent_id, **kw):
+        # Honour the --output flag — copy the test file there.
+        out_idx = args.index("--output")
+        target = args[out_idx + 1]
+        import shutil
+        shutil.copy(str(out_path), target)
+        return {"success": True, "data": {}}
+
+    monkeypatch.setattr(
+        "xyz_agent_context.module.lark_module.lark_cli_client.LarkCLIClient._run_with_agent_id",
+        _fake_run,
+    )
+
+    # All three real-world Lark identifier shapes pass.
+    for message_id, file_key in [
+        ("om_abc123def456", "file_v3_xyz"),
+        ("om_dm-abc_123", "img_v2-abc_xyz"),
+        ("om_abc", "media_xyz789"),
+    ]:
+        data = await client.fetch_message_resource(
+            "agent_a",
+            message_id=message_id,
+            file_key=file_key,
+            resource_type="file",
+        )
+        assert data == b"%PDF-1.4 fake content"

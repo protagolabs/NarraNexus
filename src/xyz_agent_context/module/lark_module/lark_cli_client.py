@@ -29,7 +29,16 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import tempfile
+
+# Validate format of Lark identifiers (message_id, file_key, image_key)
+# before they enter the resource-fetch URL. Lark's actual IDs are
+# alphanumeric with underscore/hyphen prefixes (om_xxx, file_v3_xxx,
+# img_xxxxx). create_subprocess_exec prevents shell injection, but a
+# message_id like "om_x/../../../admin" would still construct an
+# unintended URL path. Hard-gate the format here.
+_LARK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 from pathlib import Path
 
 from loguru import logger
@@ -368,10 +377,28 @@ class LarkCLIClient:
         https://open.larksuite.com/document/server-docs/im-v1/message/get-2
 
         Raises ``RuntimeError`` on any failure (CLI error, empty output,
-        lark-cli not installed). Callers in ``LarkTrigger.fetch_attachments``
-        catch + audit + skip the ref, preserving the never-raise contract
-        at the trigger boundary.
+        lark-cli not installed, bad identifier format). Callers in
+        ``LarkTrigger.fetch_attachments`` catch + audit + skip the ref,
+        preserving the never-raise contract at the trigger boundary.
         """
+        # Validate identifier format BEFORE building the URL. The values
+        # originate from Lark events which we don't fully control;
+        # create_subprocess_exec already blocks shell injection, but a
+        # malformed message_id like "om_x/../../../admin" would still
+        # construct an unintended URL path. ``_LARK_ID_PATTERN`` accepts
+        # only the alphanumeric / underscore / hyphen format Lark actually
+        # uses for message_id / file_key / image_key.
+        if not _LARK_ID_PATTERN.match(message_id):
+            raise RuntimeError(
+                f"invalid message_id format: {message_id!r} "
+                f"(expected ^[A-Za-z0-9_-]+$)"
+            )
+        if not _LARK_ID_PATTERN.match(file_key):
+            raise RuntimeError(
+                f"invalid file_key format: {file_key!r} "
+                f"(expected ^[A-Za-z0-9_-]+$)"
+            )
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as tmp:
             tmp_path = tmp.name
         try:

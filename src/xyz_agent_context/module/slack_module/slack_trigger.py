@@ -343,11 +343,15 @@ class SlackTrigger(ChannelTriggerBase):
         """Slack event → ParsedMessage. None means "skip".
 
         Phase 1b: extracts ``files: [...]`` from message events into
-        ``raw["attachment_refs"]``. We do NOT consume ``file_share``
-        subtype — modern Slack delivers the file as a regular
-        ``message`` event with the ``files`` array populated, while
-        ``file_share`` is a legacy / sometimes-duplicate delivery. Keeping
-        ``file_share`` in ``_IGNORED_SUBTYPES`` prevents double-processing.
+        ``raw["attachment_refs"]``. ``subtype="file_share"`` IS the
+        canonical Slack delivery envelope for DM file uploads (one
+        ``message.im`` event with the ``files`` array populated AND
+        ``subtype="file_share"``). It is explicitly NOT in
+        ``_IGNORED_SUBTYPES`` for that reason — see the comment block
+        above the constant. The initial Phase 1b assumption that
+        ``file_share`` was a legacy / duplicate envelope was disproven
+        by real-world manual smoke; ``d017720`` removed it from the
+        ignore list.
         """
         event_type = raw.get("type", "")
         if event_type not in ("message", "app_mention"):

@@ -161,6 +161,33 @@ def test_sticker_message_does_not_leak_json_into_content() -> None:
     assert parsed.content == ""
 
 
+def test_sticker_with_text_field_in_payload_still_produces_empty_content() -> None:
+    """Regression for HIGH-3: sticker payload may carry a ``text`` field
+    (sticker description, platform display metadata) but that text is NOT
+    user-typed and MUST NOT enter the agent prompt.
+
+    Prior implementation checked ``"text" in payload`` BEFORE the
+    message_type branch — a sticker payload with ``{"file_key":"stk_x",
+    "text":"smile"}`` would leak "smile" as if the user had typed it.
+    Fix: hard-gate on ``_NO_USER_TEXT_MESSAGE_TYPES`` first.
+    """
+    for media_type in ("image", "file", "audio", "media", "sticker"):
+        parsed = _make_trigger().parse_event(
+            _raw(
+                message_type=media_type,
+                content_payload={
+                    "file_key": f"{media_type}_xxx",
+                    "text": "INJECTED — should never reach the agent",
+                },
+            )
+        )
+        assert parsed is not None, f"{media_type} parse should succeed"
+        assert parsed.content == "", (
+            f"{media_type} with payload-side 'text' field leaked into content: "
+            f"{parsed.content!r}"
+        )
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Post messages — rich-text multi-segment payloads. Must extract
 # title + segment texts, not leak the entire nested JSON.

@@ -57,7 +57,16 @@ class TelegramSDKClient:
         self._session: Optional[aiohttp.ClientSession] = None
 
     @property
-    def base_url(self) -> str:
+    def _base_url(self) -> str:
+        """Bot API base URL with token embedded — INTERNAL ONLY.
+
+        Leading underscore is load-bearing: this string contains the
+        bot's auth credential in its path (``https://api.telegram.org/bot{TOKEN}``).
+        Printing it anywhere (logger, error message, exception repr) leaks
+        the credential. The download_file path constructs URLs separately
+        using ``_FILE_BASE`` so that path stays safe even when callers
+        get ad-hoc with this property.
+        """
         return f"{_API_BASE}{self._bot_token}"
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
@@ -102,7 +111,7 @@ class TelegramSDKClient:
         rather than raising — agents read the envelope per the
         per-method skill docs.
         """
-        url = f"{self.base_url}/{method}"
+        url = f"{self._base_url}/{method}"
         try:
             session = await self._ensure_session()
             async with session.post(url, json=args) as resp:
@@ -278,7 +287,7 @@ class TelegramSDKClient:
                 "no_file_path", "Telegram returned no file_path"
             )
 
-        # Build the URL using _FILE_BASE — NOT self.base_url which points at
+        # Build the URL using _FILE_BASE — NOT self._base_url which points at
         # the JSON API. The token must be embedded in the URL path here;
         # no Authorization header is used. We deliberately do NOT log this
         # URL — it leaks the bot token. The caller logs file_id only.

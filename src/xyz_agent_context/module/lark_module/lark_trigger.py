@@ -537,6 +537,18 @@ class LarkTrigger(ChannelTriggerBase):
             "lark_resource_type": message_type,
         }]
 
+    # Lark message_types that NEVER carry user-visible text in their payload.
+    # The check below short-circuits these BEFORE inspecting payload["text"]
+    # because some platforms occasionally include a ``text`` field for
+    # display metadata (e.g. sticker descriptions, file captions in the
+    # platform UI) that is NOT user-typed and MUST NOT enter the agent
+    # prompt. Without this guard a sticker payload with
+    # ``{"file_key":"stk_x","text":"smile"}`` would leak "smile" as if the
+    # user had typed it. Defense: hard-gate on message_type first.
+    _NO_USER_TEXT_MESSAGE_TYPES = frozenset({
+        "image", "file", "audio", "media", "sticker",
+    })
+
     @staticmethod
     def _extract_user_visible_content(content_str: str, message_type: str) -> str:
         """Pull the human-readable text out of a Lark ``content`` field.
@@ -544,6 +556,15 @@ class LarkTrigger(ChannelTriggerBase):
         Returns ``""`` for media-only messages so their metadata never
         leaks into the agent prompt. Plain (non-JSON) ``content_str`` is
         passed through unchanged so legacy fixtures keep working.
+
+        Order of checks is load-bearing:
+          1. Hard-gate on ``_NO_USER_TEXT_MESSAGE_TYPES``. These types
+             never produce user text regardless of what their payload
+             carries.
+          2. ``post`` → walk segments.
+          3. Any other type with a top-level ``text`` field → use it.
+             Covers ``text`` and any future Lark type whose payload
+             still includes ``text``.
         """
         if not content_str:
             return ""
@@ -556,14 +577,15 @@ class LarkTrigger(ChannelTriggerBase):
             return ""
         if not isinstance(payload, dict):
             return ""
-        # Any payload that carries a top-level ``text`` field is treated as
-        # text — covers ``message_type == "text"`` AND any future Lark type
-        # whose payload still includes ``text``.
-        if "text" in payload:
-            return payload.get("text", "") or ""
+        if message_type in LarkTrigger._NO_USER_TEXT_MESSAGE_TYPES:
+            # Known media — payload may carry a ``text`` field (sticker
+            # description, file caption metadata) but it is NOT user
+            # input. Refuse to surface it.
+            return ""
         if message_type == "post":
             return LarkTrigger._extract_post_text(payload)
-        # file / image / audio / media / sticker / unknown → no user text.
+        if "text" in payload:
+            return payload.get("text", "") or ""
         return ""
 
     @staticmethod
