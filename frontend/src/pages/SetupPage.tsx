@@ -56,9 +56,9 @@ export function SetupPage() {
       {/* Header — original logo preserved */}
       <div className="flex flex-col items-center pt-10 pb-6 animate-fade-in gap-3">
         <img
-          src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
+          src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
           alt="NarraNexus"
-          className="h-12 w-auto object-contain"
+          className="h-14 w-auto object-contain"
         />
         <BracketSectionLabel>Setup · Configure LLM Providers</BracketSectionLabel>
         <h1

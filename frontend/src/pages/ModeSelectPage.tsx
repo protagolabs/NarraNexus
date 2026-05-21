@@ -92,15 +92,15 @@ export function ModeSelectPage() {
       {/* Brand header — original logo preserved */}
       <div className="flex flex-col items-center gap-4 animate-fade-in">
         <img
-          src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
+          src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
           alt="NarraNexus"
-          className="h-14 w-auto object-contain"
+          className="h-20 w-auto object-contain"
         />
         <h1
           className="text-3xl font-bold tracking-tight"
           style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
         >
-          Welcome to <span style={{ color: 'var(--color-carbon)' }}>NarraNexus</span>
+          Welcome
         </h1>
         <div
           className="text-[10px] uppercase tracking-[0.22em]"
