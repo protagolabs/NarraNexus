@@ -18,6 +18,15 @@ dedicated, monotonic `lastReadMessageTime:<aid>` marker. Reading an agent
 now durably clears its count. The `completedAgentIds` glowing-dot path is
 unchanged (it already cleared correctly on `setActiveAgent`).
 
+## 2026-05-21 — agent creation extracted to useCreateAgent
+
+`handleCreateAgent` no longer holds the create logic — it delegates to the
+shared `useCreateAgent` hook (`creatingAgent` state now comes from the
+hook too). Reason: the onboarding checklist also creates agents, and both
+call sites must share one path (store wiring + the
+`first_agent_created` onboarding side effect). See
+`.mindflow/mirror/frontend/src/hooks/useCreateAgent.ts.md`.
+
 ## 2026-05-19 — NM messenger fidelity pass
 
 Three behavioral changes that together make the sidebar match the NM canonical messenger list, and one bug fix:

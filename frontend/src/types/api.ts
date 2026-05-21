@@ -344,6 +344,18 @@ export interface UpdateTimezoneResponse extends ApiResponse {
   timezone?: string;
 }
 
+/** New-user onboarding checklist state. Mirrors backend OnboardingProgress —
+ *  three write-once-true flags persisted in users.metadata. */
+export interface OnboardingProgress {
+  first_agent_created: boolean;
+  template_applied: boolean;
+  dismissed: boolean;
+}
+
+export interface OnboardingResponse extends ApiResponse {
+  progress?: OnboardingProgress;
+}
+
 export interface CreateAgentResponse extends ApiResponse {
   agent?: AgentInfo;
 }

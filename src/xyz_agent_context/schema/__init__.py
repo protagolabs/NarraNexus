@@ -132,6 +132,10 @@ from .api_schema import (
     CreateUserResponse,
     UpdateTimezoneRequest,
     UpdateTimezoneResponse,
+    # Onboarding
+    OnboardingProgress,
+    OnboardingResponse,
+    UpdateOnboardingRequest,
     # Awareness
     AwarenessResponse,
     AwarenessUpdateRequest,
@@ -352,6 +356,9 @@ __all__ = [
     "CreateUserResponse",
     "UpdateTimezoneRequest",
     "UpdateTimezoneResponse",
+    "OnboardingProgress",
+    "OnboardingResponse",
+    "UpdateOnboardingRequest",
     # Awareness
     "AwarenessResponse",
     "AwarenessUpdateRequest",

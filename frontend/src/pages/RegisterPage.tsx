@@ -193,6 +193,21 @@ export function RegisterPage() {
             />
           </FormField>
 
+          <p className="text-xs -mt-1" style={{ color: 'var(--nm-ink50)' }}>
+            No invite code?{' '}
+            <a
+              href="https://website.narra.nexus/invite"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2"
+              style={{ color: 'var(--nm-ink70)' }}
+            >
+              Request one here
+            </a>{' '}
+            &mdash; we&rsquo;ll email you a code. (Check your spam folder if it
+            doesn&rsquo;t arrive.)
+          </p>
+
           {error && (
             <p
               className="text-xs animate-slide-up flex items-center gap-1.5"

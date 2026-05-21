@@ -1007,7 +1007,10 @@ export function ProviderSettings() {
           <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
             <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">Quick Add — Preset Provider</h4>
             <p className="text-sm text-[var(--text-tertiary)] mb-3">
-              Select a provider, paste your API key, and both protocol endpoints will be created automatically.
+              Select a provider, paste your API key, and both protocol endpoints
+              will be created automatically. New here? <span className="text-[var(--text-secondary)]">NetMind.AI
+              Power</span> is the easiest start — one key, and default models are
+              pre-selected so you can finish right away.
             </p>
 
             <div className="space-y-3">
@@ -1021,7 +1024,7 @@ export function ProviderSettings() {
                 >
                   {PRESET_PROVIDERS.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} — {p.description}
+                      {p.name}{p.id === 'netmind' ? ' (Recommended)' : ''} — {p.description}
                     </option>
                   ))}
                 </select>
