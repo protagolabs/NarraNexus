@@ -955,7 +955,16 @@ class ChannelTriggerBase(ABC):
             )
             return
 
-        if not message.content or not message.content.strip():
+        # Empty-content guard. Originally written for Phase 1a when ParsedMessage
+        # was text-only — at that point an empty content was a clear no-op.
+        # Phase 1b made files a first-class message kind: a user can upload a
+        # PDF / image / voice memo with NO caption (very common, especially on
+        # Slack drag-drop), in which case message.content is "" but
+        # message.raw["attachment_refs"] is non-empty and the upload MUST
+        # still trigger the agent. So the guard now keeps the early-return
+        # only when there's NEITHER text NOR attachment refs.
+        has_refs = bool((message.raw or {}).get("attachment_refs"))
+        if (not message.content or not message.content.strip()) and not has_refs:
             return
 
         # Name resolution + sanitization

@@ -455,3 +455,99 @@ async def test_fetch_attachments_raise_degrades_gracefully(
         {"channel": "fake", "event_type": EVENT_ATTACHMENT_FETCH_FAILED},
     )
     assert len(fails) == 1
+
+
+@pytest.mark.asyncio
+async def test_caption_less_file_upload_still_processed(
+    db_client, monkeypatch, isolated_workspace: Path
+):
+    """A file upload with **empty content** (no caption text) must still
+    trigger the full pipeline. Regression for a Phase 1a oversight where
+    base._process_message had ``if not message.content: return`` BEFORE
+    fetch_attachments, silently dropping any caption-less file upload.
+
+    Real-world failure mode: Slack drag-drop a PDF without typing
+    anything → text="" + files=[...]. Phase 1b parse_event correctly
+    extracted attachment_refs, but the base guard cut it off before
+    fetch_attachments could ever run.
+
+    Fix: the guard now keeps the early-return only when there's NEITHER
+    text NOR attachment_refs.
+    """
+    await db_client.insert("agents", {
+        "agent_id": "agent_a",
+        "agent_name": "FakeAgent",
+        "created_by": "user_owner",
+        "is_public": 0,
+    })
+
+    captured: dict = {}
+
+    async def _capture_collect_run(runtime, **kwargs):
+        captured.update(kwargs)
+
+        @dataclass
+        class _R:
+            output_text: str = "I see the file"
+            is_error: bool = False
+            error: object = None
+            raw_items: list = None
+
+            def __post_init__(self):
+                if self.raw_items is None:
+                    self.raw_items = []
+
+        return _R()
+
+    class _FakeAgentRuntime:
+        def __init__(self, *a, **kw):
+            pass
+
+    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
+    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
+    monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
+
+    cred = _FakeCredential(agent_id="agent_a", app_id="fake_bot_1")
+    # No "content" field on the event → ParsedMessage.content == ""
+    # But attachment_refs is non-empty → must still flow.
+    scripted = [
+        {
+            "id": "m_caption_less",
+            "from": "u_alice",
+            "content": "",   # ← KEY: empty caption
+            "ts_ms": 9_999_999_999_999,
+            "chat": "C1",
+            "attachment_refs": [
+                {
+                    "platform_ref": "ref_pdf_nocap",
+                    "original_name": "report.pdf",
+                    "mime_hint": "application/pdf",
+                    "size_hint": len(_FAKE_PDF_BYTES),
+                }
+            ],
+        },
+    ]
+    trigger = _FakeAttachmentTrigger(
+        scripted, cred, {"ref_pdf_nocap": _FAKE_PDF_BYTES}
+    )
+    await trigger.start(db_client)
+    try:
+        rows = await _wait_for_messages(
+            db_client, "fake_C1", count=2, timeout=5.0
+        )
+    finally:
+        await trigger.stop()
+
+    # 2 rows: inbound + outbound — the caption-less file DID trigger the agent.
+    assert len(rows) == 2
+    extra = captured.get("trigger_extra_data") or {}
+    attachments = extra.get("attachments")
+    assert attachments is not None and len(attachments) == 1, (
+        f"caption-less file must still surface attachments; got {extra=}"
+    )
+    assert attachments[0]["original_name"] == "report.pdf"
+    # File is on disk.
+    workspace = isolated_workspace / "agent_a_user_owner" / "user_upload_files"
+    pdfs = list(workspace.rglob("att_*.pdf"))
+    assert len(pdfs) == 1

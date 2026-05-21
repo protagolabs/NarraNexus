@@ -38,6 +38,21 @@ principle (see ``.mindflow/project/references/architecture.md``).
   ``ctx_data.extra_data["attachments"]``) treats IM-uploaded and
   WS-uploaded files identically. The base only sets the key when the
   list is non-empty — keeps text-only audits noise-free.
+
+- **Caption-less file uploads MUST flow** (Phase 1b regression-fix).
+  The empty-content guard in ``_process_message``:
+  ``if not message.content.strip(): return`` was originally written
+  in Phase 1a when ParsedMessage was text-only — an empty content
+  was a clear no-op. Phase 1b made files first-class, but the guard
+  wasn't updated. Real-world failure mode: user drag-drops a PDF
+  into Slack DM without typing anything → ``text=""`` +
+  ``files=[...]``. parse_event correctly extracted ``attachment_refs``
+  into ``raw``, but the base guard cut the message off BEFORE
+  ``fetch_attachments`` could ever run, with NO audit row at all
+  (the audit trail just stopped at ``debounce_merged``). The guard
+  now keeps the early-return only when BOTH ``content`` is empty
+  AND ``raw["attachment_refs"]`` is empty. Pin tested by
+  ``tests/channel/test_attachment_fetch_pipeline.py::test_caption_less_file_upload_still_processed``.
 - **Lazy AgentRuntime import.** Eager top-level import causes a
   circular load: ``channel/__init__.py`` re-exports
   ``ChannelTriggerBase`` for ergonomic use, but

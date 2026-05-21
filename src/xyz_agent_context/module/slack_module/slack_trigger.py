@@ -257,22 +257,6 @@ class SlackTrigger(ChannelTriggerBase):
         queue: asyncio.Queue[dict] = asyncio.Queue()
 
         async def _listener(client, req):
-            # === TEMP DEBUG (remove after diagnosis): log every envelope ===
-            try:
-                event_preview = (req.payload or {}).get("event") or {}
-                logger.info(
-                    f"[slack:{credential.agent_id}] DBG envelope: "
-                    f"req.type={req.type!r}  "
-                    f"event.type={event_preview.get('type')!r}  "
-                    f"event.subtype={event_preview.get('subtype')!r}  "
-                    f"has_files={bool(event_preview.get('files'))}  "
-                    f"keys={sorted(list(event_preview.keys()))[:15]}"
-                )
-            except Exception:  # noqa: BLE001
-                logger.exception(
-                    f"[slack:{credential.agent_id}] DBG envelope log failed"
-                )
-
             # Ack first to keep the socket alive even if we fail to enqueue.
             try:
                 await client.send_socket_mode_response(
@@ -282,26 +266,14 @@ class SlackTrigger(ChannelTriggerBase):
                 logger.exception(f"[slack:{credential.agent_id}] ack failed")
 
             if req.type != "events_api":
-                logger.info(
-                    f"[slack:{credential.agent_id}] DBG skipped: req.type={req.type!r} "
-                    f"(only events_api forwarded)"
-                )
                 return
             event = (req.payload or {}).get("event") or {}
             event_type = event.get("type", "")
             # Accept message + app_mention; skip everything else
             if event_type not in ("message", "app_mention"):
-                logger.info(
-                    f"[slack:{credential.agent_id}] DBG dropped: event.type={event_type!r} "
-                    f"(not in message/app_mention)"
-                )
                 return
             # Skip bot/edit/system subtypes
             if event.get("subtype") in _IGNORED_SUBTYPES:
-                logger.info(
-                    f"[slack:{credential.agent_id}] DBG dropped: "
-                    f"subtype={event.get('subtype')!r} (in _IGNORED_SUBTYPES)"
-                )
                 return
             # Phase 5 reply policy: plain ``message`` events only count
             # in DM / group-DM contexts. Public/private channel messages
@@ -392,22 +364,6 @@ class SlackTrigger(ChannelTriggerBase):
         thread_ts = raw.get("thread_ts")  # None when not a threaded reply
         text = raw.get("text", "") or ""
 
-        # === TEMP DEBUG: dump raw files[] layout to compare against assumptions ===
-        if raw.get("files"):
-            try:
-                first = raw["files"][0] if isinstance(raw["files"], list) and raw["files"] else None
-                logger.info(
-                    f"[slack] DBG parse_event raw.files[0] keys="
-                    f"{sorted(list(first.keys())) if isinstance(first, dict) else type(first).__name__}"
-                    f"  id={first.get('id') if isinstance(first, dict) else '-'}"
-                    f"  name={first.get('name') if isinstance(first, dict) else '-'}"
-                    f"  mimetype={first.get('mimetype') if isinstance(first, dict) else '-'}"
-                    f"  url_private={'YES' if (isinstance(first, dict) and first.get('url_private')) else 'NO'}"
-                    f"  size={first.get('size') if isinstance(first, dict) else '-'}"
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"[slack] DBG parse_event files dump failed: {e}")
-
         # Phase 1b — extract files[] into normalized refs. Slack messages
         # can carry multiple files in one upload (drag-drop multi-select).
         refs: list[dict[str, Any]] = []
@@ -428,12 +384,6 @@ class SlackTrigger(ChannelTriggerBase):
                 "url_private": f.get("url_private", "") or "",
             })
 
-        # === TEMP DEBUG: how many refs got extracted ===
-        if raw.get("files"):
-            logger.info(
-                f"[slack] DBG parse_event refs_extracted={len(refs)} "
-                f"from files_count={len(raw.get('files') or [])}"
-            )
 
         # Derive content_type from the leading ref. If MIXED kinds are
         # attached, FILE is the catch-all so the agent treats it as a
@@ -492,19 +442,7 @@ class SlackTrigger(ChannelTriggerBase):
         are audited and skipped; remaining refs still flow.
         """
         refs = (message.raw or {}).get("attachment_refs") or []
-        # === TEMP DEBUG ===
-        logger.info(
-            f"[slack:{credential.agent_id}] DBG fetch_attachments entry "
-            f"refs_count={len(refs)} "
-            f"raw_has_files={'files' in (message.raw or {})} "
-            f"raw_has_attachment_refs={'attachment_refs' in (message.raw or {})} "
-            f"message_id={message.message_id!r}"
-        )
         if not refs:
-            logger.info(
-                f"[slack:{credential.agent_id}] DBG fetch_attachments early-return "
-                f"(no refs in message.raw['attachment_refs'])"
-            )
             return []
 
         # Per-credential Socket Mode client also has the SDK client we
@@ -518,22 +456,9 @@ class SlackTrigger(ChannelTriggerBase):
         max_bytes = backend_settings.max_upload_bytes
 
         out: list[Attachment] = []
-        for i, ref in enumerate(refs):
+        for ref in refs:
             platform_ref = ref.get("platform_ref") or ""
-            # === TEMP DEBUG ===
-            logger.info(
-                f"[slack:{credential.agent_id}] DBG fetch loop [{i}] "
-                f"platform_ref={platform_ref!r} "
-                f"original_name={ref.get('original_name')!r} "
-                f"mime_hint={ref.get('mime_hint')!r} "
-                f"size_hint={ref.get('size_hint')} "
-                f"url_private={'YES' if ref.get('url_private') else 'NO'}"
-            )
             if not platform_ref:
-                logger.info(
-                    f"[slack:{credential.agent_id}] DBG fetch loop [{i}] "
-                    f"SKIPPED — empty platform_ref"
-                )
                 continue
             size_hint = int(ref.get("size_hint", 0) or 0)
             original_name = ref.get("original_name") or platform_ref
@@ -614,15 +539,8 @@ class SlackTrigger(ChannelTriggerBase):
                     continue
 
             # Stream-download with per-attachment cap.
-            logger.info(
-                f"[slack:{credential.agent_id}] DBG before download_url url={url[:80]}... max_bytes={max_bytes}"
-            )
             try:
                 raw_bytes = await client.download_url(url, max_bytes=max_bytes)
-                logger.info(
-                    f"[slack:{credential.agent_id}] DBG after download_url "
-                    f"got {len(raw_bytes)} bytes"
-                )
             except SlackSDKError as e:
                 # ``oversized`` from the streaming cap is a distinct
                 # audit event so ops can tell platform-cap from network.
@@ -660,19 +578,12 @@ class SlackTrigger(ChannelTriggerBase):
                     )
                 continue
 
-            logger.info(
-                f"[slack:{credential.agent_id}] DBG before _persist_attachment"
-            )
             try:
                 att = await self._persist_attachment(
                     agent_id=credential.agent_id,
                     raw_bytes=raw_bytes,
                     original_name=original_name,
                     mime_hint=mime_hint,
-                )
-                logger.info(
-                    f"[slack:{credential.agent_id}] DBG after _persist_attachment "
-                    f"file_id={att.file_id} mime={att.mime_type}"
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning(
