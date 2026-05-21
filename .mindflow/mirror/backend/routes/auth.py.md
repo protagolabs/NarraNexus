@@ -1,8 +1,31 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-05-19
+last_verified: 2026-05-21
 stub: false
 ---
+
+## 2026-05-21 — onboarding checklist endpoints
+
+Added `GET /api/auth/onboarding` + `POST /api/auth/onboarding` for the
+new-user onboarding checklist card (cloud version). State lives inside
+`users.metadata` under the `onboarding_progress` key — no new table.
+
+Design points:
+- **Write-once-true**: `POST` only applies fields explicitly `True`; None
+  and False are ignored, so a completed step can never be reverted. This
+  is deliberate — the checklist must not oscillate when a user creates
+  their first agent then deletes it.
+- **Merge, don't clobber**: `users.metadata` is a shared JSON blob, so the
+  handler reads the full dict, updates only the `onboarding_progress`
+  sub-key, and writes the whole dict back (`_read_onboarding` helper +
+  `_ONBOARDING_METADATA_KEY` constant).
+- `provider_configured` is **not** stored — the frontend derives it live
+  from provider count (that step is gated by SetupPage before the card
+  shows). Only `first_agent_created` / `template_applied` / `dismissed`
+  are persisted.
+
+Sits next to `/api/auth/timezone` — both are JWT-gated user-scoped
+settings endpoints. Tests: `tests/backend/test_onboarding.py`.
 
 ## 2026-05-19 — `/api/auth/agents` 附加最近一条 assistant 回复（NM sidebar preview）
 

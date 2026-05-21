@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-05-19
+last_verified: 2026-05-21
 stub: false
 ---
+
+## 2026-05-21 — agent creation extracted to useCreateAgent
+
+`handleCreateAgent` no longer holds the create logic — it delegates to the
+shared `useCreateAgent` hook (`creatingAgent` state now comes from the
+hook too). Reason: the onboarding checklist also creates agents, and both
+call sites must share one path (store wiring + the
+`first_agent_created` onboarding side effect). See
+`.mindflow/mirror/frontend/src/hooks/useCreateAgent.ts.md`.
 
 ## 2026-05-19 — NM messenger fidelity pass
 

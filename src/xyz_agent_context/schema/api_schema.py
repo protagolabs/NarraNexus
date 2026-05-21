@@ -173,6 +173,44 @@ class UpdateTimezoneResponse(BaseModel):
     error: Optional[str] = None
 
 
+# ===== Onboarding Schemas =====
+
+class OnboardingProgress(BaseModel):
+    """New-user onboarding checklist state, persisted inside users.metadata.
+
+    Flags are write-once-true: a completed step stays completed even if the
+    underlying entity is later removed (user creates their first agent then
+    deletes it — onboarding still counts it done). This keeps the checklist
+    card from oscillating. `dismissed` permanently hides the card.
+
+    `provider_configured` is intentionally NOT stored here — it is derived
+    live from the user's provider count by the frontend, because that step
+    is gated by SetupPage before the checklist card is ever shown.
+    """
+    first_agent_created: bool = False
+    template_applied: bool = False
+    dismissed: bool = False
+
+
+class OnboardingResponse(BaseModel):
+    """Response model for the onboarding GET / POST endpoints."""
+    success: bool
+    progress: Optional[OnboardingProgress] = None
+    error: Optional[str] = None
+
+
+class UpdateOnboardingRequest(BaseModel):
+    """Mark one or more onboarding steps complete.
+
+    Only fields explicitly set to True are applied (write-once-true) — None
+    and False are ignored, so a client can never un-complete a step.
+    """
+    user_id: str
+    first_agent_created: Optional[bool] = None
+    template_applied: Optional[bool] = None
+    dismissed: Optional[bool] = None
+
+
 # ===== Awareness Schemas =====
 
 class AwarenessResponse(BaseModel):

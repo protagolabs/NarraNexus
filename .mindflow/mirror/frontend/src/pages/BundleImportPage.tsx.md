@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/pages/BundleImportPage.tsx
-last_verified: 2026-05-18
+last_verified: 2026-05-21
 stub: false
 ---
+
+## 2026-05-21 — marks onboarding `template_applied`
+
+On a successful import confirm (`runConfirm`), fires
+`api.markOnboardingStep(userId, 'template_applied')` — best-effort,
+swallowed on failure so it can never surface as an import error. This is
+what checks off the "start from a template" row in the onboarding
+checklist. A confirmed import is the completion signal; merely opening
+the templates marketplace is not.
 
 # BundleImportPage.tsx — Import wizard (subproject 2)
 

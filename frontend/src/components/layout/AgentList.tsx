@@ -20,6 +20,7 @@ import {
 import { Button, useConfirm } from '@/components/ui';
 import { RingAvatar, BracketSectionLabel, BracketEmptyState } from '@/components/nm';
 import { useConfigStore, useChatStore } from '@/stores';
+import { useCreateAgent } from '@/hooks';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
 
@@ -48,7 +49,7 @@ const SHOW_AGENT_PUBLIC_TOGGLE = false;
 
 export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   const [loadingAgents, setLoadingAgents] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
+  const { createAgent, creating: creatingAgent } = useCreateAgent();
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
@@ -171,30 +172,7 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   };
 
   const handleCreateAgent = async () => {
-    setCreatingAgent(true);
-    try {
-      const res = await api.createAgent(userId);
-      if (res.success && res.agent) {
-        const newAgent = {
-          agent_id: res.agent.agent_id,
-          name: res.agent.name,
-          description: res.agent.description,
-          status: res.agent.status,
-          created_at: res.agent.created_at,
-          created_by: userId,
-          bootstrap_active: res.agent.bootstrap_active,
-        };
-        setAgents([newAgent, ...agents]);
-        setAgentId(res.agent.agent_id);
-        setActiveAgent(res.agent.agent_id);
-      } else {
-        console.error('Failed to create agent:', res.error);
-      }
-    } catch (err) {
-      console.error('Error creating agent:', err);
-    } finally {
-      setCreatingAgent(false);
-    }
+    await createAgent();
   };
 
   const handleTogglePublic = async (agent: typeof agents[0], e: React.MouseEvent) => {
