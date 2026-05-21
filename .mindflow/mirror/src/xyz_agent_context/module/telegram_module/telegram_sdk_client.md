@@ -39,6 +39,15 @@ to the trigger / credential manager directly.
   lived call sites (bind, status check) shouldn't keep sessions open.
   ``TelegramTrigger`` keeps its long-poll client alive across the
   whole loop and closes it in ``stop()``.
+- **``trust_env=True`` on the ClientSession.** aiohttp's default is to
+  IGNORE ``HTTPS_PROXY`` / ``HTTP_PROXY`` / ``NO_PROXY`` env vars
+  unless ``trust_env=True`` is set on the session — a long-standing
+  gotcha. Enabling it makes proxy support transparent for CN
+  developers (Clash / V2Ray on ``127.0.0.1:7897`` etc.) without any
+  code change: just ``export HTTPS_PROXY=http://127.0.0.1:7897`` in
+  the shell that launches ``run.sh``. ``api.telegram.org`` is blocked
+  in mainland China; without this flag every CN dev got a 70+ second
+  ``TimeoutError`` on bind even with a working local proxy.
 - **``api_call`` swallows network errors as
   ``{"ok": false, "error": ...}``.** The MCP tool is the primary
   caller; agents read the envelope per skill docs and don't expect

@@ -62,7 +62,17 @@ class TelegramSDKClient:
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(timeout=self._timeout)
+            # ``trust_env=True`` makes aiohttp honour the standard
+            # ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY`` env vars
+            # (and ``~/.netrc`` for HTTP auth). Without this flag aiohttp
+            # IGNORES those vars by default — a long-standing gotcha that
+            # breaks every CN developer trying to reach ``api.telegram.org``
+            # through a local Clash / V2Ray HTTP proxy. Setting it here
+            # makes proxy support fully opt-in via the environment, with
+            # zero code change required on the caller side.
+            self._session = aiohttp.ClientSession(
+                timeout=self._timeout, trust_env=True
+            )
         return self._session
 
     async def close(self) -> None:
