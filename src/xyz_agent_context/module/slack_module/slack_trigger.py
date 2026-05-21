@@ -518,9 +518,22 @@ class SlackTrigger(ChannelTriggerBase):
         max_bytes = backend_settings.max_upload_bytes
 
         out: list[Attachment] = []
-        for ref in refs:
+        for i, ref in enumerate(refs):
             platform_ref = ref.get("platform_ref") or ""
+            # === TEMP DEBUG ===
+            logger.info(
+                f"[slack:{credential.agent_id}] DBG fetch loop [{i}] "
+                f"platform_ref={platform_ref!r} "
+                f"original_name={ref.get('original_name')!r} "
+                f"mime_hint={ref.get('mime_hint')!r} "
+                f"size_hint={ref.get('size_hint')} "
+                f"url_private={'YES' if ref.get('url_private') else 'NO'}"
+            )
             if not platform_ref:
+                logger.info(
+                    f"[slack:{credential.agent_id}] DBG fetch loop [{i}] "
+                    f"SKIPPED — empty platform_ref"
+                )
                 continue
             size_hint = int(ref.get("size_hint", 0) or 0)
             original_name = ref.get("original_name") or platform_ref
@@ -601,8 +614,15 @@ class SlackTrigger(ChannelTriggerBase):
                     continue
 
             # Stream-download with per-attachment cap.
+            logger.info(
+                f"[slack:{credential.agent_id}] DBG before download_url url={url[:80]}... max_bytes={max_bytes}"
+            )
             try:
                 raw_bytes = await client.download_url(url, max_bytes=max_bytes)
+                logger.info(
+                    f"[slack:{credential.agent_id}] DBG after download_url "
+                    f"got {len(raw_bytes)} bytes"
+                )
             except SlackSDKError as e:
                 # ``oversized`` from the streaming cap is a distinct
                 # audit event so ops can tell platform-cap from network.
@@ -640,12 +660,19 @@ class SlackTrigger(ChannelTriggerBase):
                     )
                 continue
 
+            logger.info(
+                f"[slack:{credential.agent_id}] DBG before _persist_attachment"
+            )
             try:
                 att = await self._persist_attachment(
                     agent_id=credential.agent_id,
                     raw_bytes=raw_bytes,
                     original_name=original_name,
                     mime_hint=mime_hint,
+                )
+                logger.info(
+                    f"[slack:{credential.agent_id}] DBG after _persist_attachment "
+                    f"file_id={att.file_id} mime={att.mime_type}"
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning(
