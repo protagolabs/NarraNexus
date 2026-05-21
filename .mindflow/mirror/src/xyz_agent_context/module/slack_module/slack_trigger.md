@@ -161,3 +161,29 @@ an ``asyncio.Queue``.
   ``SlackSDKClient.web`` aiohttp session is independent and honours
   the env vars. Symptom signature: agent self-test message succeeds
   but inbound is silent.
+
+## Known Slack-server quirks observed during smoke (2026-05-21)
+
+These are **server-side** behaviors with no code remediation — recorded
+so the next operator doesn't waste time hunting our pipeline when the
+symptom is actually Slack drop-on-send.
+
+1. **No buffering during "subscription off" windows.** Socket Mode is
+   live-only. Messages sent while Event Subscriptions are disabled (or
+   while the socket is between sessions) are dropped at Slack's server
+   and never replayed on reconnect. ``conversations.history`` still
+   returns them because it's a Web API — but the event bus is gone.
+   Symptom: missing audit row + present Slack-side message.
+   Reproduced during 1b smoke: ~10 messages sent before the operator
+   completed reinstall + Event-Subscriptions toggle → 0 ingress rows.
+
+2. **File-event warm-up after fresh ``files:read`` grant.** Even when
+   text-only ``message.im`` events arrive instantly post-reinstall,
+   file-bearing events (``message`` + ``files[]``) silently drop for
+   ~1–5 minutes. The socket is alive, the scope is present in
+   ``auth.test``, and ``conversations.history`` shows the upload — but
+   Socket Mode never fires for the event during the window.
+   Reproduced 2026-05-21 in Protagolabs workspace: ``Transcript.pdf``
+   sent ~3 minutes after reinstall produced no audit; the next PDF
+   sent ~3 minutes later succeeded with no other change. Mitigation:
+   re-send. No code fix; the symptom self-resolves.

@@ -21,6 +21,25 @@ Slack-specific concerns this class handles:
     ``channel_join``, etc. (Phase 3 doesn't react to edits/system events.)
   - Thread continuity: preserve ``thread_ts`` so replies land in-thread.
 
+Known Slack server quirks (no code action — symptoms only):
+  - Socket Mode does NOT buffer events while the app's Event
+    Subscriptions are disabled or while the socket is disconnected.
+    Anything sent during those windows is dropped at Slack's server
+    and never replayed on reconnect. ``conversations.history`` will
+    still show those messages (it's a Web API, not the event bus), so
+    a missing audit row with a present Slack-side message is normal
+    and irrecoverable.
+  - After a fresh OAuth scope grant — especially ``files:read`` —
+    Slack has an undocumented warm-up window where text-only
+    ``message.im`` events arrive immediately but file-bearing events
+    (``message`` + ``files[]``) silently drop for ~1–5 minutes.
+    Symptom: ``ingress_processed`` lands for plain text but zero audit
+    appears for the file upload during the window, despite the socket
+    being alive and the scope confirmed via ``auth.test``. Resolves
+    itself with no code change; the user just resends. Observed during
+    Phase 1b smoke testing on 2026-05-21 (Protagolabs workspace,
+    Tong Chen_ubc diploma.pdf reproduced the 5-minute delay).
+
 The base class owns: dedup, worker pool, credential watcher, audit log,
 inbox writer, reconnect backoff. We override the abstract surface
 (connect/parse/echo/sender/builder/load) only.
