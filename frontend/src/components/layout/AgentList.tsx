@@ -22,6 +22,7 @@ import { RingAvatar, BracketSectionLabel, BracketEmptyState } from '@/components
 import { useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
+import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
 
 interface AgentListProps {
   collapsed: boolean;
@@ -72,6 +73,17 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   const agentSessions = useChatStore((s) => s.agentSessions);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
+  // Mark the active agent's messages as read so its unread count stays
+  // cleared after the user navigates away. Without this the count only
+  // zeroed while the row was active and reappeared on switch-away (the
+  // marker was never advanced by reading). Re-runs when the active agent
+  // changes or its messages grow (e.g. a reply settles while viewing).
+  useEffect(() => {
+    if (!agentId) return;
+    const latest = latestMessageMs(agentSessions[agentId]?.messages ?? []);
+    if (latest > 0) markAgentRead(agentId, latest);
+  }, [agentId, agentSessions]);
+
   /**
    * Derive the per-agent meta shown in each row: agent-reply preview +
    * activity time and an unread count.
@@ -121,21 +133,11 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
       timeMs = serverAtMs;
     }
     const time = timeMs ? formatTime(timeMs) : '';
-    let unread = 0;
-    if (aid !== agentId) {
-      let lastSeenMs = 0;
-      try {
-        const v = localStorage.getItem(`lastSeenAwarenessTime:${aid}`);
-        if (v) lastSeenMs = new Date(v).getTime();
-      } catch {
-        lastSeenMs = 0;
-      }
-      for (const m of messages) {
-        if (m.role !== 'user' && m.timestamp > lastSeenMs) {
-          unread += 1;
-        }
-      }
-    }
+    // Unread = agent messages newer than the per-agent read marker. The
+    // active row is always treated as read (its marker is advanced by the
+    // effect below). See lib/unread for why this has its own marker rather
+    // than reusing the Awareness-tab one.
+    const unread = aid !== agentId ? countUnread(messages, getLastReadMs(aid)) : 0;
     return { preview, time, unread };
   };
 

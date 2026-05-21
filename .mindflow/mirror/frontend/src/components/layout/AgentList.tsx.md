@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-05-19
+last_verified: 2026-05-21
 stub: false
 ---
+
+## 2026-05-21 — unread count uses its own durable read marker
+
+The per-row unread count (`getRowMeta`) used to compare message timestamps
+against `lastSeenAwarenessTime:<aid>` — a localStorage marker written ONLY
+when the user opened the Awareness tab, never when they read the chat. So
+the count zeroed only via the render-time `aid !== agentId` special case and
+snapped back the instant the user switched to another agent (the read state
+was never persisted). Now it uses [[unread]] (`lib/unread.ts`):
+`countUnread(messages, getLastReadMs(aid))`, and a `useEffect` keyed on the
+active `agentId` + `agentSessions` calls `markAgentRead` to advance a
+dedicated, monotonic `lastReadMessageTime:<aid>` marker. Reading an agent
+now durably clears its count. The `completedAgentIds` glowing-dot path is
+unchanged (it already cleared correctly on `setActiveAgent`).
 
 ## 2026-05-19 — NM messenger fidelity pass
 
