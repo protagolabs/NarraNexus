@@ -34,18 +34,20 @@ an ``asyncio.Queue``.
   ``U...``) which we stored on the credential. They are different
   identifiers — getting it wrong silently causes the bot to reply to
   itself.
-- **Subtype filter (``_IGNORED_SUBTYPES``) is conservative.**
-  ``message_changed``/``deleted`` skipped (no edit-react UX yet),
-  ``thread_broadcast`` skipped (would otherwise produce duplicate
-  events for one user message). **``file_share`` is INTENTIONALLY
-  kept** in the ignore list even after Phase 1b enabled attachment
-  ingestion — modern Slack delivers file uploads as a regular
-  ``message`` event with ``files[]`` populated, while ``file_share``
-  is a legacy / sometimes-duplicate envelope for the same file. Letting
-  both through would double-process: same ``file.id`` arrives twice
-  via different paths and ``message_id`` (``client_msg_id``-first,
-  ``ts``-fallback) doesn't catch the duplicate. Pin tested in
-  ``test_slack_attachment_ingest.py::test_parse_event_file_share_subtype_still_dropped``.
+- **Subtype filter (``_IGNORED_SUBTYPES``) — INITIAL ASSUMPTION WRONG,
+  CORRECTED IN-PHASE.** ``message_changed``/``deleted`` skipped (no
+  edit-react UX yet), ``thread_broadcast`` skipped (would otherwise
+  produce duplicate events for one user message). **``file_share`` is
+  NOT in the ignore list** — the original Phase 1b commit included it
+  based on the assumption that modern Slack delivers DM files as a
+  regular ``message.im`` event with ``files[]`` populated and that
+  ``file_share`` was a legacy duplicate. Real CN-dev manual smoke
+  proved this wrong: text-only "hi" went through, but text + PDF
+  produced ZERO audit rows. The truth is **``file_share`` IS the
+  canonical delivery envelope** for DM file uploads — Slack sends one
+  envelope per upload with ``subtype="file_share"`` AND ``files[...]``
+  populated. Filtering it eats every inbound file event. Pin tested in
+  ``test_slack_attachment_ingest.py::test_parse_event_file_share_subtype_now_processed``.
 - **Phase 5 channel-type allow-list
   (``_ACCEPTED_MESSAGE_CHANNEL_TYPES = {"im", "mpim"}``).** Reply
   policy in channels is "only when @-mentioned". Slack delivers

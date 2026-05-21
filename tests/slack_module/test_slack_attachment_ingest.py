@@ -165,17 +165,25 @@ def test_parse_event_empty_text_and_no_files_dropped() -> None:
     assert parsed is None
 
 
-def test_parse_event_file_share_subtype_still_dropped() -> None:
-    """``file_share`` subtype stays in ``_IGNORED_SUBTYPES``. Modern Slack
-    delivers files via the regular ``message`` event with ``files[]``;
-    if BOTH arrive we'd double-process. Keeping the subtype-ignore
-    prevents that. This test pins that decision."""
+def test_parse_event_file_share_subtype_now_processed() -> None:
+    """``file_share`` subtype is the CANONICAL Slack delivery path for DM
+    file uploads. Earlier Phase 1b assumption (that there's a separate
+    "plain message.im + files[]" path) was wrong — real Slack workspace
+    smoke showed text-only "hi" went through but text + file produced
+    ZERO audit events. The file_share envelope IS the only delivery.
+    This test pins the corrected behaviour: file_share subtype with
+    files[] must parse fully, refs populated."""
     trigger = SlackTrigger()
     parsed = trigger.parse_event(_dm_event(
         subtype="file_share",
+        text="check this report",
         files=[_file()],
     ))
-    assert parsed is None
+    assert parsed is not None
+    assert parsed.content == "check this report"
+    refs = parsed.raw.get("attachment_refs") or []
+    assert len(refs) == 1
+    assert refs[0]["platform_ref"] == "F123"
 
 
 def test_parse_event_files_with_malformed_entry_skipped() -> None:

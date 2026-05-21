@@ -90,7 +90,19 @@ _IGNORED_SUBTYPES = frozenset({
     "channel_purpose",
     "channel_name",
     "thread_broadcast",  # opt-in; we'd see it twice otherwise
-    "file_share",        # we'll re-enable in a later phase that handles files
+    # NOTE: ``file_share`` is NOT in this set. Modern Slack delivers DM
+    # file uploads as a ``message.im`` event WITH ``subtype="file_share"``
+    # AND ``files: [...]`` populated. There is no "plain message.im +
+    # files[]" path — file_share IS the path. Phase 1b initially included
+    # this subtype based on a wrong assumption (legacy duplicate-event
+    # behaviour from very old Slack apps). Real CN-dev manual smoke
+    # showed text "hi" → ingress_processed fine, but "<text> + PDF" →
+    # zero audit rows. Dropping ``file_share`` from the ignore list is
+    # what makes attachment ingest actually work end-to-end. Dedup is
+    # not at risk: Slack delivers exactly one envelope per upload, and
+    # our ``message_id`` (client_msg_id / ts fallback) catches even the
+    # edge case where the same file is uploaded twice within the
+    # ``ChannelDedupStore`` TTL window.
 })
 
 # Channel types from which we accept plain ``message`` events. Anything
