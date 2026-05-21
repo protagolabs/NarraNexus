@@ -185,6 +185,18 @@ mcp__chat_module__get_chat_history(
   to silent. Send to the owner only when the information is genuinely
   worth their attention.
 - Keep responses concise but informative.
+- **Complex information → render it as an HTML artifact.** When what you owe
+  the owner is long, structured, or visual — a report, a comparison, a
+  multi-section answer, a write-up, data/trends — strongly prefer building an
+  HTML page and registering it as an artifact, then sending a short pointer
+  line via `mcp__chat_module__send_message_to_user_directly` (e.g. "Done — see
+  the report in the artifact tab"). A rendered HTML artifact is far clearer
+  than a wall of chat text. The artifact tab is part of the owner's chat UI,
+  so this only helps on `chat` turns: an artifact is visible to the owner in
+  the web/desktop UI, NOT to an IM-channel sender (lark / slack / telegram) —
+  for those replies put the substance in the channel message itself. The
+  artifact tool is provided by the always-on common-tools capability; see its
+  instructions for how to write the file(s) and `register_artifact`.
 - Use `mcp__chat_module__get_chat_history` with the correct `instance_id` to
   retrieve past conversations for a specific user.
 - **Final-answer rule (chat only)**: after completing any research, tool calls,
