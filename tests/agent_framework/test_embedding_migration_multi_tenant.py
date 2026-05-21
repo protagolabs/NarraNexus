@@ -415,3 +415,48 @@ async def test_rebuild_errors_clearly_when_no_provider(db_client):
     # Nothing was embedded against a fallback key.
     rows = await db_client.get("embeddings_store", filters={"entity_type": "narrative"})
     assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_status_counts_distinct_entity_ids_across_instances(
+    db_client, patched_embedding, force_new_embedding_path, patched_embedding_cfg
+):
+    """An entity_id that exists under multiple module_instances must be
+    counted ONCE, not once per instance.
+
+    Regression (debug/20260521-embedding-rebuild-retry): embeddings_store is
+    keyed on (entity_type, entity_id, model) — one vector per entity_id. But
+    the entity count used COUNT(*) over instance_social_entities JOIN
+    module_instances, which fans out to one row per (entity_id, instance_id).
+    A user whose social-network entity appears in N instances therefore
+    showed total=N but migrated=1 → a permanent "N-1 missing" that no rebuild
+    could ever close (rebuild embeds distinct ids, all already done).
+    """
+    await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
+    await _seed_instance(db_client, instance_id="inst_a1", agent_id="agent_a", user_id="alice")
+    await _seed_instance(db_client, instance_id="inst_a2", agent_id="agent_a", user_id="alice")
+
+    # Same entity_id present in BOTH instances (the fan-out source) ...
+    await _seed_entity(db_client, instance_id="inst_a1", entity_id="ent_dup", name="Dup")
+    await _seed_entity(db_client, instance_id="inst_a2", entity_id="ent_dup", name="Dup")
+    # ... plus one that lives in a single instance.
+    await _seed_entity(db_client, instance_id="inst_a1", entity_id="ent_solo", name="Solo")
+
+    svc = EmbeddingMigrationService(db_client, user_id="alice")
+
+    # 2 distinct entities, not 3 (the JOIN would otherwise report 3).
+    status_before = await svc.get_status()
+    assert status_before["stats"]["entity"]["total"] == 2
+
+    await svc.rebuild_all()
+
+    status_after = await svc.get_status()
+    assert status_after["stats"]["entity"]["total"] == 2
+    assert status_after["stats"]["entity"]["migrated"] == 2
+    # The bug surfaced as a permanent missing>0 here.
+    assert status_after["stats"]["entity"]["missing"] == 0
+    assert status_after["all_done"] is True
+
+    # Exactly one embedding row per distinct entity_id (no per-instance dupes).
+    emb = await db_client.get("embeddings_store", filters={"entity_type": "entity"})
+    assert sorted(r["entity_id"] for r in emb) == ["ent_dup", "ent_solo"]

@@ -62,6 +62,40 @@ from loguru import logger
 from xyz_agent_context.utils.retry import with_retry
 
 
+def _is_rate_limit_error(e: Exception) -> bool:
+    """True when an embedding call failed because the provider rate-limited us.
+
+    A 429 is transient and back-off-able, so it must be retried rather than
+    failing the row outright (which left rebuilds permanently stuck on the
+    missing rows). We duck-type instead of importing a specific SDK exception:
+    OpenAI raises ``openai.RateLimitError`` (``status_code == 429``), but the
+    aggregators users plug in (DeepSeek / Yunwu / SiliconFlow / …) surface 429
+    under their own class names and message shapes (铁律 #9 — no hard SDK
+    coupling). Match on HTTP status, then class name, then message text.
+    """
+    status = getattr(e, "status_code", None) or getattr(e, "status", None)
+    if status == 429:
+        return True
+    if "ratelimit" in type(e).__name__.lower():
+        return True
+    msg = str(e).lower()
+    return "429" in msg or "rate limit" in msg or "too many requests" in msg
+
+
+# Retry policy for embedding API calls: transient network faults plus provider
+# rate limits (429). 5 attempts with a few-seconds exponential backoff
+# (2s, 4s, 8s, 16s, capped at 30s) lets a per-minute rate limit clear instead
+# of permanently failing the row.
+_EMBED_RETRY = dict(
+    max_attempts=5,
+    delay=2.0,
+    backoff=2.0,
+    max_delay=30.0,
+    exceptions=(ConnectionError, TimeoutError, OSError),
+    retry_on=_is_rate_limit_error,
+)
+
+
 class EmbeddingProviderNotConfigured(RuntimeError):
     """Raised when an embedding is requested but no provider is configured for
     the current context. We never fall back to environment credentials —
@@ -281,12 +315,7 @@ class EmbeddingClient:
         """Generate cache key from text."""
         return hashlib.md5(f"{self.model}:{text}".encode()).hexdigest()
 
-    @with_retry(
-        max_attempts=3,
-        delay=1.0,
-        backoff=2.0,
-        exceptions=(ConnectionError, TimeoutError, OSError),
-    )
+    @with_retry(**_EMBED_RETRY)
     async def _make_embedding_request(self, text: str) -> List[float]:
         """
         Make embedding API request with retry.
@@ -423,12 +452,7 @@ class EmbeddingClient:
             logger.exception(f"Error generating batch embeddings: {e}")
             raise
 
-    @with_retry(
-        max_attempts=3,
-        delay=1.0,
-        backoff=2.0,
-        exceptions=(ConnectionError, TimeoutError, OSError),
-    )
+    @with_retry(**_EMBED_RETRY)
     async def _make_batch_embedding_request(self, texts: List[str]):
         """
         Make batch embedding API request with retry.
