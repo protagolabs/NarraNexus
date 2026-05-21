@@ -312,9 +312,17 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
     const streaming = isAgentStreaming(id) || hasBackendActiveRun;
 
     if (streaming) {
-      // Replace ring center with spinner while streaming
+      // Running state lives entirely on the avatar so the name row stays
+      // clean (no inline "RUNNING" pill crowding / truncating the name):
+      //   - a breathing halo ring (animate-ping) = the at-a-glance "this
+      //     agent is working" cue, visible even in collapsed mode
+      //   - the spinner replacing the ring center, as before
       return (
         <div className="relative inline-flex items-center justify-center">
+          <span
+            className="absolute inset-0 rounded-full animate-ping pointer-events-none"
+            style={{ border: '2px solid var(--color-yellow-500)' }}
+          />
           <RingAvatar species="silicon" label={agentLabel} size={size} />
           <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-yellow-500)]" />
         </div>
@@ -458,7 +466,6 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
         <div className="space-y-0.5">
           {agents.map((agent, index) => {
             const isSelected = agentId === agent.agent_id;
-            const streaming = isAgentStreaming(agent.agent_id);
             const completed = completedAgentIds.includes(agent.agent_id);
             const { preview, time, unread } = getRowMeta(agent.agent_id);
             const displayName = agent.name || agent.agent_id;
@@ -575,18 +582,10 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                               <Globe className="w-3 h-3 shrink-0" style={{ color: 'var(--nm-ink50)' }} />
                             </span>
                           )}
-                          {streaming && (
-                            <span
-                              className="text-[9px] px-1.5 py-0.5 uppercase tracking-[0.10em] rounded-[var(--radius-xs)] shrink-0"
-                              style={{
-                                color: 'var(--color-warning)',
-                                border: '1px solid var(--color-warning)',
-                                fontFamily: 'var(--font-mono)',
-                              }}
-                            >
-                              Running
-                            </span>
-                          )}
+                          {/* Running state is shown on the avatar (breathing
+                              halo + spinner) — see renderAgentAvatar. No
+                              inline badge here, so a long name keeps its full
+                              width instead of being truncated by the badge. */}
 
                           {/* Owner-only inline action buttons; visible on hover
                               OR when this row is selected. */}

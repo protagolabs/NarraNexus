@@ -418,7 +418,10 @@ async def get_claude_status(request: Request):
 # =============================================================================
 
 @router.get("/embeddings/status")
-async def get_embedding_status(user_id: str = Query(..., description="User ID to scope the status")):
+async def get_embedding_status(
+    request: Request,
+    user_id: str = Query(..., description="User ID to scope the status"),
+):
     """
     Per-user embedding migration status.
 
@@ -432,13 +435,15 @@ async def get_embedding_status(user_id: str = Query(..., description="User ID to
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
     db = await get_db_client()
-    service = EmbeddingMigrationService(db, user_id=user_id)
+    resolver = getattr(request.app.state, "provider_resolver", None)
+    service = EmbeddingMigrationService(db, user_id=user_id, resolver=resolver)
     status = await service.get_status()
     return {"success": True, "data": status}
 
 
 @router.post("/embeddings/rebuild")
 async def rebuild_embeddings(
+    request: Request,
     background_tasks: BackgroundTasks,
     user_id: str = Query(..., description="User ID whose entities to rebuild"),
 ):
@@ -464,6 +469,7 @@ async def rebuild_embeddings(
             "data": progress.to_dict(),
         }
     db = await get_db_client()
-    service = EmbeddingMigrationService(db, user_id=user_id)
+    resolver = getattr(request.app.state, "provider_resolver", None)
+    service = EmbeddingMigrationService(db, user_id=user_id, resolver=resolver)
     background_tasks.add_task(service.rebuild_all)
     return {"success": True, "message": "Embedding rebuild started"}

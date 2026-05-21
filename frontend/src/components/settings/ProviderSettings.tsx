@@ -470,6 +470,9 @@ export function ProviderSettings() {
   const [slots, setSlots] = useState<Record<string, SlotData>>({})
   const [knownModels, setKnownModels] = useState<Record<string, KnownModelMeta>>({})
   const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModelInfo[]>([])
+  // Embedding slot: user picked "Custom model…" and is typing a model id that
+  // isn't in the catalog (e.g. a self-hosted / niche OpenAI-format endpoint).
+  const [embeddingCustom, setEmbeddingCustom] = useState(false)
   const [officialBaseUrls, setOfficialBaseUrls] = useState<Record<string, string[]>>({})
   const [error, setError] = useState('')
   const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null } | null>(null)
@@ -908,12 +911,33 @@ export function ProviderSettings() {
 
                 if (slot.key === 'embedding') {
                   const emModels = embeddingModels.filter((em) => curProv.models.includes(em.model_id))
+                  const known = emModels.map((em) => em.model_id)
+                  // "Custom" when the user explicitly chose it, or the saved
+                  // model isn't a catalog entry for this provider (e.g. a
+                  // hand-typed OpenAI-format embedding model the backend
+                  // accepts as-is — set_slot does not gate on the catalog).
+                  const useCustom = embeddingCustom || (!!cfg?.model && !known.includes(cfg.model))
                   return (
-                    <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                      <option value="">Select embedding model...</option>
-                      {emModels.map((em) => <option key={em.model_id} value={em.model_id}>{em.display_name} ({em.dimensions}d)</option>)}
-                    </select>
+                    <div className="space-y-2">
+                      <select value={useCustom ? '__custom__' : (cfg?.model || '')}
+                        onChange={(e) => {
+                          if (!cfg?.provider_id) return
+                          if (e.target.value === '__custom__') { setEmbeddingCustom(true); return }
+                          setEmbeddingCustom(false)
+                          handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value)
+                        }}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
+                        <option value="">Select embedding model...</option>
+                        {emModels.map((em) => <option key={em.model_id} value={em.model_id}>{em.display_name} ({em.dimensions}d)</option>)}
+                        <option value="__custom__">Custom model…</option>
+                      </select>
+                      {useCustom && (
+                        <input type="text" value={cfg?.model || ''}
+                          onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
+                          placeholder="Enter embedding model id (OpenAI-format)"
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                      )}
+                    </div>
                   )
                 }
 

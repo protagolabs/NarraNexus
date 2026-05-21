@@ -23,6 +23,7 @@ import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
+import { getChatDraft, setChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { TurnTimeline } from './TurnTimeline';
@@ -197,7 +198,11 @@ interface ChatPanelProps {
 
 export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const navigate = useNavigate();
-  const [input, setInput] = useState('');
+  // Lazy-init from the persisted draft for whichever agent is active at mount
+  // (configStore is the source of truth for agentId; it's read again below).
+  const [input, setInput] = useState(() =>
+    getChatDraft(useConfigStore.getState().agentId ?? '')
+  );
   // Attachments uploaded for the next message but not yet sent. Each entry
   // is the server-acknowledged metadata returned by uploadAttachment.
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
@@ -256,6 +261,31 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   useEffect(() => {
     if (agentId) setActiveAgent(agentId);
   }, [agentId, setActiveAgent]);
+
+  // ── Per-agent draft persistence ──────────────────────────────────────
+  // On agent switch, stash the outgoing agent's half-typed message and load
+  // the incoming agent's saved draft. On every keystroke, persist the current
+  // agent's draft (best-effort localStorage) so it survives a reload too.
+  // `setInput('')` after a send flows through the persist effect and clears
+  // the stored draft automatically.
+  const prevAgentIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevAgentIdRef.current;
+    if (prev !== agentId) {
+      if (prev) setChatDraft(prev, input);
+      setInput(agentId ? getChatDraft(agentId) : '');
+      prevAgentIdRef.current = agentId;
+    }
+    // Intentionally keyed on agentId only: `input` is read as the outgoing
+    // value to save, but must not re-run this swap on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId]);
+  useEffect(() => {
+    if (agentId) setChatDraft(agentId, input);
+    // Keyed on `input` only — during a switch the input hasn't changed yet,
+    // so this won't clobber the incoming agent's draft with the outgoing text.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input]);
 
   const currentAgent = useMemo(
     () => agents.find((a) => a.agent_id === agentId),
@@ -1152,15 +1182,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                     ? 'Drop file to attach…'
                     : 'Type your message… (drag files here to attach)'
               }
-              disabled={isLoading || !agentId}
+              // Stay editable while the agent is running (isLoading): the user
+              // can compose their next message during a long turn. Sending is
+              // still blocked — handleSubmit/Enter early-return on isLoading and
+              // the Send button is replaced by Stop while streaming.
+              disabled={!agentId}
               className={cn(
                 // Auto-resizing textarea: min-h sets the empty-state height,
                 // max-h caps growth. The Textarea component manages
                 // `style.height` based on scrollHeight on every input.
                 // Padding 14 + line-height 24 + padding 14 = 52px exactly,
                 // matching the send-button height next to it.
-                'min-h-[52px] max-h-[160px] py-[14px] leading-[24px] resize-none',
-                isLoading && 'opacity-60'
+                'min-h-[52px] max-h-[160px] py-[14px] leading-[24px] resize-none'
               )}
               rows={1}
             />

@@ -24,17 +24,27 @@ const base = (agentId: string) => `/api/agents/${agentId}/artifacts`;
 const userBase = (userId: string) => `/api/users/${userId}/artifacts`;
 
 export function authHeaders(): Record<string, string> {
+  // Mirror the app-wide ApiClient.getAuthHeaders(): send BOTH identity headers.
+  //   - Authorization: Bearer <jwt>  — trusted in cloud mode
+  //   - X-User-Id: <user_id>         — required in local mode (the local
+  //     auth middleware 401s any /api request that omits it)
+  // The backend decides which to trust per deployment mode; cloud ignores
+  // X-User-Id entirely, so sending it is safe in production. Without it,
+  // artifact list/detail/view-token requests 401'd in local mode.
+  const headers: Record<string, string> = {};
   try {
     const raw = localStorage.getItem('narra-nexus-config');
     if (raw) {
       const cfg = JSON.parse(raw);
       const token = cfg?.state?.token;
-      if (token) return { Authorization: `Bearer ${token}` };
+      const userId = cfg?.state?.userId;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (userId) headers['X-User-Id'] = userId;
     }
   } catch {
     /* localStorage may be unavailable / disabled — fall through */
   }
-  return {};
+  return headers;
 }
 
 /**
