@@ -163,6 +163,8 @@ oauth_config:
       - channels:read
       - chat:write
       - chat:write.public
+      - files:read
+      - files:write
       - groups:history
       - groups:read
       - im:history
@@ -244,6 +246,23 @@ Invite the bot to any channel where you want it to listen
 (`/invite @NarraNexus` from inside the channel). DMs work without
 explicit invitation — Slack delivers them via Socket Mode automatically.
 
+### Already-bound bots from before Phase 1b — REINSTALL required for files
+
+If the user bound this bot **before the Phase 1b multimodal update**,
+their manifest is missing `files:read` and `files:write`. Symptoms:
+text messages reach the bot fine, but **file uploads in DMs are
+silently dropped by Slack** (Slack refuses to deliver `message.im`
+events that contain `files[]` to bots without `files:read`). To fix:
+
+1. Go to https://api.slack.com/apps → the existing app → **App
+   Manifest** → paste the latest YAML (above) → save.
+2. Sidebar → **Install App** → **Reinstall to Workspace**. Approve the
+   newly added scopes (`files:read`, `files:write`).
+3. Copy the **new** Bot Token (`xoxb-...`) — the old one is revoked.
+4. In NarraNexus, unbind the agent's existing Slack credential and
+   bind again with the new token. The `xapp-...` App-Level Token does
+   NOT change.
+
 ### Iron rules during setup
 
 - Refuse to accept tokens that don't match the prefix (`xoxb-` /
@@ -254,6 +273,11 @@ explicit invitation — Slack delivers them via Socket Mode automatically.
   Both are required.
 - If `slack_bind` returns ``invalid_auth``, do NOT retry blindly — ask
   the user to re-copy from the Slack admin (typo or token revoked).
+- If the user reports "Slack messages work but file uploads disappear",
+  the diagnosis is **missing `files:read` scope** — walk them through
+  the "Already-bound bots" reinstall flow above. Do NOT recommend
+  debugging the trigger or network; the bot is healthy, the workspace
+  permission is the only gap.
 """
 
 
