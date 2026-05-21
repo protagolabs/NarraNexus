@@ -257,6 +257,22 @@ class SlackTrigger(ChannelTriggerBase):
         queue: asyncio.Queue[dict] = asyncio.Queue()
 
         async def _listener(client, req):
+            # === TEMP DEBUG (remove after diagnosis): log every envelope ===
+            try:
+                event_preview = (req.payload or {}).get("event") or {}
+                logger.info(
+                    f"[slack:{credential.agent_id}] DBG envelope: "
+                    f"req.type={req.type!r}  "
+                    f"event.type={event_preview.get('type')!r}  "
+                    f"event.subtype={event_preview.get('subtype')!r}  "
+                    f"has_files={bool(event_preview.get('files'))}  "
+                    f"keys={sorted(list(event_preview.keys()))[:15]}"
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    f"[slack:{credential.agent_id}] DBG envelope log failed"
+                )
+
             # Ack first to keep the socket alive even if we fail to enqueue.
             try:
                 await client.send_socket_mode_response(
@@ -266,14 +282,26 @@ class SlackTrigger(ChannelTriggerBase):
                 logger.exception(f"[slack:{credential.agent_id}] ack failed")
 
             if req.type != "events_api":
+                logger.info(
+                    f"[slack:{credential.agent_id}] DBG skipped: req.type={req.type!r} "
+                    f"(only events_api forwarded)"
+                )
                 return
             event = (req.payload or {}).get("event") or {}
             event_type = event.get("type", "")
             # Accept message + app_mention; skip everything else
             if event_type not in ("message", "app_mention"):
+                logger.info(
+                    f"[slack:{credential.agent_id}] DBG dropped: event.type={event_type!r} "
+                    f"(not in message/app_mention)"
+                )
                 return
             # Skip bot/edit/system subtypes
             if event.get("subtype") in _IGNORED_SUBTYPES:
+                logger.info(
+                    f"[slack:{credential.agent_id}] DBG dropped: "
+                    f"subtype={event.get('subtype')!r} (in _IGNORED_SUBTYPES)"
+                )
                 return
             # Phase 5 reply policy: plain ``message`` events only count
             # in DM / group-DM contexts. Public/private channel messages
