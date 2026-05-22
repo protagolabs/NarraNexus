@@ -3,6 +3,14 @@ code_file: tauri/src-tauri/src/lib.rs
 last_verified: 2026-05-22
 ---
 
+## 2026-05-22 — auto-update startup check
+
+In bundled builds, after services start, spawns
+`commands::updater::run_startup_update_check` (non-blocking) — checks the
+release endpoint, installs a newer signed build, offers a restart. Dev builds
+skip it (no real release). Also registers `commands::updater::check_and_install_update`
+for the Settings "Check for updates" button. See `commands/updater.rs`.
+
 ## 2026-05-22 — surface sidecar startup failure (was silent)
 
 In the auto-start task, `pm.start_all(...)` failure used to be just

@@ -63,6 +63,7 @@ pub fn run() {
             commands::auth::cancel_claude_login,
             commands::auth::get_claude_login_status,
             commands::deep_link::consume_pending_deep_link,
+            commands::updater::check_and_install_update,
         ])
         .setup(|app| {
             // Port-conflict preflight. Must run before anything else: if a
@@ -169,6 +170,17 @@ pub fn run() {
                     log::info!("All services started successfully");
                 }
             });
+
+            // Auto-update check (bundled/release only — dev has no real release
+            // to update from). Non-blocking: runs in the background and, if a
+            // newer signed build is published, downloads + installs it and
+            // offers a restart. Any failure is logged, never blocks the app.
+            if crate::state::is_bundled() {
+                let app_handle_upd = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    commands::updater::run_startup_update_check(app_handle_upd).await;
+                });
+            }
 
             log::info!("NarraNexus started, DB: {}", db_path.display());
             Ok(())
