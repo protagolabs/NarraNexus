@@ -24,3 +24,8 @@ service management is done at startup (auto-start) and shutdown
 
 Called by `lib.rs::setup()`. Uses `tauri_plugin_shell` (indirectly via
 Tauri builder).
+
+**Gotcha**: `Image::from_bytes` is cfg-gated behind Tauri's `image-ico` /
+`image-png` features. The `tauri` dep in `Cargo.toml` must keep `image-png`
+enabled — drop it and `from_bytes` silently disappears and the build fails
+with E0599 (this broke the dmg CI on 2026-05-22).
