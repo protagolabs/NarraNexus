@@ -1,7 +1,16 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-05-18
+last_verified: 2026-05-22
 ---
+
+## 2026-05-22 — surface sidecar startup failure (was silent)
+
+In the auto-start task, `pm.start_all(...)` failure used to be just
+`log::error!` — the webview loaded anyway and every request failed with a vague
+"Connection failed". It now calls
+`sidecar::port_preflight::show_startup_failure_dialog_and_exit(&e)` so a required
+sidecar that never came up surfaces a detailed dialog (reason + log path +
+output tail) and exits, instead of leaving a dead UI.
 
 ## 2026-05-18 — deep-link plugin for narranexus:// (templates marketplace)
 

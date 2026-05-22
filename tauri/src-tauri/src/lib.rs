@@ -161,6 +161,10 @@ pub fn run() {
 
                 if let Err(e) = pm.start_all(&defs, &project_root_str).await {
                     log::error!("Failed to auto-start services: {}", e);
+                    // A REQUIRED sidecar never became ready. Don't leave the UI
+                    // up to fail every request with a vague "Connection failed"
+                    // — surface the detailed reason + log path and exit.
+                    sidecar::port_preflight::show_startup_failure_dialog_and_exit(&e);
                 } else {
                     log::info!("All services started successfully");
                 }
