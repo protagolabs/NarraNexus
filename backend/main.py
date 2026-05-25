@@ -50,8 +50,27 @@ def _assert_local_bind_is_loopback(is_cloud_mode: bool) -> None:
     Rationale: dashboard returns real user content (events.final_output, sender names).
     Local mode assumes single-user trust on loopback; binding 0.0.0.0 exposes PII to LAN.
     See design doc TDR-12 + security critic C-1.
+
+    Manyfold deployment override (Owner spec 2026-05-25 §4.8): when
+    ``ENABLE_MANYFOLD_API=1`` the platform's ingress is the only path in
+    and gateway-token Bearer auth is the security boundary — 0.0.0.0 bind
+    is intentional and required. Skip the assertion in that mode.
     """
     if is_cloud_mode:
+        return
+    if os.environ.get("ENABLE_MANYFOLD_API", "").strip() in ("1", "true", "yes"):
+        logger.info(
+            "Manyfold mode active — skipping local-bind loopback assertion "
+            "(MANYFOLD_GATEWAY_TOKEN is the security boundary)."
+        )
+        return
+    if os.environ.get("RUNTIME_MODE", "").strip() == "container":
+        # Container deployments inherently bind 0.0.0.0 (the Docker
+        # network namespace IS the security boundary). The loopback
+        # check is for laptops on shared LANs, not containers.
+        logger.info(
+            "Container mode active — skipping local-bind loopback assertion."
+        )
         return
     host = _detect_bind_host()
     if host not in ("127.0.0.1", "localhost", "::1"):
@@ -324,6 +343,37 @@ async def health():
     }
 
 
+@app.get("/healthz")
+async def healthz():
+    """K8s/Manyfold readiness probe.
+
+    Always available (not behind ENABLE_MANYFOLD_API gate) so the
+    platform can probe before any agent runs. Lightweight — does not
+    touch the DB; the more thorough /manyfold/diagnostics endpoint
+    covers DB / claude / volume checks.
+    """
+    return {"status": "ok"}
+
+
+# ─── Manyfold deployment-gated routers (Part 4.10) ───────────────────────
+# Registered only when ENABLE_MANYFOLD_API=1. Without the env, /v1/*
+# and /manyfold/* endpoints return 404 — local and EC2 deployments
+# behave identically to before.
+
+if os.environ.get("ENABLE_MANYFOLD_API", "").strip() in ("1", "true", "yes"):
+    from backend.routes.openai_compat import router as openai_compat_router
+    from backend.routes.manyfold_agents import router as manyfold_agents_router
+    from backend.routes.manyfold_diagnostics import (
+        router as manyfold_diagnostics_router,
+    )
+    app.include_router(openai_compat_router, tags=["ManyfoldOpenAI"])
+    app.include_router(manyfold_agents_router, tags=["ManyfoldAgents"])
+    app.include_router(manyfold_diagnostics_router, tags=["ManyfoldDiagnostics"])
+    logger.info("Manyfold API enabled: /v1/chat/completions + /manyfold/* registered")
+else:
+    logger.info("Manyfold API disabled (ENABLE_MANYFOLD_API not set)")
+
+
 # ─── Frontend static files & SPA fallback ────────────────
 # Mounted after all API routes so /api/* and /ws/* take priority.
 
@@ -334,9 +384,29 @@ if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
 
     app.mount("/assets", StaticFiles(directory=_FRONTEND_DIST / "assets"), name="frontend-assets")
 
-    @app.get("/{full_path:path}")
+    # HEAD / preflight — Manyfold's ApiChatAdapter (openclaw.adapter.ts:175)
+    # probes the root with HEAD before issuing the first chat. Without
+    # this explicit handler FastAPI returns 405 (the SPA fallback below
+    # is GET-only), failing the platform's readiness check.
+    @app.head("/")
+    async def preflight_head():
+        from fastapi.responses import Response
+        return Response(status_code=200)
+
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
     async def spa_fallback(request: Request, full_path: str):
-        """SPA fallback: return index.html for non-API/WS requests."""
+        """SPA fallback: return index.html for non-API/WS requests.
+        HEAD support is required by Manyfold preflight (see HEAD / above)
+        and is cheap to add for arbitrary paths.
+
+        Manyfold-namespace guard: when the Manyfold routers are NOT
+        registered (ENABLE_MANYFOLD_API=0), unmatched /v1/* and
+        /manyfold/* requests must return 404 — never the SPA bundle.
+        Otherwise platform readiness probes get a fake 200.
+        """
+        if full_path.startswith("v1/") or full_path.startswith("manyfold/"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=404, content={"detail": "not found"})
         file_path = _FRONTEND_DIST / full_path
         if full_path and file_path.is_file():
             return FileResponse(file_path)
