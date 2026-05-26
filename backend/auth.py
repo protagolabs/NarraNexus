@@ -91,14 +91,53 @@ def _is_manyfold_path(path: str) -> bool:
 
 
 async def _resolve_manyfold_default_user_id() -> Optional[str]:
-    """Manyfold container is single-user (Owner decision 2026-05-25). The
-    first user row in the DB is the implicit identity for /api/* requests
-    arriving via the URL-fragment token path. Returns None if no users exist
-    yet (caller treats as 401)."""
+    """Legacy fallback for Manyfold handoff URLs that don't carry a
+    ``#user=`` fragment param. Returns the first user row's id.
+
+    Replaced in the multi-Manyfold-user flow by the X-User-Id header
+    path — see auth_middleware. Kept so older URLs (pre-2026-05-26 build
+    of the frontend) keep working without 401.
+    """
     from xyz_agent_context.utils.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     return row.get("user_id") if row else None
+
+
+async def _ensure_manyfold_user_exists(user_id: str) -> None:
+    """Idempotently create a ``mf_<...>`` user row on first contact.
+
+    Triggered when the frontend `initManyfoldFragmentAuth()` decoded a
+    Manyfold-side user from the handoff URL and that user has never
+    chatted / never been provisioned via POST /manyfold/agents before
+    (rare but possible: user opens "Open Native UI" before creating any
+    agent in Manyfold).
+
+    We DO NOT clone provider config here — that requires opting in via
+    ``NARRANEXUS_INHERIT_PROVIDER_FROM`` on the agent-create path (and
+    we don't have access to that env's *value* policy at the auth
+    layer). Provider config can still be set up later through the
+    native UI's Settings → Providers flow.
+    """
+    if not user_id.startswith("mf_"):
+        return
+    from xyz_agent_context.utils.db_factory import get_db_client
+    db = await get_db_client()
+    existing = await db.get_one("users", {"user_id": user_id})
+    if existing:
+        return
+    # Display name = the manyfold-side id with the mf_ prefix stripped.
+    display_name = user_id[3:] if user_id.startswith("mf_") else user_id
+    await db.insert("users", {
+        "user_id": user_id,
+        "user_type": "local",
+        "role": "user",
+        "display_name": display_name,
+    })
+    logger.info(
+        f"[manyfold-fragment] auto-created NarraNexus user {user_id!r} "
+        f"on first native-UI access"
+    )
 
 
 def _is_cloud_mode() -> bool:
@@ -314,15 +353,40 @@ async def auth_middleware(request: Request, call_next):
             request.state.manyfold_authed = True
             return await call_next(request)
         if has_token and (path.startswith("/api/") or path.startswith("/ws/")):
-            # Native UI path through Manyfold ingress — single-user mapping.
-            default_uid = await _resolve_manyfold_default_user_id()
-            if default_uid:
-                request.state.user_id = default_uid
+            # Native UI path through Manyfold ingress (or WS).
+            #
+            # Identity precedence (most-specific first):
+            #   1. X-User-Id header — set by frontend after
+            #      `initManyfoldFragmentAuth()` decoded `#user=` from
+            #      the URL fragment. This is the multi-Manyfold-user case
+            #      where the platform handed us a specific identity.
+            #   2. First user in DB — legacy "single-user container"
+            #      fallback. Kept for backwards compat with the
+            #      pre-fragment-user-param URLs.
+            #
+            # For case 1, if the requested user_id looks like our
+            # auto-generated ``mf_<x>`` shape but doesn't yet exist
+            # (this is the user's very first NarraNexus visit through
+            # the Manyfold ingress — they haven't created an agent
+            # yet so the user row was never auto-provisioned), we
+            # eagerly create them now so the native UI doesn't bounce
+            # them through some "user not found" dead-end.
+            header_uid = request.headers.get("x-user-id", "").strip()
+            user_id: Optional[str] = None
+            if header_uid:
+                user_id = header_uid
+                if header_uid.startswith("mf_"):
+                    await _ensure_manyfold_user_exists(header_uid)
+            else:
+                user_id = await _resolve_manyfold_default_user_id()
+
+            if user_id:
+                request.state.user_id = user_id
                 request.state.manyfold_authed = True
                 from xyz_agent_context.agent_framework.api_config import (
                     set_current_user_id,
                 )
-                set_current_user_id(default_uid)
+                set_current_user_id(user_id)
                 return await call_next(request)
             # Token valid but no user in DB yet — let normal flow continue
             # so /api/auth/register-style paths still work.

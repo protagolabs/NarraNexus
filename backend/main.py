@@ -366,9 +366,11 @@ if os.environ.get("ENABLE_MANYFOLD_API", "").strip() in ("1", "true", "yes"):
     from backend.routes.manyfold_diagnostics import (
         router as manyfold_diagnostics_router,
     )
+    from backend.routes.manyfold_files import router as manyfold_files_router
     app.include_router(openai_compat_router, tags=["ManyfoldOpenAI"])
     app.include_router(manyfold_agents_router, tags=["ManyfoldAgents"])
     app.include_router(manyfold_diagnostics_router, tags=["ManyfoldDiagnostics"])
+    app.include_router(manyfold_files_router, tags=["ManyfoldFiles"])
     logger.info("Manyfold API enabled: /v1/chat/completions + /manyfold/* registered")
 else:
     logger.info("Manyfold API disabled (ENABLE_MANYFOLD_API not set)")
@@ -393,6 +395,20 @@ if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
         from fastapi.responses import Response
         return Response(status_code=200)
 
+    # Cache policy: index.html and the SPA fallback MUST NOT be cached
+    # by the browser — they hold the immutable-hashed bundle name
+    # (``index-XXXXXXXX.js``) and a stale cached copy keeps users on
+    # an outdated bundle even after we ship new frontend code (which is
+    # exactly what bit us during fragment-auth dev). Hashed asset files
+    # under /assets/* are immutable by Vite's design, so they're safe
+    # to cache aggressively — that's what _no_cache_headers leaves
+    # alone.
+    _NO_CACHE_HEADERS = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
     async def spa_fallback(request: Request, full_path: str):
         """SPA fallback: return index.html for non-API/WS requests.
@@ -409,8 +425,15 @@ if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
             return JSONResponse(status_code=404, content={"detail": "not found"})
         file_path = _FRONTEND_DIST / full_path
         if full_path and file_path.is_file():
+            # /assets/index-<hash>.js etc — Vite hashes these so they're
+            # safe to long-cache. Don't add no-cache headers.
             return FileResponse(file_path)
-        return FileResponse(_FRONTEND_DIST / "index.html")
+        # The HTML shell — must always be fresh so the user picks up
+        # new bundle names after we ship.
+        return FileResponse(
+            _FRONTEND_DIST / "index.html",
+            headers=_NO_CACHE_HEADERS,
+        )
 else:
     logger.info("Frontend dist not found, API-only mode")
 

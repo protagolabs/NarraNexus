@@ -190,7 +190,10 @@ def _extract_user_input(messages: list[ChatMessage]) -> str:
 # ---------------------------------------------------------------------------
 
 _REPLY_TOOL_NAMES = (
-    # Chat module's canonical user-visible reply path.
+    # Chat module's canonical user-visible reply path. NarraNexus uses
+    # the SAME tool for every entrypoint (native UI / Manyfold / lark /
+    # slack / telegram); whatever the agent puts in args.content is the
+    # final assistant-to-user message. No Manyfold-specific reply tool.
     "send_message_to_user_directly",
     # MCP-prefixed variants emitted by fastmcp.
     "chat_module__send_message_to_user_directly",
@@ -200,37 +203,98 @@ _REPLY_TOOL_NAMES = (
 _TERMINAL_TYPES = ("run_ended", "completed", "done", "failed", "cancelled")
 
 
-def _extract_reply_content(event: dict) -> Optional[str]:
-    """Pull user-visible reply text out of a BackgroundRun broadcaster event.
+def _is_reply_tool_name(tool_name: str) -> bool:
+    return bool(tool_name) and any(n in tool_name for n in _REPLY_TOOL_NAMES)
 
-    We accept three shapes (in priority order):
-      1. ``agent_response`` with ``delta`` — streaming text from chat module
-      2. ``progress`` carrying a ``send_message_to_user_directly`` tool call
-         (its ``arguments.content`` is the reply payload)
-      3. ``agent_tool_call`` for the same tool
-    Anything else returns None and is skipped.
+
+def _classify_event(event: dict) -> Optional[tuple[str, Any]]:
+    """Map a BackgroundRun broadcaster event onto one of four OpenAI
+    streaming channels:
+
+    - ``("reasoning", str)``  — agent's inner stream + post-reply self
+      monologue. Routed to ``delta.reasoning_content`` (OpenAI o1 /
+      DeepSeek convention).
+    - ``("content",   str)``  — the user-visible reply text the agent
+      explicitly emits via ``send_message_to_user_directly``. Routed
+      to ``delta.content``.
+    - ``("tool_call", {name, arguments})`` — any OTHER internal tool the
+      agent invokes (lark_cli, skill_module, etc.). Routed to
+      ``delta.tool_calls[...]`` in standard OpenAI shape.
+    - ``("tool_result", str)`` — output produced by the agent's just-
+      invoked tool. NarraNexus executes tools INTERNALLY (it doesn't
+      ask the client to do it), so the tool result is available right
+      after the tool_call event. We surface it as a non-standard
+      ``delta.tool_results[...]`` extension so Manyfold's UI can pair
+      it with the matching tool_call and stop showing "running"
+      forever. See `openclaw.adapter.ts` chunk parser on the Manyfold
+      side for the receiving end of this extension.
+
+    Returns ``None`` for events that don't map to any channel (heartbeat,
+    progress without tool / output, internal lifecycle, etc.).
     """
     t = event.get("type", "")
+
+    # 1a. Explicit "thinking" events — Claude's chain-of-thought blocks
+    # that the SDK surfaces separately from regular response tokens.
+    # NarraNexus emits these with type=agent_thinking + thinking_content
+    # (NOT delta). Map onto OpenAI delta.reasoning_content.
+    if t == "agent_thinking":
+        tc = event.get("thinking_content")
+        if isinstance(tc, str) and tc:
+            return ("reasoning", tc)
+        return None
+
+    # 1b. The other inner stream: actual response tokens being generated
+    # (before any tool call wrap them up). Same destination —
+    # delta.reasoning_content — because for narranexus the ONLY
+    # user-facing text is the explicit send_message_to_user_directly
+    # tool call below; everything else is chain-of-thought.
     if t == "agent_response":
         d = event.get("delta")
         if isinstance(d, str) and d:
-            return d
+            return ("reasoning", d)
         return None
+
+    # Tool output: explicit (agent_tool_output) or progress-with-output.
+    # Surfaced BEFORE the tool_call branch so a `progress` event that
+    # carries `output` is routed to tool_result rather than fall through
+    # to tool_call (which it isn't — it's the post-call result).
+    if t == "agent_tool_output" or (
+        t == "progress"
+        and isinstance((event.get("details") or {}).get("output"), str)
+    ):
+        details = event.get("details") or {}
+        output = details.get("output")
+        if isinstance(output, str) and output:
+            return ("tool_result", output)
+        return None
+
     if t in ("progress", "agent_tool_call"):
         details = event.get("details") or {}
         tool_name = details.get("tool_name", "") or ""
-        if not any(name in tool_name for name in _REPLY_TOOL_NAMES):
+        if not tool_name:
+            # Pure progress markers (step started / finished) — no
+            # OpenAI channel for these. Drop.
             return None
         args = details.get("arguments") or {}
         if isinstance(args, str):
             try:
                 args = json.loads(args)
             except Exception:  # noqa: BLE001
-                return None
+                args = {}
         if not isinstance(args, dict):
+            args = {}
+
+        # 2. user-visible reply tool → delta.content
+        if _is_reply_tool_name(tool_name):
+            content = args.get("content")
+            if isinstance(content, str) and content:
+                return ("content", content)
             return None
-        content = args.get("content")
-        return content if isinstance(content, str) and content else None
+
+        # 3. all other tools → delta.tool_calls (proper OpenAI schema)
+        return ("tool_call", {"name": tool_name, "arguments": args})
+
     return None
 
 
@@ -327,10 +391,22 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 delta={"role": "assistant", "content": ""},
             )
             content_emitted = False
+            saw_tool_call = False
             last_error_msg: Optional[str] = None
+            tool_index = 0  # OpenAI tool_calls each carry a distinct index
+            # Pending tool_call_ids that haven't been paired with an
+            # output yet. NarraNexus's broadcaster emits tool_call
+            # followed by agent_tool_output in order, so we pair FIFO.
+            # When a tool_result event fires, we pop the oldest id and
+            # send it back as the result's tool_call_id so Manyfold's
+            # pairToolBlocks can match them.
+            pending_tool_call_ids: list[str] = []
             try:
                 async for event in subscriber:
-                    logger.info(f"[manyfold:{agent_id}] stream event: type={event.get('type','?')} keys={list(event.keys())[:8]}")
+                    logger.info(
+                        f"[manyfold:{agent_id}] stream event: type={event.get('type','?')} "
+                        f"keys={list(event.keys())[:8]}"
+                    )
                     if _is_error(event):
                         # Best-effort: surface the error message as a content
                         # token, then terminate. The OpenAI streaming protocol
@@ -372,23 +448,113 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                                 model=agent_id,
                                 delta={"content": fallback},
                             )
+                        # finish_reason policy: if the agent invoked any
+                        # non-reply tools, OpenAI's contract is to report
+                        # finish_reason=tool_calls — except we ALSO emitted
+                        # final assistant text in the same response. Real
+                        # OpenAI lets the assistant either send text OR
+                        # call tools, not both. Since user-visible text
+                        # is what matters for chat, we report "stop"
+                        # when we have content, regardless of tool calls.
+                        finish = "stop" if content_emitted else (
+                            "tool_calls" if saw_tool_call else "stop"
+                        )
                         yield _chunk(
                             id_=completion_id,
                             created=created_ts,
                             model=agent_id,
                             delta={},
-                            finish_reason="stop",
+                            finish_reason=finish,
                         )
                         yield _done_sentinel()
                         return
-                    content = _extract_reply_content(event)
-                    if content:
+
+                    classified = _classify_event(event)
+                    if not classified:
+                        continue
+                    kind, payload = classified
+                    if kind == "reasoning":
+                        # agent's inner stream (claude SDK token deltas).
+                        # OpenAI o1 / DeepSeek convention: delta.reasoning_content.
+                        yield _chunk(
+                            id_=completion_id,
+                            created=created_ts,
+                            model=agent_id,
+                            delta={"reasoning_content": payload},
+                        )
+                    elif kind == "content":
                         content_emitted = True
                         yield _chunk(
                             id_=completion_id,
                             created=created_ts,
                             model=agent_id,
-                            delta={"content": content},
+                            delta={"content": payload},
+                        )
+                    elif kind == "tool_call":
+                        # NarraNexus's progress event fires once per tool
+                        # invocation with the full arguments — OpenAI's
+                        # streaming usually splits arguments into many
+                        # chunks, but emitting it as one chunk is still
+                        # valid (parsers concatenate `function.arguments`
+                        # across chunks of the same index).
+                        saw_tool_call = True
+                        tool_call_id = f"call_{uuid.uuid4().hex[:24]}"
+                        pending_tool_call_ids.append(tool_call_id)
+                        yield _chunk(
+                            id_=completion_id,
+                            created=created_ts,
+                            model=agent_id,
+                            delta={
+                                "tool_calls": [{
+                                    "index": tool_index,
+                                    "id": tool_call_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": payload["name"],
+                                        "arguments": json.dumps(
+                                            payload["arguments"],
+                                            ensure_ascii=False,
+                                        ),
+                                    },
+                                }]
+                            },
+                        )
+                        tool_index += 1
+                    elif kind == "tool_result":
+                        # NON-STANDARD OpenAI extension. The plain OpenAI
+                        # streaming spec doesn't carry tool results in
+                        # the assistant's response (they're supposed to
+                        # come back in a subsequent message with
+                        # role:"tool"). But NarraNexus executes tools
+                        # internally and knows the result right away,
+                        # and Manyfold's UI needs the result to mark the
+                        # tool block as "completed" instead of stuck on
+                        # "running". So we emit a parallel
+                        # `delta.tool_results[...]` array that Manyfold's
+                        # openclaw chunk parser knows to translate into
+                        # ``type:'tool_result'`` events. Other OpenAI
+                        # clients silently ignore the unknown field.
+                        if pending_tool_call_ids:
+                            paired_id = pending_tool_call_ids.pop(0)
+                        else:
+                            # No matching call — emit anyway with a synthetic
+                            # id so the result content is still surfaced.
+                            # Logged so we can investigate the ordering anomaly.
+                            paired_id = f"call_orphan_{uuid.uuid4().hex[:16]}"
+                            logger.warning(
+                                f"[manyfold:{agent_id}] tool_result with no "
+                                f"pending tool_call_id; emitting orphan {paired_id}"
+                            )
+                        yield _chunk(
+                            id_=completion_id,
+                            created=created_ts,
+                            model=agent_id,
+                            delta={
+                                "tool_results": [{
+                                    "tool_call_id": paired_id,
+                                    "content": payload,
+                                }]
+                            },
                         )
                 # Subscriber iterator exhausted (broadcaster closed cleanly)
                 # without an explicit terminal event — still send sentinel.
@@ -409,7 +575,9 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                     created=created_ts,
                     model=agent_id,
                     delta={},
-                    finish_reason="stop",
+                    finish_reason="stop" if content_emitted else (
+                        "tool_calls" if saw_tool_call else "stop"
+                    ),
                 )
                 yield _done_sentinel()
             finally:
@@ -427,18 +595,54 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
 
     # -------- Non-streaming mode (aggregate then return one response) --------
     parts: list[str] = []
+    reasoning_parts: list[str] = []
+    tool_call_aggregate: list[dict] = []
+    tool_result_aggregate: list[dict] = []  # paired by FIFO with tool_call_aggregate
+    nonstream_pending_ids: list[str] = []
     error_msg: Optional[str] = None
     try:
         async for event in subscriber:
-            logger.info(f"[manyfold:{agent_id}] nonstream event: type={event.get('type','?')} keys={list(event.keys())[:8]}")
+            logger.info(
+                f"[manyfold:{agent_id}] nonstream event: type={event.get('type','?')} "
+                f"keys={list(event.keys())[:8]}"
+            )
             if _is_error(event):
                 error_msg = event.get("message") or event.get("error") or "agent error"
                 break
             if _is_terminal(event):
                 break
-            content = _extract_reply_content(event)
-            if content:
-                parts.append(content)
+            classified = _classify_event(event)
+            if not classified:
+                continue
+            kind, payload = classified
+            if kind == "reasoning":
+                reasoning_parts.append(payload)
+            elif kind == "content":
+                parts.append(payload)
+            elif kind == "tool_call":
+                tool_call_id = f"call_{uuid.uuid4().hex[:24]}"
+                nonstream_pending_ids.append(tool_call_id)
+                tool_call_aggregate.append({
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": payload["name"],
+                        "arguments": json.dumps(
+                            payload["arguments"],
+                            ensure_ascii=False,
+                        ),
+                    },
+                })
+            elif kind == "tool_result":
+                paired_id = (
+                    nonstream_pending_ids.pop(0)
+                    if nonstream_pending_ids
+                    else f"call_orphan_{uuid.uuid4().hex[:16]}"
+                )
+                tool_result_aggregate.append({
+                    "tool_call_id": paired_id,
+                    "content": payload,
+                })
     finally:
         bg.broadcaster.unsubscribe(session_id)
 
@@ -453,6 +657,22 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         )
 
     full_text = "".join(parts)
+    full_reasoning = "".join(reasoning_parts)
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "content": full_text,
+    }
+    if full_reasoning:
+        message["reasoning_content"] = full_reasoning
+    if tool_call_aggregate:
+        message["tool_calls"] = tool_call_aggregate
+    if tool_result_aggregate:
+        # Non-standard mirror of the streaming-mode extension. Manyfold's
+        # non-streaming branch is rarely used in practice (chat is always
+        # streaming), but emitting `tool_results` here keeps the two
+        # paths symmetrical so a future caller that flips `stream:false`
+        # gets the same pairing behaviour.
+        message["tool_results"] = tool_result_aggregate
     return {
         "id": completion_id,
         "object": "chat.completion",
@@ -461,11 +681,10 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         "choices": [
             {
                 "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": full_text,
-                },
-                "finish_reason": "stop",
+                "message": message,
+                "finish_reason": "stop" if full_text else (
+                    "tool_calls" if tool_call_aggregate else "stop"
+                ),
             }
         ],
         "usage": {
