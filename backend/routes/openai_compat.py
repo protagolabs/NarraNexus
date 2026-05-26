@@ -326,20 +326,30 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 model=agent_id,
                 delta={"role": "assistant", "content": ""},
             )
+            content_emitted = False
+            last_error_msg: Optional[str] = None
             try:
                 async for event in subscriber:
+                    logger.info(f"[manyfold:{agent_id}] stream event: type={event.get('type','?')} keys={list(event.keys())[:8]}")
                     if _is_error(event):
                         # Best-effort: surface the error message as a content
                         # token, then terminate. The OpenAI streaming protocol
                         # does not have a great error-mid-stream story; this
                         # is consistent with how openclaw handles it.
-                        msg = event.get("message") or event.get("error") or "agent error"
+                        msg = (
+                            event.get("message")
+                            or event.get("error_message")
+                            or event.get("error")
+                            or "agent error"
+                        )
+                        last_error_msg = msg
                         yield _chunk(
                             id_=completion_id,
                             created=created_ts,
                             model=agent_id,
                             delta={"content": f"\n[error] {msg}"},
                         )
+                        content_emitted = True
                         yield _chunk(
                             id_=completion_id,
                             created=created_ts,
@@ -350,6 +360,18 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         yield _done_sentinel()
                         return
                     if _is_terminal(event):
+                        if not content_emitted:
+                            fallback = (
+                                f"(agent ran but produced no user-visible reply; "
+                                f"this usually means an upstream LLM error — "
+                                f"check container logs. Last error: {last_error_msg or 'none captured'})"
+                            )
+                            yield _chunk(
+                                id_=completion_id,
+                                created=created_ts,
+                                model=agent_id,
+                                delta={"content": fallback},
+                            )
                         yield _chunk(
                             id_=completion_id,
                             created=created_ts,
@@ -361,6 +383,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         return
                     content = _extract_reply_content(event)
                     if content:
+                        content_emitted = True
                         yield _chunk(
                             id_=completion_id,
                             created=created_ts,
@@ -369,6 +392,18 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         )
                 # Subscriber iterator exhausted (broadcaster closed cleanly)
                 # without an explicit terminal event — still send sentinel.
+                if not content_emitted:
+                    fallback = (
+                        f"(agent ran but produced no user-visible reply; "
+                        f"this usually means an upstream LLM error — check "
+                        f"container logs. Last error: {last_error_msg or 'none captured'})"
+                    )
+                    yield _chunk(
+                        id_=completion_id,
+                        created=created_ts,
+                        model=agent_id,
+                        delta={"content": fallback},
+                    )
                 yield _chunk(
                     id_=completion_id,
                     created=created_ts,
@@ -395,6 +430,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
     error_msg: Optional[str] = None
     try:
         async for event in subscriber:
+            logger.info(f"[manyfold:{agent_id}] nonstream event: type={event.get('type','?')} keys={list(event.keys())[:8]}")
             if _is_error(event):
                 error_msg = event.get("message") or event.get("error") or "agent error"
                 break
