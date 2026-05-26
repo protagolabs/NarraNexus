@@ -205,6 +205,195 @@ async def create_agent_for_manyfold(
     }
 
 
+# ---------------------------------------------------------------------------
+# PATCH /manyfold/agents/{agent_id} — Manyfold side pushes a rename /
+# description edit so NarraNexus's own DB stays in sync with the
+# Manyfold UI. See `narranexus/README.md` flow #3 on the Manyfold side
+# for the bidirectional design (plan A = push, plan B = reconcile pull).
+# ---------------------------------------------------------------------------
+
+
+class ManyfoldUpdateAgentRequest(BaseModel):
+    """Patch body — every field is optional. Absent fields are left untouched.
+
+    NOTE: we deliberately split ``agent_name`` and ``agent_description``
+    into separate optional fields rather than a single ``patch`` dict so
+    the API contract is type-checked end-to-end (pydantic on this side,
+    TypeScript on the caller side). Empty string is meaningful for
+    ``agent_description`` (intentional clear) — use ``None`` / omit to
+    skip the field.
+    """
+
+    agent_name: Optional[str] = Field(
+        default=None,
+        description="New display name. Omit to leave unchanged.",
+        min_length=1,
+        max_length=200,
+    )
+    agent_description: Optional[str] = Field(
+        default=None,
+        description=(
+            "New description. Empty string is honored (clears the field); "
+            "omit (None) to leave unchanged."
+        ),
+        max_length=2000,
+    )
+
+
+@router.patch("/manyfold/agents/{agent_id}")
+async def update_agent_for_manyfold(
+    agent_id: str,
+    request: Request,
+    body: ManyfoldUpdateAgentRequest,
+):
+    """Apply a Manyfold-initiated edit to NarraNexus's agent row.
+
+    Updates only the fields present in the body. Returns the updated
+    row (or 404 if the agent doesn't exist). The Manyfold side calls
+    this BEFORE committing its own DB update so a failure here aborts
+    the entire rename — keeping both sides consistent (vs the prior
+    behaviour where Manyfold would silently drift if NarraNexus was
+    unreachable).
+    """
+    _require_manyfold_auth(request)
+    db = await get_db_client()
+
+    agent_row = await db.get_one("agents", {"agent_id": agent_id})
+    if not agent_row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"agent {agent_id!r} not found",
+        )
+
+    patch: dict[str, str] = {}
+    if body.agent_name is not None:
+        patch["agent_name"] = body.agent_name
+    if body.agent_description is not None:
+        patch["agent_description"] = body.agent_description
+
+    if not patch:
+        # No-op patches are legal — return the current row so the caller
+        # can short-circuit without a second GET. Distinct from 4xx
+        # because the contract is "absent field = no change", and the
+        # empty case is just the degenerate version of that.
+        return {
+            "agent_id": agent_row.get("agent_id"),
+            "name": agent_row.get("agent_name"),
+            "description": agent_row.get("agent_description"),
+            "updated_fields": [],
+        }
+
+    await db.update("agents", {"agent_id": agent_id}, patch)
+
+    logger.info(
+        f"[manyfold-update] {agent_id} patched fields={list(patch.keys())}"
+    )
+
+    updated = await db.get_one("agents", {"agent_id": agent_id})
+    return {
+        "agent_id": updated.get("agent_id") if updated else agent_id,
+        "name": updated.get("agent_name") if updated else patch.get("agent_name"),
+        "description": (
+            updated.get("agent_description")
+            if updated
+            else patch.get("agent_description")
+        ),
+        "updated_fields": list(patch.keys()),
+    }
+
+
+# ---------------------------------------------------------------------------
+# DELETE /manyfold/agents/{agent_id} — Manyfold side asks NarraNexus to fully
+# remove a previously-provisioned agent (cascade through its derived data).
+# ---------------------------------------------------------------------------
+
+
+# Tables whose rows are owned by an agent and should disappear with it.
+# Order matters: child rows first, then the agents row, so FK-like
+# integrity assumptions hold even though SQLite isn't actually enforcing
+# FKs on most of these columns. Independent of NarraNexus's schema_registry
+# because we want to be explicit about the blast radius.
+_AGENT_CASCADE_TABLES = (
+    "events",
+    "narratives",
+    "mcp_urls",
+    "agent_messages",
+    "module_instances",
+    "instance_jobs",
+    "cost_records",
+    "bus_channel_members",
+    "bus_agent_registry",
+    "bus_message_failures",
+    "lark_credentials",
+    "channel_slack_credentials",
+    "channel_telegram_credentials",
+    "lark_trigger_audit",
+    "channel_trigger_audit",
+    "team_members",
+    "instance_artifacts",
+)
+
+
+@router.delete("/manyfold/agents/{agent_id}")
+async def delete_agent_for_manyfold(agent_id: str, request: Request):
+    """Cascade-delete a NarraNexus agent + all derived rows.
+
+    Called by the Manyfold-side NarraNexusAgentAdapter.removeAgent when
+    a user clicks "Delete agent" in Manyfold UI. We delete everything
+    keyed by ``agent_id`` (narratives, events, module_instances, IM
+    channel credentials, message bus state, artifacts, etc.) and then
+    the agents row itself.
+
+    We do NOT delete the user row even if this was their last agent —
+    user_providers / user_slots are user-level and may be reused by
+    future agents under the same user.
+
+    Idempotent: missing agent → 404 only if there's also no historical
+    data tied to the id; otherwise we cascade through whatever we find
+    and return ``{deleted: true}``.
+    """
+    _require_manyfold_auth(request)
+
+    db = await get_db_client()
+    agent_row = await db.get_one("agents", {"agent_id": agent_id})
+    deleted_counts: dict[str, int] = {}
+
+    # Wipe child tables first. We don't short-circuit on missing agent
+    # row because reconciler / partial-failure may have left orphan
+    # rows we still want gone.
+    for table in _AGENT_CASCADE_TABLES:
+        try:
+            existing = await db.get(table, {"agent_id": agent_id})
+            if existing:
+                await db.delete(table, {"agent_id": agent_id})
+                deleted_counts[table] = len(existing)
+        except Exception as exc:  # noqa: BLE001
+            # Table might not exist in this NarraNexus revision; log
+            # and continue — we'd rather over-delete than leave a
+            # stale row that breaks listAgents.
+            logger.warning(
+                f"[manyfold-delete] cascade skipped table {table!r}: {exc}"
+            )
+
+    # Finally the agents row itself.
+    if agent_row:
+        await db.delete("agents", {"agent_id": agent_id})
+        deleted_counts["agents"] = 1
+    elif not deleted_counts:
+        # Nothing at all matched — surface a 404 so callers don't think
+        # they accidentally cascade-deleted an unrelated agent's data.
+        raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
+
+    logger.info(
+        f"[manyfold-delete] {agent_id!r} cascade done: {deleted_counts}"
+    )
+    return {
+        "deleted": True,
+        "agent_id": agent_id,
+        "cascade": deleted_counts,
+    }
+
+
 async def _clone_provider_setup(db, *, src_user_id: str, dst_user_id: str) -> None:
     """Copy user_providers + user_slots rows from src → dst.
 
