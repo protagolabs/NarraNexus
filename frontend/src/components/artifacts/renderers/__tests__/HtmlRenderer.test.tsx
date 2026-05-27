@@ -28,6 +28,20 @@ vi.mock('@/services/artifactsApi', () => ({
   fetchArtifactBlobUrl: vi.fn(async () => 'blob:http://tauri.localhost/fake-html'),
 }));
 
+// In jsdom there is no `window.__TAURI_INTERNALS__`, so isTauri() returns
+// false and the helper returns null without IPC. That keeps the test
+// behaviour identical to before the 2026-05-27 Tauri-IPC fallback was
+// added — the renderer falls through to fetchArtifactBlobUrl exactly as
+// it used to. We mock the module anyway so the import resolves.
+vi.mock('@/lib/tauri', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/tauri')>('@/lib/tauri');
+  return {
+    ...actual,
+    isTauri: () => false,
+    fetchArtifactViaTauri: vi.fn(async () => null),
+  };
+});
+
 import HtmlRenderer from '../HtmlRenderer';
 import type { Artifact } from '@/types/artifact';
 

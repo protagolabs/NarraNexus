@@ -64,6 +64,11 @@ pub fn run() {
             commands::auth::get_claude_login_status,
             commands::deep_link::consume_pending_deep_link,
             commands::updater::check_and_install_update,
+            // Artifact bytes proxy — fetches local /api/public/artifacts/...
+            // through Rust so WKWebView's mixed-content blocker can't kill
+            // the HTML artifact iframe load in the dmg. See
+            // commands/artifact_fetch.rs for the full rationale.
+            commands::artifact_fetch::fetch_artifact_via_backend,
         ])
         .setup(|app| {
             // Port-conflict preflight. Must run before anything else: if a
