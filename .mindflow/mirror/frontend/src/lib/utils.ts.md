@@ -14,10 +14,10 @@ adds calendar awareness (WeChat / Lark / Slack convention):
 
 | relative age | rendering |
 |--------------|-----------|
-| today        | `14:23`   |
-| yesterday    | `昨天`     |
-| 2..6d back   | `周三`     |
-| same year    | `5月18日`  |
+| today        | `14:23`     (en-GB 24h time) |
+| yesterday    | `Yesterday` |
+| 2..6d back   | `Wed`       (en-US short weekday) |
+| same year    | `May 18`    (en-US short month + day) |
 | cross-year   | `2025/05/18` |
 
 Each branch returns exactly one of {time, weekday, date} so the row is

@@ -133,9 +133,10 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
       preview = serverPreview.replace(/\s+/g, ' ').slice(0, 60);
       timeMs = serverAtMs;
     }
-    // IM-sidebar formatter: today→HH:MM, yesterday→昨天, within week→weekday,
-    // older same year→M月D日, cross-year→YYYY/MM/DD. Plain HH:MM:SS hid the
-    // date so messages from days ago looked like "this morning". 2026-05-27.
+    // IM-sidebar formatter: today→HH:MM, yesterday→Yesterday, within week→
+    // weekday (Wed), older same year→May 18, cross-year→YYYY/MM/DD. Plain
+    // HH:MM:SS hid the date so messages from days ago looked like "this
+    // morning". 2026-05-27.
     const time = timeMs ? formatChatTimestamp(timeMs) : '';
     // Unread = agent messages newer than the per-agent read marker. The
     // active row is always treated as read (its marker is advanced by the

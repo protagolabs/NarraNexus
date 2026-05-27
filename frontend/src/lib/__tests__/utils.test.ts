@@ -32,21 +32,22 @@ describe('formatChatTimestamp', () => {
     expect(out).not.toMatch(/:\d{2}:\d{2}$/); // no seconds
   });
 
-  test('previous calendar day → "昨天"', () => {
-    expect(formatChatTimestamp('2026-05-26T23:45:00Z')).toBe('昨天');
+  test('previous calendar day → "Yesterday"', () => {
+    expect(formatChatTimestamp('2026-05-26T23:45:00Z')).toBe('Yesterday');
   });
 
   test('within the past week (2..6 days back) → weekday', () => {
     // 3 days back from 2026-05-27 (Wed) → 2026-05-24 (Sun)
     const out = formatChatTimestamp('2026-05-24T09:00:00Z');
-    // zh-CN weekday short labels start with "周"
-    expect(out).toMatch(/^周[一二三四五六日]$/);
+    // en-US short weekday labels
+    expect(out).toMatch(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/);
   });
 
-  test('older than a week, same year → "M月D日"', () => {
+  test('older than a week, same year → "Mon DD"', () => {
     // 30 days back, still in 2026
     const out = formatChatTimestamp('2026-04-27T09:00:00Z');
-    expect(out).toMatch(/月.+日$/);
+    // e.g. "Apr 27"
+    expect(out).toMatch(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}$/);
     expect(out).not.toMatch(/^\d{4}/); // no year prefix
   });
 

@@ -73,14 +73,18 @@ export function formatDate(timestamp: number | string): string {
  * WeChat / Lark / Slack:
  *
  *   today              → "14:23"     (no seconds — sidebar is glance-able)
- *   yesterday          → "昨天"
- *   2..6 days back     → "周三"     (zh-CN short weekday)
- *   older, same year   → "5月18日"
+ *   yesterday          → "Yesterday"
+ *   2..6 days back     → "Wed"       (en-US short weekday)
+ *   older, same year   → "May 18"
  *   previous year+     → "2025/05/18"
  *
  * Each branch returns exactly one of {time, weekday, date} so the row
- * never gets ambiguous. "14:23" is always today; "昨天" is always
+ * never gets ambiguous. "14:23" is always today; "Yesterday" is always
  * yesterday; a weekday name is always within the past week.
+ *
+ * Locale note: project rule is no Chinese strings in code, so even the
+ * 24h time uses en-GB (always 24h without the AM/PM artifact some
+ * en-US Node builds emit even with hour12: false).
  */
 export function formatChatTimestamp(timestamp: number | string): string {
   const date = parseUTCTimestamp(timestamp);
@@ -95,20 +99,20 @@ export function formatChatTimestamp(timestamp: number | string): string {
   );
 
   if (dayDiff === 0) {
-    return date.toLocaleTimeString('zh-CN', {
+    return date.toLocaleTimeString('en-GB', {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
     });
   }
   if (dayDiff === 1) {
-    return '昨天';
+    return 'Yesterday';
   }
   if (dayDiff >= 2 && dayDiff < 7) {
-    return date.toLocaleDateString('zh-CN', { weekday: 'short' });
+    return date.toLocaleDateString('en-US', { weekday: 'short' });
   }
   if (date.getFullYear() === now.getFullYear()) {
-    return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
   // Cross-year: explicit YYYY/MM/DD so the year is unambiguous.
   const y = date.getFullYear();
