@@ -12,7 +12,13 @@ import { MessageSquare, Link, Unlink, ExternalLink, Loader2, CheckCircle, AlertC
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
-import type { LarkCredentialData, LarkErrorDetail } from '@/types';
+import type { LarkCredentialData, LarkErrorDetail, LarkBindWarning } from '@/types';
+
+// App ID validation regex — matches the `cli_<16+ alphanumeric>` pattern
+// the Lark/Feishu developer console mints. Catches the most common user
+// typo (pasting a non-app-id, or missing the cli_ prefix) before the
+// request even leaves the browser.
+const APP_ID_PATTERN = /^cli_[a-zA-Z0-9_-]{8,}$/;
 
 import type { ChannelConfigProps } from './IMChannelsSection';
 
@@ -30,6 +36,10 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // the backend recognises the failure class). When present, takes precedence
   // over the plain `error` string for richer rendering.
   const [errorDetail, setErrorDetail] = useState<LarkErrorDetail | null>(null);
+  // Non-blocking observations from the post-bind scope check / event probe.
+  // Populated after a successful bind so the user can see "yes you're
+  // bound, but heads up about X".
+  const [warnings, setWarnings] = useState<LarkBindWarning[]>([]);
 
   // Bind form state
   const [appId, setAppId] = useState('');
@@ -69,6 +79,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   useEffect(() => {
     setError('');
     setErrorDetail(null);
+    setWarnings([]);
     setCredential(null);
     setAppId('');
     setAppSecret('');
@@ -89,12 +100,24 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     };
   }, [fetchCredential]);
 
+  // Local validation of App ID format — returns user-facing hint or '' if ok.
+  // The backend will validate too, but catching it here avoids a server
+  // round-trip and a cryptic generic error.
+  const appIdValidationError = appId && !APP_ID_PATTERN.test(appId)
+    ? "App ID should start with 'cli_' followed by ≥8 alphanumeric characters. Copy it from the developer console's Credentials & Basic Info page."
+    : '';
+
   // Bind bot
   const handleBind = async () => {
     if (!agentId || !appId || !appSecret) return;
+    if (appIdValidationError) {
+      setError(appIdValidationError);
+      return;
+    }
     setActionLoading(true);
     setError('');
     setErrorDetail(null);
+    setWarnings([]);
     try {
       const res = await api.bindLarkBot(agentId, appId, appSecret, brand, ownerEmail);
       if (!mountedRef.current) return;
@@ -102,6 +125,9 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         setAppId('');
         setAppSecret('');
         setOwnerEmail('');
+        // Surface any non-blocking warnings (missing optional scopes,
+        // event probe could not confirm, etc.) — bind itself succeeded.
+        setWarnings(res.warnings || []);
         await fetchCredential();
         onBindStateChange?.();
       } else {
@@ -238,6 +264,41 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       </CardHeader>
       <CardContent className="space-y-3">
         {/*
+          Non-blocking warnings from the post-bind scope check / event
+          probe. Yellow callout — bind succeeded, but these are things
+          the user may want to fix later. Cleared on the next bind /
+          agent switch.
+        */}
+        {warnings.length > 0 && (
+          <div
+            role="status"
+            className="text-sm text-[var(--text-primary)] border border-[var(--color-yellow-500)] p-3 space-y-2 bg-[var(--color-yellow-500)]/5"
+          >
+            {warnings.map((w, idx) => (
+              <div key={`${w.kind}-${idx}`} className="space-y-1">
+                <div className="flex items-start gap-2 font-medium">
+                  <AlertCircle
+                    className="w-4 h-4 flex-shrink-0 mt-0.5 text-[var(--color-yellow-500)]"
+                    aria-hidden="true"
+                  />
+                  <span>{w.title}</span>
+                </div>
+                {w.message && (
+                  <div className="text-xs pl-6 opacity-90">{w.message}</div>
+                )}
+                {w.raw_error && (
+                  <details className="text-xs pl-6 opacity-60">
+                    <summary className="cursor-pointer">Technical details</summary>
+                    <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px]">
+                      {w.raw_error}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {/*
           Structured error card (translator output). Renders a "what went wrong
           + what to do + click here" layout for recognised error classes.
           Falls back to the plain `error` string when error_detail is absent.
@@ -306,9 +367,19 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   placeholder="App ID (e.g. cli_xxx)"
                   value={appId}
                   onChange={(e) => setAppId(e.target.value)}
-                  className="text-sm"
+                  className={`text-sm ${appIdValidationError ? 'border-[var(--color-red-500)]' : ''}`}
                   aria-label="App ID"
+                  aria-invalid={!!appIdValidationError}
+                  aria-describedby={appIdValidationError ? 'app-id-error' : undefined}
                 />
+                {appIdValidationError && (
+                  <div
+                    id="app-id-error"
+                    className="text-[10px] text-[var(--color-red-500)] mt-1"
+                  >
+                    {appIdValidationError}
+                  </div>
+                )}
               </label>
               <label className="block">
                 <span className="sr-only">App Secret</span>
@@ -358,7 +429,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             </div>
             <Button
               onClick={handleBind}
-              disabled={actionLoading || !appId || !appSecret}
+              disabled={actionLoading || !appId || !appSecret || !!appIdValidationError}
               className="w-full"
               size="sm"
             >

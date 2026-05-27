@@ -786,6 +786,20 @@ export interface LarkErrorDetail {
   raw_message: string;
 }
 
+/**
+ * Non-blocking observation surfaced after a successful bind — e.g. an
+ * optional scope is missing, or the event-subscription probe couldn't
+ * confirm WS delivery within its timeout. UI renders as a yellow
+ * callout so the user knows what to fix later, without blocking bind.
+ */
+export interface LarkBindWarning {
+  kind: string;        // 'scope_optional_missing' | 'event_probe_<kind>' | ...
+  severity: 'warning' | 'info' | string;
+  title: string;
+  message: string;
+  raw_error?: string;
+}
+
 export interface LarkBindResponse extends ApiResponse {
   data?: {
     profile_name: string;
@@ -796,6 +810,7 @@ export interface LarkBindResponse extends ApiResponse {
     owner_name: string;
   };
   error_detail?: LarkErrorDetail;
+  warnings?: LarkBindWarning[];
 }
 
 export interface LarkAuthLoginResponse extends ApiResponse {

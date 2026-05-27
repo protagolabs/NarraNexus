@@ -22,7 +22,16 @@ from ._lark_credential_manager import (
     AUTH_STATUS_USER_LOGGED_IN,
     AUTH_STATUS_NOT_LOGGED_IN,
 )
-from ._lark_error_translator import translate as translate_lark_error
+from ._lark_error_translator import (
+    ErrorTranslation,
+    translate as translate_lark_error,
+)
+from ._lark_event_probe import probe_event_subscription
+from ._lark_scope_validator import (
+    check_app_scopes,
+    format_scope_failure_message,
+    format_scope_warning_message,
+)
 from .lark_cli_client import LarkCLIClient
 
 # Shared CLI client (stateless, safe to share)
@@ -134,6 +143,99 @@ async def do_bind(
             "error_detail": translation.to_dict(),
         }
 
+    # ── Scope completeness check (A.1 in the lark-binding-wizard work) ──
+    # Verify the app actually has the permission scopes NarraNexus uses
+    # before declaring success — otherwise the bot binds, but the agent
+    # silently fails when messages arrive (no `im:message`) or shows
+    # "Unknown" sender names (no `contact:user.base:readonly`).
+    #
+    # Policy: fail-CLOSED on missing REQUIRED scopes (block bind, rollback);
+    # fail-OPEN on tooling errors (don't punish the user when our scope
+    # check itself can't run). Missing OPTIONAL scopes become a non-blocking
+    # warning surfaced in the success response.
+    warnings: list[dict[str, str]] = []
+    scope_check = await check_app_scopes(_cli, agent_id)
+    if scope_check.check_ran and scope_check.is_blocking:
+        await mgr.delete_credential(agent_id)
+        scope_msg = format_scope_failure_message(scope_check, brand=brand, app_id=app_id)
+        translation = ErrorTranslation(
+            code="missing_scope",
+            severity="error",
+            title="Required permission scopes are not enabled",
+            message=(
+                "Your Lark app is missing one or more permission scopes that "
+                "NarraNexus needs to receive messages and reply."
+            ),
+            action_hint=scope_msg,
+            console_url=(
+                f"https://open.feishu.cn/app/{app_id}/permission"
+                if brand == "feishu"
+                else f"https://open.larksuite.com/app/{app_id}/permission"
+            ),
+            raw_message=", ".join(scope_check.missing_required),
+        )
+        return {
+            "success": False,
+            "error": scope_msg,
+            "error_detail": translation.to_dict(),
+            "scope_check": scope_check.to_dict(),
+        }
+    if scope_check.check_ran and scope_check.has_warnings:
+        warnings.append({
+            "kind": "scope_optional_missing",
+            "severity": "warning",
+            "title": "Some optional scopes are not enabled",
+            "message": format_scope_warning_message(scope_check),
+        })
+
+    # ── Event subscription probe (B.2) ────────────────────────────────────
+    # Spawn the WebSocket subscriber for ~5s to verify event delivery is
+    # actually working. This catches:
+    #   - Event Subscription not enabled in the developer console (the
+    #     #1 silent-failure case — bot binds fine, never replies).
+    #   - Brand mismatch (Feishu/Lark mix-up; SDK returns 1000040351).
+    # Probe failures categorise into kinds (brand_mismatch / event_sub_disabled /
+    # timeout / connect_failed / other). brand_mismatch is treated as
+    # blocking (rollback) because the bot WILL NOT WORK. The others are
+    # downgraded to warnings — the trigger may still establish later,
+    # we don't want to flap-fail bind on a transient probe issue.
+    probe_result = await probe_event_subscription(agent_id)
+    if probe_result.probe_ran and not probe_result.healthy:
+        if probe_result.failure_kind == "brand_mismatch":
+            await mgr.delete_credential(agent_id)
+            translation = ErrorTranslation(
+                code=probe_result.detected_error_code or "1000040351",
+                severity="error",
+                title="Platform mismatch detected on WebSocket connect",
+                message=(
+                    "The Lark/Feishu server rejected the WebSocket "
+                    "subscription because the selected platform does not "
+                    "match the app's actual brand. Detected during bind-time "
+                    "probe."
+                ),
+                action_hint=probe_result.user_hint,
+                console_url=(
+                    f"https://open.feishu.cn/app/{app_id}"
+                    if brand == "feishu"
+                    else f"https://open.larksuite.com/app/{app_id}"
+                ),
+                raw_message=probe_result.raw_error,
+            )
+            return {
+                "success": False,
+                "error": probe_result.user_hint,
+                "error_detail": translation.to_dict(),
+                "event_probe": probe_result.to_dict(),
+            }
+        # Non-blocking failure → keep the bind, surface a warning.
+        warnings.append({
+            "kind": f"event_probe_{probe_result.failure_kind or 'unknown'}",
+            "severity": "warning",
+            "title": "Event subscription health probe did not confirm delivery",
+            "message": probe_result.user_hint,
+            "raw_error": probe_result.raw_error[:300],
+        })
+
     # Fetch bot name via bot-info API (best-effort, non-fatal)
     bot_user = await _cli._run_with_agent_id(
         ["api", "GET", "/open-apis/bot/v3/info", "--as", "bot"],
@@ -163,6 +265,11 @@ async def do_bind(
             "owner_open_id": owner_open_id,
             "owner_name": owner_name,
         },
+        # Non-blocking observations from the scope / event-probe checks.
+        # Empty when everything was clean. Frontend renders as a yellow
+        # callout below the success state — user knows what to fix later
+        # without bind getting blocked.
+        "warnings": warnings,
     }
 
 
