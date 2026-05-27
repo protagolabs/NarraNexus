@@ -12,7 +12,7 @@ import { MessageSquare, Link, Unlink, ExternalLink, Loader2, CheckCircle, AlertC
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
-import type { LarkCredentialData } from '@/types';
+import type { LarkCredentialData, LarkErrorDetail } from '@/types';
 
 import type { ChannelConfigProps } from './IMChannelsSection';
 
@@ -26,6 +26,10 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
+  // Structured error from the translator (populated alongside `error` when
+  // the backend recognises the failure class). When present, takes precedence
+  // over the plain `error` string for richer rendering.
+  const [errorDetail, setErrorDetail] = useState<LarkErrorDetail | null>(null);
 
   // Bind form state
   const [appId, setAppId] = useState('');
@@ -64,6 +68,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // Reset all state on agent change
   useEffect(() => {
     setError('');
+    setErrorDetail(null);
     setCredential(null);
     setAppId('');
     setAppSecret('');
@@ -89,6 +94,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     if (!agentId || !appId || !appSecret) return;
     setActionLoading(true);
     setError('');
+    setErrorDetail(null);
     try {
       const res = await api.bindLarkBot(agentId, appId, appSecret, brand, ownerEmail);
       if (!mountedRef.current) return;
@@ -100,9 +106,16 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         onBindStateChange?.();
       } else {
         setError(res.error || 'Failed to bind bot');
+        // error_detail is populated by the translator when the backend
+        // recognises the failure class — surfaces a structured card instead
+        // of the raw lark-cli stderr that used to fill the red div.
+        setErrorDetail(res.error_detail || null);
       }
     } catch (e: unknown) {
-      if (mountedRef.current) setError(e instanceof Error ? e.message : 'Failed to bind bot');
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : 'Failed to bind bot');
+        setErrorDetail(null);
+      }
     } finally {
       if (mountedRef.current) setActionLoading(false);
     }
@@ -224,11 +237,60 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         </button>
       </CardHeader>
       <CardContent className="space-y-3">
-        {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-            {error}
+        {/*
+          Structured error card (translator output). Renders a "what went wrong
+          + what to do + click here" layout for recognised error classes.
+          Falls back to the plain `error` string when error_detail is absent.
+        */}
+        {errorDetail ? (
+          <div
+            role="alert"
+            className="text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-3 space-y-2"
+          >
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="font-medium">{errorDetail.title}</div>
+            </div>
+            {errorDetail.message && (
+              <div className="text-xs pl-6 opacity-90">{errorDetail.message}</div>
+            )}
+            {errorDetail.action_hint && (
+              <div className="text-xs pl-6 text-[var(--text-secondary)]">
+                <span className="font-medium text-[var(--text-primary)]">What to do: </span>
+                {errorDetail.action_hint}
+              </div>
+            )}
+            {errorDetail.console_url && (
+              <a
+                href={errorDetail.console_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs pl-6 inline-flex items-center gap-1 text-[var(--accent-primary)] hover:underline"
+              >
+                <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                Open the relevant developer console page
+              </a>
+            )}
+            {errorDetail.raw_message && (
+              <details className="text-xs pl-6 opacity-60">
+                <summary className="cursor-pointer">Technical details</summary>
+                <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px]">
+                  {errorDetail.code ? `[${errorDetail.code}] ` : ''}
+                  {errorDetail.raw_message}
+                </pre>
+              </details>
+            )}
           </div>
+        ) : (
+          error && (
+            <div
+              role="alert"
+              className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2"
+            >
+              <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+              {error}
+            </div>
+          )
         )}
 
         {/* State 1: No bot bound */}

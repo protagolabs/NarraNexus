@@ -22,6 +22,7 @@ from ._lark_credential_manager import (
     AUTH_STATUS_USER_LOGGED_IN,
     AUTH_STATUS_NOT_LOGGED_IN,
 )
+from ._lark_error_translator import translate as translate_lark_error
 from .lark_cli_client import LarkCLIClient
 
 # Shared CLI client (stateless, safe to share)
@@ -117,12 +118,20 @@ async def do_bind(
         # Credentials invalid → rollback so the user can retry with correct values
         await mgr.delete_credential(agent_id)
         raw_err = bot_info.get("error", "Credential verification failed. Check app_id and app_secret.")
+        err_data = bot_info.get("error_data") or {}
         # Unwrap nested error dict if present
         if isinstance(raw_err, dict):
             raw_err = raw_err.get("message", str(raw_err))
+        # Translate raw lark-cli error into structured, user-friendly form so
+        # the frontend can render title + actionable hint + clickable console
+        # link — vs the previous "dump raw stderr into a red div" UX that left
+        # users staring at "99991672 App scope not enabled" with no idea what
+        # to do. `error` stays for backward-compat with older callers.
+        translation = translate_lark_error(error_message=raw_err, error_data=err_data)
         return {
             "success": False,
             "error": raw_err,
+            "error_detail": translation.to_dict(),
         }
 
     # Fetch bot name via bot-info API (best-effort, non-fatal)
