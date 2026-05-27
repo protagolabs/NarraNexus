@@ -1,7 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-05-20
+last_verified: 2026-05-25
 ---
+
+## 2026-05-25 — Accept any `helper_llm_*` reply_via tag
+
+The reply_via copy loop in `hook_persist_turn` was strict-equality on
+`"helper_llm_fallback"`. As of the fallback-context redesign the synthetic
+ProgressMessage tag is one of `helper_llm_no_reply` (clean turn, agent
+forgot to call send_message) or `helper_llm_after_error` (loop crashed
+mid-stream and helper_llm wrote a recovery reply). Persistence now
+copies any `helper_llm_*` tag onto `meta_data.reply_via`, so the UI can
+render `no_reply` as an info badge and `after_error` as a warning badge.
+T5 builds on this to relax the fatal-detection branch so a recovered
+turn is persisted as a normal user+assistant pair rather than a failed
+user-only row.
 
 ## 2026-05-20 — conversation write moved to synchronous `hook_persist_turn`
 

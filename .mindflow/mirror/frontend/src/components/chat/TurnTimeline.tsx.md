@@ -1,8 +1,30 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-25
 stub: false
 ---
+
+## 2026-05-25 — Two-mode fallback badge on ReplyBlock
+
+`ReplyBlock` now takes `fallbackKind: 'none' | 'no_reply' | 'after_error'`
+(was `isFallback: boolean`). `fallbackKindFromReplyVia` maps the
+backend's `reply_via` tag to that enum:
+
+- `helper_llm_no_reply` → info badge "↻ helper_llm fallback" (silicon-
+  tinted, soft). Nothing broke — agent forgot to call the reply tool,
+  helper_llm wrote what it should have.
+- `helper_llm_after_error` → warning badge "⚠ recovered after error"
+  (warning-tinted). A step in this turn actually failed; reply was
+  written from completed work + error knowledge.
+- legacy `helper_llm_fallback` (pre-2026-05-25 persisted rows) → mapped
+  to `no_reply` so historical replies still surface as recovered. The
+  rename happened in step_3 and chat_module already accepts any
+  `helper_llm_*` tag, but persisted DB rows from before the rename
+  carry the old string and we don't backfill.
+
+Tooltip on each badge carries the user-facing explanation; raw
+`error_type` stays in the dev-tools log so the UI never leaks technical
+strings.
 
 ## 2026-05-14 (r2) — two-tier styling: ANSWER vs PROCESS
 
