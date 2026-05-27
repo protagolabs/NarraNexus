@@ -76,7 +76,15 @@ pub fn run() {
             // the first iteration of.
             let port_conflicts = sidecar::port_preflight::check_required_ports();
             if !port_conflicts.is_empty() {
-                sidecar::port_preflight::show_conflict_dialog_and_exit(&port_conflicts);
+                // 2026-05-27: was `show_conflict_dialog_and_exit`. The new
+                // `resolve_or_exit` first checks whether the conflicting
+                // PIDs are NarraNexus's own orphaned sidecars (from a
+                // force-quit / crash that bypassed ExitRequested) and
+                // offers to terminate them in-place. Third-party holders
+                // still get the "please close the other program" exit.
+                // Returns only on successful auto-cleanup; otherwise
+                // exits cleanly.
+                sidecar::port_preflight::resolve_or_exit(&port_conflicts);
             }
 
             // Set DATABASE_URL so the Python backend picks up the correct SQLite path

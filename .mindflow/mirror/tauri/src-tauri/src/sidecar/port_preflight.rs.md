@@ -1,7 +1,45 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/port_preflight.rs
-last_verified: 2026-05-22
+last_verified: 2026-05-27
 ---
+
+## 2026-05-27 — orphan sidecar auto-cleanup (resolve_or_exit)
+
+P0 from Owner: Force-Quit / app crash bypasses `ExitRequested`,
+leaving Python sidecars holding 8000 / 8100. Next launch the user
+sees the existing "port conflict, please close the other program"
+dialog with no idea those processes are NarraNexus's own.
+
+Solution: classify each conflict's PID against a curated list of
+NarraNexus sidecar command-line patterns. If **all** conflicts are
+our orphans, offer a single "Clean up & launch" dialog → SIGTERM
++ 1.5s wait + SIGKILL fallback → re-check ports → continue startup.
+If **any** conflict is third-party, fall through to the existing
+"close the other program" exit (we never auto-kill what we didn't
+spawn).
+
+API changes:
+- `PortConflict` now exposes `pid: Option<u32>` + `command: Option<String>`
+  + `is_our_orphan()` instead of the old `holder: Option<String>` flat
+  string. `holder_label()` builds the human display when needed.
+- New `resolve_or_exit(conflicts)` — primary entry point from
+  `lib.rs::setup`. Either returns (after successful cleanup) or
+  exits 1.
+- Old `show_conflict_dialog_and_exit` kept as a deprecated shim that
+  routes through `resolve_or_exit`, for back-compat with any caller
+  that might still reference it.
+
+Classifier heuristic (`is_narranexus_sidecar_cmdline`): cmdline
+contains one of the curated module-launch markers (e.g.
+`backend.main`, `xyz_agent_context.utils.sqlite_proxy`,
+`xyz_agent_context.module.module_runner`, lark/slack/telegram
+trigger modules) OR the bundled-python bundle-path
+(`NarraNexus.app/Contents/Resources/resources/python`). Anything
+outside this whitelist is treated as third-party.
+
+Sanity unit tests in `#[cfg(test)] mod tests` cover the classifier
+(recognises all sidecar shapes, rejects third-party python /
+jupyter / django / node) and the `holder_label()` formatting.
 
 ## 2026-05-22 — added show_startup_failure_dialog_and_exit
 
