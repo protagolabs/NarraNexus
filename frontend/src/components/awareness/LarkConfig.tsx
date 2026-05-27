@@ -546,6 +546,59 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             </Button>
           </div>
         )}
+
+        {/*
+          State 5: brand_mismatch — set by lark_trigger when the WebSocket
+          subscriber observes Feishu/Lark error 1000040351. The bot is
+          bound but WILL NOT receive messages until re-bound with the
+          correct platform. The watcher won't restart the trigger
+          (auth_status is excluded from AUTH_STATUSES_BOT_ACTIVE), so
+          the only recovery path is unbind + re-bind with the other
+          brand selected.
+        */}
+        {credential && credential.auth_status === 'brand_mismatch' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm">
+                <span className="text-[var(--text-primary)] font-medium">
+                  {credential.bot_name || credential.app_id}
+                </span>
+                <span className="text-[var(--text-secondary)] ml-2">
+                  ({credential.brand === 'feishu' ? 'Feishu' : 'Lark'})
+                </span>
+              </div>
+              <span className="flex items-center gap-1 text-xs text-[var(--color-red-500)]">
+                <AlertCircle className="w-3 h-3" aria-hidden="true" /> Brand mismatch
+              </span>
+            </div>
+            <div
+              role="alert"
+              className="text-xs text-[var(--text-primary)] border border-[var(--color-red-500)] p-3 space-y-2 bg-[var(--color-red-500)]/5"
+            >
+              <div className="font-medium">
+                Wrong platform selected — the bot will not receive messages.
+              </div>
+              <div>
+                You selected{' '}
+                <span className="font-mono">
+                  {credential.brand === 'feishu' ? 'Feishu (open.feishu.cn)' : 'Lark (open.larksuite.com)'}
+                </span>{' '}
+                but the App ID is registered on the other platform. The
+                WebSocket subscriber was rejected with error 1000040351.
+              </div>
+              <div className="text-[var(--text-secondary)]">
+                <span className="font-medium text-[var(--text-primary)]">What to do:</span>{' '}
+                Unbind, then re-bind and pick{' '}
+                <span className="font-mono">
+                  {credential.brand === 'feishu' ? 'Lark (International)' : 'Feishu (mainland China)'}
+                </span>.
+              </div>
+            </div>
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
+              <Unlink className="w-4 h-4 mr-2" /> Unbind & Re-bind with correct platform
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
