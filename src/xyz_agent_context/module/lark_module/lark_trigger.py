@@ -743,10 +743,16 @@ class LarkTrigger(ChannelTriggerBase):
                 # See _lark_credential_manager for the full state list.
                 err_text = f"{type(e).__name__}: {e}"
                 if "1000040351" in err_text or "Incorrect domain" in err_text:
-                    from ._lark_credential_manager import (
-                        AUTH_STATUS_BRAND_MISMATCH,
-                        LarkCredentialManager,
-                    )
+                    # LarkCredentialManager is already imported at module level
+                    # (line 60). Re-importing it inside this function makes
+                    # Python treat the name as a *local* throughout the whole
+                    # function scope — so line 580's `await
+                    # LarkCredentialManager(self._db).get_credential(...)` hit
+                    # UnboundLocalError on the very first iteration of the
+                    # subscribe loop (the LarkTrigger crash in 2026-05-27
+                    # dmg + cloud logs). Only AUTH_STATUS_BRAND_MISMATCH is
+                    # the genuinely lazy import here.
+                    from ._lark_credential_manager import AUTH_STATUS_BRAND_MISMATCH
                     try:
                         mgr = LarkCredentialManager(self.db)
                         await mgr.update_auth_status(
