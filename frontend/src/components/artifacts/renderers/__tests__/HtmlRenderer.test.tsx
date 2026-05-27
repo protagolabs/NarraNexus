@@ -25,6 +25,7 @@ vi.mock('@/services/artifactsApi', () => ({
       '/api/public/artifacts/raw/FAKE_TOKEN/',
     ),
   },
+  fetchArtifactBlobUrl: vi.fn(async () => 'blob:http://tauri.localhost/fake-html'),
 }));
 
 import HtmlRenderer from '../HtmlRenderer';
@@ -69,5 +70,19 @@ describe('HtmlRenderer security', () => {
       return el;
     });
     expect(iframe.getAttribute('src')).toBe('/api/public/artifacts/raw/FAKE_TOKEN/');
+  });
+
+  test('workspace-root single-file HTML uses a blob iframe src', async () => {
+    const singleFileArtifact = {
+      ...fakeArtifact,
+      file_path: 'agent_x_user_y/bisection_method.html',
+    };
+    const { container } = render(<HtmlRenderer artifact={singleFileArtifact} />);
+    const iframe = await waitFor(() => {
+      const el = container.querySelector('iframe');
+      if (!el) throw new Error('iframe not rendered yet');
+      return el;
+    });
+    expect(iframe.getAttribute('src')).toBe('blob:http://tauri.localhost/fake-html');
   });
 });

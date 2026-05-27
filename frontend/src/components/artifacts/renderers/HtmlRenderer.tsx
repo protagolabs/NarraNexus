@@ -34,14 +34,19 @@
  *   making multi-file artifacts actually work.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { useArtifactHeal } from '@/hooks/useArtifactHeal';
+import { fetchArtifactBlobUrl } from '@/services/artifactsApi';
 import ArtifactHealModal from '../ArtifactHealModal';
 
 interface Props {
   artifact: Artifact;
+}
+
+function isWorkspaceRootEntry(filePath: string): boolean {
+  return filePath.split('/').filter(Boolean).length <= 2;
 }
 
 export default function HtmlRenderer({ artifact }: Props) {
@@ -55,6 +60,9 @@ export default function HtmlRenderer({ artifact }: Props) {
     artifact.updated_at,
   );
   const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [blobError, setBlobError] = useState<string | null>(null);
+  const useBlobIframe = isWorkspaceRootEntry(artifact.file_path);
   // Stash the latest attempt() in a ref so the HEAD-probe effect only
   // needs `url` in its deps. Without this the effect re-ran on every
   // hook state change (the controller object changed identity for any
@@ -93,11 +101,39 @@ export default function HtmlRenderer({ artifact }: Props) {
     };
   }, [url]);
 
+  useEffect(() => {
+    if (!url || !useBlobIframe) {
+      setBlobUrl(null);
+      setBlobError(null);
+      return;
+    }
+
+    let cancelled = false;
+    let nextBlobUrl: string | null = null;
+    setBlobUrl(null);
+    setBlobError(null);
+    (async () => {
+      try {
+        nextBlobUrl = await fetchArtifactBlobUrl(url);
+        if (!cancelled) setBlobUrl(nextBlobUrl);
+      } catch (e) {
+        if (!cancelled) setBlobError(String(e));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (nextBlobUrl) URL.revokeObjectURL(nextBlobUrl);
+    };
+  }, [url, useBlobIframe]);
+
+  const iframeSrc = useBlobIframe ? blobUrl : url;
+
   return (
     <>
-      {error ? (
-        <div className="p-4 text-red-400">Failed to load: {error}</div>
-      ) : !url ? (
+      {error || blobError ? (
+        <div className="p-4 text-red-400">Failed to load: {error || blobError}</div>
+      ) : !url || !iframeSrc ? (
         <div className="p-4 opacity-60">Loading…</div>
       ) : (
         // Belt-and-braces: keying the iframe on updated_at forces React to
@@ -107,7 +143,7 @@ export default function HtmlRenderer({ artifact }: Props) {
           key={`${artifact.updated_at}-${heal.recoveryVersion}`}
           title={artifact.title}
           sandbox="allow-scripts"
-          src={url}
+          src={iframeSrc}
           referrerPolicy="no-referrer"
           loading="lazy"
           className="w-full h-full border-0 bg-white"

@@ -119,6 +119,7 @@ def _csp_for_html(origin: str) -> str:
     CSP `'self'` matches nothing. A host-source (e.g. `https://app.example`)
     matches by URL host independent of the document's origin.
     """
+    ancestors = _frame_ancestors(origin)
     return (
         f"default-src 'none'; "
         f"script-src {origin} 'unsafe-inline'; "
@@ -136,8 +137,20 @@ def _csp_for_html(origin: str) -> str:
         # OK even though we're served from localhost:8000". `frame-ancestors`
         # is the modern surgical version and accepts the parent origin we
         # detected from Referer/Origin. 2026-05-27.
-        f"frame-ancestors {origin}"
+        f"frame-ancestors {ancestors}"
     )
+
+
+def _frame_ancestors(origin: str) -> str:
+    """Allowed iframe parents for local desktop/dev plus the request origin."""
+    allowed = [
+        origin,
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ]
+    return " ".join(dict.fromkeys(allowed))
 
 
 def _non_html_csp(kind: str, origin: str) -> str:
@@ -153,7 +166,7 @@ def _non_html_csp(kind: str, origin: str) -> str:
         "image/jpeg": "default-src 'none'; img-src 'self'",
         "application/pdf": "default-src 'none'; object-src 'self'",
     }.get(kind, "default-src 'none'")
-    return f"{body}; frame-ancestors {origin}"
+    return f"{body}; frame-ancestors {_frame_ancestors(origin)}"
 
 
 # methods=["GET", "HEAD"]: FastAPI's APIRoute does NOT auto-add HEAD to GET
@@ -212,7 +225,10 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
         os.path.join(base, f"{art.agent_id}_{art.user_id}")
     )
     if artifact_root == workspace_root and file_path:
-        raise HTTPException(404, "sibling assets not served for workspace-root entries")
+        if os.path.normpath(file_path) == os.path.basename(entry_abs):
+            file_path = ""
+        else:
+            raise HTTPException(404, "sibling assets not served for workspace-root entries")
 
     if file_path:
         requested = os.path.realpath(os.path.join(artifact_root, file_path))

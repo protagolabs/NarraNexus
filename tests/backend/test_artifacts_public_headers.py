@@ -15,6 +15,7 @@ from __future__ import annotations
 from backend.routes.artifacts_public import (
     SAFE_HEADERS,
     _csp_for_html,
+    _frame_ancestors,
     _non_html_csp,
 )
 
@@ -39,7 +40,7 @@ def test_safe_headers_corp_is_cross_origin():
 def test_csp_html_includes_frame_ancestors_with_parent_origin():
     origin = "https://tauri.localhost"
     csp = _csp_for_html(origin)
-    assert f"frame-ancestors {origin}" in csp
+    assert f"frame-ancestors {_frame_ancestors(origin)}" in csp
     # And the script/style/etc. directives still pin to the request's host
     # (existing behaviour we're not regressing).
     assert f"script-src {origin}" in csp
@@ -59,7 +60,9 @@ def test_csp_non_html_includes_frame_ancestors():
         "application/pdf",
     ]:
         csp = _non_html_csp(kind, "https://tauri.localhost")
-        assert "frame-ancestors https://tauri.localhost" in csp, (
+        assert "frame-ancestors" in csp
+        assert "https://tauri.localhost" in csp
+        assert "http://127.0.0.1:*" in csp, (
             f"missing frame-ancestors in CSP for {kind!r}: {csp!r}"
         )
 
@@ -68,11 +71,13 @@ def test_csp_non_html_unknown_kind_falls_back_to_default_src_none_plus_frame_anc
     # Unknown kinds shouldn't bypass the frame-ancestors allowance.
     csp = _non_html_csp("application/octet-stream", "https://tauri.localhost")
     assert "default-src 'none'" in csp
-    assert "frame-ancestors https://tauri.localhost" in csp
+    assert "frame-ancestors" in csp
+    assert "https://tauri.localhost" in csp
 
 
 def test_csp_html_for_cloud_origin():
     # Sanity: works with a cloud-style origin too, not just tauri.localhost.
     csp = _csp_for_html("https://agent.narra.nexus")
     assert "frame-ancestors https://agent.narra.nexus" in csp
+    assert "https://tauri.localhost" in csp
     assert "script-src https://agent.narra.nexus" in csp
