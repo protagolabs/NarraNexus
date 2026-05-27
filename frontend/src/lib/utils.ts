@@ -65,6 +65,59 @@ export function formatDate(timestamp: number | string): string {
 }
 
 /**
+ * IM-sidebar-style timestamp for conversation lists (AgentList).
+ *
+ * Plain `formatTime` (HH:MM:SS) on the sidebar made messages from days
+ * ago indistinguishable from "this morning" — the user only saw "14:23"
+ * with no date context. This formatter is calendar-aware, mirroring
+ * WeChat / Lark / Slack:
+ *
+ *   today              → "14:23"     (no seconds — sidebar is glance-able)
+ *   yesterday          → "昨天"
+ *   2..6 days back     → "周三"     (zh-CN short weekday)
+ *   older, same year   → "5月18日"
+ *   previous year+     → "2025/05/18"
+ *
+ * Each branch returns exactly one of {time, weekday, date} so the row
+ * never gets ambiguous. "14:23" is always today; "昨天" is always
+ * yesterday; a weekday name is always within the past week.
+ */
+export function formatChatTimestamp(timestamp: number | string): string {
+  const date = parseUTCTimestamp(timestamp);
+  const now = new Date();
+
+  // Calendar-day comparison in the user's local timezone — `diff_ms / 86400000`
+  // would mis-classify e.g. a 14:00 → 02:00 next-day pair as "same day".
+  const startOfLocalDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round(
+    (startOfLocalDay(now) - startOfLocalDay(date)) / 86_400_000,
+  );
+
+  if (dayDiff === 0) {
+    return date.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+  if (dayDiff === 1) {
+    return '昨天';
+  }
+  if (dayDiff >= 2 && dayDiff < 7) {
+    return date.toLocaleDateString('zh-CN', { weekday: 'short' });
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+  }
+  // Cross-year: explicit YYYY/MM/DD so the year is unambiguous.
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}/${m}/${d}`;
+}
+
+/**
  * Format relative time (e.g., "2 minutes ago" or "in 3 hours")
  * Handles both past and future dates
  */

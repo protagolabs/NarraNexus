@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/lib/utils.ts
-last_verified: 2026-04-10
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — formatChatTimestamp for IM-style sidebar rows
+
+AgentList previously called `formatTime` (HH:MM:SS) for each row's
+last-activity stamp. With no date, a message from three days ago and
+one from this morning both rendered as e.g. "14:23:11", confusing
+users about how stale the conversation was. `formatChatTimestamp`
+adds calendar awareness (WeChat / Lark / Slack convention):
+
+| relative age | rendering |
+|--------------|-----------|
+| today        | `14:23`   |
+| yesterday    | `昨天`     |
+| 2..6d back   | `周三`     |
+| same year    | `5月18日`  |
+| cross-year   | `2025/05/18` |
+
+Each branch returns exactly one of {time, weekday, date} so the row is
+never ambiguous. `formatTime` itself is unchanged — still used by the
+chat bubble / event card surfaces where the date is supplied elsewhere
+(day divider, parent header).
 
 # utils.ts — Shared pure utility functions
 
