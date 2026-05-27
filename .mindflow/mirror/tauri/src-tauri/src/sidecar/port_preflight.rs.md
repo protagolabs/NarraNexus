@@ -3,6 +3,23 @@ code_file: tauri/src-tauri/src/sidecar/port_preflight.rs
 last_verified: 2026-05-27
 ---
 
+## 2026-05-27 — REQUIRED_PORTS expanded to cover ALL sidecar ports
+
+Real incident (Owner dmg, 2026-05-27 18:46): after force-quitting
+the previous instance the next launch's port preflight passed (it
+only checked 4 ports: 8000/8100/7801/7830) — but orphaned MCP
+servers were still holding 7802-7808/7820/7831/7832 AND the
+LarkTrigger health endpoint was still on 47831. Every MCP module
+then failed to bind with `[Errno 48] address already in use`, the
+MCP umbrella process shut down, and the desktop app silently lost
+every MCP tool.
+
+`REQUIRED_PORTS` now covers all 14 ports the sidecar stack binds
+(8000/8100 + 7801/7802/7803/7804/7806/7807/7808/7820/7830/7831/7832
++ 47831). Combined with the `resolve_or_exit` orphan-cleanup, the
+next launch now positively detects + offers to clean every port the
+previous instance might have leaked, not just the "primary four".
+
 ## 2026-05-27 — orphan sidecar auto-cleanup (resolve_or_exit)
 
 P0 from Owner: Force-Quit / app crash bypasses `ExitRequested`,

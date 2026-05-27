@@ -44,14 +44,39 @@ use std::process::Command;
 
 /// Ports that must be free for NarraNexus to work. Kept in one place so
 /// adding a service with a new port doesn't silently skip the preflight.
-/// Source of truth:
-///   8000  — backend uvicorn (state.rs ServiceDef "backend")
-///   8100  — sqlite_proxy (state.rs ServiceDef "sqlite_proxy")
-///   7801  — MCP server (module_runner.py, first module's port)
-///   7830  — Lark trigger (run_lark_trigger)
-/// 7802-7807 are additional MCP module ports but not every build spins
-/// them up; we don't block launch on those.
-pub const REQUIRED_PORTS: &[u16] = &[8000, 8100, 7801, 7830];
+/// Source of truth (all in state.rs ServiceDef / module_runner.py /
+/// run_*_trigger.py):
+///   8000   — backend uvicorn
+///   8100   — sqlite_proxy
+///   7801   — MCP AwarenessModule
+///   7802   — MCP SocialNetworkModule
+///   7803   — MCP JobModule
+///   7804   — MCP ChatModule
+///   7806   — MCP SkillModule (7805 retired, leave a gap)
+///   7807   — MCP CommonToolsModule
+///   7808   — MCP BasicInfoModule
+///   7820   — MCP MessageBusModule
+///   7830   — MCP LarkModule (+ LarkTrigger SDK subscriber)
+///   7831   — MCP SlackModule
+///   7832   — MCP TelegramModule
+///   47831  — LarkTrigger health endpoint (_health_server.py)
+///
+/// History (2026-05-27): the list used to be only `[8000, 8100, 7801,
+/// 7830]`. A real incident with the Owner showed that when a
+/// previous-launch force-quit left orphaned MCP servers + lark health
+/// listener holding 7802-7832 + 47831, the preflight passed (only 4
+/// ports checked) but every MCP module then failed to bind with
+/// `[Errno 48] address already in use`, the MCP umbrella process
+/// shut down, and the desktop app silently lost every MCP tool. The
+/// expanded list pairs with `resolve_or_exit`'s orphan-cleanup so the
+/// next launch auto-recovers from every sidecar port, not just the
+/// "primary four".
+pub const REQUIRED_PORTS: &[u16] = &[
+    8000, 8100,                                       // backend + sqlite proxy
+    7801, 7802, 7803, 7804, 7806, 7807, 7808, 7820, // MCP modules
+    7830, 7831, 7832,                                // channel MCP modules
+    47831,                                            // LarkTrigger health endpoint
+];
 
 #[derive(Debug, Clone)]
 pub struct PortConflict {
