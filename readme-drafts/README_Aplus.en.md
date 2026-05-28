@@ -2,12 +2,13 @@
 Draft: Structure A+ (Dev-focused, governance-aware) — English
 Date: 2026-05-28
 Variant of README_A — adopts a colleague's advice on the contribution section
-(see local note: README_advice.md, advice items #1, #3, #4, #6). Clone-URL
-advice (#2) intentionally skipped per the user.
+(see local note: README_advice.md, advice items #3, #4, #6). Clone-URL advice
+(#2) intentionally skipped per the user. AI-assistant callout (#1) tried and
+removed — the Contributing & governance section at the bottom already covers
+the AI-friendly story.
 
 Changes vs README_A.en.md:
   - First-screen "Found a bug / need help?" sub-line under the lang switch (#6)
-  - "Building with an AI coding assistant?" callout between hero and Get-Started (#1)
   - "## Contributing" rewritten as "## Contributing & governance" — navigation
     only, links to AGENTS.md / CLAUDE.md / GOVERNANCE.md / MAINTAINERS.md /
     CODE_OF_CONDUCT.md / SECURITY.md / .mindflow/_overview.md, ends with
@@ -56,15 +57,6 @@ Changes vs README_A.en.md:
 
 <p align="center">
   <a href="#templates">See more templates →</a>
-</p>
-
-<p align="center">
-  <em>Building with an AI coding assistant?</em><br/>
-  Drop <a href="./CLAUDE.md"><code>CLAUDE.md</code></a> (binding rules) and
-  <a href="./.mindflow/_overview.md"><code>.mindflow/_overview.md</code></a> (mirror-doc index)
-  into Claude Code, Cursor, or Continue —<br/>
-  your agent will follow our conventions out of the box.
-  Full guide: <a href="./CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a>.
 </p>
 
 <br/>
