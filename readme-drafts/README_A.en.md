@@ -121,23 +121,29 @@ bash run.sh
 
 Reference implementations — use them directly, or fork to customize.
 
-### Financial Morning Brief
+### Financial Morning Briefing
 
-For investors and analysts who read markets at 7am. **8 agents** — global market monitor, macro calendar, news filter, cross-asset reasoning, portfolio mapper, sector themes, charts, chief strategist. They answer *"what is the market trading today, and should I attack, defend, or watch?"* — not yet another news summary.
+For investors and analysts who read markets at 7am. **6 agents** deliver an analyst-grade HTML briefing to your inbox daily at 08:00 Asia/Shanghai. Not yet another news summary — a structured read on *"what is the market trading today, and should I attack, defend, or watch?"*
 
-<!-- TODO: morning brief template demo video, ~30s -->
+**[narra.nexus/templates/financial-morning-briefing →](https://www.narra.nexus/templates/financial-morning-briefing)**
 
-### Sales Agent Team
+<!-- TODO: Financial Morning Briefing template demo video, ~30s -->
 
-For solo founders and small sales teams. One instruction kicks off a sales team — you talk to just one agent, the rest of the team handles the back-office work: multi-channel outreach, sorting daily replies, updating customer state.
+### KOL Assistant
 
-<!-- TODO: Sales team template demo video, ~30s -->
+For content creators juggling inbound sponsorships. **4 agents** parse incoming sponsor emails, keep your CRM up to date, and monitor brand mentions across social platforms — so you spend time on the next video, not on inbox triage.
 
-### One-click migration from OpenClaw / Hermes / Claude Code
+**[narra.nexus/templates/kol-assistant →](https://www.narra.nexus/templates/kol-assistant)**
 
-Already using another AI tool? Two clicks bring your existing OpenClaw / Hermes / Claude Code agents over into a NarraNexus team — the setup and history you've already built come with them.
+<!-- TODO: KOL Assistant template demo video, ~30s -->
 
-<!-- TODO: migration template demo video, ~30s -->
+### PM Bridge Bot
+
+For teams juggling internal team chat and external client communication. A single bot maintains two searchable knowledge bases — internal-only and client-shared — and auto-files every chat, doc, and meeting note into the right scope. Tone adapts per audience; language is auto-detected.
+
+**[narra.nexus/templates/pm-bridge-bot →](https://www.narra.nexus/templates/pm-bridge-bot)**
+
+<!-- TODO: PM Bridge Bot template demo video, ~30s -->
 
 ### More community templates → [browse all](https://narra.nexus/docs/modules/custom-modules)
 

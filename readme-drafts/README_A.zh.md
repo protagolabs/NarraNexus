@@ -135,23 +135,29 @@ bash run.sh
 
 参考实现 —— 直接套用，或 fork 一份自己改。
 
-### 金融市场晨报
+### 金融市场晨报 (Financial Morning Briefing)
 
-适合每天 7 点要看市场的投资者、研究员。**8 个 agent** —— 全球行情监测、宏观日历、新闻过滤、跨资产推理、持仓映射、行业主线、图表生成、首席策略师。回答的是 *"今天市场在交易什么？我该进攻、防守还是观望？"* —— 不是又一份新闻摘要。
+适合每天 7 点要看市场的投资者、研究员。**6 个 agent** 每天 08:00 (Asia/Shanghai) 把一份分析师级别的 HTML 简报送到你邮箱。不是又一份新闻摘要 —— 回答的是 *"今天市场在交易什么？我该进攻、防守还是观望？"*
 
-<!-- TODO: 金融晨报 template demo video, ~30s -->
+**[narra.nexus/templates/financial-morning-briefing →](https://www.narra.nexus/templates/financial-morning-briefing)**
 
-### Sales Agent Team
+<!-- TODO: Financial Morning Briefing template demo video, ~30s -->
 
-适合独立创业者和小型销售团队。一条指令直接启动一支 sales team —— 你只对接一个 agent，剩下交给团队自动办公：多渠道客户触达、整理每天的回复、更新客户状态。
+### KOL Assistant
 
-<!-- TODO: Sales team template demo video, ~30s -->
+适合接 sponsorship 的内容创作者。**4 个 agent** 解析进来的 sponsor 邮件、维护 CRM、跨平台监测品牌提及 —— 让你把时间花在下一条视频上，而不是收件箱。
 
-### 从 OpenClaw / Hermes / Claude Code 一键迁移
+**[narra.nexus/templates/kol-assistant →](https://www.narra.nexus/templates/kol-assistant)**
 
-已经在用其他 AI 工具？两次点击把你的 OpenClaw / Hermes / Claude Code agent 搬过来，立刻在 NarraNexus 团队里用 —— 之前积累的设定一起带上。
+<!-- TODO: KOL Assistant template demo video, ~30s -->
 
-<!-- TODO: 迁移 template demo video, ~30s -->
+### PM Bridge Bot
+
+适合同时要管内部协作和外部客户沟通的团队。一个 bot 维护两套可搜索的知识库 —— 内部专用 + 对客共享 —— 把每段聊天、每份文档、每条会议记录自动归档到正确的范围。说话语气按对象调整，语种自动识别。
+
+**[narra.nexus/templates/pm-bridge-bot →](https://www.narra.nexus/templates/pm-bridge-bot)**
+
+<!-- TODO: PM Bridge Bot template demo video, ~30s -->
 
 ### 更多社区贡献的 template → [浏览全部](https://narra.nexus/docs/modules/custom-modules)
 
