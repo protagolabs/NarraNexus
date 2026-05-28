@@ -15,7 +15,10 @@ Notes:
 
 <div align="center">
 
-<img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/NarraNexus_logo.png" alt="NarraNexus" width="480" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-dark-mode.svg">
+  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-light-mode.svg" alt="NarraNexus" width="480" />
+</picture>
 
 <br/>
 <br/>
@@ -23,7 +26,7 @@ Notes:
 # 别从零搭一个 Agent。一键和一支专业团队协作。
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
-[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://website.narra.nexus/docs/getting-started/quick-start)
+[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://narra.nexus/docs/getting-started/quick-start)
 [![Discord](https://img.shields.io/badge/Discord-Coming%20Soon-5865F2)](#社群)
 
 [English](./README_A.en.md) | **中文**
@@ -38,15 +41,12 @@ Notes:
   <em>懂记忆、懂协作、会用工具的 agent —— template 起步，也可以自己搭。</em>
 </p>
 
-<!-- TODO: replace showcase-weather.gif with PLACEHOLDER_hero_manga.gif once recorded -->
 <p align="center">
-  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/showcase-weather.gif" alt="上传一章漫画，90 秒后拿到解说视频。" width="760" />
+  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/hero-intro.gif" alt="90 秒看完 NarraNexus：安装、核心理念、几个 template 速览。" width="760" />
 </p>
 
 <p align="center">
-  <em>上传一章漫画。<br/>
-  90 秒后，一段 YouTube / Bilibili 风格的解说视频。<br/>
-  <sub>(4 个 agent 接力：parse · narrate · score · render)</sub></em>
+  <em>90 秒看完：安装、核心理念、几个 template 速览。</em>
 </p>
 
 <p align="center">
@@ -68,13 +68,10 @@ NarraNexus 是一个多 Agent 产品 —— 不是给开发者搭 agent 的 fram
 3. 选一个 template，开始
 
 <!-- TODO: 云端注册 demo video, ~30s -->
-<p align="center">
-  <em>📽️ 云端注册 demo —— 待录制</em>
-</p>
 
 > [!NOTE]
 > **想在本地跑（桌面端或源码）？** 两件事要知道：
-> - **需要你自己的 LLM API key。** 桌面端和本地 build 都用你自己的 key —— 可以用 Claude Code 登录，或申请一个 NetMind.AI Power key（一个 key，一分钟搞定）。在 **Settings** 里配置 —— 见 [Configure LLM Providers](https://website.narra.nexus/docs/getting-started/quick-start)。
+> - **需要你自己的 LLM API key。** 桌面端和本地 build 都用你自己的 key —— 可以用 Claude Code 登录，或申请一个 NetMind.AI Power key（一个 key，一分钟搞定）。在 **Settings** 里配置 —— 见 [Configure LLM Providers](https://narra.nexus/docs/getting-started/quick-start)。
 > - **本地端口要空着。** 两种方式都会起若干本地 service，确认对应端口没被占用。
 
 ### 💻 macOS 桌面应用
@@ -86,9 +83,6 @@ NarraNexus 是一个多 Agent 产品 —— 不是给开发者搭 agent 的 fram
 3. 启动 → 选一个 template，开始
 
 <!-- TODO: dmg 安装 demo video, ~30s -->
-<p align="center">
-  <em>📽️ macOS 桌面安装 demo —— 待录制</em>
-</p>
 
 ### 🛠️ 从源码（开发者）
 
@@ -98,7 +92,7 @@ cd NarraNexus
 bash run.sh
 ```
 
-`run.sh` 自动检测前置依赖（`uv` / `node` / `tmux`）并启动所有本地 service。完整的 service / 端口列表和详细安装见 [开发文档](https://website.narra.nexus/docs/getting-started/quick-start)。
+`run.sh` 自动检测前置依赖（`uv` / `node` / `tmux`）并启动所有本地 service。完整的 service / 端口列表和详细安装见 [开发文档](https://narra.nexus/docs/getting-started/quick-start)。
 
 <p align="center">
   <video src="../docs/videos/install-local.mp4" controls width="720">
@@ -146,29 +140,20 @@ bash run.sh
 适合每天 7 点要看市场的投资者、研究员。**8 个 agent** —— 全球行情监测、宏观日历、新闻过滤、跨资产推理、持仓映射、行业主线、图表生成、首席策略师。回答的是 *"今天市场在交易什么？我该进攻、防守还是观望？"* —— 不是又一份新闻摘要。
 
 <!-- TODO: 金融晨报 template demo video, ~30s -->
-<p align="center">
-  <em>📽️ 金融晨报演示 —— 待录制</em>
-</p>
 
 ### Sales Agent Team
 
 适合独立创业者和小型销售团队。一条指令直接启动一支 sales team —— 你只对接一个 agent，剩下交给团队自动办公：多渠道客户触达、整理每天的回复、更新客户状态。
 
 <!-- TODO: Sales team template demo video, ~30s -->
-<p align="center">
-  <em>📽️ Sales Agent Team 演示 —— 待录制</em>
-</p>
 
 ### 从 OpenClaw / Hermes / Claude Code 一键迁移
 
 已经在用其他 AI 工具？两次点击把你的 OpenClaw / Hermes / Claude Code agent 搬过来，立刻在 NarraNexus 团队里用 —— 之前积累的设定一起带上。
 
 <!-- TODO: 迁移 template demo video, ~30s -->
-<p align="center">
-  <em>📽️ 一键迁移演示 —— 待录制</em>
-</p>
 
-### 更多社区贡献的 template → [浏览全部](https://website.narra.nexus/docs/modules/custom-modules)
+### 更多社区贡献的 template → [浏览全部](https://narra.nexus/docs/modules/custom-modules)
 
 > *全部由 NarraNexus agent 自主完成。*
 
@@ -207,7 +192,7 @@ bash run.sh
 我们 review 后会放进官方 Templates 库。
 
 ### 我想写一个 Module
-新 module 需要继承 `XYZBaseModule`、注册到 `MODULE_MAP`、补对应 schema 和 repository。详见 [新建 Module 指南](https://website.narra.nexus/docs/contributing/development-setup)。
+新 module 需要继承 `XYZBaseModule`、注册到 `MODULE_MAP`、补对应 schema 和 repository。详见 [新建 Module 指南](https://narra.nexus/docs/contributing/development-setup)。
 
 ### 我想改代码
 - **Bug 反馈** → [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)

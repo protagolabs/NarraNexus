@@ -15,7 +15,10 @@ Notes:
 
 <div align="center">
 
-<img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/NarraNexus_logo.png" alt="NarraNexus" width="480" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-dark-mode.svg">
+  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-light-mode.svg" alt="NarraNexus" width="480" />
+</picture>
 
 <br/>
 <br/>
@@ -23,7 +26,7 @@ Notes:
 # Don't deploy an agent from scratch. Collaborate with a professional team in one click.
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
-[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://website.narra.nexus/docs/getting-started/quick-start)
+[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://narra.nexus/docs/getting-started/quick-start)
 [![Discord](https://img.shields.io/badge/Discord-Coming%20Soon-5865F2)](#community)
 
 **English** | [中文](./README_A.zh.md)
@@ -38,15 +41,12 @@ Notes:
   <em>Agents that already know how to remember, collaborate, and use tools — start from a template, or compose your own.</em>
 </p>
 
-<!-- TODO: replace showcase-weather.gif placeholder with PLACEHOLDER_hero_manga.gif once recorded -->
 <p align="center">
-  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/showcase-weather.gif" alt="Upload one chapter of manga. Get a narrated video in 90 seconds." width="760" />
+  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/hero-intro.gif" alt="A 90-second tour of NarraNexus — install, core concepts, and templates in action." width="760" />
 </p>
 
 <p align="center">
-  <em>Upload one chapter of manga.<br/>
-  90 seconds later: a YouTube / Bilibili-style narrated video.<br/>
-  <sub>(4 agents in sequence: parse · narrate · score · render)</sub></em>
+  <em>A 90-second tour — install, core concepts, and templates in action.</em>
 </p>
 
 <p align="center">
@@ -68,13 +68,10 @@ NarraNexus is a multi-agent product — not yet another framework where you wire
 3. Pick a template and go
 
 <!-- TODO: cloud sign-up demo video, ~30s -->
-<p align="center">
-  <em>📽️ Cloud sign-up demo — TBD</em>
-</p>
 
 > [!NOTE]
 > **Running locally (desktop app or source)?** Two things to know:
-> - **Bring your own LLM API key.** The desktop app and local build run on your own key — use a Claude Code login, or grab a NetMind.AI Power key (one key, takes a minute). Configure it under **Settings** — see [Configure LLM Providers](https://website.narra.nexus/docs/getting-started/quick-start).
+> - **Bring your own LLM API key.** The desktop app and local build run on your own key — use a Claude Code login, or grab a NetMind.AI Power key (one key, takes a minute). Configure it under **Settings** — see [Configure LLM Providers](https://narra.nexus/docs/getting-started/quick-start).
 > - **Free up local ports.** Both run several local services; make sure those ports aren't already taken.
 
 ### 💻 macOS desktop app
@@ -86,9 +83,6 @@ The app bundles its own runtime — no Python / Node / Docker to install.
 3. Launch → pick a template and go
 
 <!-- TODO: dmg install demo video, ~30s -->
-<p align="center">
-  <em>📽️ macOS desktop install demo — TBD</em>
-</p>
 
 ### 🛠️ From source (developers)
 
@@ -98,7 +92,7 @@ cd NarraNexus
 bash run.sh
 ```
 
-`run.sh` checks prerequisites (`uv` / `node` / `tmux`) and launches all local services. For the full service/port list and detailed setup, see the [dev docs](https://website.narra.nexus/docs/getting-started/quick-start).
+`run.sh` checks prerequisites (`uv` / `node` / `tmux`) and launches all local services. For the full service/port list and detailed setup, see the [dev docs](https://narra.nexus/docs/getting-started/quick-start).
 
 <p align="center">
   <video src="../docs/videos/install-local.mp4" controls width="720">
@@ -132,29 +126,20 @@ Reference implementations — use them directly, or fork to customize.
 For investors and analysts who read markets at 7am. **8 agents** — global market monitor, macro calendar, news filter, cross-asset reasoning, portfolio mapper, sector themes, charts, chief strategist. They answer *"what is the market trading today, and should I attack, defend, or watch?"* — not yet another news summary.
 
 <!-- TODO: morning brief template demo video, ~30s -->
-<p align="center">
-  <em>📽️ Financial Morning Brief demo — TBD</em>
-</p>
 
 ### Sales Agent Team
 
 For solo founders and small sales teams. One instruction kicks off a sales team — you talk to just one agent, the rest of the team handles the back-office work: multi-channel outreach, sorting daily replies, updating customer state.
 
 <!-- TODO: Sales team template demo video, ~30s -->
-<p align="center">
-  <em>📽️ Sales Agent Team demo — TBD</em>
-</p>
 
 ### One-click migration from OpenClaw / Hermes / Claude Code
 
 Already using another AI tool? Two clicks bring your existing OpenClaw / Hermes / Claude Code agents over into a NarraNexus team — the setup and history you've already built come with them.
 
 <!-- TODO: migration template demo video, ~30s -->
-<p align="center">
-  <em>📽️ One-click migration demo — TBD</em>
-</p>
 
-### More community templates → [browse all](https://website.narra.nexus/docs/modules/custom-modules)
+### More community templates → [browse all](https://narra.nexus/docs/modules/custom-modules)
 
 > *All built by NarraNexus agents themselves.*
 
@@ -193,7 +178,7 @@ Pack it into a `.nxbundle` and submit via any of these:
 We review and add accepted ones to the official template library.
 
 ### I want to build a Module
-New modules subclass `XYZBaseModule`, register in `MODULE_MAP`, and ship their own schema + repository. See the [new-module guide](https://website.narra.nexus/docs/contributing/development-setup).
+New modules subclass `XYZBaseModule`, register in `MODULE_MAP`, and ship their own schema + repository. See the [new-module guide](https://narra.nexus/docs/contributing/development-setup).
 
 ### I want to change the code
 - **Bug reports** → [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
