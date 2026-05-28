@@ -184,7 +184,7 @@ bash run.sh
 <a name="社群"></a>
 
 - **Discord** —— [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
-- **Twitter / X** —— `即将上线`
+- **Twitter / X** —— [@NetMindAI](https://x.com/NetMindAI)
 - **邮件订阅** —— `即将上线`
 - **反馈** —— [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
 

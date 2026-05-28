@@ -171,7 +171,7 @@ For teams juggling internal team chat and external client communication. A singl
 <a name="community"></a>
 
 - **Discord** — [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
-- **Twitter / X** — `coming soon`
+- **Twitter / X** — [@NetMindAI](https://x.com/NetMindAI)
 - **Email updates** — `coming soon`
 - **Feedback** — [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
 

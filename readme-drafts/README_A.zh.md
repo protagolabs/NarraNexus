@@ -179,7 +179,7 @@ bash run.sh
 <a name="社群"></a>
 
 - **Discord** —— [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
-- **Twitter / X** —— `即将上线`
+- **Twitter / X** —— [@NetMindAI](https://x.com/NetMindAI)
 - **邮件订阅** —— `即将上线`
 - **反馈** —— [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
 
@@ -192,7 +192,7 @@ bash run.sh
 
 - 💬 **Discord** —— [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
 - 📧 **邮件** —— `即将上线`
-- 🐦 **Twitter / X DM** —— `即将上线`
+- 🐦 **Twitter / X DM** —— [@NetMindAI](https://x.com/NetMindAI)
 - 🐛 **GitHub Issue** —— [开一个 issue](https://github.com/NetMindAI-Open/NarraNexus/issues)（带 `[template]` 前缀）
 
 我们 review 后会放进官方 Templates 库。

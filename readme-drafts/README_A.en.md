@@ -165,7 +165,7 @@ For teams juggling internal team chat and external client communication. A singl
 <a name="community"></a>
 
 - **Discord** — [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
-- **Twitter / X** — `coming soon`
+- **Twitter / X** — [@NetMindAI](https://x.com/NetMindAI)
 - **Email updates** — `coming soon`
 - **Feedback** — [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
 
@@ -178,7 +178,7 @@ Pack it into a `.nxbundle` and submit via any of these:
 
 - 💬 **Discord** — [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
 - 📧 **Email** — `coming soon`
-- 🐦 **Twitter / X DM** — `coming soon`
+- 🐦 **Twitter / X DM** — [@NetMindAI](https://x.com/NetMindAI)
 - 🐛 **GitHub Issue** — [open an issue](https://github.com/NetMindAI-Open/NarraNexus/issues) (prefix the title with `[template]`)
 
 We review and add accepted ones to the official template library.
