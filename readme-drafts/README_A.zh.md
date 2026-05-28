@@ -27,7 +27,7 @@ Notes:
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://narra.nexus/docs/getting-started/quick-start)
-[![Discord](https://img.shields.io/badge/Discord-Coming%20Soon-5865F2)](#社群)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2)](https://discord.gg/ReCMd6a2wf)
 
 [English](./README_A.en.md) | **中文**
 
@@ -178,7 +178,7 @@ bash run.sh
 
 <a name="社群"></a>
 
-- **Discord** —— `即将上线`
+- **Discord** —— [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
 - **Twitter / X** —— `即将上线`
 - **邮件订阅** —— `即将上线`
 - **反馈** —— [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
@@ -190,7 +190,7 @@ bash run.sh
 ### 我做了一个 template 想分享
 打包成 `.nxbundle`，从下面任一渠道投递：
 
-- 💬 **Discord** —— `即将上线`
+- 💬 **Discord** —— [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
 - 📧 **邮件** —— `即将上线`
 - 🐦 **Twitter / X DM** —— `即将上线`
 - 🐛 **GitHub Issue** —— [开一个 issue](https://github.com/NetMindAI-Open/NarraNexus/issues)（带 `[template]` 前缀）

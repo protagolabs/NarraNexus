@@ -29,7 +29,7 @@ AI 助手 callout（#1）试过后撤掉 —— 底部的"贡献与治理"已经
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://narra.nexus/docs/getting-started/quick-start)
-[![Discord](https://img.shields.io/badge/Discord-Coming%20Soon-5865F2)](#社群)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2)](https://discord.gg/ReCMd6a2wf)
 
 [English](./README_Aplus.en.md) | **中文**
 
@@ -183,7 +183,7 @@ bash run.sh
 
 <a name="社群"></a>
 
-- **Discord** —— `即将上线`
+- **Discord** —— [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
 - **Twitter / X** —— `即将上线`
 - **邮件订阅** —— `即将上线`
 - **反馈** —— [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)

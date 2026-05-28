@@ -30,7 +30,7 @@ Changes vs README_A.en.md:
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://narra.nexus/docs/getting-started/quick-start)
-[![Discord](https://img.shields.io/badge/Discord-Coming%20Soon-5865F2)](#community)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2)](https://discord.gg/ReCMd6a2wf)
 
 **English** | [中文](./README_Aplus.zh.md)
 
@@ -170,7 +170,7 @@ For teams juggling internal team chat and external client communication. A singl
 
 <a name="community"></a>
 
-- **Discord** — `coming soon`
+- **Discord** — [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
 - **Twitter / X** — `coming soon`
 - **Email updates** — `coming soon`
 - **Feedback** — [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
