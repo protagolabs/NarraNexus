@@ -1,0 +1,37 @@
+{
+  "team_name": "Coordinator Trio",
+  "team_description": "A small project-orchestration team. Orion breaks down work and routes it; Echo writes all content; Radar turns data into insights. Auto-detected from cross-references in source SOUL.md (Orion -> Echo, Radar).",
+  "team_color": "#3b82f6",
+  "team_intro_md": "## The Coordinator Trio\n\n**Orion** breaks complex projects into actionable tasks and routes them.\n**Echo** handles all content creation — blog posts, copy, social, emails.\n**Radar** turns data into insights and reports.\n\nTry: ask Orion to plan a product launch, ask Echo to draft the announcement, ask Radar to compare last month vs this month.\n\nThis team was auto-detected from cross-references in the OpenClaw source SOUL.md files (Orion mentions Echo and Radar).",
+  "agents": [
+    {
+      "soul_md": "/tmp/awesome-openclaw-agents/agents/productivity/orion/SOUL.md",
+      "name": "Orion",
+      "role": "Task coordinator and project orchestrator",
+      "category": "productivity",
+      "source_path": "agents/productivity/orion/SOUL.md",
+      "skills": [
+        {"src_dir": "/tmp/awesome-openclaw-agents/skills/claude/model-cost-compare", "name": "model-cost-compare"},
+        {"src_dir": "/tmp/awesome-openclaw-agents/skills/claude/cost-optimizer", "name": "cost-optimizer"}
+      ]
+    },
+    {
+      "soul_md": "/tmp/awesome-openclaw-agents/agents/marketing/echo/SOUL.md",
+      "name": "Echo",
+      "role": "Content writer and creative communicator",
+      "category": "marketing",
+      "source_path": "agents/marketing/echo/SOUL.md",
+      "skills": []
+    },
+    {
+      "soul_md": "/tmp/awesome-openclaw-agents/agents/business/radar/SOUL.md",
+      "name": "Radar",
+      "role": "Data analyst and business intelligence specialist",
+      "category": "business",
+      "source_path": "agents/business/radar/SOUL.md",
+      "skills": [
+        {"src_dir": "/tmp/awesome-openclaw-agents/skills/claude/model-cost-compare", "name": "model-cost-compare"}
+      ]
+    }
+  ]
+}

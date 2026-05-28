@@ -1,0 +1,36 @@
+{
+  "total_agents_scanned": 199,
+  "agents_with_refs": 3,
+  "total_refs": 4,
+  "clusters_top_n": 30,
+  "clusters": [
+    {
+      "hub_id": "orion",
+      "hub_name": "orion",
+      "members": [
+        {
+          "id": "orion",
+          "name": "orion",
+          "category": "productivity",
+          "path": "agents/productivity/orion/SOUL.md"
+        },
+        {
+          "id": "echo",
+          "name": "echo",
+          "category": "marketing",
+          "path": "agents/marketing/echo/SOUL.md"
+        },
+        {
+          "id": "radar",
+          "name": "radar",
+          "category": "business",
+          "path": "agents/business/radar/SOUL.md"
+        }
+      ],
+      "ref_count": 2,
+      "mutual_count": 0,
+      "cross_categories": 2,
+      "score": 10
+    }
+  ]
+}
