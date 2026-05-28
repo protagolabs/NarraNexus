@@ -16,8 +16,8 @@ Notes:
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-dark-mode.svg">
-  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-light-mode.svg" alt="NarraNexus" width="480" />
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-dark-mode.svg">
+  <img src="../docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-light-mode.svg" alt="NarraNexus" width="480" />
 </picture>
 
 <br/>
@@ -42,7 +42,7 @@ Notes:
 </p>
 
 <p align="center">
-  <img src="https://github.com/protagolabs/NarraNexus/raw/main/docs/images/hero-intro.gif" alt="A 90-second tour of NarraNexus — install, core concepts, and templates in action." width="760" />
+  <img src="../docs/images/hero-intro.gif" alt="A 90-second tour of NarraNexus — install, core concepts, and templates in action." width="760" />
 </p>
 
 <p align="center">
