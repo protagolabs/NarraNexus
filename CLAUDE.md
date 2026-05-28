@@ -621,19 +621,28 @@ Full command list: see the `Makefile` (`make help`).
 ## Release workflow (multi-repo: dmg + cloud)
 
 Shipping a new release follows 7 steps. **Steps 1–2 run autonomously
-by the AI; from step 3 onward, every step waits for the Owner (Bin哥)
-to explicitly say "go"** — one step at a time, so the Owner always has
-a window to abort / inspect / change their mind.
+by the AI. The Owner (Bin哥) gives a single "go" signal to release the
+batch; on that signal the AI runs steps 3–7 straight through without
+asking again between them.** This means the Owner inspects the diff on
+the feature branch BEFORE saying "go" — that is the one review window;
+once granted, the pipeline executes end-to-end (cloud deploys included,
+both repos rebuilt, Lark notification on completion).
 
 | # | Step | Who | Triggers |
 |---|------|-----|----------|
 | 1 | Branch off `dev` (`feat/<topic>` / `fix/<topic>` / `hotfix/<topic>`) | AI autonomous | — |
 | 2 | Implement + self-test green (ruff / `tsc -b` / vitest / pytest), push the feature branch (Owner reviews on GitHub) | AI autonomous | feature-branch CI |
-| 3 | Squash-merge feature → `dev` → push `origin dev` | **wait for Owner "go"** | Deploy NarraNexus (dev env) |
-| 4 | Squash-merge `dev` → `main` → push `origin main` | **wait for Owner "go"** | Deploy NarraNexus (prod) |
-| 5 | Bump the 5 version anchors + tag `vX.Y.Z` → push tag | **wait for Owner "go"** | protagolabs Build Desktop App (dmg) |
-| 6 | Worktree-isolated squash `protagolabs/main` → `upstream/main` → ref-spec push tag | **wait for Owner "go"** | upstream Build Desktop App (dmg) |
+| 3 | Squash-merge feature → `dev` → push `origin dev` | AI on Owner "go" | Deploy NarraNexus (dev env) |
+| 4 | Squash-merge `dev` → `main` → push `origin main` | AI on the same "go" | Deploy NarraNexus (prod) |
+| 5 | Bump the 5 version anchors + tag `vX.Y.Z` → push tag | AI on the same "go" | protagolabs Build Desktop App (dmg) |
+| 6 | Worktree-isolated squash `protagolabs/main` → `upstream/main` → ref-spec push tag | AI on the same "go" | upstream Build Desktop App (dmg) |
 | 7 | Build completes → notify Owner on Lark (download link + failure-log screenshot if any) | AI autonomous | — |
+
+**Owner abort points**: between any two of steps 3–7 the AI may still
+pause and surface a result if something looks wrong (e.g. a build
+fails, a cloud deploy returns an error, a squash auto-merge produces
+a conflict the AI cannot resolve safely). Otherwise the pipeline runs
+unattended.
 
 ### The 5 version anchors must move together
 ```
