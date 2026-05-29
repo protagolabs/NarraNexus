@@ -238,6 +238,7 @@ class JobTrigger:
             logger.warning(f"Startup recovery: recovered {recovered} stuck running jobs")
 
         self.running = True
+        await self.audit.started({"poll_interval": self.poll_interval})
 
         # Start Workers
         for i in range(self.max_workers):
@@ -267,6 +268,7 @@ class JobTrigger:
         """
         logger.info("Stopping JobTrigger gracefully...")
         self.running = False
+        await self.audit.stopped({"enqueued_total": self._enqueued_total})
 
         # Wait for queue to drain (max 30 seconds)
         try:
@@ -310,12 +312,17 @@ class JobTrigger:
         while self.running:
             try:
                 await self._poll_and_enqueue()
+                # Throttled L2 heartbeat carrying the cumulative enqueue
+                # counter — a stale row with a frozen count means the loop
+                # wedged though the process is still alive (lesson #4).
+                await self.audit.heartbeat({"enqueued_total": self._enqueued_total})
                 await asyncio.sleep(self.poll_interval)
             except asyncio.CancelledError:
                 logger.debug("Poller cancelled")
                 break
             except Exception as e:
                 logger.exception(f"Poller error: {e}")
+                await self.audit.error(str(e))
                 await asyncio.sleep(self.poll_interval)
 
     async def _worker(self, worker_id: int) -> None:

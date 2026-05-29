@@ -1093,6 +1093,36 @@ _register(
 )
 
 
+# ----------------------------------------------------------------------------
+# service_audit — generic L2 observability for long-running background loops
+# (JobTrigger, ModulePoller, and any future poller). incident lesson #4/#5:
+# the EC2 pollers had only L1 ("process alive") visibility; a wedged poll
+# coroutine looked healthy while no work happened. The channel side already
+# had lark_trigger_audit; this generalises the same black-box recorder so
+# any service shares one table, keyed by `service`.
+#
+# Event vocabulary: started / stopped / heartbeat / error. A stale-or-
+# missing heartbeat row (frozen counters in `detail`) reveals a stuck loop.
+# `detail` is JSON so new fields never need a migration. Append-only.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="service_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("service", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("event_type", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("detail", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_service_audit_service_time", ["service", "created_at"]),
+            Index("idx_service_audit_event_type", ["event_type"]),
+        ],
+    )
+)
+
+
 # Subproject 1: Team Membership (from main)
 _register(
     TableDef(
