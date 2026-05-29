@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_module.py
 stub: false
-last_verified: 2026-05-21
+last_verified: 2026-05-22
 ---
 
 ## Why it exists
@@ -37,6 +37,17 @@ than ``LarkModule`` — the prompt simply names ``slack_cli`` /
   minutes on click-through-and-figure-it-out flows, then debugging
   ``missing_scope`` errors. Manifest lives in the constant
   ``SLACK_APP_MANIFEST_YAML`` at the top of this file.
+- **Step 1 names the editable text fields explicitly.** Originally
+  Step 1 said "paste verbatim"; the YAML hard-codes
+  ``display_information.name: NarraNexus Agent`` and
+  ``features.bot_user.display_name: NarraNexus`` and users had no
+  signal that these were placeholders — or that they correspond to
+  two different things (the workspace-admin app name vs the chat
+  display name). 2026-05-22 update: Step 1 now lists the three
+  editable text fields (app name, bot display name, description),
+  explicitly marks them as user-overridable, and warns that the
+  scopes / event / socket_mode bits below them are load-bearing
+  and must not be touched.
 - **Manifest is duplicated in the frontend** (``SlackConfig.tsx`` has
   the same YAML). One round-trip-free render in the dashboard
   disclosure beats a single source via API. When Slack adds a scope

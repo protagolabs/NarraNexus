@@ -205,10 +205,25 @@ Tell the user to:
 1. Open https://api.slack.com/apps and click **Create New App**.
 2. Choose **"From an app manifest"**.
 3. Pick the workspace where the bot will live.
-4. Paste this manifest YAML verbatim into the manifest editor:
+4. Paste this manifest into the manifest editor:
 
 ```yaml
 {SLACK_APP_MANIFEST_YAML}```
+
+   Before they click Create, surface that THREE fields are
+   user-editable text and the rest must NOT be touched:
+   - ``display_information.name`` — the app name (shown in the
+     workspace admin panel and on the OAuth approval screen).
+     Default ``NarraNexus Agent`` is a placeholder.
+   - ``features.bot_user.display_name`` — the bot name shown in
+     DMs and on @-mentions in channels. Default ``NarraNexus``.
+     Can match the app name or be different.
+   - ``display_information.description`` — one-line directory
+     blurb. Default ``Your NarraNexus AI agent on Slack``.
+   The scopes / event subscriptions / ``socket_mode_enabled`` bits
+   are load-bearing for the integration and must stay as-is.
+   They can also rename later in Slack admin (Basic Information /
+   App Home), so accepting the defaults now is fine.
 
 5. Click **Next** → **Create**. Slack now provisions the app with every
    scope and event we need.
