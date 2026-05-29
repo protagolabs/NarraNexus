@@ -456,23 +456,6 @@ class JobTrigger:
             logger.exception(f"Error resuming PAUSED_NO_QUOTA jobs: {e}")
             return 0
 
-    async def _get_due_jobs(self) -> List[JobModel]:
-        """
-        Query jobs that are due for execution.
-
-        Finds jobs where:
-        - next_run_time <= now()
-        - status in (PENDING, ACTIVE)
-
-        Returns:
-            List of JobModel instances ready for execution
-        """
-        try:
-            return await self._get_job_repo().get_due_jobs()
-        except Exception as e:
-            logger.exception(f"Error getting due jobs: {e}")
-            return []
-
     # =========================================================================
     # Job Execution
     # =========================================================================
