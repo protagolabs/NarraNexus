@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_module.py
 stub: false
-last_verified: 2026-05-12
+last_verified: 2026-05-21
 ---
 
 ## Why it exists
@@ -108,3 +108,47 @@ than ``LarkModule`` — the prompt simply names ``slack_cli`` /
   discover the bot via global search or @-mention. Drop this and the
   bot looks "broken" to anyone expecting the standard one-click DM
   flow.
+
+## Phase 1b additions (attachment ingestion)
+
+- **Iron rule 7 added** to ``_SLACK_IRON_RULES``. It tells the agent
+  it now RECEIVES file uploads (PDFs / images / audio / data / code),
+  describes the
+  ``[User uploaded <kind>: name=..., path=/.../att_XXXXXXXX.<ext>,
+  mime=..., transcript=...]`` marker shape that ChatModule injects
+  into chat history, and instructs the agent to call the built-in
+  ``Read`` tool against the absolute ``path=`` (multimodal — returns
+  PDF/image content blocks natively for vision-capable models).
+  For audio uploads the ``transcript=`` field carries the Whisper
+  output, usable directly without Read. Lesson learned from Phase 1a:
+  trigger capability changes MUST be paired with same-PR instruction
+  updates or the agent will keep telling users it can't do things it
+  actually can.
+
+- **Manifest scopes ``files:read`` + ``files:write`` added** to
+  ``SLACK_APP_MANIFEST_YAML``. Why both are needed:
+  - ``files:read`` — **non-optional for inbound multimodal**. Without
+    it Slack server-side **silently drops** ``message.im`` events that
+    contain ``files[]`` (no event delivery at all when the file has no
+    accompanying text caption). Confirmed by a real CN dev hitting
+    this — bot connected, text messages worked, file uploads produced
+    zero audit rows.
+  - ``files:write`` — needed for the agent to **send** files back to
+    the user via ``files.upload`` (the outbound side of multimodal).
+    Phase 1b is inbound-only, but bundling the write scope avoids a
+    second reinstall churn when outbound lands.
+
+- **Frontend ``SlackConfig.tsx`` carries a hand-mirrored copy of the
+  same manifest YAML** for the in-dashboard "How do I get tokens?"
+  disclosure. When Slack scopes change, BOTH files must be edited.
+  The grep canary: ``grep -rn "app_mentions:read" src/ frontend/``
+  should return exactly two hits and both should match. CI doesn't
+  enforce this — manual discipline only.
+
+- **Migration impact**: existing bots bound BEFORE Phase 1b need to
+  reinstall the app to acquire the two new scopes. ``_NO_BOT_INSTRUCTION``
+  contains a new "Already-bound bots from before Phase 1b" section
+  with step-by-step reinstall flow for the agent to walk users through.
+  The diagnostic signature is "text works, files silently disappear"
+  — when that pattern shows up in logs, the answer is reinstall, not
+  trigger / network debugging.

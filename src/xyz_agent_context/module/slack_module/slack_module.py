@@ -163,6 +163,8 @@ oauth_config:
       - channels:read
       - chat:write
       - chat:write.public
+      - files:read
+      - files:write
       - groups:history
       - groups:read
       - im:history
@@ -244,6 +246,23 @@ Invite the bot to any channel where you want it to listen
 (`/invite @NarraNexus` from inside the channel). DMs work without
 explicit invitation — Slack delivers them via Socket Mode automatically.
 
+### Already-bound bots from before Phase 1b — REINSTALL required for files
+
+If the user bound this bot **before the Phase 1b multimodal update**,
+their manifest is missing `files:read` and `files:write`. Symptoms:
+text messages reach the bot fine, but **file uploads in DMs are
+silently dropped by Slack** (Slack refuses to deliver `message.im`
+events that contain `files[]` to bots without `files:read`). To fix:
+
+1. Go to https://api.slack.com/apps → the existing app → **App
+   Manifest** → paste the latest YAML (above) → save.
+2. Sidebar → **Install App** → **Reinstall to Workspace**. Approve the
+   newly added scopes (`files:read`, `files:write`).
+3. Copy the **new** Bot Token (`xoxb-...`) — the old one is revoked.
+4. In NarraNexus, unbind the agent's existing Slack credential and
+   bind again with the new token. The `xapp-...` App-Level Token does
+   NOT change.
+
 ### Iron rules during setup
 
 - Refuse to accept tokens that don't match the prefix (`xoxb-` /
@@ -254,6 +273,11 @@ explicit invitation — Slack delivers them via Socket Mode automatically.
   Both are required.
 - If `slack_bind` returns ``invalid_auth``, do NOT retry blindly — ask
   the user to re-copy from the Slack admin (typo or token revoked).
+- If the user reports "Slack messages work but file uploads disappear",
+  the diagnosis is **missing `files:read` scope** — walk them through
+  the "Already-bound bots" reinstall flow above. Do NOT recommend
+  debugging the trigger or network; the bot is healthy, the workspace
+  permission is the only gap.
 """
 
 
@@ -281,6 +305,29 @@ _SLACK_IRON_RULES = """\
 5. Never include the user's tokens in messages or logs.
 6. Look up unknown Slack methods via `slack_skill(method)` BEFORE calling
    `slack_cli` — the skill doc has the exact arg shape and required scope.
+7. **Inbound attachments are SUPPORTED.** When a user uploads a file
+   to Slack (drag-drop, paste, or paperclip → "Add file"), the bot
+   RECEIVES the file alongside any caption text and the file is
+   downloaded to the agent's workspace. You will see a marker in the
+   chat history like:
+
+       [User uploaded <kind>: name=foo.pdf,
+        path=/.../user_upload_files/2026-MM-DD/att_XXXXXXXX.pdf,
+        mime=application/pdf — use Read tool to view]
+
+   - To VIEW the file, call your built-in `Read` tool against the
+     absolute `path=` shown in the marker. Read is multimodal —
+     PDFs and images return native content blocks; text / code / data
+     files return their text contents.
+   - For audio uploads the marker carries an extra `transcript=...`
+     field if Whisper transcription succeeded. **Use the transcript
+     directly** — it IS the spoken content. If `transcript=` is absent
+     the file is still on disk but transcription was unavailable;
+     say so, do NOT fabricate spoken content.
+   - Slack lets users attach **multiple files in one message** — each
+     becomes its own marker line; read them one by one.
+   - To SEND files back to the user, call `files.upload` (or
+     `files.upload.url` for >5 MB) via `slack_cli`.
 """
 
 
