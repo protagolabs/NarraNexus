@@ -147,6 +147,25 @@ def _mark_unsupported(key: tuple[str, str], level: str) -> None:
     )
 
 
+async def _audit_framework_downgrade(event_type: str, detail: dict) -> None:
+    """Best-effort DB audit of a framework self-downgrade (incident lesson
+    #4/#5). The platform silently re-routing to a slower/fallback path is
+    exactly the kind of degradation that vanishes from logs on docker
+    restart and is otherwise invisible. Writes to the shared `service_audit`
+    table under service="llm_framework". NEVER raises — a logger-only
+    fallback covers any audit failure (the observer must not break the
+    observed)."""
+    try:
+        from xyz_agent_context.repository.service_audit_repository import (
+            ServiceAuditRepository,
+        )
+        from xyz_agent_context.utils.db_factory import get_db_client
+        repo = ServiceAuditRepository(await get_db_client())
+        await repo.record("llm_framework", event_type, detail)
+    except Exception as e:  # noqa: BLE001 — audit is advisory
+        logger.warning(f"[StructuredFallback] downgrade audit write failed: {e}")
+
+
 def _is_response_format_unsupported_error(exc: Exception) -> bool:
     """Detect whether an error is provider saying 'I don't support
     this response_format type'. Heuristic — matches the patterns we
@@ -284,6 +303,14 @@ class OpenAIAgentsSDK:
                         f"[StructuredFallback] Agents SDK structured output "
                         f"unsupported for provider={cap_key[0]} model={model_name}; "
                         f"blocklisted, using fallback henceforth: {e}"
+                    )
+                    await _audit_framework_downgrade(
+                        "agents_sdk_blocklisted",
+                        {
+                            "base_url": cap_key[0],
+                            "model": model_name,
+                            "error": str(e)[:500],
+                        },
                     )
                 else:
                     logger.info(
@@ -570,6 +597,15 @@ class OpenAIAgentsSDK:
                 except Exception as e:
                     if _is_response_format_unsupported_error(e):
                         _mark_unsupported(key, level)
+                        await _audit_framework_downgrade(
+                            "response_format_level_unsupported",
+                            {
+                                "base_url": key[0],
+                                "model": key[1],
+                                "level": level,
+                                "error": str(e)[:500],
+                            },
+                        )
                         continue  # try next level
                     # Genuine error (rate limit, 5xx, network) — re-raise.
                     raise
