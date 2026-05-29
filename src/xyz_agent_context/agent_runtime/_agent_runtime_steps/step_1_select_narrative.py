@@ -129,14 +129,19 @@ async def _ensure_user_chat_instance(
         narrative_id, link_type=LinkType.ACTIVE
     )
 
-    # Find ChatModule instances belonging to the current user
+    # Find the current user's chat-history instance in this narrative.
+    from xyz_agent_context.module import module_class_provides_chat_history
     user_chat_instance_id = None
     for inst_id in linked_instance_ids:
         instance = await instance_repo.get_by_instance_id(inst_id)
-        if instance and instance.module_class == "ChatModule" and instance.user_id == user_id:
+        if (
+            instance
+            and module_class_provides_chat_history(instance.module_class)
+            and instance.user_id == user_id
+        ):
             user_chat_instance_id = instance.instance_id
             logger.debug(
-                f"Found user {user_id}'s ChatModule instance in Narrative {narrative_id}: {inst_id}"
+                f"Found user {user_id}'s chat instance in Narrative {narrative_id}: {inst_id}"
             )
             break
 

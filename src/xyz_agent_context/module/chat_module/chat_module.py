@@ -252,6 +252,12 @@ class ChatModule(XYZBaseModule):
             description="Provides messaging capabilities (chat conversation + history retrieval)"
         )
 
+    @classmethod
+    def provides_chat_history(cls) -> bool:
+        """ChatModule is the per-user carrier of chat history. The pipeline
+        uses this capability flag instead of naming ChatModule directly."""
+        return True
+
     # ============================================================================= MCP Server
 
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:

@@ -63,6 +63,20 @@ MODULE_MAP = {
     "CommonToolsModule": CommonToolsModule,
 }
 
+
+def module_class_provides_chat_history(module_class: str) -> bool:
+    """Capability lookup by module-class name (iron rule #4 / decoupling).
+
+    The pipeline stores instances by `module_class` string, so it can't call
+    a method on a live object. This maps the stored name to the module's
+    `provides_chat_history()` capability flag via MODULE_MAP, letting the
+    orchestration layer find the chat-bearing module without hard-coding
+    `== "ChatModule"`. Unknown names → False.
+    """
+    cls = MODULE_MAP.get(module_class)
+    return bool(cls and cls.provides_chat_history())
+
+
 # =============================================================================
 # Rebuild ModuleInstance model to resolve forward references
 # =============================================================================
@@ -115,6 +129,7 @@ __all__ = [
 
     # ===== Module mapping =====
     "MODULE_MAP",
+    "module_class_provides_chat_history",
 
     # ===== Core services =====
     "ModuleService",
