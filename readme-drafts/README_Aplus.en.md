@@ -48,7 +48,9 @@ Changes vs README_A.en.md:
 </p>
 
 <p align="center">
-  <img src="../docs/images/hero-intro.gif" alt="A 90-second tour of NarraNexus — install, core concepts, and templates in action." width="760" />
+  <video src="https://github.com/user-attachments/assets/fac2f36e-4048-4a07-aa46-3331203f4157" controls width="760">
+    Your browser does not support the video tag. <a href="https://github.com/user-attachments/assets/fac2f36e-4048-4a07-aa46-3331203f4157">Watch the 90-second tour</a>.
+  </video>
 </p>
 
 <p align="center">

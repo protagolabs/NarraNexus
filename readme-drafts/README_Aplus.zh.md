@@ -47,7 +47,9 @@ AI 助手 callout（#1）试过后撤掉 —— 底部的"贡献与治理"已经
 </p>
 
 <p align="center">
-  <img src="../docs/images/hero-intro.gif" alt="90 秒看完 NarraNexus：安装、核心理念、几个 template 速览。" width="760" />
+  <video src="https://github.com/user-attachments/assets/fac2f36e-4048-4a07-aa46-3331203f4157" controls width="760">
+    你的浏览器不支持 video 标签。<a href="https://github.com/user-attachments/assets/fac2f36e-4048-4a07-aa46-3331203f4157">观看 90 秒 tour</a>。
+  </video>
 </p>
 
 <p align="center">
