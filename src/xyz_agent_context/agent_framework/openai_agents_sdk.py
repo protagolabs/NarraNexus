@@ -84,8 +84,13 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
     return None
 
 
-# Models that have failed structured output — skip Agents SDK for these
-_structured_output_blocklist: set[str] = set()
+# Provider x model combos whose Agents SDK structured-output path returned
+# a CLEAR "unsupported" error. Keyed by (base_url, model) — see
+# `_capability_key` — so the same model name on a different provider is
+# judged independently (no cross-provider contamination). Only clear
+# capability errors land here; transient network / 5xx failures never do,
+# so a single blip cannot permanently downgrade a model (incident lesson #3).
+_structured_output_blocklist: set[tuple[str, str]] = set()
 
 
 # ── Provider × model capability map for the prompt-fallback path ─────────
@@ -252,9 +257,15 @@ class OpenAIAgentsSDK:
             f"output_type={output_type.__name__ if output_type else 'None'}"
         )
 
-        # Try Agents SDK structured output (skip if model is blocklisted)
+        # Try Agents SDK structured output (skip if this provider x model
+        # is blocklisted). On failure we always fall through to the fallback
+        # for THIS call, but only PERMANENTLY blocklist when the error
+        # clearly says the model can't do structured output — a transient
+        # blip must not strand the model on the fallback path forever
+        # (incident lesson #3).
         first_attempt_failed = False
-        if output_type and model_name not in _structured_output_blocklist:
+        cap_key = _capability_key(model_name)
+        if output_type and cap_key not in _structured_output_blocklist:
             try:
                 result = await self._try_agents_sdk(
                     openai_client, model_name, instructions, user_input,
@@ -266,12 +277,20 @@ class OpenAIAgentsSDK:
                 )
                 return result
             except Exception as e:
-                _structured_output_blocklist.add(model_name)
                 first_attempt_failed = True
-                logger.info(
-                    f"Model '{model_name}' does not support structured output, "
-                    f"added to blocklist (will use fallback from now on): {e}"
-                )
+                if _is_response_format_unsupported_error(e):
+                    _structured_output_blocklist.add(cap_key)
+                    logger.info(
+                        f"[StructuredFallback] Agents SDK structured output "
+                        f"unsupported for provider={cap_key[0]} model={model_name}; "
+                        f"blocklisted, using fallback henceforth: {e}"
+                    )
+                else:
+                    logger.info(
+                        f"[StructuredFallback] Agents SDK attempt failed for "
+                        f"model={model_name} (transient/other — NOT blocklisted, "
+                        f"will retry SDK next call): {e}"
+                    )
 
         # Fallback: direct chat completion + manual JSON parsing
         result = await self._fallback_chat_completion(
