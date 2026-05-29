@@ -81,6 +81,7 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client, utc_now, form
 
 # Repository
 from xyz_agent_context.repository import JobRepository
+from xyz_agent_context.services.service_audit import ServiceAuditor
 from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
 from zoneinfo import ZoneInfo
 
