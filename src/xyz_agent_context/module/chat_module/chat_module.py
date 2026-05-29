@@ -26,7 +26,7 @@ from loguru import logger
 
 # Module (same package)
 from xyz_agent_context.module import XYZBaseModule, mcp_host
-from xyz_agent_context.module.event_memory_module import EventMemoryModule
+from xyz_agent_context.repository import EventMemoryRepository
 
 # Schema
 from xyz_agent_context.schema import (
@@ -227,8 +227,11 @@ class ChatModule(XYZBaseModule):
     ):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
 
+        # Narrative-level memory persistence. Depends on the repository
+        # layer directly (modules → repository is the allowed direction);
+        # importing a sibling Module would violate iron rule #3.
         if if_use_event_memory:
-            self.event_memory_module = EventMemoryModule(agent_id, user_id, database_client)
+            self.event_memory_module = EventMemoryRepository(agent_id, user_id, database_client)
         else:
             self.event_memory_module = None
 
