@@ -177,6 +177,12 @@ class JobTrigger:
         self._workers: List[asyncio.Task] = []
         self._poller_task: Optional[asyncio.Task] = None
 
+        # L2 observability — see services/service_audit.py. The cumulative
+        # enqueue counter rides the heartbeat detail so a frozen count in a
+        # stale heartbeat exposes a wedged poll loop (incident lesson #4).
+        self.audit = ServiceAuditor("job_trigger")
+        self._enqueued_total = 0
+
         logger.info(
             f"JobTrigger initialized: poll_interval={poll_interval}s, "
             f"timeout={job_timeout_minutes}min, max_workers={max_workers}"
@@ -391,6 +397,7 @@ class JobTrigger:
                 if job.job_id not in self._running_jobs:
                     self._running_jobs.add(job.job_id)
                     await self._job_queue.put(job)
+                    self._enqueued_total += 1
                     enqueued += 1
                 else:
                     logger.debug(f"Job {job.job_id} already running, skipped")
