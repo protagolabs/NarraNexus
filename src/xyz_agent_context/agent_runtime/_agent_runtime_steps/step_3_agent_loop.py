@@ -26,7 +26,7 @@ from xyz_agent_context.schema import (
     ErrorMessage,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
-from xyz_agent_context.agent_framework import ClaudeAgentSDK
+from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 
 if TYPE_CHECKING:
@@ -677,8 +677,12 @@ async def step_3_agent_loop(
     # except would flip displayContent to the error string for the
     # split second before the synthetic send_message lands.
     captured_error: dict | None = None
+    # Select the agent-loop framework via the registry (iron rule #9).
+    # framework=None resolves through AGENT_LOOP_FRAMEWORK env -> "claude"
+    # default; pass an agent-scoped name here once per-agent selection lands.
+    driver = get_agent_loop_driver(working_path=agent_working_path)
     try:
-        async for response in ClaudeAgentSDK(working_path=agent_working_path).agent_loop(
+        async for response in driver.agent_loop(
             messages=messages,
             mcp_server_urls=ctx.mcp_urls,
             extra_env=skill_env_vars or None,
