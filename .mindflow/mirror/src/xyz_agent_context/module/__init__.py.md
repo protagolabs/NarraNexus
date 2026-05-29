@@ -1,7 +1,10 @@
 ---
 code_file: src/xyz_agent_context/module/__init__.py
-last_verified: 2026-04-10
+last_verified: 2026-05-29
 ---
+
+> 2026-05-29：`MemoryModule` 从 MODULE_MAP / CAPABILITY_MODULES / __all__
+> 移除（EverMemOS 整体删除，memory_module 包已删）。
 
 # __init__.py — MODULE_MAP 注册表与包导出
 

@@ -202,7 +202,7 @@ class ChatModule(XYZBaseModule):
        - get_chat_history: Retrieve past conversations for a specific Chat Instance
 
     Dual-track memory loading (2026-01-21 P1-2):
-    - Long-term memory: Current Narrative's EverMemOS semantically relevant history (2026-02-09 optimization)
+    - Long-term memory: current Narrative's full conversation history
     - Short-term memory: User's recent cross-Narrative conversations (most recent K messages, no time limit)
     """
 
@@ -215,7 +215,6 @@ class ChatModule(XYZBaseModule):
     # view_narrative tool cover whatever the cap drops.
     SHORT_TERM_MAX_MESSAGES = 30     # latest cross-narrative rows by time (candidates)
     MERGED_HISTORY_MAX = 30          # final unified-timeline cap (current + cross, by time)
-    # Note: Long-term memory count is controlled by EverMemOS retrieval top_k (see narrative/config.py)
 
     def __init__(
         self,
