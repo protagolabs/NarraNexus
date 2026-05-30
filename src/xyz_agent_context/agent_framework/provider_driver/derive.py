@@ -69,6 +69,9 @@ def derive_driver_type(
     if src == "claude_oauth":
         return "claude_oauth"
 
+    if src == "codex_oauth":
+        return "codex_oauth"
+
     if src == "system":
         return "system_pool"
 
@@ -114,6 +117,7 @@ def derive_billing_policy(
 # the value is portable across OSes (Linux / macOS / Windows have
 # different home dirs).
 CLAUDE_CLI_CREDENTIALS_REF = "claude-cli:~/.claude/.credentials.json"
+CODEX_CLI_CREDENTIALS_REF = "codex-cli:~/.codex/auth.json"
 
 
 def derive_auth_ref(auth_type: Optional[str]) -> Optional[str]:
@@ -152,6 +156,29 @@ def resolve_claude_credentials_path(auth_ref: Optional[str]) -> Optional[Path]:
         return Path(cli_home).expanduser() / ".credentials.json"
 
     # Strip "claude-cli:" prefix and expand ~
+    return Path(auth_ref.split(":", 1)[1]).expanduser()
+
+
+def resolve_codex_credentials_path(auth_ref: Optional[str]) -> Optional[Path]:
+    """Expand a ``codex-cli:`` sentinel into a real filesystem path.
+
+    Mirrors :func:`resolve_claude_credentials_path`. Order:
+
+    1. ``CODEX_CLI_CREDENTIALS_PATH`` env var (explicit override)
+    2. ``CODEX_HOME`` env var + ``auth.json`` (Codex's own override)
+    3. ``~/.codex/auth.json`` (default)
+    """
+    if not auth_ref or not auth_ref.startswith("codex-cli:"):
+        return None
+
+    override = os.environ.get("CODEX_CLI_CREDENTIALS_PATH")
+    if override:
+        return Path(override).expanduser()
+
+    codex_home = os.environ.get("CODEX_HOME")
+    if codex_home:
+        return Path(codex_home).expanduser() / "auth.json"
+
     return Path(auth_ref.split(":", 1)[1]).expanduser()
 
 

@@ -871,6 +871,29 @@ class ApiClient {
     return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
   }
 
+  /** Get the user's coding-agent framework choice + auth probe. */
+  async getAgentFramework(): Promise<{
+    success: boolean;
+    data: {
+      framework: string;
+      supported: string[];
+      probe: { ok: boolean; detail: string };
+    };
+  }> {
+    return this.request(`/api/providers/agent-framework`);
+  }
+
+  /** Set the user's coding-agent framework choice. */
+  async setAgentFramework(framework: string): Promise<{
+    success: boolean;
+    data: { framework: string; probe: { ok: boolean; detail: string } };
+  }> {
+    return this.request(`/api/providers/agent-framework`, {
+      method: 'POST',
+      body: JSON.stringify({ framework }),
+    });
+  }
+
   /**
    * Fetch aggregated agent status for the Dashboard page (v2).
    *

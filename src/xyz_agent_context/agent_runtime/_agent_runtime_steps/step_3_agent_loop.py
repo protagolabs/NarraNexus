@@ -26,7 +26,7 @@ from xyz_agent_context.schema import (
     ErrorMessage,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
-from xyz_agent_context.agent_framework import ClaudeAgentSDK
+from xyz_agent_context.agent_framework import ClaudeAgentSDK, CodexSDK
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 
 if TYPE_CHECKING:
@@ -41,6 +41,53 @@ _DEFAULT_MAX_PER_ENTRY = 4096
 _DEFAULT_MAX_TOTAL = 32768
 _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ...]\n"
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
+
+
+# Map from ``user_slots.agent_framework`` values → SDK class. Defines
+# the closed set of supported coding-agent frameworks. Anything not
+# in this dict falls back to ClaudeAgentSDK (see
+# ``_resolve_agent_framework_sdk`` below).
+_AGENT_FRAMEWORK_SDK_MAP: dict[str, type] = {
+    "claude_code": ClaudeAgentSDK,
+    "codex_cli": CodexSDK,
+}
+
+
+async def _resolve_agent_framework_sdk(user_id: str, db_client: Any) -> type:
+    """Return the SDK class for this user's coding-agent framework choice.
+
+    Reads ``user_slots[user_id, slot_name='agent'].agent_framework``.
+    Always falls back to ``ClaudeAgentSDK`` on:
+      - row missing (new users)
+      - column null (rows from before Task 1 migration)
+      - unknown framework value (forward-compat with future
+        ``agent_framework`` values landing before client code knows them)
+      - DB lookup error (defensive — never let an `agent_framework`
+        column issue block an agent run)
+
+    The fallback default keeps existing users on Claude Code without
+    any migration; Codex is opt-in via the Settings page.
+    """
+    try:
+        row = await db_client.get_one(
+            "user_slots", {"user_id": user_id, "slot_name": "agent"}
+        )
+    except Exception as e:  # noqa: BLE001 — defensive: any DB hiccup
+        logger.warning(
+            f"[step_3] agent_framework lookup failed for user={user_id}: {e}; "
+            f"falling back to claude_code"
+        )
+        return ClaudeAgentSDK
+
+    framework = (row or {}).get("agent_framework") or "claude_code"
+    sdk_cls = _AGENT_FRAMEWORK_SDK_MAP.get(framework)
+    if sdk_cls is None:
+        logger.warning(
+            f"[step_3] unknown agent_framework={framework!r} for user={user_id}; "
+            f"falling back to claude_code"
+        )
+        return ClaudeAgentSDK
+    return sdk_cls
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -677,8 +724,13 @@ async def step_3_agent_loop(
     # except would flip displayContent to the error string for the
     # split second before the synthetic send_message lands.
     captured_error: dict | None = None
+    # Dispatch to the per-user coding-agent SDK. Defaults to
+    # ClaudeAgentSDK for backward compatibility; Codex CLI when the
+    # user has opted in via Settings → Providers → Agent Framework.
+    sdk_cls = await _resolve_agent_framework_sdk(ctx.user_id, db_client)
+    logger.info(f"[step_3] agent_loop SDK: {sdk_cls.__name__} (user={ctx.user_id})")
     try:
-        async for response in ClaudeAgentSDK(working_path=agent_working_path).agent_loop(
+        async for response in sdk_cls(working_path=agent_working_path).agent_loop(
             messages=messages,
             mcp_server_urls=ctx.mcp_urls,
             extra_env=skill_env_vars or None,

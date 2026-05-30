@@ -134,6 +134,53 @@ class OpenAIConfig:
 
 
 @dataclass(frozen=True)
+class CodexConfig:
+    """OpenAI Codex CLI configuration (passed to ``codex exec`` subprocess).
+
+    Parallels :class:`ClaudeConfig` for the Codex coding-agent path.
+    Carried separately because Codex auth, env var names, and config
+    surface (TOML file vs argv) differ from Claude Code despite both
+    being subprocess-spawned coding agents.
+
+    Auth model:
+      - ``api_key`` empty (default) → ``to_cli_env`` blanks
+        ``CODEX_API_KEY`` so the subprocess falls back to
+        ``$CODEX_HOME/auth.json`` (the ``codex login`` OAuth file).
+      - ``api_key`` non-empty + ``auth_type='api_key'`` → injected as
+        ``CODEX_API_KEY`` env var.
+
+    ``base_url`` + ``model`` flow into Codex's ``config.toml``
+    ``[model_providers.<name>]`` table at run time, NOT env vars —
+    Codex reads the endpoint from the toml file. See
+    :func:`_codex_config_toml_builder.build_codex_config_toml`.
+    """
+
+    api_key: str = ""
+    base_url: str = ""  # Empty = use Codex's bundled OpenAI provider
+    model: str = ""     # Empty = let Codex CLI pick its default
+    auth_type: str = "oauth"  # "oauth" | "api_key"
+
+    def to_cli_env(self) -> dict[str, str]:
+        """Build env vars dict for the ``codex exec`` subprocess.
+
+        Mirrors :meth:`ClaudeConfig.to_cli_env` invariants:
+          1. Explicit blank for the auth env var when not in use, so
+             a stray ``CODEX_API_KEY`` from the parent process's
+             ``os.environ`` cannot leak across tenants in a
+             multi-tenant deployment.
+          2. We do NOT set ``OPENAI_API_KEY`` — that's a different
+             env var for the OpenAI Python SDK, not for Codex CLI.
+             If the user has ``OPENAI_API_KEY`` exported globally,
+             Codex CLI may still pick it up; we don't try to fight
+             that, we only own our scoped env.
+        """
+        env: dict[str, str] = {"CODEX_API_KEY": ""}
+        if self.api_key and self.auth_type == "api_key":
+            env["CODEX_API_KEY"] = self.api_key
+        return env
+
+
+@dataclass(frozen=True)
 class GeminiConfig:
     """Google Gemini API configuration"""
     api_key: str = ""
@@ -282,6 +329,11 @@ class _ConfigHolder:
         self._openai: Optional[OpenAIConfig] = None
         self._embedding: Optional[EmbeddingConfig] = None
         self._gemini: Optional[GeminiConfig] = None
+        # Codex defaults to an empty config — user-scoped overrides
+        # arrive via the ``_codex_ctx`` ContextVar at agent_loop time.
+        # No .env / llm_config.json source for now (Codex auth flows
+        # through ``codex login`` rather than NarraNexus config).
+        self._codex: Optional[CodexConfig] = None
         self._loaded = False
 
     def _ensure_loaded(self) -> None:
@@ -303,6 +355,9 @@ class _ConfigHolder:
             self._claude, self._openai, self._embedding = env_claude, env_openai, env_embedding
 
         self._gemini = _load_gemini_config()
+        # Codex defaults to an empty config — per-user resolver
+        # populates the ContextVar when a Codex agent run begins.
+        self._codex = CodexConfig()
         self._loaded = True
 
         # Log provider summary so it's clear which providers/models are active
@@ -342,6 +397,11 @@ class _ConfigHolder:
         self._ensure_loaded()
         return self._gemini  # type: ignore
 
+    @property
+    def codex(self) -> CodexConfig:
+        self._ensure_loaded()
+        return self._codex  # type: ignore
+
 
 _holder = _ConfigHolder()
 
@@ -366,6 +426,7 @@ _holder = _ConfigHolder()
 _claude_ctx: ContextVar[Optional[ClaudeConfig]] = ContextVar("claude_config", default=None)
 _openai_ctx: ContextVar[Optional[OpenAIConfig]] = ContextVar("openai_config", default=None)
 _embedding_ctx: ContextVar[Optional[EmbeddingConfig]] = ContextVar("embedding_config", default=None)
+_codex_ctx: ContextVar[Optional[CodexConfig]] = ContextVar("codex_config", default=None)
 
 
 class _ConfigProxy:
@@ -396,6 +457,7 @@ claude_config: ClaudeConfig = _ConfigProxy("claude", _claude_ctx)  # type: ignor
 openai_config: OpenAIConfig = _ConfigProxy("openai", _openai_ctx)  # type: ignore
 embedding_config: EmbeddingConfig = _ConfigProxy("embedding", _embedding_ctx)  # type: ignore
 gemini_config: GeminiConfig = _ConfigProxy("gemini")  # type: ignore
+codex_config: CodexConfig = _ConfigProxy("codex", _codex_ctx)  # type: ignore
 
 
 def get_current_embedding_config() -> Optional[EmbeddingConfig]:

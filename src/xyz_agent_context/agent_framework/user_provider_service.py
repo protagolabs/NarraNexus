@@ -277,6 +277,77 @@ class UserProviderService:
 
         return await self.get_user_config(user_id)
 
+    # ---- agent_framework: per-user coding-agent SDK choice ---------
+    # The ``user_slots[slot_name='agent'].agent_framework`` column is
+    # read by step_3_agent_loop._resolve_agent_framework_sdk to pick
+    # ClaudeAgentSDK vs CodexSDK. Reading defaults to "claude_code"
+    # for any null/missing row so existing users are untouched.
+
+    _SUPPORTED_AGENT_FRAMEWORKS: tuple[str, ...] = ("claude_code", "codex_cli")
+
+    async def get_user_agent_framework(self, user_id: str) -> str:
+        """Return the user's chosen coding-agent framework.
+
+        Returns ``"claude_code"`` when:
+          - The user has no agent slot row yet (new user)
+          - The column is null (rows from before the column was added)
+        Anything other than the supported set still returns the raw
+        value; the caller (step_3 resolver) is responsible for
+        falling back to claude_code on unknown values.
+        """
+        row = await self.db.get_one(
+            "user_slots", {"user_id": user_id, "slot_name": "agent"}
+        )
+        if not row:
+            return "claude_code"
+        return (row.get("agent_framework") or "claude_code")
+
+    async def set_user_agent_framework(self, user_id: str, framework: str) -> None:
+        """Persist the user's coding-agent framework choice.
+
+        Upserts ``user_slots[user_id, slot_name='agent'].agent_framework``.
+        If the user has no agent slot row yet (provider_id/model not
+        set), a stub row is inserted with empty provider_id+model so
+        the framework choice is preserved until they wire the slot.
+        provider_resolver still rejects the call at agent_loop time
+        when provider_id is empty — same as today.
+
+        Raises ``ValueError`` for unknown framework values.
+        """
+        if framework not in self._SUPPORTED_AGENT_FRAMEWORKS:
+            raise ValueError(
+                f"Unknown agent_framework {framework!r}. "
+                f"Supported: {self._SUPPORTED_AGENT_FRAMEWORKS}"
+            )
+
+        existing = await self.db.get_one(
+            "user_slots", {"user_id": user_id, "slot_name": "agent"}
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        if existing:
+            await self.db.update(
+                "user_slots",
+                {"user_id": user_id, "slot_name": "agent"},
+                {"agent_framework": framework, "updated_at": now},
+            )
+        else:
+            # Stub row: framework choice survives even if the agent
+            # slot's provider/model is not yet wired. provider_resolver
+            # will reject usage with empty provider_id at agent_loop
+            # time, which is correct UX (forces the user to finish
+            # slot setup).
+            await self.db.insert(
+                "user_slots",
+                {
+                    "user_id": user_id,
+                    "slot_name": "agent",
+                    "provider_id": "",
+                    "model": "",
+                    "agent_framework": framework,
+                    "updated_at": now,
+                },
+            )
+
     async def validate_slots(self, user_id: str) -> list[str]:
         """Validate all slots are configured."""
         config = await self.get_user_config(user_id)

@@ -61,6 +61,11 @@ class UpdateModelsRequest(BaseModel):
     models: list[str]
 
 
+class SetAgentFrameworkRequest(BaseModel):
+    """Body for ``POST /api/providers/agent-framework``."""
+    framework: str  # "claude_code" | "codex_cli"
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -284,6 +289,118 @@ async def validate_slots(request: Request):
     service = await _get_service()
     errors = await service.validate_slots(uid)
     return {"success": True, "errors": errors, "all_configured": len(errors) == 0}
+
+
+# =============================================================================
+# Agent Framework (coding-agent CLI choice — Claude Code vs Codex CLI)
+# =============================================================================
+#
+# Persisted as ``user_slots[user_id, slot_name='agent'].agent_framework``.
+# Read by ``step_3_agent_loop._resolve_agent_framework_sdk`` per turn
+# to pick which SDK class drives the agent_loop. Defaults to
+# "claude_code" so existing users are unaffected.
+
+
+_SUPPORTED_AGENT_FRAMEWORKS = ("claude_code", "codex_cli")
+
+
+async def _probe_agent_framework_auth(framework: str) -> dict:
+    """Run the per-framework OAuth credential probe.
+
+    Returns ``{"ok": bool, "detail": str}``. Synthesizes a stub
+    ProviderCard with the right ``auth_ref`` so we can reuse the
+    existing driver's probe() — no need to look up an actual
+    ``user_providers`` row (the framework choice is independent of
+    which provider drives the helper_llm / embedding slots).
+    """
+    from xyz_agent_context.agent_framework.provider_driver.base import ProviderCard
+
+    if framework == "codex_cli":
+        from xyz_agent_context.agent_framework.provider_driver.drivers.codex_oauth import (
+            CodexOAuthDriver,
+        )
+        from xyz_agent_context.agent_framework.provider_driver.derive import (
+            CODEX_CLI_CREDENTIALS_REF,
+        )
+        stub = ProviderCard(
+            provider_id="_probe_codex",
+            user_id="_probe",
+            name="probe",
+            source="codex_oauth",
+            protocol="openai",
+            auth_type="oauth",
+            api_key="",
+            base_url="",
+            auth_ref=CODEX_CLI_CREDENTIALS_REF,
+            driver_type="codex_oauth",
+        )
+        health = await CodexOAuthDriver(stub).probe()
+        return {"ok": health.ok, "detail": health.detail}
+
+    if framework == "claude_code":
+        from xyz_agent_context.agent_framework.provider_driver.drivers.claude_oauth import (
+            ClaudeOAuthDriver,
+        )
+        from xyz_agent_context.agent_framework.provider_driver.derive import (
+            CLAUDE_CLI_CREDENTIALS_REF,
+        )
+        stub = ProviderCard(
+            provider_id="_probe_claude",
+            user_id="_probe",
+            name="probe",
+            source="claude_oauth",
+            protocol="anthropic",
+            auth_type="oauth",
+            api_key="",
+            base_url="",
+            auth_ref=CLAUDE_CLI_CREDENTIALS_REF,
+            driver_type="claude_oauth",
+        )
+        health = await ClaudeOAuthDriver(stub).probe()
+        return {"ok": health.ok, "detail": health.detail}
+
+    return {"ok": False, "detail": f"unknown framework: {framework}"}
+
+
+@router.get("/agent-framework")
+async def get_agent_framework(request: Request):
+    """Return the user's current coding-agent framework + auth probe."""
+    uid = _get_user_id(request)
+    service = await _get_service()
+    framework = await service.get_user_agent_framework(uid)
+    probe = await _probe_agent_framework_auth(framework)
+    return {
+        "success": True,
+        "data": {
+            "framework": framework,
+            "supported": list(_SUPPORTED_AGENT_FRAMEWORKS),
+            "probe": probe,
+        },
+    }
+
+
+@router.post("/agent-framework")
+async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
+    """Persist the user's coding-agent framework choice."""
+    uid = _get_user_id(request)
+    if body.framework not in _SUPPORTED_AGENT_FRAMEWORKS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown framework {body.framework!r}. "
+                f"Supported: {list(_SUPPORTED_AGENT_FRAMEWORKS)}"
+            ),
+        )
+    service = await _get_service()
+    try:
+        await service.set_user_agent_framework(uid, body.framework)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    probe = await _probe_agent_framework_auth(body.framework)
+    return {
+        "success": True,
+        "data": {"framework": body.framework, "probe": probe},
+    }
 
 
 @router.get("/catalog")

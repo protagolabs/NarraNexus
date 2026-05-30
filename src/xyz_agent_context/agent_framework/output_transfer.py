@@ -71,6 +71,8 @@ def output_transfer(
     """
     if transfer_type == "claude_agent_sdk":
         return _claude_to_openai_agents(message, streaming=streaming)
+    if transfer_type == "codex_cli":
+        return _codex_to_openai_agents(message, streaming=streaming)
     else:
         raise ValueError(f"Unknown transfer type: {transfer_type}")
 
@@ -419,3 +421,236 @@ def _empty_delta() -> Dict[str, Any]:
             "delta": ""
         }
     }
+
+
+# =============================================================================
+# Codex CLI translator
+# =============================================================================
+#
+# Codex CLI emits JSON Lines on stdout when invoked with --json. Each line
+# is a complete JSON object with a ``type`` field. Event surface (from
+# docs https://developers.openai.com/codex/noninteractive):
+#
+#   thread.started        — turn-bracket marker (info-only)
+#   turn.started          — turn-bracket marker (info-only)
+#   item.started          — agentic item begins (text, reasoning, tool call,
+#                           file change, MCP call, web search)
+#   item.completed        — item finishes
+#   turn.completed        — usage payload arrives here
+#   turn.failed           — non-recoverable turn error
+#   error                 — top-level fatal error
+#
+# We translate these into the OpenAI Agents SDK event shape that
+# response_processor.process already consumes, so downstream code is
+# unchanged. Unknown event types are dropped (forward-compat) rather
+# than raised — Codex may introduce new event types in future releases.
+
+# Codex item ``type`` values we know how to translate. Anything not
+# listed here is silently dropped with a debug log on the wrapper side.
+_CODEX_ITEM_TYPES_TEXT = frozenset({"agent_message"})
+_CODEX_ITEM_TYPES_THINKING = frozenset({"reasoning"})
+_CODEX_ITEM_TYPES_TOOL = frozenset({"command_execution", "mcp_call", "web_search"})
+
+
+def _codex_to_openai_agents(
+    event: Dict[str, Any], streaming: bool = True
+) -> List[Dict[str, Any]]:
+    """Translate one parsed Codex JSON Lines event into 0..N
+    OpenAI-Agents-style events that ``response_processor`` consumes.
+
+    Args:
+        event: A dict parsed from a single line of ``codex exec --json``
+            stdout. Must carry a ``type`` field; anything else is
+            treated as unknown.
+        streaming: Currently ignored — Codex's `item.started` /
+            `item.completed` pair already encodes the streaming
+            boundary. Kept for signature symmetry with the Claude
+            translator.
+
+    Returns:
+        List of event dicts shaped like ``{"type": "raw_response_event"}``
+        or ``{"type": "run_item_stream_event"}``. Empty list means
+        "drop this event" (info-only or unknown).
+    """
+    del streaming  # signature-only — see note above
+
+    if not isinstance(event, dict):
+        return []
+
+    event_type = event.get("type")
+
+    # ---- turn / thread brackets — info only, drop ---------------------
+    if event_type in {"thread.started", "turn.started"}:
+        return []
+
+    # ---- item.started / item.completed -------------------------------
+    if event_type in {"item.started", "item.completed"}:
+        return _translate_codex_item(event, is_completed=(event_type == "item.completed"))
+
+    # ---- turn.completed — usage payload ------------------------------
+    if event_type == "turn.completed":
+        usage = event.get("usage") or {}
+        # Surface as a synthetic "result" event so the cost tracker
+        # downstream (response_processor.apply_state_update) can fold
+        # it into ExecutionState.input_tokens / output_tokens. Field
+        # names mirror the Claude SDK ResultMessage shape.
+        return [{
+            "type": "result",
+            "usage": {
+                "input_tokens": int(usage.get("input_tokens") or 0),
+                "output_tokens": int(usage.get("output_tokens") or 0),
+                "cached_input_tokens": int(usage.get("cached_input_tokens") or 0),
+            },
+        }]
+
+    # ---- failures ----------------------------------------------------
+    if event_type in {"turn.failed", "error"}:
+        # response_processor doesn't have a dedicated error type; we
+        # surface as a generic raw_response_event with the error text
+        # so the user sees something. The wrapper also logs at ERROR
+        # level when it sees these.
+        err = event.get("error") or event.get("message") or "unknown"
+        return [{
+            "type": "raw_response_event",
+            "data": {
+                "type": "response.error",
+                "error": str(err),
+            },
+        }]
+
+    # Unknown — drop with no noise (forward-compat with future Codex
+    # event types). The wrapper logs at DEBUG so ops can spot novel
+    # types if they ever matter.
+    return []
+
+
+def _translate_codex_item(
+    event: Dict[str, Any], *, is_completed: bool
+) -> List[Dict[str, Any]]:
+    """Handle one ``item.started`` or ``item.completed`` Codex event."""
+    item = event.get("item") or {}
+    if not isinstance(item, dict):
+        return []
+
+    item_type = item.get("type")
+    item_id = item.get("id") or ""
+
+    # ---- text from the model -----------------------------------------
+    if item_type in _CODEX_ITEM_TYPES_TEXT:
+        text = item.get("text") or ""
+        # Both started and completed carry the same delta text from
+        # Codex's perspective — we only emit on completed to avoid
+        # double-rendering (Codex's `item.started` for agent_message
+        # arrives with empty text; the full text only lands on
+        # `item.completed`).
+        if not is_completed or not text:
+            return []
+        return [{
+            "type": "raw_response_event",
+            "data": {
+                "type": "response.output_text.delta",
+                "delta": text,
+            },
+        }]
+
+    # ---- reasoning ("thinking") --------------------------------------
+    if item_type in _CODEX_ITEM_TYPES_THINKING:
+        text = item.get("text") or ""
+        if not is_completed or not text:
+            return []
+        # Map to Claude's thinking event so response_processor's
+        # _ThinkingBatcher coalesces it the same way.
+        return [{
+            "type": "raw_response_event",
+            "data": {
+                "type": "response.reasoning.delta",
+                "delta": text,
+            },
+        }]
+
+    # ---- tool calls (command_execution / mcp_call / web_search) -----
+    if item_type in _CODEX_ITEM_TYPES_TOOL:
+        # Codex emits item.started AND item.completed for tool items.
+        # We translate BOTH so the frontend can show "tool running"
+        # state on started + "tool output" on completed.
+        if not is_completed:
+            # Start: emit tool_call_item with args, no output yet.
+            return [{
+                "type": "run_item_stream_event",
+                "item": {
+                    "type": "tool_call_item",
+                    "tool_call_id": item_id,
+                    "name": _codex_tool_name(item),
+                    "arguments": _codex_tool_args(item),
+                },
+            }]
+        # Completed: emit tool_call_output_item (deduped on
+        # tool_call_id by the wrapper's seen_tool_call_ids set).
+        return [{
+            "type": "run_item_stream_event",
+            "item": {
+                "type": "tool_call_output_item",
+                "tool_call_id": item_id,
+                "name": _codex_tool_name(item),
+                "output": _codex_tool_output(item),
+                "status": item.get("status") or "completed",
+            },
+        }]
+
+    # Unknown item type — drop. Forward-compat.
+    return []
+
+
+def _codex_tool_name(item: Dict[str, Any]) -> str:
+    """Name to surface for the tool_call_item, by Codex item subtype."""
+    item_type = item.get("type") or ""
+    if item_type == "command_execution":
+        return "Bash"  # render as Bash to match CC's tool naming
+    if item_type == "mcp_call":
+        server = item.get("server") or ""
+        tool = item.get("tool") or ""
+        return f"mcp__{server}__{tool}" if server and tool else "mcp"
+    if item_type == "web_search":
+        return "WebSearch"
+    return item_type or "tool"
+
+
+def _codex_tool_args(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Tool arguments shape for tool_call_item, by Codex item subtype."""
+    item_type = item.get("type") or ""
+    if item_type == "command_execution":
+        return {"command": item.get("command") or ""}
+    if item_type == "mcp_call":
+        # MCP tool args arrive as a dict; pass through.
+        args = item.get("arguments")
+        if isinstance(args, dict):
+            return args
+        return {}
+    if item_type == "web_search":
+        return {"query": item.get("query") or ""}
+    return {}
+
+
+def _codex_tool_output(item: Dict[str, Any]) -> str:
+    """Tool output payload string for tool_call_output_item.
+
+    Codex command_execution items carry stdout/stderr in ``output``;
+    MCP items carry their result in ``result`` (sometimes structured
+    JSON, sometimes a string). We flatten everything to a string
+    for the existing frontend's text rendering.
+    """
+    item_type = item.get("type") or ""
+    if item_type == "command_execution":
+        return _stringify_tool_result_content(item.get("output"))
+    if item_type == "mcp_call":
+        result = item.get("result")
+        if isinstance(result, (dict, list)):
+            return json.dumps(result, ensure_ascii=False)
+        return _stringify_tool_result_content(result)
+    if item_type == "web_search":
+        # web_search.results is usually a list of {title, url, snippet}
+        results = item.get("results")
+        if results is None:
+            return ""
+        return json.dumps(results, ensure_ascii=False)
+    return ""

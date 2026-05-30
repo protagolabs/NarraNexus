@@ -161,6 +161,7 @@ interface AgentFramework {
 
 const AGENT_FRAMEWORKS: AgentFramework[] = [
   { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
+  { id: 'codex_cli', label: 'Codex CLI', protocol: 'openai', desc: 'OpenAI codex exec — JSON Lines streaming' },
 ]
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
@@ -505,8 +506,14 @@ export function ProviderSettings() {
   const [formModels, setFormModels] = useState<string[]>([])
   const [formAdding, setFormAdding] = useState(false)
 
-  // Agent framework
+  // Agent framework — loaded from backend on mount + on every refresh.
+  // ``probe`` reports whether the chosen framework's host CLI auth is
+  // currently usable (e.g. ``codex login`` was completed). null until
+  // the first fetch lands.
   const [agentFramework, setAgentFramework] = useState<string>(AGENT_FRAMEWORKS[0].id)
+  const [agentFrameworkProbe, setAgentFrameworkProbe] = useState<{ ok: boolean; detail: string } | null>(null)
+  const [agentFrameworkSaving, setAgentFrameworkSaving] = useState(false)
+  const [agentFrameworkError, setAgentFrameworkError] = useState<string>('')
 
   // Pending slot changes (local draft, not yet submitted)
   const [pendingSlots, setPendingSlots] = useState<Record<string, SlotConfig>>({})
@@ -547,6 +554,25 @@ export function ProviderSettings() {
   }, [providerUrl])
 
   useEffect(() => { refreshConfig() }, [refreshConfig])
+
+  // Load the user's coding-agent framework choice + auth probe on
+  // mount and whenever refreshConfig fires (so a Settings page
+  // re-open re-checks whether the OAuth file is still present).
+  useEffect(() => {
+    let cancelled = false
+    api.getAgentFramework().then((resp) => {
+      if (cancelled) return
+      if (resp.success) {
+        setAgentFramework(resp.data.framework)
+        setAgentFrameworkProbe(resp.data.probe)
+      }
+    }).catch((err: unknown) => {
+      if (cancelled) return
+      // Non-fatal — keep the default selection visible
+      console.error('[ProviderSettings] getAgentFramework failed:', err)
+    })
+    return () => { cancelled = true }
+  }, [refreshConfig])
 
   // Login auto-abort timer. Set claudeLoginRemaining to N to start
   // counting down to 0; reaching 0 fires cancelClaudeLogin which
@@ -861,16 +887,58 @@ export function ProviderSettings() {
         {/* Agent Framework selector */}
         {slot.key === 'agent' && (
           <div className="mb-3">
-            <label className="block text-sm text-[var(--text-tertiary)] mb-1">Agent Framework</label>
+            <label className="block text-sm text-[var(--text-tertiary)] mb-1">
+              Agent Framework
+              {agentFrameworkProbe !== null && (
+                <span
+                  className={`ml-2 text-xs ${
+                    agentFrameworkProbe.ok
+                      ? 'text-[var(--color-success)]'
+                      : 'text-[var(--color-error)]'
+                  }`}
+                  title={agentFrameworkProbe.detail}
+                >
+                  {agentFrameworkProbe.ok ? '✓ auth ready' : '✗ auth missing'}
+                </span>
+              )}
+            </label>
             <select
               value={agentFramework}
-              onChange={(e) => setAgentFramework(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+              disabled={agentFrameworkSaving}
+              onChange={async (e) => {
+                const next = e.target.value
+                setAgentFramework(next)
+                setAgentFrameworkSaving(true)
+                setAgentFrameworkError('')
+                try {
+                  const resp = await api.setAgentFramework(next)
+                  if (resp.success) {
+                    setAgentFrameworkProbe(resp.data.probe)
+                  }
+                } catch (err: unknown) {
+                  setAgentFrameworkError(
+                    err instanceof Error ? err.message : 'Failed to save framework'
+                  )
+                } finally {
+                  setAgentFrameworkSaving(false)
+                }
+              }}
+              className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50"
             >
               {AGENT_FRAMEWORKS.map((fw) => (
                 <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
               ))}
             </select>
+            {agentFrameworkError && (
+              <div className="text-xs text-[var(--color-error)] mt-1">
+                {agentFrameworkError}
+              </div>
+            )}
+            {agentFrameworkProbe !== null && !agentFrameworkProbe.ok && (
+              <div className="text-xs text-[var(--text-tertiary)] mt-1">
+                {agentFrameworkProbe.detail}
+              </div>
+            )}
           </div>
         )}
 

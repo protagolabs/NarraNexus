@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-05-22
+last_verified: 2026-05-29
 stub: false
 ---
+
+## 2026-05-29 — add CodexConfig + codex_config ContextVar
+
+Symmetric with the existing ClaudeConfig/OpenAIConfig/EmbeddingConfig
+trio. New ``CodexConfig`` frozen dataclass carries ``api_key`` /
+``base_url`` / ``model`` / ``auth_type`` for the Codex CLI subprocess
+spawned by ``xyz_codex_cli_sdk.CodexSDK``. ``to_cli_env()`` mirrors
+the ClaudeConfig invariant: explicit blank for ``CODEX_API_KEY``
+when not in use so a parent-process env can't leak across tenants.
+
+``base_url`` / ``model`` are NOT exported via env — Codex reads them
+from per-run ``config.toml`` ``[model_providers.<name>]`` instead.
+The wire is via ``_codex_config_toml_builder``.
+
+Per-task ContextVar (``_codex_ctx``) + ``_ConfigHolder._codex`` slot
+follow the existing pattern. Holder is initialised to an empty
+``CodexConfig()`` by default — there is no .env/llm_config.json
+source path because Codex auth flows through ``codex login`` (host
+CLI) rather than NarraNexus config. Per-user overrides arrive via
+the ContextVar at agent_loop time.
 
 ## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)
 
