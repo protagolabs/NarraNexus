@@ -514,6 +514,14 @@ export function ProviderSettings() {
   const [agentFrameworkProbe, setAgentFrameworkProbe] = useState<{ ok: boolean; detail: string } | null>(null)
   const [agentFrameworkSaving, setAgentFrameworkSaving] = useState(false)
   const [agentFrameworkError, setAgentFrameworkError] = useState<string>('')
+  // Install banner — surfaced after switching to codex_cli, so the
+  // user can see whether the backend auto-installed the binary or
+  // blocked the install in cloud mode.
+  const [agentFrameworkInstall, setAgentFrameworkInstall] = useState<{
+    installed: boolean
+    action: 'already_installed' | 'auto_installed' | 'blocked' | 'install_failed'
+    reason: string
+  } | null>(null)
 
   // Pending slot changes (local draft, not yet submitted)
   const [pendingSlots, setPendingSlots] = useState<Record<string, SlotConfig>>({})
@@ -910,10 +918,12 @@ export function ProviderSettings() {
                 setAgentFramework(next)
                 setAgentFrameworkSaving(true)
                 setAgentFrameworkError('')
+                setAgentFrameworkInstall(null)
                 try {
                   const resp = await api.setAgentFramework(next)
                   if (resp.success) {
                     setAgentFrameworkProbe(resp.data.probe)
+                    setAgentFrameworkInstall(resp.data.install)
                   }
                 } catch (err: unknown) {
                   setAgentFrameworkError(
@@ -929,12 +939,34 @@ export function ProviderSettings() {
                 <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
               ))}
             </select>
+            {agentFrameworkSaving && agentFramework === 'codex_cli' && (
+              <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">
+                {'Checking / installing Codex CLI… (first install may take 30-60s)'}
+              </div>
+            )}
             {agentFrameworkError && (
               <div className="text-xs text-[var(--color-error)] mt-1">
                 {agentFrameworkError}
               </div>
             )}
-            {agentFrameworkProbe !== null && !agentFrameworkProbe.ok && (
+            {agentFrameworkInstall && agentFrameworkInstall.action === 'auto_installed' && (
+              <div className="text-xs text-[var(--color-success)] mt-1">
+                ✓ Codex CLI was auto-installed. Run <code>codex login</code> in
+                a terminal to complete authentication.
+              </div>
+            )}
+            {agentFrameworkInstall && agentFrameworkInstall.action === 'blocked' && (
+              <div className="text-xs text-[var(--color-error)] mt-1">
+                {agentFrameworkInstall.reason}
+              </div>
+            )}
+            {agentFrameworkInstall && agentFrameworkInstall.action === 'install_failed' && (
+              <div className="text-xs text-[var(--color-error)] mt-1">
+                Install failed: {agentFrameworkInstall.reason}
+              </div>
+            )}
+            {agentFrameworkProbe !== null && !agentFrameworkProbe.ok &&
+             !(agentFrameworkInstall && agentFrameworkInstall.action === 'install_failed') && (
               <div className="text-xs text-[var(--text-tertiary)] mt-1">
                 {agentFrameworkProbe.detail}
               </div>

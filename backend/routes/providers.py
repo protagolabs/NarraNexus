@@ -303,6 +303,158 @@ async def validate_slots(request: Request):
 
 _SUPPORTED_AGENT_FRAMEWORKS = ("claude_code", "codex_cli")
 
+# npm install timeout for auto-install of @openai/codex. Codex CLI is a
+# Rust binary distributed via npm; the first install pulls a postinstall
+# script that downloads the platform binary, which can take 30-60s on
+# slow links. Matches the timeout used for @anthropic-ai/claude-code in
+# run.sh:_try_install_claude_cli.
+_CODEX_NPM_INSTALL_TIMEOUT = 120.0
+
+
+async def _ensure_codex_installed() -> dict:
+    """Auto-install ``@openai/codex`` via ``npm install -g`` when the
+    user opts into Codex CLI from the Settings page.
+
+    Mirrors the behaviour of ``run.sh:_try_install_claude_cli`` for
+    Claude Code — that one is run unconditionally at boot because
+    Claude is the default framework. Codex is opt-in, so the install
+    fires lazily at framework-selection time instead.
+
+    Returns:
+        Dict shape ``{"installed": bool, "action": str, "reason": str}``.
+        ``action`` values:
+          - ``"already_installed"`` — ``codex`` was already on PATH.
+          - ``"auto_installed"`` — we just installed it; ``codex`` now
+            on PATH.
+          - ``"blocked"`` — refused because we're in cloud mode.
+          - ``"install_failed"`` — npm exited non-zero, timed out, or
+            the binary isn't on PATH after a successful exit.
+
+    Cloud-mode refusal is deliberate: a multi-tenant deployment must
+    not let one user mutate the shared host's globally-installed npm
+    packages. Cloud operators install Codex out-of-band if they want
+    to support that path; users only see ``blocked`` until then.
+
+    Auto-login is NOT triggered here. ``codex login`` requires a
+    browser OAuth round-trip that we can't drive from a HTTP handler.
+    After ``auto_installed``, the probe will report
+    ``auth missing — run codex login`` until the user completes login
+    on the host.
+    """
+    import asyncio
+    import shutil
+
+    if shutil.which("codex"):
+        return {
+            "installed": True,
+            "action": "already_installed",
+            "reason": "",
+        }
+
+    from xyz_agent_context.utils.deployment_mode import get_deployment_mode
+    if get_deployment_mode() == "cloud":
+        return {
+            "installed": False,
+            "action": "blocked",
+            "reason": (
+                "Cloud mode: per-user global npm install is not "
+                "permitted on a shared host. Ask the administrator "
+                "to install @openai/codex on the cloud deployment "
+                "if you need Codex CLI support."
+            ),
+        }
+
+    if not shutil.which("npm"):
+        return {
+            "installed": False,
+            "action": "install_failed",
+            "reason": (
+                "npm is not installed or not on PATH. Install Node.js "
+                "from https://nodejs.org/ (or `brew install node` on "
+                "macOS) and try again."
+            ),
+        }
+
+    logger.info(
+        "[providers] auto-installing @openai/codex "
+        f"(timeout {_CODEX_NPM_INSTALL_TIMEOUT}s)"
+    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "npm", "install", "-g", "@openai/codex",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        # Race: npm vanished between which() and exec(). Rare but
+        # possible on a system being modified in parallel.
+        return {
+            "installed": False,
+            "action": "install_failed",
+            "reason": "npm binary not found at exec time",
+        }
+
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=_CODEX_NPM_INSTALL_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await proc.wait()
+        except (ProcessLookupError, OSError):
+            pass
+        return {
+            "installed": False,
+            "action": "install_failed",
+            "reason": (
+                f"npm install -g @openai/codex timed out after "
+                f"{_CODEX_NPM_INSTALL_TIMEOUT:.0f}s. Check your network "
+                f"or run it manually in a terminal."
+            ),
+        }
+
+    if proc.returncode != 0:
+        # Trim stderr — npm error output is verbose; first ~500 chars
+        # usually carries the actionable detail (EACCES, ENOTFOUND, ...).
+        err_msg = stderr.decode("utf-8", errors="replace").strip()
+        if len(err_msg) > 500:
+            err_msg = err_msg[:500] + "...(truncated)"
+        logger.warning(
+            f"[providers] @openai/codex install failed "
+            f"(rc={proc.returncode}): {err_msg}"
+        )
+        return {
+            "installed": False,
+            "action": "install_failed",
+            "reason": (
+                f"npm install -g @openai/codex exited rc={proc.returncode}. "
+                f"Output: {err_msg}"
+            ),
+        }
+
+    # Sanity: confirm `codex` is actually on PATH now. npm sometimes
+    # reports success but the global prefix isn't in $PATH — annoying
+    # corner case that's easier to surface here than at agent_loop time.
+    if not shutil.which("codex"):
+        return {
+            "installed": False,
+            "action": "install_failed",
+            "reason": (
+                "npm install reported success but `codex` is not on "
+                "PATH. Check `npm config get prefix` is in your $PATH "
+                "(typically /usr/local or ~/.local — re-source your "
+                "shell or restart the backend)."
+            ),
+        }
+
+    logger.info("[providers] @openai/codex auto-installed successfully")
+    return {
+        "installed": True,
+        "action": "auto_installed",
+        "reason": "",
+    }
+
 
 async def _probe_agent_framework_auth(framework: str) -> dict:
     """Run the per-framework OAuth credential probe.
@@ -381,7 +533,16 @@ async def get_agent_framework(request: Request):
 
 @router.post("/agent-framework")
 async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
-    """Persist the user's coding-agent framework choice."""
+    """Persist the user's coding-agent framework choice.
+
+    Side effect: when ``framework == "codex_cli"`` and the ``codex``
+    binary is not on PATH (local mode only), this endpoint
+    auto-installs ``@openai/codex`` via ``npm install -g`` before
+    persisting the choice. The install result is returned in the
+    response so the frontend can surface it ("auto-installed, now
+    run ``codex login``" / "install failed, see reason" / "blocked
+    in cloud mode").
+    """
     uid = _get_user_id(request)
     if body.framework not in _SUPPORTED_AGENT_FRAMEWORKS:
         raise HTTPException(
@@ -391,15 +552,28 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
                 f"Supported: {list(_SUPPORTED_AGENT_FRAMEWORKS)}"
             ),
         )
+
+    # Auto-install codex CLI on opt-in (local mode only; cloud mode
+    # returns action="blocked"). claude_code path skips this — the
+    # `claude` binary is already installed at run.sh boot time.
+    install_result: dict | None = None
+    if body.framework == "codex_cli":
+        install_result = await _ensure_codex_installed()
+
     service = await _get_service()
     try:
         await service.set_user_agent_framework(uid, body.framework)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
     probe = await _probe_agent_framework_auth(body.framework)
     return {
         "success": True,
-        "data": {"framework": body.framework, "probe": probe},
+        "data": {
+            "framework": body.framework,
+            "probe": probe,
+            "install": install_result,  # null for claude_code, dict for codex_cli
+        },
     }
 
 

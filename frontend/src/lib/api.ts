@@ -883,10 +883,28 @@ class ApiClient {
     return this.request(`/api/providers/agent-framework`);
   }
 
-  /** Set the user's coding-agent framework choice. */
+  /** Set the user's coding-agent framework choice.
+   *
+   * For ``framework === 'codex_cli'``, the backend may auto-install
+   * ``@openai/codex`` via ``npm install -g`` in local mode. The
+   * ``install`` field reports the outcome:
+   *   - ``null``                   — codex install not attempted (claude_code)
+   *   - ``{action: 'already_installed'}`` — binary was already on PATH
+   *   - ``{action: 'auto_installed'}``    — we just installed it
+   *   - ``{action: 'blocked'}``           — cloud mode: install refused
+   *   - ``{action: 'install_failed'}``    — see ``reason``
+   */
   async setAgentFramework(framework: string): Promise<{
     success: boolean;
-    data: { framework: string; probe: { ok: boolean; detail: string } };
+    data: {
+      framework: string;
+      probe: { ok: boolean; detail: string };
+      install: {
+        installed: boolean;
+        action: 'already_installed' | 'auto_installed' | 'blocked' | 'install_failed';
+        reason: string;
+      } | null;
+    };
   }> {
     return this.request(`/api/providers/agent-framework`, {
       method: 'POST',
