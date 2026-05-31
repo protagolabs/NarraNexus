@@ -47,6 +47,7 @@ class ProviderSource(str, Enum):
     YUNWU = "yunwu"                # Auto-created from Yunwu one-key card
     OPENROUTER = "openrouter"      # Auto-created from OpenRouter one-key card
     CLAUDE_OAUTH = "claude_oauth"  # Auto-created from Claude Code Login card
+    CODEX_OAUTH = "codex_oauth"    # Auto-created from Codex CLI Login card
     USER = "user"                  # User-configured (Anthropic/OpenAI protocol cards)
 
 

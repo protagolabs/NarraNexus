@@ -479,6 +479,12 @@ export function ProviderSettings() {
   const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null } | null>(null)
   const [claudeLoggingIn, setClaudeLoggingIn] = useState(false)
   const [claudeLoggingOut, setClaudeLoggingOut] = useState(false)
+  // Codex CLI Login — parallel to Claude Code Login. Same shape. In
+  // local mode the backend auto-installs `@openai/codex` when the
+  // user opts into the codex_cli agent framework, but `codex login`
+  // (OAuth) is still a manual terminal step because it opens a
+  // browser.
+  const [codexStatus, setCodexStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null } | null>(null)
   // Seconds remaining on the login auto-abort timer, or null when no
   // login is in flight. Decremented every 1s by the effect below; on
   // hitting 0 we fire cancelClaudeLogin so the Rust side SIGTERMs the
@@ -542,12 +548,14 @@ export function ProviderSettings() {
   // ---- Data loading ----
   const refreshConfig = useCallback(async () => {
     try {
-      const [cfgRes, catRes, claudeRes] = await Promise.all([
+      const [cfgRes, catRes, claudeRes, codexRes] = await Promise.all([
         authFetch(providerUrl()).then((r) => r.json()),
         authFetch(providerUrl('/catalog')).then((r) => r.json()),
         authFetch(providerUrl('/claude-status')).then((r) => r.json()).catch(() => null),
+        authFetch(providerUrl('/codex-status')).then((r) => r.json()).catch(() => null),
       ])
       if (claudeRes?.success) setClaudeStatus(claudeRes.data)
+      if (codexRes?.success) setCodexStatus(codexRes.data)
       if (cfgRes.success) {
         setProviders(cfgRes.data.providers)
         setSlots(cfgRes.data.slots)
@@ -605,6 +613,7 @@ export function ProviderSettings() {
   const providerList = Object.values(providers)
   const hasProviders = providerList.length > 0
   const hasClaude = providerList.some((p) => p.source === 'claude_oauth')
+  const hasCodex = providerList.some((p) => p.source === 'codex_oauth')
 
   // Check which preset providers are already added
   const addedPresets = new Set(providerList.map((p) => p.source))
@@ -675,6 +684,10 @@ export function ProviderSettings() {
 
   const handleAddClaudeOAuth = async () => {
     await addProvider({ card_type: 'claude_oauth' })
+  }
+
+  const handleAddCodexOAuth = async () => {
+    await addProvider({ card_type: 'codex_oauth' })
   }
 
   const handleClaudeLogin = async () => {
@@ -1304,6 +1317,89 @@ export function ProviderSettings() {
                   ) : (
                     <p className="text-sm text-[var(--text-tertiary)]">
                       Log in above to add Claude Code as a provider.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ---- Codex CLI Login Card ----
+            *
+            * Parallel to "Claude Code Login" above. Same two-layer
+            * model:
+            *   1. OS credential state — owned by the `codex` CLI and
+            *      stored in `~/.codex/auth.json`. Login is a terminal
+            *      action (`codex login` opens a browser); we surface
+            *      status only — no Tauri IPC for codex yet, so the
+            *      card always shows the "run codex login" hint.
+            *   2. Provider record state — owned by NarraNexus and
+            *      stored in `user_providers`. Drives "Add as Provider"
+            *      / "Added ✓" affordance.
+            *
+            * Once added as a provider, the Codex OAuth credential
+            * becomes assignable to the agent slot. The backend
+            * auto-installs ``@openai/codex`` when the user picks
+            * "Codex CLI" as the Agent Framework, so by the time the
+            * user sees this card the binary is usually already on
+            * PATH.
+            */}
+          <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+            <div className="flex items-center gap-2 mb-1">
+              <h4 className="text-sm font-medium text-[var(--text-primary)]">Codex CLI Login</h4>
+            </div>
+            <p className="text-sm text-[var(--text-tertiary)] mb-3">OAuth login via Codex CLI (Sign in with ChatGPT). No API key needed.</p>
+
+            {!codexStatus && (
+              <p className="text-sm text-[var(--text-tertiary)]">Checking status...</p>
+            )}
+
+            {codexStatus && (
+              <div className="space-y-3">
+                {/* ---- Section A: OS credential state ---- */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={cn('inline-block w-2 h-2 rounded-full',
+                      codexStatus.logged_in ? 'bg-[var(--color-success)]' :
+                      codexStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
+                    )} />
+                    <span className="text-sm text-[var(--text-secondary)]">
+                      {codexStatus.logged_in
+                        ? <>Logged in{codexStatus.email ? <> as <span className="font-mono">{codexStatus.email}</span></> : null}</>
+                        : codexStatus.cli_installed ? 'Not logged in' : 'CLI not installed'}
+                    </span>
+                    {codexStatus.logged_in && codexStatus.expires_at && (
+                      <span className="text-xs text-[var(--text-tertiary)]">
+                        {'·'} expires {formatExpiresAt(codexStatus.expires_at)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Always show terminal hint. Codex CLI's OAuth flow
+                    * opens a browser when `codex login` runs; we don't
+                    * shell out via Tauri yet (unlike claude). */}
+                  <p className="text-sm text-[var(--text-tertiary)]">
+                    {codexStatus.cli_installed
+                      ? 'Run "codex login" / "codex logout" in your terminal, then refresh this page.'
+                      : 'Install Codex CLI first (auto-installs when you pick "Codex CLI" in the Agent Framework dropdown below), then run "codex login" in your terminal.'}
+                  </p>
+                </div>
+
+                {/* ---- Section B: Provider record state ---- */}
+                <div className="pt-2 border-t border-[var(--border-subtle)]">
+                  {hasCodex ? (
+                    <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+                      <span>{'✓'}</span>
+                      <span>Added as a NarraNexus provider {'—'} assignable in Step 2 below.</span>
+                    </div>
+                  ) : codexStatus.logged_in ? (
+                    <button onClick={handleAddCodexOAuth}
+                      className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
+                      Add as Provider
+                    </button>
+                  ) : (
+                    <p className="text-sm text-[var(--text-tertiary)]">
+                      Log in above to add Codex CLI as a provider.
                     </p>
                   )}
                 </div>

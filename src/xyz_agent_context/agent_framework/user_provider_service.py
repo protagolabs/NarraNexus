@@ -150,6 +150,47 @@ class UserProviderService:
             }, now)
             new_ids.append(pid)
 
+        elif card_type == "codex_oauth":
+            # Mirror of claude_oauth: a single row representing the
+            # host's ``codex login`` credential. The CodexSDK reads
+            # the token directly from ~/.codex/auth.json via its
+            # own OAuth fallback; this row exists primarily so
+            # CodexOAuthDriver.probe() has a card to probe and the
+            # Settings page can surface ✓ / ✗ status.
+            #
+            # protocol="openai" because Codex's underlying API surface
+            # is OpenAI-compatible (Responses API). This makes the row
+            # technically eligible for the helper_llm slot too — but
+            # OAuth credentials can't actually serve chat-completions
+            # calls, so users shouldn't pin it there. We don't gate
+            # it at insert time; the resolver / driver layers reject
+            # non-agent-slot uses with NotImplementedError.
+            existing = await self.db.get(
+                "user_providers", filters={"user_id": user_id, "source": "codex_oauth"}
+            )
+            if existing:
+                raise ValueError("Codex OAuth provider already exists for this user")
+
+            pid = _generate_provider_id()
+            await self._insert_provider(user_id, {
+                "provider_id": pid,
+                "name": "Codex CLI (OAuth)",
+                "source": "codex_oauth",
+                "protocol": "openai",
+                "auth_type": "oauth",
+                "api_key": "",
+                "base_url": "",
+                # Codex picks its own default model (currently
+                # gpt-5.4-codex). User can edit this list later if
+                # they want to surface a specific model in the slot
+                # dropdown.
+                "models": json.dumps(["gpt-5.4-codex"]),
+                # Codex is OpenAI's product — Anthropic server tools
+                # (WebSearch etc.) are not applicable.
+                "supports_anthropic_server_tools": False,
+            }, now)
+            new_ids.append(pid)
+
         elif card_type in ("anthropic", "openai"):
             pid = _generate_provider_id()
             display_name = name or f"Custom {card_type.title()}"

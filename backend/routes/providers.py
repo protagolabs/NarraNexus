@@ -705,6 +705,98 @@ async def get_claude_status(request: Request):
 
 
 # =============================================================================
+# Codex CLI Auth Status (mirror of /claude-status)
+# =============================================================================
+
+
+@router.get("/codex-status")
+async def get_codex_status(request: Request):
+    """Check if Codex CLI is installed + has an active OAuth session.
+
+    Response fields mirror ``/claude-status`` so the frontend can
+    reuse the same UI shape:
+      - ``cli_installed``: bool — ``codex`` binary on PATH
+      - ``logged_in``:     bool — ``~/.codex/auth.json`` present
+      - ``email``:         str | None — best-effort if parseable
+      - ``expires_at``:    str | None — best-effort if parseable
+
+    Cloud mode hides the card for non-staff (per /claude-status policy).
+    Auth.json's schema is undocumented and may shift between versions;
+    we only attempt to extract email + expiry on a best-effort basis,
+    leaving them None when we can't parse.
+    """
+    import json as _json
+    from pathlib import Path
+
+    result = {
+        "cli_installed": False,
+        "logged_in": False,
+        "email": None,
+        "expires_at": None,
+    }
+
+    is_staff = getattr(request.state, "role", "") == "staff"
+    is_cloud = not os.environ.get("DATABASE_URL", "").startswith("sqlite")
+    if is_cloud and not is_staff:
+        return {"success": True, "data": {**result, "allowed": False}}
+
+    import shutil
+    if shutil.which("codex"):
+        result["cli_installed"] = True
+
+    # Existence check on the auth file is the canonical "logged in"
+    # signal — Codex CLI itself uses the same check on subprocess
+    # start (it errors with "not logged in" if the file is absent).
+    codex_home = os.environ.get("CODEX_HOME")
+    if codex_home:
+        creds_file = Path(codex_home).expanduser() / "auth.json"
+    else:
+        creds_file = Path.home() / ".codex" / "auth.json"
+
+    if creds_file.is_file():
+        result["logged_in"] = True
+        # Best-effort metadata extraction — Codex auth.json schema
+        # is undocumented; we look for common shapes and leave the
+        # fields None when none match.
+        try:
+            data = _json.loads(creds_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                # Email — try flat then nested under common keys
+                email = data.get("email")
+                if not email:
+                    for nested_key in ("account", "user", "profile", "chatgpt"):
+                        nested = data.get(nested_key)
+                        if isinstance(nested, dict) and nested.get("email"):
+                            email = nested["email"]
+                            break
+                if isinstance(email, str) and email:
+                    result["email"] = email
+                # Expiry — flat then nested under token/oauth
+                for key in ("expiresAt", "expires_at", "tokenExpiresAt"):
+                    val = data.get(key)
+                    if val:
+                        result["expires_at"] = str(val)
+                        break
+                if not result["expires_at"]:
+                    for nested_key in ("token", "oauth", "credentials"):
+                        nested = data.get(nested_key)
+                        if isinstance(nested, dict):
+                            for key in ("expiresAt", "expires_at"):
+                                if nested.get(key):
+                                    result["expires_at"] = str(nested[key])
+                                    break
+                            if result["expires_at"]:
+                                break
+        except Exception:
+            # File is present but unparseable — keep logged_in=True
+            # (Codex itself would still try to use it), just leave
+            # email + expires_at None.
+            pass
+
+    return {"success": True, "data": result}
+
+
+# =============================================================================
 # Embedding Migration
 # =============================================================================
 
