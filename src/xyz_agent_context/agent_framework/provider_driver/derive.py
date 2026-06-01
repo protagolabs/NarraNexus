@@ -120,14 +120,20 @@ CLAUDE_CLI_CREDENTIALS_REF = "claude-cli:~/.claude/.credentials.json"
 CODEX_CLI_CREDENTIALS_REF = "codex-cli:~/.codex/auth.json"
 
 
-def derive_auth_ref(auth_type: Optional[str]) -> Optional[str]:
+def derive_auth_ref(
+    auth_type: Optional[str],
+    source: Optional[str] = None,
+) -> Optional[str]:
     """Returns the canonical ``auth_ref`` value for a legacy row.
 
     Only OAuth rows get a non-null value; everything else uses
     ``api_key`` directly and leaves the reference empty.
     """
     auth = (auth_type or "").lower()
+    src = (source or "").lower()
     if auth == "oauth":
+        if src == "codex_oauth":
+            return CODEX_CLI_CREDENTIALS_REF
         return CLAUDE_CLI_CREDENTIALS_REF
     return None
 
@@ -268,7 +274,9 @@ __all__ = [
     "derive_billing_policy",
     "derive_auth_ref",
     "resolve_claude_credentials_path",
+    "resolve_codex_credentials_path",
     "is_slot_broken",
     "pick_default_model",
     "CLAUDE_CLI_CREDENTIALS_REF",
+    "CODEX_CLI_CREDENTIALS_REF",
 ]

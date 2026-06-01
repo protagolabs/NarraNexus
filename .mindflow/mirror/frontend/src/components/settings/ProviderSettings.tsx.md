@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-05-18
+last_verified: 2026-05-31
 ---
 
 ## 2026-05-18 — `authFetch` 必须发 `X-User-Id`（修跨用户写入 bug）
@@ -10,6 +10,15 @@ last_verified: 2026-05-18
 同时 `providerUrl()` 删除了 `?user_id=...` 这条 query 通道——和后端一致，identity 只走 header。这条提交里同步更新的还有 `App.tsx` 和 `SetupPage.tsx` 的 bare `fetch(...?user_id=...)` 调用，统一改走 `api.getProviders()`（ApiClient 自动发 X-User-Id 和 JWT）。
 
 `syncProviderDefaults` 的签名也从 `(userId: string)` 改成 `()`——参数没意义了。
+
+## 2026-05-31 — Agent slot label follows selected framework
+
+The Agent slot provider dropdown already changes protocol based on the
+selected framework (`claude_code` → Anthropic, `codex_cli` → OpenAI).
+The row subtitle now follows the same state, showing `Main dialogue
+(Claude Code)` or `Main dialogue (Codex CLI)` instead of a fixed
+Anthropic-only label. This keeps the UI aligned with the backend's
+framework-dependent slot validation.
 
 
 ## 2026-05-14 — Quick Add auto-fills empty slots (NetMind)

@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_cli_sdk.py
 stub: false
-last_verified: 2026-05-29
+last_verified: 2026-05-31
 ---
 
 ## Why it exists
@@ -30,7 +30,10 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
   ``tempfile.TemporaryDirectory``. With ``--ignore-user-config``
   the user's ``~/.codex/config.toml`` is bypassed entirely —
   behaviour is deterministic across hosts regardless of what the
-  user has globally configured.
+  user has globally configured. OAuth is the exception: when
+  `CodexConfig.auth_ref` points at a host `codex login` auth file,
+  the wrapper copies that file into the temp `CODEX_HOME` as
+  `auth.json` before spawning the subprocess.
 - **MCP via file, not dict.** Codex requires ``[mcp_servers.<name>]``
   TOML tables; we generate them in
   ``_codex_config_toml_builder.build_codex_config_toml``. Adding /
@@ -88,10 +91,11 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
   message pointing at ``npm install -g @openai/codex``. We could
   bundle a default-PATH probe but the error message is the
   preferred surface — installing Codex is the user's responsibility.
-- **Auth fallback to ``~/.codex/auth.json``** happens inside Codex
-  itself when ``CODEX_API_KEY`` is empty. ``CodexConfig.to_cli_env``
-  explicitly blanks the env var so a stray parent-process
-  ``CODEX_API_KEY`` cannot leak across multi-tenant runs.
+- **Auth fallback uses staged `auth.json` inside temp `CODEX_HOME`**.
+  Codex itself reads `$CODEX_HOME/auth.json` when `CODEX_API_KEY` is
+  empty. Because NarraNexus uses a temp `CODEX_HOME` per run, the
+  wrapper must copy the host `codex login` file there first; otherwise
+  a logged-in host would still look unauthenticated to the subprocess.
 - **JSON Lines might NOT be one-per-line if Codex flushes
   mid-line.** We parse each ``readline()`` result independently and
   drop non-JSON lines with a DEBUG log. Codex's ``--json`` does

@@ -40,10 +40,12 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from xyz_agent_context.agent_framework.api_config import (
+    CodexConfig,
     ClaudeConfig,
     EmbeddingConfig,
     LLMConfigNotConfigured,
     OpenAIConfig,
+    RuntimeLLMConfigs,
 )
 from xyz_agent_context.agent_framework.provider_driver.base import (
     ProviderCard,
@@ -68,6 +70,37 @@ _SLOT_BUILDERS = {
 }
 
 
+def _agent_framework_from_slot(slot: dict | None) -> str:
+    framework = (slot or {}).get("agent_framework") or "claude_code"
+    if framework not in ("claude_code", "codex_cli"):
+        return "claude_code"
+    return framework
+
+
+def _codex_config_from_card(card: ProviderCard, model: str) -> CodexConfig:
+    """Build the Codex runtime config from an OpenAI-protocol provider row."""
+    if (card.protocol or "").lower() != "openai":
+        raise NotImplementedError(
+            f"Codex CLI requires an OpenAI-protocol agent provider, got "
+            f"{card.protocol!r}."
+        )
+
+    auth_ref = card.auth_ref or ""
+    if card.source == "codex_oauth" and (card.auth_type or "").lower() == "oauth":
+        from xyz_agent_context.agent_framework.provider_driver.derive import (
+            CODEX_CLI_CREDENTIALS_REF,
+        )
+        auth_ref = CODEX_CLI_CREDENTIALS_REF
+
+    return CodexConfig(
+        api_key=card.api_key,
+        base_url=card.base_url,
+        model=model,
+        auth_type=card.auth_type or "api_key",
+        auth_ref=auth_ref,
+    )
+
+
 def _is_visible(card: ProviderCard, user_id: str) -> bool:
     """Cards are visible if owned by this user, or system-shared
     (owner_user_id IS NULL, cloud only).
@@ -89,6 +122,14 @@ async def resolve_user_llm_configs(
     user_id: str,
     db: "AsyncDatabaseClient",
 ) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+    cfg = await resolve_user_runtime_llm_configs(user_id, db)
+    return cfg.claude, cfg.openai, cfg.embedding
+
+
+async def resolve_user_runtime_llm_configs(
+    user_id: str,
+    db: "AsyncDatabaseClient",
+) -> RuntimeLLMConfigs:
     """Resolve a user's three LLM configs in one shot.
 
     Raises ``LLMConfigNotConfigured`` if any required piece is missing
@@ -185,6 +226,17 @@ async def resolve_user_llm_configs(
             )
 
         driver = driver_cls(card)
+        if slot_name == "agent" and _agent_framework_from_slot(slot) == "codex_cli":
+            try:
+                cfgs["codex"] = _codex_config_from_card(card, slot["model"])
+                cfgs[slot_name] = ClaudeConfig()
+            except NotImplementedError as e:
+                raise LLMConfigNotConfigured(
+                    f"User {user_id!r} slot {slot_name!r}: driver "
+                    f"{driver_type!r} cannot satisfy this slot ({e})."
+                ) from e
+            continue
+
         builder = getattr(driver, builder_method)
         try:
             cfgs[slot_name] = builder(slot["model"])
@@ -194,11 +246,12 @@ async def resolve_user_llm_configs(
                 f"{driver_type!r} cannot satisfy this slot ({e})."
             ) from e
 
-    return (
-        cfgs["agent"],          # type: ignore[return-value]
-        cfgs["helper_llm"],     # type: ignore[return-value]
-        cfgs["embedding"],      # type: ignore[return-value]
+    return RuntimeLLMConfigs(
+        claude=cfgs["agent"],          # type: ignore[arg-type]
+        openai=cfgs["helper_llm"],     # type: ignore[arg-type]
+        embedding=cfgs["embedding"],   # type: ignore[arg-type]
+        codex=cfgs.get("codex", CodexConfig()),  # type: ignore[arg-type]
     )
 
 
-__all__ = ["resolve_user_llm_configs"]
+__all__ = ["resolve_user_llm_configs", "resolve_user_runtime_llm_configs"]

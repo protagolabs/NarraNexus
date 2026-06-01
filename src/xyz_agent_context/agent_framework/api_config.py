@@ -28,7 +28,7 @@ Usage:
 from __future__ import annotations
 
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from loguru import logger
@@ -159,6 +159,7 @@ class CodexConfig:
     base_url: str = ""  # Empty = use Codex's bundled OpenAI provider
     model: str = ""     # Empty = let Codex CLI pick its default
     auth_type: str = "oauth"  # "oauth" | "api_key"
+    auth_ref: str = ""  # e.g. codex-cli:~/.codex/auth.json for OAuth
 
     def to_cli_env(self) -> dict[str, str]:
         """Build env vars dict for the ``codex exec`` subprocess.
@@ -194,6 +195,16 @@ class EmbeddingConfig:
     base_url: str = ""  # Empty = default https://api.openai.com/v1
     model: str = "text-embedding-3-small"
     dimensions: Optional[int] = None  # None = use model default
+
+
+@dataclass(frozen=True)
+class RuntimeLLMConfigs:
+    """All LLM configs needed for one agent turn."""
+
+    claude: ClaudeConfig
+    openai: OpenAIConfig
+    embedding: EmbeddingConfig
+    codex: CodexConfig = field(default_factory=CodexConfig)
 
 
 # =============================================================================
@@ -478,7 +489,12 @@ def reload_llm_config() -> None:
     _holder.reload()
 
 
-def set_user_config(claude: ClaudeConfig, openai: OpenAIConfig, embedding: EmbeddingConfig) -> None:
+def set_user_config(
+    claude: ClaudeConfig,
+    openai: OpenAIConfig,
+    embedding: EmbeddingConfig,
+    codex: CodexConfig | None = None,
+) -> None:
     """
     Set per-user LLM config for the CURRENT asyncio task only.
 
@@ -491,6 +507,7 @@ def set_user_config(claude: ClaudeConfig, openai: OpenAIConfig, embedding: Embed
     _claude_ctx.set(claude)
     _openai_ctx.set(openai)
     _embedding_ctx.set(embedding)
+    _codex_ctx.set(codex or CodexConfig())
 
 
 # =============================================================================
@@ -635,6 +652,26 @@ async def get_agent_owner_llm_configs(
     return await get_user_llm_configs(owner_user_id)
 
 
+async def get_agent_owner_runtime_llm_configs(
+    agent_id: str,
+) -> RuntimeLLMConfigs:
+    """Load every LLM config needed for an agent turn based on owner."""
+    from xyz_agent_context.utils.db_factory import get_db_client
+
+    db = await get_db_client()
+    agent_row = await db.get_one("agents", {"agent_id": agent_id})
+    if not agent_row:
+        raise LLMConfigNotConfigured(
+            f"Agent {agent_id!r} not found. Cannot resolve LLM config."
+        )
+    owner_user_id = agent_row.get("created_by")
+    if not owner_user_id:
+        raise LLMConfigNotConfigured(
+            f"Agent {agent_id!r} has no owner (created_by is empty)."
+        )
+    return await get_user_runtime_llm_configs(owner_user_id)
+
+
 async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """
     Resolve the LLM config stack for a specific user.
@@ -668,13 +705,27 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
         SystemDefaultUnavailable: user opted in but free tier unusable.
         LLMConfigNotConfigured: user opted out but own config missing.
     """
+    cfg = await get_user_runtime_llm_configs(user_id)
+    return cfg.claude, cfg.openai, cfg.embedding
+
+
+async def get_user_runtime_llm_configs(user_id: str) -> RuntimeLLMConfigs:
+    """Resolve all runtime LLM configs, including the Codex agent config."""
     quota_service = await _ensure_quota_service()
     quota = await quota_service.get(user_id)
 
     if quota is not None and quota.prefer_system_override:
-        return await _use_system_default_strict(user_id, quota_service)
+        claude, openai_cfg, embedding = await _use_system_default_strict(
+            user_id,
+            quota_service,
+        )
+        return RuntimeLLMConfigs(
+            claude=claude,
+            openai=openai_cfg,
+            embedding=embedding,
+        )
 
-    return await _get_user_llm_configs_strict(user_id)
+    return await _get_user_runtime_llm_configs_strict(user_id)
 
 
 async def _ensure_quota_service():
@@ -747,20 +798,25 @@ async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, Open
     a fallback so old call paths still work during the migration window
     if the new resolver hits an unexpected edge case.
     """
+    cfg = await _get_user_runtime_llm_configs_strict(user_id)
+    return cfg.claude, cfg.openai, cfg.embedding
+
+
+async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfigs:
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.provider_driver import (
-        resolve_user_llm_configs,
+        resolve_user_runtime_llm_configs,
     )
 
     db = await get_db_client()
     try:
-        return await resolve_user_llm_configs(user_id, db)
+        return await resolve_user_runtime_llm_configs(user_id, db)
     except LLMConfigNotConfigured:
         # Let the actionable message bubble up; the caller's UI surfaces it.
         raise
     except Exception as e:  # noqa: BLE001 — fall back during migration window
         logger.warning(
-            f"[api_config] resolve_user_llm_configs raised {type(e).__name__}: {e}. "
+            f"[api_config] resolve_user_runtime_llm_configs raised {type(e).__name__}: {e}. "
             f"Falling back to legacy resolution for user_id={user_id!r}."
         )
 
@@ -834,7 +890,11 @@ async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, Open
         model=emb_slot.model,
     )
 
-    return claude, openai_cfg, embedding
+    return RuntimeLLMConfigs(
+        claude=claude,
+        openai=openai_cfg,
+        embedding=embedding,
+    )
 
 
 async def setup_mcp_llm_context(agent_id: str) -> None:

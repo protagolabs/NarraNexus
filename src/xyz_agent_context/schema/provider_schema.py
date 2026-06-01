@@ -152,3 +152,29 @@ Maps each slot to the list of protocols it currently supports.
 When a user assigns a provider to a slot, the provider's protocol
 must be in this list. Expand the lists as new adapters are added.
 """
+
+
+AGENT_FRAMEWORK_REQUIRED_PROTOCOLS: dict[str, list[ProviderProtocol]] = {
+    "claude_code": [ProviderProtocol.ANTHROPIC],
+    "codex_cli": [ProviderProtocol.OPENAI],
+}
+"""
+Agent slot protocol requirements vary by coding-agent framework.
+Claude Code consumes Anthropic-protocol providers; Codex CLI consumes
+OpenAI-protocol providers through its config.toml model_provider path.
+"""
+
+
+def get_slot_required_protocols(
+    slot_name: str,
+    *,
+    agent_framework: str | None = None,
+) -> list[ProviderProtocol]:
+    """Return the protocols allowed for a slot in the current framework."""
+    if slot_name == SlotName.AGENT.value:
+        framework = agent_framework or "claude_code"
+        return AGENT_FRAMEWORK_REQUIRED_PROTOCOLS.get(
+            framework,
+            AGENT_FRAMEWORK_REQUIRED_PROTOCOLS["claude_code"],
+        )
+    return SLOT_REQUIRED_PROTOCOLS.get(slot_name, [])

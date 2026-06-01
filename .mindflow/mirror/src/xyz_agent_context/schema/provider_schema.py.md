@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/provider_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-05-31
 stub: false
 ---
 
@@ -22,7 +22,7 @@ The entire configuration is serialized to `~/.nexusagent/llm_config.json` by `LL
 
 **`AuthType.OAUTH`**: this is the Claude Code Login path where the user authenticates via browser OAuth. No API key is stored. The `api_key` field is empty. This was added as a first-class auth type so the system does not need to special-case it in multiple places.
 
-**`SLOT_REQUIRED_PROTOCOLS` as a module-level dict rather than a method on `SlotName`**: this makes it easy to extend the list of protocols a slot accepts without touching the enum definition. Currently `AGENT` only accepts Anthropic (because the agent loop uses the Anthropic SDK's managed agent feature), but `EMBEDDING` and `HELPER_LLM` accept OpenAI-compatible endpoints.
+**`SLOT_REQUIRED_PROTOCOLS` as a module-level dict rather than a method on `SlotName`**: this makes it easy to extend the list of protocols a slot accepts without touching the enum definition. The static `AGENT` entry is the Claude Code default, while `get_slot_required_protocols()` applies the active coding-agent framework: `claude_code` requires Anthropic protocol and `codex_cli` requires OpenAI protocol. `EMBEDDING` and `HELPER_LLM` accept OpenAI-compatible endpoints.
 
 ## Gotchas
 
@@ -32,5 +32,5 @@ The entire configuration is serialized to `~/.nexusagent/llm_config.json` by `LL
 
 ## New-joiner traps
 
-- The `AGENT` slot requires `ProviderProtocol.ANTHROPIC` because the agent loop uses Claude SDK features that are not available in the OpenAI protocol. If you want to add OpenAI-protocol support for the agent loop in the future, you must update `SLOT_REQUIRED_PROTOCOLS` and implement the adapter in `agent_framework/`.
+- Do not hard-code the agent slot as Anthropic-only in assignment paths. Use `get_slot_required_protocols(slot, agent_framework=...)` so Codex CLI can bind an OpenAI-protocol provider while Claude Code keeps the Anthropic requirement.
 - `ProviderConfig.models` is a list of model IDs available on that provider. It is populated when the user saves a provider configuration, not dynamically fetched. If a user's subscription changes and new models become available, they need to re-save their provider config.

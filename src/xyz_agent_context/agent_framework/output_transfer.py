@@ -490,16 +490,18 @@ def _codex_to_openai_agents(
     # ---- turn.completed — usage payload ------------------------------
     if event_type == "turn.completed":
         usage = event.get("usage") or {}
-        # Surface as a synthetic "result" event so the cost tracker
-        # downstream (response_processor.apply_state_update) can fold
-        # it into ExecutionState.input_tokens / output_tokens. Field
-        # names mirror the Claude SDK ResultMessage shape.
+        # Mirror Claude's ResultMessage translation: response_processor
+        # only folds usage from raw_response_event/response.done.
         return [{
-            "type": "result",
-            "usage": {
-                "input_tokens": int(usage.get("input_tokens") or 0),
-                "output_tokens": int(usage.get("output_tokens") or 0),
-                "cached_input_tokens": int(usage.get("cached_input_tokens") or 0),
+            "type": "raw_response_event",
+            "data": {
+                "type": "response.done",
+                "usage": {
+                    "input_tokens": int(usage.get("input_tokens") or 0),
+                    "output_tokens": int(usage.get("output_tokens") or 0),
+                    "cached_input_tokens": int(usage.get("cached_input_tokens") or 0),
+                },
+                "stop_reason": event.get("reason") or "completed",
             },
         }]
 
@@ -514,7 +516,8 @@ def _codex_to_openai_agents(
             "type": "raw_response_event",
             "data": {
                 "type": "response.error",
-                "error": str(err),
+                "error_message": str(err),
+                "error_type": event_type,
             },
         }]
 
@@ -548,7 +551,7 @@ def _translate_codex_item(
         return [{
             "type": "raw_response_event",
             "data": {
-                "type": "response.output_text.delta",
+                "type": "response.text.delta",
                 "delta": text,
             },
         }]
@@ -558,13 +561,13 @@ def _translate_codex_item(
         text = item.get("text") or ""
         if not is_completed or not text:
             return []
-        # Map to Claude's thinking event so response_processor's
-        # _ThinkingBatcher coalesces it the same way.
+        # Map to the same thinking item shape as Claude's StreamEvent
+        # translator so response_processor's _ThinkingBatcher sees it.
         return [{
-            "type": "raw_response_event",
-            "data": {
-                "type": "response.reasoning.delta",
-                "delta": text,
+            "type": "run_item_stream_event",
+            "item": {
+                "type": "thinking_item",
+                "content": text,
             },
         }]
 

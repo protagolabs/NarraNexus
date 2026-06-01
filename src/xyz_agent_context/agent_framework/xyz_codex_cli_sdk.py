@@ -75,11 +75,13 @@ try:
     from ._codex_permission_translator import (
         translate_tool_policy_to_codex_permissions,
     )
+    from .provider_driver.derive import resolve_codex_credentials_path
 except ImportError:  # pragma: no cover — direct-script fallback
     from api_config import codex_config
     from output_transfer import output_transfer
     from _codex_config_toml_builder import build_codex_config_toml
     from _codex_permission_translator import translate_tool_policy_to_codex_permissions
+    from provider_driver.derive import resolve_codex_credentials_path
 
 
 # Sentinel that tells the wrapper "use the system default for this
@@ -158,6 +160,7 @@ class CodexSDK:
                 f"[CodexSDK] system prompt: {len(system_prompt):,} chars → "
                 f"{instructions_path}"
             )
+            _stage_codex_oauth_credentials(codex_home_path)
 
             # 2b. config.toml (MCP + custom provider + permissions)
             permissions = translate_tool_policy_to_codex_permissions(
@@ -538,3 +541,20 @@ def _build_system_prompt_and_user_msg(
         )
 
     return system_prompt, this_turn_user_message
+
+
+def _stage_codex_oauth_credentials(codex_home_path: Path) -> None:
+    """Copy host Codex OAuth credentials into the per-run CODEX_HOME."""
+    if codex_config.auth_type != "oauth" or codex_config.api_key:
+        return
+
+    source_path = resolve_codex_credentials_path(codex_config.auth_ref)
+    if source_path is None:
+        return
+    if not source_path.is_file():
+        logger.warning(
+            f"[CodexSDK] Codex OAuth credentials not found at {source_path}; "
+            "codex exec may ask for login or fail authentication."
+        )
+        return
+    shutil.copy2(source_path, codex_home_path / "auth.json")

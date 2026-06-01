@@ -47,6 +47,12 @@ def test_base_url_and_model_not_in_env():
     assert set(env.keys()) == {"CODEX_API_KEY"}
 
 
+def test_auth_ref_is_not_exported_to_env():
+    """auth_ref is for staging auth.json, not an environment variable."""
+    env = CodexConfig(auth_ref="codex-cli:~/.codex/auth.json").to_cli_env()
+    assert env == {"CODEX_API_KEY": ""}
+
+
 def test_dataclass_is_frozen():
     """CodexConfig is intentionally frozen so two tasks can hold
     different snapshots without mutation hazards."""
@@ -76,3 +82,25 @@ def test_codex_config_proxy_reads_ctxvar_override():
         assert codex_config.api_key == "sk-override"
     finally:
         _codex_ctx.reset(token)
+
+
+def test_stage_codex_oauth_credentials_copies_auth_json(tmp_path, monkeypatch):
+    from xyz_agent_context.agent_framework.xyz_codex_cli_sdk import (
+        _stage_codex_oauth_credentials,
+    )
+
+    host_auth = tmp_path / "host-auth.json"
+    host_auth.write_text('{"token":"test"}')
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    monkeypatch.setenv("CODEX_CLI_CREDENTIALS_PATH", str(host_auth))
+
+    token = _codex_ctx.set(
+        CodexConfig(auth_type="oauth", auth_ref="codex-cli:~/.codex/auth.json")
+    )
+    try:
+        _stage_codex_oauth_credentials(codex_home)
+    finally:
+        _codex_ctx.reset(token)
+
+    assert (codex_home / "auth.json").read_text() == '{"token":"test"}'

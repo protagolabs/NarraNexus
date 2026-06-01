@@ -886,6 +886,9 @@ export function ProviderSettings() {
     const matching = getProvidersForSlot(effectiveProtocol)
     const curProv = cfg?.provider_id ? providers[cfg.provider_id] : null
     const isChanged = !!pendingSlots[slot.key]
+    const slotDesc = slot.key === 'agent' && selectedFramework
+      ? `Main dialogue (${selectedFramework.label})`
+      : slot.desc
 
     return (
       <div key={slot.key} className={cn('p-4 rounded-xl border',
@@ -895,7 +898,7 @@ export function ProviderSettings() {
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-medium text-[var(--text-primary)]">
             {slot.label}
-            <span className="text-[var(--text-tertiary)] font-normal ml-2">{slot.desc}</span>
+            <span className="text-[var(--text-tertiary)] font-normal ml-2">{slotDesc}</span>
           </span>
           <div className="flex items-center gap-2">
             {isChanged && <span className="text-xs text-[var(--accent-primary)]">modified</span>}

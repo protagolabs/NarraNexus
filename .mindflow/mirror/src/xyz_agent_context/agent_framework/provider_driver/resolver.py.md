@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/resolver.py
-last_verified: 2026-05-13
+last_verified: 2026-05-31
 stub: false
 ---
 
@@ -17,6 +17,19 @@ that broke ran the background path). This module collapses both into one
 function and ``api_config._get_user_llm_configs_strict`` now delegates
 to it. ``ProviderResolver.resolve_and_set`` will follow in Phase 2.
 
+As of 2026-05-31, the runtime path also resolves Codex agent config.
+When the agent slot row has ``agent_framework='codex_cli'``, the agent
+slot is interpreted as an OpenAI-protocol Codex provider and produces
+``CodexConfig`` in the returned ``RuntimeLLMConfigs`` bundle. The legacy
+``resolve_user_llm_configs`` wrapper still exposes the old three-config
+tuple for non-agent-loop callers.
+
+Codex OAuth rows are canonicalized at resolve time: any
+``source='codex_oauth'`` / ``auth_type='oauth'`` card uses the Codex CLI
+auth reference, even if stale local data still carries a Claude CLI
+``auth_ref`` from an older build. This keeps agent-loop auth tied to
+``~/.codex/auth.json`` without requiring users to recreate the provider.
+
 ## Pipeline
 
 ```text
@@ -29,6 +42,7 @@ user_id
               ├─ on-the-fly driver_type derive if backfill hasn't run yet
               ├─ DRIVER_REGISTRY[driver_type] → Driver instance
               └─ driver.build_<kind>_config(slot.model)
+                 OR CodexConfig for agent_framework='codex_cli'
 ```
 
 ## Visibility rule

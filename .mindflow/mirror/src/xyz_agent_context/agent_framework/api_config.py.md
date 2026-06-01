@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-05-29
+last_verified: 2026-05-31
 stub: false
 ---
 
@@ -23,6 +23,19 @@ follow the existing pattern. Holder is initialised to an empty
 source path because Codex auth flows through ``codex login`` (host
 CLI) rather than NarraNexus config. Per-user overrides arrive via
 the ContextVar at agent_loop time.
+
+## 2026-05-31 — runtime config bundle includes CodexConfig
+
+`RuntimeLLMConfigs` groups the four per-turn configs: Claude agent,
+helper LLM, embedding, and Codex agent. `get_user_runtime_llm_configs()`
+and `get_agent_owner_runtime_llm_configs()` return this bundle so
+`AgentRuntime.run()` can inject `codex_config` before Step 3 selects
+`CodexSDK`. The older `get_user_llm_configs()` still returns the three
+non-Codex configs for call sites that do not drive the agent loop.
+
+`CodexConfig` now carries `auth_ref` in addition to api key / base URL /
+model. It is not exported as an env var; `xyz_codex_cli_sdk` uses it to
+copy the host `codex login` auth file into the per-run `CODEX_HOME`.
 
 ## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)
 

@@ -127,6 +127,40 @@ def _config_to_response(config: LLMConfig) -> dict:
     return {"version": config.version, "providers": providers, "slots": slots}
 
 
+async def _run_json_subprocess(args: list[str], timeout: float) -> dict | None:
+    """Run a short CLI probe without blocking the FastAPI event loop."""
+    import asyncio
+    import json as _json
+    from contextlib import suppress
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return None
+
+    try:
+        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        with suppress(ProcessLookupError, OSError):
+            proc.kill()
+        with suppress(Exception):
+            await proc.wait()
+        return None
+
+    if proc.returncode != 0 or not stdout.strip():
+        return None
+
+    try:
+        data = _json.loads(stdout.decode("utf-8", errors="replace"))
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 # =============================================================================
 # Endpoints
 # =============================================================================
@@ -167,9 +201,12 @@ async def add_provider(req: AddProviderRequest, request: Request):
 
         # Hot-reload for current process (local mode)
         try:
-            from xyz_agent_context.agent_framework.api_config import get_user_llm_configs, set_user_config
-            claude, openai_cfg, emb = await get_user_llm_configs(uid)
-            set_user_config(claude, openai_cfg, emb)
+            from xyz_agent_context.agent_framework.api_config import (
+                get_user_runtime_llm_configs,
+                set_user_config,
+            )
+            cfg = await get_user_runtime_llm_configs(uid)
+            set_user_config(cfg.claude, cfg.openai, cfg.embedding, cfg.codex)
         except Exception:
             pass
 
@@ -272,9 +309,12 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
 
         # Hot-reload for current process
         try:
-            from xyz_agent_context.agent_framework.api_config import get_user_llm_configs, set_user_config
-            claude, openai_cfg, emb = await get_user_llm_configs(uid)
-            set_user_config(claude, openai_cfg, emb)
+            from xyz_agent_context.agent_framework.api_config import (
+                get_user_runtime_llm_configs,
+                set_user_config,
+            )
+            cfg = await get_user_runtime_llm_configs(uid)
+            set_user_config(cfg.claude, cfg.openai, cfg.embedding, cfg.codex)
         except Exception:
             pass
 
@@ -617,8 +657,8 @@ async def get_claude_status(request: Request):
         return {"success": True, "data": {**result, "allowed": False}}
 
     import shutil
-    import subprocess
-    if shutil.which("claude"):
+    claude_path = shutil.which("claude")
+    if claude_path:
         result["cli_installed"] = True
 
     # Preferred: use `claude auth status` (Claude Code v2.x+).
@@ -626,44 +666,40 @@ async def get_claude_status(request: Request):
     # versions, so we probe a few common shapes for email / expiry instead
     # of pinning to one. Anything we can't parse stays None — the UI just
     # won't show those subfields.
-    try:
-        auth_out = subprocess.run(
-            ["claude", "auth", "status"],
-            capture_output=True, text=True, timeout=10,
+    if claude_path:
+        auth_data = await _run_json_subprocess(
+            [claude_path, "auth", "status"],
+            timeout=10,
         )
-        if auth_out.returncode == 0 and auth_out.stdout.strip():
-            auth_data = _json.loads(auth_out.stdout)
-            if isinstance(auth_data, dict):
-                if auth_data.get("loggedIn"):
-                    result["logged_in"] = True
-                # Email — try flat then nested under account/user.
-                email = auth_data.get("email")
-                if not email:
-                    for nested_key in ("account", "user", "profile"):
-                        nested = auth_data.get(nested_key)
-                        if isinstance(nested, dict) and nested.get("email"):
-                            email = nested["email"]
-                            break
-                if isinstance(email, str) and email:
-                    result["email"] = email
-                # Expiry — flat fields first, then under token/oauth.
-                for key in ("expiresAt", "expires_at", "tokenExpiresAt"):
-                    val = auth_data.get(key)
-                    if val:
-                        result["expires_at"] = str(val)
+        if auth_data:
+            if auth_data.get("loggedIn"):
+                result["logged_in"] = True
+            # Email — try flat then nested under account/user.
+            email = auth_data.get("email")
+            if not email:
+                for nested_key in ("account", "user", "profile"):
+                    nested = auth_data.get(nested_key)
+                    if isinstance(nested, dict) and nested.get("email"):
+                        email = nested["email"]
                         break
-                if not result["expires_at"]:
-                    for nested_key in ("token", "oauth", "credentials"):
-                        nested = auth_data.get(nested_key)
-                        if isinstance(nested, dict):
-                            for key in ("expiresAt", "expires_at"):
-                                if nested.get(key):
-                                    result["expires_at"] = str(nested[key])
-                                    break
-                            if result["expires_at"]:
+            if isinstance(email, str) and email:
+                result["email"] = email
+            # Expiry — flat fields first, then under token/oauth.
+            for key in ("expiresAt", "expires_at", "tokenExpiresAt"):
+                val = auth_data.get(key)
+                if val:
+                    result["expires_at"] = str(val)
+                    break
+            if not result["expires_at"]:
+                for nested_key in ("token", "oauth", "credentials"):
+                    nested = auth_data.get(nested_key)
+                    if isinstance(nested, dict):
+                        for key in ("expiresAt", "expires_at"):
+                            if nested.get(key):
+                                result["expires_at"] = str(nested[key])
                                 break
-    except Exception:
-        pass
+                        if result["expires_at"]:
+                            break
 
     # Fallback: check legacy credentials file (Claude Code v1.x).
     # Mostly used to backfill logged_in when `claude auth status` is missing

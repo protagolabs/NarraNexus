@@ -22,14 +22,11 @@ from uuid import uuid4
 from loguru import logger
 
 from xyz_agent_context.schema.provider_schema import (
-    AuthType,
     LLMConfig,
     ProviderConfig,
-    ProviderProtocol,
-    ProviderSource,
     SlotConfig,
     SlotName,
-    SLOT_REQUIRED_PROTOCOLS,
+    get_slot_required_protocols,
 )
 
 
@@ -151,6 +148,10 @@ class UserProviderService:
             new_ids.append(pid)
 
         elif card_type == "codex_oauth":
+            from xyz_agent_context.agent_framework.provider_driver.derive import (
+                CODEX_CLI_CREDENTIALS_REF,
+            )
+
             # Mirror of claude_oauth: a single row representing the
             # host's ``codex login`` credential. The CodexSDK reads
             # the token directly from ~/.codex/auth.json via its
@@ -188,6 +189,9 @@ class UserProviderService:
                 # Codex is OpenAI's product — Anthropic server tools
                 # (WebSearch etc.) are not applicable.
                 "supports_anthropic_server_tools": False,
+                "driver_type": "codex_oauth",
+                "billing_policy": "external_oauth",
+                "auth_ref": CODEX_CLI_CREDENTIALS_REF,
             }, now)
             new_ids.append(pid)
 
@@ -238,7 +242,7 @@ class UserProviderService:
         return config, new_ids
 
     async def _insert_provider(self, user_id: str, data: dict, now: str):
-        await self.db.insert("user_providers", {
+        row = {
             "user_id": user_id,
             "provider_id": data["provider_id"],
             "name": data["name"],
@@ -253,7 +257,11 @@ class UserProviderService:
             "supports_anthropic_server_tools": 1 if data.get("supports_anthropic_server_tools") else 0,
             "created_at": now,
             "updated_at": now,
-        })
+        }
+        for optional_key in ("driver_type", "owner_user_id", "billing_policy", "auth_ref"):
+            if optional_key in data:
+                row[optional_key] = data[optional_key]
+        await self.db.insert("user_providers", row)
 
     # =========================================================================
     # Remove Provider
@@ -294,8 +302,19 @@ class UserProviderService:
         if not prov:
             raise ValueError(f"Provider {provider_id} not found for user {user_id}")
 
-        # Validate protocol
-        required = SLOT_REQUIRED_PROTOCOLS.get(slot_name, [])
+        # Validate protocol. The agent slot is framework-dependent:
+        # claude_code requires Anthropic protocol, codex_cli requires
+        # OpenAI protocol. Other slots keep their static requirements.
+        agent_framework = None
+        if slot_name == SlotName.AGENT.value:
+            existing_slot = await self.db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": slot_name}
+            )
+            agent_framework = (existing_slot or {}).get("agent_framework") or "claude_code"
+        required = get_slot_required_protocols(
+            slot_name,
+            agent_framework=agent_framework,
+        )
         if required and prov["protocol"] not in [p.value for p in required]:
             raise ValueError(f"Slot '{slot_name}' requires protocol {[p.value for p in required]}, got '{prov['protocol']}'")
 

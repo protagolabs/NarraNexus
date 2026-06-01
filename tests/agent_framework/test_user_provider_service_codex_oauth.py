@@ -8,8 +8,17 @@ the Codex OAuth credential becomes assignable to the agent slot.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from xyz_agent_context.agent_framework.api_config import ClaudeConfig
+from xyz_agent_context.agent_framework.provider_driver import (
+    resolve_user_runtime_llm_configs,
+)
+from xyz_agent_context.agent_framework.provider_driver.backfill import (
+    backfill_provider_metadata,
+)
 from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
 
 
@@ -70,6 +79,8 @@ async def test_add_codex_oauth_inserts_one_provider_row():
     assert row["base_url"] == ""           # Codex picks default endpoint
     assert not row["supports_anthropic_server_tools"]  # stored as 0/False
     assert row["name"] == "Codex CLI (OAuth)"
+    assert row["driver_type"] == "codex_oauth"
+    assert row["auth_ref"] == "codex-cli:~/.codex/auth.json"
 
 
 @pytest.mark.asyncio
@@ -102,3 +113,104 @@ async def test_add_codex_oauth_protocol_is_openai_not_anthropic():
     row = db.providers[new_ids[0]]
     assert row["protocol"] == "openai"
     assert row["protocol"] != "anthropic"
+
+
+@pytest.mark.asyncio
+async def test_codex_agent_framework_allows_openai_provider_for_agent_slot():
+    db = _FakeDB()
+    svc = UserProviderService(db)
+    _, new_ids = await svc.add_provider(user_id="u1", card_type="codex_oauth")
+    await svc.set_user_agent_framework("u1", "codex_cli")
+
+    config = await svc.set_slot("u1", "agent", new_ids[0], "gpt-5.4-codex")
+
+    assert config.slots["agent"].provider_id == new_ids[0]
+    assert db.slots[("u1", "agent")]["agent_framework"] == "codex_cli"
+
+
+@pytest.mark.asyncio
+async def test_claude_agent_framework_rejects_openai_provider_for_agent_slot():
+    db = _FakeDB()
+    svc = UserProviderService(db)
+    _, new_ids = await svc.add_provider(user_id="u1", card_type="codex_oauth")
+
+    with pytest.raises(ValueError, match="requires protocol \\['anthropic'\\]"):
+        await svc.set_slot("u1", "agent", new_ids[0], "gpt-5.4-codex")
+
+
+@pytest.mark.asyncio
+async def test_runtime_resolver_builds_codex_config_for_codex_agent_slot():
+    db = _FakeDB()
+    svc = UserProviderService(db)
+    _, codex_ids = await svc.add_provider(user_id="u1", card_type="codex_oauth")
+    # Simulate a stale row created before codex_oauth wrote its own auth_ref.
+    db.providers[codex_ids[0]]["auth_ref"] = "claude-cli:~/.claude/.credentials.json"
+    await svc.set_user_agent_framework("u1", "codex_cli")
+    await svc.set_slot("u1", "agent", codex_ids[0], "gpt-5.4-codex")
+
+    await db.insert("user_providers", {
+        "user_id": "u1",
+        "provider_id": "prov_openai",
+        "name": "OpenAI",
+        "source": "user",
+        "protocol": "openai",
+        "auth_type": "api_key",
+        "api_key": "sk-test",
+        "base_url": "https://api.openai.com/v1",
+        "models": json.dumps(["gpt-test", "text-embedding-3-small"]),
+        "linked_group": "",
+        "is_active": 1,
+        "driver_type": "custom_openai",
+    })
+    await db.insert("user_slots", {
+        "user_id": "u1",
+        "slot_name": "helper_llm",
+        "provider_id": "prov_openai",
+        "model": "gpt-test",
+    })
+    await db.insert("user_slots", {
+        "user_id": "u1",
+        "slot_name": "embedding",
+        "provider_id": "prov_openai",
+        "model": "text-embedding-3-small",
+    })
+
+    cfg = await resolve_user_runtime_llm_configs("u1", db)
+
+    assert cfg.claude == ClaudeConfig()
+    assert cfg.codex.model == "gpt-5.4-codex"
+    assert cfg.codex.auth_type == "oauth"
+    assert cfg.codex.auth_ref == "codex-cli:~/.codex/auth.json"
+    assert cfg.openai.api_key == "sk-test"
+    assert cfg.embedding.model == "text-embedding-3-small"
+
+
+@pytest.mark.asyncio
+async def test_backfill_normalizes_stale_codex_oauth_auth_ref():
+    db = _FakeDB()
+    await db.insert("user_providers", {
+        "user_id": "u1",
+        "provider_id": "prov_codex",
+        "name": "Codex CLI (OAuth)",
+        "source": "codex_oauth",
+        "protocol": "openai",
+        "auth_type": "oauth",
+        "api_key": "",
+        "base_url": "",
+        "models": json.dumps(["gpt-5.4-codex"]),
+        "linked_group": "",
+        "is_active": 1,
+        "driver_type": "codex_oauth",
+        "billing_policy": "external_oauth",
+        "auth_ref": "claude-cli:~/.claude/.credentials.json",
+        "owner_user_id": "u1",
+    })
+
+    stats = await backfill_provider_metadata(db)
+
+    assert db.providers["prov_codex"]["auth_ref"] == "codex-cli:~/.codex/auth.json"
+    assert stats["classified"] == 0
+    assert stats["normalized_auth_refs"] == 1
+
+    second_stats = await backfill_provider_metadata(db)
+    assert second_stats["normalized_auth_refs"] == 0
