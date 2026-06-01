@@ -236,9 +236,12 @@ async def test_a_mcp_wiring(oc: object) -> bool:
 
         try:
             text_input_cls = oc.TextInput  # type: ignore[attr-defined]
-            input_ = text_input_cls(text=(
-                "What MCP tools do you have? Call one to confirm."
-            ))
+            # ``type='text'`` is REQUIRED — pydantic discriminated union
+            # discriminator, not optional despite Literal default appearance.
+            input_ = text_input_cls(
+                type="text",
+                text="What MCP tools do you have? Call one to confirm.",
+            )
             streamed = thread.run_streamed(input_)
         except Exception as e:  # noqa: BLE001
             print(f"  run_streamed failed: {type(e).__name__}: {e}")
@@ -325,10 +328,13 @@ async def test_b_cancellation(oc: object) -> bool:
 
         try:
             text_input_cls = oc.TextInput  # type: ignore[attr-defined]
-            input_ = text_input_cls(text=(
-                "Count slowly from 1 to 50. Use a full sentence per "
-                "number with explanation. Do not stop early."
-            ))
+            input_ = text_input_cls(
+                type="text",
+                text=(
+                    "Count slowly from 1 to 50. Use a full sentence per "
+                    "number with explanation. Do not stop early."
+                ),
+            )
             turn_options = oc.TurnOptions(  # type: ignore[attr-defined]
                 signal=controller.signal,
             )
@@ -395,7 +401,14 @@ async def main() -> None:
     print(f"  codex CLI:    {shutil.which('codex') or '(not on PATH)'}")
     auth = Path.home() / ".codex" / "auth.json"
     print(f"  auth.json:    {'present' if auth.exists() else 'MISSING — run `codex login`'}")
-    print(f"  HTTPS_PROXY:  {os.environ.get('HTTPS_PROXY') or '(unset)'}")
+    # Env vars are case-sensitive on Unix; libraries that respect
+    # proxies typically read both spellings, but show whichever is set.
+    _proxy = (
+        os.environ.get("HTTPS_PROXY")
+        or os.environ.get("https_proxy")
+        or "(unset)"
+    )
+    print(f"  HTTPS_PROXY:  {_proxy}")
     print()
 
     oc = _print_signatures()
