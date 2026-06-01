@@ -168,9 +168,19 @@ class CodexSDK:
                 supports_server_tools=False,  # Codex never has Anthropic server tools
                 cloud_mode=is_cloud,
             )
+            # Translate MCP URLs from the SSE form Claude Code expects
+            # (``http://host:PORT/sse``) to the streamable-HTTP form
+            # Codex CLI's MCP client requires (``http://host:PORT/mcp``).
+            # The module_runner now mounts BOTH transports on the same
+            # port (see ``_serve_one_mcp``) so this rewrite is the only
+            # piece of glue needed.
+            codex_mcp_urls = {
+                name: _sse_url_to_streamable_http(url)
+                for name, url in mcp_server_urls.items()
+            }
             config_toml = build_codex_config_toml(
                 instructions_path=instructions_path,
-                mcp_server_urls=mcp_server_urls,
+                mcp_server_urls=codex_mcp_urls,
                 config=codex_config,
                 permissions=permissions,
                 writable_roots=[Path(self.working_path)],
@@ -558,3 +568,24 @@ def _stage_codex_oauth_credentials(codex_home_path: Path) -> None:
         )
         return
     shutil.copy2(source_path, codex_home_path / "auth.json")
+
+
+def _sse_url_to_streamable_http(url: str) -> str:
+    """Rewrite a NarraNexus MCP URL from the SSE path to the streamable
+    HTTP path.
+
+    Claude Code's MCP client expects ``http://host:port/sse``; Codex
+    CLI's MCP client expects the streamable HTTP transport at
+    ``http://host:port/mcp``. NarraNexus's module_runner mounts BOTH
+    sub-apps on the same port (see ``module_runner._serve_one_mcp``)
+    so the only thing that varies between SDKs is the path.
+
+    Conservative rule: only rewrite a literal trailing ``/sse`` (or
+    ``/sse/``). Anything else passes through unchanged so the wrapper
+    stays correct under future URL conventions.
+    """
+    if url.endswith("/sse"):
+        return url[:-4] + "/mcp"
+    if url.endswith("/sse/"):
+        return url[:-5] + "/mcp"
+    return url

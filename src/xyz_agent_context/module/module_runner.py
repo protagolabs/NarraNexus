@@ -493,13 +493,33 @@ class ModuleRunner:
 
     @staticmethod
     async def _serve_one_mcp(mcp_server: Any, module_name: str, port: int) -> None:
-        """Run a single FastMCP SSE server on the caller's event loop.
+        """Run a single FastMCP server on the caller's event loop with
+        BOTH the legacy SSE transport AND the modern streamable HTTP
+        transport mounted on the same port.
 
-        Uses `run_sse_async` (not `run("sse")`) because `run` internally
-        calls `anyio.run()`, which creates a brand-new loop inside the
-        caller — exactly the scenario the single-loop architecture is
-        designed to prevent.
+        Why both:
+          - Claude Code's MCP client expects ``{type: "sse", url: ".../sse"}``
+            (see xyz_claude_agent_sdk.py). It will not work with the
+            streamable HTTP transport.
+          - OpenAI Codex CLI's MCP client only speaks streamable HTTP
+            (POST to a single endpoint, optional GET for SSE upgrade).
+            It silently fails to connect to the SSE-only endpoint.
+
+        Mounting both as sub-apps on a single Starlette server keeps
+        the port footprint unchanged (still one port per module) and
+        lets both coding-agent SDKs reach the same tools:
+
+            http://localhost:780X/sse         ← Claude Code
+            http://localhost:780X/mcp         ← Codex CLI
+
+        Uses uvicorn directly (not ``run_sse_async`` / ``run_streamable_http_async``)
+        because those run the FastMCP-supplied ASGI app at root; we
+        need a wrapper that mounts both at sub-paths.
         """
+        import uvicorn
+        from starlette.applications import Starlette
+        from starlette.routing import Mount
+
         from mcp.server.transport_security import TransportSecuritySettings
 
         mcp_server.settings.host = "0.0.0.0"
@@ -511,8 +531,32 @@ class ModuleRunner:
         mcp_server.settings.transport_security = TransportSecuritySettings(
             enable_dns_rebinding_protection=False,
         )
+
+        # Get the two transport apps. FastMCP returns fresh Starlette
+        # apps each call, so we capture them once for the mount.
+        sse_app = mcp_server.sse_app()
+        streamable_app = mcp_server.streamable_http_app()
+        wrapped = Starlette(
+            routes=[
+                # /sse routes get all of the SSE app's internal routes
+                # (the /sse GET stream + /messages POST endpoint).
+                Mount("/sse", app=sse_app),
+                # /mcp routes the streamable HTTP transport (single POST
+                # endpoint + optional GET for SSE upgrade).
+                Mount("/mcp", app=streamable_app),
+            ],
+        )
+
+        config = uvicorn.Config(
+            wrapped,
+            host="0.0.0.0",
+            port=port,
+            log_level="warning",  # keep CLI quiet; FastMCP logs at debug
+            access_log=False,
+        )
+        server = uvicorn.Server(config)
         try:
-            await mcp_server.run_sse_async()
+            await server.serve()
         except asyncio.CancelledError:
             raise
         except Exception as e:
