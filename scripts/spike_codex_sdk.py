@@ -242,7 +242,11 @@ async def test_a_mcp_wiring(oc: object) -> bool:
                 type="text",
                 text="What MCP tools do you have? Call one to confirm.",
             )
-            streamed = thread.run_streamed(input_)
+            # ``Thread.run_streamed`` is async — must await even though
+            # inspect.signature doesn't surface the ``async def`` keyword.
+            # Without await, we get back a coroutine and "Cannot iterate
+            # coroutine" on the first event.
+            streamed = await thread.run_streamed(input_)
         except Exception as e:  # noqa: BLE001
             print(f"  run_streamed failed: {type(e).__name__}: {e}")
             return False
@@ -338,7 +342,8 @@ async def test_b_cancellation(oc: object) -> bool:
             turn_options = oc.TurnOptions(  # type: ignore[attr-defined]
                 signal=controller.signal,
             )
-            streamed = thread.run_streamed(input_, turn_options)
+            # async — must await (same as Test A).
+            streamed = await thread.run_streamed(input_, turn_options)
             print("  signal wired via TurnOptions ✓")
         except Exception as e:  # noqa: BLE001
             print(f"  run_streamed setup failed: {type(e).__name__}: {e}")
@@ -382,7 +387,17 @@ async def test_b_cancellation(oc: object) -> bool:
             print(f"  await task raised {type(e).__name__}: {e}")
         dt = time.time() - cancel_at
         print(f"  awaiter released {dt:.2f}s after abort()")
+        print(f"  events received before abort: {event_count}")
         print()
+        # Guard against false PASS: if consume() exited before any
+        # events arrived, the await chain bailed on a setup error
+        # (e.g. unawaited coroutine) and the abort path was never
+        # actually exercised. A real PASS needs both: events flowed
+        # AND the abort released the awaiter under threshold.
+        if event_count == 0:
+            print("  RESULT: FAIL — consume() bailed before any events; "
+                  "abort path never exercised")
+            return False
         if dt < TEST_B_MAX_UNBLOCK_S:
             print(f"  RESULT: PASS — released in under "
                   f"{TEST_B_MAX_UNBLOCK_S:.0f}s via AbortController")
