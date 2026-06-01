@@ -384,6 +384,22 @@ class CodexSDK:
                         )
                         continue
 
+                    # TEMPORARY DIAGNOSTIC (2026-06-01): log every raw
+                    # Codex event at INFO so we can audit which item
+                    # types come through vs what output_transfer
+                    # actually translates. Remove once the
+                    # reasoning-model token-budget / MCP-tool-call
+                    # routing question is settled. Truncate body so
+                    # large items don't blow the log.
+                    _ev_type = codex_event.get("type", "?")
+                    _item = codex_event.get("item") if isinstance(codex_event, dict) else None
+                    _item_type = _item.get("type", "?") if isinstance(_item, dict) else "—"
+                    _line_preview = line_str[:300].replace("\n", " ⏎ ")
+                    logger.info(
+                        f"[CodexSDK][raw] #{line_count} type={_ev_type} "
+                        f"item.type={_item_type} body={_line_preview}"
+                    )
+
                     # Per-event translation — yields 0..N normalised events.
                     translated = output_transfer(
                         codex_event,
