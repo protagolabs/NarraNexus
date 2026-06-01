@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/_codex_config_toml_builder.py
 stub: false
-last_verified: 2026-05-29
+last_verified: 2026-06-01
 ---
 
 ## Why it exists
@@ -76,6 +76,15 @@ unit-tested without spawning a subprocess.
   of allowed roots beyond the cwd. Mismatched ``--sandbox read-only``
   on the CLI plus ``writable_roots`` here would silently leave
   things read-only.
+- **Default sandbox is ``danger-full-access``, not
+  ``workspace-write``.** Forced by codex CLI 0.135 issue #16685:
+  under ``read-only`` / ``workspace-write``, every MCP tool call
+  in ``codex exec`` mode is auto-cancelled with ``"user cancelled
+  MCP tool call"`` because codex hits an approval-elicitation path
+  that exec mode can't respond to. Only ``danger-full-access``
+  lets MCP work. Wrapper-level callers and CLI-level
+  ``--sandbox`` flag MUST agree (CLI wins on mismatch). Revisit
+  the default if #16685 ever ships a real fix.
 - **Constant key name ``CODEX_API_KEY`` for ``env_key``.** Keep
   aligned with ``CodexConfig.to_cli_env`` — both reference the
   same env var. Diverging means "key set but never read" bugs.

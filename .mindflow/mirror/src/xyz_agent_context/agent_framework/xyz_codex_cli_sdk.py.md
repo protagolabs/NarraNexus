@@ -68,9 +68,21 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
   ``_codex_permission_translator`` module renders the CC tool-policy
   rules into Codex's declarative TOML form. Some dynamic checks (e.g.
   ``Path.resolve(strict=False)`` symlink-escape detection from CC's
-  ``_tool_policy_guard.py``) cannot be transcribed; the
-  ``--sandbox workspace-write`` flag fills the gap at the syscall
-  layer.
+  ``_tool_policy_guard.py``) cannot be transcribed; we lean on the
+  per-agent ``working_path`` workspace directory as the primary
+  sandbox boundary instead.
+- **``--sandbox danger-full-access`` is REQUIRED for MCP.** codex
+  CLI 0.135 ``exec`` mode auto-cancels every MCP tool call with
+  ``"user cancelled MCP tool call"`` under ``read-only`` /
+  ``workspace-write`` (issue #16685 — the call hits an approval-
+  elicitation path that exec mode can't respond to). Only
+  ``danger-full-access`` bypasses that. The downside — losing
+  kernel-level filesystem isolation — is absorbed by NarraNexus's
+  application-layer guards: ``working_path`` is a per-agent
+  workspace, and ``[permissions]`` still denies ``/etc/**`` /
+  ``/root/**`` / ``sudo *`` / global installs. Do NOT downgrade
+  back to ``workspace-write`` without re-checking issue #16685
+  has actually closed.
 
 ## Upstream / downstream
 
@@ -112,12 +124,15 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
   race against the cancellation token. Without this pattern, a
   user Stop while Codex is executing a long Bash command would
   not be acted on until Codex finished.
-- **``--sandbox workspace-write`` is the syscall-level guard**
-  for filesystem operations outside the workspace. Even if the
-  ``[permissions]`` glob misses a path (e.g. a symlink resolving
-  outside the workspace), this kernel-level gate catches it. Do
-  NOT change this default without re-validating the sandbox
-  envelope.
+- **Sandbox is ``danger-full-access`` by necessity** (see design
+  decisions above). The kernel-level filesystem isolation we had
+  with ``workspace-write`` is GONE — a misbehaving model that
+  bypasses the ``[permissions]`` glob can in principle touch any
+  user-readable path. Mitigations: per-agent ``working_path``,
+  the ``[permissions]`` deny patterns, and the model being on a
+  short leash via the system prompt. If issue #16685 ever lands a
+  real fix, downgrade back to ``workspace-write`` as a single-line
+  config change.
 - **No Python SDK = no monkey-patching seams.** The CC wrapper
   monkey-patches ``claude_agent_sdk._internal.message_parser`` to
   tolerate unknown message types. Codex's CLI is the wire format,

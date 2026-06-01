@@ -32,7 +32,10 @@ def _build_minimal() -> str:
 def test_minimal_emits_instructions_path_and_sandbox_mode():
     t = _build_minimal()
     assert 'model_instructions_file = "/tmp/agent/instructions.md"' in t
-    assert 'sandbox_mode = "workspace-write"' in t
+    # Default sandbox is ``danger-full-access`` — required for MCP to
+    # work in codex exec mode (issue #16685). Asserting the exact
+    # string also guards against silent re-downgrade to workspace-write.
+    assert 'sandbox_mode = "danger-full-access"' in t
 
 
 def test_minimal_omits_mcp_servers_and_model_providers():

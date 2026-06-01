@@ -197,7 +197,14 @@ class CodexSDK:
                 config=codex_config,
                 permissions=permissions,
                 writable_roots=[Path(self.working_path)],
-                sandbox_mode="workspace-write",
+                # ``danger-full-access`` is REQUIRED for MCP to work in
+                # codex exec mode (issue #16685). Under read-only /
+                # workspace-write, every MCP tool call is auto-cancelled
+                # because codex tries to elicit user approval and exec
+                # mode has no human responder. Our actual sandboxing
+                # comes from ``self.working_path`` (per-agent workspace
+                # dir) plus the ``[permissions]`` table.
+                sandbox_mode="danger-full-access",
             )
             (codex_home_path / "config.toml").write_text(config_toml, encoding="utf-8")
             # INFO-level proof-of-wiring: log the MCP server names +
@@ -244,12 +251,15 @@ class CodexSDK:
                 "codex", "exec",
                 "--json",                  # JSON Lines on stdout
                 "--skip-git-repo-check",   # workspace may not be a git repo
-                "--sandbox", "workspace-write",
+                # ``danger-full-access`` — see config.toml comment above.
+                # ``workspace-write`` here would override config.toml and
+                # re-break MCP. The CLI flag wins, so it must match.
+                "--sandbox", "danger-full-access",
                 "-",                       # read prompt from stdin
             ]
             logger.info(
                 f"[CodexSDK] Spawning: codex exec --json "
-                f"--skip-git-repo-check --sandbox workspace-write -  "
+                f"--skip-git-repo-check --sandbox danger-full-access -  "
                 f"(cwd={self.working_path}, CODEX_HOME={codex_home_path})"
             )
 

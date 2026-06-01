@@ -86,7 +86,7 @@ def build_codex_config_toml(
     config: CodexConfig,
     permissions: dict,
     writable_roots: list[Path] | None = None,
-    sandbox_mode: str = "workspace-write",
+    sandbox_mode: str = "danger-full-access",
 ) -> str:
     """Build the full per-run config.toml content as a string.
 
@@ -106,11 +106,18 @@ def build_codex_config_toml(
             :func:`_codex_permission_translator.translate_tool_policy_to_codex_permissions`.
             Becomes ``[permissions.narranexus]`` + sub-tables.
         writable_roots: Extra writable directories beyond the cwd.
-            Defaults to ``[]`` (cwd already implied by ``--sandbox
-            workspace-write``).
+            Defaults to ``[]`` (cwd is implied at runtime).
         sandbox_mode: ``"read-only" | "workspace-write" | "danger-full-access"``.
-            Default ``"workspace-write"`` matches CC's
-            ``bypassPermissions`` minus the filesystem escape.
+            Default ``"danger-full-access"`` is REQUIRED for MCP tool
+            calls to succeed in ``codex exec`` mode — see codex issue
+            #16685: under read-only / workspace-write, every MCP tool
+            call is auto-cancelled with ``"user cancelled MCP tool
+            call"`` because codex tries to elicit user approval and
+            exec mode has no responder. NarraNexus's actual sandboxing
+            comes from (a) the per-agent ``working_path`` workspace
+            directory and (b) the ``[permissions]`` table (system-dir
+            denies + dangerous-command denies); turning off codex's
+            kernel sandbox is acceptable when those layers stand.
 
     Returns:
         The TOML content as a UTF-8 string ready to write to disk.

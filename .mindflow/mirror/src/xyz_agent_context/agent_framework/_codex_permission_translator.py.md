@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/_codex_permission_translator.py
 stub: false
-last_verified: 2026-05-29
+last_verified: 2026-06-01
 ---
 
 ## Why it exists
@@ -53,13 +53,19 @@ Codex globs cannot replicate that:
 - **No conditional exemption.** CC allows ``pip install`` IFF
   ``--target=`` / ``--user`` is present. Codex globs can't express
   "match X only when Y is absent" — we deny all bare ``pip install
-  *`` and rely on the workspace-write sandbox to bound damage.
+  *``. We previously relied on the workspace-write sandbox to bound
+  damage, but issue #16685 forced us to ``danger-full-access`` to
+  keep MCP working — so this layer is now the LAST glob-level guard.
 - **No Path.resolve() symlink check.** CC catches a symlink inside
   the workspace pointing outside; Codex's filesystem permission is
-  path-prefix based on the literal string. The
-  ``--sandbox workspace-write`` flag fills the gap at the syscall
-  level (kernel-enforced); it catches symlink-write escapes but
-  not symlink-READ escapes.
+  path-prefix based on the literal string. Previously the
+  ``--sandbox workspace-write`` flag filled this gap at the syscall
+  level, but issue #16685 + ``danger-full-access`` removed that
+  belt — symlink escapes that resolve outside the workspace will
+  silently be allowed if their literal path is inside it. Treat
+  ``working_path`` + this translator's deny list as the only
+  remaining barriers until #16685 ships a fix and we can downgrade
+  back to ``workspace-write``.
 
 If you tighten the CC ``_tool_policy_guard.py`` ruleset, update
 this translator in lockstep — the unit test

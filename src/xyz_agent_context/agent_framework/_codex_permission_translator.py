@@ -54,9 +54,15 @@ Caveats
   ``Path.resolve(strict=False)`` to catch symlinks pointing outside
   the workspace. Codex's filesystem permission is path-prefix based;
   symlink escapes that resolve outside the workspace will silently
-  be allowed if their literal path is inside it. Mitigated by also
-  setting ``--sandbox workspace-write`` at the CLI level, which is
-  syscall-level (not glob-level) and catches symlink-escape writes.
+  be allowed if their literal path is inside it. This was previously
+  mitigated by ``--sandbox workspace-write`` (syscall-level), but
+  codex issue #16685 forced us to ``danger-full-access`` so MCP
+  tool calls don't get auto-cancelled — so the kernel-level
+  symlink-escape protection is now ALSO gone. Live with the gap by:
+  (a) trusting the per-agent ``working_path`` boundary at the
+  NarraNexus layer, (b) the system-dir and dangerous-command denies
+  in this very translator, and (c) the model's system prompt
+  scoping behaviour. Revisit when #16685 ships a real fix.
 """
 
 from __future__ import annotations
