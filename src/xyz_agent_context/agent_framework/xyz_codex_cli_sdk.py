@@ -160,10 +160,19 @@ class CodexSDK:
             # 2a. instructions.md (system prompt + history)
             instructions_path = codex_home_path / "instructions.md"
             instructions_path.write_text(system_prompt, encoding="utf-8")
-            logger.debug(
-                f"[CodexSDK] system prompt: {len(system_prompt):,} chars → "
-                f"{instructions_path}"
+            # INFO-level proof-of-wiring: print a short fingerprint of
+            # the prompt so the backend log shows exactly what Codex
+            # will read (head/tail + length). Keeps secrets out of
+            # the log (no full body), but enough to confirm the file
+            # is not empty and matches what the runtime assembled.
+            _sp_head = system_prompt[:160].replace("\n", " ⏎ ")
+            _sp_tail = system_prompt[-160:].replace("\n", " ⏎ ")
+            logger.info(
+                f"[CodexSDK] system prompt → {instructions_path} "
+                f"({len(system_prompt):,} chars)"
             )
+            logger.info(f"[CodexSDK]   head: {_sp_head!r}")
+            logger.info(f"[CodexSDK]   tail: {_sp_tail!r}")
             _stage_codex_oauth_credentials(codex_home_path)
 
             # 2b. config.toml (MCP + custom provider + permissions)
@@ -191,7 +200,18 @@ class CodexSDK:
                 sandbox_mode="workspace-write",
             )
             (codex_home_path / "config.toml").write_text(config_toml, encoding="utf-8")
-            logger.debug(f"[CodexSDK] config.toml written ({len(config_toml)} bytes)")
+            # INFO-level proof-of-wiring: log the MCP server names +
+            # transport URLs Codex will actually see. If this list is
+            # empty in the log, the wrapper handed Codex an empty
+            # config and the agent will have no MCP tools at all.
+            _mcp_lines = [
+                f"  - {name}: {url}" for name, url in codex_mcp_urls.items()
+            ] or ["  (no MCP servers configured)"]
+            logger.info(
+                f"[CodexSDK] config.toml → {codex_home_path / 'config.toml'} "
+                f"({len(config_toml):,} bytes), MCP servers:\n"
+                + "\n".join(_mcp_lines)
+            )
 
             # ---- Step 3: env vars ----------------------------------
             cli_env = codex_config.to_cli_env()
