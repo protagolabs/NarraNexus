@@ -495,30 +495,41 @@ class ModuleRunner:
     async def _serve_one_mcp(mcp_server: Any, module_name: str, port: int) -> None:
         """Run a single FastMCP server on the caller's event loop with
         BOTH the legacy SSE transport AND the modern streamable HTTP
-        transport mounted on the same port.
+        transport on the same port.
 
         Why both:
           - Claude Code's MCP client expects ``{type: "sse", url: ".../sse"}``
             (see xyz_claude_agent_sdk.py). It will not work with the
             streamable HTTP transport.
           - OpenAI Codex CLI's MCP client only speaks streamable HTTP
-            (POST to a single endpoint, optional GET for SSE upgrade).
-            It silently fails to connect to the SSE-only endpoint.
+            (POST to a single ``/mcp`` endpoint, optional GET for SSE
+            upgrade). It silently fails to connect to a pure SSE
+            endpoint.
 
-        Mounting both as sub-apps on a single Starlette server keeps
-        the port footprint unchanged (still one port per module) and
-        lets both coding-agent SDKs reach the same tools:
+        Approach: FastMCP's two ``*_app()`` methods return fresh
+        Starlette apps with **non-overlapping** internal route paths:
+        ``sse_app()`` serves ``/sse`` + ``/messages``;
+        ``streamable_http_app()`` serves ``/mcp``. We flatten both
+        route lists into ONE Starlette app so each path is served at
+        the root level (where the MCP clients expect them):
 
             http://localhost:780X/sse         ← Claude Code
+            http://localhost:780X/messages    ← Claude Code (client → server)
             http://localhost:780X/mcp         ← Codex CLI
 
-        Uses uvicorn directly (not ``run_sse_async`` / ``run_streamable_http_async``)
-        because those run the FastMCP-supplied ASGI app at root; we
-        need a wrapper that mounts both at sub-paths.
+        DON'T mount under sub-paths — Starlette's ``Mount("/mcp",
+        app=streamable_app)`` would strip the ``/mcp`` prefix and
+        forward ``/`` to the streamable_http_app, which internally
+        routes only ``/mcp`` → 404 (the bug fixed by this commit).
+
+        The streamable_http_app carries a lifespan handler that owns
+        the underlying ``StreamableHTTPSessionManager``; sse_app uses
+        the no-op default lifespan. We adopt the streamable
+        lifespan as the parent app's so the session manager starts /
+        stops correctly.
         """
         import uvicorn
         from starlette.applications import Starlette
-        from starlette.routing import Mount
 
         from mcp.server.transport_security import TransportSecuritySettings
 
@@ -532,19 +543,15 @@ class ModuleRunner:
             enable_dns_rebinding_protection=False,
         )
 
-        # Get the two transport apps. FastMCP returns fresh Starlette
-        # apps each call, so we capture them once for the mount.
         sse_app = mcp_server.sse_app()
         streamable_app = mcp_server.streamable_http_app()
+
+        # Merge routes (paths don't collide: /sse + /messages + /mcp)
+        # and adopt the streamable lifespan (sse uses _DefaultLifespan
+        # which is a no-op, so we don't need to chain both).
         wrapped = Starlette(
-            routes=[
-                # /sse routes get all of the SSE app's internal routes
-                # (the /sse GET stream + /messages POST endpoint).
-                Mount("/sse", app=sse_app),
-                # /mcp routes the streamable HTTP transport (single POST
-                # endpoint + optional GET for SSE upgrade).
-                Mount("/mcp", app=streamable_app),
-            ],
+            routes=list(sse_app.router.routes) + list(streamable_app.router.routes),
+            lifespan=streamable_app.router.lifespan_context,
         )
 
         config = uvicorn.Config(
