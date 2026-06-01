@@ -120,6 +120,7 @@ def _print_signatures() -> object | None:
     # Constructors / factories the migration path will lean on.
     candidates = [
         ("Codex.__init__", getattr(oc.Codex, "__init__", None)),
+        ("CodexOptions", getattr(oc, "CodexOptions", None)),
         ("Codex.start_thread", getattr(oc.Codex, "start_thread", None)),
         ("Thread.run", getattr(oc.Thread, "run", None)),
         ("Thread.run_streamed", getattr(oc.Thread, "run_streamed", None)),
@@ -127,6 +128,8 @@ def _print_signatures() -> object | None:
         ("TurnOptions", oc.TurnOptions),
         ("AbortController.__init__", getattr(oc.AbortController, "__init__", None)),
         ("AbortController.abort", getattr(oc.AbortController, "abort", None)),
+        ("TextInput", getattr(oc, "TextInput", None)),
+        ("UserInput", getattr(oc, "UserInput", None)),
     ]
     for label, target in candidates:
         if target is None:
@@ -134,19 +137,25 @@ def _print_signatures() -> object | None:
         else:
             _sig(target, label)
 
-    # Enum / option members — these tell us valid values for sandbox /
-    # approval / reasoning_effort without having to read the source.
+    # ``SandboxMode``, ``ApprovalMode``, ``ModelReasoningEffort`` are
+    # ``typing.Literal[...]`` aliases here, NOT ``enum.Enum`` classes
+    # — iterating them with ``for m in cls`` raises AttributeError.
+    # The valid values live in the ``__args__`` tuple on the typing
+    # alias instead.
     print()
-    for enum_name in ("SandboxMode", "ApprovalMode", "ModelReasoningEffort"):
-        enum_cls = getattr(oc, enum_name, None)
-        if enum_cls is None:
-            print(f"  {enum_name}: <not exported>")
+    for type_name in ("SandboxMode", "ApprovalMode", "ModelReasoningEffort"):
+        type_obj = getattr(oc, type_name, None)
+        if type_obj is None:
+            print(f"  {type_name}: <not exported>")
             continue
-        try:
-            members = [m.name for m in enum_cls]  # type: ignore[attr-defined]
-        except TypeError:
-            members = [n for n in dir(enum_cls) if not n.startswith("_")]
-        print(f"  {enum_name}: {members}")
+        if hasattr(type_obj, "__args__"):
+            print(f"  {type_name} values: {list(type_obj.__args__)}")
+        else:
+            try:
+                print(f"  {type_name} values: "
+                      f"{[m.name for m in type_obj]}")  # type: ignore[attr-defined]
+            except (TypeError, AttributeError):
+                print(f"  {type_name}: {type_obj!r}")
 
     print()
     return oc
@@ -156,25 +165,31 @@ def _print_signatures() -> object | None:
 
 
 async def test_a_mcp_wiring(oc: object) -> bool:
-    """Pass mcp_servers to the SDK and ask the agent something that
-    must invoke an MCP tool. PASS = at least one McpToolCallItem
-    observed within TEST_A_TIMEOUT_S.
+    """Verify the SDK respects ``$CODEX_HOME/config.toml`` for MCP
+    server config, since the discovered ``ThreadOptions`` API has no
+    ``mcp_servers`` field. We write a minimal config.toml the way
+    ``xyz_codex_cli_sdk._codex_config_toml_builder`` does today,
+    then drive ``Thread.run_streamed`` and watch for an
+    ``McpToolCallItem`` in the event stream.
 
-    Several wiring strategies are tried in order, since the README
-    is sparse on which one is canonical:
-      Strategy 1: ``ThreadOptions(mcp_servers={...})``
-      Strategy 2: ``Codex(mcp_servers={...})``
-      Strategy 3: raw config dict ``Codex(config={"mcp_servers": ...})``
+    PASS = at least one ``McpToolCallItem`` observed within
+    TEST_A_TIMEOUT_S. PASS proves the migration path:
 
-    The first one that doesn't raise TypeError wins. We log which
-    one was used so the migration knows which call site to copy.
+        keep config.toml writing (no API for mcp_servers)
+        drop subprocess spawn (use SDK)
+
+    FAIL means the SDK ignores config.toml and we'd have to keep
+    spawning ``codex exec`` ourselves — the migration loses most
+    of its value.
     """
     print("=" * 64)
-    print("Section A: MCP wiring via SDK")
+    print("Section A: MCP wiring via $CODEX_HOME/config.toml + SDK")
     print("=" * 64)
 
     with tempfile.TemporaryDirectory(prefix="spike_codex_a_") as home_str:
         codex_home = Path(home_str)
+
+        # 1. instructions.md — model_instructions_file points here.
         instructions = codex_home / "instructions.md"
         instructions.write_text(
             "You are a probe. You have MCP tools available from the "
@@ -182,101 +197,53 @@ async def test_a_mcp_wiring(oc: object) -> bool:
             "you have, CALL one of them (any will do) to confirm. "
             "Do NOT use Bash; do NOT speculate from memory.\n"
         )
+
+        # 2. config.toml — mcp_servers + model_instructions_file.
+        config_toml = (
+            f'model_instructions_file = "{instructions}"\n'
+            f"\n"
+            f"[mcp_servers.{MCP_PROBE_NAME}]\n"
+            f'url = "{MCP_PROBE_URL}"\n'
+        )
+        (codex_home / "config.toml").write_text(config_toml)
+
         if not _stage_auth(codex_home):
             print("  WARN: ~/.codex/auth.json missing — Test A will likely fail auth")
 
-        # Inject CODEX_HOME via environment. Several SDKs respect parent
-        # env; this is the cheapest path and works regardless of
-        # whether ``Codex()`` exposes its own env knob.
+        # 3. CODEX_HOME → env. Codex CLI (and therefore the SDK that
+        # spawns it) reads $CODEX_HOME/config.toml on startup.
         os.environ["CODEX_HOME"] = str(codex_home)
 
-        mcp_cfg = {MCP_PROBE_NAME: {"url": MCP_PROBE_URL}}
-        print(f"  CODEX_HOME = {codex_home}")
-        print(f"  mcp_servers config = {mcp_cfg}")
+        print(f"  CODEX_HOME    = {codex_home}")
+        print(f"  config.toml   = (written, {len(config_toml)} bytes)")
+        print(f"  mcp probe url = {MCP_PROBE_URL}")
         print()
 
-        # Strategy probe loop — print which one we pick.
-        codex_inst = None
-        thread = None
-        used_strategy = None
-        for label, build in [
-            ("ThreadOptions(mcp_servers=...)", lambda: (
-                oc.Codex(),  # type: ignore[attr-defined]
-                {"options_mcp": True},
-            )),
-            ("Codex(mcp_servers=...)", lambda: (
-                oc.Codex(mcp_servers=mcp_cfg),  # type: ignore[attr-defined,call-arg]
-                {"client_mcp": True},
-            )),
-            ("Codex(config={'mcp_servers': ...})", lambda: (
-                oc.Codex(config={"mcp_servers": mcp_cfg}),  # type: ignore[attr-defined,call-arg]
-                {"config_mcp": True},
-            )),
-        ]:
-            try:
-                codex_inst, hint = build()
-                used_strategy = label
-                print(f"  STRATEGY OK: {label}")
-                break
-            except TypeError as e:
-                print(f"  strategy rejected: {label} → {e}")
-            except Exception as e:  # noqa: BLE001
-                print(f"  strategy errored: {label} → {type(e).__name__}: {e}")
-
-        if codex_inst is None:
-            print("  RESULT: ERROR — no Codex() constructor variant accepted")
-            return False
-
-        # Now try start_thread, preferring ThreadOptions with MCP if
-        # strategy 1 was selected, otherwise plain start_thread.
         try:
-            if used_strategy and "ThreadOptions" in used_strategy:
-                thread_options = oc.ThreadOptions(  # type: ignore[attr-defined,call-arg]
-                    working_directory=str(codex_home),
-                    skip_git_repo_check=True,
-                    sandbox_mode=getattr(
-                        oc.SandboxMode, "workspace_write",  # type: ignore[attr-defined]
-                        None,
-                    ),
-                    mcp_servers=mcp_cfg,
-                )
-                thread = codex_inst.start_thread(thread_options)
-            else:
-                # Try kwargs-first form (most SDKs accept kwargs at start_thread).
-                thread = codex_inst.start_thread(
-                    working_directory=str(codex_home),
-                    skip_git_repo_check=True,
-                )
-        except TypeError as e:
-            print(f"  start_thread signature mismatch: {e}")
-            print(f"  → check Section 0 for the real signature, then re-run")
-            return False
-        except Exception as e:  # noqa: BLE001
-            print(f"  start_thread errored: {type(e).__name__}: {e}")
-            return False
-
-        # Run a prompt that should provoke an MCP tool call.
-        try:
-            streamed = thread.run_streamed(
-                oc.TextInput("What MCP tools do you have? "  # type: ignore[attr-defined]
-                            "Call one to confirm.")
+            codex_inst = oc.Codex()  # type: ignore[attr-defined]
+            thread_options = oc.ThreadOptions(  # type: ignore[attr-defined]
+                workingDirectory=str(codex_home),
+                skipGitRepoCheck=True,
+                sandboxMode="workspace-write",
+                model=PROBE_MODEL,
+                modelReasoningEffort="low",
+                approvalPolicy="never",
             )
-        except TypeError:
-            # Some SDKs accept a raw string directly.
-            try:
-                streamed = thread.run_streamed(
-                    "What MCP tools do you have? Call one to confirm."
-                )
-            except Exception as e:  # noqa: BLE001
-                print(f"  run_streamed call failed: {type(e).__name__}: {e}")
-                return False
+            thread = codex_inst.start_thread(thread_options)
         except Exception as e:  # noqa: BLE001
-            print(f"  run_streamed errored: {type(e).__name__}: {e}")
+            print(f"  setup failed: {type(e).__name__}: {e}")
             return False
 
-        # Iterate events. The exact iteration protocol differs across
-        # SDKs (could be async generator on .events, on the StreamedTurn
-        # itself, or sync). Try the most common shapes.
+        try:
+            text_input_cls = oc.TextInput  # type: ignore[attr-defined]
+            input_ = text_input_cls(text=(
+                "What MCP tools do you have? Call one to confirm."
+            ))
+            streamed = thread.run_streamed(input_)
+        except Exception as e:  # noqa: BLE001
+            print(f"  run_streamed failed: {type(e).__name__}: {e}")
+            return False
+
         async def _aiter(obj: object):
             if hasattr(obj, "events"):
                 async for ev in obj.events:  # type: ignore[attr-defined]
@@ -307,12 +274,13 @@ async def test_a_mcp_wiring(oc: object) -> bool:
 
         print()
         if mcp_seen:
-            print(f"  RESULT: PASS — McpToolCallItem seen via {used_strategy}")
+            print("  RESULT: PASS — McpToolCallItem observed; SDK respects "
+                  "$CODEX_HOME/config.toml")
             return True
         else:
-            print("  RESULT: FAIL/AMBIGUOUS — no McpToolCallItem")
-            print("    either agent declined to call a tool,")
-            print("    or this strategy didn't actually wire MCP through.")
+            print("  RESULT: FAIL/AMBIGUOUS — no McpToolCallItem in stream")
+            print("    Either: agent declined to call a tool,")
+            print("    or:     SDK did not read config.toml from CODEX_HOME.")
             return False
 
 
@@ -321,11 +289,15 @@ async def test_a_mcp_wiring(oc: object) -> bool:
 
 async def test_b_cancellation(oc: object) -> bool:
     """Start a long counting turn, ``AbortController.abort()`` it
-    after 3s, measure how long until the awaiter releases. PASS = under
-    TEST_B_MAX_UNBLOCK_S seconds. Tries SDK-native AbortController
-    first, falls back to ``task.cancel()`` if abort isn't honored."""
+    after 3s via ``TurnOptions(signal=controller.signal)``, measure
+    how long until the awaiter releases. PASS = under
+    TEST_B_MAX_UNBLOCK_S seconds.
+
+    Discovered API: signal is passed as part of TurnOptions (second
+    positional arg to ``run_streamed``), NOT as a kwarg directly.
+    """
     print("=" * 64)
-    print("Section B: cancellation")
+    print("Section B: cancellation via TurnOptions(signal=...)")
     print("=" * 64)
 
     with tempfile.TemporaryDirectory(prefix="spike_codex_b_") as home_str:
@@ -335,45 +307,36 @@ async def test_b_cancellation(oc: object) -> bool:
 
         try:
             codex_inst = oc.Codex()  # type: ignore[attr-defined]
-            thread = codex_inst.start_thread(
-                working_directory=str(codex_home),
-                skip_git_repo_check=True,
+            thread_options = oc.ThreadOptions(  # type: ignore[attr-defined]
+                workingDirectory=str(codex_home),
+                skipGitRepoCheck=True,
+                sandboxMode="workspace-write",
+                model=PROBE_MODEL,
+                modelReasoningEffort="low",
+                approvalPolicy="never",
             )
+            thread = codex_inst.start_thread(thread_options)
         except Exception as e:  # noqa: BLE001
             print(f"  setup failed: {type(e).__name__}: {e}")
             return False
 
-        # Build an AbortController if the SDK accepts a signal.
         controller = oc.AbortController()  # type: ignore[attr-defined]
-        print(f"  AbortController created: {type(controller).__name__}")
+        print(f"  AbortController.signal type: {type(controller.signal).__name__}")
 
-        # Try the JS-style ``signal=`` first.
-        used_path = "task.cancel"
         try:
-            streamed = thread.run_streamed(
-                oc.TextInput(  # type: ignore[attr-defined]
-                    "Count slowly from 1 to 50. Use a full sentence per "
-                    "number with explanation. Do not stop early."
-                ),
+            text_input_cls = oc.TextInput  # type: ignore[attr-defined]
+            input_ = text_input_cls(text=(
+                "Count slowly from 1 to 50. Use a full sentence per "
+                "number with explanation. Do not stop early."
+            ))
+            turn_options = oc.TurnOptions(  # type: ignore[attr-defined]
                 signal=controller.signal,
             )
-            used_path = "AbortController.abort"
-            print(f"  using {used_path} (signal accepted by run_streamed)")
-        except TypeError:
-            # SDK doesn't accept signal kwarg — fall back to plain task cancel.
-            print(f"  signal kwarg rejected; falling back to task.cancel()")
-            try:
-                streamed = thread.run_streamed(
-                    oc.TextInput(  # type: ignore[attr-defined]
-                        "Count slowly from 1 to 50. Use a full sentence per "
-                        "number with explanation. Do not stop early."
-                    )
-                )
-            except TypeError:
-                streamed = thread.run_streamed(
-                    "Count slowly from 1 to 50. Use a full sentence per "
-                    "number with explanation. Do not stop early."
-                )
+            streamed = thread.run_streamed(input_, turn_options)
+            print("  signal wired via TurnOptions ✓")
+        except Exception as e:  # noqa: BLE001
+            print(f"  run_streamed setup failed: {type(e).__name__}: {e}")
+            return False
 
         event_count = 0
 
@@ -394,19 +357,16 @@ async def test_b_cancellation(oc: object) -> bool:
                 print(f"  consume() caught CancelledError after {event_count} events")
                 raise
             except Exception as e:  # noqa: BLE001  AbortError etc.
-                print(f"  consume() caught {type(e).__name__} after {event_count} events: {e}")
+                print(f"  consume() caught {type(e).__name__} after "
+                      f"{event_count} events: {e}")
                 raise
 
         task = asyncio.create_task(consume())
         await asyncio.sleep(TEST_B_RUN_BEFORE_CANCEL_S)
 
         cancel_at = time.time()
-        if used_path == "AbortController.abort":
-            print(f"  calling controller.abort() after {TEST_B_RUN_BEFORE_CANCEL_S:.1f}s...")
-            controller.abort()
-        else:
-            print(f"  calling task.cancel() after {TEST_B_RUN_BEFORE_CANCEL_S:.1f}s...")
-            task.cancel()
+        print(f"  calling controller.abort() after {TEST_B_RUN_BEFORE_CANCEL_S:.1f}s...")
+        controller.abort()
 
         try:
             await asyncio.wait_for(task, timeout=TEST_B_MAX_UNBLOCK_S + 5)
@@ -415,14 +375,15 @@ async def test_b_cancellation(oc: object) -> bool:
         except Exception as e:  # noqa: BLE001
             print(f"  await task raised {type(e).__name__}: {e}")
         dt = time.time() - cancel_at
-        print(f"  awaiter released {dt:.2f}s after cancel")
+        print(f"  awaiter released {dt:.2f}s after abort()")
         print()
         if dt < TEST_B_MAX_UNBLOCK_S:
-            print(f"  RESULT: PASS — released in under {TEST_B_MAX_UNBLOCK_S:.0f}s "
-                  f"via {used_path}")
+            print(f"  RESULT: PASS — released in under "
+                  f"{TEST_B_MAX_UNBLOCK_S:.0f}s via AbortController")
             return True
         else:
-            print(f"  RESULT: FAIL — took {dt:.1f}s (threshold {TEST_B_MAX_UNBLOCK_S:.0f}s)")
+            print(f"  RESULT: FAIL — took {dt:.1f}s "
+                  f"(threshold {TEST_B_MAX_UNBLOCK_S:.0f}s)")
             return False
 
 
