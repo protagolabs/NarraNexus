@@ -578,23 +578,32 @@ def _translate_codex_item(
         # state on started + "tool output" on completed.
         if not is_completed:
             # Start: emit tool_call_item with args, no output yet.
+            # IMPORTANT: response_processor._handle_run_item_stream_event
+            # reads ``item.get("tool_name", "unknown")``, NOT
+            # ``item.get("name", ...)``. Using the wrong key silently
+            # records every tool call as "unknown" and the frontend
+            # filters / hides them after the run completes.
             return [{
                 "type": "run_item_stream_event",
                 "item": {
                     "type": "tool_call_item",
                     "tool_call_id": item_id,
-                    "name": _codex_tool_name(item),
+                    "tool_name": _codex_tool_name(item),
                     "arguments": _codex_tool_args(item),
                 },
             }]
         # Completed: emit tool_call_output_item (deduped on
-        # tool_call_id by the wrapper's seen_tool_call_ids set).
+        # tool_call_id by the wrapper's seen_tool_call_ids set). The
+        # output handler in response_processor looks up the matching
+        # tool_name from the previously-recorded tool_call step in
+        # state.all_steps, so consistency with the started side
+        # matters for the post-run rendering path.
         return [{
             "type": "run_item_stream_event",
             "item": {
                 "type": "tool_call_output_item",
                 "tool_call_id": item_id,
-                "name": _codex_tool_name(item),
+                "tool_name": _codex_tool_name(item),
                 "output": _codex_tool_output(item),
                 "status": item.get("status") or "completed",
             },

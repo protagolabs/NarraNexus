@@ -98,7 +98,7 @@ def test_item_started_command_execution_emits_tool_call_item():
     item = evs[0]["item"]
     assert item["type"] == "tool_call_item"
     assert item["tool_call_id"] == "i3"
-    assert item["name"] == "Bash"
+    assert item["tool_name"] == "Bash"
     assert item["arguments"] == {"command": "ls -la"}
 
 
@@ -132,7 +132,7 @@ def test_item_started_mcp_call_uses_server_tool_name():
         },
     })
     item = evs[0]["item"]
-    assert item["name"] == "mcp__lark_module__lark_cli"
+    assert item["tool_name"] == "mcp__lark_module__lark_cli"
     assert item["arguments"] == {"command": "im +messages-send"}
 
 
@@ -160,7 +160,7 @@ def test_item_started_web_search_uses_websearch_name():
         "item": {"type": "web_search", "id": "w1", "query": "narranexus"},
     })
     item = evs[0]["item"]
-    assert item["name"] == "WebSearch"
+    assert item["tool_name"] == "WebSearch"
     assert item["arguments"] == {"query": "narranexus"}
 
 
