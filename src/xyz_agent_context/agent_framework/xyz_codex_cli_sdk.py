@@ -340,16 +340,6 @@ class CodexSDK:
                         )
                         continue
 
-                    # TEMPORARY DEBUG: dump every parsed Codex event so we
-                    # can observe the actual JSON schema (item types,
-                    # field names) emitted by `codex exec --json`. Remove
-                    # once the translator is confirmed schema-aligned.
-                    # Logged at INFO so we don't need LOGLEVEL=DEBUG to
-                    # capture.
-                    logger.info(
-                        f"[CodexSDK][raw] {line_str[:600]}"
-                    )
-
                     # Per-event translation — yields 0..N normalised events.
                     translated = output_transfer(
                         codex_event,

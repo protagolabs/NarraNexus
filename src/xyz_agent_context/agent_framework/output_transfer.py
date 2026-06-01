@@ -646,14 +646,36 @@ def _codex_tool_args(item: Dict[str, Any]) -> Dict[str, Any]:
 def _codex_tool_output(item: Dict[str, Any]) -> str:
     """Tool output payload string for tool_call_output_item.
 
-    Codex command_execution items carry stdout/stderr in ``output``;
-    MCP items carry their result in ``result`` (sometimes structured
-    JSON, sometimes a string). We flatten everything to a string
-    for the existing frontend's text rendering.
+    Field names observed from real ``codex exec --json`` output
+    (2026-06-01 log capture):
+
+    - ``command_execution``: stdout+stderr is in **``aggregated_output``**
+      (NOT ``output`` as the public docs suggest). ``exit_code`` is an
+      integer on completed items; we surface it when the command failed
+      so the agent can see the non-zero status alongside any captured
+      text.
+    - ``mcp_call``: result payload in ``result`` (dict / list / string).
+    - ``web_search``: ``results`` list of {title, url, snippet}.
+
+    Fallback to ``output`` is kept for forward-compat: if a future
+    Codex CLI version renames the field back, both keys will be tried.
     """
     item_type = item.get("type") or ""
     if item_type == "command_execution":
-        return _stringify_tool_result_content(item.get("output"))
+        text = item.get("aggregated_output")
+        if not text:
+            text = item.get("output", "")
+        body = _stringify_tool_result_content(text)
+        exit_code = item.get("exit_code")
+        # Surface non-zero exit codes when output is otherwise quiet —
+        # otherwise the agent sees an empty box and may retry the same
+        # failing command.
+        if isinstance(exit_code, int) and exit_code != 0:
+            if body:
+                body = f"{body}\n[exit code: {exit_code}]"
+            else:
+                body = f"[exit code: {exit_code}]"
+        return body
     if item_type == "mcp_call":
         result = item.get("result")
         if isinstance(result, (dict, list)):

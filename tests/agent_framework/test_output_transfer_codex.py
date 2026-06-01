@@ -103,13 +103,17 @@ def test_item_started_command_execution_emits_tool_call_item():
 
 
 def test_item_completed_command_execution_emits_tool_call_output():
+    """Codex emits output under ``aggregated_output`` (stdout+stderr
+    combined), NOT ``output`` as the public docs suggest. Pinned from
+    the 2026-06-01 raw-event log capture."""
     evs = _t({
         "type": "item.completed",
         "item": {
             "type": "command_execution",
             "id": "i3",
             "command": "ls",
-            "output": "a\nb\n",
+            "aggregated_output": "a\nb\n",
+            "exit_code": 0,
             "status": "completed",
         },
     })
@@ -118,6 +122,59 @@ def test_item_completed_command_execution_emits_tool_call_output():
     assert item["type"] == "tool_call_output_item"
     assert item["tool_call_id"] == "i3"
     assert item["output"] == "a\nb\n"
+
+
+def test_item_completed_command_execution_falls_back_to_output_key():
+    """Forward-compat: if a future Codex version emits the field as
+    ``output`` instead of ``aggregated_output``, we still pick it up."""
+    evs = _t({
+        "type": "item.completed",
+        "item": {
+            "type": "command_execution",
+            "id": "i3",
+            "command": "ls",
+            "output": "fallback content",
+            "exit_code": 0,
+            "status": "completed",
+        },
+    })
+    assert evs[0]["item"]["output"] == "fallback content"
+
+
+def test_item_completed_command_execution_surfaces_nonzero_exit_code():
+    """When a command fails with non-zero exit, surface the exit code
+    so the agent doesn't blindly retry the same failing command."""
+    evs = _t({
+        "type": "item.completed",
+        "item": {
+            "type": "command_execution",
+            "id": "i4",
+            "command": "false",
+            "aggregated_output": "",
+            "exit_code": 1,
+            "status": "failed",
+        },
+    })
+    assert "[exit code: 1]" in evs[0]["item"]["output"]
+
+
+def test_item_completed_command_execution_with_output_and_nonzero_exit_keeps_both():
+    """Real Codex example: command produces output AND exits non-zero
+    (e.g. ``lark-cli doctor --offline`` fails with diagnostic JSON)."""
+    evs = _t({
+        "type": "item.completed",
+        "item": {
+            "type": "command_execution",
+            "id": "i5",
+            "command": "lark-cli doctor --offline",
+            "aggregated_output": '{"ok": false, "checks": [...]}',
+            "exit_code": 1,
+            "status": "failed",
+        },
+    })
+    output = evs[0]["item"]["output"]
+    assert "{" in output  # original content kept
+    assert "[exit code: 1]" in output  # exit code appended
 
 
 def test_item_started_mcp_call_uses_server_tool_name():
