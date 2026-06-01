@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_cli_sdk.py
 stub: false
-last_verified: 2026-05-31
+last_verified: 2026-06-01
 ---
 
 ## Why it exists
@@ -27,10 +27,15 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
   (without the close, Codex blocks forever).
 - **Per-run ``$CODEX_HOME`` temp directory.** Every call writes a
   fresh ``config.toml`` + ``instructions.md`` into a fresh
-  ``tempfile.TemporaryDirectory``. With ``--ignore-user-config``
-  the user's ``~/.codex/config.toml`` is bypassed entirely —
-  behaviour is deterministic across hosts regardless of what the
-  user has globally configured. OAuth is the exception: when
+  ``tempfile.TemporaryDirectory``. Overriding ``CODEX_HOME`` to the
+  temp dir is what isolates us from the user's
+  ``~/.codex/config.toml`` — Codex only reads
+  ``$CODEX_HOME/config.toml``. We do **NOT** pass
+  ``--ignore-user-config``; that flag's behaviour is to skip
+  ``$CODEX_HOME/config.toml`` (regardless of where $CODEX_HOME
+  points), which would silently drop our MCP servers, custom
+  provider, and permissions and force the agent back into bare-Bash
+  mode. OAuth is the exception that proves the rule: when
   `CodexConfig.auth_ref` points at a host `codex login` auth file,
   the wrapper copies that file into the temp `CODEX_HOME` as
   `auth.json` before spawning the subprocess.

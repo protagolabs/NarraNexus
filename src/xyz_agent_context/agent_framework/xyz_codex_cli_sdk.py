@@ -24,9 +24,13 @@ Key differences from the Claude wrapper
 * **MCP servers via file, not dict.** Codex declares each MCP server
   as a ``[mcp_servers.<name>]`` table in the same per-run
   ``config.toml``. The wrapper writes this file fresh each call
-  inside an isolated ``$CODEX_HOME`` temp directory; with
-  ``--ignore-user-config`` the user's home ``~/.codex/config.toml``
-  is bypassed entirely.
+  inside an isolated ``$CODEX_HOME`` temp directory; because Codex
+  only reads ``$CODEX_HOME/config.toml`` (never the user's literal
+  ``~/.codex/config.toml`` once that env var is overridden), our
+  per-run file is what Codex actually loads. NOTE: we do **not**
+  pass ``--ignore-user-config`` — that flag would skip our own file
+  too (it skips ``$CODEX_HOME/config.toml``, regardless of where
+  $CODEX_HOME points).
 * **Stdout is JSON Lines.** We line-parse the subprocess's stdout,
   routing each JSON event through
   :func:`output_transfer.output_transfer` with
@@ -205,16 +209,26 @@ class CodexSDK:
             full_env = {**os.environ, **cli_env}
 
             # ---- Step 4: spawn subprocess --------------------------
+            # DO NOT pass ``--ignore-user-config``: that flag skips
+            # ``$CODEX_HOME/config.toml`` — but $CODEX_HOME is OUR
+            # per-run temp dir, and our config.toml is what declares
+            # the MCP servers, custom provider, and permissions. With
+            # ``--ignore-user-config`` set, Codex silently ignored all
+            # of our wiring and the agent reverted to bare Bash. The
+            # original concern (don't merge the user's
+            # ``~/.codex/config.toml``) is already addressed by
+            # overriding ``CODEX_HOME`` to the temp dir: Codex only
+            # reads config from $CODEX_HOME, so the user's home one
+            # is bypassed automatically.
             cmd = [
                 "codex", "exec",
                 "--json",                  # JSON Lines on stdout
-                "--ignore-user-config",    # don't merge ~/.codex/config.toml
                 "--skip-git-repo-check",   # workspace may not be a git repo
                 "--sandbox", "workspace-write",
                 "-",                       # read prompt from stdin
             ]
             logger.info(
-                f"[CodexSDK] Spawning: codex exec --json --ignore-user-config "
+                f"[CodexSDK] Spawning: codex exec --json "
                 f"--skip-git-repo-check --sandbox workspace-write -  "
                 f"(cwd={self.working_path}, CODEX_HOME={codex_home_path})"
             )
