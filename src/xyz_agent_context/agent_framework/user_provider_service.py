@@ -181,11 +181,18 @@ class UserProviderService:
                 "auth_type": "oauth",
                 "api_key": "",
                 "base_url": "",
-                # Codex picks its own default model (currently
-                # gpt-5.4-codex). User can edit this list later if
-                # they want to surface a specific model in the slot
-                # dropdown.
-                "models": json.dumps(["gpt-5.4-codex"]),
+                # Models a ChatGPT-account OAuth tier actually allows
+                # Codex CLI to use (verified 2026-06-01 against OpenAI's
+                # /backend-api endpoint). The reject list — also tested,
+                # currently NOT allowed for OAuth — includes
+                # ``gpt-5.4-codex``, ``gpt-5-codex``, ``gpt-5``, ``o3``,
+                # ``o3-mini``; those require API-key auth on a paid OpenAI
+                # billing account. ``gpt-5.4-mini`` is listed first so it
+                # becomes the default for new slots — it's the smallest /
+                # fastest of the three and avoids reasoning-tax surprises.
+                # Users who later attach an API-key Codex provider can
+                # surface the codex / o-series models there.
+                "models": json.dumps(["gpt-5.4-mini", "gpt-5.4", "gpt-5.2"]),
                 # Codex is OpenAI's product — Anthropic server tools
                 # (WebSearch etc.) are not applicable.
                 "supports_anthropic_server_tools": False,
