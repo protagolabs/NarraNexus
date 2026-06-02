@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-06-01
+last_verified: 2026-06-02
 stub: false
 ---
 # user_provider_service.py — 多租户场景的 per-user provider 数据库服务
@@ -24,6 +24,8 @@ stub: false
 **Agent slot 协议由 `agent_framework` 决定**：`set_slot()` 不能只看静态 `SLOT_REQUIRED_PROTOCOLS`。当 `user_slots[agent].agent_framework == "codex_cli"` 时，agent slot 接受 OpenAI-protocol provider；默认/Claude Code 路径仍要求 Anthropic。Codex OAuth provider 创建时也直接写入 `driver_type="codex_oauth"` 和 `auth_ref="codex-cli:~/.codex/auth.json"`，避免等待启动 backfill 才能被 resolver 使用。
 
 **Codex OAuth provider 的 `models` 列表绑定到 ChatGPT 账号 tier**：seed list 是 `["gpt-5.4-mini", "gpt-5.4", "gpt-5.2"]`——这三个是 2026-06-01 通过 `codex exec --model X` 实测确认 ChatGPT-account OAuth 鉴权放行的。`gpt-5.4-codex` / `gpt-5-codex` / `gpt-5` / `o3` / `o3-mini` 全部被服务端 reject（`"not supported when using Codex with a ChatGPT account"`），那些只能给 API-key tier 用。这条 seed 一旦错（比如最早写成 `["gpt-5.4-codex"]`），用户在前端 dropdown 里只能选到必 reject 的模型，agent_loop 会在 retry-timeout 链路上空跑 70+ 秒后才暴露真正错误，体感像是"卡死"。
+
+**`codex_api_key` card 是 OAuth 卡片的 API-key 兄弟**：当用户想用 `gpt-5.4-codex` / `gpt-5-codex` / `o3` 等 OAuth tier reject 的强模型时走这条路径。source=`codex_api_key`，protocol=`openai`，auth_type=`api_key`，driver_type=`custom_openai`，billing_policy=`user_pays`。models seed 把强模型放最前（`gpt-5.4-codex`），方便用户默认就拿到 flagship 编码模型。运行时 resolver 看 `agent_framework=codex_cli` 自动走 CodexSDK（不分 OAuth/API key card），所以前端单纯靠这张卡片解决"我有付费 API key 想用强模型"的场景，不动 dispatch 逻辑。和 OAuth 一样设了 single-instance per user 检查，删旧的才能换新 key。
 
 **models 字段以 JSON 字符串存储**：数据库里 `user_providers.models` 是 JSON 字符串（而非数组类型列），读取时用 `json.loads`，写入时用 `json.dumps`。这是为了保持对 SQLite 和 MySQL 的兼容性，避免数据库方言差异。
 
