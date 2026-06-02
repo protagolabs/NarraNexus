@@ -1,0 +1,78 @@
+{
+  "team_name": "Static Site Build Team",
+  "team_description": "A 5-agent team that builds a single-page static website from a one-line brief: PM captures the brief, dispatches Content + Visual in parallel, then Designer to build, then QA to review. User talks to the PM only; the team coordinates in one shared MessageBus channel. Generic — works for any landing page, marketing site, event page, or product microsite.",
+  "team_color": "#0ea5e9",
+  "team_intro_md": "## Static Site Build Team — generic 5-agent build crew\n\nYou're the producer. You talk to the **Project Manager** (PM). They:\n\n1. Capture your brief in 60 seconds (writes `project_brief.md` to the shared workspace).\n2. Dispatch the team in ONE batch on the `web-build-coordination` channel — Content Creator + Visual in parallel (they unblock the Designer), then Web Designer to build, then QA to review.\n3. Surface only decisions / blockers / the finished deliverable back to you.\n\n### Default tech baseline (PM may override per brief)\n- Single static `index.html` in `./agent_workspace/`\n- Tailwind CSS via CDN (no build step)\n- Mobile-first, three breakpoints (375 / 768 / 1280)\n- One small interactive JS component, vanilla\n\n### Team\n- **Project Manager (PM)** — orchestrator + your single entry point. Owns `project_brief.md`. Never writes code.\n- **Web Designer** — semantic HTML + Tailwind, mobile-first, accessibility-aware.\n- **Content Creator** — researcher + copywriter; verifies facts via web-search; supplies hero/body/CTA/SEO copy.\n- **Visual** — art director; generates hero / section / OG-share imagery via image-gen MCP (or hands off image briefs for external generation).\n- **QA Reviewer** — Playwright-driven 3-breakpoint screenshots + WCAG 2.1 AA review; reports prioritized BLOCKER/HIGH/MEDIUM/LOW.\n\n### How to drive it (1-hour fresh user)\n\nMessage the **Project Manager** with anything from a one-liner to a paragraph, e.g.:\n\n> Build a landing page for our AI tool launch next month. Premium feel, technical audience, signup CTA above the fold.\n\nOR:\n\n> Build an event companion site for <event name> on <dates>. Audience is people who can't attend in person.\n\nPM takes it from there. You'll see brief status updates and the final delivery; @-mention any teammate any time for direct tweaks (e.g. `@Web Designer make the hero full-bleed`).\n\n### Prerequisites (one-time setup)\nSee the bundle's `SETUP.md` for full walkthrough. Minimum:\n- **Playwright MCP** (required for self-preview + QA screenshots): `claude mcp add playwright npx @playwright/mcp@latest` — or run in SSE mode on the cloud host\n- **Image-gen MCP** (optional — Visual falls back to writing image briefs if absent)\n- An LLM provider configured in Settings (the team is heavier on the PM's orchestration; Claude Sonnet 4.6+ recommended)\n\n### Source\nAuthored by the NarraNexus team. MIT license. Generic web-build crew — works for any static-site project.",
+  "agents": [
+    {
+      "soul_md": "web_studio_team/awareness/pm.md",
+      "name": "Project Manager",
+      "role": "PM + team orchestrator; single user entry point; owns project_brief.md",
+      "category": "web-studio-team",
+      "source_path": "web_studio_team/awareness/pm.md",
+      "source_repo": "internal:narranexus-static-site-build-team",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "web_studio_team/skills/project-brief-template", "name": "project-brief-template"},
+        {"src_dir": "web_studio_team/skills/web-search-guide", "name": "web-search-guide"}
+      ]
+    },
+    {
+      "soul_md": "web_studio_team/awareness/web_designer.md",
+      "name": "Web Designer",
+      "role": "Senior frontend engineer / designer; builds the static site",
+      "category": "web-studio-team",
+      "source_path": "web_studio_team/awareness/web_designer.md",
+      "source_repo": "internal:narranexus-static-site-build-team",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "web_studio_team/skills/project-brief-template", "name": "project-brief-template"},
+        {"src_dir": "web_studio_team/skills/html-tailwind-essentials", "name": "html-tailwind-essentials"},
+        {"src_dir": "web_studio_team/skills/playwright-mcp", "name": "playwright-mcp"}
+      ]
+    },
+    {
+      "soul_md": "web_studio_team/awareness/content_creator.md",
+      "name": "Content Creator",
+      "role": "Researcher + copywriter; verifies facts; supplies hero/body/CTA/SEO copy",
+      "category": "web-studio-team",
+      "source_path": "web_studio_team/awareness/content_creator.md",
+      "source_repo": "internal:narranexus-static-site-build-team",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "web_studio_team/skills/project-brief-template", "name": "project-brief-template"},
+        {"src_dir": "web_studio_team/skills/web-search-guide", "name": "web-search-guide"},
+        {"src_dir": "web_studio_team/skills/copywriting-essentials", "name": "copywriting-essentials"}
+      ]
+    },
+    {
+      "soul_md": "web_studio_team/awareness/visual.md",
+      "name": "Visual",
+      "role": "Art Director; generates hero/section/OG imagery via image-gen MCP (or writes briefs if no MCP)",
+      "category": "web-studio-team",
+      "source_path": "web_studio_team/awareness/visual.md",
+      "source_repo": "internal:narranexus-static-site-build-team",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "web_studio_team/skills/project-brief-template", "name": "project-brief-template"},
+        {"src_dir": "web_studio_team/skills/web-search-guide", "name": "web-search-guide"},
+        {"src_dir": "web_studio_team/skills/image-gen-mcp", "name": "image-gen-mcp"}
+      ]
+    },
+    {
+      "soul_md": "web_studio_team/awareness/qa.md",
+      "name": "QA Reviewer",
+      "role": "QA + WCAG 2.1 AA reviewer; Playwright MCP preview + 3-breakpoint screenshots + a11y audit",
+      "category": "web-studio-team",
+      "source_path": "web_studio_team/awareness/qa.md",
+      "source_repo": "internal:narranexus-static-site-build-team",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "web_studio_team/skills/project-brief-template", "name": "project-brief-template"},
+        {"src_dir": "web_studio_team/skills/web-search-guide", "name": "web-search-guide"},
+        {"src_dir": "web_studio_team/skills/playwright-mcp", "name": "playwright-mcp"},
+        {"src_dir": "web_studio_team/skills/accessibility-essentials", "name": "accessibility-essentials"}
+      ]
+    }
+  ]
+}
