@@ -103,3 +103,67 @@ Rebrand 验证 — bundle 里 `"powered by OpenClaw" in body == False`,`"powered
 ### PRD 更新
 
 `reference/self_notebook/specs/2026-05-22-batch-template-pipeline-design.md` 已升级到 v0.2,主线、字段映射、Phase 进度、POC 结果、备选方案排序、风险、开放问题全更新。
+
+---
+
+## 更新 2026-06-02 — POC 收尾 + 4 个上线 + CI 修复
+
+### Trigger
+"差不多了,wrap up 一下,我们要换其他任务了。"
+
+### Status
+POC **完成**,pipeline 在两条独立源(OpenClaw SOUL.md / CrewAI YAML)上都打通,4 个模板已经在 narranexus-website `dev` 上线,Wave 2 的剩余路线(批量 + 反向生成)挂起到下一轮。
+
+### 期间做了什么
+
+1. **第二条源接通 — CrewAI**(2026-05-29)
+   - 写了 `convert_crewai.py`(stdlib-only,带个手撸的小 YAML parser 处理 folded scalar)
+   - 跑了 `marketing_strategy` + `recruitment` 两个 crew,各 4 agents → team bundle
+   - 复用了 `nxbundle_lib` 同一套 primitives,证明抽象正确
+
+2. **Wave 2 OpenClaw 精挑 5 个**(2026-05-29)
+   - 跨 5 个类别:overnight-coder / sql-assistant / morning-briefing / travel-planner / phishing-detector
+   - 3 个"纯 awareness"(无 skill),证明 pipeline 在最小载荷下也跑得通
+
+3. **4 个上线到 website**(2026-06-02)
+   - 跳过 `morning-briefing`(NN 已有 financial-morning-briefing)
+   - 其余 4 个加到 `narranexus-website` `dev` `lib/templates.ts`,带:
+     - rich `short_description` + `long_description` + `usage_tip`(从真实 awareness 抽提)
+     - 文件 sha256 + size 计算
+     - `manifest_summary`(agent count / skill count / requires_credentials)
+     - **OpenClaw community attribution + MIT license 标注**(URL 指回原仓)
+   - lint 0 errors,build 8 个 template pages 全过
+
+4. **CI 修复**(2026-06-02)
+   - dev 部署失败 —— EC2 上 dev branch 跟 origin 分叉,`git pull` 不会自动 reconcile
+   - 把 `deploy-dev.yml` + `deploy-master.yml` 里的 `git pull origin <branch>` 改成 `git reset --hard origin/<branch>`
+   - 自愈:新 workflow 从触发 commit 读,新 run 用新脚本就能跑通
+   - 跟 2026-05-29 的"protagolabs = source of truth,recovery = reset --hard"政策对齐
+
+### 关键产物位置
+
+- **NarraNexus 仓** branch `feat/external-agent-import`(已推 protagolabs origin):
+  - `scripts/external_agent_import/` — 5 个脚本 + 11 个 bundle + examples
+  - 此 log 文件本身
+  - REPORT.md 已 wrap-up 改版(版本号 + 状态 + 完整 inventory)
+- **narranexus-website 仓** branch `dev`(只推 protagolabs origin,**不再双推 netmind**):
+  - `lib/templates.ts` 新加 4 个 entry
+  - `public/templates/<slug>.nxbundle` 4 个文件
+  - `.github/workflows/deploy-{dev,master}.yml` CI fix
+
+### 教训收获(已写入 memory)
+
+- [[feedback-git-safety-checks]] —— commit/push 前 `git branch --show-current`;`git reset --hard <ref>` 是改当前分支不是改 ref
+- [[feedback-remote-push-policy]](2026-05-29 update)—— 网站只推 origin,netmind 当 upstream 定时同步;不双推
+
+### 留给下次的(parked)
+
+- ▶ 全 199 OpenClaw + 14 CrewAI 批量化(可以一晚上跑完)
+- ▶ Skill 自动配套(LLM 1-pass 按 awareness 内容选 3-5 个 VoltAgent skill)
+- ▶ LLM rebrand Stage B 上线(hook 已留)
+- ▶ **Final goal**: 从 skill 池反向生成 agent(原创但批量化)
+- ▶ Runtime "Import from URL" UX
+
+### 状态:POC 完成
+
+下一个 session 直接接 parked 项,或者新任务。

@@ -1,51 +1,143 @@
-# Status · Template Pipeline POC
+# Status · Template Pipeline POC — Wrap-up
 
-**Date**: 2026-05-28 (initial) · **Updated 2026-05-29** with 5 curated OpenClaw scenarios
-**Branch**: `feat/external-agent-import`
-**Latest commit**: `1884f8ba` (curated OpenClaw wave 2)
+**Date**: 2026-05-28 (start) → 2026-05-29 (wave 2) → **2026-06-02 (this wrap-up)**
+**Status**: POC **complete**, pipeline proven end-to-end, 4 production templates live on website dev
+**Branch**: `feat/external-agent-import` (NarraNexus) · `dev` (narranexus-website)
 
 ---
 
-## 进度
+## What we built
 
-**Source 1 · OpenClaw**(`mergisi/awesome-openclaw-agents`,MIT,199 SOUL.md / 24 类)→ **9 个模板**:
+A reusable pipeline that converts publicly-available agent configurations into NarraNexus `.nxbundle` templates, proven across **two independent source formats**.
 
-**Wave 1 — pipeline 验证**
-- Orion(coordinator, baseline)、**Lens**(code reviewer + 3 skills)、**GitHub PR Reviewer**(+ 1 skill)
-- 自动检测 team:**Coordinator Trio**(Orion + Echo + Radar,跨 3 大类,带 3 skill)
+### Scripts (all in `scripts/external_agent_import/`, stdlib-only)
 
-**Wave 2 — 场景 + skill 精挑(2026-05-29)**
-| Bundle | 类别 | Skills | 场景 |
+| Script | Purpose |
+|---|---|
+| `nxbundle_lib.py` | Shared primitives: rebrand pass, module-instance stamps, workspace.tar.gz packing, bundle ZIP assembly |
+| `convert_single.py` | One SOUL.md → single-agent `.nxbundle`, optional `--skill-dir` to bundle skills |
+| `convert_team.py` | Team spec JSON → multi-agent `.nxbundle`, populates `manifest.team` |
+| `auto_team_detect.py` | Scan SOUL.md cross-refs, score cluster candidates |
+| `convert_crewai.py` | CrewAI `agents.yaml + tasks.yaml` → multi-agent `.nxbundle` |
+
+### Bundles produced (11 total)
+
+**OpenClaw source** (`mergisi/awesome-openclaw-agents`, MIT, 199 SOUL.md / 24 categories)
+
+| Bundle | Category | Skills | Notes |
 |---|---|---|---|
-| **Overnight Coder** | automation | git-commit-writer + cost-optimizer | "睡前抛 TODO,早上看 PR" |
-| **SQL Assistant** | data | model-cost-compare | 大白话问 → 优化 SQL + 解释 |
-| **Morning Briefing** | automation | — | 起床前把日程/新闻/邮件总结好 |
-| **Travel Planner** | personal | — | 行程 + 酒店 + 应急方案 |
-| **Phishing Detector** | security | — | 贴可疑邮件/URL → 判定 + 解释 |
+| orion | productivity | 0 | First POC, cloud-import-verified |
+| lens (code reviewer) | development | 3 | git-commit-writer + excalidraw-architecture + cost-optimizer |
+| github-pr-reviewer | development | 1 | git-commit-writer |
+| coordinator_trio (team) | productivity + marketing + business | 3 | **Auto-detected** team (Orion → Echo, Radar cross-refs) |
+| overnight-coder | automation | 2 | git-commit-writer + cost-optimizer |
+| sql-assistant | data | 1 | model-cost-compare |
+| morning-briefing | automation | 0 | Pure awareness (skipped from website; NN already had one) |
+| travel-planner | personal | 0 | Pure awareness |
+| phishing-detector | security | 0 | Pure awareness |
 
-> Wave 2 有 3 个**纯 awareness 模板**(无 skill)—— 证明 pipeline 在"纯 awareness"也跑得通,是 NN 最大的潜力池。
+**CrewAI source** (`crewAIInc/crewAI-examples/crews`, MIT, 16 example crews)
 
-**Source 2 · CrewAI**(`crewAIInc/crewAI-examples/crews`,MIT,16 个现成多 agent crew)→ **2 个 team 模板**:
+| Bundle | Agents | Notes |
+|---|---|---|
+| crewai_marketing_strategy | 4 | Lead Market Analyst / Chief Marketing Strategist / Creative Content Creator / Chief Creative Director |
+| crewai_recruitment | 4 | Researcher / Matcher / Communicator / Reporter |
 
-- **Marketing Strategy Crew**(4 agents:Lead Market Analyst / Chief Marketing Strategist / Creative Content Creator / Chief Creative Director;5 tasks)
-- **Recruitment Crew**(4 agents:Researcher / Matcher / Communicator / Reporter;4 tasks)
+### Live on narranexus-website (`dev`, deploying to website.narra.nexus)
 
-Pipeline 端到端跑通 —— Orion 已在 cloud 验过 import + 对话。**两套源已确认机械化可行**(SOUL.md / agents.yaml 两条线都跑通)。
+**4 of the OpenClaw bundles are now real templates with full metadata**:
+- `/templates/overnight-coder`
+- `/templates/sql-assistant`
+- `/templates/travel-planner`
+- `/templates/phishing-detector`
 
-| 源 | 格式 | 量 | 已产出 | 与 NN 适配 |
-|---|---|---|---|---|
-| OpenClaw SOUL.md | 纯 markdown | 199 / 24 类 | **9 bundle** | ⭐⭐⭐⭐⭐ |
-| CrewAI YAML | agents.yaml + tasks.yaml | 16 crews | 2 bundle | ⭐⭐⭐⭐⭐ |
-| VoltAgent skills | SKILL.md (Anthropic 标准) | 1000+ | 已用于 Lens / Overnight Coder | ⭐⭐⭐⭐⭐ |
-
-## Next
-
-**A. 把现成的批量跑起来**:OpenClaw 全 199 个 + CrewAI 剩下的 14 个 crew(`stock_analysis`、`trip_planner`、`game-builder-crew`、`instagram_post`、`landing_page_generator`、`job-posting`、`screenplay_writer`、`recruitment` 等)→ 加上 skill 自动配套和人工 review,可以快速堆到 50-100+ 模板。
-
-**B. 单仓库 multi-agent team(待定)**:原计划的 MetaGPT / ChatDev 是 2023 老项目、agent 配置在 Python 代码里硬编码,跟我们路线不太对路 —— **暂搁置**。我同步搜了"近期 + cc 同源"的"单仓库 team"项目,**没找到合适的**(2026 年主流模式是大集合,我们已经覆盖了 OpenClaw / VoltAgent / wshobson)。这条线**保留 watch,但不阻塞主线**。
-
-**C. Final goal — 从 skill 池反向生成 agent**:用 VoltAgent 的 1000+ skill 池,按主题聚合 + LLM 编织出 agent 身份,产出**原创但批量化**的模板(不再依赖外部 agent 库)。
+Each has hand-written rich `short_description` + `long_description` + `usage_tip` plus computed `bundle_sha256` and `bundle_size_bytes`. Author attribution: **OpenClaw community (MIT)** with link back to source. See `lib/templates.ts` on `narranexus-website` `dev`.
 
 ---
 
-**产出位置**:`scripts/external_agent_import/` —— 5 个脚本 + **11 个 bundle**(OpenClaw × 9 + CrewAI × 2)。详见 [`README.md`](./README.md)。
+## Pipeline architecture (proven)
+
+```
+ANY SOURCE FORMAT
+  │
+  ├─► OpenClaw SOUL.md ─┐
+  ├─► CrewAI YAML ─────┤
+  ├─► (future) Letta .af, Claude Code subagent, etc.
+  │                     │
+  ▼                     ▼
+parse                build_agent_files()  ←─ shared primitive
+  │                  - rebrand (OpenClaw → NarraNexus)
+  │                  - awareness.json composition
+  │                  - module-instance stamps × 5
+  │                  - workspace.tar.gz with skills
+  ▼                     │
+                        ▼
+                    write_bundle()  ←─ shared primitive
+                        │
+                        ▼
+                    .nxbundle (ZIP with manifest + agents + bus.json …)
+```
+
+**Key insight**: the abstraction is correct — adding a new source (`convert_letta.py` etc.) only needs the source-specific parser; the bundle assembly path is unchanged.
+
+---
+
+## Source-attribution + safety
+
+Every produced bundle carries `manifest.source_attribution`:
+```json
+{
+  "agent_id": "...",
+  "source": { "repo": "github:mergisi/awesome-openclaw-agents",
+              "path": "agents/<cat>/<id>/SOUL.md",
+              "license": "MIT" },
+  "rebrand_diffs": ["powered by OpenClaw -> powered by NarraNexus", ...]
+}
+```
+OpenClaw platform refs rebranded; peer-agent name refs (Echo, Radar) preserved so detected teams stay coherent on import.
+
+---
+
+## Status of the original plan (PRD §6 alternatives)
+
+| Path | Status |
+|---|---|
+| A. Batch convert OpenClaw SOUL.md | ✅ **Pipeline done, 9 bundles produced. Ready to scale to remaining 190.** |
+| B. Runtime "Import from URL" | 📋 Not started — depends on A landing |
+| C. LLM-rebrand Stage B (head-of-pack polish) | 📋 Hook stubbed in `nxbundle_lib.rebrand()`; not wired to live LLM |
+| D. Universal intermediate format | ❌ Not needed yet — direct adapters are working |
+| E. Other sources (Letta `.af`, Cursor rules, GPTs) | 📋 Pipeline is ready (just write `convert_<source>.py`) |
+| F. Claude Code subagents (original v0.1 mainline) | 📋 Demoted to fallback; not started |
+
+**Bucket B was explicitly parked**: searched for "OpenClaw-like single-repo team" projects (MetaGPT / ChatDev / etc.) — they're 2023-era + Python-hardcoded teams, not "config-as-data". No good 2026 replacements found. Held back without blocking.
+
+---
+
+## What's "wrapped up" / what's still parked
+
+**Wrapped up (POC phase complete)**:
+- ✅ Pipeline design + 5 scripts
+- ✅ 11 bundles produced
+- ✅ End-to-end verified (Orion cloud import)
+- ✅ Two independent sources working (OpenClaw + CrewAI)
+- ✅ 4 production templates on website dev
+- ✅ CI/CD fix for divergent EC2 branches (`git reset --hard origin` instead of `git pull`)
+- ✅ Source attribution + license handling
+
+**Parked for future sessions**:
+- ▶ Scale OpenClaw conversion to remaining 190 agents
+- ▶ Convert remaining 14 CrewAI crews
+- ▶ Final goal — **skill-pool reverse-generation** (use VoltAgent 1000+ skills as the basis, LLM weaves identity around skill bundles to produce original-but-batched templates, not dependent on external agent libs)
+- ▶ LLM rebrand Stage B (live Anthropic SDK call, cache by hash, quality gate)
+- ▶ Runtime "Import from URL" UX in the website
+
+---
+
+## Pointers
+
+- PRD: `reference/self_notebook/specs/2026-05-22-batch-template-pipeline-design.md` (gitignored, private notebook)
+- Session log: `drafts/logs/batch_template_pipeline_2026_05_22.md`
+- Scripts: `scripts/external_agent_import/` (5 scripts + 11 bundles + examples)
+- README: [`README.md`](./README.md)
+- Branch: `feat/external-agent-import` (4 commits ahead of main, on `origin`)
+- Website template entries: `narranexus-website` `dev` `lib/templates.ts` (+4 entries)
