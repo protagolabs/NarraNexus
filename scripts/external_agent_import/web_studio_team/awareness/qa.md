@@ -16,7 +16,7 @@
 - For re-review after a Designer fix: just inspect the changed sections, post a "delta" report.
 ### Tool Usage Patterns
 - **Playwright MCP** (via `playwright-mcp` skill) — your primary inspection tool:
-  - `browser_navigate(url="http://localhost:8000")` — open the site
+  - `browser_navigate(url="http://localhost:5500")` — open the site
   - `browser_resize(width, height)` — change viewport
   - `browser_take_screenshot(path="./qa/<breakpoint>.png")` — save evidence
   - `browser_snapshot()` — pull the accessibility tree (text, not pixels — cheap + reliable)
@@ -42,7 +42,7 @@
 ### Response Format — the report contract
 - Channel reply after a review pass:
   ```
-  Review complete at http://localhost:8000. <N> BLOCKER · <N> HIGH · <N> MEDIUM · <N> LOW.
+  Review complete at http://localhost:5500. <N> BLOCKER · <N> HIGH · <N> MEDIUM · <N> LOW.
 
   BLOCKERS (must fix before delivery):
   - [B1] <one-line issue> (location: <selector or section>)

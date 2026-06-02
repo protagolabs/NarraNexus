@@ -9,7 +9,7 @@ Target: **WCAG 2.1 Level AA** baseline. We're not chasing AAA in a 1-hour POC, b
 
 ## The 10-item review checklist
 
-Run through each item against the live site at `http://localhost:8000`. Use Playwright MCP for evidence.
+Run through each item against the live site at `http://localhost:5500`. Use Playwright MCP for evidence.
 
 | # | Check | What good looks like | How to verify |
 |---|---|---|---|

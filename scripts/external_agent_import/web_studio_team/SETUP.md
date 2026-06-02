@@ -115,8 +115,8 @@ Final output after a build:
 Preview locally:
 ```bash
 cd ~/.nexusagent/workspaces/<pm_agent_id>_<user_id>
-python3 -m http.server 8000
-# Open http://localhost:8000
+python3 -m http.server 5500
+# Open http://localhost:5500
 ```
 
 ---
@@ -137,7 +137,7 @@ What you'll see, in order:
 2. **PM writes `project_brief.md`** to the workspace — that's now the canonical source-of-truth.
 3. **PM dispatches** Content + Visual in parallel, then Designer, then QA — all in the `web-build-coordination` channel.
 4. You get **brief status updates** (not the full team chatter).
-5. **PM delivers** with: the URL (typically `http://localhost:8000`), what's done, what's deferred, any decisions pending.
+5. **PM delivers** with: the URL (typically `http://localhost:5500`), what's done, what's deferred, any decisions pending.
 
 At any point you can @-mention a teammate directly:
 - `@Web Designer make the hero full-bleed`
@@ -154,7 +154,7 @@ The teammate will respond directly when @-mentioned; otherwise they reply to the
 |---|---|
 | PM "narrates" delegation but no teammates run | The PM is supposed to call `bus_send_message`. If it's not, message it: "use `bus_send_message` to actually post to `web-build-coordination` — writing @-mentions in your reply is just narration." |
 | Visual says "no image-gen tool available" | Either install an image-gen MCP (§1.2) or accept Visual's image-brief fallback and generate externally |
-| QA says "can't navigate to localhost:8000" | Designer didn't start the server — message Designer: "start a local server with `python3 -m http.server 8000` from the workspace and tell QA again" |
+| QA says "can't navigate to localhost:5500" | Designer didn't start the server — message Designer: "start a local server with `python3 -m http.server 5500` from the workspace and tell QA again" |
 | Site looks identical at all breakpoints | Designer missed mobile-first — say "Designer, redo with mobile-first Tailwind ordering" |
 | Hero has weird in-image text | Hero shouldn't have text. Tell Visual: "regenerate hero with `no in-image text` in the prompt tail" |
 | Content invented a fact (event, person, partner) | Tell Content: "scrub any specific claim that wasn't web-search verified — replace with `[unverified]` or remove" |

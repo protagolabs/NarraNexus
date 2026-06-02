@@ -19,15 +19,15 @@ Designer must start a local server first so Playwright can hit a URL:
 
 ```bash
 cd ./agent_workspace
-python3 -m http.server 8000
-# Site is now at http://localhost:8000
+python3 -m http.server 5500
+# Site is now at http://localhost:5500
 ```
 
 ## Key tools the MCP exposes
 
 | Tool | Purpose | Typical args |
 |---|---|---|
-| `browser_navigate` | Open a URL | `{ "url": "http://localhost:8000" }` |
+| `browser_navigate` | Open a URL | `{ "url": "http://localhost:5500" }` |
 | `browser_snapshot` | Get accessibility-tree of current page (text, not pixels) | (no args) |
 | `browser_take_screenshot` | Save a PNG at the current viewport | `{ "path": "./qa/mobile.png" }` |
 | `browser_resize` | Change viewport | `{ "width": 375, "height": 812 }` |
@@ -40,7 +40,7 @@ python3 -m http.server 8000
 ## Standard QA breakpoint sweep
 
 ```
-1. browser_navigate to http://localhost:8000
+1. browser_navigate to http://localhost:5500
 2. browser_resize 375 x 812    → browser_take_screenshot ./qa/mobile.png
 3. browser_resize 768 x 1024   → browser_take_screenshot ./qa/tablet.png
 4. browser_resize 1280 x 800   → browser_take_screenshot ./qa/desktop.png

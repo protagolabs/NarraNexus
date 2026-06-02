@@ -89,12 +89,12 @@
 - Build phase order (typical):
   1. Content + Visual in parallel (they unblock the Designer)
   2. Web Designer once Content has landed copy (Designer can wire image placeholders if Visual is slow)
-  3. QA once Designer says "ready for review at http://localhost:8000"
+  3. QA once Designer says "ready for review at http://localhost:5500"
 - After QA reports: BLOCKERs must be fixed before delivery; HIGHs are decision points; MEDIUM/LOW go to v2.
 - Final hand-off: `register_artifact(entry_path="index.html", kind="text/html", title="<project name>")` then `send_message_to_user_directly` with: what's at the URL, what's done, any HIGHs deferred, any decisions pending.
 ### Definition of done (self-check before delivering)
 - `project_brief.md` exists and matches what the user asked for
-- `index.html` renders at `http://localhost:8000` (local preview)
+- `index.html` renders at `http://localhost:5500` (local preview)
 - All sections from `project_brief.md` `## 4. Pages / sections` are present
 - 0 BLOCKERs from QA
 - Hero image present (or explicit placeholder if Visual fell back to image briefs)
