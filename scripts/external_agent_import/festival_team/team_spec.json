@@ -1,0 +1,78 @@
+{
+  "team_name": "Festival Site Team",
+  "team_description": "A 5-agent team that ships a single-page companion website for the Great Exhibition Road Festival (6-7 June 2026) in one session. User talks to the PM (Festival Producer) only; PM auto-delegates to Web Designer, Content Creator, Visual, and QA over the team's MessageBus. User can @mention any teammate directly any time. Target: a fresh user lands a passable static site in under 1 hour.",
+  "team_color": "#dd2515",
+  "team_intro_md": "## Festival Site Team — 5 agents, one user-facing entry point\n\nYou're the producer. You talk to **Festival Producer** (the PM). They:\n\n1. Restate your brief in 3-5 lines + produce a one-page PRD/sitemap\n2. Dispatch the team — **Content Creator** + **Visual** in parallel (they unblock the designer), then **Web Designer** to build, then **QA** to review\n3. Surface only decisions / blockers / the finished result back to you\n\n### Default tech baseline\n- Single static `index.html` in `./agent_workspace/`\n- Tailwind CSS via CDN (no build step)\n- Mobile-first, three breakpoints (375 / 768 / 1280)\n- One small interactive JS component\n\n### Team\n- **Festival Producer (PM)** — orchestrator + your single entry point\n- **Web Designer** — builds the site (semantic HTML, Tailwind, accessibility)\n- **Content Creator** — researcher + copywriter; verifies festival facts; supplies hero/zone/CTA/SEO copy\n- **Visual** — art director; generates hero + zone + OG-share images via the image-gen-mcp skill\n- **QA** — Playwright-driven preview + WCAG 2.1 AA review; reports a prioritized fix list\n\n### How to drive it (fresh user, 1-hour target)\n\nJust message the **Festival Producer** with what you want, e.g.:\n\n> Build a companion website for the 2026 Great Exhibition Road Festival, aimed at people who can't physically attend. Friendly, informative, with a zone overview of what's happening at each museum partner.\n\nPM takes it from there. You'll see brief status updates and the final delivery; you can @mention any teammate any time for direct tweaks.\n\n### Prerequisites (one-time setup)\nSee `SETUP.md` shipped alongside this bundle. You'll need:\n- An MCP server for image generation (Gemini / OpenAI gpt-image / Fal.ai — pick one)\n- Playwright MCP installed (`claude mcp add playwright npx @playwright/mcp@latest`)\n- (Optional) Tavily / Exa MCP for web search; Claude's built-in WebSearch is the fallback\n\n### Source\nAuthored by the NarraNexus team for the 2026-06 demo activity. MIT license.",
+  "agents": [
+    {
+      "soul_md": "festival_team/awareness/pm.md",
+      "name": "Festival Producer",
+      "role": "PM + team orchestrator; single entry point for the user",
+      "category": "festival-team",
+      "source_path": "festival_team/awareness/pm.md",
+      "source_repo": "internal:narranexus-festival-team-template",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "festival_team/skills/festival-fact-sheet", "name": "festival-fact-sheet"},
+        {"src_dir": "festival_team/skills/web-search-guide", "name": "web-search-guide"}
+      ]
+    },
+    {
+      "soul_md": "festival_team/awareness/web_designer.md",
+      "name": "Web Designer",
+      "role": "Senior frontend engineer / designer; builds the static site",
+      "category": "festival-team",
+      "source_path": "festival_team/awareness/web_designer.md",
+      "source_repo": "internal:narranexus-festival-team-template",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "festival_team/skills/festival-fact-sheet", "name": "festival-fact-sheet"},
+        {"src_dir": "festival_team/skills/html-tailwind-essentials", "name": "html-tailwind-essentials"},
+        {"src_dir": "festival_team/skills/playwright-mcp", "name": "playwright-mcp"}
+      ]
+    },
+    {
+      "soul_md": "festival_team/awareness/content_creator.md",
+      "name": "Content Creator",
+      "role": "Researcher + copywriter; verifies festival facts; supplies copy",
+      "category": "festival-team",
+      "source_path": "festival_team/awareness/content_creator.md",
+      "source_repo": "internal:narranexus-festival-team-template",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "festival_team/skills/festival-fact-sheet", "name": "festival-fact-sheet"},
+        {"src_dir": "festival_team/skills/web-search-guide", "name": "web-search-guide"},
+        {"src_dir": "festival_team/skills/copywriting-essentials", "name": "copywriting-essentials"}
+      ]
+    },
+    {
+      "soul_md": "festival_team/awareness/visual.md",
+      "name": "Visual",
+      "role": "Art Director; generates hero/zone/OG imagery via image-gen MCP",
+      "category": "festival-team",
+      "source_path": "festival_team/awareness/visual.md",
+      "source_repo": "internal:narranexus-festival-team-template",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "festival_team/skills/festival-fact-sheet", "name": "festival-fact-sheet"},
+        {"src_dir": "festival_team/skills/web-search-guide", "name": "web-search-guide"},
+        {"src_dir": "festival_team/skills/image-gen-mcp", "name": "image-gen-mcp"}
+      ]
+    },
+    {
+      "soul_md": "festival_team/awareness/qa.md",
+      "name": "QA Reviewer",
+      "role": "QA + WCAG 2.1 AA reviewer; Playwright MCP preview + a11y audit",
+      "category": "festival-team",
+      "source_path": "festival_team/awareness/qa.md",
+      "source_repo": "internal:narranexus-festival-team-template",
+      "source_license": "MIT",
+      "skills": [
+        {"src_dir": "festival_team/skills/festival-fact-sheet", "name": "festival-fact-sheet"},
+        {"src_dir": "festival_team/skills/web-search-guide", "name": "web-search-guide"},
+        {"src_dir": "festival_team/skills/playwright-mcp", "name": "playwright-mcp"},
+        {"src_dir": "festival_team/skills/accessibility-essentials", "name": "accessibility-essentials"}
+      ]
+    }
+  ]
+}
