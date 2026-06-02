@@ -181,18 +181,21 @@ class UserProviderService:
                 "auth_type": "oauth",
                 "api_key": "",
                 "base_url": "",
-                # Models a ChatGPT-account OAuth tier actually allows
-                # Codex CLI to use (verified 2026-06-01 against OpenAI's
-                # /backend-api endpoint). The reject list — also tested,
-                # currently NOT allowed for OAuth — includes
-                # ``gpt-5.4-codex``, ``gpt-5-codex``, ``gpt-5``, ``o3``,
-                # ``o3-mini``; those require API-key auth on a paid OpenAI
-                # billing account. ``gpt-5.4-mini`` is listed first so it
-                # becomes the default for new slots — it's the smallest /
-                # fastest of the three and avoids reasoning-tax surprises.
-                # Users who later attach an API-key Codex provider can
-                # surface the codex / o-series models there.
-                "models": json.dumps(["gpt-5.4-mini", "gpt-5.4", "gpt-5.2"]),
+                # Curated model list from ``codex`` CLI's interactive
+                # picker (2026-06-02): gpt-5.5 (default flagship),
+                # gpt-5.4 (strong everyday), gpt-5.4-mini (fast/cheap).
+                # These are the three the codex CLI itself recommends
+                # under "Select Model and Effort". Legacy variants
+                # (gpt-5-codex, gpt-5.2-codex, gpt-5.3-codex etc.) are
+                # accessible via ``codex -m <name>`` but not curated;
+                # don't put them in the dropdown by default.
+                #
+                # ``gpt-5.5`` first so new slots default to flagship.
+                # Pre-2026-06-02 seed had ``gpt-5.2`` instead, which
+                # works but isn't curated; ``gpt-5.4-codex`` was also
+                # tried and DOES NOT EXIST (OpenAI's 5.4 line has no
+                # codex variant; codex line jumped 5.3 → 5.5).
+                "models": json.dumps(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]),
                 # Codex is OpenAI's product — Anthropic server tools
                 # (WebSearch etc.) are not applicable.
                 "supports_anthropic_server_tools": False,
@@ -203,13 +206,19 @@ class UserProviderService:
             new_ids.append(pid)
 
         elif card_type == "codex_api_key":
-            # Sibling of codex_oauth: same Codex CLI subprocess, but
-            # authenticated via a paid OpenAI API key instead of the
-            # ChatGPT-account OAuth login. The API-key tier unlocks
-            # models the OAuth tier rejects with a 400
-            # ``not supported when using Codex with a ChatGPT account``
-            # — verified 2026-06-01 against gpt-5.4-codex, gpt-5-codex,
-            # gpt-5, o3, o3-mini.
+            # Sibling of codex_oauth: same Codex CLI subprocess, same
+            # available models, but authenticated via a paid OpenAI
+            # API key instead of the ChatGPT OAuth login. Use cases:
+            # (a) users without a ChatGPT Plus/Pro subscription,
+            # (b) users who want agent usage billed to their personal
+            # OpenAI account separately from ChatGPT.
+            #
+            # NOT a "model unlock" — earlier hypothesis was that API-
+            # key tier unlocked codex variants OAuth rejected; verified
+            # 2026-06-02 against codex CLI's interactive picker that
+            # both paths see the same curated model set
+            # (gpt-5.5 / gpt-5.4 / gpt-5.4-mini). Legacy variants are
+            # available via ``codex -m`` but not put in the dropdown.
             #
             # ``api_key`` flows into CodexConfig via the resolver, which
             # injects ``CODEX_API_KEY`` env into the codex CLI
@@ -239,17 +248,11 @@ class UserProviderService:
                 "auth_type": "api_key",
                 "api_key": api_key,
                 "base_url": "",
-                # API-key-tier model whitelist. ``gpt-5.4-codex`` first
-                # because it's OpenAI's flagship coding model and the
-                # whole reason to use this card over OAuth. Remainder
-                # is the broader set the API tier permits but OAuth
-                # rejects (plus the OAuth-overlap mini variants so a
-                # user can downshift for cost without switching cards).
-                "models": json.dumps([
-                    "gpt-5.4-codex", "gpt-5-codex",
-                    "gpt-5.4", "gpt-5.4-mini",
-                    "gpt-5", "o3", "o3-mini",
-                ]),
+                # Same curated set as codex_oauth — codex CLI's
+                # interactive picker shows the same three regardless
+                # of auth method. ``gpt-5.5`` first so new slots
+                # default to the flagship.
+                "models": json.dumps(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]),
                 # OpenAI provider — Anthropic server tools N/A.
                 "supports_anthropic_server_tools": False,
                 # No Codex-specific driver: this row is auth-key shaped

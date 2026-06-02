@@ -23,9 +23,11 @@ stub: false
 
 **Agent slot 协议由 `agent_framework` 决定**：`set_slot()` 不能只看静态 `SLOT_REQUIRED_PROTOCOLS`。当 `user_slots[agent].agent_framework == "codex_cli"` 时，agent slot 接受 OpenAI-protocol provider；默认/Claude Code 路径仍要求 Anthropic。Codex OAuth provider 创建时也直接写入 `driver_type="codex_oauth"` 和 `auth_ref="codex-cli:~/.codex/auth.json"`，避免等待启动 backfill 才能被 resolver 使用。
 
-**Codex OAuth provider 的 `models` 列表绑定到 ChatGPT 账号 tier**：seed list 是 `["gpt-5.4-mini", "gpt-5.4", "gpt-5.2"]`——这三个是 2026-06-01 通过 `codex exec --model X` 实测确认 ChatGPT-account OAuth 鉴权放行的。`gpt-5.4-codex` / `gpt-5-codex` / `gpt-5` / `o3` / `o3-mini` 全部被服务端 reject（`"not supported when using Codex with a ChatGPT account"`），那些只能给 API-key tier 用。这条 seed 一旦错（比如最早写成 `["gpt-5.4-codex"]`），用户在前端 dropdown 里只能选到必 reject 的模型，agent_loop 会在 retry-timeout 链路上空跑 70+ 秒后才暴露真正错误，体感像是"卡死"。
+**Codex provider 的 `models` 列表 = codex CLI 自己的 curated picker**：seed 是 `["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]`——2026-06-02 直接看 codex CLI 交互式 "Select Model and Effort" 菜单确认。`gpt-5.5` 是 codex 自己标记 default flagship；`gpt-5.4` 是 strong everyday；`gpt-5.4-mini` 是 fast/cheap。Legacy 变种（`gpt-5-codex`、`gpt-5.2-codex`、`gpt-5.3-codex`）codex CLI 支持但不放 picker，要走 `codex -m <name>` 显式调用——不进 NarraNexus dropdown 默认列表。
 
-**`codex_api_key` card 是 OAuth 卡片的 API-key 兄弟**：当用户想用 `gpt-5.4-codex` / `gpt-5-codex` / `o3` 等 OAuth tier reject 的强模型时走这条路径。source=`codex_api_key`，protocol=`openai`，auth_type=`api_key`，driver_type=`custom_openai`，billing_policy=`user_pays`。models seed 把强模型放最前（`gpt-5.4-codex`），方便用户默认就拿到 flagship 编码模型。运行时 resolver 看 `agent_framework=codex_cli` 自动走 CodexSDK（不分 OAuth/API key card），所以前端单纯靠这张卡片解决"我有付费 API key 想用强模型"的场景，不动 dispatch 逻辑。和 OAuth 一样设了 single-instance per user 检查，删旧的才能换新 key。
+**踩过的坑（写在这里防再犯）**：早期我们假设过 `gpt-5.4-codex` 存在（线性外推 "有 5.4-mini 就有 5.4-codex"）。**不存在**——OpenAI 5.4 系列只有 base/mini/nano，codex 路线 5.3 → 5.5 跳过了 5.4。之前 `codex exec --model gpt-5.4-codex` 返回 `"not supported when using Codex with a ChatGPT account"` 不代表模型存在，那是 OAuth gateway 对任意 codex 请求的统一拒绝字符串。
+
+**`codex_api_key` card 是 OAuth 卡片的 API-key 兄弟**：source=`codex_api_key`，protocol=`openai`，auth_type=`api_key`，driver_type=`custom_openai`，billing_policy=`user_pays`。**模型和 OAuth 路径完全相同**（早期假设"API key 解锁更强模型"经 codex CLI picker 实证为伪）——存在的理由是 billing 路径：（a）没有 ChatGPT Plus/Pro 订阅的用户，（b）想把 agent 用量计费分离到自己 OpenAI 账号的用户。运行时 resolver 看 `agent_framework=codex_cli` 自动走 CodexSDK（不分 OAuth/API key card），前端纯卖"挑哪种付费方式"。Single-instance per user 检查，删旧的才能换新 key。
 
 **models 字段以 JSON 字符串存储**：数据库里 `user_providers.models` 是 JSON 字符串（而非数组类型列），读取时用 `json.loads`，写入时用 `json.dumps`。这是为了保持对 SQLite 和 MySQL 的兼容性，避免数据库方言差异。
 

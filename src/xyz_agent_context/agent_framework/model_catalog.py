@@ -94,6 +94,7 @@ _register(
 # Text / chat / reasoning models surfaced as in-UI suggestions. Embeddings
 # stay alongside because the embedding slot filters by dimensions != None.
 _register(
+    ModelMeta("gpt-5.5", "GPT-5.5"),
     ModelMeta("gpt-5.4", "GPT-5.4"),
     ModelMeta("gpt-5.4-mini", "GPT-5.4 Mini"),
     ModelMeta("gpt-5.4-nano", "GPT-5.4 Nano"),
