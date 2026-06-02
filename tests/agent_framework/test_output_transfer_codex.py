@@ -85,7 +85,7 @@ def test_item_completed_reasoning_emits_thinking_delta():
     assert evs[0]["item"]["content"] == "let me think"
 
 
-# ---------------- Tool calls (command_execution / mcp_call / web_search)
+# ---------------- Tool calls (command_execution / mcp_tool_call / web_search)
 
 
 def test_item_started_command_execution_emits_tool_call_item():
@@ -177,11 +177,14 @@ def test_item_completed_command_execution_with_output_and_nonzero_exit_keeps_bot
     assert "[exit code: 1]" in output  # exit code appended
 
 
-def test_item_started_mcp_call_uses_server_tool_name():
+def test_item_started_mcp_tool_call_uses_server_tool_name():
+    """Real codex CLI 0.135 emits ``type='mcp_tool_call'`` (not
+    ``mcp_call`` as the public docs suggest). Pinned from the
+    2026-06-02 raw-event log capture against slack_module.slack_status."""
     evs = _t({
         "type": "item.started",
         "item": {
-            "type": "mcp_call",
+            "type": "mcp_tool_call",
             "id": "m1",
             "server": "lark_module",
             "tool": "lark_cli",
@@ -193,11 +196,11 @@ def test_item_started_mcp_call_uses_server_tool_name():
     assert item["arguments"] == {"command": "im +messages-send"}
 
 
-def test_item_completed_mcp_call_jsonifies_dict_result():
+def test_item_completed_mcp_tool_call_jsonifies_dict_result():
     evs = _t({
         "type": "item.completed",
         "item": {
-            "type": "mcp_call",
+            "type": "mcp_tool_call",
             "id": "m1",
             "server": "lark_module",
             "tool": "lark_cli",

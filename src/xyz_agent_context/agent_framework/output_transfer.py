@@ -449,7 +449,7 @@ def _empty_delta() -> Dict[str, Any]:
 # listed here is silently dropped with a debug log on the wrapper side.
 _CODEX_ITEM_TYPES_TEXT = frozenset({"agent_message"})
 _CODEX_ITEM_TYPES_THINKING = frozenset({"reasoning"})
-_CODEX_ITEM_TYPES_TOOL = frozenset({"command_execution", "mcp_call", "web_search"})
+_CODEX_ITEM_TYPES_TOOL = frozenset({"command_execution", "mcp_tool_call", "web_search"})
 
 
 def _codex_to_openai_agents(
@@ -571,7 +571,7 @@ def _translate_codex_item(
             },
         }]
 
-    # ---- tool calls (command_execution / mcp_call / web_search) -----
+    # ---- tool calls (command_execution / mcp_tool_call / web_search) -----
     if item_type in _CODEX_ITEM_TYPES_TOOL:
         # Codex emits item.started AND item.completed for tool items.
         # We translate BOTH so the frontend can show "tool running"
@@ -618,7 +618,7 @@ def _codex_tool_name(item: Dict[str, Any]) -> str:
     item_type = item.get("type") or ""
     if item_type == "command_execution":
         return "Bash"  # render as Bash to match CC's tool naming
-    if item_type == "mcp_call":
+    if item_type == "mcp_tool_call":
         server = item.get("server") or ""
         tool = item.get("tool") or ""
         return f"mcp__{server}__{tool}" if server and tool else "mcp"
@@ -632,7 +632,7 @@ def _codex_tool_args(item: Dict[str, Any]) -> Dict[str, Any]:
     item_type = item.get("type") or ""
     if item_type == "command_execution":
         return {"command": item.get("command") or ""}
-    if item_type == "mcp_call":
+    if item_type == "mcp_tool_call":
         # MCP tool args arrive as a dict; pass through.
         args = item.get("arguments")
         if isinstance(args, dict):
@@ -654,7 +654,7 @@ def _codex_tool_output(item: Dict[str, Any]) -> str:
       integer on completed items; we surface it when the command failed
       so the agent can see the non-zero status alongside any captured
       text.
-    - ``mcp_call``: result payload in ``result`` (dict / list / string).
+    - ``mcp_tool_call``: result payload in ``result`` (dict / list / string).
     - ``web_search``: ``results`` list of {title, url, snippet}.
 
     Fallback to ``output`` is kept for forward-compat: if a future
@@ -676,7 +676,7 @@ def _codex_tool_output(item: Dict[str, Any]) -> str:
             else:
                 body = f"[exit code: {exit_code}]"
         return body
-    if item_type == "mcp_call":
+    if item_type == "mcp_tool_call":
         result = item.get("result")
         if isinstance(result, (dict, list)):
             return json.dumps(result, ensure_ascii=False)
