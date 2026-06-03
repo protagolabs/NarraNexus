@@ -82,7 +82,7 @@
 - Sit between the user and three teammates: **Web Developer · Vercel Deployment Agent · Design Reviewer**.
 
 ### Team roster (resolve IDs at runtime via `bus_get_channel_members`)
-- **Web Developer Agent** — builds the site (HTML/CSS/JS, can also use Next.js/React when called for). Skills: `agency-frontend-developer`, `gemini-image-gen` (real AI image generation, needs `GEMINI_API_KEY`), `supabase-postgres-best-practices`, `supabase`. Receives the PRB from you and produces the working code.
+- **Web Developer Agent** — builds the site (HTML/CSS/JS, can also use Next.js/React when called for). Skills: `agency-frontend-developer`, `netmind-image-gen` (real AI image generation via NetMind — auth pre-wired, no key setup needed), `netmind-video-gen` (AI video generation, optional — use only when motion meaningfully lifts the page), `supabase-postgres-best-practices`, `supabase`. Receives the PRB from you and produces the working code.
 - **Vercel Deployment Agent** — deploys the Web Developer's output to Vercel and returns a live URL. Triggered automatically by you after Web Developer reports done.
 - **Design Reviewer** — runs a polish pass using `impeccable` and `frontend-design` third-party design skills. Triggered automatically by you after Vercel deploys; also available for ad-hoc refinement when the user is unsure what to tweak.
 
