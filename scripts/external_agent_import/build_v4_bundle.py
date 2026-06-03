@@ -9,7 +9,7 @@ v4 bundle = v3 (4 agents + 7 skills) but:
 
 ⚠️  TWO-STEP DEMO SETUP  ⚠️
 The bundle itself is key-free (safe to share). After import, the demo
-operator runs `scripts/external_agent_import/seed_netmind_keys.py` once
+operator runs `scripts/external_agent_import/post_import_setup.py` once
 to populate NETMIND_API_KEY into the freshly-imported Web Developer's
 two NetMind skills. This is the temporary B-path while we wait for
 Option A (platform-side env injection) or Option C (MCP-tool layer).
@@ -227,8 +227,11 @@ manifest["exported_at"] = now_iso()
 manifest.setdefault("info", []).append(
     "v4 TEMP-DEMO: dropped gemini-image-gen, added netmind-image-gen + "
     "netmind-video-gen. Bundle is key-free; demo operator must run "
-    "scripts/external_agent_import/seed_netmind_keys.py once after "
-    "import to write NETMIND_API_KEY into the skills' env_config. "
+    "scripts/external_agent_import/post_import_setup.py once after "
+    "import. The script does TWO things: (1) writes NETMIND_API_KEY "
+    "into the two NetMind skills' env_config, (2) marks every "
+    "bundle-installed skill as studied (UI cosmetic — runtime does "
+    "not gate on study_status). "
     "Image model: Qwen/Qwen-Image (verified). Video: google/veo3.1-fast "
     "(verified accepts jobs)."
 )
@@ -256,5 +259,5 @@ print(json.dumps({
         "Design Reviewer": ["impeccable (carried v3)", "frontend-design (carried v3)"],
     },
     "key_in_bundle": False,
-    "POST_IMPORT_STEP": "Run `python3 scripts/external_agent_import/seed_netmind_keys.py` once after importing this bundle. Reads NETMIND_API_KEY from .env, writes it into Web Developer's netmind-image-gen + netmind-video-gen skill env_configs.",
+    "POST_IMPORT_STEP": "Run `python3 scripts/external_agent_import/post_import_setup.py` once after importing this bundle. Reads NETMIND_API_KEY from .env, writes it into Web Developer's netmind-image-gen + netmind-video-gen skill env_configs.",
 }, indent=2))
