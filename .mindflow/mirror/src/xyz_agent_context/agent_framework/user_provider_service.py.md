@@ -29,6 +29,8 @@ stub: false
 
 **`CODEX_CURATED_MODELS` 同时也是前端 dropdown 的 source of truth**：当 agent slot + `agent_framework=codex_cli` 时，**无论 provider source 是 codex_oauth 还是 custom_openai**，前端 dropdown 都只能显示这三个模型。这一条由前端 `ProviderSettings.tsx::getModelsForSlot` 执行——它对 Custom OpenAI provider 的 `models` 字段（用户填了 gpt-4.1 / o3 之类）在 codex_cli 框架下直接忽略，返回硬编码的 curated 列表。Backend 这边只保证 codex_oauth 一定覆盖；如果只改 backend，Custom OpenAI 路径下用户能选到 codex CLI 不接受的 o3 / gpt-4.1，跑起来会被 codex 子进程拒绝。两层都要对齐。
 
+**`codex_cli` 框架的 provider source 白名单 = {codex_oauth, openai}**：set_slot 服务端校验 + 前端 `CODEX_ALLOWED_PROVIDER_SOURCES` 共同 enforce。第三方 OpenAI-protocol 聚合器（netmind / yunwu / openrouter）虽然 protocol 是 "openai"，**但只暴露 chat-completions API，不实现 Responses API**——codex CLI exec 模式硬性要求 Responses API（reasoning model 全部只能这条路），跑起来会 missing model / tool-call 形状不对 / MCP 集成 broken。CC 框架就没这个问题：Claude SDK 接受 chat-completions endpoint，所以 CC + NetMind/DeepSeek 是 valid 组合，Codex + NetMind 不是。两个 framework 看似对称实则约束不同。
+
 **踩过的坑（写在这里防再犯）**：早期我们假设过 `gpt-5.4-codex` 存在（线性外推 "有 5.4-mini 就有 5.4-codex"）。**不存在**——OpenAI 5.4 系列只有 base/mini/nano，codex 路线 5.3 → 5.5 跳过了 5.4。之前 `codex exec --model gpt-5.4-codex` 返回 `"not supported when using Codex with a ChatGPT account"` 不代表模型存在，那是 OAuth gateway 对任意 codex 请求的统一拒绝字符串。
 
 **API-key Codex 不需要专属 card_type**：早期我加过一个 `codex_api_key` card 类型，但功能上与"创建 Custom OpenAI provider + 把 slot 的 `agent_framework` 切到 `codex_cli`"完全等价——resolver 看 protocol=openai 就走 `_codex_config_from_card`，跟 source name 无关。OAuth 卡片有独立功能差异（auth.json 检测 + 凭据路径管理），API key 卡片没有。所以 API-key 路径走 `card_type="openai"` 即可，前端 "+ Custom OpenAI" 按钮就是入口。OAuth provider 仍保留独立 card_type 因为它有真实的 auth_ref 状态管理。

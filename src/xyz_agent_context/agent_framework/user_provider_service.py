@@ -354,6 +354,27 @@ class UserProviderService:
         if required and prov["protocol"] not in [p.value for p in required]:
             raise ValueError(f"Slot '{slot_name}' requires protocol {[p.value for p in required]}, got '{prov['protocol']}'")
 
+        # codex_cli agent slot — narrow further: only OpenAI's own
+        # endpoints (codex_oauth login or Custom OpenAI). Codex CLI
+        # talks to OpenAI's Responses API; third-party aggregators
+        # (netmind / yunwu / openrouter) expose chat-completions only
+        # and would fail at runtime in non-obvious ways (missing model,
+        # tool-call shape mismatch, broken MCP). Frontend hides these
+        # from the dropdown — this server-side check is defense in
+        # depth for any caller bypassing the UI.
+        if (
+            slot_name == SlotName.AGENT.value
+            and agent_framework == "codex_cli"
+            and prov["source"] not in {"codex_oauth", "openai"}
+        ):
+            raise ValueError(
+                f"agent slot with framework=codex_cli accepts only "
+                f"source=codex_oauth or source=openai providers; "
+                f"got source={prov['source']!r}. Third-party aggregator "
+                f"endpoints (netmind / yunwu / openrouter) don't expose "
+                f"OpenAI's Responses API and are not supported."
+            )
+
         # Upsert slot
         existing = await self.db.get_one("user_slots", {"user_id": user_id, "slot_name": slot_name})
         now = datetime.now(timezone.utc).isoformat()

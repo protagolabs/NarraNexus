@@ -871,6 +871,20 @@ export function ProviderSettings() {
   // offer e.g. gpt-4.1 / o3 which codex CLI rejects at runtime.
   const CODEX_CURATED_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
 
+  // Provider sources the codex_cli framework actually works with.
+  // Codex CLI expects OpenAI's Responses API; third-party
+  // aggregators (NetMind / Yunwu / OpenRouter / etc.) only expose
+  // ``chat/completions``, so codex CLI silently fails — model is
+  // missing, tool-calling format mismatches, MCP integration
+  // broken. Without testing each aggregator against codex CLI
+  // we can't claim support. Whitelist what's verified:
+  //   * codex_oauth — ChatGPT login (OpenAI's own backend)
+  //   * openai     — Custom OpenAI provider pointing at
+  //                  ``api.openai.com`` (Responses API native)
+  // Anything else (netmind, yunwu, openrouter, etc.) is hidden
+  // from the agent slot dropdown when framework=codex_cli.
+  const CODEX_ALLOWED_PROVIDER_SOURCES = ['codex_oauth', 'openai']
+
   const getModelsForSlot = (prov: ProviderSummary, slotKey: string) => {
     if (slotKey === 'embedding') {
       if (prov.source === 'netmind') {
@@ -907,7 +921,13 @@ export function ProviderSettings() {
 
     const cfg = getEffectiveSlotConfig(slot.key)
     const ready = !!(cfg?.provider_id && cfg?.model)
-    const matching = getProvidersForSlot(effectiveProtocol)
+    // Agent slot + codex_cli framework → hide third-party
+    // aggregators that codex CLI can't talk to (Responses API
+    // gate); see CODEX_ALLOWED_PROVIDER_SOURCES above.
+    const matching = getProvidersForSlot(effectiveProtocol).filter((p) =>
+      !(slot.key === 'agent' && agentFramework === 'codex_cli') ||
+      CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source)
+    )
     const curProv = cfg?.provider_id ? providers[cfg.provider_id] : null
     const isChanged = !!pendingSlots[slot.key]
     const slotDesc = slot.key === 'agent' && selectedFramework
