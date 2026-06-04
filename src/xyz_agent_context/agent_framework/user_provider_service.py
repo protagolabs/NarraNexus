@@ -38,18 +38,26 @@ def _is_cloud_mode() -> bool:
     return is_cloud_mode()
 
 
-# Canonical curated model list for the ``codex_oauth`` provider.
-# This IS the source of truth — codex CLI's interactive picker
-# decides which models a ChatGPT-account login can use, and that
-# set is what we expose in the dropdown. The ``models`` column on
-# a codex_oauth row is OVERRIDDEN with this constant at read time
-# (see :meth:`UserProviderService.get_user_config`), so any change
-# to this list takes effect on the next Settings reload without
-# requiring a DB migration or user-side SQL.
+# Canonical curated model list for the codex_cli agent framework,
+# regardless of which OpenAI-protocol provider supplies the credential.
+# Codex CLI's interactive picker decides which models its subprocess
+# accepts — same set for ChatGPT-account OAuth AND paid-API-key tier
+# (verified 2026-06-02). Custom OpenAI providers used with
+# ``agent_framework=codex_cli`` must be constrained to this list too,
+# otherwise the frontend dropdown offers e.g. ``o4-mini`` which the
+# codex CLI subprocess rejects.
+#
+# Two consumers:
+#   1. ``UserProviderService.get_user_config`` overrides the stored
+#      ``models`` column on a ``codex_oauth`` row at read time, so
+#      updating the constant propagates without DB migration.
+#   2. Frontend slot dropdown filters by this list when the agent
+#      slot's ``agent_framework == "codex_cli"``, irrespective of
+#      provider source (codex_oauth, custom openai, etc.).
 #
 # Verified 2026-06-02 by running interactive ``codex`` and reading
 # "Select Model and Effort" menu.
-CODEX_OAUTH_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
 
 
 def _generate_provider_id() -> str:
@@ -87,11 +95,11 @@ class UserProviderService:
             # ``codex_oauth`` provider's model list is NOT user-customizable —
             # codex CLI's interactive picker is the source of truth. Always
             # override the stored ``models`` column with the current
-            # ``CODEX_OAUTH_CURATED_MODELS`` constant so a code-side update
+            # ``CODEX_CURATED_MODELS`` constant so a code-side update
             # propagates to existing rows on the next Settings reload, no
             # DB migration needed.
             if row.get("source") == "codex_oauth":
-                stored_models = list(CODEX_OAUTH_CURATED_MODELS)
+                stored_models = list(CODEX_CURATED_MODELS)
             elif row.get("models"):
                 stored_models = json.loads(row["models"])
             else:
@@ -209,11 +217,11 @@ class UserProviderService:
                 "base_url": "",
                 # Seed the column for completeness, but the read path
                 # in ``get_user_config`` overrides this with the
-                # current ``CODEX_OAUTH_CURATED_MODELS`` constant —
+                # current ``CODEX_CURATED_MODELS`` constant —
                 # so the column value is effectively cached, not
                 # canonical. Updating the constant updates the
                 # dropdown for every existing user on next reload.
-                "models": json.dumps(list(CODEX_OAUTH_CURATED_MODELS)),
+                "models": json.dumps(list(CODEX_CURATED_MODELS)),
                 # Codex is OpenAI's product — Anthropic server tools
                 # (WebSearch etc.) are not applicable.
                 "supports_anthropic_server_tools": False,

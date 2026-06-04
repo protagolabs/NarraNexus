@@ -862,12 +862,36 @@ export function ProviderSettings() {
     return urls.includes(prov.base_url || '')
   }
 
+  // Curated model list the Codex CLI subprocess actually accepts.
+  // Must stay in sync with backend ``CODEX_CURATED_MODELS`` in
+  // ``user_provider_service.py`` — verified 2026-06-02 from
+  // codex CLI's interactive "Select Model and Effort" picker.
+  // Both codex_oauth and "Custom OpenAI provider used as codex_cli
+  // agent" funnel through this list; otherwise the dropdown would
+  // offer e.g. gpt-4.1 / o3 which codex CLI rejects at runtime.
+  const CODEX_CURATED_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
+
   const getModelsForSlot = (prov: ProviderSummary, slotKey: string) => {
     if (slotKey === 'embedding') {
       if (prov.source === 'netmind') {
         return embeddingModels.filter((em) => prov.models.includes(em.model_id))
       }
       return embeddingModels.filter((em) => em.model_id.startsWith('text-embedding-'))
+    }
+    // Agent slot + codex_cli framework → always show the codex-
+    // curated set, regardless of provider source AND regardless of
+    // whether the provider's stored ``models`` happens to include
+    // them. A Custom OpenAI provider's ``models`` column is the
+    // user's "I have access to these" claim for non-agent slots
+    // (helper_llm). The codex CLI subprocess talks straight to
+    // OpenAI with the API key — OpenAI's tier check is the real
+    // gate, not this list. Offer all three; if the user's tier
+    // doesn't permit one, they'll see a clear error at run time.
+    if (slotKey === 'agent' && agentFramework === 'codex_cli') {
+      return CODEX_CURATED_MODELS.map((mid) => ({
+        model_id: mid,
+        display_name: knownModels[mid]?.display_name || mid,
+      }))
     }
     return prov.models
       .filter((mid) => !knownModels[mid]?.dimensions)

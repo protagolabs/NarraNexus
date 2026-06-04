@@ -207,7 +207,12 @@ _SUGGESTED_MODELS: dict[str, list[str]] = {
         "claude-haiku-4-5-20251001",
     ],
     "openai": [
-        # Top-10 most recent text / chat / reasoning models.
+        # Top recent text / chat / reasoning models. ``gpt-5.5`` is
+        # the current flagship and the codex CLI default — keep it
+        # first so a user adding a generic OpenAI provider for the
+        # codex_cli agent framework gets it in the dropdown by
+        # default.
+        "gpt-5.5",
         "gpt-5.4",
         "gpt-5.4-mini",
         "gpt-5.4-nano",
