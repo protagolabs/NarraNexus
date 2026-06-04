@@ -23,7 +23,9 @@ stub: false
 
 **Agent slot 协议由 `agent_framework` 决定**：`set_slot()` 不能只看静态 `SLOT_REQUIRED_PROTOCOLS`。当 `user_slots[agent].agent_framework == "codex_cli"` 时，agent slot 接受 OpenAI-protocol provider；默认/Claude Code 路径仍要求 Anthropic。Codex OAuth provider 创建时也直接写入 `driver_type="codex_oauth"` 和 `auth_ref="codex-cli:~/.codex/auth.json"`，避免等待启动 backfill 才能被 resolver 使用。
 
-**Codex provider 的 `models` 列表 = codex CLI 自己的 curated picker**：seed 是 `["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]`——2026-06-02 直接看 codex CLI 交互式 "Select Model and Effort" 菜单确认。`gpt-5.5` 是 codex 自己标记 default flagship；`gpt-5.4` 是 strong everyday；`gpt-5.4-mini` 是 fast/cheap。Legacy 变种（`gpt-5-codex`、`gpt-5.2-codex`、`gpt-5.3-codex`）codex CLI 支持但不放 picker，要走 `codex -m <name>` 显式调用——不进 NarraNexus dropdown 默认列表。
+**Codex provider 的 `models` 列表 = codex CLI 自己的 curated picker**：源头是模块顶层常量 `CODEX_OAUTH_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]`——2026-06-02 直接看 codex CLI 交互式 "Select Model and Effort" 菜单确认。`gpt-5.5` 是 codex 自己标记 default flagship；`gpt-5.4` 是 strong everyday；`gpt-5.4-mini` 是 fast/cheap。Legacy 变种（`gpt-5-codex`、`gpt-5.2-codex`、`gpt-5.3-codex`）codex CLI 支持但不放 picker，要走 `codex -m <name>` 显式调用——不进 NarraNexus dropdown 默认列表。
+
+**codex_oauth 的 `models` 列读时强制覆盖**：常量 `CODEX_OAUTH_CURATED_MODELS` 才是 source of truth；DB 里那列只是缓存。`get_user_config` 看到 `source=='codex_oauth'` 直接用常量替换 `models` 字段，**所以 code 改 seed 时下次 reload Settings 即时生效**——不需要 DB migration、不需要用户跑 SQL、不需要重建 provider。Codex 模型 user 不能自定义（user 自定义没意义，codex CLI 不认非 picker 的名字），这种"server 决定"的字段就该这么做。其他 source（claude_oauth、netmind、custom_openai 等）正常走 DB 存储 + user 自定义路径，不受这一规则影响。
 
 **踩过的坑（写在这里防再犯）**：早期我们假设过 `gpt-5.4-codex` 存在（线性外推 "有 5.4-mini 就有 5.4-codex"）。**不存在**——OpenAI 5.4 系列只有 base/mini/nano，codex 路线 5.3 → 5.5 跳过了 5.4。之前 `codex exec --model gpt-5.4-codex` 返回 `"not supported when using Codex with a ChatGPT account"` 不代表模型存在，那是 OAuth gateway 对任意 codex 请求的统一拒绝字符串。
 

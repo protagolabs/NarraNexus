@@ -38,6 +38,20 @@ def _is_cloud_mode() -> bool:
     return is_cloud_mode()
 
 
+# Canonical curated model list for the ``codex_oauth`` provider.
+# This IS the source of truth — codex CLI's interactive picker
+# decides which models a ChatGPT-account login can use, and that
+# set is what we expose in the dropdown. The ``models`` column on
+# a codex_oauth row is OVERRIDDEN with this constant at read time
+# (see :meth:`UserProviderService.get_user_config`), so any change
+# to this list takes effect on the next Settings reload without
+# requiring a DB migration or user-side SQL.
+#
+# Verified 2026-06-02 by running interactive ``codex`` and reading
+# "Select Model and Effort" menu.
+CODEX_OAUTH_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+
+
 def _generate_provider_id() -> str:
     return f"prov_{uuid4().hex[:8]}"
 
@@ -70,6 +84,18 @@ class UserProviderService:
             # pre-dating the migration won't have it; default False so we
             # err on the side of disabling WebSearch rather than hanging it.
             _server_tools = row.get("supports_anthropic_server_tools", 0)
+            # ``codex_oauth`` provider's model list is NOT user-customizable —
+            # codex CLI's interactive picker is the source of truth. Always
+            # override the stored ``models`` column with the current
+            # ``CODEX_OAUTH_CURATED_MODELS`` constant so a code-side update
+            # propagates to existing rows on the next Settings reload, no
+            # DB migration needed.
+            if row.get("source") == "codex_oauth":
+                stored_models = list(CODEX_OAUTH_CURATED_MODELS)
+            elif row.get("models"):
+                stored_models = json.loads(row["models"])
+            else:
+                stored_models = []
             prov = ProviderConfig(
                 provider_id=row["provider_id"],
                 name=row["name"],
@@ -78,7 +104,7 @@ class UserProviderService:
                 auth_type=row.get("auth_type", "api_key"),
                 api_key=row.get("api_key", ""),
                 base_url=row.get("base_url", ""),
-                models=json.loads(row["models"]) if row.get("models") else [],
+                models=stored_models,
                 linked_group=row.get("linked_group", ""),
                 is_active=bool(row.get("is_active", 1)),
                 supports_anthropic_server_tools=bool(_server_tools),
@@ -181,21 +207,13 @@ class UserProviderService:
                 "auth_type": "oauth",
                 "api_key": "",
                 "base_url": "",
-                # Curated model list from ``codex`` CLI's interactive
-                # picker (2026-06-02): gpt-5.5 (default flagship),
-                # gpt-5.4 (strong everyday), gpt-5.4-mini (fast/cheap).
-                # These are the three the codex CLI itself recommends
-                # under "Select Model and Effort". Legacy variants
-                # (gpt-5-codex, gpt-5.2-codex, gpt-5.3-codex etc.) are
-                # accessible via ``codex -m <name>`` but not curated;
-                # don't put them in the dropdown by default.
-                #
-                # ``gpt-5.5`` first so new slots default to flagship.
-                # Pre-2026-06-02 seed had ``gpt-5.2`` instead, which
-                # works but isn't curated; ``gpt-5.4-codex`` was also
-                # tried and DOES NOT EXIST (OpenAI's 5.4 line has no
-                # codex variant; codex line jumped 5.3 → 5.5).
-                "models": json.dumps(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]),
+                # Seed the column for completeness, but the read path
+                # in ``get_user_config`` overrides this with the
+                # current ``CODEX_OAUTH_CURATED_MODELS`` constant —
+                # so the column value is effectively cached, not
+                # canonical. Updating the constant updates the
+                # dropdown for every existing user on next reload.
+                "models": json.dumps(list(CODEX_OAUTH_CURATED_MODELS)),
                 # Codex is OpenAI's product — Anthropic server tools
                 # (WebSearch etc.) are not applicable.
                 "supports_anthropic_server_tools": False,
