@@ -235,8 +235,15 @@ tmux new-session -d -s "$SESSION" -n "Control" \
   "bash '$CONTROL_SCRIPT'"
 
 # --- SQLite Proxy (MUST start first — all other services depend on it) ---
+# Note: ``uv run`` is FORBIDDEN here. It re-syncs the venv on every
+# invocation, which strips the project's editable install — and since
+# DB Proxy is the FIRST service to start, that strip cascades and
+# breaks every subsequent service in this session. ``$VENV_PY`` runs
+# the same Python without the auto-sync side-effect. Cannot use
+# ``$VENV_PY`` directly here because it's defined below — declare it
+# inline.
 tmux new-window -t "$SESSION" -n "DB Proxy" \
-  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; uv run python -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
+  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; '$PROJECT_ROOT/.venv/bin/python3' -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
 
 # Wait for proxy to be ready before starting other services
 echo -n "Waiting for DB Proxy..."
@@ -283,12 +290,13 @@ tmux new-window -t "$SESSION" -n "LarkTrigger" \
   "$ENV_CMD; echo '=== Lark Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
 
 # --- Slack Trigger ---
+# Same ``uv run`` ban as DB Proxy. Use $VENV_PY directly.
 tmux new-window -t "$SESSION" -n "SlackTrigger" \
-  "$ENV_CMD; echo '=== Slack Trigger ==='; uv run python -m xyz_agent_context.module.slack_module.run_slack_trigger; echo 'Slack Trigger stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Slack Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.slack_module.run_slack_trigger; echo 'Slack Trigger stopped. Press Enter to close.'; read"
 
 # --- Telegram Trigger ---
 tmux new-window -t "$SESSION" -n "TelegramTrigger" \
-  "$ENV_CMD; echo '=== Telegram Trigger ==='; uv run python -m xyz_agent_context.module.telegram_module.run_telegram_trigger; echo 'Telegram Trigger stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Telegram Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.telegram_module.run_telegram_trigger; echo 'Telegram Trigger stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \
