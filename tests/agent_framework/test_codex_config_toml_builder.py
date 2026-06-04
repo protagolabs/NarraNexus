@@ -36,6 +36,10 @@ def test_minimal_emits_instructions_path_and_sandbox_mode():
     # work in codex exec mode (issue #16685). Asserting the exact
     # string also guards against silent re-downgrade to workspace-write.
     assert 'sandbox_mode = "danger-full-access"' in t
+    # Reasoning summary must be ``detailed`` — codex CLI defaults to
+    # ``none`` which leaves the UI's Thinking panel empty. See the
+    # 2026-06-04 empirical comparison in the builder docstring.
+    assert 'model_reasoning_summary = "detailed"' in t
 
 
 def test_minimal_omits_mcp_servers_and_model_providers():

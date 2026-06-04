@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/_codex_config_toml_builder.py
 stub: false
-last_verified: 2026-06-01
+last_verified: 2026-06-04
 ---
 
 ## Why it exists
@@ -88,3 +88,12 @@ unit-tested without spawning a subprocess.
 - **Constant key name ``CODEX_API_KEY`` for ``env_key``.** Keep
   aligned with ``CodexConfig.to_cli_env`` — both reference the
   same env var. Diverging means "key set but never read" bugs.
+- **``model_reasoning_summary = "detailed"``** — codex CLI's
+  ``exec`` default is ``none``，导致 reasoning model（gpt-5.5 /
+  gpt-5.4 / gpt-5.4-mini）跑完之后**完全不发 `reasoning` item**，
+  前端的 Thinking 面板永远空。2026-06-04 跑了 `codex exec --json`
+  实测：``none`` 无 reasoning item；``concise`` 只给 header 字符串；
+  ``detailed`` 给完整自然语言段落（"The user wants me to... I'll
+  express it as 17 × (20 + 3)... 391"）。我们走 ``detailed``，跟
+  DeepSeek R1 的 CoT 体验对齐——OpenAI 仍然 gate 完整 CoT，但
+  detailed summary 至少给一段人话。Token 成本+30-200 / turn。

@@ -127,6 +127,20 @@ def build_codex_config_toml(
     # ---- 1. Top-level scalar settings --------------------------------------
     lines.append(_kv_line("model_instructions_file", str(instructions_path)))
     lines.append(_kv_line("sandbox_mode", sandbox_mode))
+    # Request a human-readable reasoning summary for the UI's
+    # "Thinking" panel. ``codex exec`` defaults to ``none`` which
+    # leaves the panel empty — verified 2026-06-04 with
+    # ``codex exec --json --config 'model_reasoning_summary="..."'``:
+    #   none     → no reasoning item emitted at all
+    #   concise  → reasoning item with header-only text
+    #              (e.g. "**Breaking down multiplication steps**")
+    #   detailed → reasoning item with full narrative paragraph
+    # OpenAI gates the underlying chain-of-thought tokens regardless;
+    # ``detailed`` is the most user-readable summary they expose.
+    # Comparable to DeepSeek-R1's CoT — shorter, but the same kind
+    # of content. Token cost: +30-200 output tokens per turn for the
+    # summary itself.
+    lines.append(_kv_line("model_reasoning_summary", "detailed"))
     if config.model:
         lines.append(_kv_line("model", config.model))
 
