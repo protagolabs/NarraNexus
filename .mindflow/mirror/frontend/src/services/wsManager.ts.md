@@ -1,8 +1,44 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-05-27
+last_verified: 2026-06-02
 stub: false
 ---
+
+## 2026-06-02 — reconnect `run_ended` must clear isStreaming (stuck "Acting…" fix)
+
+The reconnect onmessage handler ran the `translated === null` early-return
+guard BEFORE its terminal-frame block, so `run_ended` (which
+`translateReconnectFrame` absorbs to null) returned early and never set
+`entry.completed` / fired onComplete / called `stopStreaming`. Symptom: a
+run that finished *during the outage that triggered the reconnect* replays
+its history, the server sends `run_ended`, the client drops it, and the
+session stays `isStreaming = true` forever — the "Acting…" spinner spins
+until a manual page refresh. Fix: hoist the `run_ended` / `complete` block
+above the translate/early-return, and for `run_ended` call
+`stopStreaming(agentId, agentName)` directly (`complete` still reaches
+stopStreaming through processMessage as a live frame; stopStreaming is
+idempotent via its `!isStreaming` guard, so the double path is safe). This
+is a root-cause fix, NOT a timeout — no iron-rule #14/#15 ceiling; we
+simply stop dropping the server's own terminal signal. This also covers the
+"complete frame lost on the fresh-run WS" case: that path reconnects, and
+the reconnect now retrieves `run_ended` and clears the spinner.
+
+## 2026-05-29 — auto-reconnect on passive disconnect (A3)
+
+An unexpected onclose (not a `complete` frame, not an explicit close())
+no longer just stopStreaming. If run() captured a run_id (from the
+`run_started` frame, stored on ConnectionEntry), wsManager schedules a
+capped-exponential-backoff (1→2→4→8→16→30s, RECONNECT_BACKOFF_MS) retry
+that re-attaches to the still-alive BackgroundRun via the existing Phase C
+reconnect() path. NO attempt ceiling (iron rule #14); the cap only stops
+a tight loop. The reconnect WS carries the same context so ITS own
+onclose re-arms the backoff (flapping networks keep retrying);
+run_reconnect resets the counter. No run_id → stopStreaming fallback
+(unchanged). reconnectTimers / reconnectAttempts maps track pending
+retries; close()/closeAll() cancel them. **Gotcha**: close() must NOT
+reset reconnectAttempts (reconnect() calls close() internally — resetting
+there would defeat backoff growth); the counter resets via run() / a
+successful re-attach instead.
 
 ## 2026-05-27 — bridge WS AuthError frames to narranexus:auth-expired
 

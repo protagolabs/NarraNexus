@@ -210,6 +210,13 @@ async def add_provider(req: AddProviderRequest, request: Request):
         except Exception:
             pass
 
+        # Edge-triggered recovery: a newly-added provider (with default slots)
+        # can make the user runnable — revive their PAUSED_NO_QUOTA jobs.
+        from xyz_agent_context.module.job_module.job_recovery import (
+            schedule_user_no_quota_rearm,
+        )
+        schedule_user_no_quota_rearm(uid)
+
         return {"success": True, "provider_ids": new_ids, "data": _config_to_response(config)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -317,6 +324,13 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
             set_user_config(cfg.claude, cfg.openai, cfg.embedding, cfg.codex)
         except Exception:
             pass
+
+        # Edge-triggered recovery: completing/changing the agent slot can make
+        # the user runnable — revive their PAUSED_NO_QUOTA jobs (non-blocking).
+        from xyz_agent_context.module.job_module.job_recovery import (
+            schedule_user_no_quota_rearm,
+        )
+        schedule_user_no_quota_rearm(uid)
 
         return {"success": True, "data": _config_to_response(config), "validation_errors": errors}
     except ValueError as e:

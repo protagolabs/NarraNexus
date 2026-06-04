@@ -26,7 +26,7 @@ from xyz_agent_context.schema import (
     ErrorMessage,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
-from xyz_agent_context.agent_framework import ClaudeAgentSDK, CodexSDK
+from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 
 if TYPE_CHECKING:
@@ -43,30 +43,22 @@ _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ..
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 
 
-# Map from ``user_slots.agent_framework`` values → SDK class. Defines
-# the closed set of supported coding-agent frameworks. Anything not
-# in this dict falls back to ClaudeAgentSDK (see
-# ``_resolve_agent_framework_sdk`` below).
-_AGENT_FRAMEWORK_SDK_MAP: dict[str, type] = {
-    "claude_code": ClaudeAgentSDK,
-    "codex_cli": CodexSDK,
-}
+async def _resolve_agent_framework_name(user_id: str, db_client: Any) -> str:
+    """Return the user's coding-agent framework name (for the driver
+    registry). Reads ``user_slots[user_id, slot_name='agent'].agent_framework``.
 
-
-async def _resolve_agent_framework_sdk(user_id: str, db_client: Any) -> type:
-    """Return the SDK class for this user's coding-agent framework choice.
-
-    Reads ``user_slots[user_id, slot_name='agent'].agent_framework``.
-    Always falls back to ``ClaudeAgentSDK`` on:
+    Always falls back to ``"claude_code"`` on:
       - row missing (new users)
       - column null (rows from before Task 1 migration)
-      - unknown framework value (forward-compat with future
-        ``agent_framework`` values landing before client code knows them)
-      - DB lookup error (defensive — never let an `agent_framework`
+      - DB lookup error (defensive — never let an ``agent_framework``
         column issue block an agent run)
 
-    The fallback default keeps existing users on Claude Code without
-    any migration; Codex is opt-in via the Settings page.
+    Unknown framework names are NOT silently rewritten here — they're
+    handed to ``get_agent_loop_driver`` which raises ``ValueError`` so a
+    typo in config surfaces at the dispatch site instead of masquerading
+    as "claude". The driver registry has both ``claude_code`` and
+    ``codex_cli`` aliases registered, so the two values
+    ``user_slots.agent_framework`` ever holds resolve cleanly.
     """
     try:
         row = await db_client.get_one(
@@ -77,17 +69,9 @@ async def _resolve_agent_framework_sdk(user_id: str, db_client: Any) -> type:
             f"[step_3] agent_framework lookup failed for user={user_id}: {e}; "
             f"falling back to claude_code"
         )
-        return ClaudeAgentSDK
+        return "claude_code"
 
-    framework = (row or {}).get("agent_framework") or "claude_code"
-    sdk_cls = _AGENT_FRAMEWORK_SDK_MAP.get(framework)
-    if sdk_cls is None:
-        logger.warning(
-            f"[step_3] unknown agent_framework={framework!r} for user={user_id}; "
-            f"falling back to claude_code"
-        )
-        return ClaudeAgentSDK
-    return sdk_cls
+    return (row or {}).get("agent_framework") or "claude_code"
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -649,10 +633,6 @@ async def step_3_agent_loop(
     )
 
     # ------------- 3.2: Run ContextRuntime -------------
-    # Await EverMemOS episodes (launched in parallel at Step 0)
-    relevant_episodes = await ctx.evermemos_task if hasattr(ctx, 'evermemos_task') and ctx.evermemos_task else []
-    logger.info(f"  [EverMemOS-Search] Awaited: {len(relevant_episodes)} episodes ready for context")
-
     context = await context_runtime.run(
         ctx.narrative_list,
         ctx.active_instances,
@@ -661,7 +641,6 @@ async def step_3_agent_loop(
         query_embedding=ctx.query_embedding,
         created_job_ids=ctx.created_job_ids,
         trigger_extra_data=ctx.trigger_extra_data,
-        relevant_episodes=relevant_episodes,
     )
     substeps.append(
         f"[3.2] ✓ Context build complete: {len(context.messages)} messages, "
@@ -724,13 +703,18 @@ async def step_3_agent_loop(
     # except would flip displayContent to the error string for the
     # split second before the synthetic send_message lands.
     captured_error: dict | None = None
-    # Dispatch to the per-user coding-agent SDK. Defaults to
-    # ClaudeAgentSDK for backward compatibility; Codex CLI when the
-    # user has opted in via Settings → Providers → Agent Framework.
-    sdk_cls = await _resolve_agent_framework_sdk(ctx.user_id, db_client)
-    logger.info(f"[step_3] agent_loop SDK: {sdk_cls.__name__} (user={ctx.user_id})")
+    # Select the agent-loop framework via the registry (iron rule #9).
+    # Read the user's per-agent choice from user_slots; fall back to
+    # claude_code on missing row / DB hiccup. Pass the resolved name
+    # into the registry — driver factories are registered under both
+    # the canonical user-facing names (claude_code / codex_cli) and
+    # short aliases (claude / codex), so any value we read here that
+    # the system supports will resolve.
+    framework_name = await _resolve_agent_framework_name(ctx.user_id, db_client)
+    logger.info(f"[step_3] agent_loop framework: {framework_name!r} (user={ctx.user_id})")
+    driver = get_agent_loop_driver(framework=framework_name, working_path=agent_working_path)
     try:
-        async for response in sdk_cls(working_path=agent_working_path).agent_loop(
+        async for response in driver.agent_loop(
             messages=messages,
             mcp_server_urls=ctx.mcp_urls,
             extra_env=skill_env_vars or None,
