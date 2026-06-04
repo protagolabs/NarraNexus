@@ -879,11 +879,17 @@ export function ProviderSettings() {
   // broken. Without testing each aggregator against codex CLI
   // we can't claim support. Whitelist what's verified:
   //   * codex_oauth — ChatGPT login (OpenAI's own backend)
-  //   * openai     — Custom OpenAI provider pointing at
-  //                  ``api.openai.com`` (Responses API native)
+  //   * user        — Provider added via "+ Custom OpenAI" form
+  //                  (assumes user pointed it at api.openai.com or
+  //                  a Responses-API-compatible endpoint — that's
+  //                  on the user to get right).
   // Anything else (netmind, yunwu, openrouter, etc.) is hidden
   // from the agent slot dropdown when framework=codex_cli.
-  const CODEX_ALLOWED_PROVIDER_SOURCES = ['codex_oauth', 'openai']
+  // Note: "openai" is a PROTOCOL value, not a SOURCE — preset
+  // aggregators are openai-protocol too. Filter by source, not
+  // protocol (protocol is already enforced upstream by the slot
+  // framework check).
+  const CODEX_ALLOWED_PROVIDER_SOURCES = ['codex_oauth', 'user']
 
   const getModelsForSlot = (prov: ProviderSummary, slotKey: string) => {
     if (slotKey === 'embedding') {
