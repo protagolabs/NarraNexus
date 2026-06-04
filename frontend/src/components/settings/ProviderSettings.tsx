@@ -491,12 +491,6 @@ export function ProviderSettings() {
   // dangling `claude auth login` child.
   const [claudeLoginRemaining, setClaudeLoginRemaining] = useState<number | null>(null)
 
-  // Codex API Key card — sibling of Codex OAuth, unlocks the stronger
-  // models OAuth tier rejects (gpt-5.4-codex etc.). Input is held
-  // here until the user clicks "Add as Provider".
-  const [codexApiKeyInput, setCodexApiKeyInput] = useState('')
-  const [codexApiKeyAdding, setCodexApiKeyAdding] = useState(false)
-
   // Quick Add (preset provider)
   const [selectedPreset, setSelectedPreset] = useState<string>(PRESET_PROVIDERS[0].id)
   const [presetKey, setPresetKey] = useState('')
@@ -620,7 +614,6 @@ export function ProviderSettings() {
   const hasProviders = providerList.length > 0
   const hasClaude = providerList.some((p) => p.source === 'claude_oauth')
   const hasCodex = providerList.some((p) => p.source === 'codex_oauth')
-  const hasCodexApiKey = providerList.some((p) => p.source === 'codex_api_key')
 
   // Check which preset providers are already added
   const addedPresets = new Set(providerList.map((p) => p.source))
@@ -695,18 +688,6 @@ export function ProviderSettings() {
 
   const handleAddCodexOAuth = async () => {
     await addProvider({ card_type: 'codex_oauth' })
-  }
-
-  const handleAddCodexApiKey = async () => {
-    const key = codexApiKeyInput.trim()
-    if (!key) {
-      setError('Please enter an OpenAI API key')
-      return
-    }
-    setCodexApiKeyAdding(true)
-    const ok = await addProvider({ card_type: 'codex_api_key', api_key: key })
-    if (ok) setCodexApiKeyInput('')
-    setCodexApiKeyAdding(false)
   }
 
   const handleClaudeLogin = async () => {
@@ -1432,66 +1413,14 @@ export function ProviderSettings() {
             )}
           </div>
 
-          {/* ---- Codex CLI (API Key) Card ----
+          {/* ---- Custom: Add Protocol Buttons ----
             *
-            * Sibling of "Codex CLI Login" above. Same Codex CLI
-            * subprocess and same agent_framework path; differs only
-            * in the auth credential (paid OpenAI API key vs. ChatGPT
-            * OAuth token). Exists because the ChatGPT OAuth tier
-            * server-side rejects the stronger Codex models —
-            * gpt-5.4-codex / gpt-5 / o3 etc. — so users who want
-            * those have to provide their own API key.
-            *
-            * Single-instance per user (backend enforces); delete and
-            * re-add to swap keys.
+            * Note: API-key Codex flows through ``+ Custom OpenAI`` —
+            * the resolver builds CodexConfig from any OpenAI-protocol
+            * provider when ``agent_framework=codex_cli`` is set on
+            * the slot. No dedicated card needed; auth.json fetch is
+            * the only thing the OAuth card adds functionally.
             */}
-          <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
-            <div className="flex items-center gap-2 mb-1">
-              <h4 className="text-sm font-medium text-[var(--text-primary)]">Codex CLI (API Key)</h4>
-            </div>
-            <p className="text-sm text-[var(--text-tertiary)] mb-1">
-              Paid OpenAI API key. Same Codex CLI agent and models as the OAuth path
-              above (<span className="font-mono text-xs">gpt-5.5</span> /{' '}
-              <span className="font-mono text-xs">gpt-5.4</span> /{' '}
-              <span className="font-mono text-xs">gpt-5.4-mini</span>) —
-              choose this if you don&apos;t have a ChatGPT Plus / Pro subscription,
-              or want agent usage billed to your OpenAI account.
-            </p>
-            <p className="text-xs text-[var(--text-tertiary)] mb-3 italic">
-              Codex CLI must already be installed (use the Login card above to auto-install).
-            </p>
-
-            {hasCodexApiKey ? (
-              <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-                <span>{'✓'}</span>
-                <span>Added as a NarraNexus provider {'—'} assignable in Step 2 below.</span>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <input
-                  type="password"
-                  value={codexApiKeyInput}
-                  onChange={(e) => setCodexApiKeyInput(e.target.value)}
-                  placeholder="sk-proj-..."
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] font-mono"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !codexApiKeyAdding) {
-                      e.preventDefault()
-                      handleAddCodexApiKey()
-                    }
-                  }}
-                />
-                <button
-                  onClick={handleAddCodexApiKey}
-                  disabled={codexApiKeyAdding || !codexApiKeyInput.trim()}
-                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                  {codexApiKeyAdding ? 'Adding...' : 'Add as Provider'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* ---- Custom: Add Protocol Buttons ---- */}
           <div className="flex gap-2">
             <button onClick={() => openForm('anthropic')}
               className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">

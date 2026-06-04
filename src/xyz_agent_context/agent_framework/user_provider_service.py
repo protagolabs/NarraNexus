@@ -205,68 +205,6 @@ class UserProviderService:
             }, now)
             new_ids.append(pid)
 
-        elif card_type == "codex_api_key":
-            # Sibling of codex_oauth: same Codex CLI subprocess, same
-            # available models, but authenticated via a paid OpenAI
-            # API key instead of the ChatGPT OAuth login. Use cases:
-            # (a) users without a ChatGPT Plus/Pro subscription,
-            # (b) users who want agent usage billed to their personal
-            # OpenAI account separately from ChatGPT.
-            #
-            # NOT a "model unlock" — earlier hypothesis was that API-
-            # key tier unlocked codex variants OAuth rejected; verified
-            # 2026-06-02 against codex CLI's interactive picker that
-            # both paths see the same curated model set
-            # (gpt-5.5 / gpt-5.4 / gpt-5.4-mini). Legacy variants are
-            # available via ``codex -m`` but not put in the dropdown.
-            #
-            # ``api_key`` flows into CodexConfig via the resolver, which
-            # injects ``CODEX_API_KEY`` env into the codex CLI
-            # subprocess. No on-disk auth.json staging needed — that's
-            # the oauth path only.
-            #
-            # Single-instance per user (mirrors codex_oauth) — delete
-            # to swap keys. base_url stays empty so codex CLI talks to
-            # its bundled OpenAI endpoint; users on enterprise tenants
-            # with a custom proxy should add a Custom OpenAI provider
-            # instead and toggle agent_framework=codex_cli on the slot.
-            if not api_key:
-                raise ValueError("api_key is required for codex_api_key card")
-
-            existing = await self.db.get(
-                "user_providers", filters={"user_id": user_id, "source": "codex_api_key"}
-            )
-            if existing:
-                raise ValueError("Codex API Key provider already exists for this user")
-
-            pid = _generate_provider_id()
-            await self._insert_provider(user_id, {
-                "provider_id": pid,
-                "name": "Codex CLI (API Key)",
-                "source": "codex_api_key",
-                "protocol": "openai",
-                "auth_type": "api_key",
-                "api_key": api_key,
-                "base_url": "",
-                # Same curated set as codex_oauth — codex CLI's
-                # interactive picker shows the same three regardless
-                # of auth method. ``gpt-5.5`` first so new slots
-                # default to the flagship.
-                "models": json.dumps(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]),
-                # OpenAI provider — Anthropic server tools N/A.
-                "supports_anthropic_server_tools": False,
-                # No Codex-specific driver: this row is auth-key shaped
-                # like any other OpenAI provider. ``probe`` falls back
-                # to the generic OpenAI key check via CustomOpenAIDriver.
-                "driver_type": "custom_openai",
-                # User-paid, not external_oauth — usage is billed to
-                # the API key's owner (cost_records only, no quota
-                # deduction; matches derive_billing_policy convention).
-                "billing_policy": "user_pays",
-                "auth_ref": "",
-            }, now)
-            new_ids.append(pid)
-
         elif card_type in ("anthropic", "openai"):
             pid = _generate_provider_id()
             display_name = name or f"Custom {card_type.title()}"

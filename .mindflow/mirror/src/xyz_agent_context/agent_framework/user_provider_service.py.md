@@ -27,7 +27,7 @@ stub: false
 
 **踩过的坑（写在这里防再犯）**：早期我们假设过 `gpt-5.4-codex` 存在（线性外推 "有 5.4-mini 就有 5.4-codex"）。**不存在**——OpenAI 5.4 系列只有 base/mini/nano，codex 路线 5.3 → 5.5 跳过了 5.4。之前 `codex exec --model gpt-5.4-codex` 返回 `"not supported when using Codex with a ChatGPT account"` 不代表模型存在，那是 OAuth gateway 对任意 codex 请求的统一拒绝字符串。
 
-**`codex_api_key` card 是 OAuth 卡片的 API-key 兄弟**：source=`codex_api_key`，protocol=`openai`，auth_type=`api_key`，driver_type=`custom_openai`，billing_policy=`user_pays`。**模型和 OAuth 路径完全相同**（早期假设"API key 解锁更强模型"经 codex CLI picker 实证为伪）——存在的理由是 billing 路径：（a）没有 ChatGPT Plus/Pro 订阅的用户，（b）想把 agent 用量计费分离到自己 OpenAI 账号的用户。运行时 resolver 看 `agent_framework=codex_cli` 自动走 CodexSDK（不分 OAuth/API key card），前端纯卖"挑哪种付费方式"。Single-instance per user 检查，删旧的才能换新 key。
+**API-key Codex 不需要专属 card_type**：早期我加过一个 `codex_api_key` card 类型，但功能上与"创建 Custom OpenAI provider + 把 slot 的 `agent_framework` 切到 `codex_cli`"完全等价——resolver 看 protocol=openai 就走 `_codex_config_from_card`，跟 source name 无关。OAuth 卡片有独立功能差异（auth.json 检测 + 凭据路径管理），API key 卡片没有。所以 API-key 路径走 `card_type="openai"` 即可，前端 "+ Custom OpenAI" 按钮就是入口。OAuth provider 仍保留独立 card_type 因为它有真实的 auth_ref 状态管理。
 
 **models 字段以 JSON 字符串存储**：数据库里 `user_providers.models` 是 JSON 字符串（而非数组类型列），读取时用 `json.loads`，写入时用 `json.dumps`。这是为了保持对 SQLite 和 MySQL 的兼容性，避免数据库方言差异。
 
