@@ -161,8 +161,17 @@ interface AgentFramework {
 
 const AGENT_FRAMEWORKS: AgentFramework[] = [
   { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
-  { id: 'codex_cli', label: 'Codex CLI', protocol: 'openai', desc: 'OpenAI codex exec — JSON Lines streaming' },
+  { id: 'codex_cli', label: 'Codex CLI (v1)', protocol: 'openai', desc: 'OpenAI codex exec — JSON Lines streaming' },
+  { id: 'codex_cli_v2', label: 'Codex CLI (v2)', protocol: 'openai', desc: 'Official openai-codex SDK — streaming reasoning + RPC interrupt' },
 ]
+
+// Single source of truth for "is this a codex variant?" — mirrors
+// the backend's ``provider_driver.resolver._CODEX_FRAMEWORK_VALUES``.
+// Adding a v3 / preview framework later is one edit, not five
+// scattered ``=== 'codex_cli'`` comparisons.
+const CODEX_FRAMEWORK_IDS = new Set(['codex_cli', 'codex_cli_v2', 'codex_official'])
+const isCodexFramework = (framework: string | null | undefined): boolean =>
+  CODEX_FRAMEWORK_IDS.has(framework || '')
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
   { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic)', protocol: 'anthropic' },
@@ -907,7 +916,7 @@ export function ProviderSettings() {
     // OpenAI with the API key — OpenAI's tier check is the real
     // gate, not this list. Offer all three; if the user's tier
     // doesn't permit one, they'll see a clear error at run time.
-    if (slotKey === 'agent' && agentFramework === 'codex_cli') {
+    if (slotKey === 'agent' && isCodexFramework(agentFramework)) {
       return CODEX_CURATED_MODELS.map((mid) => ({
         model_id: mid,
         display_name: knownModels[mid]?.display_name || mid,
@@ -931,7 +940,7 @@ export function ProviderSettings() {
     // aggregators that codex CLI can't talk to (Responses API
     // gate); see CODEX_ALLOWED_PROVIDER_SOURCES above.
     const matching = getProvidersForSlot(effectiveProtocol).filter((p) =>
-      !(slot.key === 'agent' && agentFramework === 'codex_cli') ||
+      !(slot.key === 'agent' && isCodexFramework(agentFramework)) ||
       CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source)
     )
     const curProv = cfg?.provider_id ? providers[cfg.provider_id] : null
@@ -1005,7 +1014,7 @@ export function ProviderSettings() {
                 <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
               ))}
             </select>
-            {agentFrameworkSaving && agentFramework === 'codex_cli' && (
+            {agentFrameworkSaving && isCodexFramework(agentFramework) && (
               <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">
                 {'Checking / installing Codex CLI… (first install may take 30-60s)'}
               </div>

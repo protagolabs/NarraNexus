@@ -1,7 +1,26 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-05-31
+last_verified: 2026-06-08
 ---
+
+## 2026-06-08 — Agent framework dropdown exposes Codex CLI v2
+
+`AGENT_FRAMEWORKS` now lists three entries instead of two:
+
+- `claude_code` (Claude Code)
+- `codex_cli` (Codex CLI v1 — manual subprocess)
+- `codex_cli_v2` (Codex CLI v2 — official `openai-codex` Python SDK, streaming reasoning + RPC interrupt)
+
+The dropdown is the only end-user path to opt into v2 — direct SQL on `user_slots.agent_framework` is blocked by sqlite_proxy holding the WAL lock while backend is running.
+
+To avoid five scattered `agentFramework === 'codex_cli'` checks drifting as more codex variants land, a module-level helper centralizes the check:
+
+```ts
+const CODEX_FRAMEWORK_IDS = new Set(['codex_cli', 'codex_cli_v2', 'codex_official'])
+const isCodexFramework = (framework) => CODEX_FRAMEWORK_IDS.has(framework || '')
+```
+
+This mirrors the backend's `provider_driver/resolver._CODEX_FRAMEWORK_VALUES` — same name, same shape, same purpose. **Adding a v3 framework name later means one edit in each file, not five scattered string comparisons.** Three call sites in this file use the helper: model curation (`getModelsForSlot`), provider source filter (`renderSlotRow`), and the install banner condition.
 
 ## 2026-05-18 — `authFetch` 必须发 `X-User-Id`（修跨用户写入 bug）
 
