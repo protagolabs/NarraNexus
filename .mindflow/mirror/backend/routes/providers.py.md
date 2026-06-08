@@ -1,8 +1,33 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-05-31
+last_verified: 2026-06-08
 stub: false
 ---
+
+## 2026-06-08 — Route 层 `_SUPPORTED_AGENT_FRAMEWORKS` 不再独立维护
+
+之前 `backend/routes/providers.py` 在第 358 行硬编码了 `("claude_code", "codex_cli")` 一份白名单，而 service 层 `UserProviderService._SUPPORTED_AGENT_FRAMEWORKS` 已经扩到了 4 个名字（codex_cli_v2 / codex_official 是 v2 别名）。结果前端 dropdown 选 v2 → route 层 400 "Unknown framework"，而 service 层根本接收得了。两份白名单永远会漂。
+
+修法：route 层直接 import service 层的常量当 single source of truth：
+
+```python
+from xyz_agent_context.agent_framework.user_provider_service import (
+    UserProviderService as _UserProviderServiceForFrameworks,
+)
+_SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
+```
+
+附带的两处也同步：
+- `_probe_agent_framework_auth(framework)`: codex 分支匹配 `("codex_cli", "codex_cli_v2", "codex_official")` —— v1/v2 共用 `~/.codex/auth.json`，probe 走同一 `CodexOAuthDriver`
+- `set_agent_framework` 的 `_ensure_codex_installed()` 触发条件: 同上 —— v2 SDK 内部还是 spawn `codex` 二进制（app-server 模式），install 副作用对 v2 同样必要
+
+**铁律：framework 名字白名单四处必须同步**：
+1. `agent_framework/__init__.py` register_agent_loop_driver
+2. `provider_driver/resolver._KNOWN_AGENT_FRAMEWORKS` + `_CODEX_FRAMEWORK_VALUES`
+3. `user_provider_service._SUPPORTED_AGENT_FRAMEWORKS` （= 后端 single source of truth）
+4. `frontend/src/components/settings/ProviderSettings.tsx` 的 `AGENT_FRAMEWORKS` + `CODEX_FRAMEWORK_IDS`
+
+route 层 #4 后已经不算独立条目了，因为 import 自动跟 service。但 frontend 不能 import Python，仍需手 sync。
 
 ## 2026-05-18 — 关掉 query 参数 user_id 这条 identity channel
 

@@ -63,7 +63,7 @@ class UpdateModelsRequest(BaseModel):
 
 class SetAgentFrameworkRequest(BaseModel):
     """Body for ``POST /api/providers/agent-framework``."""
-    framework: str  # "claude_code" | "codex_cli"
+    framework: str  # "claude_code" | "codex_cli" | "codex_cli_v2" | "codex_official"
 
 
 # =============================================================================
@@ -355,7 +355,13 @@ async def validate_slots(request: Request):
 # "claude_code" so existing users are unaffected.
 
 
-_SUPPORTED_AGENT_FRAMEWORKS = ("claude_code", "codex_cli")
+from xyz_agent_context.agent_framework.user_provider_service import (
+    UserProviderService as _UserProviderServiceForFrameworks,
+)
+# Single source of truth — keep the route's whitelist in sync with the
+# service layer. Adding a v3 framework name in user_provider_service
+# automatically opens the route here, no double-edit required.
+_SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
 
 # npm install timeout for auto-install of @openai/codex. Codex CLI is a
 # Rust binary distributed via npm; the first install pulls a postinstall
@@ -521,7 +527,10 @@ async def _probe_agent_framework_auth(framework: str) -> dict:
     """
     from xyz_agent_context.agent_framework.provider_driver.base import ProviderCard
 
-    if framework == "codex_cli":
+    # v1 and v2 both authenticate against ``~/.codex/auth.json`` —
+    # same probe applies. Adding a v3 codex variant later: extend
+    # this tuple, no other change needed.
+    if framework in ("codex_cli", "codex_cli_v2", "codex_official"):
         from xyz_agent_context.agent_framework.provider_driver.drivers.codex_oauth import (
             CodexOAuthDriver,
         )
@@ -609,9 +618,12 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
 
     # Auto-install codex CLI on opt-in (local mode only; cloud mode
     # returns action="blocked"). claude_code path skips this — the
-    # `claude` binary is already installed at run.sh boot time.
+    # `claude` binary is already installed at run.sh boot time. The
+    # v2 path still depends on the `codex` binary (the official SDK
+    # spawns it in app-server mode), so the install side-effect fires
+    # for any codex_* variant.
     install_result: dict | None = None
-    if body.framework == "codex_cli":
+    if body.framework in ("codex_cli", "codex_cli_v2", "codex_official"):
         install_result = await _ensure_codex_installed()
 
     service = await _get_service()
