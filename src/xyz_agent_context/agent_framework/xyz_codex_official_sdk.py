@@ -418,11 +418,26 @@ class CodexSDKv2:
             # what the SDK actually emitted vs what our translator
             # recognises. Logged once at stream-end.
             method_tally: dict[str, int] = {}
+            # And item-type tally — for ``item/started`` and
+            # ``item/completed`` the actual content type lives inside
+            # the payload, not in the method name. We need to know
+            # whether those 6 items are mcp_tool_calls / reasoning /
+            # agent_messages / something else.
+            item_type_tally: dict[str, int] = {}
             try:
                 async for notification in stream:
                     event_count += 1
                     method_str = getattr(notification, "method", None) or "<no-method>"
                     method_tally[method_str] = method_tally.get(method_str, 0) + 1
+                    # Drill into item events to surface the inner type.
+                    if method_str in ("item/started", "item/completed"):
+                        pl = getattr(notification, "payload", None)
+                        item = getattr(pl, "item", None) if pl else None
+                        # ThreadItem is RootModel — unwrap one layer.
+                        root = getattr(item, "root", item)
+                        itype = getattr(root, "type", None) or type(root).__name__
+                        key = f"{method_str}[{itype}]"
+                        item_type_tally[key] = item_type_tally.get(key, 0) + 1
                     if cancellation is not None and getattr(
                         cancellation, "is_set", lambda: False
                     )():
@@ -484,3 +499,10 @@ class CodexSDKv2:
                         )
                     )
                     logger.info(f"[CodexSDKv2] method tally: {tally_str}")
+                if item_type_tally:
+                    item_str = ", ".join(
+                        f"{k}×{c}" for k, c in sorted(
+                            item_type_tally.items(), key=lambda kv: -kv[1]
+                        )
+                    )
+                    logger.info(f"[CodexSDKv2] item-type tally: {item_str}")
