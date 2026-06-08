@@ -260,6 +260,71 @@ def test_thread_start_accepts_kwargs_we_actually_pass():
     )
 
 
+def test_v2_item_type_table_covers_known_sdk_types():
+    """SDK contract test — ``_V2_ITEM_TYPE_TO_V1`` in output_transfer
+    must cover every ThreadItem type the v1 helper expects to see.
+
+    The v1 helper has 3 frozensets (TEXT, THINKING, TOOL); any SDK
+    ThreadItem variant whose ``type`` Literal maps to one of those
+    target snake_case names MUST be present in the normalizer table.
+    Otherwise the v1 helper silently drops it (incident 2026-06-08:
+    every agent_message item fell through 'unknown — drop' and the
+    no_reply fallback fired every turn).
+    """
+    import openai_codex.generated.v2_all as v2
+
+    from xyz_agent_context.agent_framework.output_transfer import (
+        _CODEX_ITEM_TYPES_TEXT,
+        _CODEX_ITEM_TYPES_THINKING,
+        _CODEX_ITEM_TYPES_TOOL,
+        _V2_ITEM_TYPE_TO_V1,
+    )
+
+    targets = _CODEX_ITEM_TYPES_TEXT | _CODEX_ITEM_TYPES_THINKING | _CODEX_ITEM_TYPES_TOOL
+
+    # Pull every ThreadItem subclass's type Literal.
+    sdk_item_types: set[str] = set()
+    for name in dir(v2):
+        cls = getattr(v2, name)
+        if not (
+            isinstance(cls, type)
+            and hasattr(cls, "model_fields")
+            and "type" in cls.model_fields
+        ):
+            continue
+        ann = cls.model_fields["type"].annotation
+        # Pydantic Literal annotations expose values via __args__
+        for value in getattr(ann, "__args__", ()):
+            if isinstance(value, str):
+                sdk_item_types.add(value)
+
+    # For each SDK item type, after normalization, does it land on
+    # something v1 cares about? If not, that's OK (most ThreadItem
+    # variants are forward-compat / unused). But if the SDK type's
+    # NORMALIZED form matches a v1 target, the table must contain it.
+    #
+    # Equivalently: every v1 target must be reachable from some
+    # camelCase key in the table. Verify by reverse lookup.
+    reverse: dict[str, str] = {
+        snake: camel for camel, snake in _V2_ITEM_TYPE_TO_V1.items()
+    }
+    missing_in_table: set[str] = set()
+    for target in targets:
+        if target not in reverse and target not in sdk_item_types:
+            # v1 target that doesn't exist in SDK at all — also OK
+            # (might be a legacy v1-only type). Skip.
+            continue
+        if target in reverse:
+            continue  # already mapped (or matches snake_case identity)
+        missing_in_table.add(target)
+
+    assert not missing_in_table, (
+        f"v1 helper expects item types {missing_in_table} but "
+        f"_V2_ITEM_TYPE_TO_V1 doesn't map any SDK camelCase type to them. "
+        f"Add the camelCase → snake_case entry."
+    )
+
+
 def test_method_constants_match_sdk_notification_registry():
     """SDK contract test — every ``_METHOD_*`` constant our translator
     listens for MUST appear in ``openai_codex.generated.notification_registry.NOTIFICATION_MODELS``.

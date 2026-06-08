@@ -252,6 +252,50 @@ def test_item_completed_agent_message_delegates_to_v1_helper():
     assert evs[0]["data"]["delta"] == "hello"
 
 
+def test_item_completed_camelcase_agent_message_normalized_to_text_delta():
+    """SDK v2 emits item.type as ``agentMessage`` (camelCase); the
+    boundary normalizer rewrites it to ``agent_message`` so the v1
+    helper's frozenset lookup hits. Initial v2 commit shipped without
+    this normalizer — every agent_message item silently dropped and
+    the no_reply fallback fired every turn. THIS test locks in the
+    fix."""
+    evs = _t({
+        "method": "item/completed",
+        "payload": {
+            "item": {
+                "type": "agentMessage",  # <-- camelCase from SDK
+                "id": "i1",
+                "text": "hi from the agent",
+            },
+        },
+    })
+    assert len(evs) == 1
+    assert evs[0]["data"]["type"] == "response.text.delta"
+    assert evs[0]["data"]["delta"] == "hi from the agent"
+
+
+def test_item_completed_camelcase_mcp_tool_call_normalized():
+    """Same normalization for ``mcpToolCall`` — needs to surface as a
+    tool_call_output_item so the no_reply detector matches
+    send_message_to_user_directly."""
+    evs = _t({
+        "method": "item/completed",
+        "payload": {
+            "item": {
+                "type": "mcpToolCall",  # <-- camelCase from SDK
+                "id": "m1",
+                "server": "chat_module",
+                "tool": "send_message_to_user_directly",
+                "result": {"success": True},
+            },
+        },
+    })
+    assert len(evs) == 1
+    item = evs[0]["item"]
+    assert item["type"] == "tool_call_output_item"
+    assert item["tool_name"] == "mcp__chat_module__send_message_to_user_directly"
+
+
 def test_item_started_mcp_tool_call_emits_tool_call_item():
     evs = _t({
         "method": "item/started",

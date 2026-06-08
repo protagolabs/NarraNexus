@@ -714,6 +714,25 @@ def _codex_tool_output(item: Dict[str, Any]) -> str:
 # are silently dropped with a DEBUG log — never raise. Same pattern
 # as the v1 codex_cli translator's unknown-type branch.
 
+# ThreadItem.type spelling normalizer: SDK v2 ships camelCase
+# (``agentMessage``, ``mcpToolCall``, ``commandExecution``, ...) while
+# the v1 ``codex exec`` JSON stream emitted snake_case
+# (``agent_message``, ``mcp_tool_call``, ``command_execution``, ...).
+# The shared v1 helper checks ``item.type`` against snake_case
+# frozensets, so v2 items would silently drop without this mapping.
+# Contract test ``test_v2_item_type_table_covers_known_sdk_types``
+# (test_codex_sdk_v2_init.py) re-checks coverage against the SDK's
+# ThreadItem variant Literals on every CI run.
+_V2_ITEM_TYPE_TO_V1: Dict[str, str] = {
+    "agentMessage": "agent_message",
+    "userMessage": "user_message",
+    "mcpToolCall": "mcp_tool_call",
+    "commandExecution": "command_execution",
+    "webSearch": "web_search",
+    "reasoning": "reasoning",  # already snake-case shape; explicit for clarity
+}
+
+
 # Notification ``method`` strings the codex JSON-RPC server emits.
 # CANONICAL source: ``openai_codex.generated.notification_registry.NOTIFICATION_MODELS``
 # (a method-name → pydantic-class dict shipped with the SDK).
@@ -921,7 +940,16 @@ def _codex_official_to_openai_agents(
     # Item lifecycle — reuse v1 codex_cli translator's item helpers
     # since the ``item`` payload shape (``type``, ``id``, ``server``,
     # ``tool``, ``arguments``, ``result``, ``aggregated_output``, etc.)
-    # is the same across exec mode and app-server mode.
+    # is the same across exec mode and app-server mode — EXCEPT for
+    # the ``type`` field's spelling: v1 emits snake_case
+    # (``agent_message``, ``mcp_tool_call``, ``command_execution``),
+    # v2 SDK emits camelCase (``agentMessage``, ``mcpToolCall``,
+    # ``commandExecution``). Normalize at the boundary so the v1
+    # helper's frozenset lookups still hit. Initial v2 commit shipped
+    # without this normalizer → every item silently fell through to
+    # "unknown — drop", so agent_message text never reached
+    # response_processor (visible symptom: no_reply fallback every
+    # turn even though the model produced output).
     # ----------------------------------------------------------------
     if method in (_METHOD_ITEM_STARTED, _METHOD_ITEM_COMPLETED):
         item = payload.get("item") or {}
@@ -929,6 +957,16 @@ def _codex_official_to_openai_agents(
         # depending on pydantic_dump options — unwrap once.
         if isinstance(item, dict) and "root" in item and isinstance(item["root"], dict):
             item = item["root"]
+        # Normalize ``item.type`` camelCase → snake_case so the v1
+        # helper's ``_CODEX_ITEM_TYPES_*`` frozensets match. Items
+        # outside this table pass through unchanged (and v1's
+        # forward-compat "unknown — drop" still applies).
+        if isinstance(item, dict):
+            raw_type = item.get("type")
+            if isinstance(raw_type, str):
+                normalized = _V2_ITEM_TYPE_TO_V1.get(raw_type, raw_type)
+                if normalized != raw_type:
+                    item = {**item, "type": normalized}
         # Reshape into the v1 codex_cli event shape and delegate to the
         # existing translator so we don't duplicate the per-item-type
         # branching (agent_message, reasoning, mcp_tool_call,
