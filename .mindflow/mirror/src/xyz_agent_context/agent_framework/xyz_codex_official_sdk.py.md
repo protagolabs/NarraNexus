@@ -216,6 +216,48 @@ Implements the same async-generator contract as
   which we don't have yet. Adding them blind without UI changes
   means broken-looking events landing in the runtime.
 
+- **Translator method names follow `item/*` namespace, NOT `turn/*`**:
+  The single biggest bug shipped in the initial v2 commit. SDK
+  notifications live in two namespaces:
+  * `thread/*`, `turn/*` — thread + turn lifecycle (started, completed, etc.)
+  * `item/*` — everything per-item (started, completed, deltas, progress)
+
+  Initial commit had EVERY item notification name on `turn/*`
+  (`turn/itemStarted`, `turn/agentMessageDelta`,
+  `turn/reasoningSummaryTextDelta`, etc.). Real names use
+  forward-slash sub-paths: `item/started`, `item/agentMessage/delta`,
+  `item/reasoning/summaryTextDelta`. Result: translator silently
+  dropped 12 out of 14 notification types. Reasoning leaked into
+  the main chat bubble; tool calls leaked as text. Fallback LLM
+  caught the request and produced visible output (so it didn't
+  *look* broken — just looked like v2 was a worse model).
+
+  Canonical source: `openai_codex.generated.notification_registry.NOTIFICATION_MODELS`
+  (a `dict[str, type]` shipped with the SDK). Contract test
+  `test_method_constants_match_sdk_notification_registry` imports
+  this registry and asserts every `_METHOD_*` constant in
+  `output_transfer.py` is a real key. Future SDK rename = CI red.
+
+- **There is NO `turn/failed` notification**: failed turns surface
+  via `turn/completed` with `turn.status == "failed"` and
+  `turn.error` populated. Initial draft listened for `turn/failed`
+  which would have silently looked like a success.
+
+- **`AsyncTurnHandle.stream()` is an async generator, NOT a sync iterator**:
+  Initial draft wrapped `next(stream)` in `asyncio.to_thread` —
+  built on the wrong assumption that it was sync. Real API:
+  `async for notification in handle.stream(): ...`. Contract test
+  `test_stream_is_async_generator_function` locks this in.
+
+- **`AsyncTurnHandle.interrupt()` is a coroutine, NOT a sync method**:
+  Same issue — initial draft used `asyncio.to_thread(handle.interrupt)`.
+  Real API: `await handle.interrupt()`. Contract test
+  `test_interrupt_is_coroutine_function` locks this in.
+
+- **`AsyncThread.turn` is a coroutine**: `await thread.turn(input)`
+  directly, no defensive `inspect.iscoroutine` ladder. Locked in by
+  `test_turn_is_coroutine_function`.
+
 - **`thread_start` kwargs are SDK-specific, NOT v1 CLI flags**:
   v1 used `codex exec --skip-git-repo-check` to suppress codex's
   "cwd must be a git repo" guard. I assumed `AsyncCodex.thread_start`

@@ -260,6 +260,96 @@ def test_thread_start_accepts_kwargs_we_actually_pass():
     )
 
 
+def test_method_constants_match_sdk_notification_registry():
+    """SDK contract test — every ``_METHOD_*`` constant our translator
+    listens for MUST appear in ``openai_codex.generated.notification_registry.NOTIFICATION_MODELS``.
+
+    Initial v2 commit had every "item/*" notification mistakenly
+    written as "turn/*" (2026-06-08, output_transfer.py). The SDK
+    silently dropped all unmatched dispatches and the model's
+    reasoning + tool calls leaked into the chat bubble as plain
+    text. This test re-checks the constant set against the live
+    SDK registry on every CI run; if a future SDK rename misaligns
+    our constants the test fails BEFORE shipping.
+
+    NOTE: ``_METHOD_TURN_FAILED`` was deliberately REMOVED — the SDK
+    does not emit ``turn/failed``; failure surfaces via
+    ``turn/completed`` with ``turn.status == "failed"``.
+    """
+    from openai_codex.generated.notification_registry import NOTIFICATION_MODELS
+
+    from xyz_agent_context.agent_framework import output_transfer as ot
+
+    method_constants = {
+        name: getattr(ot, name)
+        for name in dir(ot)
+        if name.startswith("_METHOD_") and isinstance(getattr(ot, name), str)
+    }
+    assert method_constants, "no _METHOD_* constants found — file reorg?"
+
+    sdk_methods = set(NOTIFICATION_MODELS.keys())
+    misaligned = {
+        name: value
+        for name, value in method_constants.items()
+        if value not in sdk_methods
+    }
+    assert not misaligned, (
+        f"{len(misaligned)} translator method constant(s) are NOT in the "
+        f"SDK's notification registry — silent drops will happen at runtime:\n"
+        + "\n".join(f"  {n} = {v!r}" for n, v in misaligned.items())
+        + f"\n\nActual SDK methods (sample): {sorted(sdk_methods)[:10]}..."
+    )
+
+
+def test_turn_is_coroutine_function():
+    """SDK contract test — ``AsyncThread.turn`` must be a coroutine
+    so ``await thread.turn(...)`` works. If the SDK ever flips it to
+    sync we'd silently get back an unawaited coroutine object and
+    everything downstream would crash with confusing errors."""
+    import inspect as _inspect
+
+    from openai_codex import AsyncThread
+
+    assert _inspect.iscoroutinefunction(AsyncThread.turn), (
+        "AsyncThread.turn is no longer a coroutine — agent_loop's "
+        "``await thread.turn(...)`` will return the wrong object. "
+        "Restore the defensive ``inspect.iscoroutine`` ladder or "
+        "revisit the SDK contract."
+    )
+
+
+def test_stream_is_async_generator_function():
+    """SDK contract test — ``AsyncTurnHandle.stream`` must be an
+    async generator so ``async for ... in handle.stream()`` works.
+    Initial v2 shipped with an ``asyncio.to_thread(next, stream)``
+    wrapper assuming stream() was sync — would have silently misfired
+    on every run if it weren't shadowed by an earlier crash."""
+    import inspect as _inspect
+
+    from openai_codex import AsyncTurnHandle
+
+    assert _inspect.isasyncgenfunction(AsyncTurnHandle.stream), (
+        "AsyncTurnHandle.stream is no longer an async generator — "
+        "agent_loop's ``async for n in handle.stream()`` will not "
+        "iterate. Either restore a bridge or switch back to next()."
+    )
+
+
+def test_interrupt_is_coroutine_function():
+    """SDK contract test — ``AsyncTurnHandle.interrupt`` must be a
+    coroutine so ``await handle.interrupt()`` cancels cleanly. If
+    flipped to sync, our await would error; if wrapped in
+    asyncio.to_thread, it would silently double-block the loop."""
+    import inspect as _inspect
+
+    from openai_codex import AsyncTurnHandle
+
+    assert _inspect.iscoroutinefunction(AsyncTurnHandle.interrupt), (
+        "AsyncTurnHandle.interrupt is no longer a coroutine — "
+        "agent_loop's cancellation path needs adjustment."
+    )
+
+
 def test_sandbox_full_access_attribute_exists():
     """SDK contract test — the ``openai_codex.Sandbox`` enum must expose
     ``full_access``. The v2 ``agent_loop`` passes this to

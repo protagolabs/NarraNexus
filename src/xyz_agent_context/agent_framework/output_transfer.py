@@ -715,23 +715,36 @@ def _codex_tool_output(item: Dict[str, Any]) -> str:
 # as the v1 codex_cli translator's unknown-type branch.
 
 # Notification ``method`` strings the codex JSON-RPC server emits.
-# Pinned from spike Section 0 output (2026-06-04, openai-codex 0.1.0b3).
+# CANONICAL source: ``openai_codex.generated.notification_registry.NOTIFICATION_MODELS``
+# (a method-name → pydantic-class dict shipped with the SDK).
+#
+# These strings MUST exactly match the registry keys. The contract test
+# ``test_method_constants_match_sdk_notification_registry`` re-checks
+# this on every test run by importing the live registry — if the SDK
+# renames a method in a future release we fail at CI, not on a user's
+# first turn. Initial v2 commit had every "item/*" name on the
+# (non-existent) "turn/*" namespace, which silently dropped every
+# notification and made reasoning + tool calls leak as text. Burned
+# 2026-06-08 — won't burn again.
 _METHOD_THREAD_STARTED = "thread/started"
 _METHOD_TURN_STARTED = "turn/started"
 _METHOD_TURN_COMPLETED = "turn/completed"
-_METHOD_TURN_FAILED = "turn/failed"
-_METHOD_ITEM_STARTED = "turn/itemStarted"
-_METHOD_ITEM_COMPLETED = "turn/itemCompleted"
-_METHOD_AGENT_MESSAGE_DELTA = "turn/agentMessageDelta"
-_METHOD_REASONING_TEXT_DELTA = "turn/reasoningTextDelta"
-_METHOD_REASONING_SUMMARY_DELTA = "turn/reasoningSummaryTextDelta"
-_METHOD_REASONING_SUMMARY_PART = "turn/reasoningSummaryPartAdded"
-_METHOD_COMMAND_OUTPUT_DELTA = "turn/commandExecutionOutputDelta"
-_METHOD_MCP_TOOL_PROGRESS = "turn/mcpToolCallProgress"
+# NOTE: there is NO "turn/failed" notification. Failed turns surface
+# via ``turn/completed`` with ``turn.status == "failed"`` and
+# ``turn.error`` populated — handled inline in the TURN_COMPLETED
+# branch below.
+_METHOD_ITEM_STARTED = "item/started"
+_METHOD_ITEM_COMPLETED = "item/completed"
+_METHOD_AGENT_MESSAGE_DELTA = "item/agentMessage/delta"
+_METHOD_REASONING_TEXT_DELTA = "item/reasoning/textDelta"
+_METHOD_REASONING_SUMMARY_DELTA = "item/reasoning/summaryTextDelta"
+_METHOD_REASONING_SUMMARY_PART = "item/reasoning/summaryPartAdded"
+_METHOD_COMMAND_OUTPUT_DELTA = "item/commandExecution/outputDelta"
+_METHOD_MCP_TOOL_PROGRESS = "item/mcpToolCall/progress"
 _METHOD_ERROR = "error"
-_METHOD_CONFIG_WARNING = "config/warning"
-_METHOD_CONTEXT_COMPACTED = "thread/contextCompacted"
-_METHOD_TOKEN_USAGE_UPDATED = "thread/tokenUsageUpdated"
+_METHOD_CONFIG_WARNING = "configWarning"
+_METHOD_CONTEXT_COMPACTED = "thread/compacted"
+_METHOD_TOKEN_USAGE_UPDATED = "thread/tokenUsage/updated"
 
 
 def _codex_official_to_openai_agents(
@@ -781,11 +794,32 @@ def _codex_official_to_openai_agents(
         return []
 
     if method == _METHOD_TURN_COMPLETED:
-        # Build a response.done event with usage. Payload shape per
-        # ``TurnCompletedNotification``: contains ``turn`` (with
-        # ``usage`` nested under it) and the thread/turn ids.
+        # Payload shape per ``TurnCompletedNotification``: contains
+        # ``turn: Turn`` (with ``status``, ``error``, and the items
+        # list) plus the thread/turn ids. A failed turn surfaces here
+        # — not on a separate "turn/failed" notification, which the
+        # SDK does NOT emit.
+        turn_obj = payload.get("turn") or {}
+        status = turn_obj.get("status") or ""
+        if status == "failed":
+            err_obj = turn_obj.get("error") or {}
+            err_msg = (
+                err_obj.get("message")
+                or err_obj.get("display_message")
+                or "turn failed"
+            )
+            return [{
+                "type": "raw_response_event",
+                "data": {
+                    "type": "response.error",
+                    "error_message": str(err_msg),
+                    "error_type": err_obj.get("type") or "turn.failed",
+                },
+            }]
+        # Healthy completion — emit response.done with usage.
         usage_src = (
-            (payload.get("turn") or {}).get("usage")
+            turn_obj.get("usage")
+            or (turn_obj.get("token_usage") or {})
             or payload.get("usage")
             or {}
         )
@@ -799,25 +833,23 @@ def _codex_official_to_openai_agents(
             "data": {"type": "response.done", "usage": usage},
         }]
 
-    if method == _METHOD_TURN_FAILED:
-        err = (payload.get("error") or {}).get("message") or "turn failed"
-        return [{
-            "type": "raw_response_event",
-            "data": {
-                "type": "response.error",
-                "error_message": str(err),
-                "error_type": "turn.failed",
-            },
-        }]
-
     if method == _METHOD_ERROR:
-        err = payload.get("message") or "unknown error"
+        # ErrorNotification.error is a TurnError, not a flat object —
+        # ``message`` lives one level down. Earlier draft read
+        # ``payload.message`` which would have been silently empty.
+        err_obj = payload.get("error") or {}
+        msg = (
+            err_obj.get("message")
+            or err_obj.get("additional_details")
+            or "unknown error"
+        )
+        info = err_obj.get("codex_error_info") or {}
         return [{
             "type": "raw_response_event",
             "data": {
                 "type": "response.error",
-                "error_message": str(err),
-                "error_type": payload.get("code", "error"),
+                "error_message": str(msg),
+                "error_type": info.get("type") or "error",
             },
         }]
 

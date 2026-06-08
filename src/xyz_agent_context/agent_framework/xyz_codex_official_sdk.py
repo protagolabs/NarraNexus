@@ -52,8 +52,6 @@ during the A/B coexistence period.
 
 from __future__ import annotations
 
-import asyncio
-import inspect
 import os
 import tempfile
 from pathlib import Path
@@ -219,27 +217,16 @@ def _build_codex_config_overrides(
     return tuple(overrides)
 
 
-async def _aiter_stream(stream: Any) -> AsyncGenerator[Any, None]:
-    """Bridge ``TurnHandle.stream()`` — a synchronous iterator —
-    into an async generator that doesn't block the FastAPI event loop.
-
-    Each ``next()`` runs in a worker thread via ``asyncio.to_thread``;
-    the scheduler runs other tasks (WS broadcaster, hook tasks, etc.)
-    while we wait for the next notification.
-
-    Terminates when the underlying iterator raises StopIteration (the
-    codex app-server closed the stream after ``turn/completed``). The
-    caller is responsible for invoking ``handle.interrupt()`` if it
-    wants to cut a long-running turn short — this helper only pumps.
-    """
-    _SENTINEL = object()
-    while True:
-        notification = await asyncio.to_thread(
-            lambda: next(stream, _SENTINEL)
-        )
-        if notification is _SENTINEL:
-            return
-        yield notification
+# NOTE: An earlier draft of this file shipped an ``_aiter_stream``
+# wrapper that ran ``next(stream, SENTINEL)`` through
+# ``asyncio.to_thread`` — built on the (wrong) assumption that
+# ``AsyncTurnHandle.stream()`` returned a sync iterator. It does not.
+# ``stream()`` is an **async generator** (``isasyncgenfn=True``) so we
+# can iterate it with ``async for`` directly with no thread bridge.
+# Removed to avoid the double-await/thread overhead and to make the
+# control flow obvious. If a future SDK version reverts to a sync
+# stream, restore the bridge — but check ``inspect.isasyncgenfunction``
+# first, don't assume.
 
 
 # =========================================================================
@@ -381,10 +368,6 @@ class CodexSDKv2:
 
             codex = AsyncCodex(sdk_config)
 
-            # ``thread_start`` is async in AsyncCodex — await it.
-            # Other AsyncCodex methods may or may not be coroutines
-            # depending on SDK version; we use ``inspect.iscoroutine``
-            # as a defensive runtime check at each call site.
             # Note the two-layer naming mismatch we deliberately preserve:
             #   * ``config_overrides`` sets ``sandbox_mode="danger-full-access"``
             #     — that's codex's *internal* config value name (matches the
@@ -394,10 +377,7 @@ class CodexSDKv2:
             #     (the SDK dropped the "danger" prefix from the enum but
             #     the underlying mode is identical).
             # Both must be set: config_overrides locks it in the persisted
-            # config; the kwarg is the per-thread guarantee. If the SDK
-            # bumps a major and renames the enum again, our test
-            # ``test_sandbox_full_access_attribute_exists`` will fail
-            # loud before users hit it.
+            # config; the kwarg is the per-thread guarantee.
             #
             # NOTE: ``skip_git_repo_check`` is NOT a thread_start kwarg
             # (only a v1 ``codex exec`` CLI flag). The SDK's app-server
@@ -406,27 +386,28 @@ class CodexSDKv2:
             # future SDK reintroduces the check, route the equivalent
             # CLI flag through ``CodexConfig.launch_args_override``
             # rather than re-adding a thread_start kwarg.
-            thread_call = codex.thread_start(
-                sandbox=Sandbox.full_access,
-            )
-            thread = (
-                await thread_call
-                if inspect.iscoroutine(thread_call)
-                else thread_call
-            )
+            #
+            # Both ``thread_start`` and ``thread.turn`` are coroutines
+            # in 0.1.0b3 — directly ``await``. The contract test
+            # ``test_thread_start_accepts_kwargs_we_actually_pass``
+            # locks in the kwarg surface; the parallel
+            # ``test_turn_is_coroutine_function`` locks in the
+            # async-ness, so an SDK that flips ``thread.turn`` back
+            # to sync would fail at CI not at user-turn time.
+            thread = await codex.thread_start(sandbox=Sandbox.full_access)
             logger.info(
                 f"[CodexSDKv2] thread started "
                 f"(cwd={self.working_path}, CODEX_HOME={codex_home_path})"
             )
 
             # ---- Step 6: start the turn, stream notifications ----
-            handle_call = thread.turn(TextInput(text=user_message))
-            handle = (
-                await handle_call
-                if inspect.iscoroutine(handle_call)
-                else handle_call
-            )
+            handle = await thread.turn(TextInput(text=user_message))
 
+            # ``handle.stream()`` is an async generator — iterate it
+            # directly. ``handle.interrupt()`` is a coroutine — await
+            # it. Both were wrapped in ``asyncio.to_thread`` in an
+            # earlier draft; that was wrong and would silently
+            # deadlock or raise depending on Python version.
             stream = handle.stream()
 
             # Pump notifications through the translator and yield.
@@ -434,7 +415,7 @@ class CodexSDKv2:
             # before the next event reaches the response_processor.
             event_count = 0
             try:
-                async for notification in _aiter_stream(stream):
+                async for notification in stream:
                     event_count += 1
                     if cancellation is not None and getattr(
                         cancellation, "is_set", lambda: False
@@ -443,7 +424,7 @@ class CodexSDKv2:
                             f"[CodexSDKv2] cancellation set after "
                             f"{event_count} events — invoking interrupt"
                         )
-                        await asyncio.to_thread(handle.interrupt)
+                        await handle.interrupt()
                         break
 
                     # The notification is a pydantic model; serialize
