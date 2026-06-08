@@ -70,11 +70,34 @@ _SLOT_BUILDERS = {
 }
 
 
+# Coding-agent framework names this resolver knows. Must stay in sync
+# with the entries registered in ``agent_framework/__init__.py``. Codex
+# has two variants now — v1 (hand-rolled, ``codex_cli``) and v2 (official
+# SDK, ``codex_cli_v2`` / ``codex_official``); both consume the same
+# ``CodexConfig`` from the resolver, so the codex provider-routing
+# branch applies to both.
+_KNOWN_AGENT_FRAMEWORKS = (
+    "claude_code",
+    "codex_cli",
+    "codex_cli_v2",
+    "codex_official",
+)
+_CODEX_FRAMEWORK_VALUES = frozenset({"codex_cli", "codex_cli_v2", "codex_official"})
+
+
 def _agent_framework_from_slot(slot: dict | None) -> str:
     framework = (slot or {}).get("agent_framework") or "claude_code"
-    if framework not in ("claude_code", "codex_cli"):
+    if framework not in _KNOWN_AGENT_FRAMEWORKS:
         return "claude_code"
     return framework
+
+
+def _is_codex_framework(framework: str | None) -> bool:
+    """Both v1 ``codex_cli`` and v2 ``codex_cli_v2`` / ``codex_official``
+    are codex variants that need a CodexConfig built from an
+    OpenAI-protocol provider. Centralize the check so adding a v3 name
+    later is one edit, not three."""
+    return (framework or "") in _CODEX_FRAMEWORK_VALUES
 
 
 def _codex_config_from_card(card: ProviderCard, model: str) -> CodexConfig:
@@ -226,7 +249,7 @@ async def resolve_user_runtime_llm_configs(
             )
 
         driver = driver_cls(card)
-        if slot_name == "agent" and _agent_framework_from_slot(slot) == "codex_cli":
+        if slot_name == "agent" and _is_codex_framework(_agent_framework_from_slot(slot)):
             try:
                 cfgs["codex"] = _codex_config_from_card(card, slot["model"])
                 cfgs[slot_name] = ClaudeConfig()

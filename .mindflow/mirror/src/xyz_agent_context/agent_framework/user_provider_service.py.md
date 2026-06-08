@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-06-02
+last_verified: 2026-06-08
 stub: false
 ---
 # user_provider_service.py — 多租户场景的 per-user provider 数据库服务
@@ -21,7 +21,9 @@ stub: false
 
 **和 `provider_registry.py` 的接口对称**：都有 `add_provider`、`remove_provider`、`set_slot`、`validate_slots`、`test_provider`。这让上层代码可以以相同方式操作两种存储后端，虽然目前没有统一抽象基类（将来可以提取）。
 
-**Agent slot 协议由 `agent_framework` 决定**：`set_slot()` 不能只看静态 `SLOT_REQUIRED_PROTOCOLS`。当 `user_slots[agent].agent_framework == "codex_cli"` 时，agent slot 接受 OpenAI-protocol provider；默认/Claude Code 路径仍要求 Anthropic。Codex OAuth provider 创建时也直接写入 `driver_type="codex_oauth"` 和 `auth_ref="codex-cli:~/.codex/auth.json"`，避免等待启动 backfill 才能被 resolver 使用。
+**Agent slot 协议由 `agent_framework` 决定**：`set_slot()` 不能只看静态 `SLOT_REQUIRED_PROTOCOLS`。当 `user_slots[agent].agent_framework ∈ {codex_cli, codex_cli_v2, codex_official}` 时，agent slot 接受 OpenAI-protocol provider；默认/Claude Code 路径仍要求 Anthropic。Codex OAuth provider 创建时也直接写入 `driver_type="codex_oauth"` 和 `auth_ref="codex-cli:~/.codex/auth.json"`，避免等待启动 backfill 才能被 resolver 使用。
+
+**v2 名字必须和 v1 等价**：2026-06-08 修了一个 silent fallback bug——`_SUPPORTED_AGENT_FRAMEWORKS` 之前只列 `(claude_code, codex_cli)`，用户把 slot 切到 `codex_cli_v2` 后，resolver 的 `_agent_framework_from_slot` 看不认就 fallback 成 `claude_code`，结果用 codex_oauth 卡片+anthropic protocol 期望，直接报"driver 'codex_oauth' cannot satisfy this slot"。修复后白名单四个名字（claude_code / codex_cli / codex_cli_v2 / codex_official）全列出，set_slot 服务端 source 白名单也覆盖三个 codex 变种。**新加 v3 框架时三处必须同步：`agent_framework/__init__.py` 的 register、resolver 的 `_KNOWN_AGENT_FRAMEWORKS` / `_CODEX_FRAMEWORK_VALUES`、本文件的 `_SUPPORTED_AGENT_FRAMEWORKS`。**
 
 **Codex provider 的 `models` 列表 = codex CLI 自己的 curated picker**：源头是模块顶层常量 `CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]`——2026-06-02 直接看 codex CLI 交互式 "Select Model and Effort" 菜单确认。`gpt-5.5` 是 codex 自己标记 default flagship；`gpt-5.4` 是 strong everyday；`gpt-5.4-mini` 是 fast/cheap。Legacy 变种（`gpt-5-codex`、`gpt-5.2-codex`、`gpt-5.3-codex`）codex CLI 支持但不放 picker，要走 `codex -m <name>` 显式调用——不进 NarraNexus dropdown 默认列表。
 

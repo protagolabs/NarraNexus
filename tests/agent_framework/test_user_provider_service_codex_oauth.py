@@ -19,7 +19,10 @@ from xyz_agent_context.agent_framework.provider_driver import (
 from xyz_agent_context.agent_framework.provider_driver.backfill import (
     backfill_provider_metadata,
 )
-from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+from xyz_agent_context.agent_framework.user_provider_service import (
+    CODEX_CURATED_MODELS,
+    UserProviderService,
+)
 
 
 class _FakeDB:
@@ -178,7 +181,14 @@ async def test_runtime_resolver_builds_codex_config_for_codex_agent_slot():
     cfg = await resolve_user_runtime_llm_configs("u1", db)
 
     assert cfg.claude == ClaudeConfig()
-    assert cfg.codex.model == "gpt-5.4-codex"
+    # The slot stored ``gpt-5.4-codex`` (a fake model name from the
+    # pre-2026-06-04 era — see the design doc's "what we got wrong"
+    # notes), but ``self_heal_if_broken`` repairs any value not in
+    # the codex_oauth provider's ``models`` list to the first entry
+    # of ``CODEX_CURATED_MODELS``. Binding the expectation to the
+    # constant means future curated-list bumps don't break this
+    # test.
+    assert cfg.codex.model == CODEX_CURATED_MODELS[0]
     assert cfg.codex.auth_type == "oauth"
     assert cfg.codex.auth_ref == "codex-cli:~/.codex/auth.json"
     assert cfg.openai.api_key == "sk-test"
