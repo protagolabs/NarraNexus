@@ -414,9 +414,15 @@ class CodexSDKv2:
             # Cancellation check BEFORE each yield so a Stop interrupts
             # before the next event reaches the response_processor.
             event_count = 0
+            # Temporary diagnostic: tally method names so we can see
+            # what the SDK actually emitted vs what our translator
+            # recognises. Logged once at stream-end.
+            method_tally: dict[str, int] = {}
             try:
                 async for notification in stream:
                     event_count += 1
+                    method_str = getattr(notification, "method", None) or "<no-method>"
+                    method_tally[method_str] = method_tally.get(method_str, 0) + 1
                     if cancellation is not None and getattr(
                         cancellation, "is_set", lambda: False
                     )():
@@ -465,3 +471,16 @@ class CodexSDKv2:
                     f"[CodexSDKv2] stream ended after {event_count} "
                     f"notifications"
                 )
+                # Diagnostic: which method names showed up and how
+                # often. Tells us at a glance whether the model called
+                # (or skipped) any tools, whether it streamed reasoning
+                # vs main text, and whether unknown methods slipped
+                # through our translator. Remove this block once v2
+                # is proven stable across a few real turns.
+                if method_tally:
+                    tally_str = ", ".join(
+                        f"{m}×{c}" for m, c in sorted(
+                            method_tally.items(), key=lambda kv: -kv[1]
+                        )
+                    )
+                    logger.info(f"[CodexSDKv2] method tally: {tally_str}")
