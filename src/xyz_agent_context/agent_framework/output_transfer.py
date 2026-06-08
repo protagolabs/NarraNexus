@@ -891,31 +891,39 @@ def _codex_official_to_openai_agents(
         delta = payload.get("delta") or ""
         if not delta:
             return []
-        # Match ClaudeAgentSDK's thinking-delta shape so the frontend
-        # Thinking panel renders identically regardless of framework.
-        item_id = payload.get("item_id") or payload.get("itemId") or "rs"
+        # IMPORTANT: emit ``thinking_item`` (NOT ``thinking_delta``).
+        # ``response_processor._handle_run_item_stream_event`` only
+        # recognises ``thinking_item`` — it routes that into the
+        # ``_ThinkingBatcher`` which coalesces consecutive chunks into
+        # ~100 ms WebSocket frames. There is no ``thinking_delta``
+        # handler; an earlier draft of this translator emitted that
+        # invented type and every reasoning delta was silently dropped
+        # into the response_processor's catch-all "OTHER" branch
+        # (incident 2026-06-08: 296 reasoning summary deltas, zero
+        # text visible in the Thinking panel). The batcher is designed
+        # for repeated ``append_thinking`` calls — emitting one
+        # thinking_item per delta is the streaming model.
         return [{
             "type": "run_item_stream_event",
             "item": {
-                "type": "thinking_delta",
-                "tool_call_id": item_id,
+                "type": "thinking_item",
                 "content": delta,
             },
         }]
 
     if method == _METHOD_REASONING_SUMMARY_PART:
-        # New "section header" added to the reasoning summary. Emit as
-        # a thinking_delta with a leading newline so the UI separates
+        # New "section header" added to the reasoning summary. Same
+        # ``thinking_item`` event shape as the deltas above so the
+        # batcher concatenates section headers inline with the
+        # streamed text. Wrap in newlines so the UI separates
         # sections naturally.
         part = payload.get("text") or payload.get("part") or ""
         if not part:
             return []
-        item_id = payload.get("item_id") or payload.get("itemId") or "rs"
         return [{
             "type": "run_item_stream_event",
             "item": {
-                "type": "thinking_delta",
-                "tool_call_id": item_id,
+                "type": "thinking_item",
                 "content": f"\n{part}\n",
             },
         }]

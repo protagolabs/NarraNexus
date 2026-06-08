@@ -80,13 +80,20 @@ def test_empty_agent_message_delta_dropped():
     assert evs == []
 
 
-def test_reasoning_summary_delta_emits_thinking_delta():
+def test_reasoning_summary_delta_emits_thinking_item():
     """*** FLAGSHIP TEST ***
 
     This is the UX win v2 brings over v1: reasoning summary streams
     progressively into the Thinking panel rather than landing as one
-    big block. Locked in via assertion on the ``thinking_delta``
-    event shape ResponseProcessor's ThinkingBatcher consumes.
+    big block.
+
+    Each delta becomes a ``thinking_item`` (NOT ``thinking_delta`` —
+    the latter is a type response_processor does not recognise;
+    initial v2 commit emitted it and the panel stayed empty even with
+    296 reasoning deltas per turn). The ``_ThinkingBatcher`` inside
+    response_processor coalesces consecutive thinking_item chunks
+    into ~100 ms WebSocket frames, so emitting one per delta IS the
+    streaming model.
     """
     evs = _t({
         "method": "item/reasoning/summaryTextDelta",
@@ -98,34 +105,33 @@ def test_reasoning_summary_delta_emits_thinking_delta():
     })
     assert len(evs) == 1
     assert evs[0]["type"] == "run_item_stream_event"
-    assert evs[0]["item"]["type"] == "thinking_delta"
-    assert evs[0]["item"]["tool_call_id"] == "rs_1"
+    assert evs[0]["item"]["type"] == "thinking_item"
     assert evs[0]["item"]["content"] == "The user wants me to "
 
 
-def test_reasoning_text_delta_emits_thinking_delta():
+def test_reasoning_text_delta_emits_thinking_item():
     """Reasoning text delta (the model's "raw" reasoning channel,
-    when the SDK exposes it). Same thinking_delta shape as summary
-    deltas."""
+    when the SDK exposes it). Same thinking_item shape as summary
+    deltas — both feed the same batcher."""
     evs = _t({
         "method": "item/reasoning/textDelta",
         "payload": {"delta": "step 1: ", "item_id": "r_1"},
     })
     assert len(evs) == 1
-    assert evs[0]["item"]["type"] == "thinking_delta"
+    assert evs[0]["item"]["type"] == "thinking_item"
     assert evs[0]["item"]["content"] == "step 1: "
 
 
-def test_reasoning_summary_part_added_emits_thinking_delta_with_newlines():
+def test_reasoning_summary_part_added_emits_thinking_item_with_newlines():
     """A new ``part`` (section header) added to the reasoning summary
-    is rendered as a thinking_delta with surrounding newlines so the
-    UI separates sections."""
+    is rendered as a thinking_item with surrounding newlines so the
+    batcher's coalesced output keeps section boundaries visible."""
     evs = _t({
         "method": "item/reasoning/summaryPartAdded",
         "payload": {"text": "Calculating step by step", "item_id": "rs_1"},
     })
     assert len(evs) == 1
-    assert evs[0]["item"]["type"] == "thinking_delta"
+    assert evs[0]["item"]["type"] == "thinking_item"
     # Wrap in newlines so the UI naturally separates sections.
     assert "\nCalculating step by step\n" in evs[0]["item"]["content"]
 

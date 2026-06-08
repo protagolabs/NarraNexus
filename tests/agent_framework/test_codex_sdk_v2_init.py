@@ -260,6 +260,41 @@ def test_thread_start_accepts_kwargs_we_actually_pass():
     )
 
 
+def test_response_processor_recognises_thinking_item():
+    """Internal-contract test — the event type ``thinking_item``
+    emitted by our v2 reasoning-delta translation MUST be a string
+    response_processor's run_item_stream_event handler explicitly
+    matches. Otherwise reasoning content silently lands in the
+    catch-all "OTHER" branch (incident 2026-06-08: 296 reasoning
+    deltas per turn → 0 chars visible in Thinking panel because
+    we emitted ``thinking_delta`` which response_processor doesn't
+    know).
+
+    This test inspects the handler's source for a literal
+    ``"thinking_item"`` comparison. If the handler is rewritten to
+    use a different mechanism (registry, dispatch dict, etc.) this
+    test will need updating — but at that point we WANT it to fail
+    so we re-verify the contract.
+    """
+    import inspect as _inspect
+
+    from xyz_agent_context.agent_runtime.response_processor import (
+        ResponseProcessor,
+    )
+
+    handler_src = _inspect.getsource(
+        ResponseProcessor._handle_run_item_stream_event
+    )
+    assert '"thinking_item"' in handler_src or "'thinking_item'" in handler_src, (
+        "ResponseProcessor._handle_run_item_stream_event no longer "
+        "branches on item.type == 'thinking_item'. The v2 translator "
+        "emits this exact type for streamed reasoning deltas; if the "
+        "handler renamed the type, update output_transfer.py's "
+        "reasoning translation accordingly. Otherwise reasoning "
+        "content vanishes into the OTHER catch-all."
+    )
+
+
 def test_v2_item_type_table_covers_known_sdk_types():
     """SDK contract test — ``_V2_ITEM_TYPE_TO_V1`` in output_transfer
     must cover every ThreadItem type the v1 helper expects to see.
