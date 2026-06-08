@@ -159,16 +159,25 @@ interface AgentFramework {
   desc: string
 }
 
+// Cutover 2026-06-08: ``codex_cli`` is the canonical framework id and
+// runs the official ``openai-codex`` Python SDK under the hood. The
+// older hand-rolled subprocess implementation (formerly the "v1" entry
+// in this dropdown) is no longer registered in the backend — its
+// source file is kept as a revival fallback only. Users on legacy
+// ``codex_cli`` rows transparently start running the SDK driver on
+// next turn; nothing else changes from their POV.
 const AGENT_FRAMEWORKS: AgentFramework[] = [
   { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
-  { id: 'codex_cli', label: 'Codex CLI (v1)', protocol: 'openai', desc: 'OpenAI codex exec — JSON Lines streaming' },
-  { id: 'codex_cli_v2', label: 'Codex CLI (v2)', protocol: 'openai', desc: 'Official openai-codex SDK — streaming reasoning + RPC interrupt' },
+  { id: 'codex_cli', label: 'Codex CLI', protocol: 'openai', desc: 'Official openai-codex SDK — streaming reasoning + RPC interrupt' },
 ]
 
-// Single source of truth for "is this a codex variant?" — mirrors
-// the backend's ``provider_driver.resolver._CODEX_FRAMEWORK_VALUES``.
-// Adding a v3 / preview framework later is one edit, not five
-// scattered ``=== 'codex_cli'`` comparisons.
+// Single source of truth for "is this a codex variant?" — kept as a
+// set even though only ``codex_cli`` is user-pickable, because
+// existing DB rows may still hold the old ``codex_cli_v2`` /
+// ``codex_official`` aliases from the A/B period, and those resolve
+// to the same SDK driver server-side. The set guards UI branches
+// (model curation, source filter, install banner) without
+// hard-coding the string in three places.
 const CODEX_FRAMEWORK_IDS = new Set(['codex_cli', 'codex_cli_v2', 'codex_official'])
 const isCodexFramework = (framework: string | null | undefined): boolean =>
   CODEX_FRAMEWORK_IDS.has(framework || '')

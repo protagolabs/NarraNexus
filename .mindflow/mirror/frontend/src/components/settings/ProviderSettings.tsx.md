@@ -3,6 +3,24 @@ code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-06-08
 ---
 
+## 2026-06-08 (afternoon) — Cutover: dropdown shows ONE Codex CLI
+
+Phase 3 cutover: backend now aliases every codex framework name
+(`codex`/`codex_cli`/`codex_cli_v2`/`codex_official`) to the
+official-SDK driver. Dropdown reverts to a single "Codex CLI" entry —
+v1/v2 distinction is gone at the UI layer.
+
+The `CODEX_FRAMEWORK_IDS` set still lists all four aliases because
+existing user DB rows from the A/B period may hold `codex_cli_v2` or
+`codex_official`, and the set guards UI branches (model curation,
+provider source filter, install banner) for any of those values.
+
+v1 source file (`xyz_codex_cli_sdk.py`) intentionally kept in the
+repo as revival fallback — if v2 has a critical regression we can
+flip one `register_agent_loop_driver` line in
+`agent_framework/__init__.py` to bring v1 back online without
+revert.
+
 ## 2026-06-08 — Agent framework dropdown exposes Codex CLI v2
 
 `AGENT_FRAMEWORKS` now lists three entries instead of two:

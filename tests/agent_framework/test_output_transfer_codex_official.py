@@ -280,6 +280,61 @@ def test_item_completed_camelcase_agent_message_normalized_to_text_delta():
     assert evs[0]["data"]["delta"] == "hi from the agent"
 
 
+def test_item_started_websearch_hoists_query_from_action():
+    """SDK 0.1.0b3 emits ``WebSearchThreadItem`` at item/started with
+    ``query=""`` — the actual search string lives inside
+    ``action.root.query`` (the Responses-API action object). Without
+    hoisting, the rendered tool_call_item shows ``{"query": ""}`` for
+    every WebSearch call. Confirmed incident 2026-06-08."""
+    evs = _t({
+        "method": "item/started",
+        "payload": {
+            "item": {
+                "type": "webSearch",
+                "id": "ws_1",
+                "query": "",  # SDK leaves this empty at start
+                "action": {
+                    "root": {
+                        "type": "search",
+                        "query": "latest news Asia",
+                        "queries": None,
+                    },
+                },
+            },
+        },
+    })
+    assert len(evs) == 1
+    item = evs[0]["item"]
+    assert item["type"] == "tool_call_item"
+    assert item["tool_name"] == "WebSearch"
+    assert item["arguments"]["query"] == "latest news Asia"
+
+
+def test_item_started_websearch_hoists_queries_list():
+    """If ``action.root.query`` is null but ``queries`` is a list,
+    join into a single comma-separated string so the UI still has
+    something readable. (Some Responses-API variants emit
+    ``queries: ["a", "b"]`` for multi-query searches.)"""
+    evs = _t({
+        "method": "item/started",
+        "payload": {
+            "item": {
+                "type": "webSearch",
+                "id": "ws_2",
+                "query": "",
+                "action": {
+                    "root": {
+                        "type": "search",
+                        "query": None,
+                        "queries": ["china hot news", "asia headlines"],
+                    },
+                },
+            },
+        },
+    })
+    assert evs[0]["item"]["arguments"]["query"] == "china hot news, asia headlines"
+
+
 def test_item_completed_camelcase_mcp_tool_call_normalized():
     """Same normalization for ``mcpToolCall`` — needs to surface as a
     tool_call_output_item so the no_reply detector matches

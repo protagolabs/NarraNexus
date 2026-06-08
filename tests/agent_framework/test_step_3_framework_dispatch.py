@@ -63,11 +63,17 @@ def test_registry_resolves_claude_code_to_claude_agent_sdk(tmp_path):
     assert isinstance(driver, ClaudeAgentSDK)
 
 
-def test_registry_resolves_codex_cli_to_codex_sdk(tmp_path):
+def test_registry_resolves_codex_cli_to_codex_sdk_v2(tmp_path):
+    """Cutover 2026-06-08: ``codex_cli`` now resolves to ``CodexSDKv2``.
+    The v1 ``CodexSDK`` class is still importable (revival fallback)
+    but no longer registered."""
+    from xyz_agent_context.agent_framework import CodexSDKv2
+
     driver = get_agent_loop_driver(
         framework="codex_cli", working_path=str(tmp_path)
     )
-    assert isinstance(driver, CodexSDK)
+    assert isinstance(driver, CodexSDKv2)
+    assert not isinstance(driver, CodexSDK)
 
 
 # ----- happy paths -------------------------------------------------

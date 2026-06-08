@@ -975,6 +975,28 @@ def _codex_official_to_openai_agents(
                 normalized = _V2_ITEM_TYPE_TO_V1.get(raw_type, raw_type)
                 if normalized != raw_type:
                     item = {**item, "type": normalized}
+            # WebSearchThreadItem-specific normalization: SDK 0.1.0b3
+            # emits ``item/started`` with ``query=""`` and only fills
+            # the real search string on the inner ``action.query`` /
+            # ``action.queries`` (i.e. the Responses-API action
+            # object). The v1 helper reads top-level ``query`` so
+            # the started-event tool_call_item renders ``{"query":""}``.
+            # Hoist the search string up before the v1 helper sees
+            # the item. ``action`` itself may be RootModel-wrapped
+            # (``WebSearchAction.root: <variant>``); unwrap one level
+            # if needed.
+            if item.get("type") == "web_search" and not item.get("query"):
+                action = item.get("action")
+                if isinstance(action, dict):
+                    inner = action.get("root", action)
+                    if isinstance(inner, dict):
+                        q = inner.get("query")
+                        if not q:
+                            queries = inner.get("queries")
+                            if isinstance(queries, list) and queries:
+                                q = ", ".join(str(x) for x in queries if x)
+                        if q:
+                            item = {**item, "query": q}
         # Reshape into the v1 codex_cli event shape and delegate to the
         # existing translator so we don't duplicate the per-item-type
         # branching (agent_message, reasoning, mcp_tool_call,

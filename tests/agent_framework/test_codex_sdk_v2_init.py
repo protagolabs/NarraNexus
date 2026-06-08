@@ -97,11 +97,20 @@ def test_v2_alias_resolves_to_same_class():
     assert type(d1) is type(d2) is CodexSDKv2
 
 
-def test_v1_still_registered_unaffected():
-    """Adding v2 must not displace v1 — regression guard."""
+def test_codex_cli_resolves_to_v2_after_cutover():
+    """Cutover 2026-06-08: ``codex_cli`` (and ``codex``) are now aliases
+    for the v2 official-SDK driver. The v1 ``CodexSDK`` class still
+    lives in ``xyz_codex_cli_sdk.py`` as a revival fallback but is
+    intentionally NOT registered — pulling it back online requires a
+    one-line ``register_agent_loop_driver`` edit in
+    ``agent_framework/__init__.py``.
+    """
     assert "codex_cli" in available_agent_loop_frameworks()
     d = get_agent_loop_driver(framework="codex_cli", working_path="./")
-    assert isinstance(d, CodexSDK)
+    assert isinstance(d, CodexSDKv2)
+    # And the v1 class is importable but distinct — confirms the
+    # source file is still in the repo (revival fallback intact).
+    assert CodexSDK is not CodexSDKv2
 
 
 # ---------------- _build_codex_config_overrides ----------------

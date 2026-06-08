@@ -216,6 +216,20 @@ Implements the same async-generator contract as
   which we don't have yet. Adding them blind without UI changes
   means broken-looking events landing in the runtime.
 
+- **Cutover 2026-06-08 — ``codex_cli`` runs the SDK, v1 file kept dormant**:
+  Every codex framework name (``codex`` / ``codex_cli`` / ``codex_cli_v2`` /
+  ``codex_official``) now resolves to ``CodexSDKv2``. The hand-rolled v1
+  driver in ``xyz_codex_cli_sdk.py`` is still importable (`from
+  xyz_agent_context.agent_framework import CodexSDK` works) but is NOT
+  registered in the driver registry — pulling it back online requires
+  one ``register_agent_loop_driver("codex_cli", CodexSDK)`` line in
+  ``agent_framework/__init__.py``.
+
+  Frontend dropdown only shows one Codex CLI entry. Existing DB rows
+  with ``agent_framework="codex_cli"`` transparently start running v2
+  on their next turn — no migration needed because the framework name
+  is unchanged, only the registered class behind it.
+
 - **Translator method names follow `item/*` namespace, NOT `turn/*`**:
   The single biggest bug shipped in the initial v2 commit. SDK
   notifications live in two namespaces:
