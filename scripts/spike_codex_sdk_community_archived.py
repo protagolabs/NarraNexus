@@ -236,17 +236,19 @@ async def test_a_mcp_wiring(oc: object) -> bool:
 
         try:
             text_input_cls = oc.TextInput  # type: ignore[attr-defined]
-            # ``type='text'`` is REQUIRED — pydantic discriminated union
-            # discriminator, not optional despite Literal default appearance.
-            input_ = text_input_cls(
-                type="text",
-                text="What MCP tools do you have? Call one to confirm.",
-            )
+            # The SDK iterates ``input_`` expecting each entry to be
+            # dict-like (Input = list[InputItem]). A single pydantic
+            # ``TextInput`` model gets iterated as ``(field, value)``
+            # tuples and fails validation. Wrap in a one-element list.
+            input_list = [
+                text_input_cls(
+                    type="text",
+                    text="What MCP tools do you have? Call one to confirm.",
+                )
+            ]
             # ``Thread.run_streamed`` is async — must await even though
             # inspect.signature doesn't surface the ``async def`` keyword.
-            # Without await, we get back a coroutine and "Cannot iterate
-            # coroutine" on the first event.
-            streamed = await thread.run_streamed(input_)
+            streamed = await thread.run_streamed(input_list)
         except Exception as e:  # noqa: BLE001
             print(f"  run_streamed failed: {type(e).__name__}: {e}")
             return False
@@ -332,18 +334,21 @@ async def test_b_cancellation(oc: object) -> bool:
 
         try:
             text_input_cls = oc.TextInput  # type: ignore[attr-defined]
-            input_ = text_input_cls(
-                type="text",
-                text=(
-                    "Count slowly from 1 to 50. Use a full sentence per "
-                    "number with explanation. Do not stop early."
-                ),
-            )
+            # Same input-list convention as Test A.
+            input_list = [
+                text_input_cls(
+                    type="text",
+                    text=(
+                        "Count slowly from 1 to 50. Use a full sentence per "
+                        "number with explanation. Do not stop early."
+                    ),
+                )
+            ]
             turn_options = oc.TurnOptions(  # type: ignore[attr-defined]
                 signal=controller.signal,
             )
             # async — must await (same as Test A).
-            streamed = await thread.run_streamed(input_, turn_options)
+            streamed = await thread.run_streamed(input_list, turn_options)
             print("  signal wired via TurnOptions ✓")
         except Exception as e:  # noqa: BLE001
             print(f"  run_streamed setup failed: {type(e).__name__}: {e}")
