@@ -11,6 +11,8 @@
 import json
 from typing import Any, Dict, List
 
+from loguru import logger
+
 
 def _stringify_tool_result_content(content: Any) -> str:
     """Flatten a ToolResultBlock.content into the tool's plain-text payload.
@@ -73,6 +75,8 @@ def output_transfer(
         return _claude_to_openai_agents(message, streaming=streaming)
     if transfer_type == "codex_cli":
         return _codex_to_openai_agents(message, streaming=streaming)
+    if transfer_type == "codex_official":
+        return _codex_official_to_openai_agents(message, streaming=streaming)
     else:
         raise ValueError(f"Unknown transfer type: {transfer_type}")
 
@@ -688,3 +692,229 @@ def _codex_tool_output(item: Dict[str, Any]) -> str:
             return ""
         return json.dumps(results, ensure_ascii=False)
     return ""
+
+
+# =========================================================================
+# Codex OFFICIAL SDK translator
+# =========================================================================
+#
+# Translates ``openai_codex.models.Notification``-shaped dicts (as
+# emitted by :class:`xyz_codex_official_sdk.CodexSDKv2.agent_loop`)
+# into the same event shape ``response_processor`` consumes from v1
+# and ClaudeAgentSDK.
+#
+# Input shape: dict produced by ``Notification.model_dump()`` (which
+# is a dataclass with ``method: str`` + ``payload: NotificationPayload``)
+# OR a manually-constructed dict that mirrors the same fields. For
+# resilience the translator handles both ``method`` at top level AND
+# embedded inside ``payload`` (some SDK paths emit the type
+# discriminator at one level, some at the other).
+#
+# Forward-compat: novel notification types from future SDK releases
+# are silently dropped with a DEBUG log — never raise. Same pattern
+# as the v1 codex_cli translator's unknown-type branch.
+
+# Notification ``method`` strings the codex JSON-RPC server emits.
+# Pinned from spike Section 0 output (2026-06-04, openai-codex 0.1.0b3).
+_METHOD_THREAD_STARTED = "thread/started"
+_METHOD_TURN_STARTED = "turn/started"
+_METHOD_TURN_COMPLETED = "turn/completed"
+_METHOD_TURN_FAILED = "turn/failed"
+_METHOD_ITEM_STARTED = "turn/itemStarted"
+_METHOD_ITEM_COMPLETED = "turn/itemCompleted"
+_METHOD_AGENT_MESSAGE_DELTA = "turn/agentMessageDelta"
+_METHOD_REASONING_TEXT_DELTA = "turn/reasoningTextDelta"
+_METHOD_REASONING_SUMMARY_DELTA = "turn/reasoningSummaryTextDelta"
+_METHOD_REASONING_SUMMARY_PART = "turn/reasoningSummaryPartAdded"
+_METHOD_COMMAND_OUTPUT_DELTA = "turn/commandExecutionOutputDelta"
+_METHOD_MCP_TOOL_PROGRESS = "turn/mcpToolCallProgress"
+_METHOD_ERROR = "error"
+_METHOD_CONFIG_WARNING = "config/warning"
+_METHOD_CONTEXT_COMPACTED = "thread/contextCompacted"
+_METHOD_TOKEN_USAGE_UPDATED = "thread/tokenUsageUpdated"
+
+
+def _codex_official_to_openai_agents(
+    message: Any, streaming: bool = True
+) -> List[Dict[str, Any]]:
+    """Translate an official-SDK Notification dict into the internal
+    event shape ``ResponseProcessor`` consumes.
+
+    The SDK emits richer events than the v1 ``exec --json`` JSON Lines
+    protocol — most notably ``ReasoningSummaryTextDeltaNotification``
+    streams the Thinking-panel text token-by-token rather than landing
+    as a single ``item.completed`` (which is v1's UX limitation).
+
+    Args:
+        message: Either a dict (Notification.model_dump output) or a
+            pydantic Notification instance. Both shapes are handled.
+        streaming: Whether the caller wants streaming events. Always
+            True in production; False only in tests that want
+            collapsed events.
+
+    Returns:
+        List of internal event dicts. Most notifications produce one
+        event; some (item.completed for mcp_tool_call) reuse the v1
+        codex_cli helpers and may produce zero events if the wrapped
+        item lacks required fields.
+    """
+    # Accept both pydantic models and plain dicts.
+    if hasattr(message, "model_dump"):
+        msg = message.model_dump(mode="json", by_alias=False)
+    elif isinstance(message, dict):
+        msg = message
+    else:
+        logger.debug(
+            f"_codex_official_to_openai_agents: non-dict, non-model input "
+            f"{type(message).__name__} — dropping"
+        )
+        return []
+
+    method = msg.get("method", "")
+    payload = msg.get("payload") or {}
+
+    # ----------------------------------------------------------------
+    # Lifecycle: thread/turn start/done/fail
+    # ----------------------------------------------------------------
+    if method in (_METHOD_THREAD_STARTED, _METHOD_TURN_STARTED):
+        # Info-only; the runtime doesn't need these to start streaming.
+        return []
+
+    if method == _METHOD_TURN_COMPLETED:
+        # Build a response.done event with usage. Payload shape per
+        # ``TurnCompletedNotification``: contains ``turn`` (with
+        # ``usage`` nested under it) and the thread/turn ids.
+        usage_src = (
+            (payload.get("turn") or {}).get("usage")
+            or payload.get("usage")
+            or {}
+        )
+        usage = {
+            "input_tokens": usage_src.get("input_tokens", 0),
+            "output_tokens": usage_src.get("output_tokens", 0),
+            "cached_input_tokens": usage_src.get("cached_input_tokens", 0),
+        }
+        return [{
+            "type": "raw_response_event",
+            "data": {"type": "response.done", "usage": usage},
+        }]
+
+    if method == _METHOD_TURN_FAILED:
+        err = (payload.get("error") or {}).get("message") or "turn failed"
+        return [{
+            "type": "raw_response_event",
+            "data": {
+                "type": "response.error",
+                "error_message": str(err),
+                "error_type": "turn.failed",
+            },
+        }]
+
+    if method == _METHOD_ERROR:
+        err = payload.get("message") or "unknown error"
+        return [{
+            "type": "raw_response_event",
+            "data": {
+                "type": "response.error",
+                "error_message": str(err),
+                "error_type": payload.get("code", "error"),
+            },
+        }]
+
+    # ----------------------------------------------------------------
+    # Streaming deltas (the v2 UX win — v1 doesn't have these)
+    # ----------------------------------------------------------------
+    if method == _METHOD_AGENT_MESSAGE_DELTA:
+        delta = payload.get("delta") or ""
+        if not delta:
+            return []
+        return [{
+            "type": "raw_response_event",
+            "data": {"type": "response.text.delta", "delta": delta},
+        }]
+
+    if method in (
+        _METHOD_REASONING_TEXT_DELTA,
+        _METHOD_REASONING_SUMMARY_DELTA,
+    ):
+        delta = payload.get("delta") or ""
+        if not delta:
+            return []
+        # Match ClaudeAgentSDK's thinking-delta shape so the frontend
+        # Thinking panel renders identically regardless of framework.
+        item_id = payload.get("item_id") or payload.get("itemId") or "rs"
+        return [{
+            "type": "run_item_stream_event",
+            "item": {
+                "type": "thinking_delta",
+                "tool_call_id": item_id,
+                "content": delta,
+            },
+        }]
+
+    if method == _METHOD_REASONING_SUMMARY_PART:
+        # New "section header" added to the reasoning summary. Emit as
+        # a thinking_delta with a leading newline so the UI separates
+        # sections naturally.
+        part = payload.get("text") or payload.get("part") or ""
+        if not part:
+            return []
+        item_id = payload.get("item_id") or payload.get("itemId") or "rs"
+        return [{
+            "type": "run_item_stream_event",
+            "item": {
+                "type": "thinking_delta",
+                "tool_call_id": item_id,
+                "content": f"\n{part}\n",
+            },
+        }]
+
+    if method == _METHOD_COMMAND_OUTPUT_DELTA:
+        # Bash output streams as it produces. v1 only delivers the
+        # final aggregated_output at item.completed; v2 can additionally
+        # surface live deltas. For now we drop these to keep the event
+        # stream consistent with v1's shape — the completed-item still
+        # carries the full output. Promote to a real event in a
+        # follow-up commit once the frontend supports streaming tool
+        # output rendering.
+        return []
+
+    if method == _METHOD_MCP_TOOL_PROGRESS:
+        # MCP tool-call progress notifications. Same rationale as
+        # command output — drop for now; the final result lands on
+        # the item.completed event below.
+        return []
+
+    # ----------------------------------------------------------------
+    # Item lifecycle — reuse v1 codex_cli translator's item helpers
+    # since the ``item`` payload shape (``type``, ``id``, ``server``,
+    # ``tool``, ``arguments``, ``result``, ``aggregated_output``, etc.)
+    # is the same across exec mode and app-server mode.
+    # ----------------------------------------------------------------
+    if method in (_METHOD_ITEM_STARTED, _METHOD_ITEM_COMPLETED):
+        item = payload.get("item") or {}
+        # ``item`` may be RootModel-serialized as nested ``{"root": {...}}``
+        # depending on pydantic_dump options — unwrap once.
+        if isinstance(item, dict) and "root" in item and isinstance(item["root"], dict):
+            item = item["root"]
+        # Reshape into the v1 codex_cli event shape and delegate to the
+        # existing translator so we don't duplicate the per-item-type
+        # branching (agent_message, reasoning, mcp_tool_call,
+        # command_execution, web_search).
+        if method == _METHOD_ITEM_STARTED:
+            wrapped = {"type": "item.started", "item": item}
+        else:
+            wrapped = {"type": "item.completed", "item": item}
+        return _codex_to_openai_agents(wrapped, streaming=streaming)
+
+    # ----------------------------------------------------------------
+    # Info-only notifications — log at DEBUG and drop.
+    # Includes: config/warning, context-compacted, token-usage-updated,
+    # account events, plan deltas (future), file changes (future),
+    # terminal interaction (future), and unknown novel notifications.
+    # ----------------------------------------------------------------
+    logger.debug(
+        f"[codex_official translator] dropping method={method!r} "
+        f"(no UI mapping yet)"
+    )
+    return []
