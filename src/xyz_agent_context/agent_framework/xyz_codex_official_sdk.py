@@ -398,8 +398,15 @@ class CodexSDKv2:
             # bumps a major and renames the enum again, our test
             # ``test_sandbox_full_access_attribute_exists`` will fail
             # loud before users hit it.
+            #
+            # NOTE: ``skip_git_repo_check`` is NOT a thread_start kwarg
+            # (only a v1 ``codex exec`` CLI flag). The SDK's app-server
+            # mode handles non-git cwds via ``sandbox_mode`` instead —
+            # ``danger-full-access`` bypasses the git-repo guard. If a
+            # future SDK reintroduces the check, route the equivalent
+            # CLI flag through ``CodexConfig.launch_args_override``
+            # rather than re-adding a thread_start kwarg.
             thread_call = codex.thread_start(
-                skip_git_repo_check=True,
                 sandbox=Sandbox.full_access,
             )
             thread = (

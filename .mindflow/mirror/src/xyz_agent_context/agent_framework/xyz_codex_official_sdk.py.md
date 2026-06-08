@@ -216,6 +216,27 @@ Implements the same async-generator contract as
   which we don't have yet. Adding them blind without UI changes
   means broken-looking events landing in the runtime.
 
+- **`thread_start` kwargs are SDK-specific, NOT v1 CLI flags**:
+  v1 used `codex exec --skip-git-repo-check` to suppress codex's
+  "cwd must be a git repo" guard. I assumed `AsyncCodex.thread_start`
+  exposed the same kwarg; it doesn't. SDK 0.1.0b3 signature only
+  accepts: `approval_mode, base_instructions, config, cwd,
+  developer_instructions, ephemeral, model, model_provider,
+  personality, sandbox, service_name, service_tier,
+  session_start_source, thread_source`. Passing an unknown kwarg
+  is `TypeError` at first turn (incident 2026-06-08 v3 — same day,
+  different bug than the Sandbox rename).
+
+  The git-repo guard in app-server mode is bypassed by
+  `sandbox_mode="danger-full-access"` in `config_overrides`. If a
+  future SDK reintroduces an explicit check, route the equivalent
+  flag through `CodexConfig.launch_args_override=("--skip-git-repo-check",)`
+  instead of inventing a non-existent kwarg.
+
+  Test `test_thread_start_accepts_kwargs_we_actually_pass`
+  inspects the live signature and asserts every kwarg we pass is
+  present — SDK upgrade that drops one fails CI before users.
+
 - **Sandbox name has TWO conventions, kept on purpose**:
   * codex internal config / TOML / CLI: `danger-full-access` (used in
     `config_overrides` as `sandbox_mode="danger-full-access"`)

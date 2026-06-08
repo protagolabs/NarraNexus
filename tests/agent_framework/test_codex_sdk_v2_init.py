@@ -219,6 +219,47 @@ def test_overrides_returns_tuple_not_list():
     assert all(isinstance(s, str) for s in result)
 
 
+def test_thread_start_accepts_kwargs_we_actually_pass():
+    """SDK contract test — ``AsyncCodex.thread_start`` must keep
+    accepting the kwargs we pass at runtime. The v2 ``agent_loop``
+    crashed on 2026-06-08 because it passed
+    ``skip_git_repo_check=True`` (a v1 CLI flag I mistakenly assumed
+    the SDK exposed) — TypeError "unexpected keyword argument".
+
+    Pin the kwarg set so an SDK rename / removal fails CI before
+    hitting a user. If this test fails after an SDK upgrade:
+      1. Inspect ``inspect.signature(AsyncCodex.thread_start)``
+      2. Update ``xyz_codex_official_sdk.py``'s thread_start call to
+         match the new shape
+      3. Update this test to match what we actually pass now.
+    """
+    import inspect as _inspect
+
+    from openai_codex import AsyncCodex
+
+    sig = _inspect.signature(AsyncCodex.thread_start)
+    params = set(sig.parameters.keys())
+
+    # Kwargs the v2 agent_loop currently passes — every one of these
+    # MUST be in the SDK signature or thread_start blows up at runtime.
+    required = {"sandbox"}
+    missing = required - params
+    assert not missing, (
+        f"openai_codex.AsyncCodex.thread_start lost kwarg(s) {missing}. "
+        f"Update xyz_codex_official_sdk.py:agent_loop and this test. "
+        f"Available kwargs: {sorted(params)}"
+    )
+
+    # Belt-and-suspenders: explicitly assert the kwarg we used to
+    # pass and removed is still NOT here — if the SDK reintroduces
+    # skip_git_repo_check we can re-enable it (and the CodexConfig
+    # launch_args_override workaround becomes unnecessary).
+    assert "skip_git_repo_check" not in params, (
+        "SDK reintroduced skip_git_repo_check — consider re-enabling "
+        "it at the thread_start call site for clearer intent."
+    )
+
+
 def test_sandbox_full_access_attribute_exists():
     """SDK contract test — the ``openai_codex.Sandbox`` enum must expose
     ``full_access``. The v2 ``agent_loop`` passes this to
