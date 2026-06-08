@@ -31,6 +31,46 @@ from ._agent_runtime_steps.step_display import (
     format_tool_call_for_display,
     format_thinking_for_display,
 )
+from xyz_agent_context.channel.message_source_handler import (
+    strip_responses_api_citation_tokens,
+)
+
+
+# Tool-name substrings whose ``content`` / ``markdown`` / ``text`` arg
+# carries user-visible reply text. When the model is gpt-5.5 with
+# WebSearch, that text contains inline ``citeturnNviewN`` citation
+# tokens that ChatGPT's first-party UI knows how to resolve — but
+# we don't (the SDK doesn't expose the URL/title map). Strip them
+# here so the live-streamed UI sees clean text. Same strip is also
+# applied at ``MessageSourceHandler.extract_reply_text`` for the
+# DB-persist + IM-forward paths; doing both is necessary because
+# they're separate downstream consumers of the same raw tool call.
+_USER_REPLY_TOOL_PATTERNS: tuple[str, ...] = (
+    "send_message_to_user_directly",
+    "lark_cli",
+    "slack_cli",
+    "tg_cli",
+)
+
+
+def _looks_like_user_reply_tool(tool_name: str) -> bool:
+    return bool(tool_name) and any(p in tool_name for p in _USER_REPLY_TOOL_PATTERNS)
+
+
+def _clean_reply_args_in_place(arguments: dict) -> dict:
+    """Return a copy of ``arguments`` with citation tokens stripped
+    from the fields that carry user-visible text. ``content`` covers
+    chat_module / message_bus / job; ``markdown`` / ``text`` /
+    ``command`` cover Lark / Slack / Telegram CLI wrappers (which
+    embed text inside a command string)."""
+    if not isinstance(arguments, dict):
+        return arguments
+    cleaned: dict = dict(arguments)
+    for key in ("content", "markdown", "text", "command"):
+        v = cleaned.get(key)
+        if isinstance(v, str):
+            cleaned[key] = strip_responses_api_citation_tokens(v)
+    return cleaned
 
 
 class ResponseType(str, Enum):
@@ -340,6 +380,15 @@ class ResponseProcessor:
             tool_name = item.get("tool_name", "unknown")
             tool_call_id = item.get("tool_call_id", "")
             arguments = item.get("arguments", {})
+            # Strip OpenAI Responses-API citation tokens from reply
+            # tools' content args. This is the LIVE-STREAMING path —
+            # the cleaned arguments end up in the ProgressMessage we
+            # ship to the frontend, so users see clean text in the
+            # chat bubble as the tool call appears. The persist/IM
+            # paths run their own strip via ``extract_reply_text``;
+            # both are needed because they're independent consumers.
+            if _looks_like_user_reply_tool(tool_name):
+                arguments = _clean_reply_args_in_place(arguments)
             tool_count = state.tool_call_count + 1  # Next tool sequence number
             logger.info(f"Tool call: {tool_name}")
 

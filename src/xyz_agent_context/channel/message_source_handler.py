@@ -81,6 +81,16 @@ from loguru import logger
 _CITE_TOKEN_RE = re.compile(r"cite[a-z]+\d+[a-z]+\d+")
 
 
+def strip_responses_api_citation_tokens(text: str) -> str:
+    """Public alias — same as ``_strip_responses_api_citation_tokens``,
+    re-exported without the leading underscore so callers outside this
+    module (notably ``response_processor`` building ProgressMessages
+    for live UI streaming) can apply the same strip. Kept on the
+    underscore name too for backwards compat with the internal call
+    site below."""
+    return _strip_responses_api_citation_tokens(text)
+
+
 def _strip_responses_api_citation_tokens(text: str) -> str:
     """Remove inline citation tokens and tidy up the leftover spacing.
 
