@@ -71,18 +71,8 @@ _SLOT_BUILDERS = {
 
 
 # Coding-agent framework names this resolver knows. Must stay in sync
-# with the entries registered in ``agent_framework/__init__.py``. Codex
-# has two variants now — v1 (hand-rolled, ``codex_cli``) and v2 (official
-# SDK, ``codex_cli_v2`` / ``codex_official``); both consume the same
-# ``CodexConfig`` from the resolver, so the codex provider-routing
-# branch applies to both.
-_KNOWN_AGENT_FRAMEWORKS = (
-    "claude_code",
-    "codex_cli",
-    "codex_cli_v2",
-    "codex_official",
-)
-_CODEX_FRAMEWORK_VALUES = frozenset({"codex_cli", "codex_cli_v2", "codex_official"})
+# with the entries registered in ``agent_framework/__init__.py``.
+_KNOWN_AGENT_FRAMEWORKS = ("claude_code", "codex_cli")
 
 
 def _agent_framework_from_slot(slot: dict | None) -> str:
@@ -93,11 +83,11 @@ def _agent_framework_from_slot(slot: dict | None) -> str:
 
 
 def _is_codex_framework(framework: str | None) -> bool:
-    """Both v1 ``codex_cli`` and v2 ``codex_cli_v2`` / ``codex_official``
-    are codex variants that need a CodexConfig built from an
-    OpenAI-protocol provider. Centralize the check so adding a v3 name
-    later is one edit, not three."""
-    return (framework or "") in _CODEX_FRAMEWORK_VALUES
+    """Codex framework needs a CodexConfig built from an OpenAI-protocol
+    provider; non-codex frameworks (Claude Code) take ClaudeConfig
+    instead. Kept as a helper rather than an inline equality check so a
+    future v3 framework name lands in one spot."""
+    return framework == "codex_cli"
 
 
 def _codex_config_from_card(card: ProviderCard, model: str) -> CodexConfig:

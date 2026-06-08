@@ -22,7 +22,7 @@ Selection precedence (most specific wins):
   1. explicit ``framework`` arg to ``get_agent_loop_driver()``
      (the per-agent extension point — pass an agent-scoped choice here)
   2. env var ``AGENT_LOOP_FRAMEWORK``
-  3. ``DEFAULT_AGENT_LOOP_FRAMEWORK`` ("claude")
+  3. ``DEFAULT_AGENT_LOOP_FRAMEWORK`` ("claude_code")
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ class AgentLoopDriver(Protocol):
 
 DriverFactory = Callable[..., AgentLoopDriver]
 
-DEFAULT_AGENT_LOOP_FRAMEWORK = "claude"
+DEFAULT_AGENT_LOOP_FRAMEWORK = "claude_code"
 
 _REGISTRY: dict[str, DriverFactory] = {}
 

@@ -3,6 +3,29 @@ code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-06-08
 ---
 
+## 2026-06-08 (evening) — Drop A/B aliases entirely, single canonical name
+
+Cleanup pass after the afternoon cutover: backend now registers ONLY
+`codex_cli` (no `codex_cli_v2` / `codex_official` / `codex`
+aliases), so the frontend `CODEX_FRAMEWORK_IDS` set collapses to
+just one element — replaced with a direct `=== 'codex_cli'`
+equality in the `isCodexFramework` helper. The helper is kept
+(rather than inlined at three call sites) so a future v3 framework
+id lands in one spot.
+
+Per binding rule #2 (YOLO, no backwards-compat shims), DB rows
+still holding the dropped A/B aliases (`codex_cli_v2`,
+`codex_official`) fail loud on next turn — the user re-picks
+"Codex CLI" from Settings to fix. This was an explicit choice
+over a silent startup migration: cleaner code, one-time minor
+user friction, no automation that has to keep working forever.
+
+v1 source file (`xyz_codex_cli_sdk.py`) intentionally kept in the
+repo as revival fallback — if v2 has a critical regression we can
+flip one `register_agent_loop_driver` line in
+`agent_framework/__init__.py` to bring v1 back online without
+revert.
+
 ## 2026-06-08 (afternoon) — Cutover: dropdown shows ONE Codex CLI
 
 Phase 3 cutover: backend now aliases every codex framework name
@@ -10,16 +33,8 @@ Phase 3 cutover: backend now aliases every codex framework name
 official-SDK driver. Dropdown reverts to a single "Codex CLI" entry —
 v1/v2 distinction is gone at the UI layer.
 
-The `CODEX_FRAMEWORK_IDS` set still lists all four aliases because
-existing user DB rows from the A/B period may hold `codex_cli_v2` or
-`codex_official`, and the set guards UI branches (model curation,
-provider source filter, install banner) for any of those values.
-
-v1 source file (`xyz_codex_cli_sdk.py`) intentionally kept in the
-repo as revival fallback — if v2 has a critical regression we can
-flip one `register_agent_loop_driver` line in
-`agent_framework/__init__.py` to bring v1 back online without
-revert.
+(superseded by the cleanup pass above — `codex_cli` is now the only
+registered codex name.)
 
 ## 2026-06-08 — Agent framework dropdown exposes Codex CLI v2
 

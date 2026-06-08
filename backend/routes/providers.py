@@ -63,7 +63,7 @@ class UpdateModelsRequest(BaseModel):
 
 class SetAgentFrameworkRequest(BaseModel):
     """Body for ``POST /api/providers/agent-framework``."""
-    framework: str  # "claude_code" | "codex_cli" | "codex_cli_v2" | "codex_official"
+    framework: str  # "claude_code" | "codex_cli"
 
 
 # =============================================================================
@@ -527,10 +527,10 @@ async def _probe_agent_framework_auth(framework: str) -> dict:
     """
     from xyz_agent_context.agent_framework.provider_driver.base import ProviderCard
 
-    # v1 and v2 both authenticate against ``~/.codex/auth.json`` —
-    # same probe applies. Adding a v3 codex variant later: extend
-    # this tuple, no other change needed.
-    if framework in ("codex_cli", "codex_cli_v2", "codex_official"):
+    # Codex auth probe — reads ``~/.codex/auth.json`` regardless of
+    # which codex driver class is registered (v1 or v2 share the
+    # auth file path).
+    if framework == "codex_cli":
         from xyz_agent_context.agent_framework.provider_driver.drivers.codex_oauth import (
             CodexOAuthDriver,
         )
@@ -619,11 +619,11 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     # Auto-install codex CLI on opt-in (local mode only; cloud mode
     # returns action="blocked"). claude_code path skips this — the
     # `claude` binary is already installed at run.sh boot time. The
-    # v2 path still depends on the `codex` binary (the official SDK
-    # spawns it in app-server mode), so the install side-effect fires
-    # for any codex_* variant.
+    # ``openai-codex`` Python SDK internally spawns the ``codex``
+    # binary in app-server mode, so the install side-effect is still
+    # required.
     install_result: dict | None = None
-    if body.framework in ("codex_cli", "codex_cli_v2", "codex_official"):
+    if body.framework == "codex_cli":
         install_result = await _ensure_codex_installed()
 
     service = await _get_service()

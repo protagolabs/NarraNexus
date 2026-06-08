@@ -18,18 +18,21 @@ function and ``api_config._get_user_llm_configs_strict`` now delegates
 to it. ``ProviderResolver.resolve_and_set`` will follow in Phase 2.
 
 As of 2026-05-31, the runtime path also resolves Codex agent config.
-When the agent slot row has ``agent_framework`` ∈ ``{codex_cli,
-codex_cli_v2, codex_official}``, the agent slot is interpreted as an
-OpenAI-protocol Codex provider and produces ``CodexConfig`` in the
-returned ``RuntimeLLMConfigs`` bundle. The legacy
-``resolve_user_llm_configs`` wrapper still exposes the old three-config
-tuple for non-agent-loop callers.
+When the agent slot row has ``agent_framework == "codex_cli"``, the
+agent slot is interpreted as an OpenAI-protocol Codex provider and
+produces ``CodexConfig`` in the returned ``RuntimeLLMConfigs`` bundle.
+The legacy ``resolve_user_llm_configs`` wrapper still exposes the old
+three-config tuple for non-agent-loop callers.
 
-The codex variant check lives in ``_is_codex_framework`` /
-``_CODEX_FRAMEWORK_VALUES`` so adding a v3 name later is one edit. The
-known-framework whitelist ``_KNOWN_AGENT_FRAMEWORKS`` is the authoritative
-list of framework names the resolver recognises and **must** stay in
-sync with ``agent_framework/__init__.py`` registrations and with
+**Single canonical framework names** (2026-06-08 cleanup): the
+``_KNOWN_AGENT_FRAMEWORKS`` whitelist is just
+``("claude_code", "codex_cli")`` — the A/B period briefly listed
+``codex_cli_v2`` / ``codex_official`` but those were dropped after
+cutover (binding rule #2). ``_is_codex_framework`` is now just
+``framework == "codex_cli"`` wrapped in a helper for future-proofing.
+
+This whitelist **must** stay in sync with
+``agent_framework/__init__.py`` registrations and with
 ``user_provider_service._SUPPORTED_AGENT_FRAMEWORKS``. If a slot row
 carries an unknown framework name, ``_agent_framework_from_slot``
 falls back to ``"claude_code"`` (the historical default) rather than

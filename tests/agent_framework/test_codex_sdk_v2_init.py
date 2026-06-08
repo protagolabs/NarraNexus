@@ -75,33 +75,29 @@ def test_codex_sdk_v2_init_takes_working_path():
 # ---------------- Registry registration ----------------
 
 
-def test_v2_registered_under_canonical_name():
-    """``codex_cli_v2`` is the canonical value in user_slots.agent_framework."""
-    assert "codex_cli_v2" in available_agent_loop_frameworks()
+def test_v2_registered_under_codex_cli():
+    """``codex_cli`` is the single canonical framework id. A/B aliases
+    (``codex_cli_v2``, ``codex_official``, plain ``codex``) were
+    deregistered after the cutover — keeping them around was just a
+    backwards-compatibility shim per binding rule #2 (YOLO)."""
+    assert "codex_cli" in available_agent_loop_frameworks()
 
 
-def test_v2_registered_under_alias():
-    """``codex_official`` is the short alias for env / CLI overrides."""
-    assert "codex_official" in available_agent_loop_frameworks()
+def test_ab_period_aliases_no_longer_registered():
+    """Regression guard: the A/B-period aliases must NOT be present.
+    If they reappear, the cleanup commit got reverted."""
+    available = set(available_agent_loop_frameworks())
+    assert "codex_cli_v2" not in available
+    assert "codex_official" not in available
+    assert "codex" not in available
+    assert "claude" not in available
 
 
-def test_v2_resolves_to_correct_class():
-    driver = get_agent_loop_driver(framework="codex_cli_v2", working_path="./")
-    assert isinstance(driver, CodexSDKv2)
-
-
-def test_v2_alias_resolves_to_same_class():
-    """Both names must produce the same driver type."""
-    d1 = get_agent_loop_driver(framework="codex_cli_v2", working_path="./")
-    d2 = get_agent_loop_driver(framework="codex_official", working_path="./")
-    assert type(d1) is type(d2) is CodexSDKv2
-
-
-def test_codex_cli_resolves_to_v2_after_cutover():
-    """Cutover 2026-06-08: ``codex_cli`` (and ``codex``) are now aliases
-    for the v2 official-SDK driver. The v1 ``CodexSDK`` class still
-    lives in ``xyz_codex_cli_sdk.py`` as a revival fallback but is
-    intentionally NOT registered — pulling it back online requires a
+def test_codex_cli_resolves_to_v2():
+    """``codex_cli`` resolves to the official-SDK driver. The v1
+    ``CodexSDK`` class still lives in ``xyz_codex_cli_sdk.py`` as a
+    revival fallback but is intentionally NOT registered — pulling it
+    back online requires a
     one-line ``register_agent_loop_driver`` edit in
     ``agent_framework/__init__.py``.
     """

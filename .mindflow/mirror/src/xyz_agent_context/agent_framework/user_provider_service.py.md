@@ -23,7 +23,14 @@ stub: false
 
 **Agent slot 协议由 `agent_framework` 决定**：`set_slot()` 不能只看静态 `SLOT_REQUIRED_PROTOCOLS`。当 `user_slots[agent].agent_framework ∈ {codex_cli, codex_cli_v2, codex_official}` 时，agent slot 接受 OpenAI-protocol provider；默认/Claude Code 路径仍要求 Anthropic。Codex OAuth provider 创建时也直接写入 `driver_type="codex_oauth"` 和 `auth_ref="codex-cli:~/.codex/auth.json"`，避免等待启动 backfill 才能被 resolver 使用。
 
-**v2 名字必须和 v1 等价**：2026-06-08 修了一个 silent fallback bug——`_SUPPORTED_AGENT_FRAMEWORKS` 之前只列 `(claude_code, codex_cli)`，用户把 slot 切到 `codex_cli_v2` 后，resolver 的 `_agent_framework_from_slot` 看不认就 fallback 成 `claude_code`，结果用 codex_oauth 卡片+anthropic protocol 期望，直接报"driver 'codex_oauth' cannot satisfy this slot"。修复后白名单四个名字（claude_code / codex_cli / codex_cli_v2 / codex_official）全列出，set_slot 服务端 source 白名单也覆盖三个 codex 变种。**新加 v3 框架时三处必须同步：`agent_framework/__init__.py` 的 register、resolver 的 `_KNOWN_AGENT_FRAMEWORKS` / `_CODEX_FRAMEWORK_VALUES`、本文件的 `_SUPPORTED_AGENT_FRAMEWORKS`。**
+**Framework 名字白名单（2026-06-08 evening 收敛）**：`_SUPPORTED_AGENT_FRAMEWORKS` 现在只接受两个 canonical 名字 `(claude_code, codex_cli)`。A/B 期间的 `codex_cli_v2` / `codex_official` 别名已 dropped——cutover 完了就拆，binding rule #2 (YOLO)。`set_slot` 的 source 白名单也对应回到 `agent_framework == "codex_cli"` 单条 equality 比较。
+
+**三处必须同步**（加 v3 框架的时候）：
+1. `agent_framework/__init__.py` 的 `register_agent_loop_driver` 调用
+2. `provider_driver/resolver._KNOWN_AGENT_FRAMEWORKS` + `_is_codex_framework`
+3. 本文件的 `_SUPPORTED_AGENT_FRAMEWORKS`
+
+route 层 `backend/routes/providers.py` 现在 import 本文件的 `_SUPPORTED_AGENT_FRAMEWORKS`，不算独立条目。
 
 **Codex provider 的 `models` 列表 = codex CLI 自己的 curated picker**：源头是模块顶层常量 `CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]`——2026-06-02 直接看 codex CLI 交互式 "Select Model and Effort" 菜单确认。`gpt-5.5` 是 codex 自己标记 default flagship；`gpt-5.4` 是 strong everyday；`gpt-5.4-mini` 是 fast/cheap。Legacy 变种（`gpt-5-codex`、`gpt-5.2-codex`、`gpt-5.3-codex`）codex CLI 支持但不放 picker，要走 `codex -m <name>` 显式调用——不进 NarraNexus dropdown 默认列表。
 

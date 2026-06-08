@@ -4,6 +4,12 @@ last_verified: 2026-06-08
 stub: false
 ---
 
+## 2026-06-08 (evening) — A/B 别名清理
+
+`set_agent_framework` 和 `_probe_agent_framework_auth` 之前都接 `("codex_cli", "codex_cli_v2", "codex_official")` 三个名字，现在收敛到只认 `codex_cli`。所有 codex 变种共用同一 `~/.codex/auth.json` 和同一 `_ensure_codex_installed()` 副作用——别名集合留着没意义。`_SUPPORTED_AGENT_FRAMEWORKS` 通过 import service 层常量自动跟着收窄到 `(claude_code, codex_cli)`。
+
+带 A/B 老名字的 DB 行 (`agent_framework='codex_cli_v2'` 等) 现在会失败——按 binding rule #2 选了 "fail loud, user re-picks" 而不是 silent startup migration。
+
 ## 2026-06-08 — Route 层 `_SUPPORTED_AGENT_FRAMEWORKS` 不再独立维护
 
 之前 `backend/routes/providers.py` 在第 358 行硬编码了 `("claude_code", "codex_cli")` 一份白名单，而 service 层 `UserProviderService._SUPPORTED_AGENT_FRAMEWORKS` 已经扩到了 4 个名字（codex_cli_v2 / codex_official 是 v2 别名）。结果前端 dropdown 选 v2 → route 层 400 "Unknown framework"，而 service 层根本接收得了。两份白名单永远会漂。

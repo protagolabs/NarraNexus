@@ -369,20 +369,19 @@ class UserProviderService:
         # for now). Frontend hides these from the dropdown — this
         # server-side check is defense in depth for any caller
         # bypassing the UI.
-        # Match both v1 ``codex_cli`` and v2 ``codex_cli_v2`` /
-        # ``codex_official`` — same OpenAI-tier constraint applies to
-        # both. Single source of truth for codex variant names lives
-        # in ``provider_driver.resolver._CODEX_FRAMEWORK_VALUES``;
-        # mirrored here so this layer doesn't import from resolver.
-        _codex_frameworks = {"codex_cli", "codex_cli_v2", "codex_official"}
+        # Codex framework requires an OpenAI-Responses-API-capable
+        # provider — only codex_oauth (ChatGPT login) and user-added
+        # Custom OpenAI providers qualify. Third-party aggregators
+        # (netmind / yunwu / openrouter) speak chat-completions only
+        # and don't expose Responses API, so codex can't use them.
         if (
             slot_name == SlotName.AGENT.value
-            and agent_framework in _codex_frameworks
+            and agent_framework == "codex_cli"
             and prov["source"] not in {"codex_oauth", "user"}
         ):
             raise ValueError(
-                f"agent slot with framework={agent_framework!r} accepts "
-                f"only source=codex_oauth or source=user providers; "
+                f"agent slot with framework='codex_cli' accepts only "
+                f"source=codex_oauth or source=user providers; "
                 f"got source={prov['source']!r}. Third-party aggregator "
                 f"endpoints (netmind / yunwu / openrouter) don't expose "
                 f"OpenAI's Responses API and are not supported."
@@ -414,15 +413,12 @@ class UserProviderService:
     # for any null/missing row so existing users are untouched.
 
     # Coding-agent framework names ``set_user_agent_framework`` accepts.
-    # Stay in sync with ``agent_framework/__init__.py`` registrations
-    # and with resolver's ``_KNOWN_AGENT_FRAMEWORKS``. v2 codex is
-    # opt-in during the A/B period; we accept it here so users can
-    # switch slots without manual SQL.
+    # MUST stay in sync with ``agent_framework/__init__.py``
+    # registrations and resolver's ``_KNOWN_AGENT_FRAMEWORKS`` (route
+    # layer imports this constant directly — single source of truth).
     _SUPPORTED_AGENT_FRAMEWORKS: tuple[str, ...] = (
         "claude_code",
         "codex_cli",
-        "codex_cli_v2",
-        "codex_official",
     )
 
     async def get_user_agent_framework(self, user_id: str) -> str:
