@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-06-04
+last_verified: 2026-06-08
 ---
 
 ## Why it exists
@@ -216,6 +216,19 @@ Implements the same async-generator contract as
   which we don't have yet. Adding them blind without UI changes
   means broken-looking events landing in the runtime.
 
-- **`Sandbox.danger_full_access` is a Python enum value**. Calling
-  `Sandbox("danger-full-access")` (string) works too in some SDK
-  versions but is less robust. Stick to the enum member.
+- **Sandbox name has TWO conventions, kept on purpose**:
+  * codex internal config / TOML / CLI: `danger-full-access` (used in
+    `config_overrides` as `sandbox_mode="danger-full-access"`)
+  * `openai_codex` Python SDK enum: `Sandbox.full_access`
+    (the SDK dropped the "danger" prefix — same mode underneath)
+
+  Initial v2 commit incorrectly used `Sandbox.danger_full_access` at
+  the `thread_start` kwarg, crashed immediately at first real turn on
+  2026-06-08 (`AttributeError: type object 'Sandbox' has no attribute
+  'danger_full_access'`). Test `test_sandbox_full_access_attribute_exists`
+  now locks in the SDK contract — if 0.2 renames the enum again,
+  fail loud at test time, not at user time.
+
+  **Both layers must stay set** — config_overrides is the persisted
+  TOML; the kwarg is the per-thread override. Never trim either one
+  "for simplicity" thinking the other covers it.

@@ -385,9 +385,22 @@ class CodexSDKv2:
             # Other AsyncCodex methods may or may not be coroutines
             # depending on SDK version; we use ``inspect.iscoroutine``
             # as a defensive runtime check at each call site.
+            # Note the two-layer naming mismatch we deliberately preserve:
+            #   * ``config_overrides`` sets ``sandbox_mode="danger-full-access"``
+            #     — that's codex's *internal* config value name (matches the
+            #     CLI flag ``--sandbox danger-full-access``).
+            #   * ``thread_start(sandbox=...)`` takes the SDK's ``Sandbox``
+            #     enum, where the same mode is named ``full_access``
+            #     (the SDK dropped the "danger" prefix from the enum but
+            #     the underlying mode is identical).
+            # Both must be set: config_overrides locks it in the persisted
+            # config; the kwarg is the per-thread guarantee. If the SDK
+            # bumps a major and renames the enum again, our test
+            # ``test_sandbox_full_access_attribute_exists`` will fail
+            # loud before users hit it.
             thread_call = codex.thread_start(
                 skip_git_repo_check=True,
-                sandbox=Sandbox.danger_full_access,
+                sandbox=Sandbox.full_access,
             )
             thread = (
                 await thread_call

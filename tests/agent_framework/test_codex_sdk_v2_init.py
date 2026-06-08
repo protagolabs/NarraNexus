@@ -217,3 +217,28 @@ def test_overrides_returns_tuple_not_list():
     )
     assert isinstance(result, tuple)
     assert all(isinstance(s, str) for s in result)
+
+
+def test_sandbox_full_access_attribute_exists():
+    """SDK contract test — the ``openai_codex.Sandbox`` enum must expose
+    ``full_access``. The v2 ``agent_loop`` passes this to
+    ``thread_start(sandbox=...)``. If the SDK ever renames the enum
+    (the move from 0.1.0bN's ``danger_full_access`` to plain
+    ``full_access`` already happened once and burned an integration
+    smoke run on 2026-06-08), this test catches it before it ships.
+
+    Note the two-layer naming convention preserved on purpose:
+    * codex internal config / TOML / CLI flag:  ``danger-full-access``
+    * openai_codex SDK ``Sandbox`` enum:        ``full_access``
+    Both refer to the same sandbox mode."""
+    from openai_codex import Sandbox
+
+    assert hasattr(Sandbox, "full_access"), (
+        "openai_codex.Sandbox.full_access missing — SDK upgrade likely "
+        "renamed the enum. Update xyz_codex_official_sdk.py line 390 "
+        "and this test together."
+    )
+    # Adjacent enum values we don't currently use but want to detect if
+    # they ever disappear (would signal a much bigger SDK API rework).
+    assert hasattr(Sandbox, "read_only")
+    assert hasattr(Sandbox, "workspace_write")
