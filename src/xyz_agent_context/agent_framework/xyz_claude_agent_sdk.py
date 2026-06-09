@@ -252,7 +252,16 @@ class ClaudeAgentSDK:
                 
         logger.debug(f"System prompt length: {len(system_prompt):,} chars")
         logger.debug(f"Your MCP: {claude_agent_mcp_dict}")
-        _is_claude_native = (claude_config.model or "").startswith("claude-")
+        # "Native Claude" keeps tool_search on auto (deferred tool loading);
+        # non-Claude models force it off (see below). Claude Code OAuth is always
+        # native Claude — and its model is now a CLI family alias (opus/sonnet/
+        # haiku), which doesn't start with "claude-", so key off auth_type too.
+        _model = (claude_config.model or "")
+        _is_claude_native = (
+            claude_config.auth_type == "oauth"
+            or _model.startswith("claude-")
+            or _model in ("opus", "sonnet", "haiku")
+        )
         logger.info(
             f"[ClaudeAgentSDK] Provider config: "
             f"model={claude_config.model or '(default)'}, "

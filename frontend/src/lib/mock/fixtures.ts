@@ -638,7 +638,7 @@ export const mockCostSummary: CostSummary = {
       output_tokens: 140_000,
       call_count: 148,
     },
-    'claude-opus-4.7': {
+    'claude-opus-4.8': {
       cost: 3.75,
       input_tokens: 248_000,
       output_tokens: 58_000,

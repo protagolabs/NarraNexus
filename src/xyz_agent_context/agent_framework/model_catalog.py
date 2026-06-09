@@ -67,7 +67,7 @@ _register(
     # how its inference router dispatches; the prefix is part of the
     # model id, not a separate provider. max_output_tokens matches the
     # native Claude limits because NetMind is a transparent proxy here.
-    ModelMeta("anthropic/claude-opus-4-7", "Claude Opus 4.7 (NetMind)", max_output_tokens=115200),
+    ModelMeta("anthropic/claude-opus-4-8", "Claude Opus 4.8 (NetMind)", max_output_tokens=115200),
     ModelMeta("anthropic/claude-sonnet-4-6", "Claude Sonnet 4.6 (NetMind)", max_output_tokens=115200),
     ModelMeta("Qwen/Qwen3.6-Plus", "Qwen3.6 Plus"),
     ModelMeta("Qwen/Qwen3.6-Flash", "Qwen3.6 Flash"),
@@ -78,10 +78,16 @@ _register(
 # max_output_tokens left None for models whose official limits we haven't
 # independently verified; callers fall back to the provider's own cap.
 _register(
-    ModelMeta("claude-opus-4-7", "Claude Opus 4.7", max_output_tokens=115200),
+    ModelMeta("claude-opus-4-8", "Claude Opus 4.8", max_output_tokens=115200),
     ModelMeta("claude-sonnet-4-6", "Claude Sonnet 4.6", max_output_tokens=115200),
     ModelMeta("claude-haiku-4-5", "Claude Haiku 4.5"),
     ModelMeta("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (2025-10-01)"),
+    # Claude Code CLI family aliases — always resolve to the latest model of
+    # each family. Used by the Claude OAuth candidate list so it never goes
+    # stale; only valid on the CLI (`claude --model opus`), not the raw API.
+    ModelMeta("opus", "Claude Opus (latest)"),
+    ModelMeta("sonnet", "Claude Sonnet (latest)"),
+    ModelMeta("haiku", "Claude Haiku (latest)"),
 )
 
 # --- OpenAI models ---
@@ -107,11 +113,11 @@ _register(
 # Key: (source, protocol) → list of default model IDs
 _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
     # NetMind Anthropic protocol → agent models.
-    # claude-opus-4-7 and claude-sonnet-4-6 sit at the top: when a new
+    # claude-opus-4-8 and claude-sonnet-4-6 sit at the top: when a new
     # user adds a NetMind provider we want Claude available out of the
     # box, since the free-tier agent model defaults to Sonnet 4.6.
     ("netmind", "anthropic"): [
-        "anthropic/claude-opus-4-7",
+        "anthropic/claude-opus-4-8",
         "anthropic/claude-sonnet-4-6",
         "minimax/minimax-m2.7",
         "deepseek-ai/DeepSeek-V4-Pro",
@@ -141,7 +147,7 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
     ],
     # Yunwu Anthropic protocol → Claude models (Yunwu proxies official Claude)
     ("yunwu", "anthropic"): [
-        "claude-opus-4-7",
+        "claude-opus-4-8",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ],
@@ -154,7 +160,7 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
     ],
     # OpenRouter Anthropic protocol → Claude models (OpenRouter proxies official Claude)
     ("openrouter", "anthropic"): [
-        "claude-opus-4-7",
+        "claude-opus-4-8",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ],
@@ -165,11 +171,16 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
         "gpt-5.2",
         "gpt-5.1",
     ],
-    # Claude OAuth → agent models
+    # Claude OAuth → agent models. Use the Claude Code CLI's family ALIASES
+    # (`claude --model opus|sonnet|haiku` resolves to the latest of each family)
+    # instead of pinned versions — so the OAuth candidate list auto-tracks the
+    # newest Claude release and never needs a manual version bump on every
+    # Opus/Sonnet/Haiku update. (Only the OAuth path goes through the CLI, where
+    # these aliases are valid; the API-proxy providers above need full ids.)
     ("claude_oauth", "anthropic"): [
-        "claude-opus-4-7",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
+        "opus",
+        "sonnet",
+        "haiku",
     ],
 }
 
@@ -187,7 +198,7 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
 # so they all fall under the "openai" protocol too.
 _SUGGESTED_MODELS: dict[str, list[str]] = {
     "anthropic": [
-        "claude-opus-4-7",
+        "claude-opus-4-8",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
         "claude-haiku-4-5-20251001",

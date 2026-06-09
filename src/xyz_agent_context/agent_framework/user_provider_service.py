@@ -144,7 +144,10 @@ class UserProviderService:
                 "auth_type": "oauth",
                 "api_key": "",
                 "base_url": "",
-                "models": json.dumps(["claude-opus-4-7", "claude-sonnet-4-6"]),
+                # CLI family aliases → auto-track the latest Claude release (the
+                # OAuth path runs `claude --model opus|sonnet|haiku`), so no
+                # manual version bump on each new model. See model_catalog.py.
+                "models": json.dumps(["opus", "sonnet", "haiku"]),
                 # OAuth funnels through official Anthropic → server tools OK.
                 "supports_anthropic_server_tools": True,
             }, now)
