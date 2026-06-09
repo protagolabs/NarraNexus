@@ -19,6 +19,56 @@ active_run filter is unchanged.
 
 Account deletion dropped `instance_social_entities` from `instance_sub_tables` and added a loop deleting every `memory_<kind>` table by agent_id (using `MEMORY_KINDS`), so a deleted account leaves no orphan rows in the unified memory store.
 
+## 2026-06-09 — funnel redesign: /api/auth/funnel endpoint (setup_* events)
+
+Added `POST /api/auth/funnel` for the three pure-UI setup events
+(`setup_entered`, `setup_skipped`, `setup_completed`). These events have no
+backend signal, so the frontend reports them through this endpoint.
+
+Key design decisions:
+- **Identity from middleware only** (`request.state.user_id`, set by
+  `auth_middleware`). The body never carries identity — prevents a user from
+  spoofing events onto another user's funnel.
+- **Whitelist only** — `_ALLOWED_FUNNEL_EVENTS` (a `frozenset`) accepts only
+  the three `setup_*` constants. Any other event name returns 400. This
+  prevents the endpoint from becoming a generic event firehose.
+- **Delegates to `track()`** — inherits opt-out, distinct_id hashing, and the
+  surface label exactly like every other funnel event. Never raises.
+- `FunnelEventRequest` is a small inline `BaseModel` with `event: str` and
+  `properties: dict | None`.
+
+`create_agent` no longer emits any analytics (`EVENT_AGENT_CREATED` is
+removed). The funnel no longer tracks agent creation.
+
+## 2026-06-08 — analytics opt-out endpoints
+
+Added `GET /api/auth/settings/analytics` and `PUT /api/auth/settings/analytics`
+for the frontend privacy toggle. Both delegate to `UserSettingsRepository`
+(new dependency added this task). The GET returns `{"opted_out": bool}` where
+the absence of a user_settings row means `false` (opted in by default). The
+PUT accepts `{"user_id", "opted_out"}` and upserts the row.
+
+`SetAnalyticsOptOutRequest` is a small Pydantic `BaseModel` defined inline
+(not in `schema/` — it has two fields and no reuse elsewhere). `BaseModel` and
+`UserSettingsRepository` are imported at the top of the file alongside the
+existing imports.
+
+Tests: `tests/backend/test_user_settings_routes.py`.
+
+## 2026-06-08 — funnel: signed_up event
+
+`create_user` calls `identify_user` + `track(EVENT_SIGNED_UP)` on the
+success path. Additive instrumentation — best-effort, never raises.
+
+The `identify_user` traits deliberately carry only `role` — NOT
+`display_name`. The analytics layer hashes the distinct_id, so shipping the
+raw display name as a person trait would re-leak exactly the identity the
+hash is meant to hide. Keep identity-bearing fields out of traits.
+
+`create_agent` carries no analytics instrumentation. `EVENT_AGENT_CREATED`
+was removed in the 2026-06-09 funnel redesign; create_agent is not a
+tracked funnel milestone.
+
 ## 2026-05-21 — onboarding checklist endpoints
 
 Added `GET /api/auth/onboarding` + `POST /api/auth/onboarding` for the

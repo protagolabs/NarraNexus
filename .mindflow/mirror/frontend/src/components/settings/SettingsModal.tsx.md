@@ -1,7 +1,24 @@
 ---
 code_file: frontend/src/components/settings/SettingsModal.tsx
-last_verified: 2026-04-10
+last_verified: 2026-06-08
 ---
+
+## 2026-06-08 — Privacy section + analytics toggle
+
+Added a third sidebar entry `{ id: 'privacy', label: 'Privacy', icon: Shield }`
+to `NAV_SECTIONS`. The Privacy content panel contains a single toggle row for
+"产品遥测 / Product analytics".
+
+`userId` is obtained from `useConfigStore((s) => s.userId)` — same pattern used
+by `embeddingStore` and `ProviderSettings`. `api.getAnalyticsOptOut(userId)` is
+called when the section is first opened (lazy load on `activeSection === 'privacy'`).
+`api.setAnalyticsOptOut(userId, !nextEnabled)` is called on toggle with
+optimistic UI update and revert on error.
+
+The toggle is implemented as an inline `<button role="switch">` with a
+sliding white circle — no external Switch component needed. `analyticsEnabled`
+reflects the UI state: `true` means tracking ON (opted_out = false), `false`
+means tracking OFF (opted_out = true). The default is `true` because `UserSettingsRepository.is_analytics_opted_out` returns false for new users.
 
 # SettingsModal.tsx — Full-screen settings modal (ChatGPT-style layout)
 

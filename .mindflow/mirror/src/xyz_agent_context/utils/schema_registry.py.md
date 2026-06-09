@@ -55,6 +55,18 @@ read/write it.
 
 The `memory_<kind>` table definition (`_memory_kind_table`) gained an additive `source_ref` column (TEXT/JSON) for the projection pointer. `MEMORY_KINDS` enumerates the memory kinds (event/narrative/chat/entity/bus/job/observation) used by account-deletion and bundle paths. `instance_social_entities` TableDef is KEPT (bundle round-trip builds a fresh DB via auto_migrate and still needs it), but no live code path writes it any more — entities live in `memory_entity` (see [[social_network_repository]]).
 
+## 2026-06-08 — user_settings table (analytics opt-out)
+
+New table `user_settings` — per-user flat-column preferences. First consumer:
+`analytics_opt_out` (TINYINT(1), default 0). A missing row means "not opted
+out" — read path in `UserSettingsRepository.is_analytics_opted_out` returns
+`False` when no row exists. Insert-or-update pattern in
+`set_analytics_opt_out`: single `get_one` + branch on existence; `updated_at`
+is not updated in-band because `db.update` uses parameterized placeholders
+(the raw SQL expression `(datetime('now'))` would be stored as literal text).
+New columns can be added via the registry as new preferences appear —
+`auto_migrate` is additive.
+
 ## 2026-05-27 — instance_jobs.created_at/updated_at NOT NULL + DEFAULT
 
 `instance_jobs` table had `created_at` / `updated_at` columns with no

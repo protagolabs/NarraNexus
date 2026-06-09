@@ -1297,6 +1297,26 @@ _register(
 
 
 
+# ----------------------------------------------------------------------------
+# user_settings — per-user preferences. First use: analytics opt-out.
+# JSON-free flat columns for the few flags we have; add columns via
+# schema_registry as new prefs appear (auto_migrate is additive).
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="user_settings",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("analytics_opt_out", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_user_settings_user", ["user_id"], unique=True)],
+    )
+)
+
+
 # ============================================================================
 # Unified Agent Memory (refactor/agent-memory, 2026-06-03)
 # ----------------------------------------------------------------------------
