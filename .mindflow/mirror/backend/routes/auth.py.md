@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-05-21
+last_verified: 2026-06-08
 stub: false
 ---
+
+## 2026-06-08 — account deletion clears memory_* by agent_id
+
+Account deletion dropped `instance_social_entities` from `instance_sub_tables` and added a loop deleting every `memory_<kind>` table by agent_id (using `MEMORY_KINDS`), so a deleted account leaves no orphan rows in the unified memory store.
 
 ## 2026-05-21 — onboarding checklist endpoints
 

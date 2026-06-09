@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-27
+last_verified: 2026-06-09
 stub: false
 ---
+
+## 2026-06-09 — schema_migrations ledger table
+
+Added the `schema_migrations` TableDef (migration_id PK / applied_at /
+app_version / notes) — the run-once ledger for the versioned data-migration
+runner (see migrations/ [[__init__]]). `auto_migrate` creates it like any other
+table, so the runner (which fires right after auto_migrate at startup) can
+read/write it.
+
+## 2026-06-08 — source_ref column + MEMORY_KINDS
+
+The `memory_<kind>` table definition (`_memory_kind_table`) gained an additive `source_ref` column (TEXT/JSON) for the projection pointer. `MEMORY_KINDS` enumerates the memory kinds (event/narrative/chat/entity/bus/job/observation) used by account-deletion and bundle paths. `instance_social_entities` TableDef is KEPT (bundle round-trip builds a fresh DB via auto_migrate and still needs it), but no live code path writes it any more — entities live in `memory_entity` (see [[social_network_repository]]).
 
 ## 2026-05-27 — instance_jobs.created_at/updated_at NOT NULL + DEFAULT
 

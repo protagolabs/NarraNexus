@@ -29,9 +29,6 @@ import type {
   MCPUpdateRequest,
   MCPValidateResponse,
   MCPValidateAllResponse,
-  RAGFileListResponse,
-  RAGFileUploadResponse,
-  RAGFileDeleteResponse,
   CreateJobComplexRequest,
   CreateJobComplexResponse,
   LoginResponse,
@@ -46,8 +43,6 @@ import type {
   SkillStudyResponse,
   CostResponse,
   SkillEnvConfigResponse,
-  EmbeddingStatusResponse,
-  EmbeddingRebuildResponse,
   DashboardResponse,
   ApiResponse,
   LarkCredentialResponse,
@@ -635,39 +630,6 @@ class ApiClient {
     );
   }
 
-  // RAG File Management API — identity from X-User-Id / JWT headers.
-  async listRAGFiles(agentId: string): Promise<RAGFileListResponse> {
-    return this.request<RAGFileListResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/rag-files`
-    );
-  }
-
-  async uploadRAGFile(agentId: string, file: File): Promise<RAGFileUploadResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/rag-files`;
-    const response = await fetch(url, {
-      method: 'POST',
-      body: formData,
-      headers: this.getAuthHeaders(),
-      // Don't set Content-Type header - browser will set it with boundary for FormData
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
-
-    return response.json();
-  }
-
-  async deleteRAGFile(agentId: string, filename: string): Promise<RAGFileDeleteResponse> {
-    return this.request<RAGFileDeleteResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/rag-files/${encodeURIComponent(filename)}`,
-      { method: 'DELETE' }
-    );
-  }
-
   // Skills Management API — identity from X-User-Id / JWT headers.
   async listSkills(agentId: string, includeDisabled: boolean = false): Promise<SkillListResponse> {
     const params = new URLSearchParams({
@@ -838,20 +800,6 @@ class ApiClient {
     };
   }> {
     return this.request(`/api/providers`);
-  }
-
-  // Embedding Status API (per-user)
-  async getEmbeddingStatus(userId: string): Promise<EmbeddingStatusResponse> {
-    const qs = `?user_id=${encodeURIComponent(userId)}`;
-    return this.request<EmbeddingStatusResponse>(`/api/providers/embeddings/status${qs}`);
-  }
-
-  async rebuildEmbeddings(userId: string): Promise<EmbeddingRebuildResponse> {
-    const qs = `?user_id=${encodeURIComponent(userId)}`;
-    return this.request<EmbeddingRebuildResponse>(
-      `/api/providers/embeddings/rebuild${qs}`,
-      { method: 'POST' },
-    );
   }
 
   /** Backfill the latest default models from the catalog into existing providers.
