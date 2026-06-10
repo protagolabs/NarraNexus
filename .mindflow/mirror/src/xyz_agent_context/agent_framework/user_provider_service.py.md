@@ -3,6 +3,15 @@ code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
 last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 (4th pass) — helper_llm rejects OAuth providers
+
+set_slot gained a defense-in-depth gate: helper_llm refuses providers
+with auth_type=oauth (claude_oauth / codex_oauth) — CLI sign-in
+credentials only drive the agent subprocess and can't make direct
+Messages / Chat-Completions calls. Without the gate the misbinding
+only surfaced at agent-loop time as NotImplementedError. Frontend
+hides OAuth rows from the helper dropdown (ProviderSettings).
+
 ## 2026-06-10 (later) — onboard_one_key covers aggregator cards
 
 provider_type now accepts netmind / yunwu / openrouter in addition to

@@ -438,6 +438,23 @@ class UserProviderService:
                 f"OpenAI's Responses API and are not supported."
             )
 
+        # helper_llm rejects OAuth providers (claude_oauth / codex_oauth):
+        # CLI OAuth credentials only drive the agent subprocess and cannot
+        # make direct Messages / Chat-Completions calls. The frontend
+        # hides them from the helper dropdown — this server-side check is
+        # defense in depth; without it the misbinding only surfaces at
+        # agent-loop time as a cryptic NotImplementedError.
+        if (
+            slot_name == SlotName.HELPER_LLM.value
+            and (prov.get("auth_type") or "").lower() == "oauth"
+        ):
+            raise ValueError(
+                f"helper_llm slot cannot use OAuth provider "
+                f"{prov.get('name') or provider_id!r} — CLI sign-in "
+                f"credentials can't make direct API calls. Assign an "
+                f"API-key provider instead."
+            )
+
         # Upsert slot
         existing = await self.db.get_one("user_slots", {"user_id": user_id, "slot_name": slot_name})
         now = datetime.now(timezone.utc).isoformat()

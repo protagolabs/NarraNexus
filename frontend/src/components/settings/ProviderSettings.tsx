@@ -881,9 +881,16 @@ export function ProviderSettings() {
     // Agent slot + codex_cli framework → hide third-party
     // aggregators that codex CLI can't talk to (Responses API
     // gate); see CODEX_ALLOWED_PROVIDER_SOURCES above.
+    // Helper slot → hide OAuth providers (claude_oauth / codex_oauth):
+    // CLI OAuth credentials only drive the agent subprocess and cannot
+    // make direct Messages / Chat-Completions calls — picking one here
+    // would only fail at agent-loop time with NotImplementedError.
     const matching = getProvidersForSlot(effectiveProtocol).filter((p) =>
-      !(slot.key === 'agent' && isCodexFramework(agentFramework)) ||
-      CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source)
+      (
+        !(slot.key === 'agent' && isCodexFramework(agentFramework)) ||
+        CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source)
+      ) &&
+      !(slot.key === 'helper_llm' && p.auth_type === 'oauth')
     )
     const curProv = cfg?.provider_id ? providers[cfg.provider_id] : null
     const isChanged = !!pendingSlots[slot.key]

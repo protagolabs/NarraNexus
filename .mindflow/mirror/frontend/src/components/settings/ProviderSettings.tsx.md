@@ -2,6 +2,14 @@
 code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-06-10
 ---
+## 2026-06-10 (4th pass) — helper dropdown hides OAuth providers
+
+The helper_llm provider dropdown now filters out auth_type=oauth rows.
+This became urgent after the helper slot opened to the anthropic
+protocol: claude_oauth (anthropic) joined codex_oauth (openai) as a
+selectable-but-broken option. Server-side mirror gate lives in
+user_provider_service.set_slot.
+
 ## 2026-06-10 (later) — Quick Add block replaced by shared OneKeyOnboard
 
 The in-component Quick Add (PRESET_PROVIDERS, PRESET_DEFAULT_SLOTS,
