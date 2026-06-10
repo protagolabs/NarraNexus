@@ -144,7 +144,10 @@ class UserProviderService:
                 "auth_type": "oauth",
                 "api_key": "",
                 "base_url": "",
-                "models": json.dumps(["claude-opus-4-7", "claude-sonnet-4-6"]),
+                # CLI family aliases → auto-track the latest Claude release (the
+                # OAuth path runs `claude --model opus|sonnet|haiku`), so no
+                # manual version bump on each new model. See model_catalog.py.
+                "models": json.dumps(["opus", "sonnet", "haiku"]),
                 # OAuth funnels through official Anthropic → server tools OK.
                 "supports_anthropic_server_tools": True,
             }, now)
@@ -158,18 +161,6 @@ class UserProviderService:
                 models = get_default_models("user", card_type)
             else:
                 models = list(models)
-            # Always surface the official embedding models for an OpenAI-protocol
-            # provider (api.openai.com OR an OpenAI-compatible forward), so the
-            # embedding slot has candidates even when the user listed only chat
-            # models. Vendor presets (NetMind etc.) carry their own embeddings
-            # via _build_dual_providers and never reach this branch.
-            if card_type == "openai":
-                from xyz_agent_context.agent_framework.model_catalog import (
-                    get_default_embedding_models,
-                )
-                for _em in get_default_embedding_models("openai"):
-                    if _em not in models:
-                        models.append(_em)
             # Auto-detect: only the official api.anthropic.com host serves
             # the server-side tool suite (WebSearch etc.). User can flip
             # this later via the edit-provider flow if they front official

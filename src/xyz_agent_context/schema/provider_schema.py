@@ -6,7 +6,7 @@
 
 Defines the schema for the multi-provider LLM configuration system.
 Users can configure multiple providers (NetMind, OpenAI, Anthropic, or custom)
-and assign them to different functional slots (agent, embedding, helper_llm).
+and assign them to different functional slots (agent, helper_llm).
 
 Core concepts:
 - Provider: A connection to an LLM service (api_key + base_url + protocol)
@@ -53,7 +53,6 @@ class ProviderSource(str, Enum):
 class SlotName(str, Enum):
     """Functional slots in the system, each requiring an LLM provider"""
     AGENT = "agent"              # Main Agent Loop (dialogue)
-    EMBEDDING = "embedding"      # Vector embedding generation
     HELPER_LLM = "helper_llm"   # Auxiliary LLM calls (entity extraction, narrative update, etc.)
 
 
@@ -133,7 +132,7 @@ class LLMConfig(BaseModel):
     )
     slots: dict[str, SlotConfig] = Field(
         default_factory=dict,
-        description="Map of slot name -> SlotConfig (keys: agent, embedding, helper_llm)",
+        description="Map of slot name -> SlotConfig (keys: agent, helper_llm)",
     )
 
 
@@ -143,7 +142,6 @@ class LLMConfig(BaseModel):
 
 SLOT_REQUIRED_PROTOCOLS: dict[str, list[ProviderProtocol]] = {
     SlotName.AGENT: [ProviderProtocol.ANTHROPIC],
-    SlotName.EMBEDDING: [ProviderProtocol.OPENAI],
     SlotName.HELPER_LLM: [ProviderProtocol.OPENAI],
 }
 """

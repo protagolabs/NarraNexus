@@ -31,7 +31,6 @@ import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { AudioRecorder } from './AudioRecorder';
-import { EmbeddingBanner } from '@/components/ui/EmbeddingBanner';
 import { ArtifactInlineBadge } from '@/components/artifacts';
 import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
 
@@ -808,9 +807,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </span>
         )}
       </div>
-
-      {/* Embedding rebuild warning banner */}
-      <EmbeddingBanner />
 
       {/* Messages area — single unified timeline.
           Wrapped in <ScrollArea> so the scrollbar is JS-rendered (Radix) and

@@ -96,7 +96,15 @@ for var in NARRATIVE_JUDGE_MODEL NARRATIVE_JUDGE_EFFORT \
   fi
 done
 
-ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; ${NARRATIVE_ENV}cd '$PROJECT_ROOT'"
+# Propagate the LAUNCHER's PATH into every tmux window. tmux windows inherit the
+# tmux *server's* environment, captured once when the server first started — not
+# our current env. A long-lived server (started days ago, before the user
+# installed a user-level CLI) hands the backend a stale PATH, so tools the agent
+# spawns via `shutil.which` — `claude` (~/.local/bin), `lark-cli`, etc. — silently
+# go "not installed". Re-exporting the launcher PATH (which carries ~/.local/bin
+# and the npm global bin) as the window's first command fixes detection AND
+# invocation for every worker, regardless of tmux server age.
+ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; ${NARRATIVE_ENV}cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"
