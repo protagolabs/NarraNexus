@@ -15,11 +15,24 @@ Provides endpoints for:
 
 import os
 from uuid import uuid4
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
+from xyz_agent_context.analytics import track, identify_user
+from xyz_agent_context.analytics.events import (
+    EVENT_SIGNED_UP, EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED,
+    EVENT_SETUP_COMPLETED, PROP_METHOD,
+)
+
+# Whitelist of frontend-reportable funnel events. The setup_* events are pure
+# UI actions (page view, skip/done clicks) that have no backend signal, so the
+# frontend reports them via POST /api/auth/funnel. Whitelisting stops the
+# endpoint from being a generic event firehose.
+_ALLOWED_FUNNEL_EVENTS = frozenset({
+    EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED, EVENT_SETUP_COMPLETED,
+})
 from xyz_agent_context.repository import (
     AgentRepository,
     UserRepository,
@@ -57,6 +70,8 @@ from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
 from xyz_agent_context.settings import settings as app_settings
 
+from pydantic import BaseModel
+from xyz_agent_context.repository.user_settings_repository import UserSettingsRepository
 from typing import Optional
 
 
@@ -1086,6 +1101,18 @@ async def create_user(request: CreateUserRequest):
         )
 
         logger.info(f"User {request.user_id} created successfully")
+        # Only non-identifying traits — the distinct_id is hashed and we
+        # deliberately do NOT ship display_name, so no real names reach
+        # PostHog.
+        await identify_user(
+            user_id=request.user_id,
+            traits={"role": "individual"},
+        )
+        await track(
+            user_id=request.user_id,
+            event=EVENT_SIGNED_UP,
+            properties={PROP_METHOD: "create_user"},
+        )
         return CreateUserResponse(
             success=True,
             user_id=request.user_id,
@@ -1235,3 +1262,68 @@ async def update_onboarding(request: UpdateOnboardingRequest):
     except Exception as e:
         logger.exception(f"Error updating onboarding state: {e}")
         return OnboardingResponse(success=False, error=str(e))
+
+
+# =============================================================================
+# Analytics opt-out
+# =============================================================================
+
+
+def _require_request_user(http_request: Request) -> str:
+    """Identity for the analytics endpoints comes from auth_middleware
+    (request.state.user_id) — never from the query string or body — so one
+    user can't read or flip another user's privacy preference."""
+    uid = getattr(http_request.state, "user_id", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return uid
+
+
+class SetAnalyticsOptOutRequest(BaseModel):
+    opted_out: bool
+
+
+@router.get("/settings/analytics")
+async def get_analytics_opt_out(http_request: Request):
+    """Return whether the current user has opted out of product analytics.
+
+    No-row means not opted out (tracking on by default).
+    """
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    return {"opted_out": await repo.is_analytics_opted_out(uid)}
+
+
+@router.put("/settings/analytics")
+async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
+                                http_request: Request):
+    """Set the current user's analytics opt-out preference."""
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    await repo.set_analytics_opt_out(uid, request.opted_out)
+    return {"success": True, "opted_out": request.opted_out}
+
+
+class FunnelEventRequest(BaseModel):
+    event: str
+
+
+@router.post("/funnel")
+async def track_funnel_event(request: FunnelEventRequest, http_request: Request):
+    """Report a frontend-originated funnel event (setup page UI actions).
+
+    Identity comes from auth_middleware (request.state.user_id) — never the
+    body — so events can't be spoofed onto another user. Only whitelisted
+    setup_* events are accepted, and no client-supplied properties are
+    forwarded: the setup_* events carry no payload by design, so accepting a
+    properties dict would only let a client inject arbitrary data (or
+    override the server-derived `surface`) into PostHog. track() applies
+    opt-out, distinct_id hashing, and the surface label, and never raises.
+    """
+    uid = _require_request_user(http_request)
+    if request.event not in _ALLOWED_FUNNEL_EVENTS:
+        raise HTTPException(
+            status_code=400, detail=f"Unknown funnel event: {request.event}"
+        )
+    await track(user_id=uid, event=request.event)
+    return {"success": True}

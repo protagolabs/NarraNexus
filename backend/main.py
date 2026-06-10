@@ -267,6 +267,13 @@ async def lifespan(app: FastAPI):
     await close_db_client()
     logger.info("Database connections closed")
 
+    # Drain analytics queue so buffered funnel events are not lost on exit.
+    try:
+        from xyz_agent_context.analytics import shutdown_analytics
+        await shutdown_analytics()
+    except Exception:  # noqa: BLE001
+        pass
+
     # Flush any enqueue=True records still in the multiprocessing queue
     # before the interpreter exits — otherwise the last few lines (the
     # ones describing the actual shutdown) get dropped.

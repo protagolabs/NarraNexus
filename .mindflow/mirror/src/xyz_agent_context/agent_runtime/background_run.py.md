@@ -31,6 +31,27 @@ reconnect 端点（websocket.py）需要用同一条规则区分「run 活在另
 程」和「run 死了但没写 terminal 行」。`RUN_STALE_AFTER_S =
 HEARTBEAT_INTERVAL_S * 3`。只读判定，绝不据此停止/修改 run（铁律 #14）。
 
+## 2026-06-09 — funnel: fatal-error turns are NOT a successful round-trip
+
+A *fatal* `ErrorMessage` (e.g. `NoProviderConfiguredError` — the "configure
+your key" notice) is yielded by AgentRuntime and the generator then returns
+normally, so `drive()` still reaches the natural-end `STATE_COMPLETED` branch.
+But the user received an error notice, not a genuine reply — so
+`message_round_trip_succeeded` must not fire. `emit()` sets `self._had_fatal_error`
+when it sees an error event whose `severity` is `fatal` (the default); the
+natural-end branch gates `_fire_message_success` on `not self._had_fatal_error`.
+`recovered` / `recovered_after_reply` (a reply WAS delivered) and `recoverable`
+(transient; loop continues) are deliberately NOT treated as fatal — they remain
+successful. This is an analytics-accuracy gate only; run state, error display,
+and DB persistence are unchanged (state is still `STATE_COMPLETED`).
+
+## 2026-06-08 — funnel: message_round_trip_succeeded on COMPLETED
+
+Added module-level `_fire_message_success(user_id, agent_id, run_id)` helper
+and called it right after `self.state = STATE_COMPLETED` on the natural-end
+branch of `drive()`. Does NOT fire in cancelled or failed branches, and not
+in `_finalize` (which covers all terminal states). Additive instrumentation.
+
 # background_run.py — agent_loop 跟 WS 解耦 + 持久化 + 广播
 
 ## 为什么存在

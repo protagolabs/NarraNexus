@@ -20,6 +20,15 @@ stub: false
 - **心跳新鲜**（run 真活在另一个 backend 实例上）→ 维持原
   `reconnect_warning` 行为。
 
+## 2026-06-09 — funnel redesign: no analytics in websocket.py
+
+`_fire_terminal_accessed` and its call site on the fresh-run path were
+deleted as part of the lean-funnel redesign. `EVENT_TERMINAL_ACCESSED` is
+no longer part of the funnel. `websocket.py` now carries zero funnel
+instrumentation — the nearest surviving funnel event is
+`message_round_trip_succeeded`, which is emitted by the background run layer
+(not here).
+
 ## 2026-05-13 — Reconnect 协议带回用户输入（dedup-safe）
 
 `_handle_reconnect` 在推 `run_reconnect` 元数据帧时多带两个字段：

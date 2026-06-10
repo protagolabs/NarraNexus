@@ -19,6 +19,17 @@ failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
 
 # user_provider_service.py — 多租户场景的 per-user provider 数据库服务
 
+## 2026-06-09 — funnel redesign: llm_slot_configured removed from set_slot
+
+`set_slot` no longer emits any analytics. The `llm_slot_configured` event
+and all of its supporting logic (`provider_method` derivation from source
+field, agent-slot-only gate) were removed in the 2026-06-09 lean funnel
+redesign that simplified the funnel to 5 events. The removal was deliberate —
+not an accident or a forgotten call site. Future readers: if the chokepoint
+instrumentation is ever needed again, `set_slot` is still the correct place
+to add it (it is the single path `PUT /slots`, `POST /providers`
+default_slots loop, and claude_oauth binding all share).
+
 ## 为什么存在
 
 云端部署时，每个用户有自己的 API key 和模型偏好，不能共用单一的 `llm_config.json` 文件。这个服务把 provider 配置从文件系统迁移到数据库的 `user_providers` 和 `user_slots` 表，实现 per-user 隔离。接口设计刻意对齐 `provider_registry.py`，让调用方代码可以相对平滑地切换。

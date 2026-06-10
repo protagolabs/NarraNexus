@@ -380,6 +380,38 @@ class ApiClient {
     });
   }
 
+  /** Get the current user's analytics opt-out preference. Identity travels
+   *  in the auth header; the server derives the user from it. Returns false
+   *  when no row exists (opted in by default). */
+  async getAnalyticsOptOut(): Promise<boolean> {
+    const r = await this.request<{ opted_out: boolean }>(
+      '/api/auth/settings/analytics',
+    );
+    return Boolean(r.opted_out);
+  }
+
+  /** Set the current user's analytics opt-out preference. */
+  async setAnalyticsOptOut(optedOut: boolean): Promise<void> {
+    await this.request<{ success: boolean; opted_out: boolean }>(
+      '/api/auth/settings/analytics',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ opted_out: optedOut }),
+      },
+    );
+  }
+
+  /** Report a frontend funnel event (setup page UI actions). Identity comes
+   *  from the auth header server-side; no client properties are accepted
+   *  (the server stamps surface etc. itself). Best-effort: callers should
+   *  not block on it (fire-and-forget with a .catch). */
+  async trackFunnelEvent(event: string): Promise<void> {
+    await this.request<{ success: boolean }>('/api/auth/funnel', {
+      method: 'POST',
+      body: JSON.stringify({ event }),
+    });
+  }
+
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
   }
