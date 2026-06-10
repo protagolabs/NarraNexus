@@ -132,6 +132,22 @@ def run_is_live(events_row: dict, now: Optional[datetime] = None) -> bool:
     return (now - parsed) <= timedelta(seconds=RUN_STALE_AFTER_S)
 
 
+async def _fire_message_success(*, user_id: str, agent_id: str,
+                                run_id: "str | None") -> None:
+    """Funnel step ⑤: agent produced and delivered a reply (COMPLETED)."""
+    if not user_id:
+        return
+    from xyz_agent_context.analytics import track
+    from xyz_agent_context.analytics.events import (
+        EVENT_MESSAGE_ROUND_TRIP_SUCCEEDED, PROP_AGENT_ID, PROP_RUN_ID,
+    )
+    await track(
+        user_id=user_id,
+        event=EVENT_MESSAGE_ROUND_TRIP_SUCCEEDED,
+        properties={PROP_AGENT_ID: agent_id, PROP_RUN_ID: run_id},
+    )
+
+
 class BackgroundRun:
     """One detached agent run.
 
@@ -197,6 +213,11 @@ class BackgroundRun:
         # final_output is captured when we see the chat module emit it.
         # On terminal write, this is what goes into events.final_output.
         self.final_output_buffer: list[str] = []
+        # Set True if a *fatal* ErrorMessage was emitted (e.g. no provider
+        # configured). The run still ends naturally (generator returns), so
+        # STATE_COMPLETED is set — but it produced no genuine reply, so the
+        # message_round_trip_succeeded funnel event must NOT fire.
+        self._had_fatal_error: bool = False
         # Signals run_id has been assigned + active_runs registration done.
         # Callers gate "subscribe + return run_id to client" on this.
         self.ready_event: asyncio.Event = asyncio.Event()
@@ -431,6 +452,12 @@ class BackgroundRun:
                 self.final_output_buffer.append(delta)
             await self._write_stream_row("text_delta", delta or "")
         elif event_kind == "error":
+            # A fatal error (default severity) means the turn cannot recover
+            # and delivered no genuine reply. recovered / recovered_after_reply
+            # DID deliver a reply; recoverable is a transient blip the loop
+            # survives — none of those should void a successful round-trip.
+            if (event.get("severity") or "fatal") == "fatal":
+                self._had_fatal_error = True
             await self._write_stream_row("error", _event_to_wire(event))
         else:
             # Catch-all — preserve in the stream for full replay fidelity.
@@ -503,6 +530,14 @@ class BackgroundRun:
                     await self.emit(normalised)
             # Natural end
             self.state = STATE_COMPLETED
+            # Funnel ⑤ fires only on a genuine reply. A fatal error (e.g. no
+            # provider configured) ends the generator naturally too, but the
+            # user got a "configure your key" notice, not an agent reply —
+            # that is not a successful round-trip.
+            if not self._had_fatal_error:
+                await _fire_message_success(
+                    user_id=user_id, agent_id=agent_id, run_id=self.run_id,
+                )
         except CancelledByUser as e:
             self.state = STATE_CANCELLED
             logger.info(f"[BackgroundRun {self.run_id}] cancelled: {e.reason}")

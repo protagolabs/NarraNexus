@@ -104,7 +104,25 @@ done
 # go "not installed". Re-exporting the launcher PATH (which carries ~/.local/bin
 # and the npm global bin) as the window's first command fixes detection AND
 # invocation for every worker, regardless of tmux server age.
-ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; ${NARRATIVE_ENV}cd '$PROJECT_ROOT'"
+
+# Analytics surface label: local launcher serves the "local" surface unless
+# an explicit NARRA_SURFACE override is set in the parent shell. Forwarded into
+# every tmux pane (esp. Backend) via ENV_CMD so resolve_surface() is explicit.
+NARRA_SURFACE="${NARRA_SURFACE:-local}"
+
+# Forward analytics env (PostHog) set in the parent shell into each tmux pane.
+# tmux panes do not reliably inherit ad-hoc exports (esp. when a tmux server is
+# already running), so the backend would otherwise miss POSTHOG_API_KEY and
+# fall back to NullSink. Only forwarded when set — absent → no telemetry.
+ANALYTICS_ENV=""
+for var in POSTHOG_API_KEY POSTHOG_HOST NARRA_ANALYTICS_ENABLED; do
+  value="${!var-}"
+  if [ -n "$value" ]; then
+    ANALYTICS_ENV+="export $var='$value'; "
+  fi
+done
+
+ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${ANALYTICS_ENV}cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"

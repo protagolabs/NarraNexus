@@ -13,6 +13,13 @@ error is logged and never blocks startup. This is what carries the
 unified-memory backfill to EVERY environment (cloud / run.sh / DMG) without a
 deploy-side step.
 
+## 2026-06-08 — analytics shutdown wired into lifespan
+
+`lifespan` teardown now calls `await shutdown_analytics()` (from
+`xyz_agent_context.analytics`) just before `close_db_client`. This drains the
+PostHog background-thread buffer so no buffered funnel events are lost on
+process exit.
+
 ## 2026-05-15 — invite_router 改为 server-to-server
 
 挂载点没变(`/api/invite`),但其下的路由从公开的 `/request` 改成内部的
