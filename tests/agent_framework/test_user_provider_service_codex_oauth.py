@@ -192,7 +192,6 @@ async def test_runtime_resolver_builds_codex_config_for_codex_agent_slot():
     assert cfg.codex.auth_type == "oauth"
     assert cfg.codex.auth_ref == "codex-cli:~/.codex/auth.json"
     assert cfg.openai.api_key == "sk-test"
-    assert cfg.embedding.model == "text-embedding-3-small"
 
 
 @pytest.mark.asyncio

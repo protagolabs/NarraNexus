@@ -5,8 +5,8 @@
 @description: Centralized LLM API configuration for all agent framework components
 
 All API keys, base URLs, and model names used by the agent framework are defined
-here. Components (Claude SDK, OpenAI Agents SDK, Gemini SDK, Embedding Client)
-should read from this module instead of accessing settings/os.environ directly.
+here. Components (Claude SDK, OpenAI Agents SDK, Gemini SDK) should read from
+this module instead of accessing settings/os.environ directly.
 
 Configuration priority:
     1. ~/.nexusagent/llm_config.json (managed by provider_registry)
@@ -17,12 +17,10 @@ Usage:
         claude_config,
         openai_config,
         gemini_config,
-        embedding_config,
     )
 
     # Access config values
     model = openai_config.model
-    api_key = embedding_config.api_key
 """
 
 from __future__ import annotations
@@ -57,6 +55,13 @@ class ClaudeConfig:
     # aggregators (NetMind, OpenRouter, Yunwu, ...) do not. The tool
     # policy hook reads this to decide whether to permit WebSearch.
     supports_anthropic_server_tools: bool = False
+    # Framework-neutral reasoning params from the agent slot
+    # (SlotConfig.thinking / SlotConfig.reasoning_effort). "" = auto =
+    # the adapter passes nothing and the CLI keeps its defaults. The
+    # Claude-dialect mapping lives in xyz_claude_agent_sdk
+    # (_resolve_reasoning_options), not here.
+    thinking: str = ""
+    reasoning_effort: str = ""
 
     def to_cli_env(self) -> dict[str, str]:
         """Build env vars dict for the Claude Code CLI subprocess.
@@ -189,21 +194,11 @@ class GeminiConfig:
 
 
 @dataclass(frozen=True)
-class EmbeddingConfig:
-    """OpenAI Embedding API configuration"""
-    api_key: str = ""
-    base_url: str = ""  # Empty = default https://api.openai.com/v1
-    model: str = "text-embedding-3-small"
-    dimensions: Optional[int] = None  # None = use model default
-
-
-@dataclass(frozen=True)
 class RuntimeLLMConfigs:
     """All LLM configs needed for one agent turn."""
 
     claude: ClaudeConfig
     openai: OpenAIConfig
-    embedding: EmbeddingConfig
     codex: CodexConfig = field(default_factory=CodexConfig)
 
 
@@ -211,12 +206,12 @@ class RuntimeLLMConfigs:
 # Config Loading
 # =============================================================================
 
-def _load_from_llm_config() -> Optional[tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]]:
+def _load_from_llm_config() -> Optional[tuple[ClaudeConfig, OpenAIConfig]]:
     """
     Try to load configuration from ~/.nexusagent/llm_config.json.
 
     Returns:
-        Tuple of (claude_config, openai_config, embedding_config) if successful,
+        Tuple of (claude_config, openai_config) if successful,
         None if the file doesn't exist or is invalid.
     """
     from xyz_agent_context.agent_framework.provider_registry import provider_registry
@@ -244,6 +239,8 @@ def _load_from_llm_config() -> Optional[tuple[ClaudeConfig, OpenAIConfig, Embedd
             supports_anthropic_server_tools=bool(
                 getattr(agent_provider, "supports_anthropic_server_tools", False)
             ),
+            thinking=agent_slot.thinking,
+            reasoning_effort=agent_slot.reasoning_effort,
         )
     else:
         claude = ClaudeConfig()
@@ -261,28 +258,11 @@ def _load_from_llm_config() -> Optional[tuple[ClaudeConfig, OpenAIConfig, Embedd
     else:
         openai_cfg = OpenAIConfig()
 
-    # Build EmbeddingConfig from embedding slot
-    emb_slot = config.slots.get(SlotName.EMBEDDING) or config.slots.get("embedding")
-    emb_provider = config.providers.get(emb_slot.provider_id) if emb_slot else None
-
-    if emb_provider:
-        # dimensions is NOT passed to EmbeddingConfig — it's metadata only
-        # (for UI display / storage sizing). Passing it as an API request
-        # parameter causes errors when switching between models with
-        # different native dimensions.
-        embedding = EmbeddingConfig(
-            api_key=emb_provider.api_key,
-            base_url=emb_provider.base_url,
-            model=emb_slot.model,
-        )
-    else:
-        embedding = EmbeddingConfig()
-
     logger.info("LLM config loaded from llm_config.json")
-    return claude, openai_cfg, embedding
+    return claude, openai_cfg
 
 
-def _load_from_settings() -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+def _load_from_settings() -> tuple[ClaudeConfig, OpenAIConfig]:
     """
     Fallback: load configuration from .env / settings.py (legacy path).
     """
@@ -305,16 +285,7 @@ def _load_from_settings() -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
         api_key=settings.openai_api_key,
     )
 
-    # Embedding deliberately carries NO api_key from .env. Embedding
-    # credentials must come from the user's configured provider (resolver in
-    # cloud, user_providers in local) via the request/agent-turn ContextVar —
-    # never scavenged from the environment. We keep only the model name as a
-    # display/default. See get_current_embedding_config() + EmbeddingClient.
-    embedding = EmbeddingConfig(
-        model=settings.openai_embedding_model,
-    )
-
-    return claude, openai_cfg, embedding
+    return claude, openai_cfg
 
 
 def _load_gemini_config() -> GeminiConfig:
@@ -338,7 +309,6 @@ class _ConfigHolder:
     def __init__(self) -> None:
         self._claude: Optional[ClaudeConfig] = None
         self._openai: Optional[OpenAIConfig] = None
-        self._embedding: Optional[EmbeddingConfig] = None
         self._gemini: Optional[GeminiConfig] = None
         # Codex defaults to an empty config — user-scoped overrides
         # arrive via the ``_codex_ctx`` ContextVar at agent_loop time.
@@ -355,15 +325,14 @@ class _ConfigHolder:
     def reload(self) -> None:
         """Reload config from llm_config.json + .env fallback."""
         json_result = _load_from_llm_config()
-        env_claude, env_openai, env_embedding = _load_from_settings()
+        env_claude, env_openai = _load_from_settings()
 
         if json_result is not None:
-            json_claude, json_openai, json_embedding = json_result
+            json_claude, json_openai = json_result
             self._claude = json_claude if (json_claude.api_key or json_claude.auth_type == "oauth") else env_claude
             self._openai = json_openai if json_openai.api_key else env_openai
-            self._embedding = json_embedding if json_embedding.api_key else env_embedding
         else:
-            self._claude, self._openai, self._embedding = env_claude, env_openai, env_embedding
+            self._claude, self._openai = env_claude, env_openai
 
         self._gemini = _load_gemini_config()
         # Codex defaults to an empty config — per-user resolver
@@ -381,11 +350,7 @@ class _ConfigHolder:
             f"auth={self._claude.auth_type}, key={_mask(self._claude.api_key)}\n"
             f"  HelperLLM:  model={self._openai.model}, "
             f"base_url={self._openai.base_url or '(official)'}, "
-            f"key={_mask(self._openai.api_key)}\n"
-            f"  Embedding:  model={self._embedding.model}, "
-            f"base_url={self._embedding.base_url or '(official)'}, "
-            f"dims={self._embedding.dimensions or '(default)'}, "
-            f"key={_mask(self._embedding.api_key)}"
+            f"key={_mask(self._openai.api_key)}"
         )
 
     @property
@@ -397,11 +362,6 @@ class _ConfigHolder:
     def openai(self) -> OpenAIConfig:
         self._ensure_loaded()
         return self._openai  # type: ignore
-
-    @property
-    def embedding(self) -> EmbeddingConfig:
-        self._ensure_loaded()
-        return self._embedding  # type: ignore
 
     @property
     def gemini(self) -> GeminiConfig:
@@ -436,7 +396,6 @@ _holder = _ConfigHolder()
 
 _claude_ctx: ContextVar[Optional[ClaudeConfig]] = ContextVar("claude_config", default=None)
 _openai_ctx: ContextVar[Optional[OpenAIConfig]] = ContextVar("openai_config", default=None)
-_embedding_ctx: ContextVar[Optional[EmbeddingConfig]] = ContextVar("embedding_config", default=None)
 _codex_ctx: ContextVar[Optional[CodexConfig]] = ContextVar("codex_config", default=None)
 
 
@@ -466,22 +425,8 @@ class _ConfigProxy:
 
 claude_config: ClaudeConfig = _ConfigProxy("claude", _claude_ctx)  # type: ignore
 openai_config: OpenAIConfig = _ConfigProxy("openai", _openai_ctx)  # type: ignore
-embedding_config: EmbeddingConfig = _ConfigProxy("embedding", _embedding_ctx)  # type: ignore
 gemini_config: GeminiConfig = _ConfigProxy("gemini")  # type: ignore
 codex_config: CodexConfig = _ConfigProxy("codex", _codex_ctx)  # type: ignore
-
-
-def get_current_embedding_config() -> Optional[EmbeddingConfig]:
-    """Embedding config set on the CURRENT task's ContextVar, or None.
-
-    Unlike the ``embedding_config`` proxy, this NEVER falls back to the global
-    holder (.env / llm_config.json). Embedding credentials must come from what
-    the user configured (resolver in cloud, user_providers in local), set per
-    agent turn (AgentRuntime) or per MCP tool call (setup_mcp_llm_context).
-    EmbeddingClient uses this so a missing config fails fast instead of
-    silently embedding against an environment key.
-    """
-    return _embedding_ctx.get()
 
 
 def reload_llm_config() -> None:
@@ -492,7 +437,6 @@ def reload_llm_config() -> None:
 def set_user_config(
     claude: ClaudeConfig,
     openai: OpenAIConfig,
-    embedding: EmbeddingConfig,
     codex: CodexConfig | None = None,
 ) -> None:
     """
@@ -506,7 +450,6 @@ def set_user_config(
     """
     _claude_ctx.set(claude)
     _openai_ctx.set(openai)
-    _embedding_ctx.set(embedding)
     _codex_ctx.set(codex or CodexConfig())
 
 
@@ -577,7 +520,7 @@ def get_current_user_id() -> Optional[str]:
 # The clean solution is explicit parameter passing: construct a
 # RuntimeContext dataclass at the top of AgentRuntime.run() and thread it
 # through every component (step_3_agent_loop, ClaudeAgentSDK.agent_loop,
-# EmbeddingClient.__init__, etc.). Blast radius is ~20 files, mostly
+# the helper-LLM clients, etc.). Blast radius is ~20 files, mostly
 # mechanical changes to function signatures.
 #
 # Blocked by: none — just time.
@@ -621,7 +564,7 @@ class SystemDefaultUnavailable(LLMResolverError):
 
 async def get_agent_owner_llm_configs(
     agent_id: str,
-) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+) -> tuple[ClaudeConfig, OpenAIConfig]:
     """
     Load LLM configs for an agent based on its OWNER (agents.created_by).
 
@@ -672,7 +615,7 @@ async def get_agent_owner_runtime_llm_configs(
     return await get_user_runtime_llm_configs(owner_user_id)
 
 
-async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig]:
     """
     Resolve the LLM config stack for a specific user.
 
@@ -706,7 +649,7 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
         LLMConfigNotConfigured: user opted out but own config missing.
     """
     cfg = await get_user_runtime_llm_configs(user_id)
-    return cfg.claude, cfg.openai, cfg.embedding
+    return cfg.claude, cfg.openai
 
 
 async def get_user_runtime_llm_configs(user_id: str) -> RuntimeLLMConfigs:
@@ -715,14 +658,13 @@ async def get_user_runtime_llm_configs(user_id: str) -> RuntimeLLMConfigs:
     quota = await quota_service.get(user_id)
 
     if quota is not None and quota.prefer_system_override:
-        claude, openai_cfg, embedding = await _use_system_default_strict(
+        claude, openai_cfg = await _use_system_default_strict(
             user_id,
             quota_service,
         )
         return RuntimeLLMConfigs(
             claude=claude,
             openai=openai_cfg,
-            embedding=embedding,
         )
 
     return await _get_user_runtime_llm_configs_strict(user_id)
@@ -753,7 +695,7 @@ async def _ensure_quota_service():
 async def _use_system_default_strict(
     user_id: str,
     quota_service,
-) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+) -> tuple[ClaudeConfig, OpenAIConfig]:
     """Strict system-default branch. Raises SystemDefaultUnavailable
     with an actionable message if the free tier can't serve the request."""
     from xyz_agent_context.agent_framework.system_provider_service import (
@@ -786,7 +728,7 @@ async def _use_system_default_strict(
     return _llm_config_to_dataclasses(sys_provider.get_config())
 
 
-async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig]:
     """Strict version: raises LLMConfigNotConfigured on any missing
     slot / broken provider. The public `get_user_llm_configs` wraps
     this with a system-default fallback.
@@ -799,7 +741,7 @@ async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, Open
     if the new resolver hits an unexpected edge case.
     """
     cfg = await _get_user_runtime_llm_configs_strict(user_id)
-    return cfg.claude, cfg.openai, cfg.embedding
+    return cfg.claude, cfg.openai
 
 
 async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfigs:
@@ -848,6 +790,8 @@ async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfig
         supports_anthropic_server_tools=bool(
             getattr(agent_provider, "supports_anthropic_server_tools", False)
         ),
+        thinking=agent_slot.thinking,
+        reasoning_effort=agent_slot.reasoning_effort,
     )
 
     # ─── Helper LLM slot ─────────────────────────────────────────────
@@ -870,30 +814,9 @@ async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfig
         model=helper_slot.model,
     )
 
-    # ─── Embedding slot ──────────────────────────────────────────────
-    emb_slot = config.slots.get(SlotName.EMBEDDING) or config.slots.get("embedding")
-    if not emb_slot:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: 'embedding' slot is not configured. "
-            "Please add an OpenAI-protocol provider and assign it to "
-            "the embedding slot in Settings → Providers."
-        )
-    emb_provider = config.providers.get(emb_slot.provider_id)
-    if not emb_provider:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: embedding slot references provider "
-            f"{emb_slot.provider_id!r} which no longer exists."
-        )
-    embedding = EmbeddingConfig(
-        api_key=emb_provider.api_key,
-        base_url=emb_provider.base_url,
-        model=emb_slot.model,
-    )
-
     return RuntimeLLMConfigs(
         claude=claude,
         openai=openai_cfg,
-        embedding=embedding,
     )
 
 
@@ -902,14 +825,14 @@ async def setup_mcp_llm_context(agent_id: str) -> None:
     Load the agent owner's LLM config from the database and set it on
     the current asyncio task's ContextVar.
 
-    Call this at the top of every MCP tool handler that makes embedding
-    or LLM calls. It mirrors what AgentRuntime.run() does in step 0,
-    ensuring per-user API keys are used even when the tool is invoked
-    from a separate MCP process rather than inside an agent turn.
+    Call this at the top of every MCP tool handler that makes LLM calls.
+    It mirrors what AgentRuntime.run() does in step 0, ensuring per-user
+    API keys are used even when the tool is invoked from a separate MCP
+    process rather than inside an agent turn.
 
     Raises:
         LLMConfigNotConfigured: if the owner has not configured their
             LLM providers. The caller should surface this as a tool error.
     """
-    claude, openai_cfg, embedding = await get_agent_owner_llm_configs(agent_id)
-    set_user_config(claude, openai_cfg, embedding)
+    claude, openai_cfg = await get_agent_owner_llm_configs(agent_id)
+    set_user_config(claude, openai_cfg)

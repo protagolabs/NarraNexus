@@ -306,7 +306,6 @@ class SessionService:
 
         Updatable fields:
         - last_query: str - Last query
-        - last_query_embedding: List[float] - Last query's embedding
         - current_narrative_id: str - Currently associated Narrative ID
 
         Args:
@@ -470,7 +469,6 @@ class SessionService:
             created_at=now,
             last_query_time=now,
             last_query="",
-            last_query_embedding=None,
             current_narrative_id=None,
             query_count=0,
         )

@@ -328,7 +328,6 @@ class AgentRuntime:
                 set_user_config(
                     owner_configs.claude,
                     owner_configs.openai,
-                    owner_configs.embedding,
                     owner_configs.codex,
                 )
             except LLMResolverError as e:
@@ -358,7 +357,6 @@ class AgentRuntime:
                         await self.event_service.update_event_in_db(
                             event_id=ctx.event.id,
                             final_output=error_marker,
-                            generate_embedding=False,
                         )
                         ctx.event.final_output = error_marker
                 except Exception as persist_err:  # noqa: BLE001 — best-effort
@@ -403,8 +401,8 @@ class AgentRuntime:
             #   │     │  session.current_narrative_id                     │
             #   │     │                                                   │
             #   │     └─ Does not belong -> search for matching Narrative │
-            #   │        a. Generate Query embedding                      │
-            #   │        b. Vector search for similar Narratives          │
+            #   │        a. BM25 keyword search over narratives           │
+            #   │        b. Rank candidates by keyword score              │
             #   │        c. Score > threshold -> reuse existing Narrative │
             #   │        d. Score < threshold -> create new Narrative     │
             #   │                                                         │
@@ -601,7 +599,7 @@ class AgentRuntime:
             # =============================================================================
             # The conversation row the NEXT turn reads must be durable NOW. Step 5
             # (below) is dispatched to a background task that can lag seconds-to-
-            # tens-of-seconds (embeddings, entity extraction, LLM summaries); if the
+            # tens-of-seconds (entity extraction, LLM summaries); if the
             # user replies the instant they see the answer, that next turn would read
             # chat history MISSING this exchange -> the agent "forgets" (the reported
             # short-reply amnesia). So each module's hook_persist_turn (ChatModule:

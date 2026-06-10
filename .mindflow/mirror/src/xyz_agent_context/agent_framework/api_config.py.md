@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-05-31
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — merge `dev` into codex branch: embeddings out, Codex stays
+
+Reconciling two opposite directions: `dev` retired embeddings (narrative/
+memory routing is BM25 now), while the codex branch had made an embedding
+slot *required*. Resolution = follow `dev`. `EmbeddingConfig`,
+`_embedding_ctx`, the embedding field on `RuntimeLLMConfigs`, and the
+embedding slot in the strict resolver are all gone. `RuntimeLLMConfigs` is
+now `{claude, openai, codex}`; `set_user_config(claude, openai, codex=None)`;
+`get_user_llm_configs` is back to a 2-tuple `(claude, openai)` — Codex rides
+the `*_runtime_*` accessors. The guardrail test `test_embedding_removal.py`
+was updated so the `set_user_config` signature assertion expects
+`(claude, openai, codex)` (still rejects any embedding arg).
+
+## 2026-06-10 — ClaudeConfig carries neutral reasoning params
+
+`ClaudeConfig` gained `thinking` / `reasoning_effort` (both default ""
+= auto), populated from the agent slot's SlotConfig at all three
+construction sites (llm_config.json path, .env fallback — stays auto —
+and the per-user resolver). The fields are framework-neutral; the
+Claude-dialect mapping lives in xyz_claude_agent_sdk
+(`_resolve_reasoning_options`), NOT here. `to_cli_env()` is untouched —
+these ride ClaudeAgentOptions, not env vars.
+
 
 ## 2026-05-29 — add CodexConfig + codex_config ContextVar
 

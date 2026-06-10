@@ -1,8 +1,32 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-06-08
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — merge `dev`: `/embeddings/*` routes removed
+
+`dev` retired embeddings (BM25 routing) and deleted
+`embedding_migration_service.py`. The `/embeddings/status` and
+`/embeddings/rebuild` routes that the codex branch still carried are gone
+(their backing service no longer exists). The hot-reload calls in
+`add_provider` / `set_slot` now pass `set_user_config(cfg.claude,
+cfg.openai, cfg.codex)` — no embedding arg. `Query` import dropped (only
+the removed routes used it).
+
+## 2026-06-10 — Framework-neutral reasoning params (feat/claude-sdk-adapter-upgrade)
+
+SlotConfig gained two NEUTRAL knobs — `thinking: ""|on|off` and
+`reasoning_effort: ""|low|medium|high|max` ("" = auto = adapter passes
+nothing). They are deliberately NOT provider dialect (no "adaptive"/
+"minimal"): NarraNexus will adapt more frameworks (Codex, pi, ...), so the
+slot stores semantics and each agent-framework adapter owns the mapping +
+clamping (rule #9). Persisted as `user_slots.params_json` (cloud) and via
+the normal LLMConfig JSON dump (local llm_config.json) — both backends
+expose them through the same set_slot(..., thinking=, reasoning_effort=)
+signature with PUT semantics (omitted = reset to auto). Corrupt or
+out-of-vocabulary stored params degrade to auto with a warning instead of
+failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
+
 
 ## 2026-06-08 (late evening) — `_ensure_codex_installed` 不再走 npm
 

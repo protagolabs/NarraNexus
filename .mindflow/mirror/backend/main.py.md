@@ -1,8 +1,17 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-05-15
+last_verified: 2026-06-09
 stub: false
 ---
+
+## 2026-06-09 — versioned migration runner wired into lifespan
+
+The startup lifespan now calls `run_pending_migrations(db)` after `auto_migrate`
+and the one-shot self-heals — the universal hook for the versioned data-migration
+ledger (migrations/ [[__init__]]). Wrapped defensively (best-effort): a migration
+error is logged and never blocks startup. This is what carries the
+unified-memory backfill to EVERY environment (cloud / run.sh / DMG) without a
+deploy-side step.
 
 ## 2026-05-15 — invite_router 改为 server-to-server
 
