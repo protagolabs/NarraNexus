@@ -3,6 +3,17 @@ code_file: frontend/src/components/settings/OneKeyOnboard.tsx
 last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 (4th pass) — success panel + key verification feedback
+
+The card now shows an explicit success panel (role=status) built from
+the onboard response: "You're all set — Agent: <model> (<framework>) ·
+Helper: <model>". Needed because in Settings a silent success read as
+"nothing happened" (on /setup the navigation masked it). When the
+backend's live key probe was inconclusive (key_check="unverified
+(...)"), an amber warning line tells the user to re-check the key if
+the first chat fails. A definitively bad key never reaches this panel —
+the backend rejects with 400 before writing anything.
+
 ## 2026-06-10 (3rd pass) — Anthropic default; CLI sign-in pointer in the intro
 
 Provider list reordered/relabelled: "Anthropic (official)" is FIRST and

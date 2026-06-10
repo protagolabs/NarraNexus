@@ -826,6 +826,9 @@ class ApiClient {
     agent_framework?: string;
     agent_model?: string;
     helper_model?: string;
+    /** "ok" | "unverified (<reason>)" — live key probe result. A
+     * definitively bad key never reaches success (400 instead). */
+    key_check?: string;
   }> {
     return this.request(`/api/providers/onboard`, {
       method: 'POST',

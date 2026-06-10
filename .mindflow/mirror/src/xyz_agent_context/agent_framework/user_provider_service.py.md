@@ -3,6 +3,18 @@ code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
 last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 (5th pass) — onboard live-verifies the key before writing
+
+onboard_one_key now probes the key via provider_registry.test_provider
+(GET /models on official endpoints — zero token; max_tokens=1 on
+proxies; aggregators probed on their anthropic endpoint) BEFORE any DB
+write. Policy: definitive auth rejection (401/403) → ValueError, nothing
+persisted; transient failures (network/5xx/timeout) → proceed with
+meta.key_check="unverified (<reason>)" so the UI warns — we never block
+a good key because our egress hiccuped. Tests stub the probe (autouse
+fixture in test_one_key_onboarding.py); a fake-key smoke against the
+real Anthropic API confirmed 400 + zero rows.
+
 ## 2026-06-10 (4th pass) — helper_llm rejects OAuth providers
 
 set_slot gained a defense-in-depth gate: helper_llm refuses providers

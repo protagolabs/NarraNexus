@@ -94,6 +94,7 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
     agentModel: string;
     helperModel: string;
     framework: string;
+    keyCheck: string;
   } | null>(null);
 
   const selected = ONE_KEY_PROVIDERS.find((p) => p.id === providerType)!;
@@ -123,6 +124,7 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
           agentModel: res.agent_model ?? '',
           helperModel: res.helper_model ?? '',
           framework: res.agent_framework ?? '',
+          keyCheck: res.key_check ?? '',
         });
         onComplete();
       } else {
@@ -262,6 +264,12 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
                 {done.framework ? ` (${done.framework === 'codex_cli' ? 'Codex CLI' : 'Claude Code'})` : ''}
                 {' · '}Helper: {done.helperModel}
               </div>
+              {done.keyCheck.startsWith('unverified') && (
+                <div className="text-xs mt-1" style={{ color: 'var(--color-warning, #b45309)' }}>
+                  Key saved but could not be verified ({done.keyCheck.replace(/^unverified \(|\)$/g, '')}) —
+                  if the first chat fails, double-check the key.
+                </div>
+              )}
             </div>
           </div>
         )}

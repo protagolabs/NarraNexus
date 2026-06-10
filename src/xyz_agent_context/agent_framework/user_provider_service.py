@@ -23,8 +23,11 @@ from loguru import logger
 from pydantic import ValidationError
 
 from xyz_agent_context.schema.provider_schema import (
+    AuthType,
     LLMConfig,
     ProviderConfig,
+    ProviderProtocol,
+    ProviderSource,
     SlotConfig,
     SlotName,
     get_slot_required_protocols,
@@ -533,6 +536,13 @@ class UserProviderService:
         agent_model = get_default_agent_model(ptype)
         helper_model = get_default_helper_model(ptype)
 
+        # Verify the key BEFORE writing anything — a typo'd key should
+        # fail here with a clear message, not at the first chat turn.
+        # Definitive auth rejections (401/403) raise; transient failures
+        # (network, 5xx) do NOT block — we proceed and report
+        # key_check="unverified (...)" so the UI can surface a warning.
+        key_check = await self._verify_onboard_key(ptype, key, agent_model)
+
         await self.set_user_agent_framework(user_id, framework)
         config, new_ids = await self.add_provider(
             user_id=user_id, card_type=ptype, api_key=key,
@@ -557,8 +567,73 @@ class UserProviderService:
             "agent_framework": framework,
             "agent_model": agent_model,
             "helper_model": helper_model,
+            "key_check": key_check,
         }
         return config, new_ids, meta
+
+    async def _verify_onboard_key(
+        self, ptype: str, api_key: str, agent_model: str
+    ) -> str:
+        """Live-probe the key against its provider before persisting.
+
+        Builds a transient ProviderConfig (never stored) and reuses
+        ``provider_registry.test_provider`` — GET /models on official
+        endpoints (zero token cost), a max_tokens=1 call on proxies.
+        Aggregators are probed on their anthropic endpoint (the agent's
+        critical path).
+
+        Returns "ok" on success, or "unverified (<reason>)" when the
+        probe failed for a NON-auth reason (network, 5xx, timeout) —
+        we don't block a good key because our egress hiccuped.
+
+        Raises ValueError when the provider definitively rejected the
+        credential (401/403).
+        """
+        from xyz_agent_context.agent_framework.provider_registry import (
+            provider_registry,
+        )
+
+        if ptype in _DUAL_PROVIDER_CONFIGS:
+            info = _DUAL_PROVIDER_CONFIGS[ptype]["anthropic"]
+            probe_cfg = ProviderConfig(
+                provider_id="_onboard_verify",
+                name="onboard verify",
+                source=ptype,
+                protocol=ProviderProtocol.ANTHROPIC,
+                auth_type=info["auth_type"],
+                api_key=api_key,
+                base_url=info["base_url"],
+                models=[agent_model],
+            )
+        else:
+            probe_cfg = ProviderConfig(
+                provider_id="_onboard_verify",
+                name="onboard verify",
+                source=ProviderSource.USER,
+                protocol=ptype,
+                auth_type=AuthType.API_KEY,
+                api_key=api_key,
+                base_url="",
+                models=[agent_model],
+            )
+
+        ok, msg = await provider_registry.test_provider(probe_cfg)
+        if ok:
+            return "ok"
+        low = msg.lower()
+        if (
+            "authentication failed" in low
+            or "access denied" in low
+            or "invalid api key" in low
+            or "http 401" in low
+            or "http 403" in low
+        ):
+            raise ValueError(f"API key rejected by {ptype}: {msg}")
+        logger.warning(
+            f"[onboard] key probe inconclusive for {ptype}: {msg} — "
+            f"proceeding unverified"
+        )
+        return f"unverified ({msg})"
 
     # ---- agent_framework: per-user coding-agent SDK choice ---------
     # The ``user_slots[slot_name='agent'].agent_framework`` column is

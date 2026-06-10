@@ -81,6 +81,19 @@ def _run_isolated(fn, *args, **kwargs):
     return ctx.run(fn, *args, **kwargs)
 
 
+@pytest.fixture(autouse=True)
+def _stub_key_probe(monkeypatch):
+    """onboard_one_key live-probes the key via provider_registry.
+    Stub it for every test in this file so nothing touches the network;
+    individual tests override the stub to exercise failure outcomes."""
+    from xyz_agent_context.agent_framework.provider_registry import provider_registry
+
+    async def _ok(provider):
+        return True, "Connected successfully"
+
+    monkeypatch.setattr(provider_registry, "test_provider", _ok)
+
+
 # =============================================================================
 # 1. Factory dispatch
 # =============================================================================
@@ -486,6 +499,51 @@ async def test_onboard_explicit_type_overrides_prefix():
     )
     assert meta["provider_type"] == "openai"
     assert meta["agent_framework"] == "codex_cli"
+
+
+@pytest.mark.asyncio
+async def test_onboard_rejects_invalid_key_before_writing(monkeypatch):
+    """A definitively rejected key (401/403) must fail the onboard AND
+    leave the config untouched — no provider row, no slots."""
+    from xyz_agent_context.agent_framework.provider_registry import provider_registry
+
+    async def _auth_fail(provider):
+        return False, "Authentication failed (invalid API key)"
+    monkeypatch.setattr(provider_registry, "test_provider", _auth_fail)
+
+    db = _FakeDB()
+    svc = UserProviderService(db)
+    with pytest.raises(ValueError, match="API key rejected"):
+        await svc.onboard_one_key("u1", "sk-ant-typo")
+
+    assert db.providers == {}
+    assert db.slots == {}
+
+
+@pytest.mark.asyncio
+async def test_onboard_proceeds_unverified_on_transient_probe_failure(monkeypatch):
+    """Network/5xx probe failures must NOT block a (possibly good) key —
+    proceed and report key_check='unverified (...)'."""
+    from xyz_agent_context.agent_framework.provider_registry import provider_registry
+
+    async def _net_fail(provider):
+        return False, "Connection failed: timeout"
+    monkeypatch.setattr(provider_registry, "test_provider", _net_fail)
+
+    db = _FakeDB()
+    svc = UserProviderService(db)
+    config, new_ids, meta = await svc.onboard_one_key("u1", "sk-ant-good")
+
+    assert meta["key_check"].startswith("unverified")
+    assert config.slots["agent"].provider_id == new_ids[0]
+
+
+@pytest.mark.asyncio
+async def test_onboard_reports_key_check_ok():
+    db = _FakeDB()
+    svc = UserProviderService(db)
+    _, _, meta = await svc.onboard_one_key("u1", "sk-ant-good")
+    assert meta["key_check"] == "ok"
 
 
 @pytest.mark.asyncio
