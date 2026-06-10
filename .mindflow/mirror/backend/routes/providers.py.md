@@ -4,6 +4,34 @@ last_verified: 2026-06-08
 stub: false
 ---
 
+## 2026-06-08 (late evening) — `_ensure_codex_installed` 不再走 npm
+
+`_ensure_codex_installed` 之前是个 60+ 行的 `npm install -g @openai/codex` 流程，包含 cloud-mode 拒绝 / timeout / PATH 验证一堆分支。**全删了，只剩 ~20 行**。
+
+根因：cutover 到 v2 之后，`openai-codex` 是 pyproject.toml 硬依赖，它**transitively 拉 `openai-codex-cli-bin` wheel**——codex 二进制以 Python wheel 形式打包，落到 `site-packages/codex_cli_bin/bin/codex`，**不在 PATH 上但 SDK 通过 `bundled_codex_path()` 直接定位**。npm install 路径完全是 v1 时代的死代码。
+
+更糟的是它在 DMG 上**误报 install_failed**：DMG 容器内没有 npm，旧实现先 `shutil.which("codex")` 找不到（因为 wheel 路径不在 PATH），然后 `shutil.which("npm")` 找不到，返回 `install_failed` ——可是 SDK 用的是 wheel bundle，**实际跑得通**。用户看到红 banner 但 codex 正常工作，binding rule #7 (DMG + bash 必须一致) 违规。
+
+新实现：
+
+```python
+async def _ensure_codex_installed() -> dict:
+    try:
+        from codex_cli_bin import bundled_codex_path
+    except ImportError as e:
+        return {"installed": False, "action": "install_failed",
+                "reason": f"openai-codex-cli-bin wheel not importable ({e}). Run uv sync."}
+    binary = bundled_codex_path()
+    if not binary.exists():
+        return {"installed": False, "action": "install_failed",
+                "reason": f"codex_cli_bin imported but binary missing at {binary}. Re-run uv sync."}
+    return {"installed": True, "action": "already_installed", "reason": ""}
+```
+
+`action` 值集合从 4 个收敛到 2 个：`already_installed` / `install_failed`。`auto_installed` 和 `blocked` 不再产生（前者是 npm 成功，后者是 cloud 拒绝；wheel 路径都不需要）。前端 banner UI 对应简化，移除 auto_installed / blocked 两条分支。Settings 的"Verifying Codex CLI…"提示也从原来 30-60s 改成瞬时（wheel 验证只是 import + Path.exists，毫秒级）。
+
+测试文件 `test_agent_framework_install.py` 完全重写：从 7 个 npm-mock 测试改成 5 个 wheel-mock 测试。
+
 ## 2026-06-08 (evening) — A/B 别名清理
 
 `set_agent_framework` 和 `_probe_agent_framework_auth` 之前都接 `("codex_cli", "codex_cli_v2", "codex_official")` 三个名字，现在收敛到只认 `codex_cli`。所有 codex 变种共用同一 `~/.codex/auth.json` 和同一 `_ensure_codex_installed()` 副作用——别名集合留着没意义。`_SUPPORTED_AGENT_FRAMEWORKS` 通过 import service 层常量自动跟着收窄到 `(claude_code, codex_cli)`。

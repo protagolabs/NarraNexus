@@ -363,155 +363,67 @@ from xyz_agent_context.agent_framework.user_provider_service import (
 # automatically opens the route here, no double-edit required.
 _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
 
-# npm install timeout for auto-install of @openai/codex. Codex CLI is a
-# Rust binary distributed via npm; the first install pulls a postinstall
-# script that downloads the platform binary, which can take 30-60s on
-# slow links. Matches the timeout used for @anthropic-ai/claude-code in
-# run.sh:_try_install_claude_cli.
-_CODEX_NPM_INSTALL_TIMEOUT = 120.0
-
-
 async def _ensure_codex_installed() -> dict:
-    """Auto-install ``@openai/codex`` via ``npm install -g`` when the
-    user opts into Codex CLI from the Settings page.
+    """Verify the codex binary bundled with the ``openai-codex-cli-bin``
+    wheel is available. No PATH check, no npm install — both became
+    obsolete when v2 cutover made ``openai-codex`` (which transitively
+    ships ``openai-codex-cli-bin``) a hard dependency in pyproject.toml.
 
-    Mirrors the behaviour of ``run.sh:_try_install_claude_cli`` for
-    Claude Code — that one is run unconditionally at boot because
-    Claude is the default framework. Codex is opt-in, so the install
-    fires lazily at framework-selection time instead.
+    Behaviour:
+      - ``uv sync`` (run by ``run.sh`` and during DMG build) installs
+        both wheels. The binary lands at
+        ``.venv/lib/python3.X/site-packages/codex_cli_bin/bin/codex`` —
+        NOT on PATH, but the openai-codex SDK calls
+        ``bundled_codex_path()`` to locate it directly, so PATH is
+        irrelevant.
+      - If the wheel is missing, the user's deploy is broken upstream
+        (uv sync failed); we report a clear actionable error so they
+        re-run install rather than seeing an inscrutable
+        ``codex: command not found`` at agent_loop time.
+
+    Pre-2026-06-08 history (kept for context): this function used to
+    ``npm install -g @openai/codex`` lazily on framework switch. That
+    path was correct for v1 (which spawned ``codex exec`` from PATH)
+    but is now dead code — v2's SDK uses the wheel-bundled binary.
+    Worse, on the DMG build the npm path always failed (no npm in the
+    bundled environment) and surfaced a misleading red banner even
+    though codex actually worked. binding rule #7 (DMG + bash run.sh
+    must align) made this a hard fix, not optional.
 
     Returns:
         Dict shape ``{"installed": bool, "action": str, "reason": str}``.
-        ``action`` values:
-          - ``"already_installed"`` — ``codex`` was already on PATH.
-          - ``"auto_installed"`` — we just installed it; ``codex`` now
-            on PATH.
-          - ``"blocked"`` — refused because we're in cloud mode.
-          - ``"install_failed"`` — npm exited non-zero, timed out, or
-            the binary isn't on PATH after a successful exit.
-
-    Cloud-mode refusal is deliberate: a multi-tenant deployment must
-    not let one user mutate the shared host's globally-installed npm
-    packages. Cloud operators install Codex out-of-band if they want
-    to support that path; users only see ``blocked`` until then.
-
-    Auto-login is NOT triggered here. ``codex login`` requires a
-    browser OAuth round-trip that we can't drive from a HTTP handler.
-    After ``auto_installed``, the probe will report
-    ``auth missing — run codex login`` until the user completes login
-    on the host.
+        ``action`` is always ``"already_installed"`` on success or
+        ``"install_failed"`` with an actionable reason on failure.
+        ``"auto_installed"`` / ``"blocked"`` no longer fire — both
+        were states the npm path produced.
     """
-    import asyncio
-    import shutil
-
-    if shutil.which("codex"):
-        return {
-            "installed": True,
-            "action": "already_installed",
-            "reason": "",
-        }
-
-    from xyz_agent_context.utils.deployment_mode import get_deployment_mode
-    if get_deployment_mode() == "cloud":
-        return {
-            "installed": False,
-            "action": "blocked",
-            "reason": (
-                "Cloud mode: per-user global npm install is not "
-                "permitted on a shared host. Ask the administrator "
-                "to install @openai/codex on the cloud deployment "
-                "if you need Codex CLI support."
-            ),
-        }
-
-    if not shutil.which("npm"):
-        return {
-            "installed": False,
-            "action": "install_failed",
-            "reason": (
-                "npm is not installed or not on PATH. Install Node.js "
-                "from https://nodejs.org/ (or `brew install node` on "
-                "macOS) and try again."
-            ),
-        }
-
-    logger.info(
-        "[providers] auto-installing @openai/codex "
-        f"(timeout {_CODEX_NPM_INSTALL_TIMEOUT}s)"
-    )
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "npm", "install", "-g", "@openai/codex",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError:
-        # Race: npm vanished between which() and exec(). Rare but
-        # possible on a system being modified in parallel.
-        return {
-            "installed": False,
-            "action": "install_failed",
-            "reason": "npm binary not found at exec time",
-        }
-
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=_CODEX_NPM_INSTALL_TIMEOUT
-        )
-    except asyncio.TimeoutError:
-        try:
-            proc.kill()
-            await proc.wait()
-        except (ProcessLookupError, OSError):
-            pass
+        from codex_cli_bin import bundled_codex_path  # noqa: PLC0415
+    except ImportError as e:
         return {
             "installed": False,
             "action": "install_failed",
             "reason": (
-                f"npm install -g @openai/codex timed out after "
-                f"{_CODEX_NPM_INSTALL_TIMEOUT:.0f}s. Check your network "
-                f"or run it manually in a terminal."
+                f"openai-codex-cli-bin wheel not importable ({e}). "
+                f"Run ``uv sync`` to install the openai-codex SDK "
+                f"and its bundled binary wheel."
             ),
         }
 
-    if proc.returncode != 0:
-        # Trim stderr — npm error output is verbose; first ~500 chars
-        # usually carries the actionable detail (EACCES, ENOTFOUND, ...).
-        err_msg = stderr.decode("utf-8", errors="replace").strip()
-        if len(err_msg) > 500:
-            err_msg = err_msg[:500] + "...(truncated)"
-        logger.warning(
-            f"[providers] @openai/codex install failed "
-            f"(rc={proc.returncode}): {err_msg}"
-        )
+    binary = bundled_codex_path()
+    if not binary.exists():
         return {
             "installed": False,
             "action": "install_failed",
             "reason": (
-                f"npm install -g @openai/codex exited rc={proc.returncode}. "
-                f"Output: {err_msg}"
+                f"codex_cli_bin imported but bundled binary missing at "
+                f"{binary}. Re-run ``uv sync`` to repair the install."
             ),
         }
 
-    # Sanity: confirm `codex` is actually on PATH now. npm sometimes
-    # reports success but the global prefix isn't in $PATH — annoying
-    # corner case that's easier to surface here than at agent_loop time.
-    if not shutil.which("codex"):
-        return {
-            "installed": False,
-            "action": "install_failed",
-            "reason": (
-                "npm install reported success but `codex` is not on "
-                "PATH. Check `npm config get prefix` is in your $PATH "
-                "(typically /usr/local or ~/.local — re-source your "
-                "shell or restart the backend)."
-            ),
-        }
-
-    logger.info("[providers] @openai/codex auto-installed successfully")
     return {
         "installed": True,
-        "action": "auto_installed",
+        "action": "already_installed",
         "reason": "",
     }
 

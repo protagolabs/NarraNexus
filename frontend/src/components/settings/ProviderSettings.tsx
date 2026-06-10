@@ -531,9 +531,12 @@ export function ProviderSettings() {
   const [agentFrameworkProbe, setAgentFrameworkProbe] = useState<{ ok: boolean; detail: string } | null>(null)
   const [agentFrameworkSaving, setAgentFrameworkSaving] = useState(false)
   const [agentFrameworkError, setAgentFrameworkError] = useState<string>('')
-  // Install banner — surfaced after switching to codex_cli, so the
-  // user can see whether the backend auto-installed the binary or
-  // blocked the install in cloud mode.
+  // Install banner — surfaced after switching to codex_cli. Post-2026-06-08
+  // the codex binary ships as a Python wheel (``openai-codex-cli-bin``)
+  // so the install side-effect is just a wheel-presence check; no more
+  // npm path. ``auto_installed`` / ``blocked`` no longer fire from the
+  // backend but the union keeps them for forward-compat in case we
+  // add a different fallback later.
   const [agentFrameworkInstall, setAgentFrameworkInstall] = useState<{
     installed: boolean
     action: 'already_installed' | 'auto_installed' | 'blocked' | 'install_failed'
@@ -1018,7 +1021,7 @@ export function ProviderSettings() {
             </select>
             {agentFrameworkSaving && isCodexFramework(agentFramework) && (
               <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">
-                {'Checking / installing Codex CLI… (first install may take 30-60s)'}
+                {'Verifying Codex CLI…'}
               </div>
             )}
             {agentFrameworkError && (
@@ -1026,20 +1029,9 @@ export function ProviderSettings() {
                 {agentFrameworkError}
               </div>
             )}
-            {agentFrameworkInstall && agentFrameworkInstall.action === 'auto_installed' && (
-              <div className="text-xs text-[var(--color-success)] mt-1">
-                ✓ Codex CLI was auto-installed. Run <code>codex login</code> in
-                a terminal to complete authentication.
-              </div>
-            )}
-            {agentFrameworkInstall && agentFrameworkInstall.action === 'blocked' && (
-              <div className="text-xs text-[var(--color-error)] mt-1">
-                {agentFrameworkInstall.reason}
-              </div>
-            )}
             {agentFrameworkInstall && agentFrameworkInstall.action === 'install_failed' && (
               <div className="text-xs text-[var(--color-error)] mt-1">
-                Install failed: {agentFrameworkInstall.reason}
+                Codex binary unavailable: {agentFrameworkInstall.reason}
               </div>
             )}
             {agentFrameworkProbe !== null && !agentFrameworkProbe.ok &&

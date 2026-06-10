@@ -1,172 +1,109 @@
 """
 @file_name: test_agent_framework_install.py
-@date: 2026-05-30
+@date: 2026-05-30 (rewritten 2026-06-08 — npm path removed)
 @description: Tests for ``_ensure_codex_installed`` in
-``backend/routes/providers.py``. The helper auto-installs
-``@openai/codex`` via ``npm install -g`` when the user opts into the
-codex_cli framework from the Settings page.
+``backend/routes/providers.py``.
 
-We don't actually run ``npm`` — every test patches
-``asyncio.create_subprocess_exec`` and ``shutil.which`` so the
-control flow can be exercised deterministically in CI.
+Post-cutover behaviour (binding rule #7 alignment for DMG): the codex
+binary now ships with the ``openai-codex-cli-bin`` Python wheel that
+``openai-codex`` transitively depends on. uv sync installs both
+wheels at one shot, so the binary is always available at
+``site-packages/codex_cli_bin/bin/codex``. The function's only job
+is to verify the wheel is importable and the binary file exists —
+no PATH check, no npm install. The earlier npm path was correct for
+v1 (which called ``codex exec`` from PATH) but broke on DMG where
+``npm`` isn't bundled; this misleadingly raised "install_failed" in
+the Settings UI even though codex actually ran fine via the SDK.
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from backend.routes.providers import _ensure_codex_installed
 
 
-class _FakeProc:
-    """Minimal asyncio subprocess stand-in."""
-
-    def __init__(self, returncode: int = 0, stderr: bytes = b""):
-        self.returncode = returncode
-        self._stderr = stderr
-        self.killed = False
-
-    async def communicate(self):
-        return (b"", self._stderr)
-
-    def kill(self):
-        self.killed = True
-        # Simulate the OS kernel reaping the process
-        self.returncode = -9
-
-    async def wait(self):
-        return self.returncode
-
-
-# ---------------- happy / already-installed -----------------------
-
-
 @pytest.mark.asyncio
-async def test_returns_already_installed_when_codex_on_path():
-    with patch("shutil.which", side_effect=lambda x: "/usr/local/bin/codex" if x == "codex" else None):
+async def test_returns_already_installed_when_wheel_binary_present(tmp_path):
+    """Happy path: codex_cli_bin imports + the binary file exists."""
+    fake_binary = tmp_path / "codex"
+    fake_binary.write_text("#!/bin/sh\necho fake codex\n")
+    fake_binary.chmod(0o755)
+    with patch("codex_cli_bin.bundled_codex_path", return_value=fake_binary):
         r = await _ensure_codex_installed()
     assert r == {"installed": True, "action": "already_installed", "reason": ""}
 
 
 @pytest.mark.asyncio
-async def test_auto_installs_when_codex_missing_and_local_mode():
-    """In local mode, missing codex → spawn npm install → success."""
-    # First .which("codex") → None (not installed). After "npm install"
-    # finishes we check .which("codex") again → returns a path (success).
-    which_calls = {"codex": 0}
-    def which(name):
-        if name == "codex":
-            which_calls["codex"] += 1
-            # First call: missing. Second call (after npm install): present.
-            return None if which_calls["codex"] == 1 else "/usr/local/bin/codex"
-        if name == "npm":
-            return "/usr/local/bin/npm"
-        return None
+async def test_install_failed_when_wheel_missing(monkeypatch):
+    """codex_cli_bin not importable → uv sync wasn't run (or failed).
+    Report a clear, actionable error."""
+    import sys
 
-    fake_exec = AsyncMock(return_value=_FakeProc(returncode=0))
-    with patch("shutil.which", side_effect=which), \
-         patch("xyz_agent_context.utils.deployment_mode.get_deployment_mode", return_value="local"), \
-         patch("asyncio.create_subprocess_exec", fake_exec):
-        r = await _ensure_codex_installed()
-    assert r["installed"] is True
-    assert r["action"] == "auto_installed"
-    # Sanity: we actually invoked npm
-    fake_exec.assert_called_once()
-    args = fake_exec.call_args[0]
-    assert args[0] == "npm"
-    assert "install" in args
-    assert "-g" in args
-    assert "@openai/codex" in args
+    # Strip codex_cli_bin from sys.modules so the import inside
+    # _ensure_codex_installed gets a fresh attempt; install a finder
+    # that raises ImportError for it.
+    monkeypatch.delitem(sys.modules, "codex_cli_bin", raising=False)
 
+    class _Blocker:
+        def find_module(self, name, path=None):
+            return self if name == "codex_cli_bin" else None
 
-# ---------------- cloud mode block --------------------------------
+        def find_spec(self, name, path, target=None):
+            if name == "codex_cli_bin":
+                raise ImportError("simulated: codex_cli_bin not installed")
+            return None
 
-
-@pytest.mark.asyncio
-async def test_blocks_in_cloud_mode():
-    """Cloud mode: refuse global install on shared host."""
-    with patch("shutil.which", return_value=None), \
-         patch("xyz_agent_context.utils.deployment_mode.get_deployment_mode", return_value="cloud"):
-        r = await _ensure_codex_installed()
+    monkeypatch.setattr(sys, "meta_path", [_Blocker()] + sys.meta_path)
+    r = await _ensure_codex_installed()
     assert r["installed"] is False
-    assert r["action"] == "blocked"
-    assert "cloud" in r["reason"].lower()
-
-
-# ---------------- failure paths -----------------------------------
+    assert r["action"] == "install_failed"
+    assert "uv sync" in r["reason"]
+    assert "codex-cli-bin" in r["reason"].lower() or "codex_cli_bin" in r["reason"]
 
 
 @pytest.mark.asyncio
-async def test_fails_when_npm_not_installed():
-    """No npm → cannot auto-install."""
-    def which(name):
-        return None  # neither codex nor npm
-    with patch("shutil.which", side_effect=which), \
-         patch("xyz_agent_context.utils.deployment_mode.get_deployment_mode", return_value="local"):
+async def test_install_failed_when_binary_file_missing(tmp_path):
+    """codex_cli_bin imports OK but the binary file doesn't actually
+    exist on disk (corrupted install, partial uv sync, manual delete).
+    Surface the absolute path so the user can grep for it."""
+    missing_path = tmp_path / "this-does-not-exist" / "codex"
+    with patch("codex_cli_bin.bundled_codex_path", return_value=missing_path):
         r = await _ensure_codex_installed()
     assert r["installed"] is False
     assert r["action"] == "install_failed"
-    assert "npm" in r["reason"].lower()
+    assert str(missing_path) in r["reason"]
+    assert "uv sync" in r["reason"]
 
 
 @pytest.mark.asyncio
-async def test_fails_when_npm_install_returns_non_zero():
-    """npm exits with error → surface it."""
-    def which(name):
-        if name == "npm":
-            return "/usr/local/bin/npm"
-        return None  # codex missing both before and after (install failed)
-    fake_exec = AsyncMock(return_value=_FakeProc(
-        returncode=1, stderr=b"npm ERR! EACCES permission denied",
-    ))
-    with patch("shutil.which", side_effect=which), \
-         patch("xyz_agent_context.utils.deployment_mode.get_deployment_mode", return_value="local"), \
-         patch("asyncio.create_subprocess_exec", fake_exec):
+async def test_no_more_blocked_action_in_cloud_mode():
+    """Pre-2026-06-08 the cloud mode returned ``action == "blocked"``
+    refusing the npm install. That action is gone — the wheel-based
+    install works identically in cloud and local. This regression
+    guard ensures we don't accidentally reintroduce the path."""
+    fake_binary = Path("/tmp/fake-codex-binary-cloud-test")
+    fake_binary.write_text("")
+    with patch("codex_cli_bin.bundled_codex_path", return_value=fake_binary):
+        # Even if we monkey-patch deployment_mode to cloud, the wheel
+        # path doesn't consult it.
         r = await _ensure_codex_installed()
-    assert r["installed"] is False
-    assert r["action"] == "install_failed"
-    assert "rc=1" in r["reason"]
-    assert "EACCES" in r["reason"]
+    fake_binary.unlink()
+    assert r["action"] != "blocked"
 
 
 @pytest.mark.asyncio
-async def test_fails_when_npm_succeeds_but_binary_not_on_path():
-    """npm exit 0 but codex still missing → PATH issue."""
-    def which(name):
-        if name == "npm":
-            return "/usr/local/bin/npm"
-        return None  # codex absent before AND after
-    fake_exec = AsyncMock(return_value=_FakeProc(returncode=0))
-    with patch("shutil.which", side_effect=which), \
-         patch("xyz_agent_context.utils.deployment_mode.get_deployment_mode", return_value="local"), \
-         patch("asyncio.create_subprocess_exec", fake_exec):
+async def test_no_more_auto_installed_action():
+    """``auto_installed`` was the post-npm-install success marker. The
+    wheel path never reports this — successful verification is always
+    ``already_installed`` because the binary was placed there by uv
+    sync at deploy time, not by this function at runtime."""
+    fake_binary = Path("/tmp/fake-codex-binary-auto-test")
+    fake_binary.write_text("")
+    with patch("codex_cli_bin.bundled_codex_path", return_value=fake_binary):
         r = await _ensure_codex_installed()
-    assert r["installed"] is False
-    assert r["action"] == "install_failed"
-    assert "PATH" in r["reason"]
-
-
-@pytest.mark.asyncio
-async def test_fails_on_timeout():
-    """npm install hangs > timeout → kill + report."""
-    import asyncio as _asyncio
-
-    class _SlowProc(_FakeProc):
-        async def communicate(self):
-            await _asyncio.sleep(3600)  # would never finish
-            return (b"", b"")
-
-    fake_exec = AsyncMock(return_value=_SlowProc())
-    def which(name):
-        if name == "npm":
-            return "/usr/local/bin/npm"
-        return None
-    with patch("shutil.which", side_effect=which), \
-         patch("xyz_agent_context.utils.deployment_mode.get_deployment_mode", return_value="local"), \
-         patch("asyncio.create_subprocess_exec", fake_exec), \
-         patch("backend.routes.providers._CODEX_NPM_INSTALL_TIMEOUT", 0.05):
-        r = await _ensure_codex_installed()
-    assert r["installed"] is False
-    assert r["action"] == "install_failed"
-    assert "timed out" in r["reason"].lower()
+    fake_binary.unlink()
+    assert r["action"] != "auto_installed"
+    assert r["action"] == "already_installed"
