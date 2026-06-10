@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-06-08
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — run-liveness helper moved to background_run.py (shared)
+
+The `_parse_db_utc` / `_run_is_live` heartbeat-freshness rule (running
+events row trusted only while `last_event_at` is within 3 missed beats)
+moved to `background_run.py` as `parse_db_utc` / `run_is_live`, because
+the WS reconnect path now needs the SAME answer to "is this run actually
+alive?" (see websocket.py 2026-06-10 entry — zombie running rows must be
+reported as `run_ended`, not reconnect-looped). auth.py keeps a local
+`_run_is_live = run_is_live` alias; behavior of the agents-list
+active_run filter is unchanged.
 
 ## 2026-06-08 — account deletion clears memory_* by agent_id
 
