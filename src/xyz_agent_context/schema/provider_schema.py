@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -110,9 +110,23 @@ class SlotConfig(BaseModel):
 
     The provider's protocol must match the slot's required protocol
     (validated by ProviderRegistry).
+
+    Reasoning params are framework-NEUTRAL (rule #9): the slot never stores
+    a provider dialect ("adaptive", "minimal", ...). Each agent-framework
+    adapter owns the mapping from these values to its own wire format and
+    clamps values outside its vocabulary (with a log line, never an error —
+    rule #15: we don't police the user's provider choice).
     """
     provider_id: str = Field(..., description="Reference to ProviderConfig.provider_id")
     model: str = Field(..., description="Model name, e.g. 'BAAI/bge-m3'")
+    thinking: Literal["", "on", "off"] = Field(
+        default="",
+        description="Neutral thinking switch: '' = auto (adapter passes nothing)",
+    )
+    reasoning_effort: Literal["", "low", "medium", "high", "max"] = Field(
+        default="",
+        description="Neutral reasoning-effort level: '' = auto (adapter passes nothing)",
+    )
 
 
 # =============================================================================

@@ -2806,7 +2806,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20.0" },
     { name = "anthropic", specifier = ">=0.72.0" },
     { name = "bcrypt", specifier = ">=5.0.0" },
-    { name = "claude-agent-sdk", specifier = ">=0.1.6" },
+    { name = "claude-agent-sdk", specifier = "~=0.1.43" },
     { name = "croniter", specifier = ">=6.0.0" },
     { name = "ddgs", specifier = ">=9.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },

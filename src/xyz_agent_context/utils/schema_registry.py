@@ -709,6 +709,11 @@ _register(
             Column("slot_name", "TEXT", "VARCHAR(32)", nullable=False),
             Column("provider_id", "TEXT", "VARCHAR(64)", nullable=False),
             Column("model", "TEXT", "VARCHAR(128)", nullable=False),
+            # Framework-neutral per-slot params (thinking, reasoning_effort,
+            # and future knobs) serialized as one JSON object. A single
+            # extensible column so later per-slot settings don't need
+            # another migration. NULL / absent = all params at auto.
+            Column("params_json", "TEXT", "MEDIUMTEXT"),
             # Set by self_heal_if_broken() when a slot.model that no longer
             # exists in its provider.models array is auto-repaired to the
             # default. Used as a 24h debounce so a misbehaving slot doesn't

@@ -54,6 +54,11 @@ class AddProviderRequest(BaseModel):
 class SetSlotRequest(BaseModel):
     provider_id: str
     model: str
+    # Framework-neutral reasoning params (see provider_schema.SlotConfig).
+    # "" = auto. PUT semantics: the UI always sends the current values;
+    # omitted fields reset to auto.
+    thinking: str = ""
+    reasoning_effort: str = ""
 
 
 class UpdateModelsRequest(BaseModel):
@@ -264,7 +269,10 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
     uid = _get_user_id(request)
     try:
         service = await _get_service()
-        config = await service.set_slot(uid, slot_name, req.provider_id, req.model)
+        config = await service.set_slot(
+            uid, slot_name, req.provider_id, req.model,
+            thinking=req.thinking, reasoning_effort=req.reasoning_effort,
+        )
 
         errors = []
         for s in SlotName:

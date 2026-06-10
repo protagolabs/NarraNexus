@@ -55,6 +55,13 @@ class ClaudeConfig:
     # aggregators (NetMind, OpenRouter, Yunwu, ...) do not. The tool
     # policy hook reads this to decide whether to permit WebSearch.
     supports_anthropic_server_tools: bool = False
+    # Framework-neutral reasoning params from the agent slot
+    # (SlotConfig.thinking / SlotConfig.reasoning_effort). "" = auto =
+    # the adapter passes nothing and the CLI keeps its defaults. The
+    # Claude-dialect mapping lives in xyz_claude_agent_sdk
+    # (_resolve_reasoning_options), not here.
+    thinking: str = ""
+    reasoning_effort: str = ""
 
     def to_cli_env(self) -> dict[str, str]:
         """Build env vars dict for the Claude Code CLI subprocess.
@@ -175,6 +182,8 @@ def _load_from_llm_config() -> Optional[tuple[ClaudeConfig, OpenAIConfig]]:
             supports_anthropic_server_tools=bool(
                 getattr(agent_provider, "supports_anthropic_server_tools", False)
             ),
+            thinking=agent_slot.thinking,
+            reasoning_effort=agent_slot.reasoning_effort,
         )
     else:
         claude = ClaudeConfig()
@@ -666,6 +675,8 @@ async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, Open
         supports_anthropic_server_tools=bool(
             getattr(agent_provider, "supports_anthropic_server_tools", False)
         ),
+        thinking=agent_slot.thinking,
+        reasoning_effort=agent_slot.reasoning_effort,
     )
 
     # ─── Helper LLM slot ─────────────────────────────────────────────
