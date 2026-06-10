@@ -157,7 +157,11 @@ class LLMConfig(BaseModel):
 
 SLOT_REQUIRED_PROTOCOLS: dict[str, list[ProviderProtocol]] = {
     SlotName.AGENT: [ProviderProtocol.ANTHROPIC],
-    SlotName.HELPER_LLM: [ProviderProtocol.OPENAI],
+    # helper_llm accepts both protocols: the resolver dispatches to the
+    # OpenAI helper (Chat Completions) or the Anthropic helper (Messages
+    # API) per the assigned provider's protocol. This is what lets a
+    # single Claude key serve agent AND helper.
+    SlotName.HELPER_LLM: [ProviderProtocol.OPENAI, ProviderProtocol.ANTHROPIC],
 }
 """
 Maps each slot to the list of protocols it currently supports.

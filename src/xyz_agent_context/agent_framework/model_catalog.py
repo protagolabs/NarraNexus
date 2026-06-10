@@ -303,6 +303,50 @@ def get_suggested_models(protocol: str) -> list[str]:
 
 
 # =============================================================================
+# One-key onboarding defaults
+# =============================================================================
+
+# Defaults the /api/providers/onboard endpoint wires when a user pastes a
+# single key. BYOK rationale: the user pays with their own key, so the
+# agent slot defaults to the strongest model of that family;
+# cost-sensitive users downgrade in Settings → Providers (Advanced).
+# (The cloud free tier defaults to Sonnet because the PLATFORM pays —
+# different scenario, configured in SystemProviderService.)
+_ONBOARD_AGENT_MODELS: dict[str, str] = {
+    "anthropic": "claude-opus-4-8",
+    "openai": "gpt-5.5",          # codex_cli's current flagship default
+    # NetMind one-key card: DeepSeek is the cost-effective default on
+    # the aggregator; Claude-via-NetMind stays available in the
+    # dropdown for users who want it.
+    "netmind": "deepseek-ai/DeepSeek-V4-Pro",
+    # Yunwu / OpenRouter proxy the official APIs — same defaults as a
+    # direct Claude key.
+    "yunwu": "claude-opus-4-8",
+    "openrouter": "claude-opus-4-8",
+}
+
+# Helper does small structured jobs (entity extraction, narrative
+# updates, fallback replies) — cheap + fast wins.
+_ONBOARD_HELPER_MODELS: dict[str, str] = {
+    "anthropic": "claude-haiku-4-5",
+    "openai": "gpt-5.4-mini",
+    "netmind": "deepseek-ai/DeepSeek-V4-Flash",
+    "yunwu": "gpt-5.4-mini",
+    "openrouter": "gpt-5.4-mini",
+}
+
+
+def get_default_agent_model(protocol: str) -> str:
+    """Default agent-slot model for one-key onboarding, per protocol."""
+    return _ONBOARD_AGENT_MODELS.get(protocol, _ONBOARD_AGENT_MODELS["anthropic"])
+
+
+def get_default_helper_model(protocol: str) -> str:
+    """Default helper_llm-slot model for one-key onboarding, per protocol."""
+    return _ONBOARD_HELPER_MODELS.get(protocol, _ONBOARD_HELPER_MODELS["openai"])
+
+
+# =============================================================================
 # Official Provider Detection
 # =============================================================================
 

@@ -20,12 +20,12 @@ service discipline in CLAUDE.md.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 from xyz_agent_context.memory.record import MemoryRecord
 from xyz_agent_context.utils.timezone import utc_now
 
@@ -89,7 +89,7 @@ async def consolidate(
     new_facts: Sequence[MemoryRecord],
     existing: Sequence[MemoryRecord],
     prompt: Optional[str] = None,
-    sdk: Optional[OpenAIAgentsSDK] = None,
+    sdk: Optional[Any] = None,
 ) -> int:
     """Run one consolidation pass for a scope. `repo` is the MemoryRepository
     for the CONSOLIDATED kind (e.g. observation). Returns the number of records
@@ -98,7 +98,7 @@ async def consolidate(
     facts = [f for f in new_facts if f.content_text.strip()]
     if not facts:
         return 0
-    sdk = sdk or OpenAIAgentsSDK()
+    sdk = sdk or get_helper_sdk()
     instructions = prompt or DEFAULT_CONSOLIDATION_PROMPT
 
     plan = await _plan_with_bisect(sdk, instructions, facts, existing, agent_id)
@@ -156,7 +156,7 @@ def _inherit_tags(facts: Sequence[MemoryRecord], indices: Sequence[int]) -> List
 
 
 async def _plan_with_bisect(
-    sdk: OpenAIAgentsSDK,
+    sdk: Any,
     instructions: str,
     facts: Sequence[MemoryRecord],
     existing: Sequence[MemoryRecord],

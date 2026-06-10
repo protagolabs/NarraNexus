@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/pages/SetupPage.tsx
-last_verified: 2026-04-10
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 (later) — Get Started restored; OneKeyOnboard gained provider picker
+
+Footer is provider-count-aware again: zero providers → ghost "Skip for
+now"; any provider → accent "Get Started". Count re-probes when the
+Advanced disclosure collapses (the user may have configured providers
+inside it). The primary card now covers NetMind/Claude/OpenAI/Yunwu/
+OpenRouter via the shared OneKeyOnboard.
+
+## 2026-06-10 — one-key card is the primary first-run surface
+
+SetupPage now renders `OneKeyOnboard` as the main path; the full
+`ProviderSettings` moved behind an "Advanced setup" disclosure (collapsed by
+default). The provider-count probe + Done/Skip dual-button logic is gone —
+success navigates straight to /app/chat via onComplete; "Skip for now"
+remains for users with no key.
+
 
 # SetupPage.tsx — First-time LLM provider configuration wizard
 

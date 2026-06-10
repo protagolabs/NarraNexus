@@ -459,6 +459,90 @@ class UserProviderService:
 
         return await self.get_user_config(user_id)
 
+    # =========================================================================
+    # One-key onboarding
+    # =========================================================================
+
+    async def onboard_one_key(
+        self,
+        user_id: str,
+        api_key: str,
+        provider_type: Optional[str] = None,
+    ) -> tuple[LLMConfig, list[str], dict]:
+        """Wire a complete runnable config from a single API key.
+
+        Detects the key's protocol (sk-ant- prefix → anthropic, else
+        openai) unless ``provider_type`` overrides it, then:
+
+          1. Persists the matching agent framework (anthropic →
+             claude_code, openai → codex_cli). MUST happen before the
+             agent slot — set_slot validates the agent provider's
+             protocol against the framework.
+          2. Creates the provider (card_type = the protocol; the
+             provider gets the catalog's suggested model list).
+          3. Assigns BOTH slots to that same provider with the
+             catalog's onboarding defaults (strongest agent model of
+             the family + the cheap helper model).
+
+        Returns (config, new_provider_ids, meta) where meta carries
+        {provider_type, agent_framework, agent_model, helper_model}
+        for the API response. Raises ValueError on bad input or any
+        step failure (duplicate provider, protocol mismatch, ...).
+        """
+        from xyz_agent_context.agent_framework.model_catalog import (
+            get_default_agent_model,
+            get_default_helper_model,
+        )
+
+        key = (api_key or "").strip()
+        if not key:
+            raise ValueError("api_key is required")
+
+        # Aggregator keys (netmind/yunwu/openrouter) have no recognisable
+        # prefix — they are only reachable via an explicit provider_type
+        # from the UI's provider picker.
+        ptype = provider_type or (
+            "anthropic" if key.startswith("sk-ant-") else "openai"
+        )
+        allowed = ("anthropic", "openai", "netmind", "yunwu", "openrouter")
+        if ptype not in allowed:
+            raise ValueError(
+                f"provider_type must be one of {allowed}, got {ptype!r}"
+            )
+        # Only a pure-OpenAI key runs the codex_cli agent; every
+        # aggregator's anthropic endpoint serves claude_code like an
+        # official Claude key does.
+        framework = "codex_cli" if ptype == "openai" else "claude_code"
+        agent_model = get_default_agent_model(ptype)
+        helper_model = get_default_helper_model(ptype)
+
+        await self.set_user_agent_framework(user_id, framework)
+        config, new_ids = await self.add_provider(
+            user_id=user_id, card_type=ptype, api_key=key,
+        )
+        # Official anthropic/openai cards create ONE provider that
+        # serves both slots. The netmind card creates TWO linked rows
+        # (anthropic + openai); route each slot to its protocol's row.
+        agent_pid = helper_pid = new_ids[0]
+        if len(new_ids) > 1:
+            by_protocol = {
+                config.providers[pid].protocol.value: pid
+                for pid in new_ids
+                if pid in config.providers
+            }
+            agent_pid = by_protocol.get("anthropic", new_ids[0])
+            helper_pid = by_protocol.get("openai", new_ids[0])
+        config = await self.set_slot(user_id, "agent", agent_pid, agent_model)
+        config = await self.set_slot(user_id, "helper_llm", helper_pid, helper_model)
+
+        meta = {
+            "provider_type": ptype,
+            "agent_framework": framework,
+            "agent_model": agent_model,
+            "helper_model": helper_model,
+        }
+        return config, new_ids, meta
+
     # ---- agent_framework: per-user coding-agent SDK choice ---------
     # The ``user_slots[slot_name='agent'].agent_framework`` column is
     # read by step_3_agent_loop._resolve_agent_framework_sdk to pick

@@ -61,6 +61,16 @@ class SetSlotRequest(BaseModel):
     reasoning_effort: str = ""
 
 
+class OnboardRequest(BaseModel):
+    """Body for ``POST /api/providers/onboard`` — the one-key setup path."""
+    api_key: str
+    # "anthropic" | "openai" | "netmind"; None → auto-detect from the
+    # key prefix (sk-ant- → anthropic, anything else → openai).
+    # netmind is only reachable explicitly — its keys have no
+    # recognisable prefix.
+    provider_type: str | None = None
+
+
 class UpdateModelsRequest(BaseModel):
     models: list[str]
 
@@ -210,7 +220,7 @@ async def add_provider(req: AddProviderRequest, request: Request):
                 set_user_config,
             )
             cfg = await get_user_runtime_llm_configs(uid)
-            set_user_config(cfg.claude, cfg.openai, cfg.codex)
+            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
         except Exception:
             pass
 
@@ -227,6 +237,49 @@ async def add_provider(req: AddProviderRequest, request: Request):
     except Exception as e:
         logger.exception(f"[add_provider] Error: {e}", exc_info=True)
         return {"success": False, "detail": str(e)}
+
+
+@router.post("/onboard")
+async def onboard(req: OnboardRequest, request: Request):
+    """One-key setup: a single API key wires everything needed to chat.
+
+    All orchestration (key-type detection, framework persistence,
+    provider creation, both slot assignments) lives in
+    ``UserProviderService.onboard_one_key``; this route only adds the
+    HTTP envelope, hot-reload, and job recovery.
+    """
+    uid = _get_user_id(request)
+    try:
+        service = await _get_service()
+        config, new_ids, meta = await service.onboard_one_key(
+            uid, req.api_key, req.provider_type,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Hot-reload for current process (mirror add_provider / set_slot)
+    try:
+        from xyz_agent_context.agent_framework.api_config import (
+            get_user_runtime_llm_configs,
+            set_user_config,
+        )
+        cfg = await get_user_runtime_llm_configs(uid)
+        set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+    except Exception:
+        pass
+
+    # Edge-triggered recovery: the user just became runnable.
+    from xyz_agent_context.module.job_module.job_recovery import (
+        schedule_user_no_quota_rearm,
+    )
+    schedule_user_no_quota_rearm(uid)
+
+    return {
+        "success": True,
+        "provider_ids": new_ids,
+        **meta,
+        "data": _config_to_response(config),
+    }
 
 
 @router.delete("/{provider_id}")
@@ -328,7 +381,7 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
                 set_user_config,
             )
             cfg = await get_user_runtime_llm_configs(uid)
-            set_user_config(cfg.claude, cfg.openai, cfg.codex)
+            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
         except Exception:
             pass
 
@@ -435,15 +488,53 @@ async def _ensure_codex_installed() -> dict:
     }
 
 
-async def _probe_agent_framework_auth(framework: str) -> dict:
-    """Run the per-framework OAuth credential probe.
+async def _probe_agent_framework_auth(framework: str, user_id: str | None = None) -> dict:
+    """Probe whether the framework can authenticate for this user.
 
-    Returns ``{"ok": bool, "detail": str}``. Synthesizes a stub
-    ProviderCard with the right ``auth_ref`` so we can reuse the
-    existing driver's probe() — no need to look up an actual
-    ``user_providers`` row (the framework choice is independent of
-    which provider drives the helper_llm slot).
+    Returns ``{"ok": bool, "detail": str}``. TWO legitimate auth legs:
+
+    1. **API-key provider** — the user's agent slot is wired to a
+       provider with a real api_key matching the framework's protocol
+       (the one-key onboarding path). No CLI login needed; checked
+       first when ``user_id`` is given.
+    2. **CLI OAuth** — ``codex login`` / ``claude`` credentials file on
+       the host, probed via a stub ProviderCard + the OAuth driver.
+
+    The previous version only checked leg 2, which falsely reported
+    "auth missing" for perfectly runnable API-key users.
     """
+    # ── Leg 1: API-key provider on the agent slot ─────────────────────
+    if user_id:
+        required_proto = "openai" if framework == "codex_cli" else "anthropic"
+        try:
+            from xyz_agent_context.utils.db_factory import get_db_client
+            db = await get_db_client()
+            slot = await db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": "agent"}
+            )
+            if slot and slot.get("provider_id"):
+                prov = await db.get_one(
+                    "user_providers", {"provider_id": slot["provider_id"]}
+                )
+                if (
+                    prov
+                    and prov.get("api_key")
+                    and (prov.get("protocol") or "").lower() == required_proto
+                ):
+                    return {
+                        "ok": True,
+                        "detail": (
+                            f"API-key provider configured "
+                            f"({prov.get('name') or slot['provider_id']})"
+                        ),
+                    }
+        except Exception as e:  # noqa: BLE001 — fall through to OAuth probe
+            logger.warning(
+                f"[agent-framework probe] api-key leg failed for "
+                f"user={user_id!r}: {e}"
+            )
+
+    # ── Leg 2: CLI OAuth credentials on the host ─────────────────────
     from xyz_agent_context.agent_framework.provider_driver.base import ProviderCard
 
     # Codex auth probe — reads ``~/.codex/auth.json`` regardless of
@@ -469,7 +560,13 @@ async def _probe_agent_framework_auth(framework: str) -> dict:
             driver_type="codex_oauth",
         )
         health = await CodexOAuthDriver(stub).probe()
-        return {"ok": health.ok, "detail": health.detail}
+        detail = health.detail
+        if not health.ok:
+            detail += (
+                " — or add an API-key OpenAI provider (Custom OpenAI) and "
+                "assign it to the agent slot; no codex login needed then."
+            )
+        return {"ok": health.ok, "detail": detail}
 
     if framework == "claude_code":
         from xyz_agent_context.agent_framework.provider_driver.drivers.claude_oauth import (
@@ -491,7 +588,13 @@ async def _probe_agent_framework_auth(framework: str) -> dict:
             driver_type="claude_oauth",
         )
         health = await ClaudeOAuthDriver(stub).probe()
-        return {"ok": health.ok, "detail": health.detail}
+        detail = health.detail
+        if not health.ok:
+            detail += (
+                " — or add an API-key Anthropic provider and assign it to "
+                "the agent slot; no claude login needed then."
+            )
+        return {"ok": health.ok, "detail": detail}
 
     return {"ok": False, "detail": f"unknown framework: {framework}"}
 
@@ -502,7 +605,7 @@ async def get_agent_framework(request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
     framework = await service.get_user_agent_framework(uid)
-    probe = await _probe_agent_framework_auth(framework)
+    probe = await _probe_agent_framework_auth(framework, user_id=uid)
     return {
         "success": True,
         "data": {
@@ -551,7 +654,7 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    probe = await _probe_agent_framework_auth(body.framework)
+    probe = await _probe_agent_framework_auth(body.framework, user_id=uid)
     return {
         "success": True,
         "data": {

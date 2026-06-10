@@ -3,6 +3,22 @@ code_file: src/xyz_agent_context/agent_framework/api_config.py
 last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — one-key onboarding: AnthropicHelperConfig joins the config stack
+
+New `AnthropicHelperConfig` (api_key/base_url/model/auth_type) carries the
+helper_llm config when that slot points at an anthropic-protocol provider —
+the single-Claude-key path. It rides a new `_anthropic_helper_ctx` ContextVar
++ `anthropic_helper_config` proxy (holder keeps a benign empty default).
+`set_user_config(claude, openai, codex=None, anthropic_helper=None)` — a call
+WITHOUT the new arg resets the ctx to None, which is what makes
+`get_helper_sdk()` dispatch safe across tasks. `RuntimeLLMConfigs` gains
+`anthropic_helper: Optional[...] = None`. The legacy strict fallback's helper
+block now branches on the provider protocol (anthropic → AnthropicHelperConfig,
+`.openai` left empty). `setup_mcp_llm_context` upgraded from the 2-tuple path
+to `get_agent_owner_runtime_llm_configs` so MCP tool processes see codex +
+anthropic_helper too. `CodexConfig` gains neutral `thinking`/`reasoning_effort`
+(mirror of ClaudeConfig's; dialect mapping in _codex_config_toml_builder).
+
 ## 2026-06-10 — merge `dev` into codex branch: embeddings out, Codex stays
 
 Reconciling two opposite directions: `dev` retired embeddings (narrative/

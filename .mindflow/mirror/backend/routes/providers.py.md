@@ -3,6 +3,27 @@ code_file: backend/routes/providers.py
 last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 (later) — framework auth probe recognises the API-key leg
+
+`_probe_agent_framework_auth(framework, user_id=None)` previously only
+checked the CLI OAuth credentials file (~/.codex/auth.json /
+~/.claude/.credentials.json) — so a perfectly runnable API-key user
+(the one-key onboarding path!) was told "✗ auth missing, run codex
+login". Now it checks TWO legs in order: (1) the user's agent slot is
+wired to a provider with a real api_key matching the framework's
+protocol → ok with "API-key provider configured (name)"; (2) the OAuth
+file probe, whose failure detail now also mentions the API-key
+alternative. Both GET and POST /agent-framework pass user_id.
+
+## 2026-06-10 — POST /api/providers/onboard
+
+One-key setup endpoint. All orchestration lives in
+`UserProviderService.onboard_one_key` (route = HTTP envelope + the same
+hot-reload + `schedule_user_no_quota_rearm` as add_provider). Response
+carries provider_type / agent_framework / agent_model / helper_model so
+the frontend can confirm what was wired. Hot-reload calls now pass
+`cfg.anthropic_helper` as the 4th set_user_config arg.
+
 ## 2026-06-10 — merge `dev`: `/embeddings/*` routes removed
 
 `dev` retired embeddings (BM25 routing) and deleted

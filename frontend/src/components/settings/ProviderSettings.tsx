@@ -28,6 +28,7 @@ import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { QuotaPanel } from './QuotaPanel'
+import { OneKeyOnboard } from './OneKeyOnboard'
 import { api } from '@/lib/api'
 import { isTauri, triggerClaudeLogin, triggerClaudeLogout, cancelClaudeLogin } from '@/lib/tauri'
 
@@ -103,45 +104,10 @@ interface KnownModelMeta {
   max_output_tokens: number | null
 }
 
-// =============================================================================
-// Preset providers (web-side copy — must match backend card_type support)
-// =============================================================================
-
-interface WebPresetProvider {
-  id: string       // card_type sent to backend
-  name: string
-  description: string
-  get_key_url: string
-}
-
-const PRESET_PROVIDERS: WebPresetProvider[] = [
-  { id: 'netmind',    name: 'NetMind.AI Power', description: 'One key covers both Anthropic & OpenAI endpoints', get_key_url: 'https://www.netmind.ai/user/dashboard' },
-  { id: 'yunwu',      name: 'Yunwu',            description: 'Proxies official Claude & OpenAI APIs',           get_key_url: 'https://yunwu.ai' },
-  { id: 'openrouter', name: 'OpenRouter',       description: 'Proxies official Claude & OpenAI APIs',           get_key_url: 'https://openrouter.ai/keys' },
-]
-
-// When a preset provider is Quick-Added, auto-assign these models to any
-// slot the user hasn't configured yet — so a brand-new user with just an
-// API key is immediately usable, no manual slot wiring needed.
-//
-// Only NetMind is wired up today: a single NetMind key creates BOTH an
-// Anthropic-protocol and an OpenAI-protocol endpoint, so all three slots
-// can be filled from one key. `protocol` must match a protocol the preset
-// actually creates; `model` must be a model id that endpoint serves (see
-// model_catalog.py DEFAULT_MODELS[("netmind", ...)]). `label` is for the
-// post-add confirmation dialog only.
-//
-// This only ever fills EMPTY slots — set_slot is an upsert, so an
-// already-configured slot is left untouched (don't clobber user choices).
-const PRESET_DEFAULT_SLOTS: Record<
-  string,
-  Record<string, { protocol: string; model: string; label: string }>
-> = {
-  netmind: {
-    agent:      { protocol: 'anthropic', model: 'deepseek-ai/DeepSeek-V4-Pro',   label: 'DeepSeek V4 Pro' },
-    helper_llm: { protocol: 'openai',    model: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek V4 Flash' },
-  },
-}
+// Preset quick-add moved to the shared OneKeyOnboard component (one-key
+// setup via POST /api/providers/onboard) — the provider list, Get Key
+// URLs, and recommended default models now live there / in
+// model_catalog._ONBOARD_*_MODELS.
 
 // =============================================================================
 // Agent Framework definitions
@@ -492,13 +458,6 @@ export function ProviderSettings() {
   // dangling `claude auth login` child.
   const [claudeLoginRemaining, setClaudeLoginRemaining] = useState<number | null>(null)
 
-  // Quick Add (preset provider)
-  const [selectedPreset, setSelectedPreset] = useState<string>(PRESET_PROVIDERS[0].id)
-  const [presetKey, setPresetKey] = useState('')
-  const [presetAdding, setPresetAdding] = useState(false)
-  // Set after a Quick Add that auto-filled one or more empty slots —
-  // drives the "ready to go" confirmation dialog. null = dialog closed.
-  const [autoConfigured, setAutoConfigured] = useState<{ label: string; model: string }[] | null>(null)
   const [syncing, setSyncing] = useState(false)
   // Inline summary line for the sync-defaults action: success / error / null.
   // Cleared whenever the user re-runs the sync so the UI never lies.
@@ -618,9 +577,6 @@ export function ProviderSettings() {
   const hasClaude = providerList.some((p) => p.source === 'claude_oauth')
   const hasCodex = providerList.some((p) => p.source === 'codex_oauth')
 
-  // Check which preset providers are already added
-  const addedPresets = new Set(providerList.map((p) => p.source))
-
   // Compute effective config per slot: pending overrides server state
   const getEffectiveSlotConfig = (slotKey: string): SlotConfig | null => {
     if (pendingSlots[slotKey]) return pendingSlots[slotKey]
@@ -646,43 +602,6 @@ export function ProviderSettings() {
       await refreshConfig()
       return true
     } catch { setError('Network error'); return false }
-  }
-
-  const handleQuickAdd = async () => {
-    if (!presetKey.trim()) { setError('Please enter your API key'); return }
-    setPresetAdding(true)
-
-    // Auto-fill any UNCONFIGURED slot with this preset's recommended model
-    // (NetMind today). A slot is "empty" when it has no `config`. Slots the
-    // user already configured are left out of `default_slots` entirely —
-    // backend set_slot is an upsert and would otherwise clobber them.
-    const presetDefaults = PRESET_DEFAULT_SLOTS[selectedPreset]
-    const defaultSlots: Record<string, { protocol: string; model: string }> = {}
-    const autoFilled: { label: string; model: string }[] = []
-    if (presetDefaults) {
-      for (const [slotKey, def] of Object.entries(presetDefaults)) {
-        if (!slots[slotKey]?.config) {
-          defaultSlots[slotKey] = { protocol: def.protocol, model: def.model }
-          autoFilled.push({
-            label: SLOT_DEFS.find((s) => s.key === slotKey)?.label ?? slotKey,
-            model: def.label,
-          })
-        }
-      }
-    }
-
-    const body: Record<string, unknown> = {
-      card_type: selectedPreset,
-      api_key: presetKey.trim(),
-    }
-    if (Object.keys(defaultSlots).length > 0) body.default_slots = defaultSlots
-
-    const ok = await addProvider(body)
-    if (ok) {
-      setPresetKey('')
-      if (autoFilled.length > 0) setAutoConfigured(autoFilled)
-    }
-    setPresetAdding(false)
   }
 
   const handleAddClaudeOAuth = async () => {
@@ -1169,7 +1088,11 @@ export function ProviderSettings() {
           </div>
         ) : (
           <p className="text-sm text-[var(--color-error)]">
-            No {effectiveProtocol} protocol provider configured. Add one in Step 1 above.
+            {slot.key === 'agent' && isCodexFramework(agentFramework)
+              ? 'Codex CLI needs an OpenAI provider that speaks the Responses API: ' +
+                'sign in with Codex CLI (codex login) or add a Custom OpenAI key in Step 1. ' +
+                'Aggregator providers (NetMind / Yunwu / OpenRouter) are not supported by Codex.'
+              : `No ${effectiveProtocol} protocol provider configured. Add one in Step 1 above.`}
           </p>
         )}
       </div>
@@ -1194,54 +1117,13 @@ export function ProviderSettings() {
         />
 
         <div className="space-y-4 ml-[34px]">
-          {/* ---- Quick Add: Preset provider selector ---- */}
-          <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">Quick Add — Preset Provider</h4>
-            <p className="text-sm text-[var(--text-tertiary)] mb-3">
-              Select a provider, paste your API key, and both protocol endpoints
-              will be created automatically. New here? <span className="text-[var(--text-secondary)]">NetMind.AI
-              Power</span> is the easiest start — one key, and default models are
-              pre-selected so you can finish right away.
-            </p>
-
-            <div className="space-y-3">
-              {/* Provider selector */}
-              <div>
-                <label className="block text-sm text-[var(--text-secondary)] mb-1">Provider</label>
-                <select
-                  value={selectedPreset}
-                  onChange={(e) => setSelectedPreset(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-                >
-                  {PRESET_PROVIDERS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}{p.id === 'netmind' ? ' (Recommended)' : ''} — {p.description}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* API Key + Get Key + Add button */}
-              <div className="flex gap-2">
-                <input type="password" value={presetKey} onChange={(e) => setPresetKey(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAdd() }}
-                  placeholder={addedPresets.has(selectedPreset) ? 'New key to re-configure...' : 'Paste your API key'}
-                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-                <a
-                  href={PRESET_PROVIDERS.find((p) => p.id === selectedPreset)?.get_key_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-2 text-sm text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 rounded-lg hover:bg-[var(--accent-primary)]/20 whitespace-nowrap transition-colors"
-                >
-                  Get Key
-                </a>
-                <button onClick={handleQuickAdd} disabled={presetAdding}
-                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
-                  {presetAdding ? 'Adding...' : addedPresets.has(selectedPreset) ? 'Update' : 'Add'}
-                </button>
-              </div>
-            </div>
-          </div>
+          {/* ---- One-key setup (shared with /setup) ----
+            Replaces the old Quick Add block. Submission goes through
+            POST /api/providers/onboard, which also switches the agent
+            framework (an official OpenAI key needs codex_cli — the old
+            add_provider+default_slots path could not do that) and
+            (re)assigns both slots. Per-slot fine-tuning stays below. */}
+          <OneKeyOnboard onComplete={refreshConfig} />
 
           {/* ---- Sync available models ---- */}
           {/*
@@ -1704,44 +1586,6 @@ export function ProviderSettings() {
         )
       })()}
 
-      {/* ================================================================= */}
-      {/* Quick Add auto-config confirmation                                 */}
-      {/* Shown after a preset Quick Add that auto-filled empty model slots. */}
-      {/* ================================================================= */}
-      <Dialog
-        isOpen={autoConfigured !== null}
-        onClose={() => setAutoConfigured(null)}
-        title="You're ready to go"
-      >
-        <DialogContent>
-          <p className="text-sm text-[var(--text-secondary)] mb-3">
-            Your key is in, and we&rsquo;ve set up your model slots so you can
-            start chatting right away:
-          </p>
-          <ul className="space-y-1.5 mb-4">
-            {autoConfigured?.map((a) => (
-              <li key={a.label} className="flex items-baseline gap-2 text-sm">
-                <span className="text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.1em] w-24 shrink-0">
-                  {a.label}
-                </span>
-                <span className="text-[var(--text-primary)] font-medium">{a.model}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs text-[var(--text-tertiary)]">
-            Want different models? Change any slot in the configuration section
-            below — your edits always win over these defaults.
-          </p>
-        </DialogContent>
-        <DialogFooter>
-          <button
-            onClick={() => setAutoConfigured(null)}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary)]/90 transition-colors"
-          >
-            Got it
-          </button>
-        </DialogFooter>
-      </Dialog>
     </div>
   )
 }

@@ -1,8 +1,33 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-05-27
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 (later) — secondary sections collapse by default
+
+New `CollapsibleSection` wraps Bundle / Artifacts / Manage-agents
+(collapsed by default, hint text only when expanded) — the whole page
+now follows the "simple surface first" logic: Providers summary +
+four one-line disclosure rows. UpdatesSection (Tauri-only) stays always
+visible because a ready update must not be hidden. ArtifactsSection
+mounts lazily on expand, so its fetch doesn't run for a collapsed page.
+
+## 2026-06-10 — Providers section adopts the /setup logic: simple face + Advanced disclosure
+
+New `ProvidersSection` wrapper replaces the bare `<ProviderSettings/>`:
+
+- zero providers → `OneKeyOnboard` card (paste one key and go)
+- any provider  → read-only `ProviderSummaryCard` (agent framework +
+  model, helper model, registered keys at a glance)
+- the full 1400-line `ProviderSettings` now lives behind an "Advanced
+  configuration" disclosure, collapsed by default
+
+Closing the disclosure (or completing onboard) bumps refreshToken so the
+summary re-fetches whatever was edited in Advanced, and remounts
+ProviderSettings via a key so it re-reads fresh config. Rationale: the
+Settings page was the last surface still leading with the full provider
+matrix; this mirrors the first-run page's "simple surface first" logic.
+
 
 ## 2026-05-27 — UpdatesSection rewrite: full state-machine UI
 

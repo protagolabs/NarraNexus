@@ -40,7 +40,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from loguru import logger
+
 from .api_config import CodexConfig
+
+
+# Neutral SlotConfig.reasoning_effort -> Codex CLI's model_reasoning_effort.
+# Codex accepts minimal|low|medium|high; the neutral "max" has no Codex
+# level, so it clamps to "high" (adapter owns the dialect mapping and
+# clamps out-of-vocabulary values with a log line, never an error —
+# iron rules #9/#15). "" (auto) emits nothing so the CLI keeps its default.
+_REASONING_EFFORT_MAP = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "max": "high",
+}
 
 
 # Provider name used in the TOML — kept stable so future telemetry /
@@ -141,6 +156,30 @@ def build_codex_config_toml(
     # of content. Token cost: +30-200 output tokens per turn for the
     # summary itself.
     lines.append(_kv_line("model_reasoning_summary", "detailed"))
+    # Neutral reasoning_effort from the agent slot -> Codex dialect.
+    # (model_reasoning_summary above is display verbosity — a different
+    # knob from effort; don't conflate.)
+    if config.reasoning_effort:
+        mapped_effort = _REASONING_EFFORT_MAP.get(config.reasoning_effort)
+        if mapped_effort:
+            if mapped_effort != config.reasoning_effort:
+                logger.debug(
+                    f"[CodexConfigToml] neutral reasoning_effort="
+                    f"{config.reasoning_effort!r} clamped to {mapped_effort!r}"
+                )
+            lines.append(_kv_line("model_reasoning_effort", mapped_effort))
+        else:
+            logger.warning(
+                f"[CodexConfigToml] unknown reasoning_effort "
+                f"{config.reasoning_effort!r}; omitted (CLI keeps default)"
+            )
+    if config.thinking:
+        # No Codex equivalent for the neutral thinking on/off switch —
+        # reasoning models always reason; effort is the only dial.
+        logger.debug(
+            f"[CodexConfigToml] neutral thinking={config.thinking!r} has "
+            f"no Codex equivalent; ignored"
+        )
     if config.model:
         lines.append(_kv_line("model", config.model))
 

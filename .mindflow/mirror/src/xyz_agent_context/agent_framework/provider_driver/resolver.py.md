@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/resolver.py
-last_verified: 2026-06-08
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — helper protocol dispatch + slot reasoning params threaded
+
+Two changes to the slot loop: (1) helper_llm now branches on the card's
+protocol — anthropic cards build via `build_anthropic_helper_config` into
+`RuntimeLLMConfigs.anthropic_helper` (`.openai` stays an empty default; the
+helper factory dispatches off `anthropic_helper` being set). (2) the agent
+slot's `params_json` (neutral thinking/reasoning_effort) is parsed by
+`_slot_reasoning_params` and threaded into BOTH agent paths —
+`dataclasses.replace` onto the built ClaudeConfig, and new kwargs on
+`_codex_config_from_card`. Previously only the legacy fallback honored the
+slot params; the driver path silently dropped them for Claude too.
+
 
 # resolver.py — single-point LLM config resolution
 

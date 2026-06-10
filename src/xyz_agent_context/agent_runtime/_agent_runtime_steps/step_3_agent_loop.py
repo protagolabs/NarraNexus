@@ -428,12 +428,12 @@ async def _generate_fallback_reply_stream(
        agent-loop generator body.
     2. Lets us test the prompt assembly + streaming wiring in isolation.
     """
-    from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+    from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
     from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
 
     set_cost_context(agent_id, db)
     try:
-        sdk = OpenAIAgentsSDK()
+        sdk = get_helper_sdk()
         instructions = (
             _FALLBACK_AFTER_ERROR_INSTRUCTIONS
             if mode == "after_error"

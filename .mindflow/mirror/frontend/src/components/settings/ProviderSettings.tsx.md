@@ -1,7 +1,34 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-06-08
+last_verified: 2026-06-10
 ---
+## 2026-06-10 (later) — Quick Add block replaced by shared OneKeyOnboard
+
+The in-component Quick Add (PRESET_PROVIDERS, PRESET_DEFAULT_SLOTS,
+selectedPreset/presetKey state, handleQuickAdd, the auto-config
+confirmation dialog) is gone — Step 1 now renders the shared
+<OneKeyOnboard onComplete={refreshConfig}/>. Two behavior notes:
+(1) onboard switches the agent framework, which the old path couldn't
+(official OpenAI keys were impossible via Quick Add); (2) the old
+"Update" affordance for an already-added preset was effectively broken
+anyway (add_provider raises 'already exists'), so nothing real was
+lost — key rotation belongs to a future edit-provider flow.
+
+## 2026-06-10 (later) — accurate codex no-provider message
+
+The agent slot's "No openai protocol provider configured" error was
+misleading under framework=codex_cli when the user HAS an openai
+provider that is merely codex-ineligible (aggregators don't expose the
+Responses API and are filtered by CODEX_ALLOWED_PROVIDER_SOURCES). The
+codex branch now explains: codex login or Custom OpenAI key; NetMind /
+Yunwu / OpenRouter not supported.
+
+## 2026-06-10 — demoted to "Advanced" on first-run (unchanged internally)
+
+No code change beyond the merge cleanup; noting placement: on /setup this
+component now lives behind the "Advanced setup" disclosure (OneKeyOnboard is
+the primary surface). On /app/settings it remains the full provider UI.
+
 ## 2026-06-10 — Agent slot reasoning dropdowns (Thinking / Reasoning Effort)
 
 The agent slot card gained two selects bound to the framework-neutral

@@ -71,6 +71,14 @@ import type {
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 
+/** Sources accepted by POST /api/providers/onboard (one-key setup). */
+export type OnboardProviderType =
+  | 'anthropic'
+  | 'openai'
+  | 'netmind'
+  | 'yunwu'
+  | 'openrouter';
+
 class ApiClient {
   private getAuthHeaders(): Record<string, string> {
     // Read identity from configStore (localStorage).
@@ -800,6 +808,32 @@ class ApiClient {
     };
   }> {
     return this.request(`/api/providers`);
+  }
+
+  /** One-key onboarding: a single API key wires the agent framework,
+   * the provider, and both slots (agent + helper_llm) in one call.
+   * providerType overrides the backend's sk-ant- prefix detection;
+   * aggregator keys (netmind/yunwu/openrouter) MUST pass it — they
+   * have no recognisable prefix. */
+  async onboard(
+    apiKey: string,
+    providerType?: OnboardProviderType,
+  ): Promise<{
+    success: boolean;
+    detail?: string;
+    provider_ids?: string[];
+    provider_type?: string;
+    agent_framework?: string;
+    agent_model?: string;
+    helper_model?: string;
+  }> {
+    return this.request(`/api/providers/onboard`, {
+      method: 'POST',
+      body: JSON.stringify({
+        api_key: apiKey,
+        provider_type: providerType ?? null,
+      }),
+    });
   }
 
   /** Backfill the latest default models from the catalog into existing providers.

@@ -37,10 +37,12 @@ def test_get_current_embedding_config_not_exported():
 # ── 2. set_user_config accepts exactly 2 args (claude, openai) ───────────────
 
 def test_set_user_config_has_no_embedding_arg():
-    """set_user_config must take (claude, openai, codex) — NO embedding arg.
+    """set_user_config takes (claude, openai, codex, anthropic_helper) —
+    NO embedding arg.
 
-    Codex is the only extra config threaded through set_user_config; the
-    embedding parameter that once sat here has been removed.
+    Codex and the anthropic helper are the extra configs threaded through
+    set_user_config; the embedding parameter that once sat here has been
+    removed and must not come back.
     """
     import inspect
     from xyz_agent_context.agent_framework.api_config import set_user_config, ClaudeConfig, OpenAIConfig
@@ -50,8 +52,9 @@ def test_set_user_config_has_no_embedding_arg():
     assert "embedding" not in params, (
         f"set_user_config must not take an embedding arg, got {params}"
     )
-    assert params == ["claude", "openai", "codex"], (
-        f"set_user_config signature must be (claude, openai, codex), got {params}"
+    assert params == ["claude", "openai", "codex", "anthropic_helper"], (
+        f"set_user_config signature must be "
+        f"(claude, openai, codex, anthropic_helper), got {params}"
     )
 
 

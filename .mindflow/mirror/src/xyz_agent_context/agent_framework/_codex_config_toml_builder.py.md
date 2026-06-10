@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/_codex_config_toml_builder.py
 stub: false
-last_verified: 2026-06-04
+last_verified: 2026-06-10
 ---
+## 2026-06-10 — neutral reasoning_effort → model_reasoning_effort
+
+Maps the slot's neutral reasoning_effort into Codex dialect: low/medium/high
+pass through, "max" clamps to "high" (log, never error — rules #9/#15);
+"" emits nothing so the CLI keeps its default. Neutral `thinking` has no
+Codex equivalent → debug-logged and ignored. Distinct from the existing
+`model_reasoning_summary="detailed"` (display verbosity, not effort).
+
 
 ## Why it exists
 

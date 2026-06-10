@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-06-08
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 (later) — onboard_one_key covers aggregator cards
+
+provider_type now accepts netmind / yunwu / openrouter in addition to
+anthropic / openai (aggregators are explicit-only — their keys have no
+recognisable prefix). Aggregator cards create TWO linked provider rows;
+the slot assignment routes by protocol (agent → anthropic row, helper →
+openai row). Framework mapping: only pure-openai keys run codex_cli;
+every aggregator serves claude_code through its anthropic endpoint.
+
+## 2026-06-10 — onboard_one_key: the one-key orchestration primitive
+
+New `onboard_one_key(user_id, api_key, provider_type=None)` wires a runnable
+config from a single key: detect protocol (sk-ant- prefix → anthropic, else
+openai; explicit provider_type overrides) → `set_user_agent_framework`
+(claude_code/codex_cli — MUST precede the agent slot, set_slot validates
+protocol against the framework) → `add_provider(card_type=protocol)` →
+both slots on that same provider with model_catalog onboarding defaults.
+Returns (config, new_ids, meta). The route layer (POST /api/providers/onboard)
+stays thin: HTTP envelope + hot-reload + job rearm.
+
 ## 2026-06-10 — Framework-neutral reasoning params (feat/claude-sdk-adapter-upgrade)
 
 SlotConfig gained two NEUTRAL knobs — `thinking: ""|on|off` and

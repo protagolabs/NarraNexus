@@ -35,6 +35,8 @@ error rather than silently building a config.
 """
 from __future__ import annotations
 
+import dataclasses
+import json
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -88,7 +90,29 @@ def _is_codex_framework(framework: str | None) -> bool:
     return framework == "codex_cli"
 
 
-def _codex_config_from_card(card: ProviderCard, model: str) -> CodexConfig:
+def _slot_reasoning_params(slot: dict | None) -> tuple[str, str]:
+    """Parse the framework-neutral (thinking, reasoning_effort) pair from
+    a raw ``user_slots`` row's ``params_json``. Malformed / missing JSON
+    degrades to ("", "") — auto — never raises (legacy rows predate the
+    column)."""
+    raw = (slot or {}).get("params_json")
+    if not raw:
+        return "", ""
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    except (ValueError, TypeError):
+        return "", ""
+    if not isinstance(data, dict):
+        return "", ""
+    return str(data.get("thinking") or ""), str(data.get("reasoning_effort") or "")
+
+
+def _codex_config_from_card(
+    card: ProviderCard,
+    model: str,
+    thinking: str = "",
+    reasoning_effort: str = "",
+) -> CodexConfig:
     """Build the Codex runtime config from an OpenAI-protocol provider row."""
     if (card.protocol or "").lower() != "openai":
         raise NotImplementedError(
@@ -109,6 +133,8 @@ def _codex_config_from_card(card: ProviderCard, model: str) -> CodexConfig:
         model=model,
         auth_type=card.auth_type or "api_key",
         auth_ref=auth_ref,
+        thinking=thinking,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -238,9 +264,28 @@ async def resolve_user_runtime_llm_configs(
 
         driver = driver_cls(card)
         if slot_name == "agent" and _is_codex_framework(_agent_framework_from_slot(slot)):
+            thinking, reasoning_effort = _slot_reasoning_params(slot)
             try:
-                cfgs["codex"] = _codex_config_from_card(card, slot["model"])
+                cfgs["codex"] = _codex_config_from_card(
+                    card, slot["model"],
+                    thinking=thinking, reasoning_effort=reasoning_effort,
+                )
                 cfgs[slot_name] = ClaudeConfig()
+            except NotImplementedError as e:
+                raise LLMConfigNotConfigured(
+                    f"User {user_id!r} slot {slot_name!r}: driver "
+                    f"{driver_type!r} cannot satisfy this slot ({e})."
+                ) from e
+            continue
+
+        # helper_llm dispatches on the provider's protocol: an anthropic
+        # provider routes to the Messages-API helper (single-Claude-key
+        # path); openai keeps the existing Chat-Completions helper.
+        if slot_name == "helper_llm" and (card.protocol or "").lower() == "anthropic":
+            try:
+                cfgs["helper_anthropic"] = driver.build_anthropic_helper_config(
+                    slot["model"]
+                )
             except NotImplementedError as e:
                 raise LLMConfigNotConfigured(
                     f"User {user_id!r} slot {slot_name!r}: driver "
@@ -257,10 +302,27 @@ async def resolve_user_runtime_llm_configs(
                 f"{driver_type!r} cannot satisfy this slot ({e})."
             ) from e
 
+        # Thread the agent slot's framework-neutral reasoning params into
+        # the built ClaudeConfig. Drivers don't take params (they only
+        # know the provider card); the slot-level knobs are patched in
+        # here — previously only the legacy fallback path honored them.
+        if slot_name == "agent":
+            thinking, reasoning_effort = _slot_reasoning_params(slot)
+            if thinking or reasoning_effort:
+                cfgs[slot_name] = dataclasses.replace(
+                    cfgs[slot_name],  # type: ignore[arg-type]
+                    thinking=thinking,
+                    reasoning_effort=reasoning_effort,
+                )
+
     return RuntimeLLMConfigs(
         claude=cfgs["agent"],          # type: ignore[arg-type]
-        openai=cfgs["helper_llm"],     # type: ignore[arg-type]
+        # When the helper runs on anthropic, ``openai`` stays an empty
+        # default and is unused — get_helper_sdk dispatches off
+        # ``anthropic_helper`` being set.
+        openai=cfgs.get("helper_llm") or OpenAIConfig(),  # type: ignore[arg-type]
         codex=cfgs.get("codex", CodexConfig()),  # type: ignore[arg-type]
+        anthropic_helper=cfgs.get("helper_anthropic"),  # type: ignore[arg-type]
     )
 
 

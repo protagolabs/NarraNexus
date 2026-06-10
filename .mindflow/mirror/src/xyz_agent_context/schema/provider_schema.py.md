@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/provider_schema.py
-last_verified: 2026-05-31
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — helper_llm slot accepts both protocols
+
+`SLOT_REQUIRED_PROTOCOLS[HELPER_LLM]` widened to `[OPENAI, ANTHROPIC]`. The
+resolver dispatches the helper build by the assigned provider's protocol
+(openai → Chat-Completions helper, anthropic → Messages-API helper). This is
+the schema-level enabler for "one Claude key serves agent AND helper".
+Runtime metadata only — no DB change.
+
 ## 2026-06-10 — Framework-neutral reasoning params (feat/claude-sdk-adapter-upgrade)
 
 SlotConfig gained two NEUTRAL knobs — `thinking: ""|on|off` and

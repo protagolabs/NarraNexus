@@ -8,14 +8,18 @@
  * regions instead of plain `<h2>` headings.
  */
 
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
+import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
+import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
+import { api } from '@/lib/api';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -27,6 +31,48 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+// Secondary sections (Bundle / Artifacts / Manage agents) collapse by
+// default — same "simple surface first" logic as the Providers section.
+// The hint text only shows when expanded, so the collapsed page reads as
+// a clean list of section labels.
+function CollapsibleSection({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section>
+      <button
+        type="button"
+        className="flex items-center gap-1.5 hover:opacity-80"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? (
+          <ChevronDown className="w-4 h-4" style={{ color: 'var(--nm-ink70)' }} />
+        ) : (
+          <ChevronRight className="w-4 h-4" style={{ color: 'var(--nm-ink70)' }} />
+        )}
+        <BracketSectionLabel>{label}</BracketSectionLabel>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          {hint && (
+            <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
+              {hint}
+            </p>
+          )}
+          {children}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -171,6 +217,89 @@ function UpdatesSection() {
   );
 }
 
+// Providers section — same logic as the first-run /setup page: simple
+// surface first, the full 1400-line ProviderSettings behind an
+// "Advanced configuration" disclosure (collapsed by default).
+//
+//   zero providers  → OneKeyOnboard card (paste one key and go)
+//   any provider    → read-only ProviderSummaryCard (agent framework +
+//                     model, helper model, registered keys at a glance)
+//
+// Collapsing the disclosure (or completing onboard) bumps refreshToken
+// so the summary re-fetches whatever was edited in Advanced, and
+// settingsKey remounts ProviderSettings so it re-reads fresh config.
+function ProvidersSection() {
+  const [providerCount, setProviderCount] = useState<number | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [settingsKey, setSettingsKey] = useState(0);
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  const probe = async () => {
+    try {
+      const data = await api.getProviders();
+      if (data.success && data.data?.providers) {
+        setProviderCount(Object.keys(data.data.providers).length);
+        return;
+      }
+    } catch {
+      // Backend not ready — fall through to "unknown", card stays hidden
+    }
+    setProviderCount(null);
+  };
+
+  useEffect(() => {
+    probe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
+
+  const refresh = () => {
+    setRefreshToken((t) => t + 1);
+    setSettingsKey((k) => k + 1);
+  };
+
+  const toggleAdvanced = () => {
+    setShowAdvanced((v) => {
+      // Closing Advanced → re-sync the summary with whatever was edited.
+      if (v) refresh();
+      return !v;
+    });
+  };
+
+  return (
+    <section>
+      <SectionHeader label="LLM Providers" />
+      {providerCount === 0 ? (
+        <div className="mb-4">
+          <OneKeyOnboard onComplete={refresh} />
+        </div>
+      ) : (
+        <div className="mb-4">
+          <ProviderSummaryCard refreshToken={refreshToken} />
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="flex items-center gap-1.5 text-sm hover:opacity-80"
+        style={{ color: 'var(--nm-ink70)' }}
+        onClick={toggleAdvanced}
+      >
+        {showAdvanced ? (
+          <ChevronDown className="w-4 h-4" />
+        ) : (
+          <ChevronRight className="w-4 h-4" />
+        )}
+        Advanced configuration — providers, frameworks, per-slot models
+      </button>
+      {showAdvanced && (
+        <div className="mt-4">
+          <ProviderSettings key={settingsKey} />
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const navigate = useNavigate();
   return (
@@ -190,16 +319,12 @@ export default function SettingsPage() {
           </div>
         </header>
 
-        <section>
-          <SectionHeader label="LLM Providers" />
-          <ProviderSettings />
-        </section>
+        <ProvidersSection />
 
-        <section>
-          <SectionHeader
-            label="Bundle · Export / Import"
-            hint="Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you."
-          />
+        <CollapsibleSection
+          label="Bundle · Export / Import"
+          hint="Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you."
+        >
           <div className="flex gap-3">
             <Button onClick={() => navigate('/app/bundle/export')} className="gap-2">
               <Package className="w-4 h-4" />
@@ -210,26 +335,24 @@ export default function SettingsPage() {
               Import bundle…
             </Button>
           </div>
-        </section>
+        </CollapsibleSection>
 
-        <section>
-          <SectionHeader
-            label="Artifacts"
-            hint="Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
-          />
+        <CollapsibleSection
+          label="Artifacts"
+          hint="Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
+        >
           <ArtifactsSection />
-        </section>
+        </CollapsibleSection>
 
-        <section>
-          <SectionHeader
-            label="Manage agents · batch"
-            hint="Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them."
-          />
+        <CollapsibleSection
+          label="Manage agents · batch"
+          hint="Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them."
+        >
           <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
             <Users className="w-4 h-4" />
             Open batch manager…
           </Button>
-        </section>
+        </CollapsibleSection>
 
         {isTauri() && <UpdatesSection />}
       </div>

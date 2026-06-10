@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-05-29
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — helper obtained via get_helper_sdk()
+
+The fallback-reply stream no longer instantiates OpenAIAgentsSDK directly —
+`get_helper_sdk()` (agent_framework/helper_sdk.py) returns the per-task
+helper (OpenAI or Anthropic Messages API) based on which helper config the
+resolver installed. Call shape (llm_stream) unchanged.
+
 
 ## 2026-05-29 — pluggable driver + EverMemOS removed
 

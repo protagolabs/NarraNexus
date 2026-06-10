@@ -329,6 +329,7 @@ class AgentRuntime:
                     owner_configs.claude,
                     owner_configs.openai,
                     owner_configs.codex,
+                    owner_configs.anthropic_helper,
                 )
             except LLMResolverError as e:
                 # Known-business error (quota exhausted, owner has not
