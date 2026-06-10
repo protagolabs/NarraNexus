@@ -4,6 +4,37 @@ last_verified: 2026-06-09
 stub: false
 ---
 
+## 2026-06-09 — embedding subsystem removed → ORPHANED ZOMBIE data (cleanup DEFERRED)
+
+The unified-memory refactor dropped the entire embedding/RAG subsystem
+(retrieval is now BM25 + grep, see [[record]] "No embeddings anywhere"). This
+registry therefore NO LONGER declares:
+
+- **whole tables**: `embeddings_store`, `chat_message_embeddings`,
+  `instance_rag_store`
+- **columns on shared/active tables**: `narratives.routing_embedding` /
+  `embedding_updated_at` / `events_since_last_embedding_update`,
+  `events.event_embedding` / `embedding_text`, `*.capability_embedding`, etc.
+
+`auto_migrate` is **additive-only** (it iterates the REGISTRY and does
+CREATE/ADD/INDEX IF NOT EXISTS; it never enumerates the live DB to DROP
+extras — binding rule #6). So on every **already-deployed** database (cloud
+MySQL + local `run.sh`/DMG SQLite) those tables and columns **remain in place
+as orphaned zombie data**. This is intentional and safe:
+
+- no live code path reads/writes them (verified: zero embedding-table refs +
+  zero deleted-module imports across `src/` + `backend/`);
+- every dropped column on an active table was nullable or carried a DEFAULT
+  (the only NOT NULL one, `events_since_last_embedding_update`, had
+  `default=0`), so new code's INSERTs (which omit them) are never rejected.
+
+Cost: a little disk, zero functional impact. **DEFERRED (buffering):** a future
+explicit, idempotent cleanup migration (`mNNNN`: `DROP TABLE IF EXISTS
+embeddings_store / chat_message_embeddings / instance_rag_store`, drop the dead
+columns) should run through the versioned `migrations/` ledger — NOT through
+`auto_migrate` — so the destructive step is audited, run-once, and Owner-
+authorized (rules #6/#12). Not done in this release on purpose.
+
 ## 2026-06-09 — schema_migrations ledger table
 
 Added the `schema_migrations` TableDef (migration_id PK / applied_at /

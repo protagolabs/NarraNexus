@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -62,19 +62,30 @@ def _parse_dt(value: Any) -> Optional[datetime]:
     raising — a malformed timestamp must not crash a memory read."""
     if value is None or value == "":
         return None
+    dt: Optional[datetime] = None
     if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
+        dt = value
+    elif isinstance(value, str):
         try:
-            return datetime.fromisoformat(value)
+            dt = datetime.fromisoformat(value)
         except ValueError:
             # Tolerate a space separator ("YYYY-MM-DD HH:MM:SS") that some
             # legacy rows used instead of ISO 'T' (see MEMORY.md timestamp bug).
             try:
-                return datetime.fromisoformat(value.replace(" ", "T", 1))
+                dt = datetime.fromisoformat(value.replace(" ", "T", 1))
             except ValueError:
                 return None
-    return None
+    if dt is None:
+        return None
+    # Normalize to timezone-aware UTC. The DB stores UTC (utc_now() writes it),
+    # but MySQL DATETIME comes back as a NAIVE datetime object and offset-less
+    # ISO strings parse naive — and `utc_now() - naive` raises "can't subtract
+    # offset-naive and offset-aware datetimes" (this crashed the memory
+    # consolidation worker on the MySQL/cloud backend every pass). Interpret a
+    # naive timestamp as UTC so all arithmetic against utc_now() is safe.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def _parse_json(value: Any, default: Any) -> Any:
