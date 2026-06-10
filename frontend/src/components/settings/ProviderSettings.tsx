@@ -138,7 +138,7 @@ const isCodexFramework = (framework: string | null | undefined): boolean =>
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
   { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic)', protocol: 'anthropic' },
-  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI)', protocol: 'openai' },
+  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI / Anthropic)', protocol: 'openai' },
 ]
 
 // =============================================================================
@@ -812,9 +812,6 @@ export function ProviderSettings() {
     setFormKey(''); setFormAuth('api_key'); setFormModels([]); setError('')
   }
 
-  const getProvidersForSlot = (protocol: string) =>
-    providerList.filter((p) => p.protocol === protocol && p.is_active)
-
   const isOfficialProvider = (prov: ProviderSummary) => {
     const urls = officialBaseUrls[prov.protocol] || []
     return urls.includes(prov.base_url || '')
@@ -872,9 +869,15 @@ export function ProviderSettings() {
   // ---- Slot row renderer ----
   const renderSlotRow = (slot: typeof SLOT_DEFS[number]) => {
     const selectedFramework = AGENT_FRAMEWORKS.find((f) => f.id === agentFramework)
-    const effectiveProtocol = slot.key === 'agent' && selectedFramework
-      ? selectedFramework.protocol
-      : slot.protocol
+    // Protocols this slot accepts. Agent follows the selected framework;
+    // other slots use the SERVER's required_protocols (helper_llm is
+    // [openai, anthropic] since the one-key work — a hardcoded 'openai'
+    // here silently hid anthropic providers from the helper dropdown).
+    const effectiveProtocols: string[] = slot.key === 'agent' && selectedFramework
+      ? [selectedFramework.protocol]
+      : (slots[slot.key]?.required_protocols?.length
+          ? slots[slot.key].required_protocols
+          : [slot.protocol])
 
     const cfg = getEffectiveSlotConfig(slot.key)
     const ready = !!(cfg?.provider_id && cfg?.model)
@@ -885,7 +888,8 @@ export function ProviderSettings() {
     // CLI OAuth credentials only drive the agent subprocess and cannot
     // make direct Messages / Chat-Completions calls — picking one here
     // would only fail at agent-loop time with NotImplementedError.
-    const matching = getProvidersForSlot(effectiveProtocol).filter((p) =>
+    const matching = providerList.filter((p) =>
+      effectiveProtocols.includes(p.protocol) && p.is_active &&
       (
         !(slot.key === 'agent' && isCodexFramework(agentFramework)) ||
         CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source)
@@ -1099,7 +1103,7 @@ export function ProviderSettings() {
               ? 'Codex CLI needs an OpenAI provider that speaks the Responses API: ' +
                 'sign in with Codex CLI (codex login) or add a Custom OpenAI key in Step 1. ' +
                 'Aggregator providers (NetMind / Yunwu / OpenRouter) are not supported by Codex.'
-              : `No ${effectiveProtocol} protocol provider configured. Add one in Step 1 above.`}
+              : `No ${effectiveProtocols.join(' / ')} protocol provider configured. Add one in Step 1 above.`}
           </p>
         )}
       </div>

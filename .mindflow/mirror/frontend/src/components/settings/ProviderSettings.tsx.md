@@ -2,6 +2,17 @@
 code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-06-10
 ---
+## 2026-06-10 (5th pass) — helper dropdown honors server required_protocols
+
+renderSlotRow's provider filter no longer uses SLOT_DEFS' hardcoded
+single protocol for non-agent slots — it reads the SERVER's
+required_protocols from GET /api/providers (helper_llm = [openai,
+anthropic] since the one-key work). The hardcoded 'openai' was silently
+hiding anthropic providers (e.g. a Custom Anthropic key) from the
+helper dropdown even though backend assignment + runtime dispatch fully
+support them. getProvidersForSlot helper removed (inlined);
+no-provider error message lists all accepted protocols.
+
 ## 2026-06-10 (4th pass) — helper dropdown hides OAuth providers
 
 The helper_llm provider dropdown now filters out auth_type=oauth rows.
