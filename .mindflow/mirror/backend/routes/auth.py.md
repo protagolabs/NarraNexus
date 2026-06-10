@@ -19,6 +19,27 @@ active_run filter is unchanged.
 
 Account deletion dropped `instance_social_entities` from `instance_sub_tables` and added a loop deleting every `memory_<kind>` table by agent_id (using `MEMORY_KINDS`), so a deleted account leaves no orphan rows in the unified memory store.
 
+## 2026-06-10 — analytics endpoints: identity from middleware only (review fix)
+
+PR #24 review hardening. All three analytics endpoints (`GET/PUT
+/settings/analytics`, `POST /funnel`) now derive the user exclusively from
+`request.state.user_id` via the shared `_require_request_user()` helper
+(401 when absent). `SetAnalyticsOptOutRequest` lost its `user_id` field and
+`FunnelEventRequest` lost `properties`:
+
+- Opt-out previously trusted a client-supplied `user_id` (query/body), so
+  any authenticated user could read or flip another user's privacy
+  preference. Now impossible by shape — the request can't name a target.
+- The funnel endpoint previously forwarded an arbitrary client `properties`
+  dict to PostHog, letting a client override the server-derived `surface`
+  (dict.setdefault doesn't protect present keys) or inject junk. The
+  setup_* events carry no payload by design, so client properties are no
+  longer accepted at all.
+
+Frontend `api.ts` methods changed in the same commit (no user_id param, no
+properties param). Tests: `test_user_settings_routes.py` (per-user
+isolation + 401), `test_funnel_capture.py` (client properties ignored).
+
 ## 2026-06-09 — funnel redesign: /api/auth/funnel endpoint (setup_* events)
 
 Added `POST /api/auth/funnel` for the three pure-UI setup events

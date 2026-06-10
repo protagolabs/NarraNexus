@@ -95,3 +95,19 @@ def test_funnel_endpoint_requires_auth(funnel_client, fake_sink):
     r = funnel_client.post("/api/auth/funnel", json={"event": "setup_entered"})
     assert r.status_code == 401
     assert fake_sink.events == []
+
+
+def test_funnel_endpoint_ignores_client_properties(funnel_client, fake_sink):
+    # Client-supplied properties must never reach the sink — a client could
+    # otherwise override the server-derived `surface` or inject junk.
+    r = funnel_client.post(
+        "/api/auth/funnel",
+        json={"event": "setup_entered",
+              "properties": {"surface": "cloud", "evil": "payload"}},
+        headers={"X-User-Id": "ivy"},
+    )
+    assert r.status_code == 200
+    evt = next(e for e in fake_sink.events if e[1] == "setup_entered")
+    props = evt[2] or {}
+    assert "evil" not in props
+    assert props.get("surface") != "cloud"  # server-derived, not client-set

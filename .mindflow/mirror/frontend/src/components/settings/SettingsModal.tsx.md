@@ -1,18 +1,27 @@
 ---
 code_file: frontend/src/components/settings/SettingsModal.tsx
-last_verified: 2026-06-08
+last_verified: 2026-06-10
 ---
+
+## 2026-06-10 — review fix: English-only label, identity via auth header
+
+The toggle row title was "产品遥测 / Product analytics" — binding rule #1
+(code is English-only) — now just "Product analytics". The API calls dropped
+their `userId` argument (`api.getAnalyticsOptOut()` /
+`api.setAnalyticsOptOut(!nextEnabled)`): identity travels in the auth header;
+the local `userId` from configStore is kept only as an "is someone logged in"
+gate for enabling the toggle.
 
 ## 2026-06-08 — Privacy section + analytics toggle
 
 Added a third sidebar entry `{ id: 'privacy', label: 'Privacy', icon: Shield }`
 to `NAV_SECTIONS`. The Privacy content panel contains a single toggle row for
-"产品遥测 / Product analytics".
+"Product analytics".
 
 `userId` is obtained from `useConfigStore((s) => s.userId)` — same pattern used
-by `embeddingStore` and `ProviderSettings`. `api.getAnalyticsOptOut(userId)` is
+by `embeddingStore` and `ProviderSettings`. `api.getAnalyticsOptOut()` is
 called when the section is first opened (lazy load on `activeSection === 'privacy'`).
-`api.setAnalyticsOptOut(userId, !nextEnabled)` is called on toggle with
+`api.setAnalyticsOptOut(!nextEnabled)` is called on toggle with
 optimistic UI update and revert on error.
 
 The toggle is implemented as an inline `<button role="switch">` with a

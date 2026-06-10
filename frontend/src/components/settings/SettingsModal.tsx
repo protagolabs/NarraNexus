@@ -79,10 +79,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
-  // Load analytics opt-out state when the Privacy section is first opened
+  // Load analytics opt-out state when the Privacy section is first opened.
+  // userId only gates "is someone logged in" — identity itself travels in
+  // the auth header set by the api client.
   useEffect(() => {
     if (!isOpen || !userId || activeSection !== 'privacy') return;
-    api.getAnalyticsOptOut(userId).then((optedOut) => {
+    api.getAnalyticsOptOut().then((optedOut) => {
       setAnalyticsEnabled(!optedOut);
     }).catch(() => {
       // non-critical — keep current optimistic state
@@ -95,7 +97,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setAnalyticsEnabled(nextEnabled);
     setAnalyticsLoading(true);
     try {
-      await api.setAnalyticsOptOut(userId, !nextEnabled);
+      await api.setAnalyticsOptOut(!nextEnabled);
     } catch {
       // revert on failure
       setAnalyticsEnabled(!nextEnabled);
@@ -249,7 +251,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <div className="flex items-center justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
                     <div className="flex-1 min-w-0 pr-4">
                       <p className="text-sm font-medium text-[var(--text-primary)]">
-                        产品遥测 / Product analytics
+                        Product analytics
                       </p>
                       <p className="text-xs text-[var(--text-tertiary)] mt-0.5 leading-relaxed">
                         Allow NarraNexus to collect anonymous usage data to improve the product.

@@ -22,8 +22,6 @@ class PostHogSink:
             project_api_key=api_key,
             host=host or "https://us.i.posthog.com",
         )
-        # Funnel only — keep the 1M free tier for high-value events.
-        self._ph.disabled = False
 
     def capture(self, *, distinct_id: str, event: str,
                 properties: Optional[dict] = None) -> None:

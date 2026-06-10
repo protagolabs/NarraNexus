@@ -1,10 +1,17 @@
 ---
 code_file: src/xyz_agent_context/analytics/_impl/posthog_sink.py
-last_verified: 2026-06-08
+last_verified: 2026-06-10
 stub: false
 ---
 
 # posthog_sink.py
+
+## 2026-06-10 — review fix: dead `disabled = False` line removed
+
+The constructor used to set `self._ph.disabled = False` with a comment about
+the free tier — a no-op (`disabled` already defaults to False) whose comment
+described nothing the line did. Removed; event volume is controlled by only
+instrumenting the five funnel events, not by any client flag.
 
 ## Why it exists
 
@@ -20,7 +27,8 @@ means swapping PostHog for another vendor touches exactly this one file.
   `SURFACE != "cloud"`. The import of `posthog` itself is deferred to the
   `__init__` method so the module loads cleanly in environments where the
   package is absent.
-- **Depends on**: `posthog==7.18.0` (pinned in `pyproject.toml`). Accesses
+- **Depends on**: `posthog>=7.18.0` (a main dependency in `pyproject.toml`,
+  not an optional extra). Accesses
   the SDK via an instance client (`posthog.Posthog(project_api_key=...,
   host=...)`), not the deprecated module-level global API.
 
@@ -57,12 +65,12 @@ to the constructor.
 
 ## Gotchas
 
-- `posthog` is an optional dependency. It is only available when installed
-  (it's listed under `[project.optional-dependencies]` or similar). The lazy
-  `import posthog` inside `__init__` means a missing package raises at
-  `PostHogSink()` construction time, not at module import time — which is the
-  correct place for the error to surface (it happens in `_build_sink`, logged
-  and caught in the gate).
+- The lazy `import posthog` inside `__init__` means a missing/broken package
+  raises at `PostHogSink()` construction time, not at module import time.
+  `_build_sink()` itself has no try/except — the construction error would
+  propagate out of `get_analytics()` and be swallowed by the `try` in
+  `track()` / `identify_user()` (logged at WARNING). Net effect: analytics
+  silently off, app unharmed.
 - Do not call `self._ph.shutdown()` instead of `self._ph.flush()`. `shutdown()`
   permanently disables the client; subsequent events (if any) would be dropped
   silently. `flush()` drains without disabling.

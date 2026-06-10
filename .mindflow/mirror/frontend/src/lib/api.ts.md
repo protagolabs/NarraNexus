@@ -1,12 +1,20 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-09
+last_verified: 2026-06-10
 stub: false
 ---
 
+## 2026-06-10 — analytics methods: identity from auth header only (review fix)
+
+PR #24 review hardening, matching the backend change in `routes/auth.py`:
+`getAnalyticsOptOut()` / `setAnalyticsOptOut(optedOut)` no longer take a
+`userId` parameter (no query param, no body field) and `trackFunnelEvent(event)`
+no longer accepts `properties`. The server derives the user from the auth
+header and stamps event properties (surface etc.) itself.
+
 ## 2026-06-09 — trackFunnelEvent (setup page UI actions)
 
-Added `trackFunnelEvent(event, properties?)` — POSTs `{event, properties}` to
+Added `trackFunnelEvent(event)` — POSTs `{event}` to
 `POST /api/auth/funnel`. Called fire-and-forget by `SetupPage` (callers
 `.catch(() => {})` to suppress errors). Identity travels in the auth header
 (X-User-Id / JWT) set by `getAuthHeaders`, not in the body — consistent with
@@ -20,10 +28,10 @@ the funnel endpoint is write-only from the frontend's perspective.
 
 Two new `ApiClient` methods added after `markOnboardingStep`:
 
-- `getAnalyticsOptOut(userId)` → `GET /api/auth/settings/analytics?user_id=…`
+- `getAnalyticsOptOut()` → `GET /api/auth/settings/analytics`
   returns `boolean` (false = opted in, true = opted out)
-- `setAnalyticsOptOut(userId, optedOut)` → `PUT /api/auth/settings/analytics`
-  body `{user_id, opted_out}`, returns void
+- `setAnalyticsOptOut(optedOut)` → `PUT /api/auth/settings/analytics`
+  body `{opted_out}`, returns void
 
 Both use the standard `this.request<T>()` fetch wrapper. Called by
 `SettingsModal` when the user toggles the Privacy section switch.

@@ -1269,32 +1269,43 @@ async def update_onboarding(request: UpdateOnboardingRequest):
 # =============================================================================
 
 
+def _require_request_user(http_request: Request) -> str:
+    """Identity for the analytics endpoints comes from auth_middleware
+    (request.state.user_id) — never from the query string or body — so one
+    user can't read or flip another user's privacy preference."""
+    uid = getattr(http_request.state, "user_id", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return uid
+
+
 class SetAnalyticsOptOutRequest(BaseModel):
-    user_id: str
     opted_out: bool
 
 
 @router.get("/settings/analytics")
-async def get_analytics_opt_out(user_id: str):
-    """Return whether the user has opted out of product analytics.
+async def get_analytics_opt_out(http_request: Request):
+    """Return whether the current user has opted out of product analytics.
 
     No-row means not opted out (tracking on by default).
     """
+    uid = _require_request_user(http_request)
     repo = UserSettingsRepository(await get_db_client())
-    return {"opted_out": await repo.is_analytics_opted_out(user_id)}
+    return {"opted_out": await repo.is_analytics_opted_out(uid)}
 
 
 @router.put("/settings/analytics")
-async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest):
-    """Set the user's analytics opt-out preference."""
+async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
+                                http_request: Request):
+    """Set the current user's analytics opt-out preference."""
+    uid = _require_request_user(http_request)
     repo = UserSettingsRepository(await get_db_client())
-    await repo.set_analytics_opt_out(request.user_id, request.opted_out)
+    await repo.set_analytics_opt_out(uid, request.opted_out)
     return {"success": True, "opted_out": request.opted_out}
 
 
 class FunnelEventRequest(BaseModel):
     event: str
-    properties: dict | None = None
 
 
 @router.post("/funnel")
@@ -1303,15 +1314,16 @@ async def track_funnel_event(request: FunnelEventRequest, http_request: Request)
 
     Identity comes from auth_middleware (request.state.user_id) — never the
     body — so events can't be spoofed onto another user. Only whitelisted
-    setup_* events are accepted. track() applies opt-out, distinct_id hashing,
-    and the surface label, and never raises.
+    setup_* events are accepted, and no client-supplied properties are
+    forwarded: the setup_* events carry no payload by design, so accepting a
+    properties dict would only let a client inject arbitrary data (or
+    override the server-derived `surface`) into PostHog. track() applies
+    opt-out, distinct_id hashing, and the surface label, and never raises.
     """
-    uid = getattr(http_request.state, "user_id", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = _require_request_user(http_request)
     if request.event not in _ALLOWED_FUNNEL_EVENTS:
         raise HTTPException(
             status_code=400, detail=f"Unknown funnel event: {request.event}"
         )
-    await track(user_id=uid, event=request.event, properties=request.properties or {})
+    await track(user_id=uid, event=request.event)
     return {"success": True}
