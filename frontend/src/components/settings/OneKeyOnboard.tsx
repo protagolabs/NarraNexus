@@ -18,7 +18,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { ArrowRight, ExternalLink, KeyRound, Loader2 } from 'lucide-react';
+import { ArrowRight, CheckCircle2, ExternalLink, KeyRound, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { PaperCard, FormField, TextInput } from '@/components/nm';
 import { api, type OnboardProviderType } from '@/lib/api';
@@ -89,6 +89,12 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
   const [apiKey, setApiKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // Success summary from the onboard response; cleared on next input.
+  const [done, setDone] = useState<{
+    agentModel: string;
+    helperModel: string;
+    framework: string;
+  } | null>(null);
 
   const selected = ONE_KEY_PROVIDERS.find((p) => p.id === providerType)!;
   const detected = useMemo(() => detectOfficialType(apiKey), [apiKey]);
@@ -105,10 +111,19 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
     }
     setSubmitting(true);
     setError('');
+    setDone(null);
     try {
       const res = await api.onboard(key, providerType);
       if (res.success) {
         setApiKey('');
+        // Explicit success state — on /setup onComplete navigates away
+        // immediately, but in Settings the card stays mounted and a
+        // silent success reads as "nothing happened".
+        setDone({
+          agentModel: res.agent_model ?? '',
+          helperModel: res.helper_model ?? '',
+          framework: res.agent_framework ?? '',
+        });
         onComplete();
       } else {
         setError(res.detail || 'Setup failed');
@@ -174,6 +189,7 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
               onChange={(e) => {
                 setApiKey(e.target.value);
                 if (error) setError('');
+                if (done) setDone(null);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !submitting) handleStart();
@@ -224,6 +240,31 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
             </>
           )}
         </Button>
+
+        {done && (
+          <div
+            className="flex items-start gap-2 text-sm rounded-[var(--radius-sm)] p-3"
+            role="status"
+            style={{
+              background: 'var(--nm-paper-warm)',
+              boxShadow: 'inset 0 0 0 1px var(--nm-hairline)',
+              color: 'var(--nm-ink)',
+            }}
+          >
+            <CheckCircle2
+              className="w-4 h-4 mt-0.5 shrink-0"
+              style={{ color: 'var(--color-success, #16a34a)' }}
+            />
+            <div>
+              <div className="font-medium">You&rsquo;re all set</div>
+              <div className="text-xs mt-0.5" style={{ color: 'var(--nm-ink70)' }}>
+                Agent: {done.agentModel}
+                {done.framework ? ` (${done.framework === 'codex_cli' ? 'Codex CLI' : 'Claude Code'})` : ''}
+                {' · '}Helper: {done.helperModel}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </PaperCard>
   );

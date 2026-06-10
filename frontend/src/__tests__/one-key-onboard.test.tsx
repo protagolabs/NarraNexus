@@ -78,6 +78,25 @@ describe('OneKeyOnboard', () => {
     ).toBe('anthropic');
   });
 
+  test('shows a success summary with the wired models', async () => {
+    onboardMock.mockResolvedValue({
+      success: true,
+      agent_model: 'claude-opus-4-8',
+      helper_model: 'claude-haiku-4-5',
+      agent_framework: 'claude_code',
+    });
+    render(<OneKeyOnboard onComplete={() => {}} />);
+    typeKey('sk-ant-abc');
+
+    fireEvent.click(screen.getByText('Start using NarraNexus'));
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain('You’re all set'),
+    );
+    expect(screen.getByRole('status').textContent).toContain('claude-opus-4-8');
+    expect(screen.getByRole('status').textContent).toContain('claude-haiku-4-5');
+    expect(screen.getByRole('status').textContent).toContain('Claude Code');
+  });
+
   test('surfaces backend error detail and does not complete', async () => {
     onboardMock.mockRejectedValue(
       new Error('API error 400: A anthropic provider already exists'),
