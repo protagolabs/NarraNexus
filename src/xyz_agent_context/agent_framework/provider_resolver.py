@@ -89,39 +89,6 @@ def is_runnable(verdict: ProviderAvailability) -> bool:
     )
 
 
-class ProviderAvailability(str, Enum):
-    """Verdict of the provider-resolution decision tree, WITHOUT building any
-    config or raising. The single source of truth shared by every caller that
-    needs to know "can this user resolve a usable provider right now":
-
-    - the HTTP path (`ProviderResolver.resolve` maps each verdict to a config
-      or a `ProviderResolverError`),
-    - the job resume gate (`JobTrigger._user_can_run` → `is_runnable`).
-
-    Having one classifier eliminates the drift that caused the 2026-05-31
-    pause/resume oscillation, where the resume gate reimplemented the tree and
-    disagreed with the runtime (it ignored `prefer_system_override`).
-    """
-
-    SYSTEM_OK = "system_ok"                    # free tier has budget → route system
-    USER_OK = "user_ok"                        # opted out + complete own config → route user
-    FREE_TIER_EXHAUSTED = "free_tier_exhausted"  # opted in, no budget, but has own config
-    QUOTA_EXCEEDED = "quota_exceeded"          # opted in, no budget, no own provider
-    NO_PROVIDER = "no_provider"                # opted out, own config missing/incomplete
-    SYSTEM_DISABLED = "system_disabled"        # feature off (local mode) → not gated, passthrough
-
-
-def is_runnable(verdict: ProviderAvailability) -> bool:
-    """True when a run for this verdict would resolve a provider. The three
-    exhaustion/missing verdicts are NOT runnable — the runtime would refuse,
-    so the resume gate must refuse too."""
-    return verdict in (
-        ProviderAvailability.SYSTEM_OK,
-        ProviderAvailability.USER_OK,
-        ProviderAvailability.SYSTEM_DISABLED,
-    )
-
-
 class ProviderResolverError(Exception):
     """Base for resolver-side LLM routing errors. auth_middleware catches
     this base class once, reads `error_code` + message, returns HTTP 402."""

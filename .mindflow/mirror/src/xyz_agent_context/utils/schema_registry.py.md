@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-06-09
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — user_slots.params_json column
+
+`user_slots` gained a nullable `params_json` (TEXT/MEDIUMTEXT) column: one
+extensible JSON object for framework-neutral per-slot params (currently
+thinking + reasoning_effort; future per-slot knobs reuse it without another
+migration). NULL = all params auto. Purely additive — auto_migrate() adds
+it on next startup of every process.
+
 
 ## 2026-06-09 — embedding subsystem removed → ORPHANED ZOMBIE data (cleanup DEFERRED)
 

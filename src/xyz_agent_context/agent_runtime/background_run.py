@@ -58,6 +58,7 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import suppress
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
@@ -86,6 +87,49 @@ STATE_COMPLETED = "completed"
 STATE_CANCELLED = "cancelled"
 STATE_FAILED = "failed"
 TERMINAL_STATES = frozenset({STATE_COMPLETED, STATE_CANCELLED, STATE_FAILED})
+
+
+# An events row stuck at state='running' is only trusted as alive while
+# its heartbeat is fresh. After 3 missed beats the run is presumed dead —
+# its task died without _finalize (process killed mid-run, or the terminal
+# DB write failed). Shared by every read-side consumer (agents listing,
+# WS reconnect) so "is this run actually alive?" has ONE answer.
+#
+# This is a read-side liveness rule only — consumers must never stop or
+# mutate a run based on it. A genuinely long-running agent keeps beating
+# and stays live, so long agent_loops remain first-class (铁律 #14).
+RUN_STALE_AFTER_S = HEARTBEAT_INTERVAL_S * 3
+
+
+def parse_db_utc(ts: Any) -> Optional[datetime]:
+    """Parse a stored UTC timestamp (SQLite returns ISO strings, MySQL
+    returns datetime) into a tz-aware UTC datetime. Returns None when the
+    value is absent or unparseable."""
+    if ts is None:
+        return None
+    if isinstance(ts, datetime):
+        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    if isinstance(ts, str):
+        try:
+            dt = datetime.fromisoformat(ts.rstrip("Z"))
+        except ValueError:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return None
+
+
+def run_is_live(events_row: dict, now: Optional[datetime] = None) -> bool:
+    """Whether a 'running' events row still has a fresh heartbeat. Falls
+    back to started_at when the first beat hasn't fired yet. Fails open
+    (treats as live) when no parseable timestamp exists, so we never
+    declare dead a run that might genuinely be running."""
+    now = now or utc_now()
+    parsed = parse_db_utc(events_row.get("last_event_at")) or parse_db_utc(
+        events_row.get("started_at")
+    )
+    if parsed is None:
+        return True
+    return (now - parsed) <= timedelta(seconds=RUN_STALE_AFTER_S)
 
 
 class BackgroundRun:
@@ -534,7 +578,26 @@ class BackgroundRun:
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[BackgroundRun {self.run_id}] terminal events row update failed: {e}")
 
-        # 4. Close broadcaster (releases all subscribers)
+        # 4. Broadcast the terminal `complete` frame, then close the
+        # broadcaster (releases all subscribers).
+        #
+        # This frame is the live WS path's ONLY in-band end-of-run
+        # signal. The v1.0 WS handler sent {"type": "complete"} after
+        # the agent loop returned; the Phase C refactor lost it — the
+        # broadcaster just closed and the server closed the WS, which
+        # the frontend treats as a PASSIVE disconnect. Result: every
+        # normal turn end triggered the auto-reconnect machinery
+        # (duplicate user bubble via run_reconnect injection, spinner
+        # wiped to "Starting up…", and several non-converging branches
+        # that left isStreaming stuck until a manual refresh).
+        #
+        # Published after the terminal events-row write (step 3) so by
+        # the time the frontend reacts (refreshAgents etc.) the DB no
+        # longer reports this run as active.
+        self.broadcaster.publish({
+            "type": "complete",
+            "state": self.state,
+        })
         self.broadcaster.close()
 
         # 5. Remove from active_runs registry

@@ -54,61 +54,34 @@ from backend.auth import (
     resolve_current_user_id,
 )
 from xyz_agent_context.utils import is_valid_timezone
-from xyz_agent_context.utils.timezone import utc_now
-from xyz_agent_context.agent_runtime.background_run import HEARTBEAT_INTERVAL_S
+from xyz_agent_context.agent_runtime.background_run import run_is_live
 from xyz_agent_context.settings import settings as app_settings
 
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 
 router = APIRouter()
 
 
-# An events row stuck at state='running' is only surfaced as an agent's
-# active_run while its heartbeat is fresh. BackgroundRun bumps
-# last_event_at every HEARTBEAT_INTERVAL_S (30s); after 3 missed beats the
-# run is considered dead — its task died without _finalize (process killed
-# mid-run, or the terminal DB write failed) and the in-memory active_runs
-# registry no longer holds it. The startup reconcile only flips such rows
-# on the NEXT restart, so without this filter the sidebar avatar pulses
-# "running" forever for an agent that is not running.
-#
-# This is a read-side liveness filter only — it never stops or mutates a
-# run. A genuinely long-running agent keeps beating and stays live, so long
-# agent_loops remain a first-class case (CLAUDE.md 铁律 #14).
-_RUN_STALE_AFTER_S = HEARTBEAT_INTERVAL_S * 3
+# Heartbeat-freshness liveness rule for events rows stuck at
+# state='running' — shared with the WS reconnect path so "is this run
+# actually alive?" has one answer. See run_is_live in background_run.py.
+# Without this filter the sidebar avatar pulses "running" forever for an
+# agent whose run task died without _finalize.
+_run_is_live = run_is_live
 
 
-def _parse_db_utc(ts) -> Optional[datetime]:
-    """Parse a stored UTC timestamp (SQLite returns ISO strings, MySQL
-    returns datetime) into a tz-aware UTC datetime. Returns None when the
-    value is absent or unparseable."""
-    if ts is None:
-        return None
-    if isinstance(ts, datetime):
-        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
-    if isinstance(ts, str):
-        try:
-            dt = datetime.fromisoformat(ts.rstrip("Z"))
-        except ValueError:
-            return None
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    return None
-
-
-def _run_is_live(ar_row: dict, now: Optional[datetime] = None) -> bool:
-    """Whether a 'running' events row still has a fresh heartbeat. Falls
-    back to started_at when the first beat hasn't fired yet. Fails open
-    (treats as live) when no parseable timestamp exists, so we never hide a
-    run that might genuinely be running."""
-    now = now or utc_now()
-    parsed = _parse_db_utc(ar_row.get("last_event_at")) or _parse_db_utc(
-        ar_row.get("started_at")
-    )
-    if parsed is None:
-        return True
-    return (now - parsed) <= timedelta(seconds=_RUN_STALE_AFTER_S)
+def _schedule_login_rearm(user_id: str) -> None:
+    """On login, kick a background edge-recovery: if the user is now provider-
+    ready (e.g. they topped up / fixed config while away), revive their
+    PAUSED_NO_QUOTA jobs. Non-blocking — login responds immediately."""
+    try:
+        from xyz_agent_context.module.job_module.job_recovery import (
+            schedule_user_no_quota_rearm,
+        )
+        schedule_user_no_quota_rearm(user_id)
+    except Exception:  # noqa: BLE001 — never let recovery wiring break login
+        pass
 
 
 def _schedule_login_rearm(user_id: str) -> None:

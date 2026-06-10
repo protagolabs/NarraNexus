@@ -86,6 +86,10 @@ interface ProviderSummary {
 interface SlotConfig {
   provider_id: string
   model: string
+  // Framework-neutral reasoning params (agent slot only). '' = Auto =
+  // backend adapter passes nothing and the framework keeps its defaults.
+  thinking?: '' | 'on' | 'off'
+  reasoning_effort?: '' | 'low' | 'medium' | 'high' | 'max'
 }
 
 interface SlotData {
@@ -756,9 +760,40 @@ export function ProviderSettings() {
     setTesting(null)
   }
 
-  // Local slot change
+  // Local slot change. Preserves the slot's reasoning params: switching
+  // provider/model must not silently reset Thinking/Reasoning Effort.
   const handleLocalSlotChange = (slot: string, pid: string, model: string) => {
-    setPendingSlots((prev) => ({ ...prev, [slot]: { provider_id: pid, model } }))
+    const cur = getEffectiveSlotConfig(slot)
+    setPendingSlots((prev) => ({
+      ...prev,
+      [slot]: {
+        provider_id: pid,
+        model,
+        thinking: cur?.thinking || '',
+        reasoning_effort: cur?.reasoning_effort || '',
+      },
+    }))
+  }
+
+  // Reasoning param change (agent slot). Requires an effective provider —
+  // the dropdowns are disabled until one is selected.
+  const handleLocalReasoningChange = (
+    slot: string,
+    field: 'thinking' | 'reasoning_effort',
+    value: string,
+  ) => {
+    const cur = getEffectiveSlotConfig(slot)
+    if (!cur?.provider_id) return
+    setPendingSlots((prev) => ({
+      ...prev,
+      [slot]: {
+        provider_id: cur.provider_id,
+        model: cur.model,
+        thinking: cur.thinking || '',
+        reasoning_effort: cur.reasoning_effort || '',
+        [field]: value,
+      },
+    }))
   }
 
   // Apply all pending slot changes to backend
@@ -769,7 +804,12 @@ export function ProviderSettings() {
       for (const [slot, cfg] of Object.entries(pendingSlots)) {
         const res = await authFetch(providerUrl(`/slots/${slot}`), {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider_id: cfg.provider_id, model: cfg.model }),
+          body: JSON.stringify({
+            provider_id: cfg.provider_id,
+            model: cfg.model,
+            thinking: cfg.thinking || '',
+            reasoning_effort: cfg.reasoning_effort || '',
+          }),
         }).then((r) => r.json())
         if (!res.success) {
           setError(`Failed to set ${slot}: ${res.detail || 'Unknown error'}`)
@@ -921,6 +961,42 @@ export function ProviderSettings() {
                 )
               })()}
             </div>
+
+            {/* Reasoning params — agent slot only. Framework-neutral values;
+                each backend adapter maps them to its own dialect. Auto = ''
+                = adapter passes nothing (framework default behavior). */}
+            {slot.key === 'agent' && (
+              <>
+                <div>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">Thinking</label>
+                  <select
+                    value={cfg?.thinking || ''}
+                    disabled={!cfg?.provider_id}
+                    onChange={(e) => handleLocalReasoningChange(slot.key, 'thinking', e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:bg-[var(--bg-tertiary)]"
+                  >
+                    <option value="">Auto (framework default)</option>
+                    <option value="on">On</option>
+                    <option value="off">Off</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">Reasoning Effort</label>
+                  <select
+                    value={cfg?.reasoning_effort || ''}
+                    disabled={!cfg?.provider_id}
+                    onChange={(e) => handleLocalReasoningChange(slot.key, 'reasoning_effort', e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:bg-[var(--bg-tertiary)]"
+                  >
+                    <option value="">Auto (framework default)</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="max">Max</option>
+                  </select>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <p className="text-sm text-[var(--color-error)]">
