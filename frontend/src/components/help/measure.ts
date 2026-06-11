@@ -224,14 +224,21 @@ export function layoutAnnotations(
     });
   }
 
-  // 'top' rail: note centered above its anchor (small targets only —
-  // large ones were already taken by the region pass).
+  // 'top' rail: note centered above its anchor; when the anchor hugs
+  // the top edge (cost chip), there is no room above — sit just BELOW
+  // it instead with a short arrow up (round 9: "cost note needn't be
+  // far, put it next to the button").
   for (const m of pointable.filter((mm) => mm.rail === 'top')) {
     const h = estimateHeight(m);
     const cx = m.rect.x + m.rect.width / 2;
     const noteX = Math.max(16, Math.min(cx - NOTE_W / 2, vw - NOTE_W - 16));
-    const noteY = Math.max(HEADER, m.rect.y - 90 - h);
-    const from = { x: cx, y: noteY + h };
+    const roomAbove = m.rect.y - 90 - h >= HEADER;
+    const noteY = roomAbove
+      ? m.rect.y - 90 - h
+      : Math.min(m.rect.y + m.rect.height + 22, vh - FOOTER - h);
+    const from = roomAbove
+      ? { x: cx, y: noteY + h }
+      : { x: cx, y: noteY - 4 };
     placed.push({
       ...m,
       noteX,
@@ -239,7 +246,7 @@ export function layoutAnnotations(
       noteW: NOTE_W,
       align: 'center',
       from,
-      to: nearestBorderPoint(from, m.rect, 8),
+      to: nearestBorderPoint(from, m.rect, 6),
       kind: 'point',
     });
   }
