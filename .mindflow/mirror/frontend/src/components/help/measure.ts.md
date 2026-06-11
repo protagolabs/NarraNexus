@@ -4,6 +4,28 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 (round 6) — region notes for large targets
+
+Owner screenshot review: circling the full-width composer drew two
+parallel lines across the screen, and "The conversation" dragged a
+long arrow to its region's far border. Root cause: one stroke language
+for both controls and AREAS. Targets larger than 38% vw / 50% vh now
+become `kind: 'region'` — the note is written ON the area (or just
+above a bottom strip like the composer) with a short handwritten
+underline; no arrow, no circle. Controls keep `kind: 'point'`
+(arrow / leader / ellipse).
+
+## 2026-06-11 (round 5) — leader lanes
+
+Owner: arrows into the strip were near-vertical and overlapped
+indistinguishably — the right rail hugged the strip, leaving a ~16px
+corridor. Rails moved a full corridor inward; when an annotation's
+vertical travel exceeds 56px the stroke becomes an elbow LEADER
+(horizontal out → vertical run in a per-item lane → horizontal entry
+at the target's center height, [[wobble]] wobblyLeader). Lanes stagger
+16px apart so parallel runs never merge. Short hops keep the direct
+wobbly arrow.
+
 ## 2026-06-11 (round 4) — fixed rails + nearest-border arrows
 
 Two layout bugs from Owner review with the artifact column expanded:
