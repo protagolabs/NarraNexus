@@ -28,7 +28,6 @@ import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { QuotaPanel } from './QuotaPanel'
-import { OneKeyOnboard } from './OneKeyOnboard'
 import { api } from '@/lib/api'
 import { isTauri, triggerClaudeLogin, triggerClaudeLogout, cancelClaudeLogin } from '@/lib/tauri'
 
@@ -1143,13 +1142,12 @@ export function ProviderSettings() {
         />
 
         <div className="space-y-4 ml-[34px]">
-          {/* ---- One-key setup (shared with /setup) ----
-            Replaces the old Quick Add block. Submission goes through
-            POST /api/providers/onboard, which also switches the agent
-            framework (an official OpenAI key needs codex_cli — the old
-            add_provider+default_slots path could not do that) and
-            (re)assigns both slots. Per-slot fine-tuning stays below. */}
-          <OneKeyOnboard onComplete={refreshConfig} />
+          {/* One-key preset setup (pick provider + paste key) now lives at
+              the panel level — SettingsPage embeds <OneKeyOnboard> directly,
+              and SetupPage shows it as the first-run hero. It used to be
+              duplicated here; removed so Advanced doesn't repeat it. This
+              section is the rest: model sync, CLI OAuth sign-in, and custom
+              (base_url) endpoints. */}
 
           {/* ---- Sync available models ---- */}
           {/*

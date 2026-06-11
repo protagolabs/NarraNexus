@@ -2,6 +2,14 @@
 code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-06-11
 ---
+## 2026-06-11 (later) — 移除内嵌 OneKeyOnboard(去重)
+
+Section 1 顶部原本渲染 `<OneKeyOnboard>`。现在 SettingsPage 在面板级始终内嵌
+OneKeyOnboard、SetupPage 作首屏 hero,二者都把 ProviderSettings 放在
+Advanced 折叠里——于是 Advanced 里这个就成了重复。已删除(连同 import)。
+Section 1 剩下的是"简单一键预设之外"的部分:model sync、CLI OAuth 登录、
+Custom(base_url)端点。`refreshConfig` 仍被其它地方使用,保留。
+
 ## 2026-06-11 — helper "Default" option shows the model it resolves to
 
 The helper_llm slot's ``<option value="default">`` used to read just
