@@ -364,7 +364,7 @@ async def external_chat_completions(
             agent_id=agent_id,
             user_id=ephemeral_user_id,
             input_content=user_input,
-            working_source=WorkingSource.MANYFOLD,
+            working_source=WorkingSource.EXTERNAL_API,
             pass_mcp_urls={},
             trigger_extra_data={
                 "trigger_id": broadcaster_session_id,

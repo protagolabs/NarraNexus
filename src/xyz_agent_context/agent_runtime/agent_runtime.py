@@ -224,13 +224,31 @@ class AgentRuntime:
 
             # Override user_id with agent's creator — all triggers share a single workspace
             # so that Lark conversations, Job triggers, etc. see the same narratives/jobs.
-            from xyz_agent_context.repository.agent_repository import AgentRepository
-            _agent = await AgentRepository(db_client).get_agent(agent_id)
-            if _agent and _agent.created_by:
-                original_user_id = user_id
-                user_id = _agent.created_by
-                if original_user_id != user_id:
-                    logger.info(f"user_id overridden: {original_user_id} -> {user_id} (agent creator)")
+            #
+            # External API protocol (v0.3) EXCEPTION: when the trigger source is
+            # WorkingSource.EXTERNAL_API, the caller has deliberately minted a per-session
+            # user_id (e.g. `ext_<agent>_<session>`) and needs per-(agent, user_id) memory
+            # isolation. Skipping the override keeps narratives, chat history, and module
+            # instances scoped to the session — see docs/external-api.md §8 + the v0.3
+            # design doc. The provider lookup deeper in the runtime falls back to the
+            # agent owner's user_providers via UserProviderService.get_user_config's
+            # owned_by_agent recursion, so token spend still bills back to the owner.
+            from xyz_agent_context.schema import WorkingSource
+            _ws = working_source if isinstance(working_source, WorkingSource) else (
+                WorkingSource.from_string(str(working_source)) if working_source else WorkingSource.CHAT
+            )
+            if _ws == WorkingSource.EXTERNAL_API:
+                logger.info(
+                    f"user_id preserved (external API session): user_id={user_id} (no creator override)"
+                )
+            else:
+                from xyz_agent_context.repository.agent_repository import AgentRepository
+                _agent = await AgentRepository(db_client).get_agent(agent_id)
+                if _agent and _agent.created_by:
+                    original_user_id = user_id
+                    user_id = _agent.created_by
+                    if original_user_id != user_id:
+                        logger.info(f"user_id overridden: {original_user_id} -> {user_id} (agent creator)")
 
             # Save current running agent_id and user_id (used for callbacks)
             self._current_agent_id = agent_id

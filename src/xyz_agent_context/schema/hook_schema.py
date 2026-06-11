@@ -84,6 +84,13 @@ class WorkingSource(str, Enum):
     SLACK = "slack"  # Triggered by Slack message (SlackTrigger)
     TELEGRAM = "telegram"  # Triggered by Telegram message (TelegramTrigger)
     MANYFOLD = "manyfold"  # Triggered by Manyfold platform via OpenAI-compat endpoint
+    # External API protocol (v0.3): per-session integrator calls via
+    # `/v1/external/chat/completions`. Distinct from MANYFOLD because
+    # external sessions need per-(agent, user_id) memory isolation —
+    # agent_runtime.run() recognises this source and SKIPS the
+    # creator-override that other triggers rely on. See the comment in
+    # agent_runtime.py near the override block for the full reasoning.
+    EXTERNAL_API = "external_api"
 
     @classmethod
     def from_string(cls, value: str) -> "WorkingSource":
