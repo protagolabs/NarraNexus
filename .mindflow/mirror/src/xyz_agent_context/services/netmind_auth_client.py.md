@@ -4,6 +4,10 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 — userSystemCode field name confirmed against dev
+
+Live-probed NetMind dev (auth-api at userauth.protago-dev.com) with a real test account: emailLogin (DES-CBC + ckType=2, no reCAPTCHA) and /user/balance both 200; response shape is {data:{user:{...userSystemCode...}}} exactly as assumed; the user object does carry loginToken/nettyToken/salt/loginPassword, so the secret-stripping before storing `raw` is load-bearing, not paranoia. The snake_case fallback for the field name is now defensive-only.
+
 # netmind_auth_client.py — NetMind 账号体系的 token 校验客户端
 
 ## 为什么存在

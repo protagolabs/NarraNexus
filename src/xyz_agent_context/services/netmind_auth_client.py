@@ -145,6 +145,9 @@ class NetmindAuthClient:
     @staticmethod
     def _extract_identity(user_obj: Dict[str, Any]) -> NetmindUser:
         email = (user_obj.get("email") or "").strip().lower()
+        # Field name confirmed `userSystemCode` against NetMind dev
+        # (2026-06-11 live probe); the snake_case fallback is defensive
+        # only, in case a future API version renames it.
         user_system_code = (
             user_obj.get("userSystemCode")
             or user_obj.get("user_system_code")
