@@ -9,15 +9,23 @@
  *   - Rotate a token (mint a new one with 7-day grace on the old)
  *   - Revoke a token (soft delete; row stays for audit history)
  *
- * The plaintext token is shown ONCE in a Modal at create / rotate time.
- * After closing the modal there is no way to recover it — by design
+ * The plaintext token is shown ONCE inside a Dialog at create / rotate
+ * time. After closing the modal there is no way to recover it — by design
  * (DB stores SHA256 only). The "Copy" button + a confirm step before
  * close help users not accidentally lose it.
+ *
+ * Styling: uses NM-native CSS variables (`var(--nm-…)` / `var(--bg-…)` /
+ * `var(--border-…)` / `var(--text-…)` / `var(--color-…)`). Do NOT
+ * reintroduce shadcn-style class tokens (`bg-card`, `bg-muted`,
+ * `text-muted-foreground`, `bg-destructive`, `border-border`,
+ * `border-input`, `bg-background`) — they are not defined in this
+ * project's Tailwind v4 `@theme` block and render as transparent /
+ * invisible (this caused the "modal text overlaps list" bug).
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, Plus, RefreshCw, Trash2, KeyRound, Copy, Check, AlertTriangle } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Button, Dialog, DialogContent, DialogFooter } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { ApiKeyInfo } from '@/types';
 
@@ -169,8 +177,10 @@ export function AgentApiKeysPanel({ agentId }: Props) {
     <div className="space-y-4">
       <header className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold">External API Access</h2>
-          <p className="text-xs text-muted-foreground mt-1">
+          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+            External API Access
+          </h2>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
             Mint <code className="font-mono">nxk_</code> tokens so external apps can call
             this agent via <code className="font-mono">/v1/external/chat/completions</code>.
             Each token is scoped permanently to this agent.
@@ -182,8 +192,16 @@ export function AgentApiKeysPanel({ agentId }: Props) {
       </header>
 
       {error && (
-        <div className="rounded border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertTriangle className="inline mr-2" size={14} /> {error}
+        <div
+          className="rounded p-3 text-sm flex items-start gap-2"
+          style={{
+            background: 'color-mix(in srgb, var(--color-error) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--color-error) 50%, transparent)',
+            color: 'var(--color-error)',
+          }}
+        >
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
@@ -197,7 +215,12 @@ export function AgentApiKeysPanel({ agentId }: Props) {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && newKeyName.trim()) handleCreate();
           }}
-          className="flex-1 px-3 py-1.5 rounded border border-input bg-background text-sm"
+          className="flex-1 px-3 py-1.5 rounded text-sm"
+          style={{
+            border: '1px solid var(--border-default)',
+            background: 'var(--bg-primary)',
+            color: 'var(--text-primary)',
+          }}
           disabled={busy === '__create__'}
         />
         <Button
@@ -216,12 +239,12 @@ export function AgentApiKeysPanel({ agentId }: Props) {
 
       {/* Key list */}
       {loading && keys.length === 0 ? (
-        <div className="text-center text-sm text-muted-foreground py-6">
+        <div className="text-center text-sm py-6" style={{ color: 'var(--text-tertiary)' }}>
           <Loader2 className="animate-spin mx-auto mb-2" size={16} />
           Loading…
         </div>
       ) : keys.length === 0 ? (
-        <div className="text-center text-sm text-muted-foreground py-6">
+        <div className="text-center text-sm py-6" style={{ color: 'var(--text-tertiary)' }}>
           No API keys yet. Mint one above to get started.
         </div>
       ) : (
@@ -229,21 +252,24 @@ export function AgentApiKeysPanel({ agentId }: Props) {
           {keys.map((k) => (
             <li
               key={k.key_id}
-              className="border border-border rounded p-3 flex items-start justify-between gap-3"
+              className="rounded p-3 flex items-start justify-between gap-3"
+              style={{ border: '1px solid var(--border-default)', background: 'var(--bg-primary)' }}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <KeyRound size={14} className="text-muted-foreground" />
-                  <span className="font-medium text-sm">{k.name}</span>
+                  <KeyRound size={14} style={{ color: 'var(--text-tertiary)' }} />
+                  <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>
+                    {k.name}
+                  </span>
                   <StatusBadge status={k.status} />
                 </div>
-                <div className="text-xs text-muted-foreground mt-1 font-mono">
+                <div className="text-xs mt-1 font-mono" style={{ color: 'var(--text-tertiary)' }}>
                   {k.token_prefix}…
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">
+                <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
                   Scopes: {k.scopes.join(', ')}
                 </div>
-                <div className="text-xs text-muted-foreground">
+                <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
                   Last used: {k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'never'} ·
                   Created: {k.created_at ? new Date(k.created_at).toLocaleString() : '—'}
                 </div>
@@ -268,7 +294,7 @@ export function AgentApiKeysPanel({ agentId }: Props) {
                   size="sm"
                   onClick={() => handleRevoke(k)}
                   disabled={k.status === 'revoked' || busy === k.key_id}
-                  className="text-destructive"
+                  style={{ color: 'var(--color-error)' }}
                   title="Revoke (immediate 401)"
                 >
                   <Trash2 size={12} />
@@ -279,15 +305,25 @@ export function AgentApiKeysPanel({ agentId }: Props) {
         </ul>
       )}
 
-      {/* Plaintext reveal modal */}
-      {createModal.open && createModal.plaintext && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-card border border-border rounded-lg p-6 max-w-xl w-full mx-4 space-y-4">
-            <h3 className="text-base font-semibold">
-              {createModal.isRotation ? '🔄 Token rotated' : '🔑 Token created'}
-            </h3>
-
-            <div className="rounded border border-amber-500/50 bg-amber-500/10 p-3 text-xs">
+      {/* Plaintext reveal modal — uses the canonical NM Dialog so it
+          portals to <body>, gets an opaque NM-raised background, sits at
+          z-[1000]/[1001], and can't bleed through into the panel below. */}
+      <Dialog
+        isOpen={createModal.open && !!createModal.plaintext}
+        onClose={closePlaintextModal}
+        title={createModal.isRotation ? 'Token rotated' : 'Token created'}
+        size="xl"
+      >
+        <DialogContent>
+          <div className="space-y-4">
+            <div
+              className="rounded p-3 text-xs leading-relaxed"
+              style={{
+                background: 'color-mix(in srgb, var(--color-warning) 12%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--color-warning) 45%, transparent)',
+                color: 'var(--text-primary)',
+              }}
+            >
               <strong>Save this now.</strong> This is the only time you'll see the full
               token. There is no way to recover it later — only revoke + create a new one.
               {createModal.isRotation && (
@@ -299,11 +335,18 @@ export function AgentApiKeysPanel({ agentId }: Props) {
             </div>
 
             <div>
-              <label className="text-xs text-muted-foreground">
+              <label className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
                 <code className="font-mono">{createModal.keyName}</code>
               </label>
               <div className="mt-1 flex gap-2 items-center">
-                <code className="flex-1 px-3 py-2 bg-muted rounded font-mono text-xs break-all">
+                <code
+                  className="flex-1 px-3 py-2 rounded font-mono text-xs break-all"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
                   {createModal.plaintext}
                 </code>
                 <Button size="sm" onClick={handleCopy}>
@@ -312,28 +355,41 @@ export function AgentApiKeysPanel({ agentId }: Props) {
                 </Button>
               </div>
             </div>
-
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={closePlaintextModal}>
-                I've saved it
-              </Button>
-            </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+        <DialogFooter>
+          <Button variant="outline" onClick={closePlaintextModal}>
+            I've saved it
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }
 
 function StatusBadge({ status }: { status: ApiKeyInfo['status'] }) {
-  const colors: Record<ApiKeyInfo['status'], string> = {
-    active: 'bg-green-500/15 text-green-600 border-green-500/30',
-    expired: 'bg-amber-500/15 text-amber-600 border-amber-500/30',
-    revoked: 'bg-red-500/15 text-red-600 border-red-500/30',
+  const styles: Record<ApiKeyInfo['status'], { bg: string; fg: string; border: string }> = {
+    active: {
+      bg: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
+      fg: 'var(--color-success)',
+      border: 'color-mix(in srgb, var(--color-success) 35%, transparent)',
+    },
+    expired: {
+      bg: 'color-mix(in srgb, var(--color-warning) 15%, transparent)',
+      fg: 'var(--color-warning)',
+      border: 'color-mix(in srgb, var(--color-warning) 35%, transparent)',
+    },
+    revoked: {
+      bg: 'color-mix(in srgb, var(--color-error) 15%, transparent)',
+      fg: 'var(--color-error)',
+      border: 'color-mix(in srgb, var(--color-error) 35%, transparent)',
+    },
   };
+  const s = styles[status];
   return (
     <span
-      className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border ${colors[status]}`}
+      className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded"
+      style={{ background: s.bg, color: s.fg, border: `1px solid ${s.border}` }}
     >
       {status}
     </span>
