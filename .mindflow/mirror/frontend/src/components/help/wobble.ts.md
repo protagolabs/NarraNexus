@@ -18,3 +18,9 @@ Jitter is **deterministic** — seeded from the input coordinates via a
 sin-hash — so identical geometry always yields identical paths and
 re-renders never make the strokes "swim". `Math.random()` would also
 break any future snapshot testing.
+
+## 2026-06-11 (round 4)
+
+Ellipse rebuilt as four cubic-Bezier arcs (kappa 0.5523) with ±4%
+per-quadrant radius wobble — a smooth pen ellipse; the old 8-segment
+line loop read as a polygon.

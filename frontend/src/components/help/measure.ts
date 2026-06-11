@@ -7,9 +7,16 @@
  * Measurement: querySelector by data-help-id, skip missing / zero-size /
  * fully-offscreen anchors, sort by priority.
  *
- * Layout: notes are stacked per rail (left / right vertical columns,
- * top = above its anchor) sorted by anchor Y, each pushed below the
- * previous one — notes can NEVER overlap, whatever the window size.
+ * Layout (round-4 rules):
+ *  - Rails sit at FIXED screen-edge offsets — never derived from target
+ *    extents, so a huge anchor (artifact column, conversation area)
+ *    cannot drag a rail across the screen.
+ *  - Arrows aim at the point on the target's BORDER nearest the note
+ *    (then back off a few px), so wide targets get short edge-touching
+ *    arrows instead of screen-crossing ones.
+ *  - The arrow leaves the note at its headline's vertical center, on
+ *    the side facing the target; note text aligns toward that side so
+ *    text and arrow read as one gesture.
  */
 
 import type { HelpAnnotation } from './helpContent';
@@ -22,6 +29,8 @@ export interface PlacedAnnotation extends MeasuredAnnotation {
   noteX: number;
   noteY: number;
   noteW: number;
+  /** Text alignment toward the arrow side. */
+  align: 'left' | 'right' | 'center';
   from: { x: number; y: number };
   to: { x: number; y: number };
 }
@@ -58,6 +67,32 @@ function estimateHeight(a: MeasuredAnnotation): number {
   return headline + lines * 24 + 12;
 }
 
+/** Nearest point on a rect's border to `p`, backed off by `inset` px. */
+function nearestBorderPoint(
+  p: { x: number; y: number },
+  rect: { x: number; y: number; width: number; height: number },
+  inset: number,
+): { x: number; y: number } {
+  let bx = Math.max(rect.x, Math.min(p.x, rect.x + rect.width));
+  let by = Math.max(rect.y, Math.min(p.y, rect.y + rect.height));
+  const inside =
+    p.x > rect.x && p.x < rect.x + rect.width &&
+    p.y > rect.y && p.y < rect.y + rect.height;
+  if (inside) {
+    // Note overlaps a huge target — exit through the nearer vertical edge.
+    const toLeft = p.x - rect.x;
+    const toRight = rect.x + rect.width - p.x;
+    bx = toLeft < toRight ? rect.x : rect.x + rect.width;
+    by = p.y;
+  }
+  // Back off along the border→note direction so the tip floats just
+  // outside the control.
+  const dx = p.x - bx;
+  const dy = p.y - by;
+  const len = Math.max(1, Math.hypot(dx, dy));
+  return { x: bx + (dx / len) * inset, y: by + (dy / len) * inset };
+}
+
 /**
  * Place every measured annotation. Pure given (annotations, viewport).
  */
@@ -71,18 +106,17 @@ export function layoutAnnotations(
   const FOOTER = 140; // keep clear of the centered controls
   const HEADER = 84;  // keep clear of the top-center page title
 
+  // Fixed rail columns (clamped for narrow windows).
+  const railX: Record<'left' | 'right', number> = {
+    left: Math.min(Math.max(vw * 0.24, 300), vw * 0.42),
+    right: Math.max(vw - NOTE_W - 96, vw * 0.5),
+  };
+
   for (const rail of ['left', 'right'] as const) {
     const items = measured
       .filter((m) => m.rail === rail)
       .sort((a, b) => a.rect.y - b.rect.y);
-    // Rail x: left rail sits just right of the sidebar targets; right
-    // rail sits left of the strip/drawer targets.
-    const maxRight = Math.max(0, ...items.map((m) => m.rect.x + m.rect.width));
-    const minLeft = Math.min(vw, ...items.map((m) => m.rect.x));
-    const noteX =
-      rail === 'left'
-        ? Math.min(maxRight + 70, vw - NOTE_W - 16)
-        : Math.max(minLeft - 70 - NOTE_W, 16);
+    const noteX = railX[rail];
 
     let cursorY = HEADER;
     for (const m of items) {
@@ -93,15 +127,24 @@ export function layoutAnnotations(
         vh - FOOTER - h,
       );
       cursorY = noteY + h + GAP;
+
+      // Arrow leaves at the headline's vertical center, on the side
+      // facing the target; text aligns to that side.
+      const headlineMidY = noteY + 19;
       const from = {
-        x: rail === 'left' ? noteX - 6 : noteX + NOTE_W + 6,
-        y: noteY + 14,
+        x: rail === 'left' ? noteX - 8 : noteX + NOTE_W + 8,
+        y: headlineMidY,
       };
-      const to = {
-        x: rail === 'left' ? m.rect.x + m.rect.width + 8 : m.rect.x - 8,
-        y: targetY,
-      };
-      placed.push({ ...m, noteX, noteY, noteW: NOTE_W, from, to });
+      const to = nearestBorderPoint(from, m.rect, 8);
+      placed.push({
+        ...m,
+        noteX,
+        noteY,
+        noteW: NOTE_W,
+        align: rail === 'left' ? 'left' : 'right',
+        from,
+        to,
+      });
     }
   }
 
@@ -111,13 +154,15 @@ export function layoutAnnotations(
     const cx = m.rect.x + m.rect.width / 2;
     const noteX = Math.max(16, Math.min(cx - NOTE_W / 2, vw - NOTE_W - 16));
     const noteY = Math.max(HEADER, m.rect.y - 90 - h);
+    const from = { x: cx, y: noteY + h };
     placed.push({
       ...m,
       noteX,
       noteY,
       noteW: NOTE_W,
-      from: { x: cx, y: noteY + h },
-      to: { x: cx, y: m.rect.y - 8 },
+      align: 'center',
+      from,
+      to: nearestBorderPoint(from, m.rect, 8),
     });
   }
 

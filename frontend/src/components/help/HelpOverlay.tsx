@@ -139,6 +139,7 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
             left: m.noteX,
             top: m.noteY,
             width: m.noteW,
+            textAlign: m.align,
             animationDelay: `${i * 60}ms`,
             fontFamily: 'var(--font-handwriting)',
             color: INK,
