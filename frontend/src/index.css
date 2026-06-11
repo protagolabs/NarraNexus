@@ -721,6 +721,15 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 .animate-slide-in-left   { animation: slide-in-left  var(--motion-medium) var(--ease-paper) forwards; }
 .animate-fade-in         { animation: fade-in var(--motion-fast) var(--ease-quick) forwards; }
 .animate-scale-in        { animation: scale-in var(--motion-fast) var(--ease-paper) forwards; }
+/* Bookmark strip: one-shot "peek" when a small bookmark first mounts —
+   the physical gesture of a bookmark being slipped into a new page
+   (spec §7). Overshoots left then settles. */
+.animate-bookmark-peek   { animation: bookmark-peek var(--motion-medium) var(--ease-paper) both; }
+@keyframes bookmark-peek {
+  0%   { transform: translateX(14px); opacity: 0; }
+  60%  { transform: translateX(-2px); opacity: 1; }
+  100% { transform: translateX(0); opacity: 1; }
+}
 .animate-shimmer {
   background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-tertiary) 50%, var(--bg-secondary) 100%);
   background-size: 200% 100%;
