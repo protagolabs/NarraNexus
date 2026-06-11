@@ -138,7 +138,7 @@ export const CHAT_VIEW_PAGES: HelpPage[] = [
         helpId: 'chat.cost',
         note: 'Cost',
         detail: 'What this conversation has cost so far.',
-        rail: 'right',
+        rail: 'top',
         priority: 6,
       },
     ],

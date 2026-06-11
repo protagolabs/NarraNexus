@@ -4,6 +4,12 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 (round 9) — near-target fallback for 'top' notes
+
+'top'-rail anchors that hug the top edge (cost chip) have no room
+above — the note now sits just BELOW the anchor with a short arrow up,
+instead of being routed through the right rail far away.
+
 ## 2026-06-11 (round 8) — proximity column + staggered same-row entries
 
 Owner: Cost note stranded far from its chip (the centered legend's
