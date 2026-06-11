@@ -59,6 +59,42 @@ though it 501s, it exercises the middleware → handler chain end-to-end,
 so an integrator can sanity-check their token works before Step 6
 lands.
 
+## 2026-06-11-r2 — Step 6: chat completions handler landed
+
+The 501 placeholder for `/v1/external/chat/completions` was replaced
+with a real handler. Shape mirrors the Manyfold path
+(openai_compat.chat_completions) but with three external-protocol
+specifics:
+
+1. **`metadata.session_id` is REQUIRED.** No session_id → 400
+   `no_user_message`-like error (actually surfaced via Pydantic 422 if
+   absent at parse time). The session_id is mapped to a per-session
+   NarraNexus user_id of the form `ext_<agent-tail-8>_<sanitised
+   session_id[:48]>`. The agent_id tail prevents cross-agent collisions
+   when two integrators happen to pick the same session id format.
+2. **Ephemeral users UPSERTed on first contact.** `_ensure_ephemeral_user`
+   writes a `users` row with `owned_by_agent=<agent_id>` and
+   `user_type=external_user|external_guest`. Provider config is NOT
+   cloned; the lookup falls back to the agent owner via
+   `UserProviderService.get_user_config`'s owned_by_agent recursion
+   (same commit as Step 6 landing).
+3. **`metadata.user_type` controls TTL eligibility.** "permanent" / "registered"
+   → `external_user`, never auto-cleaned. Anything else (including
+   missing) → `external_guest`, subject to TTL when the owner
+   configures it on the agent. The default-guest choice is deliberate:
+   forgetting to set user_type means the user gets cleaned up, not
+   accumulated forever.
+
+Event classification helpers are LAZILY IMPORTED from
+`backend.routes.openai_compat` to avoid coupling import-time to
+ENABLE_MANYFOLD_API. Both protocols' event streams come from the same
+BackgroundRun, so we share `_classify_event` / `_is_error` /
+`_is_terminal`.
+
+Scope check: `chat` scope is required at the route layer via
+`_require_scope`. A token issued without the `chat` scope (e.g.
+session-management-only) gets 403 here.
+
 ## Gotchas
 
 **Conditional registration means OpenAPI schema differs by env.** A

@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — owned_by_agent provider fallback (external API v0.3)
+
+`get_user_config(user_id)` now does an "ephemeral user → agent owner"
+fallback: when the requested user_id has no providers AND its row in
+`users` has `owned_by_agent` set, the method recurses with the owning
+agent's `created_by` user_id. Implements the option-c provider strategy
+from the v0.3 external API design — external session users don't get
+their own provider configs; their token spend bills back to the agent
+owner.
+
+Behaviour for legacy callers: unchanged. Real users always have
+`owned_by_agent IS NULL` so the fallback never fires for them. The
+recursion is one-hop, guarded by `_fallback_depth`; the agent owner is
+guaranteed to be a real user (not ephemeral) by construction so a
+single hop suffices.
+
+Side effect: tests that mock `get_user_config` with a user_id that
+returns empty providers will now also try to read `users` and `agents`.
+Tests that don't seed those tables may break — update to seed `users`
+with `owned_by_agent=None` or use a different unrelated user_id.
+
 ## 2026-06-10 — Framework-neutral reasoning params (feat/claude-sdk-adapter-upgrade)
 
 SlotConfig gained two NEUTRAL knobs — `thinking: ""|on|off` and

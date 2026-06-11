@@ -64,8 +64,28 @@ class UserProviderService:
     # Read
     # =========================================================================
 
-    async def get_user_config(self, user_id: str) -> LLMConfig:
-        """Load a user's provider config from DB, returning an LLMConfig object."""
+    async def get_user_config(
+        self,
+        user_id: str,
+        *,
+        _fallback_depth: int = 0,
+    ) -> LLMConfig:
+        """Load a user's provider config from DB, returning an LLMConfig object.
+
+        External API protocol (v0.3) — option c provider fallback: when
+        the row in `users` has `owned_by_agent` set (i.e. it's an
+        ephemeral user_id minted from a session_id by
+        `/v1/external/chat/completions`) AND no providers are configured
+        for it, fall back to the agent owner's providers. This implements
+        the design decision that external integrators don't get separate
+        provider configs — token spend bills back to the agent owner's
+        account.
+
+        ``_fallback_depth`` is a safety belt against pathological cycles
+        (an agent whose owner is itself an ephemeral user, etc.); we
+        bail after one hop. That hop covers every supported case in
+        practice (ephemeral → agent owner is always a real user).
+        """
         # Get providers
         rows = await self.db.get("user_providers", filters={"user_id": user_id})
         providers = {}
@@ -129,7 +149,40 @@ class UserProviderService:
                 )
             slots[row["slot_name"]] = slot
 
-        return LLMConfig(providers=providers, slots=slots)
+        config = LLMConfig(providers=providers, slots=slots)
+
+        # External API protocol (v0.3) — ephemeral user fallback.
+        # If this user has no providers AND was minted by an external
+        # integration (owned_by_agent IS NOT NULL), recurse to the
+        # agent owner's config. Depth-limited to one hop.
+        if not providers and _fallback_depth == 0:
+            user_row = await self.db.get_one(
+                "users",
+                {"user_id": user_id},
+            )
+            owned_by_agent = (
+                user_row.get("owned_by_agent") if user_row else None
+            )
+            if owned_by_agent:
+                agent_row = await self.db.get_one(
+                    "agents",
+                    {"agent_id": owned_by_agent},
+                )
+                owner_user_id = (
+                    agent_row.get("created_by") if agent_row else None
+                )
+                if owner_user_id and owner_user_id != user_id:
+                    logger.debug(
+                        "UserProviderService: user_id={!r} is ephemeral "
+                        "(owned_by_agent={!r}); falling back to agent "
+                        "owner provider config (owner_user_id={!r})",
+                        user_id, owned_by_agent, owner_user_id,
+                    )
+                    return await self.get_user_config(
+                        owner_user_id, _fallback_depth=1
+                    )
+
+        return config
 
     # =========================================================================
     # Add Provider
