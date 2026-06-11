@@ -32,6 +32,9 @@ const SkillsPanel = lazy(() =>
 const NarrativeList = lazy(() =>
   import('@/components/runtime/NarrativeList').then((m) => ({ default: m.NarrativeList })),
 );
+const AgentApiKeysPanel = lazy(() =>
+  import('@/components/api-keys/AgentApiKeysPanel').then((m) => ({ default: m.AgentApiKeysPanel })),
+);
 
 function PanelFallback() {
   return (
@@ -74,6 +77,11 @@ export function BookmarkPanelHost({ tab, agentId }: BookmarkPanelHostProps) {
         {tab === 'memory' && (
           <div className="flex-1 min-h-0 overflow-y-auto px-1 py-2">
             <NarrativeList />
+          </div>
+        )}
+        {tab === 'api-keys' && (
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+            <AgentApiKeysPanel agentId={agentId} />
           </div>
         )}
       </Suspense>
