@@ -27,7 +27,7 @@ import {
   layoutAnnotations,
   type PlacedAnnotation,
 } from './measure';
-import { wobblyArrow, wobblyEllipse } from './wobble';
+import { wobblyArrow, wobblyEllipse, wobblyLeader } from './wobble';
 
 const INK = 'var(--color-gray-50)';
 
@@ -95,7 +95,11 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
             style={{ animationDelay: `${i * 60}ms` }}
           >
             <path
-              d={wobblyArrow(m.from, m.to)}
+              d={
+                m.laneX !== undefined
+                  ? wobblyLeader(m.from, m.to, m.laneX)
+                  : wobblyArrow(m.from, m.to)
+              }
               fill="none"
               stroke={INK}
               strokeWidth={1.8}
