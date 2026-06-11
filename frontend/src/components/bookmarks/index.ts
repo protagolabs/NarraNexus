@@ -10,3 +10,9 @@ export { BookmarkStrip } from './BookmarkStrip';
 export type { BookmarkTab, BookmarkOpenTarget } from './BookmarkStrip';
 
 export { BookmarkDrawer } from './BookmarkDrawer';
+
+export { ActivityPanel } from './ActivityPanel';
+export type { ActivityPanelProps } from './ActivityPanel';
+
+export { AgentProfilePanel } from './AgentProfilePanel';
+export type { AgentProfilePanelProps } from './AgentProfilePanel';

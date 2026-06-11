@@ -17,7 +17,13 @@ import { FileUpload } from './FileUpload';
 import { IMChannelsSection } from './IMChannelsSection';
 import type { SocialNetworkEntity } from '@/types';
 
-export function AwarenessPanel() {
+interface AwarenessPanelProps {
+  /** Skip the outer Card chrome + duplicate title when hosted inside the
+   *  bookmark drawer's AgentProfilePanel. Functional actions are kept. */
+  embedded?: boolean;
+}
+
+export function AwarenessPanel({ embedded = false }: AwarenessPanelProps = {}) {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editedAwareness, setEditedAwareness] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -160,14 +166,17 @@ export function AwarenessPanel() {
     return { totalChats, avgStrength: Math.round(avgStrength * 100), strongConnections };
   }, [chatHistoryEvents, socialNetworkList]);
 
+  const CardShell = embedded ? 'div' : Card;
   return (
     <>
-      <Card className="flex flex-col h-full">
-        <CardHeader>
+      <CardShell className="flex flex-col h-full">
+        <CardHeader className={cn(embedded && 'justify-end py-1')}>
+          {!embedded && (
           <CardTitle>
             <Brain />
             Context
           </CardTitle>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -410,7 +419,7 @@ export function AwarenessPanel() {
 
         </ScrollArea>
         </CardContent>
-      </Card>
+      </CardShell>
 
       {/* Edit Awareness Modal */}
       <Dialog

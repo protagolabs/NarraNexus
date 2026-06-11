@@ -195,7 +195,13 @@ function EnvConfigDialog({
   );
 }
 
-export function SkillsPanel() {
+interface SkillsPanelProps {
+  /** Skip the outer Card chrome + duplicate title when hosted inside the
+   *  bookmark drawer's AgentProfilePanel. Functional actions are kept. */
+  embedded?: boolean;
+}
+
+export function SkillsPanel({ embedded = false }: SkillsPanelProps = {}) {
   const { agentId, userId } = useConfigStore();
   const [installMode, setInstallMode] = useState<InstallMode>(null);
   const [configuringSkill, setConfiguringSkill] = useState<SkillInfo | null>(null);
@@ -255,10 +261,11 @@ export function SkillsPanel() {
 
   const isInstalling = installGithub.isPending || installZip.isPending;
 
-  return (
-    <Card variant="glass" className="flex flex-col h-full">
+  const inner = (
+    <>
       {confirmDialog}
-      <CardHeader>
+      <CardHeader className={cn(embedded && 'justify-end py-1')}>
+        {!embedded && (
         <CardTitle>
           <Puzzle />
           Skill &amp; MCP
@@ -266,6 +273,7 @@ export function SkillsPanel() {
             · {skills.length}
           </span>
         </CardTitle>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -378,6 +386,16 @@ export function SkillsPanel() {
           onSaved={() => refetch()}
         />
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="flex flex-col h-full">{inner}</div>;
+  }
+
+  return (
+    <Card variant="glass" className="flex flex-col h-full">
+      {inner}
     </Card>
   );
 }
