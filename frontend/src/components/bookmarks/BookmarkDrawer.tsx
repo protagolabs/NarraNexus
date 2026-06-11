@@ -70,18 +70,14 @@ export function BookmarkDrawer({
 
   if (!open) return null;
 
-  // Pinned mode: static column (no portal, no backdrop)
+  // Pinned mode: static column frame that FILLS its parent — the parent
+  // owns width / border / rounding so the pinned column matches the
+  // surrounding card language (no portal, no backdrop).
   if (pinned) {
     return (
       <div
-        className={cn(
-          'flex flex-col w-[440px] shrink-0 overflow-hidden',
-          'animate-slide-in-right',
-        )}
-        style={{
-          background: 'var(--nm-paper)',
-          borderLeft: '1px solid var(--nm-hairline)',
-        }}
+        className="flex flex-col w-full h-full overflow-hidden"
+        style={{ background: 'var(--nm-paper)' }}
       >
         <DrawerHeader
           title={title}
