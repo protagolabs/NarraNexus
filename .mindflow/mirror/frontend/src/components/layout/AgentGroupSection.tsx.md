@@ -1,10 +1,17 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
 
 # AgentGroupSection.tsx — One collapsible team section in the grouped sidebar
+
+## 2026-06-11 (v1.8.1) — row z-lift while kebab open
+
+Rows retain a transform from their entrance animation → sibling
+stacking contexts → DOM order beat the kebab panel's z-index. The row
+adds `relative z-30` while its menu is open (state lifted from
+[[AgentRowMenu]] onOpenChange).
 
 ## 为什么存在
 

@@ -286,3 +286,51 @@ describe('AgentsHeaderMenu', () => {
     expect(onManageTeams).toHaveBeenCalled();
   });
 });
+
+
+describe('kebab menu stacking (2026-06-11 fix)', () => {
+  const props = {
+    teamId: 't1',
+    teamName: 'Trading Desk',
+    teamColor: '#e56',
+    agents: [
+      { agent_id: 'a1', name: 'Analyst', created_by: 'u1' },
+      { agent_id: 'a2', name: 'Risk Officer', created_by: 'u1' },
+    ],
+    agentId: null,
+    collapsed: false,
+    currentUserId: 'u1',
+    showPublicToggle: false,
+    onToggleCollapse: vi.fn(),
+    onSelectAgent: vi.fn(),
+    getRowMeta: () => ({ preview: '', time: '', unread: 0 }),
+    getIsStreaming: () => false,
+    completedAgentIds: [] as string[],
+    onStartEdit: vi.fn(),
+    onDelete: vi.fn(),
+    onTogglePublic: vi.fn(),
+    deletingAgentId: null,
+    editingAgentId: null,
+    editingName: '',
+    onEditNameChange: vi.fn(),
+    onSaveEdit: vi.fn(),
+    onCancelEdit: vi.fn(),
+    savingName: false,
+  };
+
+  it('opening the row menu lifts the row above sibling stacking contexts', () => {
+    render(wrapRouter(<AgentGroupSection {...props} />));
+
+    const kebab = screen.getAllByLabelText('Agent options')[0];
+    fireEvent.click(kebab);
+
+    // The row container must carry the z-lift while the menu is open —
+    // without it, the next row's retained-transform stacking context
+    // paints over the panel and Delete becomes unclickable.
+    const row = kebab.closest('div.group');
+    expect(row?.className).toContain('z-30');
+
+    fireEvent.click(kebab);
+    expect(row?.className).not.toContain('z-30');
+  });
+});
