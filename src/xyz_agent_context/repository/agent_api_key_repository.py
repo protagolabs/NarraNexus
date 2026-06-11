@@ -66,20 +66,36 @@ def _row_to_entity(row: Dict[str, Any]) -> AgentApiKey:
 
 
 def _parse_dt(value: Any) -> Optional[datetime]:
-    """Coerce a DB datetime field (string/datetime/None) into datetime."""
+    """Coerce a DB datetime field (string/datetime/None) into a
+    timezone-aware UTC datetime.
+
+    Storage convention is UTC. Some DB drivers (notably SQLite, which
+    returns 'YYYY-MM-DD HH:MM:SS' strings) drop the tz suffix; those rows
+    are assumed UTC and tzinfo is attached. Without this, downstream
+    `expires_at < utc_now()` checks crash with TypeError ("can't compare
+    offset-naive and offset-aware datetimes") whenever a rotated key has
+    a grace `expires_at` set.
+    """
+    from datetime import timezone
+
     if value is None:
         return None
+    dt: Optional[datetime] = None
     if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
+        dt = value
+    elif isinstance(value, str):
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             try:
-                return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+                dt = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 return None
-    return None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 class AgentApiKeyRepository:

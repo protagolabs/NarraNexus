@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/schema/agent_api_key_schema.py
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — fix tz-mismatch crash in is_active / status
+
+`is_active()` and `status()` compared `expires_at` (loaded UTC-aware
+from the DB) against bare `datetime.now()` (naive). As soon as ONE
+key carried an `expires_at` — most commonly an old key that had been
+rotated (rotate writes `grace_until = utc_now() + 7d` as
+`expires_at`) — every list / status / middleware call crashed with
+"can't compare offset-naive and offset-aware datetimes". The previous
+edit of this md noted the risk but called it "not a real issue in
+production"; the smoke run on `feat/external-api-protocol` proved
+otherwise.
+
+Fix: both methods now use `utc_now()` from `utils/timezone.py`, and a
+local `_ensure_utc` helper attaches UTC tzinfo to any naive
+`expires_at` that somehow slips through (defensive — the repository's
+`_parse_dt` was hardened in the same commit to always return UTC-aware).
 
 # agent_api_key_schema.py
 
@@ -57,9 +74,8 @@ demands an explicit empty value (empty list for scopes). Adding more
 clearable fields will need a sentinel value or per-field DELETE endpoint.
 This is documented in the route mirror md, not just here.
 
-**`is_active` reads `datetime.now()` naive.** `expires_at` stored in DB
-is timezone-aware (UTC) per the schema_registry comment, but `is_active`
-calls `datetime.now()` without tz. If a test injects a naive `expires_at`
-the comparison raises TypeError. Not a real issue in production (DB
-always returns UTC) but if you're seeing weird tz behaviour, normalise
-both sides to UTC explicitly.
+**`is_active` / `status` MUST stay on `utc_now()`.** They compare
+against `expires_at`, which is loaded as TZ-aware UTC. Reverting to
+bare `datetime.now()` re-introduces the "can't compare offset-naive
+and offset-aware datetimes" crash that took down the External API
+sidebar — see the 2026-06-12 entry at the top of this md.
