@@ -4,9 +4,11 @@
 @date: 2026-04-08
 @description: Authentication utilities for cloud deployment
 
-Provides JWT token generation/verification, password hashing,
-and FastAPI dependency for extracting current user from requests.
-In local mode (SQLite), auth is bypassed — no JWT required.
+Provides JWT token generation/verification and the auth middleware that
+extracts the current user from requests. Cloud identity is established
+via NetMind login (see routes/auth.py netmind_login); this module only
+ever sees our own self-issued JWTs. In local mode (SQLite), auth is
+bypassed — no JWT required.
 """
 
 from __future__ import annotations
@@ -15,7 +17,6 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request
 from loguru import logger
@@ -28,9 +29,6 @@ from loguru import logger
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-do-not-use-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_DAYS = 7
-# Invite-code registration gating is no longer a single global env var.
-# It is now a per-code DB mechanism — see `invite_codes` table,
-# `InviteCodeRepository`, and `backend/routes/invite.py`.
 
 
 # =============================================================================
@@ -160,20 +158,6 @@ def _is_cloud_mode() -> bool:
 
 
 # =============================================================================
-# Password Hashing
-# =============================================================================
-
-def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-
-def verify_password(password: str, password_hash: str) -> bool:
-    """Verify a password against its bcrypt hash."""
-    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
-
-
-# =============================================================================
 # JWT Token
 # =============================================================================
 
@@ -256,14 +240,11 @@ def require_auth(request: Request) -> CurrentUser:
 # health probes) or carry their own (login).
 AUTH_EXEMPT_PATHS = {
     "/api/auth/login",
-    "/api/auth/register",
+    # NetMind-account login (cloud): carries its own credential — the
+    # NetMind loginToken is verified server-side against NetMind's auth
+    # API inside the route handler, then exchanged for our own JWT.
+    "/api/auth/netmind-login",
     "/api/auth/create-user",
-    # Internal invite-issuance endpoint — server-to-server, called by the
-    # narranexus-website backend. It authenticates via the
-    # X-Internal-Secret header (matched against INTERNAL_INVITE_SECRET env
-    # var) inside the route handler itself, NOT via JWT. Admin invite
-    # operations live under /api/admin/invite and DO require a staff JWT.
-    "/api/invite/internal/issue",
     "/api/providers/claude-status",
     "/docs",
     "/openapi.json",

@@ -1,8 +1,16 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-05-18
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — bcrypt password helpers removed; exempt list pruned
+
+hash_password/verify_password (and the bcrypt import) deleted — cloud password login no longer exists, local login never had passwords. AUTH_EXEMPT_PATHS dropped /api/auth/register and /api/invite/internal/issue. users.password_hash column stays (no destructive DDL), it's just never read or written.
+
+## 2026-06-11 — /api/auth/netmind-login added to AUTH_EXEMPT_PATHS
+
+The NetMind-login endpoint carries its own credential (the NetMind loginToken, verified server-side inside the handler), so the middleware must let it through unauthenticated — same rationale as /login.
 
 ## 2026-05-18 — 杀掉 "first user" singleton fallback（彻底治本）
 
