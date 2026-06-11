@@ -1,7 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-06-11
-last_verified: 2026-06-10
+last_verified: 2026-06-14
 stub: false
 ---
 ## 2026-06-10 — user_slots.params_json column
@@ -67,6 +66,46 @@ is not updated in-band because `db.update` uses parameterized placeholders
 (the raw SQL expression `(datetime('now'))` would be stored as literal text).
 New columns can be added via the registry as new preferences appear —
 `auto_migrate` is additive.
+
+## 2026-06-11 — external API protocol (v0.3): new table + 2 additive columns
+
+Three additive schema changes landed for the new "external integrator" surface
+(see `reference/self_notebook/specs/2026-06-11-external-api-protocol-design.md`
+for the protocol):
+
+- **`agent_api_keys`** (new table) — agent-bound API tokens issued by the
+  agent owner so external applications can call `/v1/external/chat/completions`
+  on the owner's behalf. Stores SHA256(token) only, never plaintext. Lookup by
+  short `key_id` prefix (embedded in the plaintext token for O(1) middleware
+  resolution). Supports soft-revoke (`revoked_at`), optional expiry
+  (`expires_at`), JSON `scopes` array, and `last_used_at` audit. Three indexes:
+  `key_id` (unique, primary lookup), `agent_id` (per-agent listing), and
+  `(owner_user_id, revoked_at)` (account-level dashboard view).
+
+- **`agents.external_session_ttl_seconds`** (new column, `INT`, nullable) —
+  TTL in seconds for ephemeral external sessions owned by this agent. NULL =
+  no auto-cleanup (the external integrator fully manages session lifecycle
+  via DELETE). Any positive value gets honored by `EphemeralSessionGCPoller`
+  with no system-side minimum — the agent owner is fully responsible for
+  choosing a sane value. Existing rows get NULL on upgrade.
+
+- **`users.owned_by_agent`** (new column, `VARCHAR(64)`, nullable) — the
+  **canonical predicate** for "is this row an external-integration-derived
+  user?" NULL = normal NarraNexus user (login, local-default). NON-NULL =
+  ephemeral row minted from a session_id by `/v1/external/chat/completions`,
+  subject to cascade-DELETE when the session closes and to TTL GC when the
+  owning agent has `external_session_ttl_seconds` set. Code paths that
+  iterate users in admin / dashboard contexts MUST filter
+  `WHERE owned_by_agent IS NULL`. Indexed via `idx_users_owned_by_agent` for
+  TTL scans and per-agent listing.
+
+All three changes are append-only and applied by `auto_migrate()` on next
+startup (CREATE TABLE IF NOT EXISTS + ALTER TABLE ADD COLUMN + CREATE INDEX
+IF NOT EXISTS). Existing rows are unaffected — old `agents` and `users` rows
+get NULL for the new columns; no behavior change because no existing reader
+queries them. Verified by integration test that boots an "old schema" SQLite
+DB with seeded data, runs `auto_migrate()`, and confirms (a) old data
+preserved, (b) new columns/table appear, (c) re-running is a no-op.
 
 ## 2026-06-11 — invite_codes table marked retired (data kept)
 
