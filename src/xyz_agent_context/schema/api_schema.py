@@ -21,17 +21,15 @@ from pydantic import BaseModel
 # ===== Auth Schemas =====
 
 class LoginRequest(BaseModel):
-    """Request model for login (local: user_id only, cloud: user_id + password)"""
+    """Request model for local-mode login (user_id only — OS user is the
+    trust boundary). Cloud login is NetmindLoginRequest."""
     user_id: str
-    password: Optional[str] = None  # Required in cloud mode, optional in local
 
 
 class LoginResponse(BaseModel):
-    """Response model for login"""
+    """Response model for local-mode login"""
     success: bool
     user_id: Optional[str] = None
-    token: Optional[str] = None  # JWT token (cloud mode only)
-    role: Optional[str] = None  # User role (cloud mode only)
     error: Optional[str] = None
 
 
@@ -67,29 +65,6 @@ class NetmindLoginResponse(BaseModel):
     initial_input_tokens: int = 0
     initial_output_tokens: int = 0
     error: Optional[str] = None
-
-
-class RegisterRequest(BaseModel):
-    """Request model for cloud user registration"""
-    user_id: str
-    password: str
-    invite_code: str
-    display_name: Optional[str] = None
-
-
-class RegisterResponse(BaseModel):
-    """Response model for registration"""
-    success: bool
-    user_id: Optional[str] = None
-    token: Optional[str] = None
-    error: Optional[str] = None
-    # Populated only when the system-default free-tier quota feature is
-    # enabled and a quota row was successfully seeded for the new user.
-    # The frontend uses these to render a welcome toast on successful
-    # cloud registration.
-    has_system_quota: bool = False
-    initial_input_tokens: int = 0
-    initial_output_tokens: int = 0
 
 
 class ActiveRunInfo(BaseModel):
