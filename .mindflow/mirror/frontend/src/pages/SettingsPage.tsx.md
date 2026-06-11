@@ -23,6 +23,12 @@ stub: false
   固定,下面 `flex` 横向分 nav(w-56,自身滚动)+ 内容(`ScrollArea` flex-1)。
 - 用户确认要**左侧栏**(常见约定),非最初口述的右侧。
 
+**同日续** — 试过的"providers 全展开 + Fine-tune"(commit 12d4fbf8)被回退
+(用户觉得不好看)。保留的唯一诉求:`ProvidersSection` 在摘要卡下加一个
+**"+ Add provider"** 按钮(`setShowAdvanced(true)`,Advanced 收起时才显示),
+让"加 provider"成为一级可见动作,而不必去 "Advanced configuration" 里找。
+其余维持 master-detail + 摘要卡 + Advanced 折叠不变。
+
 ## 2026-06-10 (later) — secondary sections collapse by default
 
 New `CollapsibleSection` wraps Bundle / Artifacts / Manage-agents
