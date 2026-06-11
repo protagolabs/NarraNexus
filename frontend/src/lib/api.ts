@@ -32,6 +32,7 @@ import type {
   CreateJobComplexRequest,
   CreateJobComplexResponse,
   LoginResponse,
+  NetmindLoginResponse,
   RegisterResponse,
   QuotaMeResponse,
   AgentListResponse,
@@ -326,6 +327,13 @@ class ApiClient {
     return this.request<LoginResponse>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ user_id: userId, password: password || undefined }),
+    });
+  }
+
+  async netmindLogin(netmindToken: string, source?: string): Promise<NetmindLoginResponse> {
+    return this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
+      method: 'POST',
+      body: JSON.stringify({ netmind_token: netmindToken, source: source || undefined }),
     });
   }
 
