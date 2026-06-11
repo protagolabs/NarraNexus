@@ -21,6 +21,10 @@ export interface AgentRowMenuProps {
   onStartEdit: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
   onTogglePublic: (e: React.MouseEvent) => void;
+  /** Fired on open/close so the host row can lift its z-index above
+   *  the rows below (each row is a stacking context — animate-slide-up
+   *  retains a transform — so the panel's own z-index cannot escape). */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -40,8 +44,16 @@ export function AgentRowMenu({
   onStartEdit,
   onDelete,
   onTogglePublic,
+  onOpenChange,
 }: AgentRowMenuProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean | ((v: boolean) => boolean)) => {
+    setOpenState((prev) => {
+      const value = typeof next === 'function' ? next(prev) : next;
+      if (value !== prev) onOpenChange?.(value);
+      return value;
+    });
+  };
 
   const handleTrigger = (e: React.MouseEvent) => {
     e.stopPropagation();

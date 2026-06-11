@@ -1,10 +1,18 @@
 ---
 code_file: frontend/src/components/layout/AgentRowMenu.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
 
 # AgentRowMenu.tsx — Kebab (⋮) menu for per-agent row actions
+
+## 2026-06-11 (v1.8.1) — onOpenChange for the stacking fix
+
+Every agent row is its own stacking context (animate-slide-up retains
+a transform via fill-mode forwards), so this panel's z-50 could not
+rise above the NEXT row — Delete was unclickable. The menu now reports
+open/close via `onOpenChange` and the host row lifts itself with
+`relative z-30` while open (see [[AgentGroupSection]]).
 
 ## 为什么存在
 
