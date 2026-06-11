@@ -2,6 +2,19 @@
 code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-06-11
 ---
+## 2026-06-11 — Fine-tune disclosure hides per-slot thinking/effort
+
+IA: the panel now leads with the common path (connect a provider → pick
+framework + model). The agent slot's **Thinking** + **Reasoning Effort**
+dropdowns are gated behind a `showFineTune` toggle (a small "Fine-tune ·
+thinking & reasoning effort" button under the slot rows in Section 2),
+collapsed by default — defaults suit most users, only power users touch
+them. `showFineTune` is component state; the reasoning-params block is
+`{slot.key === 'agent' && showFineTune && (…)}`. The "Update Available
+Models" sync card stays in Section 1 (not gated) — it's already its own
+self-contained card. Paired with SettingsPage dropping the outer "Advanced
+configuration" gate around the whole component (see SettingsPage mirror).
+
 ## 2026-06-11 — helper "Default" option shows the model it resolves to
 
 The helper_llm slot's ``<option value="default">`` used to read just
