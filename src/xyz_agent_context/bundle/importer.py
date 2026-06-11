@@ -27,6 +27,8 @@ import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from xyz_agent_context.utils.schema_registry import TABLES
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
@@ -43,6 +45,102 @@ from .security import (
 
 # Preflight session TTL — older sessions are pruned every preflight call.
 PREFLIGHT_TTL_HOURS = 6
+
+
+def _loads_maybe(value: Any, default: Any) -> Any:
+    """Bundle rows store list/dict columns as JSON STRINGS ('[]', '{}').
+    Decode them before handing values to a pydantic model; pass through
+    values that are already structured (newer in-memory paths) and fall
+    back to `default` on empty/garbage. The social-entities path is the
+    one importer branch that reconstructs a model instead of inserting a
+    raw row (its destination moved to the unified memory store), so it is
+    the one place that needs this (2026-06-11 bug: every legacy bundle
+    with social entities failed pydantic validation)."""
+    if value is None or value == "":
+        return default
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (ValueError, TypeError):
+            return default
+        return parsed if isinstance(parsed, type(default)) else default
+    return value if isinstance(value, type(default)) else default
+
+
+def _sanitize_for_schema(
+    table: str, row: Dict[str, Any], dropped: Dict[str, int]
+) -> Dict[str, Any]:
+    """Drop columns the CURRENT schema no longer has.
+
+    Old bundles legitimately carry columns that later schema versions
+    removed — e.g. `narratives.embedding_updated_at`, dropped in the
+    unified-memory refactor (v1.7.16). The live DB was migrated; a bundle
+    is the same data arriving through the import path, so it gets the
+    same tolerance: unknown columns are stripped and counted (surfaced in
+    the import summary), never inserted blind (2026-06-11 bug: a v1.3.4
+    bundle aborted mid-import on the first narratives row).
+    """
+    tdef = TABLES.get(table)
+    if tdef is None:
+        return row
+    known = {c.name for c in tdef.columns}
+    clean = {k: v for k, v in row.items() if k in known}
+    for k in row.keys() - known:
+        key = f"{table}.{k}"
+        dropped[key] = dropped.get(key, 0) + 1
+    return clean
+
+
+async def _rollback_partial_import(db, id_map: Dict[str, str]) -> Dict[str, int]:
+    """Best-effort compensating cleanup after a mid-import failure.
+
+    confirm() is not transactional (the backends expose no cross-table
+    transaction), so a failure used to strand orphan teams/agents
+    (2026-06-11: six orphan 'Financial Morning Briefing' teams from
+    repeated failed imports). All new IDs are minted upfront in id_map,
+    which makes compensation tractable: sweep every registered table
+    that carries an agent_id column for the NEW agent ids, then the
+    team/bus tables by their NEW ids. Per-table failures are logged and
+    skipped — rollback must never mask the original error.
+
+    Returns {table: rows_deleted} for the audit log. Skill pack files
+    are intentionally left in place (re-import overwrites them; deleting
+    shared skills could break other agents).
+    """
+    new_ids = set(id_map.values())
+    new_agent_ids = [i for i in new_ids if i.startswith("agent_")]
+    new_team_ids = [i for i in new_ids if i.startswith("team_")]
+    new_channel_ids = [i for i in new_ids if i.startswith("buschan_") or i.startswith("channel_")]
+
+    deleted: Dict[str, int] = {}
+
+    async def _del(table: str, field: str, value: str) -> None:
+        try:
+            n = await db.delete(table, {field: value})
+            if n:
+                deleted[table] = deleted.get(table, 0) + n
+        except Exception as de:  # noqa: BLE001 — never mask the original error
+            logger.warning(f"bundle_import.rollback.skip table={table} {field}={value}: {de}")
+
+    # Every registered table with an agent_id column, swept per new agent.
+    agent_tables = [name for name, tdef in TABLES.items()
+                    if any(c.name == "agent_id" for c in tdef.columns)]
+    for aid in new_agent_ids:
+        for t in agent_tables:
+            await _del(t, "agent_id", aid)
+    for tid in new_team_ids:
+        await _del("team_members", "team_id", tid)
+        await _del("teams", "team_id", tid)
+    for cid in new_channel_ids:
+        await _del("bus_channel_members", "channel_id", cid)
+        await _del("bus_messages", "channel_id", cid)
+        await _del("bus_channels", "channel_id", cid)
+    if deleted:
+        logger.info(
+            "bundle_import.rollback.done "
+            + " ".join(f"{k}={v}" for k, v in sorted(deleted.items()))
+        )
+    return deleted
 
 
 async def _cleanup_stale_preflights(db) -> None:
@@ -198,6 +296,27 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
 
 
 async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
+    """Execute the import; on ANY mid-import failure run the compensating
+    rollback so no orphan team/agents survive (confirm used to be
+    best-effort and repeated failures stranded partial teams)."""
+    ctx: Dict[str, Any] = {}
+    try:
+        return await _confirm_inner(preflight_token, user_id, ctx)
+    except Exception:
+        id_map = ctx.get("id_map")
+        db = ctx.get("db")
+        if id_map and db is not None:
+            logger.error(
+                f"bundle_import.failed.rolling_back new_ids={len(id_map)} "
+                f"(orphan sweep — original error re-raised after cleanup)"
+            )
+            await _rollback_partial_import(db, id_map)
+        raise
+
+
+async def _confirm_inner(
+    preflight_token: str, user_id: str, _rollback_ctx: Dict[str, Any]
+) -> Dict[str, Any]:
     """Execute the actual import using a previously preflighted bundle.
 
     Emits structured log lines prefixed `bundle_import.<event>` throughout
@@ -209,6 +328,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
     _t0 = time.monotonic()
 
     db = await get_db_client()
+    _rollback_ctx["db"] = db
     row = await db.get_one("bundle_preflight_sessions", {"token": preflight_token})
     if not row:
         logger.warning(f"bundle_import.error event=token_not_found token={preflight_token[:12]}…")
@@ -373,6 +493,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         + " ".join(f"{k}={v}" for k, v in sorted(id_map_breakdown.items()))
         + f" total={len(id_map)}"
     )
+    _rollback_ctx["id_map"] = id_map
 
     free_text_regex = build_all_id_regex()
     OWNER_PLACEHOLDER = "<original_owner>"
@@ -474,6 +595,13 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         "warnings": [],
     }
 
+    # Legacy-column tolerance: every bundle-sourced row is sanitized
+    # against the CURRENT schema before insert (see _sanitize_for_schema).
+    dropped_legacy_columns: Dict[str, int] = {}
+
+    async def _ins(table: str, row: Dict[str, Any]) -> None:
+        await db.insert(table, _sanitize_for_schema(table, row, dropped_legacy_columns))
+
     # -- Team --
     new_team_id = None
     if manifest.get("team"):
@@ -491,7 +619,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             readme_path = work_dir / "README.md"
             if readme_path.exists():
                 intro = readme_path.read_text(encoding="utf-8")
-        await db.insert("teams", {
+        await _ins("teams", {
             "team_id": new_tid,
             "owner_user_id": user_id,
             "name": team_name,
@@ -541,7 +669,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         new_agent_row["created_by"] = user_id
         new_agent_row.pop("agent_create_time", None)
         new_agent_row.pop("agent_update_time", None)
-        await db.insert("agents", new_agent_row)
+        await _ins("agents", new_agent_row)
         written_summary["agents_created"] += 1
         rename_part = f"renamed_from={original_name!r}" if renamed else "renamed=no"
         logger.info(
@@ -551,7 +679,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
 
         # team_members
         if new_team_id:
-            await db.insert("team_members", {"team_id": new_team_id, "agent_id": new_aid})
+            await _ins("team_members", {"team_id": new_team_id, "agent_id": new_aid})
 
         # Narratives + events
         ndir = adir / "narratives"
@@ -566,7 +694,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_nrow = rewrite_row("narratives", nrow)
                 new_nrow.pop("created_at", None)
                 new_nrow.pop("updated_at", None)
-                await db.insert("narratives", new_nrow)
+                await _ins("narratives", new_nrow)
                 written_summary["narratives_created"] += 1
 
                 e_path = nsub / "events.jsonl"
@@ -584,7 +712,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                             new_erow.pop("created_at", None)
                             new_erow.pop("updated_at", None)
                             new_erow["user_id"] = user_id
-                            await db.insert("events", new_erow)
+                            await _ins("events", new_erow)
                             written_summary["events_created"] += 1
 
         # instances. Filter out rows whose module_class isn't registered in
@@ -615,7 +743,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     new_irow["user_id"] = user_id
                     new_irow.pop("created_at", None)
                     new_irow.pop("updated_at", None)
-                    await db.insert("module_instances", new_irow)
+                    await _ins("module_instances", new_irow)
                     written_summary["instances_created"] += 1
         if skipped_by_class:
             for cls_name, n in skipped_by_class.items():
@@ -648,19 +776,19 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     entity_type=new_sr.get("entity_type") or "user",
                     instance_id=new_sr.get("instance_id"),
                     entity_name=new_sr.get("entity_name"),
-                    aliases=new_sr.get("aliases") or [],
+                    aliases=_loads_maybe(new_sr.get("aliases"), []),
                     entity_description=new_sr.get("entity_description"),
-                    identity_info=new_sr.get("identity_info") or {},
-                    contact_info=new_sr.get("contact_info") or {},
+                    identity_info=_loads_maybe(new_sr.get("identity_info"), {}),
+                    contact_info=_loads_maybe(new_sr.get("contact_info"), {}),
                     familiarity=new_sr.get("familiarity") or "known_of",
-                    relationship_strength=new_sr.get("relationship_strength") or 0.0,
-                    interaction_count=new_sr.get("interaction_count") or 0,
+                    relationship_strength=float(new_sr.get("relationship_strength") or 0.0),
+                    interaction_count=int(new_sr.get("interaction_count") or 0),
                     last_interaction_time=new_sr.get("last_interaction_time"),
-                    keywords=new_sr.get("tags") or [],
-                    expertise_domains=new_sr.get("expertise_domains") or [],
-                    related_job_ids=new_sr.get("related_job_ids") or [],
+                    keywords=_loads_maybe(new_sr.get("tags"), []),
+                    expertise_domains=_loads_maybe(new_sr.get("expertise_domains"), []),
+                    related_job_ids=_loads_maybe(new_sr.get("related_job_ids"), []),
                     persona=new_sr.get("persona"),
-                    extra_data=new_sr.get("extra_data") or {},
+                    extra_data=_loads_maybe(new_sr.get("extra_data"), {}),
                 )
                 await social_repo.save_entity(entity)
                 written_summary["social_entities_created"] += 1
@@ -679,7 +807,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                         continue
                     new_mr = rewrite_row("agent_messages", mrec)
                     new_mr.pop("created_at", None)
-                    await db.insert("agent_messages", new_mr)
+                    await _ins("agent_messages", new_mr)
                     written_summary["messages_created"] += 1
 
         # awareness (bug 1 — was being exported but never inserted on import)
@@ -691,7 +819,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_ar = rewrite_row("instance_awareness", arec)
                 new_ar.pop("created_at", None)
                 new_ar.pop("updated_at", None)
-                await db.insert("instance_awareness", new_ar)
+                await _ins("instance_awareness", new_ar)
                 written_summary["awareness_rows_created"] += 1
 
         # instance_jobs.
@@ -721,7 +849,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     new_jr["created_at"] = datetime.now(timezone.utc).isoformat(sep=" ")
                 if not new_jr.get("updated_at"):
                     new_jr["updated_at"] = new_jr["created_at"]
-                await db.insert("instance_jobs", new_jr)
+                await _ins("instance_jobs", new_jr)
                 written_summary["jobs_created"] += 1
 
         # instance_narrative_links (bidirectional binding between narratives + module instances)
@@ -754,7 +882,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     continue
                 seen_pairs.add(pair)
                 try:
-                    await db.insert("instance_narrative_links", new_nl)
+                    await _ins("instance_narrative_links", new_nl)
                     written_summary["narrative_links_created"] += 1
                 except Exception as ex:
                     # Cross-agent / cross-file duplicate (case 2) — pair was
@@ -793,7 +921,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_mm.pop("created_at", None)
                 new_mm.pop("updated_at", None)
                 try:
-                    await db.insert(memory_table, new_mm)
+                    await _ins(memory_table, new_mm)
                     written_summary["memory_rows_created"] += 1
                 except Exception as me:
                     logger.warning(f"insert {memory_table} failed: {me}")
@@ -834,7 +962,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     new_ar.pop("created_at", None)
                     new_ar.pop("updated_at", None)
                     try:
-                        await db.insert("instance_artifacts", new_ar)
+                        await _ins("instance_artifacts", new_ar)
                         written_summary["artifacts_created"] += 1
                     except Exception as ae:
                         logger.warning(
@@ -887,14 +1015,14 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_ch.pop("updated_at", None)
                 # owner_user_id → recipient (rewrite_row handles this column-wise)
                 try:
-                    await db.insert("bus_channels", new_ch)
+                    await _ins("bus_channels", new_ch)
                     written_summary["bus_channels_created"] += 1
                 except Exception as e:
                     logger.warning(f"bus_channels insert failed: {e}")
             for m in (bus.get("members") or []):
                 new_m = rewrite_row("bus_channel_members", m)
                 try:
-                    await db.insert("bus_channel_members", new_m)
+                    await _ins("bus_channel_members", new_m)
                     written_summary["bus_members_created"] += 1
                 except Exception as e:
                     logger.warning(f"bus_channel_members insert failed: {e}")
@@ -902,14 +1030,14 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_ms = rewrite_row("bus_messages", ms)
                 new_ms.pop("created_at", None)
                 try:
-                    await db.insert("bus_messages", new_ms)
+                    await _ins("bus_messages", new_ms)
                     written_summary["bus_messages_created"] += 1
                 except Exception as e:
                     logger.warning(f"bus_messages insert failed: {e}")
             for r in (bus.get("registry") or []):
                 new_r = rewrite_row("bus_agent_registry", r)
                 try:
-                    await db.insert("bus_agent_registry", new_r)
+                    await _ins("bus_agent_registry", new_r)
                     written_summary["bus_registry_created"] += 1
                 except Exception as e:
                     # Likely a UNIQUE collision if the recipient happens to already
@@ -933,7 +1061,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 if "message_id" in new_ib:
                     new_ib["message_id"] = id_map.get(new_ib["message_id"], new_ib["message_id"])
                 try:
-                    await db.insert("inbox_table", new_ib)
+                    await _ins("inbox_table", new_ib)
                     written_summary["inbox_rows_created"] += 1
                 except Exception as e:
                     logger.warning(f"inbox_table insert failed: {e}")
@@ -1206,7 +1334,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 )
                 continue
             try:
-                await db.insert("mcp_urls", new_row)
+                await _ins("mcp_urls", new_row)
                 written_summary["mcp_urls_created"] += 1
             except Exception as me:
                 logger.warning(f"bundle_import.mcp.insert_failed reason={me}")
@@ -1267,6 +1395,12 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         except Exception as e:  # noqa: BLE001 — index backfill is best-effort enrichment
             logger.warning(f"bundle_import.backfill failed for agent {naid}: {e}")
     written_summary["search_indexes_backfilled"] = _bf_total
+    if dropped_legacy_columns:
+        written_summary["dropped_legacy_columns"] = dropped_legacy_columns
+        logger.info(
+            "bundle_import.legacy_columns.dropped "
+            + " ".join(f"{k}={v}" for k, v in sorted(dropped_legacy_columns.items()))
+        )
 
     # ---- Final summary log: one line that captures everything important.
     duration_ms = int((time.monotonic() - _t0) * 1000)
