@@ -1,8 +1,28 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+## 2026-06-11 — master–detail：左侧导航 + 右侧内容(取代折叠堆叠)
+
+页面从"竖直折叠堆叠"改成 **master–detail**:左侧 `NAV_ITEMS` 导航
+(LLM Providers / Bundle / Artifacts / Manage agents / App updates),
+`active` 状态切换右侧内容区。复用 `SettingsModal` 的 nav 视觉(选中
+`bg-[var(--accent-primary)]/10` + accent 文字,非选中 nm-ink70 + hover)。
+
+- `CollapsibleSection` **已删除**;Bundle/Artifacts/Manage 各自抽成
+  `BundleContent` / `ArtifactsContent` / `ManageAgentsContent` 内容面板
+  (复用非折叠的 `SectionHeader`)。
+- `App updates` 导航项 `desktopOnly`,`NAV_ITEMS.filter(isTauri())` 过滤,
+  且内容仍 `active==='updates' && isTauri()` 双保险。
+- **懒加载特性保留**:`ArtifactsSection` 只在 `active==='artifacts'` 时挂载
+  (条件渲染),所以非该面板时不发它的 fetch——和旧版折叠时一致。
+- `ProvidersSection` 内部的 "Advanced configuration" 展开**保留不变**(那是
+  面板内的子披露,不是页面级折叠)。
+- 布局容器从 `ScrollArea(整页)` 改成 `h-full flex flex-col`:顶部 header
+  固定,下面 `flex` 横向分 nav(w-56,自身滚动)+ 内容(`ScrollArea` flex-1)。
+- 用户确认要**左侧栏**(常见约定),非最初口述的右侧。
+
 ## 2026-06-10 (later) — secondary sections collapse by default
 
 New `CollapsibleSection` wraps Bundle / Artifacts / Manage-agents

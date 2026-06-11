@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
 import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
@@ -34,44 +34,56 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   );
 }
 
-// Secondary sections (Bundle / Artifacts / Manage agents) collapse by
-// default — same "simple surface first" logic as the Providers section.
-// The hint text only shows when expanded, so the collapsed page reads as
-// a clean list of section labels.
-function CollapsibleSection({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
+// Each settings area is now a nav-selected panel (master–detail) instead
+// of a collapsible stack. One content component per nav item; the left nav
+// in SettingsPage switches between them.
+
+function BundleContent() {
+  const navigate = useNavigate();
   return (
     <section>
-      <button
-        type="button"
-        className="flex items-center gap-1.5 hover:opacity-80"
-        onClick={() => setOpen((v) => !v)}
-      >
-        {open ? (
-          <ChevronDown className="w-4 h-4" style={{ color: 'var(--nm-ink70)' }} />
-        ) : (
-          <ChevronRight className="w-4 h-4" style={{ color: 'var(--nm-ink70)' }} />
-        )}
-        <BracketSectionLabel>{label}</BracketSectionLabel>
-      </button>
-      {open && (
-        <div className="mt-3 space-y-3">
-          {hint && (
-            <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
-              {hint}
-            </p>
-          )}
-          {children}
-        </div>
-      )}
+      <SectionHeader
+        label="Bundle · Export / Import"
+        hint="Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you."
+      />
+      <div className="flex gap-3">
+        <Button onClick={() => navigate('/app/bundle/export')} className="gap-2">
+          <Package className="w-4 h-4" />
+          Export bundle…
+        </Button>
+        <Button onClick={() => navigate('/app/bundle/import')} variant="outline" className="gap-2">
+          <Upload className="w-4 h-4" />
+          Import bundle…
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function ArtifactsContent() {
+  return (
+    <section>
+      <SectionHeader
+        label="Artifacts"
+        hint="Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
+      />
+      <ArtifactsSection />
+    </section>
+  );
+}
+
+function ManageAgentsContent() {
+  const navigate = useNavigate();
+  return (
+    <section>
+      <SectionHeader
+        label="Manage agents · batch"
+        hint="Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them."
+      />
+      <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
+        <Users className="w-4 h-4" />
+        Open batch manager…
+      </Button>
     </section>
   );
 }
@@ -300,62 +312,76 @@ function ProvidersSection() {
   );
 }
 
+// Left-nav items (master). Each maps to one content panel (detail).
+// ``desktopOnly`` items (App updates) only appear in the Tauri build.
+interface NavItem {
+  id: string;
+  label: string;
+  icon: typeof Cpu;
+  desktopOnly?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { id: 'providers', label: 'LLM Providers', icon: Cpu },
+  { id: 'bundle', label: 'Bundle', icon: Package },
+  { id: 'artifacts', label: 'Artifacts', icon: FolderArchive },
+  { id: 'agents', label: 'Manage agents', icon: Users },
+  { id: 'updates', label: 'App updates', icon: Download, desktopOnly: true },
+];
+
 export default function SettingsPage() {
-  const navigate = useNavigate();
+  const [active, setActive] = useState('providers');
+  const items = NAV_ITEMS.filter((it) => !it.desktopOnly || isTauri());
+
   return (
-    <ScrollArea className="h-full" viewportClassName="p-6">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <header>
-          <h1
-            className="text-3xl font-bold tracking-tight"
-            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
-          >
-            Settings
-          </h1>
-          <div className="mt-2">
-            <BracketSectionLabel>
-              Providers · Bundle · Artifacts · Agents
-            </BracketSectionLabel>
+    <div className="h-full flex flex-col">
+      <header className="px-6 pt-6 pb-4 shrink-0">
+        <h1
+          className="text-3xl font-bold tracking-tight"
+          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+        >
+          Settings
+        </h1>
+      </header>
+
+      <div className="flex flex-1 min-h-0">
+        {/* Left nav (master) */}
+        <nav
+          className="w-56 shrink-0 overflow-y-auto px-3 py-4 space-y-1 border-r"
+          style={{ borderColor: 'var(--nm-line)' }}
+        >
+          {items.map((it) => {
+            const Icon = it.icon;
+            const isActive = active === it.id;
+            return (
+              <button
+                key={it.id}
+                type="button"
+                onClick={() => setActive(it.id)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                  isActive
+                    ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
+                    : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-line)]/40 hover:text-[var(--nm-ink)]'
+                }`}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                {it.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Content (detail) */}
+        <ScrollArea className="flex-1" viewportClassName="p-6">
+          <div className="max-w-3xl">
+            {active === 'providers' && <ProvidersSection />}
+            {active === 'bundle' && <BundleContent />}
+            {active === 'artifacts' && <ArtifactsContent />}
+            {active === 'agents' && <ManageAgentsContent />}
+            {active === 'updates' && isTauri() && <UpdatesSection />}
           </div>
-        </header>
-
-        <ProvidersSection />
-
-        <CollapsibleSection
-          label="Bundle · Export / Import"
-          hint="Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you."
-        >
-          <div className="flex gap-3">
-            <Button onClick={() => navigate('/app/bundle/export')} className="gap-2">
-              <Package className="w-4 h-4" />
-              Export bundle…
-            </Button>
-            <Button onClick={() => navigate('/app/bundle/import')} variant="outline" className="gap-2">
-              <Upload className="w-4 h-4" />
-              Import bundle…
-            </Button>
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          label="Artifacts"
-          hint="Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
-        >
-          <ArtifactsSection />
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          label="Manage agents · batch"
-          hint="Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them."
-        >
-          <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
-            <Users className="w-4 h-4" />
-            Open batch manager…
-          </Button>
-        </CollapsibleSection>
-
-        {isTauri() && <UpdatesSection />}
+        </ScrollArea>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
