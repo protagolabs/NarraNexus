@@ -4,6 +4,12 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 (PM)
+
+Prop change: `annotations` → `pages` (multi-page overlay).
+
+
+
 # HelpButton.tsx — Bottom-left ? entry point
 
 Fixed circular button (Owner-specified position) + `?` keyboard

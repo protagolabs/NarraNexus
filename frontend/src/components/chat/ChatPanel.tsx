@@ -817,6 +817,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           element it always did. */}
       <ScrollArea
         className="flex-1 min-h-0"
+        data-help-id="chat.messages"
         viewportRef={scrollContainerRef}
         viewportClassName="p-5"
         onViewportScroll={(e) => {

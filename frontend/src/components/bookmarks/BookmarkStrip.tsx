@@ -5,12 +5,13 @@
  * @description: Right-edge vertical bookmark strip — atomic-tab IA.
  *
  * Owner-decided structure: the smallest unit is an atomic tab (one tab =
- * one panel). Categories from STRIP_CATEGORIES group the tabs with tiny
- * rotated labels. Live signals from bookmarkStore render as a status
- * overlay on the owning tab: spinner (running), carbon pulse + count
- * (attention), yellow dot (info).
+ * one panel; icon + small caption so labels are readable without
+ * tooltips). Categories from STRIP_CATEGORIES group the tabs with
+ * horizontal mono micro-headers. Live signals from bookmarkStore render
+ * as a status overlay on the owning tab: spinner (running), carbon
+ * pulse + count (attention), yellow dot (info).
  *
- * ~36px wide; scrolls vertically if the window is short.
+ * 64px wide; scrolls vertically if the window is short.
  */
 
 import {
@@ -41,22 +42,22 @@ export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps
 
   return (
     <div
-      className="flex flex-col w-9 shrink-0 select-none overflow-y-auto overflow-x-hidden py-1"
+      className="flex flex-col w-16 shrink-0 select-none overflow-y-auto overflow-x-hidden py-1"
       style={{ borderLeft: '1px solid var(--nm-hairline)', scrollbarWidth: 'none' }}
       data-help-id="bookmarks.strip"
     >
       {STRIP_CATEGORIES.map((category, ci) => (
         <div key={category.label} className="flex flex-col items-stretch">
-          {/* Category divider — tiny rotated mono label */}
+          {/* Category header — horizontal mono micro-label */}
           <div
             className={cn(
-              'flex items-center justify-center py-2',
-              ci > 0 && 'mt-1 border-t border-[var(--nm-hairline)]',
+              'px-2 pt-2 pb-1',
+              ci > 0 && 'mt-1.5 border-t border-[var(--nm-hairline)]',
             )}
             aria-hidden
           >
             <span
-              className="text-[8px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] leading-none whitespace-nowrap [writing-mode:vertical-rl] rotate-180"
+              className="block text-[8px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] leading-none whitespace-nowrap"
               style={{ color: 'var(--nm-ink30)' }}
             >
               {category.label}
@@ -102,7 +103,7 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
             data-help-id={`bookmarks.${tab.id}`}
             onClick={() => onOpen(tab.id)}
             className={cn(
-              'relative flex items-center justify-center h-8 w-full shrink-0',
+              'relative flex flex-col items-center justify-center gap-0.5 h-11 w-full shrink-0',
               'cursor-pointer transition-colors duration-150',
               'hover:bg-[var(--nm-paper-warm)]',
               active && 'bg-[var(--nm-paper-warm)]',
@@ -130,7 +131,7 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
             {/* Status overlay — top-right corner of the tab */}
             {status.status === 'running' && (
               <Loader2
-                className="absolute top-0.5 right-0.5 w-2.5 h-2.5 animate-spin"
+                className="absolute top-1 right-2 w-2.5 h-2.5 animate-spin"
                 style={{ color: 'var(--color-yellow-500)' }}
                 aria-hidden
               />
@@ -138,7 +139,7 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
             {status.status === 'attention' && status.badge !== undefined && status.badge > 0 && (
               <span
                 aria-live="polite"
-                className="absolute top-0 right-0 flex items-center justify-center min-w-[13px] h-[13px] px-0.5 rounded-full text-[8px] font-bold tabular-nums leading-none"
+                className="absolute top-0.5 right-1.5 flex items-center justify-center min-w-[13px] h-[13px] px-0.5 rounded-full text-[8px] font-bold tabular-nums leading-none"
                 style={{ background: 'var(--color-carbon)', color: 'var(--color-gray-50)' }}
               >
                 {status.badge > 99 ? '99+' : status.badge}
@@ -151,6 +152,16 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
                 aria-hidden
               />
             )}
+
+            {/* Caption — readable without a tooltip */}
+            <span
+              className="block max-w-full px-0.5 truncate text-[8px] font-[family-name:var(--font-mono)] uppercase tracking-[0.06em] leading-none"
+              style={{
+                color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
+              }}
+            >
+              {tab.stripLabel ?? tab.label}
+            </span>
           </button>
         </TooltipTrigger>
         <TooltipContent side="left">{tab.label}</TooltipContent>

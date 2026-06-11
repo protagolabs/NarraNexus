@@ -43,6 +43,8 @@ export interface AtomicTabDef {
   id: AtomicTabId;
   label: string;
   icon: LucideIcon;
+  /** Short caption for the 64px strip when label is too long. */
+  stripLabel?: string;
 }
 
 export interface StripCategory {
@@ -69,7 +71,7 @@ export const STRIP_CATEGORIES: StripCategory[] = [
   },
   {
     label: 'Network',
-    tabs: [{ id: 'social', label: 'Social Network', icon: Network }],
+    tabs: [{ id: 'social', label: 'Social Network', icon: Network, stripLabel: 'Social' }],
   },
   {
     label: 'Skills',

@@ -125,6 +125,7 @@ export function AgentGroupSection({
       {!hideHeader && (
       <button
         aria-label={teamName}
+        data-help-id="sidebar.team-section"
         onClick={() => onToggleCollapse(teamId)}
         className={cn(
           'w-full flex items-center gap-2 px-3 py-1.5',

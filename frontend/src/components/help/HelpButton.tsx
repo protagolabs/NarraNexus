@@ -10,10 +10,10 @@
 import { useEffect, useState } from 'react';
 import { HelpCircle } from 'lucide-react';
 import { HelpOverlay } from './HelpOverlay';
-import type { HelpAnnotation } from './helpContent';
+import type { HelpPage } from './helpContent';
 
 interface HelpButtonProps {
-  annotations: HelpAnnotation[];
+  pages: HelpPage[];
 }
 
 function isTypingTarget(t: EventTarget | null): boolean {
@@ -25,7 +25,7 @@ function isTypingTarget(t: EventTarget | null): boolean {
   );
 }
 
-export function HelpButton({ annotations }: HelpButtonProps) {
+export function HelpButton({ pages }: HelpButtonProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export function HelpButton({ annotations }: HelpButtonProps) {
       >
         <HelpCircle className="w-4 h-4" aria-hidden />
       </button>
-      <HelpOverlay open={open} annotations={annotations} onClose={() => setOpen(false)} />
+      <HelpOverlay open={open} pages={pages} onClose={() => setOpen(false)} />
     </>
   );
 }

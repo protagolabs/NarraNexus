@@ -4,6 +4,12 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 (PM) — pages
+
+Manifest restructured to HelpPage[] (3 Owner-specified topics). New
+anchors: sidebar.manage-agents, sidebar.team-section, chat.messages,
+layout.artifacts. `side` → `rail` (left/right/top note placement).
+
 ## 2026-06-11
 
 Strip anchors re-pointed after the atomic-IA revision:

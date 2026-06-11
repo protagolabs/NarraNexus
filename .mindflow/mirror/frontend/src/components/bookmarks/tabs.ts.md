@@ -4,6 +4,13 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 (PM)
+
+`stripLabel` optional short caption for the 64px strip (Social
+Network → "Social").
+
+
+
 # tabs.ts — Atomic-tab registry (single source of truth)
 
 Owner-decided IA (2026-06-11): tab ids, labels, icons, category
