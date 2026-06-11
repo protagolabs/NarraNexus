@@ -71,6 +71,12 @@ _dotenv_values = _read_dotenv_raw(_PROJECT_ROOT / ".env")
 _API_KEY_FIELDS = {"OPENAI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"}
 _DOTENV_PASSTHROUGH = {
     "BUNDLE_FETCH_ALLOWED_HOSTS",  # backend/routes/bundle.py — /import/from-url SSRF guard
+    # External API protocol (v0.3) — agent-bound nxk_ tokens. Read by
+    # backend/main.py at startup (conditional /v1/external/* router
+    # registration) and by backend/auth.py at every request
+    # (_is_external_api_enabled()). Default off — only deployments that
+    # want to expose the external integrator surface set this to 1.
+    "ENABLE_EXTERNAL_API",
 }
 for _k, _v in _dotenv_values.items():
     if not _v:
