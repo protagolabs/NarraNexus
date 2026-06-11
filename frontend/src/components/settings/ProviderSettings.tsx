@@ -141,6 +141,16 @@ const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[
   { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI / Anthropic)', protocol: 'openai' },
 ]
 
+// What the helper_llm "Default (recommended)" option actually resolves to,
+// per provider protocol. Mirrors backend ``_ONBOARD_HELPER_MODELS`` in
+// model_catalog.py (openai → gpt-5.4-mini, anthropic → claude-haiku-4-5).
+// Surfaced in the option label so users aren't left guessing what "default"
+// means. Keep in sync with the backend map.
+const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
+  openai: 'gpt-5.4-mini',
+  anthropic: 'claude-haiku-4-5',
+}
+
 // =============================================================================
 // Model Name Suggestions
 // =============================================================================
@@ -1028,11 +1038,16 @@ export function ProviderSettings() {
 
                 if (slot.key === 'helper_llm' && isOfficialProvider(curProv)) {
                   const llmModels = getModelsForSlot(curProv, 'helper_llm')
+                  // Show which concrete model "Default" resolves to, so the
+                  // user isn't left guessing (e.g. "Default · gpt-5.4-mini").
+                  const recHelperModel =
+                    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[curProv.protocol] || 'gpt-5.4-mini'
+                  const recHelperLabel = knownModels[recHelperModel]?.display_name || recHelperModel
                   return (
                     <>
                       <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
                         className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                        <option value="default">Default (recommended)</option>
+                        <option value="default">Default · {recHelperLabel} (recommended)</option>
                         {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
                       </select>
                       {cfg?.model && cfg.model !== 'default' && (

@@ -1,7 +1,20 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 ---
+## 2026-06-11 — helper "Default" option shows the model it resolves to
+
+The helper_llm slot's ``<option value="default">`` used to read just
+"Default (recommended)", leaving users unsure what model that actually
+runs. It now reads ``Default · <model> (recommended)`` — the concrete
+recommended model per provider protocol, from the module-level
+``RECOMMENDED_HELPER_MODEL_BY_PROTOCOL`` map (openai → gpt-5.4-mini,
+anthropic → claude-haiku-4-5). That map **mirrors backend
+``_ONBOARD_HELPER_MODELS``** in model_catalog.py and must stay in sync.
+Display-only; the persisted slot value is still the ``"default"``
+sentinel (which lets each helper call site pick its own fast model — see
+``openai_agents_sdk._resolve_model`` mode 1).
+
 ## 2026-06-10 (5th pass) — helper dropdown honors server required_protocols
 
 renderSlotRow's provider filter no longer uses SLOT_DEFS' hardcoded
