@@ -24,13 +24,11 @@ from xyz_agent_context.schema import (
     ProgressStatus,
     PathExecutionResult,
     ErrorMessage,
+    AUTH_EXPIRED_ERROR_TYPE,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import (
-    AUTH_EXPIRED_ERROR_TYPE,
-)
 
 if TYPE_CHECKING:
     from .context import RunContext

@@ -24,6 +24,7 @@ from xyz_agent_context.schema import (
     AgentThinking,
     AgentToolCall,
     ErrorMessage,
+    AUTH_EXPIRED_ERROR_TYPE,
 )
 from ._thinking_batcher import _ThinkingBatcher
 from .execution_state import ExecutionState
@@ -101,10 +102,10 @@ def _is_auth_failure(error_type: str, error_message: str) -> bool:
     return any(frag in em for frag in _AUTH_FAILURE_PHRASES)
 
 
+# ``AUTH_EXPIRED_ERROR_TYPE`` (imported from schema above) is the
 # error_type marker the runtime keys on to (a) prompt re-login and
-# (b) skip the helper-LLM no_reply fallback in step_3_agent_loop.
-AUTH_EXPIRED_ERROR_TYPE = "auth_expired"
-
+# (b) skip the helper-LLM no_reply fallback in step_3_agent_loop. It lives
+# in the schema layer to avoid a circular import with step_3_agent_loop.
 _AUTH_EXPIRED_USER_MESSAGE = (
     "Your coding-agent login has expired or is no longer valid, so this "
     "turn could not run. Re-authenticate — run `codex login` (or "
