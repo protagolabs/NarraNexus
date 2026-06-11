@@ -163,18 +163,20 @@ export function layoutAnnotations(
       .sort((a, b) => a.rect.y - b.rect.y);
     const noteX = railX[rail];
 
-    // Legend-style column: notes stack at an even rhythm (sorted by
-    // target Y), vertically centered in the available band — a tidy
-    // list instead of a ragged target-tracking scatter (round 7).
-    const totalH =
-      items.reduce((sum, m) => sum + estimateHeight(m), 0) +
-      Math.max(0, items.length - 1) * GAP;
-    const band = vh - FOOTER - HEADER;
-    let cursorY = HEADER + Math.max(0, (band - totalH) / 2);
+    // Proximity column: each note sits as close to its target's height
+    // as the stack allows (monotonic push-down keeps the column tidy
+    // and — because both notes and targets are sorted by Y — leaders
+    // can never cross). Round 8: the centered legend stranded the Cost
+    // note far from its chip.
+    let cursorY = HEADER;
+    let prevToY = -Infinity;
     items.forEach((m, idx) => {
       const h = estimateHeight(m);
       const targetY = m.rect.y + m.rect.height / 2;
-      const noteY = Math.min(Math.max(cursorY, HEADER), vh - FOOTER - h);
+      const noteY = Math.min(
+        Math.max(cursorY, targetY - h / 2, HEADER),
+        vh - FOOTER - h,
+      );
       cursorY = noteY + h + GAP;
 
       // Arrow leaves at the headline's vertical center, on the side
@@ -194,14 +196,20 @@ export function layoutAnnotations(
           rail === 'right'
             ? m.rect.x - 8
             : m.rect.x + m.rect.width + 8;
-        // Clamp entry to the rect's vertical extent (it always is, by
-        // construction) and keep the lane inside the corridor.
         to = { x: entryX, y: targetY };
         laneX =
           rail === 'right'
             ? Math.min(from.x + 26 + idx * 16, entryX - 18)
             : Math.max(from.x - 26 - idx * 16, entryX + 18);
       }
+
+      // Same-row targets (e.g. adjacent toolbar buttons) would put two
+      // entry segments on ONE horizontal line — indistinguishable.
+      // Step each subsequent entry down 12px (round 8).
+      if (to.y - prevToY < 14) {
+        to = { ...to, y: prevToY + 12 };
+      }
+      prevToY = to.y;
       placed.push({
         ...m,
         noteX,

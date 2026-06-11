@@ -4,6 +4,15 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 (round 8) — proximity column + staggered same-row entries
+
+Owner: Cost note stranded far from its chip (the centered legend's
+fault) and some lines overlapped. (1) Notes hug their target's height
+again (monotonic push-down keeps the column tidy and leaders
+non-crossing). (2) Targets sharing a row (adjacent toolbar buttons)
+used to receive two entry segments on ONE horizontal line — entries
+now step down 12px per subsequent same-row item.
+
 ## 2026-06-11 (round 7) — legend columns; ellipses deleted
 
 Owner: 排版仍乱 + 圈选显得不专业. Two changes: (1) rail notes now
