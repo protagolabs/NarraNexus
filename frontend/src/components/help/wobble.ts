@@ -62,53 +62,6 @@ export function wobblyArrow(from: Point, to: Point, headLen = 9): string {
 }
 
 /**
- * A hand-drawn ellipse around a rect (the "circle this button" stroke).
- * Four cubic-Bezier arcs (kappa control points) — a SMOOTH ellipse, not
- * a polygon — with a slight deterministic radius wobble per quadrant
- * and a small rotation of the start point so it reads as penwork.
- */
-export function wobblyEllipse(
-  cx: number,
-  cy: number,
-  rx: number,
-  ry: number,
-): string {
-  const KAPPA = 0.5523;
-  // Per-quadrant radius wobble (±4%) — deterministic.
-  const wob = (i: number) => 1 + jitter(cx + i * 7, cy - i * 3, 8 + i) * 0.04;
-  const rot = jitter(cx, cy, 4) * 0.25; // start-angle twist, ~±14°
-
-  const pts: Point[] = [];
-  for (let i = 0; i < 4; i++) {
-    const ang = rot + (i * Math.PI) / 2;
-    pts.push({
-      x: cx + Math.cos(ang) * rx * wob(i),
-      y: cy + Math.sin(ang) * ry * wob(i),
-    });
-  }
-  // Tangent direction at each cardinal point (perpendicular to radius).
-  const seg = (a: Point, b: Point, ia: number, ib: number) => {
-    const angA = rot + (ia * Math.PI) / 2;
-    const angB = rot + (ib * Math.PI) / 2;
-    const c1 = {
-      x: a.x - Math.sin(angA) * rx * KAPPA * -1,
-      y: a.y + Math.cos(angA) * ry * KAPPA,
-    };
-    const c2 = {
-      x: b.x + Math.sin(angB) * rx * KAPPA * -1,
-      y: b.y - Math.cos(angB) * ry * KAPPA,
-    };
-    return ` C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${b.x} ${b.y}`;
-  };
-  let d = `M ${pts[0].x} ${pts[0].y}`;
-  d += seg(pts[0], pts[1], 0, 1);
-  d += seg(pts[1], pts[2], 1, 2);
-  d += seg(pts[2], pts[3], 2, 3);
-  d += seg(pts[3], pts[0], 3, 4);
-  return d;
-}
-
-/**
  * A callout leader line: horizontal out of the note, a vertical run
  * along a dedicated lane, then a horizontal entry into the target —
  * with an arrowhead on the final (horizontal) segment. Lanes keep
