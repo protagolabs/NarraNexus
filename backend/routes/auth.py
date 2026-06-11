@@ -99,19 +99,6 @@ def _schedule_login_rearm(user_id: str) -> None:
         pass
 
 
-def _schedule_login_rearm(user_id: str) -> None:
-    """On login, kick a background edge-recovery: if the user is now provider-
-    ready (e.g. they topped up / fixed config while away), revive their
-    PAUSED_NO_QUOTA jobs. Non-blocking — login responds immediately."""
-    try:
-        from xyz_agent_context.module.job_module.job_recovery import (
-            schedule_user_no_quota_rearm,
-        )
-        schedule_user_no_quota_rearm(user_id)
-    except Exception:  # noqa: BLE001 — never let recovery wiring break login
-        pass
-
-
 @router.post("/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
     """
