@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/skills/SkillsPanel.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 ---
 
 # SkillsPanel.tsx — Orchestrator for skill management, install dialogs, and MCP servers
@@ -8,6 +8,11 @@ last_verified: 2026-06-10
 Owns the skill list query, the two install modals (GitHub / zip), the env
 config modal, the study-status polling, and (since 2026-05-14) embeds
 `[[MCPManager]]` as a second section.
+
+## 2026-06-11 — atomic `section` prop
+
+`section?: 'skills'|'mcp'` renders exactly one section (atomic IA);
+default unchanged.
 
 ## 2026-06-10 — embedded mode
 

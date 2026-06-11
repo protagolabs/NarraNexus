@@ -195,13 +195,17 @@ function EnvConfigDialog({
   );
 }
 
+export type SkillsSectionId = 'skills' | 'mcp';
+
 interface SkillsPanelProps {
   /** Skip the outer Card chrome + duplicate title when hosted inside the
-   *  bookmark drawer's AgentProfilePanel. Functional actions are kept. */
+   *  bookmark drawer. Functional actions are kept. */
   embedded?: boolean;
+  /** Atomic mode: render exactly ONE section (bookmark-strip IA). */
+  section?: SkillsSectionId;
 }
 
-export function SkillsPanel({ embedded = false }: SkillsPanelProps = {}) {
+export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}) {
   const { agentId, userId } = useConfigStore();
   const [installMode, setInstallMode] = useState<InstallMode>(null);
   const [configuringSkill, setConfiguringSkill] = useState<SkillInfo | null>(null);
@@ -311,6 +315,7 @@ export function SkillsPanel({ embedded = false }: SkillsPanelProps = {}) {
       <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
         <ScrollArea className="h-full">
           {/* ── Section: Skills ── */}
+          {(!section || section === 'skills') && (
           <section className="px-5 py-4">
             {error ? (
               <div className="flex items-center justify-center px-8 py-10">
@@ -361,10 +366,14 @@ export function SkillsPanel({ embedded = false }: SkillsPanelProps = {}) {
             )}
           </section>
 
+          )}
+
           {/* ── Section: MCP Servers ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
+          {(!section || section === 'mcp') && (
+          <section className={cn('px-5 py-5', !section && 'border-t border-[var(--rule)]')}>
             <MCPManager />
           </section>
+          )}
         </ScrollArea>
       </CardContent>
 

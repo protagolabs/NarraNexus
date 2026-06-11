@@ -1,10 +1,17 @@
 ---
 code_file: frontend/src/stores/bookmarkStore.ts
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
 
 # bookmarkStore.ts — Per-agent ambient state for the right-edge bookmark strip
+
+## 2026-06-11 — visibleSubBookmarks removed
+
+The overflow-aggregation helper died with dynamic small bookmarks
+(atomic-IA revision: tabs are static; signals render as status
+overlays via [[tabs]] deriveTabStatus). Signal actions and the
+two-layer reset/badge semantics are unchanged.
 
 ## 为什么存在
 

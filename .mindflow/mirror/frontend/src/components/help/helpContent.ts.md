@@ -4,6 +4,13 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11
+
+Strip anchors re-pointed after the atomic-IA revision:
+bookmarks.activity/bookmarks.agent → bookmarks.strip + bookmarks.jobs.
+
+
+
 # helpContent.ts — Annotation manifests (pure data)
 
 One exported array per view; entries reference `data-help-id` anchors.
