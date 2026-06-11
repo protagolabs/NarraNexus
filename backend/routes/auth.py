@@ -41,6 +41,8 @@ from xyz_agent_context.repository import (
 from xyz_agent_context.schema import (
     LoginRequest,
     LoginResponse,
+    NetmindLoginRequest,
+    NetmindLoginResponse,
     RegisterRequest,
     RegisterResponse,
     ActiveRunInfo,
@@ -167,6 +169,103 @@ async def login(request: LoginRequest):
     except Exception as e:
         logger.exception(f"Error during login: {e}")
         return LoginResponse(success=False, error=str(e))
+
+
+def _get_netmind_auth_client():
+    """Factory for the NetMind token-verification client.
+
+    Module-level indirection so tests can monkeypatch it; the client is
+    cheap to construct (stateless besides config), so no caching.
+    """
+    from xyz_agent_context.services.netmind_auth_client import NetmindAuthClient
+
+    return NetmindAuthClient()
+
+
+@router.post("/netmind-login", response_model=NetmindLoginResponse)
+async def netmind_login(request: NetmindLoginRequest, http_request: Request):
+    """Log in with a NetMind account token ("passport for visa" exchange).
+
+    Cloud mode only. The frontend obtains a NetMind loginToken (embedded
+    login form / OAuth popup / ?token= URL pass-through from netmind.ai
+    or Arena), we verify it once against NetMind's auth API, lazily
+    upsert the local user (user_id = NetMind userSystemCode) and issue
+    NarraNexus's own JWT. Subsequent requests are validated locally —
+    NetMind availability never becomes a per-request dependency.
+
+    Error mapping: invalid/expired NetMind token -> 401; NetMind
+    unreachable or contract drift -> 502 (never disguised as a user
+    credential failure).
+    """
+    from xyz_agent_context.services.netmind_auth_client import (
+        NetmindAuthError,
+        NetmindUpstreamError,
+    )
+
+    if not _is_cloud_mode():
+        raise HTTPException(status_code=404, detail="Not available in local mode")
+
+    try:
+        netmind_user = await _get_netmind_auth_client().verify_token(
+            request.netmind_token
+        )
+    except NetmindAuthError:
+        raise HTTPException(status_code=401, detail="Invalid NetMind token")
+    except NetmindUpstreamError as exc:
+        logger.error(f"netmind-login: upstream failure: {exc}")
+        raise HTTPException(
+            status_code=502, detail="NetMind auth service unavailable, try again"
+        )
+
+    db_client = await get_db_client()
+    user_repo = UserRepository(db_client)
+    user, is_new = await user_repo.upsert_netmind_user(
+        user_system_code=netmind_user.user_system_code,
+        email=netmind_user.email,
+        display_name=netmind_user.nickname,
+    )
+
+    # Seed the system-default free-tier quota on first login (registration
+    # is gone — first login IS registration now). Failures must not fail
+    # the login; staff can re-seed via /api/admin/quota/init.
+    quota_row = None
+    if is_new:
+        quota_service = getattr(http_request.app.state, "quota_service", None)
+        if quota_service is not None:
+            try:
+                quota_row = await quota_service.init_for_user(user.user_id)
+            except Exception as e:
+                logger.exception(
+                    f"netmind-login: failed to init quota for {user.user_id}: {e}"
+                )
+        try:
+            identify_user(user.user_id, {"signup_method": "netmind"})
+            track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
+        except Exception:  # noqa: BLE001 — analytics must never break login
+            pass
+
+    user_row = await db_client.get_one("users", {"user_id": user.user_id})
+    role = (user_row.get("role") if user_row else None) or "user"
+
+    token = create_token(user.user_id, role)
+    logger.info(
+        f"netmind-login ok: user={user.user_id} new={is_new} "
+        f"source={request.source or '-'}"
+    )
+    _schedule_login_rearm(user.user_id)
+
+    return NetmindLoginResponse(
+        success=True,
+        user_id=user.user_id,
+        token=token,
+        role=role,
+        is_new_user=is_new,
+        display_name=user.display_name,
+        email=user.email,
+        has_system_quota=quota_row is not None,
+        initial_input_tokens=(quota_row.initial_input_tokens if quota_row else 0),
+        initial_output_tokens=(quota_row.initial_output_tokens if quota_row else 0),
+    )
 
 
 @router.post("/register", response_model=RegisterResponse)

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-05-21
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — NetmindLoginRequest / NetmindLoginResponse
+
+Request carries `netmind_token` (+ optional `source` entry-channel tag, e.g. "arena", consumed by Phase 2 provisioning). Response mirrors RegisterResponse's quota-seeding fields (has_system_quota / initial_*_tokens) so the frontend welcome toast survives the register->netmind-login switch, and adds display_name/email because user_id is now an opaque 32-hex userSystemCode unfit for display.
 
 ## 2026-05-21 — Onboarding schemas
 

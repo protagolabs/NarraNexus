@@ -257,6 +257,10 @@ def require_auth(request: Request) -> CurrentUser:
 AUTH_EXEMPT_PATHS = {
     "/api/auth/login",
     "/api/auth/register",
+    # NetMind-account login (cloud): carries its own credential — the
+    # NetMind loginToken is verified server-side against NetMind's auth
+    # API inside the route handler, then exchanged for our own JWT.
+    "/api/auth/netmind-login",
     "/api/auth/create-user",
     # Internal invite-issuance endpoint — server-to-server, called by the
     # narranexus-website backend. It authenticates via the

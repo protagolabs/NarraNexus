@@ -35,6 +35,40 @@ class LoginResponse(BaseModel):
     error: Optional[str] = None
 
 
+class NetmindLoginRequest(BaseModel):
+    """Request model for NetMind-account login (cloud mode).
+
+    `netmind_token` is the loginToken (JWT) the frontend obtained from
+    NetMind's auth API (embedded login form / OAuth popup / ?token= URL
+    pass-through). `source` tags the entry channel (e.g. "arena") for
+    downstream provisioning; optional and free-form.
+    """
+    netmind_token: str
+    source: Optional[str] = None
+
+
+class NetmindLoginResponse(BaseModel):
+    """Response model for NetMind-account login.
+
+    On success the backend has verified the NetMind token, upserted the
+    local user (user_id = NetMind userSystemCode) and issued NarraNexus's
+    own JWT — subsequent requests never touch NetMind again.
+    """
+    success: bool
+    user_id: Optional[str] = None
+    token: Optional[str] = None
+    role: Optional[str] = None
+    is_new_user: bool = False
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    # Free-tier seeding outcome (first login only) — mirrors the fields
+    # RegisterResponse carried so the frontend welcome toast keeps working.
+    has_system_quota: bool = False
+    initial_input_tokens: int = 0
+    initial_output_tokens: int = 0
+    error: Optional[str] = None
+
+
 class RegisterRequest(BaseModel):
     """Request model for cloud user registration"""
     user_id: str
