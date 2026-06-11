@@ -41,6 +41,7 @@ import {
 } from '@/components/bookmarks';
 import type { BookmarkTab, BookmarkOpenTarget } from '@/components/bookmarks';
 import { CostPopover } from '@/components/cost/CostPopover';
+import { HelpButton, CHAT_VIEW_ANNOTATIONS } from '@/components/help';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
 import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
@@ -217,7 +218,7 @@ export function ChatView() {
             {/* Cost chip — formerly pinned in the context-panel tab bar;
                 the panel is gone, the chat card's top-right corner is its
                 new home. */}
-            <div className="absolute top-2 right-2 z-20">
+            <div className="absolute top-2 right-2 z-20" data-help-id="chat.cost">
               <CostPopover />
             </div>
             <ChatPanel onAgentComplete={refreshAll} />
@@ -290,6 +291,9 @@ export function ChatView() {
           onOpen={handleBookmarkOpen}
         />
       )}
+
+      {/* Hand-annotated page guide — bottom-left ?, spec §12 */}
+      <HelpButton annotations={CHAT_VIEW_ANNOTATIONS} />
 
       {/* Slide-over drawer (default, unpinned) */}
       {!drawerPinned && agentId && (

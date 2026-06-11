@@ -365,22 +365,26 @@ export function AgentList({ collapsed }: AgentListProps) {
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-3 pb-2">
         <div className="flex items-center justify-between px-1 gap-2">
-          <BracketSectionLabel
-            trailing={<span className="text-[10px] opacity-60">{rawAgents.length}</span>}
-          >
-            Agents
-          </BracketSectionLabel>
-          <div className="flex items-center gap-1 shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleCreateAgent}
-              disabled={creatingAgent}
-              className="w-7 h-7"
-              title="Create New Agent"
+          <span data-help-id="sidebar.agent-list">
+            <BracketSectionLabel
+              trailing={<span className="text-[10px] opacity-60">{rawAgents.length}</span>}
             >
-              <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
-            </Button>
+              Agents
+            </BracketSectionLabel>
+          </span>
+          <div className="flex items-center gap-1 shrink-0">
+            <span data-help-id="sidebar.create-agent">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCreateAgent}
+                disabled={creatingAgent}
+                className="w-7 h-7"
+                title="Create New Agent"
+              >
+                <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
+              </Button>
+            </span>
             <Button
               variant="ghost"
               size="icon"
@@ -401,11 +405,13 @@ export function AgentList({ collapsed }: AgentListProps) {
             >
               <RefreshCw className={cn('w-3 h-3', loadingAgents && 'animate-spin')} />
             </Button>
-            <AgentsHeaderMenu
-              onImport={handleImport}
-              onExport={handleExport}
-              onManageTeams={handleManageTeams}
-            />
+            <span data-help-id="sidebar.agents-menu">
+              <AgentsHeaderMenu
+                onImport={handleImport}
+                onExport={handleExport}
+                onManageTeams={handleManageTeams}
+              />
+            </span>
           </div>
         </div>
       </div>

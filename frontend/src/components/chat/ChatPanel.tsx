@@ -1096,7 +1096,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        <div className="flex gap-2.5 items-stretch">
+        <div className="flex gap-2.5 items-stretch" data-help-id="chat.composer">
           <input
             ref={fileInputRef}
             type="file"

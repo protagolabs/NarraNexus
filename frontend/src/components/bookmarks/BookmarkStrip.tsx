@@ -195,6 +195,7 @@ function BigBookmark({
             type="button"
             aria-label={label}
             aria-expanded={expanded}
+            data-help-id={`bookmarks.${id}`}
             className={cn(
               'relative flex flex-col items-center justify-center gap-1 w-full py-3',
               'cursor-pointer transition-colors duration-150 rounded-sm',
