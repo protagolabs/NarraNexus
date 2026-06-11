@@ -267,3 +267,60 @@ async def test_failed_rows_not_reprocessed_automatically(db_client):
 
     triggered = await worker._collect_triggered_scopes()
     assert len(triggered) == 0, "'failed' rows must not be auto-reprocessed"
+
+
+# ── 2026-06-11 P0 regression: owner credential injection ────────────────────
+#
+# The worker runs in the backend lifespan, outside any HTTP request, so the
+# auth_middleware ContextVar injection never reaches it. Production now
+# resolves the agent OWNER's provider config per scope before calling the
+# LLM. These tests pin the wiring.
+
+@pytest.mark.asyncio
+async def test_inject_owner_credentials_resolves_for_agent_owner(db_client):
+    worker = _make_worker(db_client)
+    db_client.get_one = AsyncMock(return_value={"agent_id": "agent_x", "created_by": "user_owner"})
+
+    with patch(
+        "xyz_agent_context.services.memory_consolidation_worker.resolve_and_set_provider_for_user",
+        new=AsyncMock(),
+    ) as resolver:
+        await worker._inject_owner_credentials("agent_x")
+        resolver.assert_awaited_once_with("user_owner", db_client)
+
+
+@pytest.mark.asyncio
+async def test_inject_owner_credentials_no_owner_is_noop(db_client):
+    worker = _make_worker(db_client)
+    db_client.get_one = AsyncMock(return_value=None)
+
+    with patch(
+        "xyz_agent_context.services.memory_consolidation_worker.resolve_and_set_provider_for_user",
+        new=AsyncMock(),
+    ) as resolver:
+        await worker._inject_owner_credentials("agent_ghost")
+        resolver.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolver_failure_isolates_scope_with_facts_intact(db_client):
+    """A quota/no-provider verdict raises out of the engine path; the scope
+    must be isolated as failed — and because the failure happens BEFORE
+    engine.consolidate, no raw fact is tombstoned. pending_count is
+    untouched: the facts are still owed a consolidation."""
+    worker = _make_worker(db_client)
+    worker._engine_consolidate = AsyncMock(side_effect=RuntimeError("FREE_TIER_EXHAUSTED"))
+
+    key = {"agent_id": "agent_q", "scope_type": "agent", "scope_id": "", "kind": "observation"}
+    await db_client.insert(
+        "memory_consolidation_queue",
+        {**key, "status": "dirty", "pending_count": 10,
+         "last_dirty_at": utc_now(), "updated_at": utc_now()},
+    )
+
+    await worker._process_scope(key)
+
+    row = await db_client.get_one("memory_consolidation_queue", key)
+    assert row["status"] == "failed"
+    assert row["consolidation_failed_at"] is not None
+    assert int(row["pending_count"]) == 10
