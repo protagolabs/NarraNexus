@@ -21,41 +21,50 @@ from pydantic import BaseModel
 # ===== Auth Schemas =====
 
 class LoginRequest(BaseModel):
-    """Request model for login (local: user_id only, cloud: user_id + password)"""
+    """Request model for local-mode login (user_id only — OS user is the
+    trust boundary). Cloud login is NetmindLoginRequest."""
     user_id: str
-    password: Optional[str] = None  # Required in cloud mode, optional in local
 
 
 class LoginResponse(BaseModel):
-    """Response model for login"""
+    """Response model for local-mode login"""
     success: bool
     user_id: Optional[str] = None
-    token: Optional[str] = None  # JWT token (cloud mode only)
-    role: Optional[str] = None  # User role (cloud mode only)
     error: Optional[str] = None
 
 
-class RegisterRequest(BaseModel):
-    """Request model for cloud user registration"""
-    user_id: str
-    password: str
-    invite_code: str
-    display_name: Optional[str] = None
+class NetmindLoginRequest(BaseModel):
+    """Request model for NetMind-account login (cloud mode).
+
+    `netmind_token` is the loginToken (JWT) the frontend obtained from
+    NetMind's auth API (embedded login form / OAuth popup / ?token= URL
+    pass-through). `source` tags the entry channel (e.g. "arena") for
+    downstream provisioning; optional and free-form.
+    """
+    netmind_token: str
+    source: Optional[str] = None
 
 
-class RegisterResponse(BaseModel):
-    """Response model for registration"""
+class NetmindLoginResponse(BaseModel):
+    """Response model for NetMind-account login.
+
+    On success the backend has verified the NetMind token, upserted the
+    local user (user_id = NetMind userSystemCode) and issued NarraNexus's
+    own JWT — subsequent requests never touch NetMind again.
+    """
     success: bool
     user_id: Optional[str] = None
     token: Optional[str] = None
-    error: Optional[str] = None
-    # Populated only when the system-default free-tier quota feature is
-    # enabled and a quota row was successfully seeded for the new user.
-    # The frontend uses these to render a welcome toast on successful
-    # cloud registration.
+    role: Optional[str] = None
+    is_new_user: bool = False
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    # Free-tier seeding outcome (first login only) — mirrors the fields
+    # RegisterResponse carried so the frontend welcome toast keeps working.
     has_system_quota: bool = False
     initial_input_tokens: int = 0
     initial_output_tokens: int = 0
+    error: Optional[str] = None
 
 
 class ActiveRunInfo(BaseModel):
@@ -110,10 +119,10 @@ class AgentListResponse(BaseModel):
 
 
 class CreateAgentRequest(BaseModel):
-    """Request model for creating agent"""
+    """Request model for creating agent. Identity (created_by) comes from
+    auth_middleware, never from the body."""
     agent_name: Optional[str] = None
     agent_description: Optional[str] = None
-    created_by: str
 
 
 class CreateAgentResponse(BaseModel):
@@ -159,8 +168,7 @@ class CreateUserResponse(BaseModel):
 
 
 class UpdateTimezoneRequest(BaseModel):
-    """Request model for updating user timezone"""
-    user_id: str
+    """Request model for updating the authenticated user's timezone."""
     timezone: str  # IANA timezone format, e.g., 'Asia/Shanghai'
 
 
@@ -203,8 +211,8 @@ class UpdateOnboardingRequest(BaseModel):
 
     Only fields explicitly set to True are applied (write-once-true) — None
     and False are ignored, so a client can never un-complete a step.
+    Identity comes from auth_middleware, never from the body.
     """
-    user_id: str
     first_agent_created: Optional[bool] = None
     template_applied: Optional[bool] = None
     dismissed: Optional[bool] = None

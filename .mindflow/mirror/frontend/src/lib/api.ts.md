@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — netmindLogin (NetMind token exchange)
+
+Added `netmindLogin(netmindToken, source?)` → `POST /api/auth/netmind-login`.
+POSTs `{ netmind_token, source }` to the backend which validates the NetMind
+access token and returns a self-issued JWT (`NetmindLoginResponse`). The
+response type mirrors `RegisterResponse` in shape (user_id, token, role,
+has_system_quota, initial_input_tokens, initial_output_tokens) plus
+`is_new_user`, `display_name`, and `email` which are specific to the NetMind
+identity handoff. `source` is optional — callers pass `'arena'` to indicate
+origination from the Arena SSO flow.
+
+`NetmindLoginResponse` is defined in `@/types/api.ts` immediately after
+`LoginResponse`.
 
 ## 2026-06-10 — analytics methods: identity from auth header only (review fix)
 

@@ -33,10 +33,9 @@ class Settings:
     """
 
     # ── CORS ─────────────────────────────────────────────────────────────────
-    # narra.nexus is the marketing site. Its invite-code form normally calls
-    # the backend through a server-side proxy route (no CORS needed), but the
-    # origin is allowlisted here so a direct browser call also works. Cloud
-    # deploys override the whole list via CORS_ORIGINS.
+    # narra.nexus is the marketing site; its origin is allowlisted so a
+    # direct browser call also works. Cloud deploys override the whole
+    # list via CORS_ORIGINS.
     _DEFAULT_CORS_ORIGINS = (
         "http://localhost:5173,"
         "http://localhost:3000,"
@@ -71,13 +70,6 @@ class Settings:
     # Maximum upload size in bytes (default 50 MB)
     max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
-    # ── Invite codes (cloud-mode registration gate, Mode B) ──────────────────
-    # Auto-issue cap: POST /api/invite/request issues a live code while the
-    # number of codes in status issued+used is below this; past it, new
-    # requests are waitlisted (code generated, no email) until an admin
-    # promotes them. This is the lever that actually caps web-version user
-    # count.
-    invite_auto_issue_cap: int = int(os.getenv("INVITE_AUTO_ISSUE_CAP", "200"))
 
 
 settings = Settings()

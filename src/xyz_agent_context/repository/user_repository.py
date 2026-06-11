@@ -82,6 +82,48 @@ class UserRepository(BaseRepository[User]):
 
         return await self.insert(user)
 
+    async def upsert_netmind_user(
+        self,
+        user_system_code: str,
+        email: str,
+        display_name: Optional[str] = None,
+    ) -> tuple[User, bool]:
+        """Lazily create or refresh the local row for a NetMind user.
+
+        NetMind login has no separate registration step: the first verified
+        login creates the local user (keyed by user_id = userSystemCode);
+        subsequent logins mirror email / display_name drift from NetMind and
+        bump last_login_time. Incoming None values never clobber existing
+        fields.
+
+        Returns:
+            (user, is_new) — the fresh row and whether it was just created.
+        """
+        logger.debug(f"    → UserRepository.upsert_netmind_user({user_system_code})")
+
+        existing = await self.get_user(user_system_code)
+        if existing is None:
+            await self.add_user(
+                user_id=user_system_code,
+                user_type="individual",
+                display_name=display_name,
+                email=email,
+            )
+            await self.update_last_login(user_system_code)
+            created = await self.get_user(user_system_code)
+            return created, True
+
+        updates: Dict[str, Any] = {
+            "last_login_time": datetime.now(dt_timezone.utc)
+        }
+        if email and existing.email != email:
+            updates["email"] = email
+        if display_name and existing.display_name != display_name:
+            updates["display_name"] = display_name
+        await self.update_user(user_system_code, updates)
+        refreshed = await self.get_user(user_system_code)
+        return refreshed, False
+
     async def update_user(self, user_id: str, updates: Dict[str, Any]) -> int:
         """Update user information"""
         logger.debug(f"    → UserRepository.update_user({user_id})")

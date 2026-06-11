@@ -1,9 +1,9 @@
 /**
  * Login Page · NM Design System (M3 Wave 2)
  *
- * Supports both Local (user_id only) and Cloud (user_id + password) modes.
- * Restyled to use NM BracketMarkLogo + FormField/TextInput + Button + Chip
- * primitives. Layout preserves the original document-style centered card.
+ * Cloud mode: NetMind email/password + OAuth (Google, Microsoft, GitHub) + bind dialog.
+ * Local mode: user_id only (unchanged).
+ * Layout preserves the original document-style centered card.
  */
 
 import { useState } from 'react';
@@ -21,9 +21,13 @@ import {
 } from '@/components/nm';
 import { isSafeReturnTo } from '@/lib/safe-return';
 import { CreateUserDialog } from './CreateUserDialog';
+import { useNetmindAuth } from '@/lib/netmindAuth/useNetmindAuth';
+import { AuthBindDialog } from '@/components/auth/AuthBindDialog';
+import { getNetmindConfig } from '@/lib/runtimeConfig';
 
 export function LoginPage() {
   const [userId, setUserId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -32,7 +36,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
-  const { login, setAgents, setAgentId } = useConfigStore();
+  const { login, setNetmindToken, setAgents, setAgentId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const setMode = useRuntimeStore((s) => s.setMode);
   const setCloudApiUrl = useRuntimeStore((s) => s.setCloudApiUrl);
@@ -40,19 +44,38 @@ export function LoginPage() {
   const isCloudMode = mode === 'cloud-app' || mode === 'cloud-web';
   const canChangeMode = mode !== 'cloud-web';
 
+  const netmind = useNetmindAuth({
+    onSuccess: async (res, loginToken) => {
+      if (!res.success || !res.user_id) {
+        setError(res.error || 'Login failed');
+        return;
+      }
+      login(res.user_id, res.token || undefined, res.role || undefined, {
+        displayName: res.display_name,
+        email: res.email,
+      });
+      setNetmindToken(loginToken);
+      const agentsRes = await api.getAgents();
+      if (agentsRes.success && agentsRes.agents.length > 0) {
+        setAgents(agentsRes.agents);
+        setAgentId(agentsRes.agents[0].agent_id);
+      }
+      const params = new URLSearchParams(location.search);
+      const next = params.get('next');
+      navigate(isSafeReturnTo(next) ? next : '/');
+    },
+  });
+
   const handleChangeMode = () => {
     setCloudApiUrl('');
     setMode(null);
     navigate('/mode-select');
   };
 
-  const handleLogin = async () => {
+  // Local-mode only login (cloud mode uses netmind hook instead)
+  const handleLocalLogin = async () => {
     if (!userId.trim()) {
       setError('Please enter your User ID');
-      return;
-    }
-    if (isCloudMode && !password) {
-      setError('Please enter your password');
       return;
     }
 
@@ -60,7 +83,7 @@ export function LoginPage() {
     setError('');
 
     try {
-      const loginRes = await api.login(userId.trim(), isCloudMode ? password : undefined);
+      const loginRes = await api.login(userId.trim(), undefined);
       if (!loginRes.success) {
         setError(loginRes.error || 'Login failed');
         setLoading(false);
@@ -89,8 +112,8 @@ export function LoginPage() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleLogin();
+  const handleLocalKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') void handleLocalLogin();
   };
 
   return (
@@ -146,90 +169,194 @@ export function LoginPage() {
         <Divider />
 
         {/* Form */}
-        <div className="space-y-5 mt-6">
-          <FormField label="User ID">
-            <TextInput
-              type="text"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="your_username"
-              disabled={loading}
-              error={!!error}
-              autoFocus
-              className="h-12"
-            />
-          </FormField>
+        {isCloudMode ? (
+          /* Cloud: NetMind email + password + OAuth */
+          <div className="space-y-5 mt-6">
+            <FormField label="Email">
+              <TextInput
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                disabled={netmind.loading}
+                error={!!(netmind.error || error)}
+                autoFocus
+                className="h-12"
+              />
+            </FormField>
 
-          {isCloudMode && (
             <FormField label="Password">
               <TextInput
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={handleKeyDown}
                 placeholder="••••••••"
-                disabled={loading}
-                error={!!error}
+                disabled={netmind.loading}
+                error={!!(netmind.error || error)}
                 className="h-12"
               />
             </FormField>
-          )}
 
-          {error && (
-            <p
-              className="text-xs animate-slide-up flex items-center gap-1.5"
-              style={{ color: 'var(--color-error)' }}
-              role="alert"
-            >
-              <span
-                className="w-1 h-1 rounded-full inline-block"
-                style={{ background: 'var(--color-error)' }}
-              />
-              {error}
-            </p>
-          )}
-
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={handleLogin}
-            disabled={loading || !userId.trim() || (isCloudMode && !password)}
-            loading={loading}
-            className="w-full"
-            trailing={!loading ? <ArrowRight className="w-4 h-4" /> : undefined}
-          >
-            {loading ? 'Connecting…' : isCloudMode ? 'Sign In' : 'Access Terminal'}
-          </Button>
-
-          <div className="relative py-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t" style={{ borderColor: 'var(--nm-hairline)' }} />
-            </div>
-            <div className="relative flex justify-center">
-              <span
-                className="px-3 text-[10px] uppercase tracking-wider"
-                style={{
-                  background: 'var(--nm-card)',
-                  color: 'var(--nm-ink50)',
-                  fontFamily: 'var(--font-mono)',
-                }}
+            {(netmind.error || error) && (
+              <p
+                className="text-xs animate-slide-up flex items-center gap-1.5"
+                style={{ color: 'var(--color-error)' }}
+                role="alert"
               >
-                or
-              </span>
-            </div>
-          </div>
+                <span
+                  className="w-1 h-1 rounded-full inline-block"
+                  style={{ background: 'var(--color-error)' }}
+                />
+                {netmind.error || error}
+              </p>
+            )}
 
-          {isCloudMode ? (
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => void netmind.emailLogin(email, password)}
+              disabled={netmind.loading || !email.trim() || !password}
+              loading={netmind.loading}
+              className="w-full"
+              trailing={!netmind.loading ? <ArrowRight className="w-4 h-4" /> : undefined}
+            >
+              {netmind.loading ? 'Connecting…' : 'Sign In'}
+            </Button>
+
+            <div className="relative py-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t" style={{ borderColor: 'var(--nm-hairline)' }} />
+              </div>
+              <div className="relative flex justify-center">
+                <span
+                  className="px-3 text-[10px] uppercase tracking-wider"
+                  style={{
+                    background: 'var(--nm-card)',
+                    color: 'var(--nm-ink50)',
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  or
+                </span>
+              </div>
+            </div>
+
             <Button
               variant="secondary"
-              onClick={() => navigate('/register')}
+              onClick={() => netmind.startOAuth('GOOGLE')}
+              disabled={netmind.loading}
               className="w-full"
-              leading={<UserPlus className="w-4 h-4" />}
             >
-              Create Account
+              Sign in with Google
             </Button>
-          ) : (
+
+            <Button
+              variant="secondary"
+              onClick={() => netmind.startOAuth('MICROSOFT')}
+              disabled={netmind.loading}
+              className="w-full"
+            >
+              Sign in with Microsoft
+            </Button>
+
+            <Button
+              variant="secondary"
+              onClick={() => netmind.startOAuth('GITHUB')}
+              disabled={netmind.loading}
+              className="w-full"
+            >
+              Sign in with GitHub
+            </Button>
+
+            <div className="relative py-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t" style={{ borderColor: 'var(--nm-hairline)' }} />
+              </div>
+              <div className="relative flex justify-center">
+                <span
+                  className="px-3 text-[10px] uppercase tracking-wider"
+                  style={{
+                    background: 'var(--nm-card)',
+                    color: 'var(--nm-ink50)',
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  or
+                </span>
+              </div>
+            </div>
+
+            <a
+              href={getNetmindConfig().registerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--nm-ink)] h-10 px-4 text-sm bg-[color:var(--nm-raised)] text-[color:var(--nm-ink)] border border-[color:var(--nm-ink)] hover:bg-[color:var(--nm-paper-warm)] w-full"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Create Account</span>
+            </a>
+          </div>
+        ) : (
+          /* Local: user_id only — original flow preserved */
+          <div className="space-y-5 mt-6">
+            <FormField label="User ID">
+              <TextInput
+                type="text"
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                onKeyDown={handleLocalKeyDown}
+                placeholder="your_username"
+                disabled={loading}
+                error={!!error}
+                autoFocus
+                className="h-12"
+              />
+            </FormField>
+
+            {error && (
+              <p
+                className="text-xs animate-slide-up flex items-center gap-1.5"
+                style={{ color: 'var(--color-error)' }}
+                role="alert"
+              >
+                <span
+                  className="w-1 h-1 rounded-full inline-block"
+                  style={{ background: 'var(--color-error)' }}
+                />
+                {error}
+              </p>
+            )}
+
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => void handleLocalLogin()}
+              disabled={loading || !userId.trim()}
+              loading={loading}
+              className="w-full"
+              trailing={!loading ? <ArrowRight className="w-4 h-4" /> : undefined}
+            >
+              {loading ? 'Connecting…' : 'Access Terminal'}
+            </Button>
+
+            <div className="relative py-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t" style={{ borderColor: 'var(--nm-hairline)' }} />
+              </div>
+              <div className="relative flex justify-center">
+                <span
+                  className="px-3 text-[10px] uppercase tracking-wider"
+                  style={{
+                    background: 'var(--nm-card)',
+                    color: 'var(--nm-ink50)',
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  or
+                </span>
+              </div>
+            </div>
+
             <Button
               variant="secondary"
               onClick={() => setShowCreateDialog(true)}
@@ -238,8 +365,8 @@ export function LoginPage() {
             >
               Create New User
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="mt-10 pt-5 border-t" style={{ borderColor: 'var(--nm-hairline)' }}>
@@ -264,6 +391,16 @@ export function LoginPage() {
         <CreateUserDialog
           onClose={() => setShowCreateDialog(false)}
           onCreated={(id) => setUserId(id)}
+        />
+      )}
+
+      {netmind.bindInfo && (
+        <AuthBindDialog
+          bindInfo={netmind.bindInfo}
+          loading={netmind.loading}
+          error={netmind.error}
+          onSubmit={netmind.submitBind}
+          onClose={netmind.closeBind}
         />
       )}
     </div>

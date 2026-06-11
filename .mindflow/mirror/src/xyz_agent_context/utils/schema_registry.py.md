@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — invite_codes table marked retired (data kept)
+
+Table definition stays so existing rows survive: they hold the only old-user-id -> email mapping needed by scripts/migrate_users_to_netmind.py. No code writes the table anymore; safe to drop after migration completes.
+
 ## 2026-06-10 — user_slots.params_json column
 
 `user_slots` gained a nullable `params_json` (TEXT/MEDIUMTEXT) column: one

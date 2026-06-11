@@ -36,13 +36,12 @@ _ALLOWED_FUNNEL_EVENTS = frozenset({
 from xyz_agent_context.repository import (
     AgentRepository,
     UserRepository,
-    InviteCodeRepository,
 )
 from xyz_agent_context.schema import (
     LoginRequest,
     LoginResponse,
-    RegisterRequest,
-    RegisterResponse,
+    NetmindLoginRequest,
+    NetmindLoginResponse,
     ActiveRunInfo,
     AgentInfo,
     AgentListResponse,
@@ -60,8 +59,6 @@ from xyz_agent_context.schema import (
     UpdateOnboardingRequest,
 )
 from backend.auth import (
-    hash_password,
-    verify_password,
     create_token,
     _is_cloud_mode,
     resolve_current_user_id,
@@ -102,11 +99,17 @@ def _schedule_login_rearm(user_id: str) -> None:
 @router.post("/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
     """
-    Login with user_id (+ password in cloud mode).
+    Local-mode login with user_id only (OS user is the trust boundary).
 
-    - Local mode: user_id only, no password required
-    - Cloud mode: user_id + password, returns JWT token
+    Cloud mode has no password login anymore — cloud identity lives in
+    the NetMind account system; use POST /api/auth/netmind-login.
     """
+    if _is_cloud_mode():
+        raise HTTPException(
+            status_code=404,
+            detail="Password login is gone. Use /api/auth/netmind-login.",
+        )
+
     logger.info(f"Login attempt for user: {request.user_id}")
 
     try:
@@ -119,158 +122,119 @@ async def login(request: LoginRequest):
             logger.warning(f"User {request.user_id} not found")
             return LoginResponse(
                 success=False,
-                error="User not found. Please register first." if _is_cloud_mode()
-                    else "User not found. Please contact administrator to create an account."
+                error="User not found. Please contact administrator to create an account.",
             )
 
-        if _is_cloud_mode():
-            # Cloud mode: verify password and return JWT
-            if not request.password:
-                return LoginResponse(success=False, error="Password is required")
+        await user_repo.update_last_login(request.user_id)
+        logger.info(f"User {request.user_id} logged in (local)")
+        _schedule_login_rearm(request.user_id)
+        return LoginResponse(
+            success=True,
+            user_id=request.user_id,
+        )
 
-            password_hash = user.password_hash if hasattr(user, 'password_hash') else None
-            if not password_hash:
-                # Legacy user without password — check raw DB row
-                user_row = await db_client.get_one("users", {"user_id": request.user_id})
-                password_hash = user_row.get("password_hash") if user_row else None
-
-            if not password_hash:
-                return LoginResponse(success=False, error="Account not set up for cloud login. Please register.")
-
-            if not verify_password(request.password, password_hash):
-                return LoginResponse(success=False, error="Invalid password")
-
-            # Get role
-            user_row = await db_client.get_one("users", {"user_id": request.user_id})
-            role = (user_row.get("role") if user_row else None) or "user"
-
-            await user_repo.update_last_login(request.user_id)
-            token = create_token(request.user_id, role)
-            logger.info(f"User {request.user_id} logged in (cloud, role={role})")
-            _schedule_login_rearm(request.user_id)
-            return LoginResponse(
-                success=True,
-                user_id=request.user_id,
-                token=token,
-                role=role,
-            )
-        else:
-            # Local mode: user_id only
-            await user_repo.update_last_login(request.user_id)
-            logger.info(f"User {request.user_id} logged in (local)")
-            _schedule_login_rearm(request.user_id)
-            return LoginResponse(
-                success=True,
-                user_id=request.user_id,
-            )
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error during login: {e}")
         return LoginResponse(success=False, error=str(e))
 
 
-@router.post("/register", response_model=RegisterResponse)
-async def register(request: RegisterRequest, http_request: Request):
+def _get_netmind_auth_client():
+    """Factory for the NetMind token-verification client.
+
+    Module-level indirection so tests can monkeypatch it; the client is
+    cheap to construct (stateless besides config), so no caching.
     """
-    Register a new user (cloud mode only). Requires invite code.
+    from xyz_agent_context.services.netmind_auth_client import NetmindAuthClient
+
+    return NetmindAuthClient()
+
+
+@router.post("/netmind-login", response_model=NetmindLoginResponse)
+async def netmind_login(request: NetmindLoginRequest, http_request: Request):
+    """Log in with a NetMind account token ("passport for visa" exchange).
+
+    Cloud mode only. The frontend obtains a NetMind loginToken (embedded
+    login form / OAuth popup / ?token= URL pass-through from netmind.ai
+    or Arena), we verify it once against NetMind's auth API, lazily
+    upsert the local user (user_id = NetMind userSystemCode) and issue
+    NarraNexus's own JWT. Subsequent requests are validated locally —
+    NetMind availability never becomes a per-request dependency.
+
+    Error mapping: invalid/expired NetMind token -> 401; NetMind
+    unreachable or contract drift -> 502 (never disguised as a user
+    credential failure).
     """
-    logger.info(f"Registration attempt for user: {request.user_id}")
+    from xyz_agent_context.services.netmind_auth_client import (
+        NetmindAuthError,
+        NetmindUpstreamError,
+    )
+
+    if not _is_cloud_mode():
+        raise HTTPException(status_code=404, detail="Not available in local mode")
 
     try:
-        if not _is_cloud_mode():
-            return RegisterResponse(success=False, error="Registration is only available in cloud mode")
+        netmind_user = await _get_netmind_auth_client().verify_token(
+            request.netmind_token
+        )
+    except NetmindAuthError:
+        raise HTTPException(status_code=401, detail="Invalid NetMind token")
+    except NetmindUpstreamError as exc:
+        logger.error(f"netmind-login: upstream failure: {exc}")
+        raise HTTPException(
+            status_code=502, detail="NetMind auth service unavailable, try again"
+        )
 
-        # Validate password length
-        if len(request.password) < 6:
-            return RegisterResponse(success=False, error="Password must be at least 6 characters")
+    db_client = await get_db_client()
+    user_repo = UserRepository(db_client)
+    user, is_new = await user_repo.upsert_netmind_user(
+        user_system_code=netmind_user.user_system_code,
+        email=netmind_user.email,
+        display_name=netmind_user.nickname,
+    )
 
-        # Validate user_id
-        if len(request.user_id) < 2 or len(request.user_id) > 32:
-            return RegisterResponse(success=False, error="Username must be 2-32 characters")
-
-        db_client = await get_db_client()
-        user_repo = UserRepository(db_client)
-        invite_repo = InviteCodeRepository(db_client)
-        invite_code = (request.invite_code or "").strip()
-
-        # Validate the invite code: it must exist and still be 'issued'.
-        # This is a fast pre-check purely for a clear error message — the
-        # atomic consume() below is the real gate against concurrent reuse.
-        invite = await invite_repo.get_by_code(invite_code)
-        if invite is None:
-            return RegisterResponse(success=False, error="Invalid invite code")
-        if invite.status != "issued":
-            if invite.status == "used":
-                return RegisterResponse(success=False, error="This invite code has already been used")
-            return RegisterResponse(success=False, error="This invite code is no longer valid")
-
-        # Check if user already exists
-        existing = await user_repo.get_user(request.user_id)
-        if existing:
-            return RegisterResponse(success=False, error="Username already taken")
-
-        # Atomically consume the invite code (issued -> used). The
-        # `status = 'issued'` filter inside consume() is the race guard:
-        # if another registration already claimed this code, `consumed`
-        # is False and we stop here.
-        consumed = await invite_repo.consume(invite_code, request.user_id)
-        if not consumed:
-            return RegisterResponse(success=False, error="This invite code has already been used")
-
-        # Create user with password. If the insert fails, revert the code
-        # back to 'issued' so a failed registration doesn't burn it.
-        try:
-            password_hash = hash_password(request.password)
-            await db_client.insert("users", {
-                "user_id": request.user_id,
-                "password_hash": password_hash,
-                "role": "user",
-                "user_type": "individual",
-                "display_name": request.display_name or request.user_id,
-                "status": "active",
-            })
-        except Exception as insert_err:
-            await invite_repo.revert_consume(invite_code)
-            logger.exception(
-                f"register: user insert failed, reverted invite code "
-                f"{invite_code}: {insert_err}"
-            )
-            return RegisterResponse(success=False, error="Registration failed, please try again")
-
-        # Generate token
-        token = create_token(request.user_id, "user")
-        logger.info(f"User {request.user_id} registered successfully")
-
-        # Seed the system-default free-tier quota row for the new user.
-        # Failures here must NOT fail the registration itself — the user
-        # still gets their account, they just don't get the free tier
-        # this run (staff can fix post-hoc via /api/admin/quota/init).
-        quota_row = None
+    # Seed the system-default free-tier quota on first login (registration
+    # is gone — first login IS registration now). Failures must not fail
+    # the login; staff can re-seed via /api/admin/quota/init.
+    quota_row = None
+    if is_new:
         quota_service = getattr(http_request.app.state, "quota_service", None)
         if quota_service is not None:
             try:
-                quota_row = await quota_service.init_for_user(request.user_id)
+                quota_row = await quota_service.init_for_user(user.user_id)
             except Exception as e:
                 logger.exception(
-                    f"register: failed to init quota for {request.user_id}: {e}"
+                    f"netmind-login: failed to init quota for {user.user_id}: {e}"
                 )
+        try:
+            identify_user(user.user_id, {"signup_method": "netmind"})
+            track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
+        except Exception:  # noqa: BLE001 — analytics must never break login
+            pass
 
-        return RegisterResponse(
-            success=True,
-            user_id=request.user_id,
-            token=token,
-            has_system_quota=quota_row is not None,
-            initial_input_tokens=(
-                quota_row.initial_input_tokens if quota_row else 0
-            ),
-            initial_output_tokens=(
-                quota_row.initial_output_tokens if quota_row else 0
-            ),
-        )
+    user_row = await db_client.get_one("users", {"user_id": user.user_id})
+    role = (user_row.get("role") if user_row else None) or "user"
 
-    except Exception as e:
-        logger.exception(f"Error during registration: {e}")
-        return RegisterResponse(success=False, error=str(e))
+    token = create_token(user.user_id, role)
+    logger.info(
+        f"netmind-login ok: user={user.user_id} new={is_new} "
+        f"source={request.source or '-'}"
+    )
+    _schedule_login_rearm(user.user_id)
+
+    return NetmindLoginResponse(
+        success=True,
+        user_id=user.user_id,
+        token=token,
+        role=role,
+        is_new_user=is_new,
+        display_name=user.display_name,
+        email=user.email,
+        has_system_quota=quota_row is not None,
+        initial_input_tokens=(quota_row.initial_input_tokens if quota_row else 0),
+        initial_output_tokens=(quota_row.initial_output_tokens if quota_row else 0),
+    )
 
 
 @router.get("/agents", response_model=AgentListResponse)
@@ -455,21 +419,24 @@ async def get_agents(request: Request):
 
 
 @router.post("/agents", response_model=CreateAgentResponse)
-async def create_agent(request: CreateAgentRequest):
+async def create_agent(http_request: Request, request: CreateAgentRequest):
     """
-    Create a new agent with default values
-    Generates a unique agent_id automatically
+    Create a new agent with default values.
+    Generates a unique agent_id automatically. Identity (created_by) comes
+    from auth_middleware — clients can no longer create agents under
+    someone else's account by writing a different id into the body.
     """
-    logger.info(f"Creating new agent for user: {request.created_by}")
+    created_by = await resolve_current_user_id(http_request)
+    logger.info(f"Creating new agent for user: {created_by}")
 
     try:
         db_client = await get_db_client()
 
         # Validate that the user exists
         user_repo = UserRepository(db_client)
-        user = await user_repo.get_user(request.created_by)
+        user = await user_repo.get_user(created_by)
         if not user:
-            logger.warning(f"Cannot create agent: user {request.created_by} not found")
+            logger.warning(f"Cannot create agent: user {created_by} not found")
             return CreateAgentResponse(
                 success=False,
                 error="User not found. Please create an account first."
@@ -487,7 +454,7 @@ async def create_agent(request: CreateAgentRequest):
         record_id = await repo.add_agent(
             agent_id=agent_id,
             agent_name=agent_name,
-            created_by=request.created_by,
+            created_by=created_by,
             agent_description=agent_description,
             agent_type="chat"
         )
@@ -498,7 +465,7 @@ async def create_agent(request: CreateAgentRequest):
         from xyz_agent_context.settings import settings
         workspace_path = os.path.join(
             settings.base_working_path,
-            f"{agent_id}_{request.created_by}"
+            f"{agent_id}_{created_by}"
         )
         os.makedirs(workspace_path, exist_ok=True)
 
@@ -524,7 +491,7 @@ async def create_agent(request: CreateAgentRequest):
             description=agent_description,
             status='active',
             created_at=format_for_api(agent_row.get("agent_create_time")) if agent_row else None,
-            created_by=request.created_by,
+            created_by=created_by,
             bootstrap_active=True,
         )
 
@@ -533,6 +500,8 @@ async def create_agent(request: CreateAgentRequest):
             agent=agent_info,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error creating agent: {e}")
         return CreateAgentResponse(
@@ -1072,12 +1041,15 @@ async def delete_agent(
 @router.post("/create-user", response_model=CreateUserResponse)
 async def create_user(request: CreateUserRequest):
     """
-    Create a new local user.
+    Create a new local user (local mode only).
 
-    Flow:
-    1. Check if user_id already exists
-    2. Create a new user in the users table
+    In cloud mode this endpoint is gone: it sat in AUTH_EXEMPT_PATHS with
+    no credential check, i.e. an open account-creation hole. Cloud users
+    are provisioned via netmind-login.
     """
+    if _is_cloud_mode():
+        raise HTTPException(status_code=404, detail="Not available in cloud mode")
+
     logger.info(f"Create user request for: {request.user_id}")
 
     try:
@@ -1127,20 +1099,16 @@ async def create_user(request: CreateUserRequest):
 
 
 @router.post("/timezone", response_model=UpdateTimezoneResponse)
-async def update_timezone(request: UpdateTimezoneRequest):
+async def update_timezone(http_request: Request, request: UpdateTimezoneRequest):
     """
-    Update user timezone
+    Update the authenticated user's timezone.
 
-    Automatically called when the browser page loads to sync the user's local timezone setting.
-    Timezone uses IANA format, e.g., 'Asia/Shanghai', 'America/New_York', etc.
-
-    Args:
-        request: Request body containing user_id and timezone
-
-    Returns:
-        Update result, including success status and current timezone
+    Automatically called when the browser page loads to sync the user's local
+    timezone setting. IANA format, e.g. 'Asia/Shanghai'. Identity comes from
+    auth_middleware — the body no longer carries (or trusts) a user_id.
     """
-    logger.info(f"Timezone update request: user={request.user_id}, timezone={request.timezone}")
+    user_id = await resolve_current_user_id(http_request)
+    logger.info(f"Timezone update request: user={user_id}, timezone={request.timezone}")
 
     try:
         # Validate timezone format
@@ -1155,24 +1123,26 @@ async def update_timezone(request: UpdateTimezoneRequest):
         user_repo = UserRepository(db_client)
 
         # Check if user exists
-        user = await user_repo.get_user(request.user_id)
+        user = await user_repo.get_user(user_id)
         if not user:
-            logger.warning(f"User {request.user_id} not found")
+            logger.warning(f"User {user_id} not found")
             return UpdateTimezoneResponse(
                 success=False,
                 error="User not found"
             )
 
         # Update timezone
-        await user_repo.update_timezone(request.user_id, request.timezone)
+        await user_repo.update_timezone(user_id, request.timezone)
 
-        logger.info(f"User {request.user_id} timezone updated to {request.timezone}")
+        logger.info(f"User {user_id} timezone updated to {request.timezone}")
         return UpdateTimezoneResponse(
             success=True,
-            user_id=request.user_id,
+            user_id=user_id,
             timezone=request.timezone,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error updating timezone: {e}")
         return UpdateTimezoneResponse(
@@ -1204,12 +1174,14 @@ def _read_onboarding(metadata: Optional[dict]) -> OnboardingProgress:
 
 
 @router.get("/onboarding", response_model=OnboardingResponse)
-async def get_onboarding(user_id: str):
-    """Return the new-user onboarding checklist state for `user_id`.
+async def get_onboarding(http_request: Request):
+    """Return the authenticated user's onboarding checklist state.
 
     The frontend calls this on chat-page mount to decide whether to show
-    the checklist card and which rows are already checked.
+    the checklist card and which rows are already checked. Identity comes
+    from auth_middleware (was a client-supplied query param).
     """
+    user_id = await resolve_current_user_id(http_request)
     try:
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
@@ -1226,7 +1198,7 @@ async def get_onboarding(user_id: str):
 
 
 @router.post("/onboarding", response_model=OnboardingResponse)
-async def update_onboarding(request: UpdateOnboardingRequest):
+async def update_onboarding(http_request: Request, request: UpdateOnboardingRequest):
     """Mark one or more onboarding steps complete.
 
     Write-once-true: only fields explicitly True in the request are
@@ -1235,10 +1207,11 @@ async def update_onboarding(request: UpdateOnboardingRequest):
     `onboarding_progress` sub-key, and writes the whole dict back so
     sibling metadata keys are preserved.
     """
+    user_id = await resolve_current_user_id(http_request)
     try:
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
-        user = await user_repo.get_user(request.user_id)
+        user = await user_repo.get_user(user_id)
         if not user:
             return OnboardingResponse(success=False, error="User not found")
 
@@ -1253,10 +1226,10 @@ async def update_onboarding(request: UpdateOnboardingRequest):
 
         metadata = dict(user.metadata or {})
         metadata[_ONBOARDING_METADATA_KEY] = merged.model_dump()
-        await user_repo.update_user(request.user_id, {"metadata": metadata})
+        await user_repo.update_user(user_id, {"metadata": metadata})
 
         logger.info(
-            f"Onboarding updated for {request.user_id}: {merged.model_dump()}"
+            f"Onboarding updated for {user_id}: {merged.model_dump()}"
         )
         return OnboardingResponse(success=True, progress=merged)
     except Exception as e:
