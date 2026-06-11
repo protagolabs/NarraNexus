@@ -1,9 +1,37 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/output_transfer.py
-last_verified: 2026-05-31
+last_verified: 2026-06-11
 stub: false
 ---
 # output_transfer.py — Claude SDK 消息格式转换为统一事件流
+
+## 2026-06-11 — codex `error` 通知字段不可信，逐层判型再 `.get`
+
+`_codex_official_to_openai_agents` 的 `_METHOD_ERROR` 分支原来写
+`info = err_obj.get("codex_error_info") or {}` 后直接 `info.get("type")`。
+`or {}` 只挡 None/falsy —— 但真实 codex `error` 通知里
+`codex_error_info` 会是**非空字符串**（如 `"stream_error"`），于是
+`info` 是 str，`info.get("type")` 抛 `AttributeError: 'str' object has
+no attribute 'get'`。
+
+后果是一条**完整因果链**：该异常从 `CodexSDKv2.agent_loop` 的
+`async for` 循环里冒出 → `[AGENT-LOOP-FATAL]` → Step 3 落到
+`[FALLBACK] mode=no_reply` → helper LLM 接管出可见回复。表现为用户侧
+**每轮 codex 都退化成 helper**，且 **Thinking 面板恒空**（reasoning
+还没翻就崩了，`reasoning_chars=0`）。更糟的是它**盖住了 codex 真实
+的报错内容**——崩在翻译层，codex 到底报什么错根本没进日志。
+
+修复：`payload.error` 可能是 dict（TurnError）也可能是裸 str（传输层
+失败）；`codex_error_info` 可能是 dict 也可能是 str。每一层都先
+`isinstance` 判型再取值，取不到结构化 type 就回退 `"error"`。回归测试
+`test_top_level_error_with_string_codex_error_info_does_not_crash` /
+`test_top_level_error_with_string_error_object_does_not_crash`
+（test_output_transfer_codex_official.py）锁死。
+
+> 注：修掉这个崩溃只是**止血**——它会让 codex 的真实 error 内容重新
+> 浮现到 `response.error` 里。codex 每轮发 error（`stream ended after
+> 4 notifications`）本身的根因（模型白名单 / OAuth / MCP）需要看暴露
+> 出来的真实 error_message 再判。
 
 ## 2026-05-14 — tool_output 必须是干净字符串，不能是 Python repr
 

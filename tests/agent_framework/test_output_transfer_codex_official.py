@@ -234,6 +234,50 @@ def test_top_level_error_emits_response_error():
     assert evs[0]["data"]["error_type"] == "transport_closed"
 
 
+def test_top_level_error_with_string_codex_error_info_does_not_crash():
+    """REGRESSION (incident 2026-06-11): the real codex ``error``
+    notification carries ``codex_error_info`` as a **string**, not a
+    dict. The translator did ``info.get("type")`` after a bare
+    ``or {}`` guard (which only catches None/falsy), so a non-empty
+    string raised ``AttributeError: 'str' object has no attribute
+    'get'``. That exception propagated out of CodexSDKv2.agent_loop,
+    killed the codex loop ([AGENT-LOOP-FATAL]), and forced the
+    helper-LLM no_reply fallback on EVERY codex turn — also leaving the
+    Thinking panel empty because reasoning was never translated. Guard
+    by type-checking ``info`` before calling ``.get``."""
+    evs = _t({
+        "method": "error",
+        "payload": {
+            "error": {
+                "message": "stream disconnected before completion",
+                "codex_error_info": "stream_error",  # <-- STRING, not dict
+            },
+            "thread_id": "t",
+            "turn_id": "tu",
+            "will_retry": False,
+        },
+    })
+    assert len(evs) == 1
+    assert evs[0]["data"]["type"] == "response.error"
+    assert "stream disconnected" in evs[0]["data"]["error_message"]
+    # No structured type available from a string — fall back to "error".
+    assert evs[0]["data"]["error_type"] == "error"
+
+
+def test_top_level_error_with_string_error_object_does_not_crash():
+    """Defensive: if ``payload.error`` itself is a bare string (some
+    transport-level failures), use it as the message and don't crash
+    on the missing dict shape."""
+    evs = _t({
+        "method": "error",
+        "payload": {"error": "raw transport failure"},
+    })
+    assert len(evs) == 1
+    assert evs[0]["data"]["type"] == "response.error"
+    assert evs[0]["data"]["error_message"] == "raw transport failure"
+    assert evs[0]["data"]["error_type"] == "error"
+
+
 # ---------------- Item lifecycle (delegates to v1 helpers) ----------
 
 
