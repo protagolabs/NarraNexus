@@ -19,8 +19,11 @@ The worker lives in backend lifespan — OUTSIDE any HTTP request — so
 auth_middleware's per-user ContextVar injection never reached it; on
 cloud every consolidation LLM call fell back to the empty machine
 global config and 401'd, silently (the bisect-drop amplifier, see
-[[consolidate]]). `_inject_owner_credentials` now resolves the agent
-owner's provider config via provider_resolver's new
+[[consolidate]]). `_inject_owner_credentials` now FIRST resets the ContextVars
+(`api_config.clear_user_config` — without this, a scope that cannot
+resolve, e.g. a deleted agent's stale queue row, silently inherits the
+PREVIOUS tenant's credentials from the same worker task), then resolves
+the agent owner's provider config via provider_resolver's new
 `resolve_and_set_provider_for_user` before each scope's engine run:
 local mode = strict no-op; quota/no-provider verdicts raise → scope
 isolated as `failed` with pending_count and raw facts untouched.
