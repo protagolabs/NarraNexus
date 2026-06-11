@@ -854,3 +854,66 @@ export interface TelegramTestResponse extends ApiResponse {
     first_name?: string;
   };
 }
+
+// =============================================================================
+// External API protocol (v0.3) — agent_api_keys
+// =============================================================================
+
+/** Single API key surface info (never includes token_hash or plaintext). */
+export interface ApiKeyInfo {
+  key_id: string;
+  name: string;
+  token_prefix: string;
+  agent_id: string;
+  owner_user_id: string;
+  scopes: string[];
+  status: 'active' | 'expired' | 'revoked';
+  expires_at?: string | null;
+  last_used_at?: string | null;
+  revoked_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ApiKeyListResponse extends ApiResponse {
+  keys: ApiKeyInfo[];
+  count: number;
+}
+
+export interface ApiKeyCreateRequest {
+  name: string;
+  scopes?: string[];
+  expires_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ApiKeyCreateResponse extends ApiResponse {
+  key?: ApiKeyInfo;
+  /**
+   * Full plaintext token — **returned exactly once** by the create
+   * endpoint. Show in a copy-and-save modal; refreshing the list won't
+   * bring it back. UI must never log or persist this value beyond the
+   * modal lifecycle.
+   */
+  plaintext_token?: string;
+}
+
+export interface ApiKeyUpdateRequest {
+  name?: string;
+  scopes?: string[];
+  expires_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ApiKeyResponse extends ApiResponse {
+  key?: ApiKeyInfo;
+}
+
+export interface ApiKeyRotateResponse extends ApiResponse {
+  new_key?: ApiKeyInfo;
+  revoked_old_key_id?: string;
+  grace_until?: string;
+  /** New plaintext token — same one-time-only semantics as create. */
+  plaintext_token?: string;
+}

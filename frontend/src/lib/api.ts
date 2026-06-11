@@ -1191,6 +1191,61 @@ class ApiClient {
     if (!resp.ok) throw new Error(`Upload archive failed: ${resp.status}`);
     return resp.json();
   }
+
+  // ── External API protocol (v0.3) — agent_api_keys ──────────────────────
+
+  async listAgentApiKeys(agentId: string): Promise<import('@/types').ApiKeyListResponse> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/api-keys`);
+  }
+
+  async createAgentApiKey(
+    agentId: string,
+    data: import('@/types').ApiKeyCreateRequest,
+  ): Promise<import('@/types').ApiKeyCreateResponse> {
+    return this.request(
+      `/api/agents/${encodeURIComponent(agentId)}/api-keys`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+  }
+
+  async updateAgentApiKey(
+    agentId: string,
+    keyId: string,
+    data: import('@/types').ApiKeyUpdateRequest,
+  ): Promise<import('@/types').ApiKeyResponse> {
+    return this.request(
+      `/api/agents/${encodeURIComponent(agentId)}/api-keys/${encodeURIComponent(keyId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+  }
+
+  async revokeAgentApiKey(
+    agentId: string,
+    keyId: string,
+  ): Promise<import('@/types').ApiKeyResponse> {
+    return this.request(
+      `/api/agents/${encodeURIComponent(agentId)}/api-keys/${encodeURIComponent(keyId)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  async rotateAgentApiKey(
+    agentId: string,
+    keyId: string,
+  ): Promise<import('@/types').ApiKeyRotateResponse> {
+    return this.request(
+      `/api/agents/${encodeURIComponent(agentId)}/api-keys/${encodeURIComponent(keyId)}/rotate`,
+      { method: 'POST' },
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
