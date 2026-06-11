@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-05-21
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — Context column retired; bookmark strip + drawer
+
+The permanent right context column (ContextPanelHeader/Content, 5 tabs)
+is gone. ChatView now renders, right of the chat+artifact group:
+optional pinned-drawer column → [[BookmarkStrip]] (~36px, always) →
+slide-over [[BookmarkDrawer]] (portal, default). Drawer state lives
+here: `drawerTab` / `drawerFocusKey` / `drawerPinned` (persisted under
+`bookmark_drawer_pinned_v1`); first open writes
+`bookmark_drawer_opened_v1` for the onboarding step. Chat+artifact
+group went flex-[5] → flex-1; [[useBookmarkSignals]] is mounted here;
+CostPopover moved to the chat card's top-right corner. Re-clicking the
+open big bookmark toggles the drawer closed.
 
 ## 2026-05-21 — onboarding checklist above the chat
 
