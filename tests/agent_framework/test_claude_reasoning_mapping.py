@@ -5,28 +5,23 @@
 @description: Claude adapter mapping for the framework-neutral reasoning
 params (SlotConfig.thinking / SlotConfig.reasoning_effort).
 
-The slot stores neutral values; this adapter owns the Claude dialect:
+This maps to what claude-agent-sdk 0.1.43 + the Claude Code CLI 2.1.x
+actually accept — NOT 1:1 to the Anthropic API thinking shape. See the
+``_resolve_reasoning_options`` docstring for the full chain. Summary
+(incident 2026-06-11):
 
-  thinking "on"  -> ClaudeAgentOptions.thinking = {"type": "adaptive"}
-  thinking "off" -> ClaudeAgentOptions.thinking = {"type": "disabled"}
-  thinking ""    -> ClaudeAgentOptions.thinking = {"type": "adaptive"}
-                    (auto → adaptive; see incident 2026-06-11 below)
-  effort low/medium/high/max -> ClaudeAgentOptions.effort (1:1, Claude
-                                supports the full neutral vocabulary)
-  effort ""      -> option absent
+  * The SDK turns ``ClaudeAgentOptions.thinking`` into ``--max-thinking-tokens
+    N``; the CLI turns a POSITIVE value into the legacy
+    ``thinking:{type:"enabled",budget_tokens:N}`` API shape, which current
+    models reject with a 400. The only adaptive lever is ``--effort``.
+  * So on/auto/unknown → ``{"effort": <level>}`` (NO "thinking" key → SDK omits
+    --max-thinking-tokens → CLI goes adaptive). Auto/unknown effort defaults
+    to "high" so --effort is always present (no flags ⇒ enabled ⇒ 400).
+  * off → ``{"thinking": {"type": "disabled"}}`` (→ --max-thinking-tokens 0,
+    the one value that doesn't 400).
 
-Incident 2026-06-11: auto used to leave the thinking key absent, letting
-the bundled Claude Code CLI inject the legacy ``{"type": "enabled",
-"budget_tokens": N}`` shape — which every current Claude model (Opus
-4.6/4.7/4.8, Sonnet 4.6, Fable 5) rejects with a 400 ("thinking.type.enabled
-is not supported for this model"). Auto now sends ``adaptive`` explicitly,
-the universal on-mode for current models and the Anthropic-recommended
-default. We never emit ``enabled``.
-
-Out-of-vocabulary values cannot normally reach here (SlotConfig validates),
-but the mapper must still degrade safely (adaptive for thinking, absent for
-effort) with a warning rather than raise — a bad tuning knob must never take
-the agent loop down (defensive only).
+We never produce a positive --max-thinking-tokens, hence never the rejected
+``enabled`` shape.
 """
 from __future__ import annotations
 
@@ -36,52 +31,55 @@ from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
 )
 
 
-def test_auto_maps_to_adaptive():
-    """REGRESSION (2026-06-11): auto must emit adaptive, NOT leave the key
-    absent — an absent key let the CLI inject the rejected ``enabled`` shape
-    and every turn on a current model 400'd."""
-    assert _resolve_reasoning_options("", "") == {"thinking": {"type": "adaptive"}}
+def test_auto_maps_to_effort_only_no_thinking():
+    """REGRESSION (2026-06-11): auto must emit ONLY effort (default high) and
+    NO thinking key. A thinking key → SDK --max-thinking-tokens → CLI sends
+    the rejected ``enabled`` shape; no flags at all → same enabled default."""
+    out = _resolve_reasoning_options("", "")
+    assert out == {"effort": "high"}
+    assert "thinking" not in out
 
 
-def test_thinking_on_maps_to_adaptive():
-    assert _resolve_reasoning_options("on", "") == {"thinking": {"type": "adaptive"}}
+def test_thinking_on_maps_to_effort_only():
+    out = _resolve_reasoning_options("on", "")
+    assert out == {"effort": "high"}
+    assert "thinking" not in out
 
 
-def test_thinking_off_maps_to_disabled():
+def test_thinking_off_maps_to_disabled_no_effort():
+    """off → disabled (→ --max-thinking-tokens 0). No effort with thinking off."""
     assert _resolve_reasoning_options("off", "") == {"thinking": {"type": "disabled"}}
 
 
-def test_effort_passes_through_with_adaptive_default():
-    """effort is independent of thinking; with thinking auto, the result
-    carries both the adaptive default and the effort level."""
+def test_explicit_effort_passes_through_without_thinking():
     for level in ("low", "medium", "high", "max"):
-        assert _resolve_reasoning_options("", level) == {
-            "thinking": {"type": "adaptive"},
-            "effort": level,
-        }
+        out = _resolve_reasoning_options("", level)
+        assert out == {"effort": level}
+        assert "thinking" not in out
 
 
-def test_off_with_effort_keeps_disabled():
-    assert _resolve_reasoning_options("off", "high") == {
-        "thinking": {"type": "disabled"},
-        "effort": "high",
-    }
+def test_on_with_effort_is_effort_only():
+    assert _resolve_reasoning_options("on", "low") == {"effort": "low"}
 
 
-def test_combined_knobs_are_independent():
-    assert _resolve_reasoning_options("on", "low") == {
-        "thinking": {"type": "adaptive"},
-        "effort": "low",
-    }
+def test_off_ignores_effort():
+    """Thinking off wins — effort is moot and must not appear (the CLI would
+    otherwise still drive thinking via --effort)."""
+    assert _resolve_reasoning_options("off", "high") == {"thinking": {"type": "disabled"}}
 
 
-def test_unknown_thinking_degrades_to_adaptive():
-    """Defensive: an unknown thinking value defaults to adaptive (the safe
-    on-mode) with a warning — never absent (which would resurrect the CLI's
-    rejected ``enabled`` default) and never raised. Unknown effort is dropped."""
-    assert _resolve_reasoning_options("weird", "xhigh") == {
-        "thinking": {"type": "adaptive"},
-    }
+def test_unknown_thinking_degrades_to_effort_only():
+    """Unknown thinking value → adaptive path (effort only), never absent
+    (which resurrects the CLI's rejected enabled default)."""
+    out = _resolve_reasoning_options("weird", "")
+    assert out == {"effort": "high"}
+    assert "thinking" not in out
+
+
+def test_unknown_effort_defaults_to_high():
+    """Unknown effort (e.g. xhigh, which CLI 2.1.x doesn't list) → 'high', so
+    --effort is still present and the CLI stays on the adaptive path."""
+    assert _resolve_reasoning_options("", "xhigh") == {"effort": "high"}
 
 
 def test_claude_config_carries_neutral_params_with_auto_defaults():
