@@ -4,6 +4,10 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 — identity fields dropped from request models
+
+CreateAgentRequest.created_by, UpdateTimezoneRequest.user_id, UpdateOnboardingRequest.user_id removed — identity comes from auth_middleware exclusively (see routes/auth.py.md identity hardening entry).
+
 ## 2026-06-11 — RegisterRequest/RegisterResponse deleted; Login models slimmed
 
 Register models gone with the endpoint. LoginRequest lost `password`, LoginResponse lost `token`/`role` — those fields only ever served the cloud password branch; local login never set them. Cloud login speaks NetmindLoginRequest/Response exclusively.

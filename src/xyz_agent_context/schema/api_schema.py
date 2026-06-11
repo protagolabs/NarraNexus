@@ -119,10 +119,10 @@ class AgentListResponse(BaseModel):
 
 
 class CreateAgentRequest(BaseModel):
-    """Request model for creating agent"""
+    """Request model for creating agent. Identity (created_by) comes from
+    auth_middleware, never from the body."""
     agent_name: Optional[str] = None
     agent_description: Optional[str] = None
-    created_by: str
 
 
 class CreateAgentResponse(BaseModel):
@@ -168,8 +168,7 @@ class CreateUserResponse(BaseModel):
 
 
 class UpdateTimezoneRequest(BaseModel):
-    """Request model for updating user timezone"""
-    user_id: str
+    """Request model for updating the authenticated user's timezone."""
     timezone: str  # IANA timezone format, e.g., 'Asia/Shanghai'
 
 
@@ -212,8 +211,8 @@ class UpdateOnboardingRequest(BaseModel):
 
     Only fields explicitly set to True are applied (write-once-true) — None
     and False are ignored, so a client can never un-complete a step.
+    Identity comes from auth_middleware, never from the body.
     """
-    user_id: str
     first_agent_created: Optional[bool] = None
     template_applied: Optional[bool] = None
     dismissed: Optional[bool] = None

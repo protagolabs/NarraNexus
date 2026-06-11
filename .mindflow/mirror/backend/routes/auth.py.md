@@ -4,6 +4,10 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 — identity hardening: create_agent / timezone / onboarding
+
+The last three routes that trusted a client-supplied user id now derive identity from auth_middleware via `resolve_current_user_id`: POST /agents (body created_by removed — clients could create agents under anyone's account), POST /timezone and GET+POST /onboarding (body/query user_id removed). Old clients sending the extra field are harmless (pydantic ignores unknown fields); old clients omitting X-User-Id/JWT get 401. scripts/bench_narrative_models.py updated to send X-User-Id.
+
 ## 2026-06-11 — legacy cloud auth removed (invite codes retired)
 
 /login is local-only now (cloud -> 404, points at netmind-login); /register deleted outright; /create-user gained a cloud 404 guard (it was an unauthenticated open account-creation endpoint sitting in AUTH_EXEMPT_PATHS — known hole, now closed). Invite-code mechanism retired entirely per 2026-06-10 owner decision (signup == first NetMind login, everyone gets the free-tier quota): routes/invite.py and routes/admin_invite.py deleted, InviteCodeRepository and invite_code_gen deleted, INVITE_AUTO_ISSUE_CAP / INTERNAL_INVITE_SECRET config gone. The invite_codes TABLE survives — it holds the old-user-id -> email mapping the legacy-user migration script needs.

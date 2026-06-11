@@ -419,21 +419,24 @@ async def get_agents(request: Request):
 
 
 @router.post("/agents", response_model=CreateAgentResponse)
-async def create_agent(request: CreateAgentRequest):
+async def create_agent(http_request: Request, request: CreateAgentRequest):
     """
-    Create a new agent with default values
-    Generates a unique agent_id automatically
+    Create a new agent with default values.
+    Generates a unique agent_id automatically. Identity (created_by) comes
+    from auth_middleware — clients can no longer create agents under
+    someone else's account by writing a different id into the body.
     """
-    logger.info(f"Creating new agent for user: {request.created_by}")
+    created_by = await resolve_current_user_id(http_request)
+    logger.info(f"Creating new agent for user: {created_by}")
 
     try:
         db_client = await get_db_client()
 
         # Validate that the user exists
         user_repo = UserRepository(db_client)
-        user = await user_repo.get_user(request.created_by)
+        user = await user_repo.get_user(created_by)
         if not user:
-            logger.warning(f"Cannot create agent: user {request.created_by} not found")
+            logger.warning(f"Cannot create agent: user {created_by} not found")
             return CreateAgentResponse(
                 success=False,
                 error="User not found. Please create an account first."
@@ -451,7 +454,7 @@ async def create_agent(request: CreateAgentRequest):
         record_id = await repo.add_agent(
             agent_id=agent_id,
             agent_name=agent_name,
-            created_by=request.created_by,
+            created_by=created_by,
             agent_description=agent_description,
             agent_type="chat"
         )
@@ -462,7 +465,7 @@ async def create_agent(request: CreateAgentRequest):
         from xyz_agent_context.settings import settings
         workspace_path = os.path.join(
             settings.base_working_path,
-            f"{agent_id}_{request.created_by}"
+            f"{agent_id}_{created_by}"
         )
         os.makedirs(workspace_path, exist_ok=True)
 
@@ -488,7 +491,7 @@ async def create_agent(request: CreateAgentRequest):
             description=agent_description,
             status='active',
             created_at=format_for_api(agent_row.get("agent_create_time")) if agent_row else None,
-            created_by=request.created_by,
+            created_by=created_by,
             bootstrap_active=True,
         )
 
@@ -497,6 +500,8 @@ async def create_agent(request: CreateAgentRequest):
             agent=agent_info,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error creating agent: {e}")
         return CreateAgentResponse(
@@ -1094,20 +1099,16 @@ async def create_user(request: CreateUserRequest):
 
 
 @router.post("/timezone", response_model=UpdateTimezoneResponse)
-async def update_timezone(request: UpdateTimezoneRequest):
+async def update_timezone(http_request: Request, request: UpdateTimezoneRequest):
     """
-    Update user timezone
+    Update the authenticated user's timezone.
 
-    Automatically called when the browser page loads to sync the user's local timezone setting.
-    Timezone uses IANA format, e.g., 'Asia/Shanghai', 'America/New_York', etc.
-
-    Args:
-        request: Request body containing user_id and timezone
-
-    Returns:
-        Update result, including success status and current timezone
+    Automatically called when the browser page loads to sync the user's local
+    timezone setting. IANA format, e.g. 'Asia/Shanghai'. Identity comes from
+    auth_middleware — the body no longer carries (or trusts) a user_id.
     """
-    logger.info(f"Timezone update request: user={request.user_id}, timezone={request.timezone}")
+    user_id = await resolve_current_user_id(http_request)
+    logger.info(f"Timezone update request: user={user_id}, timezone={request.timezone}")
 
     try:
         # Validate timezone format
@@ -1122,24 +1123,26 @@ async def update_timezone(request: UpdateTimezoneRequest):
         user_repo = UserRepository(db_client)
 
         # Check if user exists
-        user = await user_repo.get_user(request.user_id)
+        user = await user_repo.get_user(user_id)
         if not user:
-            logger.warning(f"User {request.user_id} not found")
+            logger.warning(f"User {user_id} not found")
             return UpdateTimezoneResponse(
                 success=False,
                 error="User not found"
             )
 
         # Update timezone
-        await user_repo.update_timezone(request.user_id, request.timezone)
+        await user_repo.update_timezone(user_id, request.timezone)
 
-        logger.info(f"User {request.user_id} timezone updated to {request.timezone}")
+        logger.info(f"User {user_id} timezone updated to {request.timezone}")
         return UpdateTimezoneResponse(
             success=True,
-            user_id=request.user_id,
+            user_id=user_id,
             timezone=request.timezone,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error updating timezone: {e}")
         return UpdateTimezoneResponse(
@@ -1171,12 +1174,14 @@ def _read_onboarding(metadata: Optional[dict]) -> OnboardingProgress:
 
 
 @router.get("/onboarding", response_model=OnboardingResponse)
-async def get_onboarding(user_id: str):
-    """Return the new-user onboarding checklist state for `user_id`.
+async def get_onboarding(http_request: Request):
+    """Return the authenticated user's onboarding checklist state.
 
     The frontend calls this on chat-page mount to decide whether to show
-    the checklist card and which rows are already checked.
+    the checklist card and which rows are already checked. Identity comes
+    from auth_middleware (was a client-supplied query param).
     """
+    user_id = await resolve_current_user_id(http_request)
     try:
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
@@ -1193,7 +1198,7 @@ async def get_onboarding(user_id: str):
 
 
 @router.post("/onboarding", response_model=OnboardingResponse)
-async def update_onboarding(request: UpdateOnboardingRequest):
+async def update_onboarding(http_request: Request, request: UpdateOnboardingRequest):
     """Mark one or more onboarding steps complete.
 
     Write-once-true: only fields explicitly True in the request are
@@ -1202,10 +1207,11 @@ async def update_onboarding(request: UpdateOnboardingRequest):
     `onboarding_progress` sub-key, and writes the whole dict back so
     sibling metadata keys are preserved.
     """
+    user_id = await resolve_current_user_id(http_request)
     try:
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
-        user = await user_repo.get_user(request.user_id)
+        user = await user_repo.get_user(user_id)
         if not user:
             return OnboardingResponse(success=False, error="User not found")
 
@@ -1220,10 +1226,10 @@ async def update_onboarding(request: UpdateOnboardingRequest):
 
         metadata = dict(user.metadata or {})
         metadata[_ONBOARDING_METADATA_KEY] = merged.model_dump()
-        await user_repo.update_user(request.user_id, {"metadata": metadata})
+        await user_repo.update_user(user_id, {"metadata": metadata})
 
         logger.info(
-            f"Onboarding updated for {request.user_id}: {merged.model_dump()}"
+            f"Onboarding updated for {user_id}: {merged.model_dump()}"
         )
         return OnboardingResponse(success=True, progress=merged)
     except Exception as e:
