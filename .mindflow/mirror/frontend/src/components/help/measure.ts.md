@@ -4,6 +4,17 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 (round 6) — region notes for large targets
+
+Owner screenshot review: circling the full-width composer drew two
+parallel lines across the screen, and "The conversation" dragged a
+long arrow to its region's far border. Root cause: one stroke language
+for both controls and AREAS. Targets larger than 38% vw / 50% vh now
+become `kind: 'region'` — the note is written ON the area (or just
+above a bottom strip like the composer) with a short handwritten
+underline; no arrow, no circle. Controls keep `kind: 'point'`
+(arrow / leader / ellipse).
+
 ## 2026-06-11 (round 5) — leader lanes
 
 Owner: arrows into the strip were near-vertical and overlapped

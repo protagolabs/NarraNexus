@@ -27,7 +27,7 @@ import {
   layoutAnnotations,
   type PlacedAnnotation,
 } from './measure';
-import { wobblyArrow, wobblyEllipse, wobblyLeader } from './wobble';
+import { wobblyArrow, wobblyEllipse, wobblyLeader, wobblyLine } from './wobble';
 
 const INK = 'var(--color-gray-50)';
 
@@ -94,6 +94,21 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
             className="help-stroke-in"
             style={{ animationDelay: `${i * 60}ms` }}
           >
+            {m.kind === 'region' && m.underline && (
+              <path
+                d={wobblyLine(
+                  { x: m.underline.x - m.underline.width / 2, y: m.underline.y },
+                  { x: m.underline.x + m.underline.width / 2, y: m.underline.y },
+                  2.5,
+                )}
+                fill="none"
+                stroke={INK}
+                strokeWidth={1.6}
+                strokeLinecap="round"
+                opacity={0.8}
+              />
+            )}
+            {m.kind === 'point' && (
             <path
               d={
                 m.laneX !== undefined
@@ -105,7 +120,8 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
               strokeWidth={1.8}
               strokeLinecap="round"
             />
-            {m.circle && (
+            )}
+            {m.kind === 'point' && m.circle && (
               <path
                 d={wobblyEllipse(
                   m.rect.x + m.rect.width / 2,

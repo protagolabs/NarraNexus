@@ -40,6 +40,18 @@ export interface PlacedAnnotation extends MeasuredAnnotation {
   /** When set, draw an elbow leader through this lane instead of a
    *  direct arrow (used when the vertical travel is large). */
   laneX?: number;
+  /**
+   * Stroke language (round-6):
+   *  - 'point': arrow/leader + optional circle — for CONTROLS.
+   *  - 'region': no arrow, no circle — the note sits ON the area it
+   *    describes with a short underline. Auto-selected for large
+   *    targets; circling a full-width composer drew two parallel
+   *    lines across the screen, and arrows into a region's far border
+   *    were pure noise.
+   */
+  kind: 'point' | 'region';
+  /** Underline segment for 'region' notes: centered x, y, width. */
+  underline?: { x: number; y: number; width: number };
 }
 
 export function measureAnnotations(
@@ -112,6 +124,31 @@ export function layoutAnnotations(
   const GAP = 22;
   const FOOTER = 140; // keep clear of the centered controls
   const HEADER = 84;  // keep clear of the top-center page title
+  const isRegion = (m: MeasuredAnnotation) =>
+    m.rect.width > vw * 0.38 || m.rect.height > vh * 0.5;
+
+  // ── Region notes: written ON the area, short underline, no strokes ──
+  for (const m of measured.filter(isRegion)) {
+    const cx = m.rect.x + m.rect.width / 2;
+    const noteX = Math.max(16, Math.min(cx - NOTE_W / 2, vw - NOTE_W - 16));
+    const isComposerLike = m.rect.y > vh * 0.7; // bottom strip → write above
+    const h = estimateHeight(m);
+    const noteY = isComposerLike
+      ? Math.max(HEADER, m.rect.y - h - 26)
+      : Math.max(HEADER, m.rect.y + Math.min(72, m.rect.height * 0.12));
+    placed.push({
+      ...m,
+      noteX,
+      noteY,
+      noteW: NOTE_W,
+      align: 'center',
+      from: { x: cx, y: noteY },
+      to: { x: cx, y: noteY },
+      kind: 'region',
+      underline: { x: cx, y: noteY + 34, width: 170 },
+    });
+  }
+  const pointable = measured.filter((m) => !isRegion(m));
 
   // Fixed rail columns (clamped for narrow windows). Rails sit a full
   // corridor away from their target edges so leader lanes have room.
@@ -121,7 +158,7 @@ export function layoutAnnotations(
   };
 
   for (const rail of ['left', 'right'] as const) {
-    const items = measured
+    const items = pointable
       .filter((m) => m.rail === rail)
       .sort((a, b) => a.rect.y - b.rect.y);
     const noteX = railX[rail];
@@ -170,12 +207,14 @@ export function layoutAnnotations(
         from,
         to,
         laneX,
+        kind: 'point',
       });
     });
   }
 
-  // 'top' rail: note centered above its anchor (used sparingly — composer).
-  for (const m of measured.filter((mm) => mm.rail === 'top')) {
+  // 'top' rail: note centered above its anchor (small targets only —
+  // large ones were already taken by the region pass).
+  for (const m of pointable.filter((mm) => mm.rail === 'top')) {
     const h = estimateHeight(m);
     const cx = m.rect.x + m.rect.width / 2;
     const noteX = Math.max(16, Math.min(cx - NOTE_W / 2, vw - NOTE_W - 16));
@@ -189,6 +228,7 @@ export function layoutAnnotations(
       align: 'center',
       from,
       to: nearestBorderPoint(from, m.rect, 8),
+      kind: 'point',
     });
   }
 

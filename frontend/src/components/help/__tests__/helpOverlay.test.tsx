@@ -80,6 +80,27 @@ describe('layoutAnnotations — rail stacking never overlaps', () => {
   });
 });
 
+describe('layoutAnnotations — region mode for large targets', () => {
+  it('large targets get a region note (no arrow, underline) instead of strokes', () => {
+    const big: MeasuredAnnotation = {
+      ...NOTE_A,
+      circle: true,
+      rect: { x: 300, y: 0, width: 800, height: 700 },
+    };
+    const small: MeasuredAnnotation = {
+      ...NOTE_B,
+      rect: { x: 10, y: 100, width: 40, height: 20 },
+    };
+    const placed = layoutAnnotations([big, small], 1280, 800);
+    const region = placed.find((m) => m.helpId === big.helpId)!;
+    const point = placed.find((m) => m.helpId === small.helpId)!;
+    expect(region.kind).toBe('region');
+    expect(region.underline).toBeDefined();
+    expect(region.laneX).toBeUndefined();
+    expect(point.kind).toBe('point');
+  });
+});
+
 describe('HelpOverlay — pages', () => {
   it('renders first page notes, switches pages via tabs', () => {
     plantAnchor('test.alpha', {});
