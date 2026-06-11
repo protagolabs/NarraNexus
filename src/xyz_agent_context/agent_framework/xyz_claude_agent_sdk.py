@@ -33,24 +33,44 @@ def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str
 
       thinking "on"  -> {"thinking": {"type": "adaptive"}}
       thinking "off" -> {"thinking": {"type": "disabled"}}
+      "" (auto)      -> {"thinking": {"type": "adaptive"}}  (see below)
       effort low/medium/high/max -> {"effort": <level>} (Claude supports the
                                     full neutral vocabulary, no clamping)
-      "" (auto)      -> key absent; the CLI keeps its own defaults
+
+    Why auto maps to adaptive instead of leaving the key absent (incident
+    2026-06-11): all current Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6,
+    Fable 5) accept ONLY ``thinking.type="adaptive"`` as the on-mode —
+    ``{"type": "enabled", "budget_tokens": N}`` returns a 400
+    (``"thinking.type.enabled" is not supported for this model``). When we
+    left the key absent for auto, the bundled Claude Code CLI fell back to
+    the legacy ``enabled`` shape and every turn on a current model 400'd.
+    ``adaptive`` is also the Anthropic-recommended default (the model
+    decides depth; pair with ``effort``). So auto now sends ``adaptive``
+    explicitly rather than trusting the CLI default.
+
+    Caveat: a slot deliberately pinned to a pre-4.6 model that only accepts
+    ``enabled`` + ``budget_tokens`` (e.g. Sonnet 4.5) would reject
+    ``adaptive``. We don't emit ``enabled`` anywhere — the platform targets
+    current models, and adaptive is universal across them. Revisit only if
+    we add first-class support for legacy-thinking models.
 
     SlotConfig already validates the vocabulary, so out-of-range values here
-    mean corrupted state — degrade to absent with a warning, never raise:
-    a broken tuning knob must not take the agent loop down.
+    mean corrupted state — degrade to the auto default with a warning, never
+    raise: a broken tuning knob must not take the agent loop down.
     """
     opts: dict[str, Any] = {}
-    if thinking == "on":
-        opts["thinking"] = {"type": "adaptive"}
-    elif thinking == "off":
+    if thinking == "off":
         opts["thinking"] = {"type": "disabled"}
-    elif thinking:
-        logger.warning(
-            f"[ClaudeAgentSDK] Unknown neutral thinking value {thinking!r}; "
-            f"treating as auto"
-        )
+    else:
+        # "on" and "" (auto) both → adaptive. Unknown values fall here too
+        # (warned), defaulting to the safe adaptive mode rather than letting
+        # the CLI inject the rejected ``enabled`` shape.
+        if thinking and thinking != "on":
+            logger.warning(
+                f"[ClaudeAgentSDK] Unknown neutral thinking value {thinking!r}; "
+                f"defaulting to adaptive"
+            )
+        opts["thinking"] = {"type": "adaptive"}
     if reasoning_effort in ("low", "medium", "high", "max"):
         opts["effort"] = reasoning_effort
     elif reasoning_effort:

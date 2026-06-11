@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — auto thinking → adaptive(别再让 CLI 注入 enabled)
+
+`_resolve_reasoning_options` 的 thinking **auto/未设** 分支原来什么都不设,
+交给 bundled Claude Code CLI 默认。但 CLI 默认发的是旧版
+`thinking: {type: "enabled", budget_tokens: N}`,而**所有当前 Claude 模型**
+(Opus 4.6/4.7/4.8、Sonnet 4.6、Fable 5)只认 `{type: "adaptive"}`,enabled
+直接 `400 invalid_request_error: "thinking.type.enabled" is not supported for
+this model`(incident 2026-06-11:用户用 CC + 当前代模型,每轮都崩,被
+`AGENT-LOOP-RECOVERABLE: Claude API error: unknown` 盖住)。
+
+改:auto 和 "on" 都显式发 `{type: "adaptive"}`(adaptive 是当前模型通用的
+on-mode,也是 Anthropic 推荐默认;深度由 `effort` 控制)。"off" 仍 →
+`disabled`。**我们任何路径都不再发 `enabled`**。未知 thinking 值也兜底成
+adaptive(而非 absent,避免又退回 CLI 的 enabled)。权威依据见 claude-api
+skill 的 Thinking & Effort 小节。
+
+局限:若用户**故意 pin 一个只认 enabled+budget_tokens 的旧模型**(如
+Sonnet 4.5),adaptive 会被拒——平台面向当前模型,暂不为 legacy-thinking
+模型做一等支持。测试:tests/agent_framework/test_claude_reasoning_mapping.py。
 
 ## 2026-06-10 — Neutral reasoning params → Claude dialect (L1c)
 
