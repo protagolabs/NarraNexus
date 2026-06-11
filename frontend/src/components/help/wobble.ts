@@ -107,3 +107,36 @@ export function wobblyEllipse(
   d += seg(pts[3], pts[0], 3, 4);
   return d;
 }
+
+/**
+ * A callout leader line: horizontal out of the note, a vertical run
+ * along a dedicated lane, then a horizontal entry into the target —
+ * with an arrowhead on the final (horizontal) segment. Lanes keep
+ * parallel leaders from overlapping when several notes point into a
+ * tight cluster of targets (e.g. the bookmark strip).
+ */
+export function wobblyLeader(
+  from: Point,
+  to: Point,
+  laneX: number,
+  headLen = 9,
+): string {
+  const k1: Point = { x: laneX, y: from.y };
+  const k2: Point = { x: laneX, y: to.y };
+  const dir = Math.sign(to.x - laneX) || 1;
+  const h1: Point = {
+    x: to.x - dir * headLen * Math.cos(0.46),
+    y: to.y - headLen * Math.sin(0.46),
+  };
+  const h2: Point = {
+    x: to.x - dir * headLen * Math.cos(0.46),
+    y: to.y + headLen * Math.sin(0.46),
+  };
+  return [
+    wobblyLine(from, k1, 2),
+    wobblyLine(k1, k2, 2),
+    wobblyLine(k2, to, 1.5),
+    wobblyLine(h1, to, 1),
+    wobblyLine(h2, to, 1),
+  ].join(' ');
+}

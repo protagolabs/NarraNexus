@@ -17,6 +17,10 @@
  *  - The arrow leaves the note at its headline's vertical center, on
  *    the side facing the target; note text aligns toward that side so
  *    text and arrow read as one gesture.
+ *  - When several notes point into a tight vertical cluster (the
+ *    strip), each leader gets its own LANE in the corridor between
+ *    rail and targets — vertical runs never overlap (round-5 fix for
+ *    "arrows all vertical and indistinguishable").
  */
 
 import type { HelpAnnotation } from './helpContent';
@@ -33,6 +37,9 @@ export interface PlacedAnnotation extends MeasuredAnnotation {
   align: 'left' | 'right' | 'center';
   from: { x: number; y: number };
   to: { x: number; y: number };
+  /** When set, draw an elbow leader through this lane instead of a
+   *  direct arrow (used when the vertical travel is large). */
+  laneX?: number;
 }
 
 export function measureAnnotations(
@@ -106,10 +113,11 @@ export function layoutAnnotations(
   const FOOTER = 140; // keep clear of the centered controls
   const HEADER = 84;  // keep clear of the top-center page title
 
-  // Fixed rail columns (clamped for narrow windows).
+  // Fixed rail columns (clamped for narrow windows). Rails sit a full
+  // corridor away from their target edges so leader lanes have room.
   const railX: Record<'left' | 'right', number> = {
-    left: Math.min(Math.max(vw * 0.24, 300), vw * 0.42),
-    right: Math.max(vw - NOTE_W - 96, vw * 0.5),
+    left: Math.min(Math.max(vw * 0.26, 320), vw * 0.42),
+    right: Math.max(vw - NOTE_W - 180, vw * 0.5),
   };
 
   for (const rail of ['left', 'right'] as const) {
@@ -119,7 +127,7 @@ export function layoutAnnotations(
     const noteX = railX[rail];
 
     let cursorY = HEADER;
-    for (const m of items) {
+    items.forEach((m, idx) => {
       const h = estimateHeight(m);
       const targetY = m.rect.y + m.rect.height / 2;
       const noteY = Math.min(
@@ -135,7 +143,24 @@ export function layoutAnnotations(
         x: rail === 'left' ? noteX - 8 : noteX + NOTE_W + 8,
         y: headlineMidY,
       };
-      const to = nearestBorderPoint(from, m.rect, 8);
+      let to = nearestBorderPoint(from, m.rect, 8);
+
+      // Large vertical travel → elbow leader through a per-item lane,
+      // entering the target HORIZONTALLY at its center height.
+      let laneX: number | undefined;
+      if (Math.abs(to.y - from.y) > 56) {
+        const entryX =
+          rail === 'right'
+            ? m.rect.x - 8
+            : m.rect.x + m.rect.width + 8;
+        // Clamp entry to the rect's vertical extent (it always is, by
+        // construction) and keep the lane inside the corridor.
+        to = { x: entryX, y: targetY };
+        laneX =
+          rail === 'right'
+            ? Math.min(from.x + 26 + idx * 16, entryX - 18)
+            : Math.max(from.x - 26 - idx * 16, entryX + 18);
+      }
       placed.push({
         ...m,
         noteX,
@@ -144,8 +169,9 @@ export function layoutAnnotations(
         align: rail === 'left' ? 'left' : 'right',
         from,
         to,
+        laneX,
       });
-    }
+    });
   }
 
   // 'top' rail: note centered above its anchor (used sparingly — composer).
