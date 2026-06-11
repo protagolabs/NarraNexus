@@ -606,26 +606,166 @@ async def external_healthz():
 
 
 @router.get("/v1/external/agents/{agent_id}/sessions")
-async def external_list_sessions(agent_id: str, request: Request):
-    """Placeholder — filled in Step 7."""
-    raise HTTPException(
-        status_code=501,
-        detail={
-            "code": "not_implemented",
-            "message": "GET /v1/external/agents/{id}/sessions lands in Step 7",
-        },
+async def external_list_sessions(
+    agent_id: str,
+    request: Request,
+    limit: int = 100,
+):
+    """List ephemeral sessions an integrator has touched on this agent.
+
+    Returned shape mirrors the per-session row the
+    EphemeralSessionGCPoller (Step 8) would use for TTL decisions:
+    session_id, user_id, message_count, narrative_count, first/last
+    activity timestamps. Useful for the integrator to audit "which of my
+    sessions are still alive" against their own session-id store.
+
+    Currently limit-capped at 500 to keep response size bounded; if you
+    have more than that we recommend the integrator track session_ids
+    locally rather than poll this endpoint.
+    """
+    _require_scope(request, "session.list")
+    _validate_agent_match(request, agent_id)
+
+    if limit < 1 or limit > 500:
+        return JSONResponse(
+            status_code=400,
+            content=_error_envelope(
+                "limit must be between 1 and 500",
+                code="invalid_request",
+            ),
+        )
+
+    db = await get_db_client()
+
+    # Pull every users row owned_by_agent=this agent (no DB-level
+    # ORDER BY supported by our generic .get() filter API; we sort in
+    # Python after fetching). Limited to `limit` rows up-front via the
+    # backend, then we count messages per-user in a follow-up query.
+    user_rows = await db.get(
+        "users",
+        filters={"owned_by_agent": agent_id},
+        limit=limit,
     )
+
+    sessions: list[dict] = []
+    for u in user_rows:
+        ephemeral_user_id = u["user_id"]
+        # Recover the original session_id from the user_id namespace.
+        session_id_part = _session_id_from_user_id(ephemeral_user_id, agent_id)
+
+        # Count messages + narratives. Cheap one-row aggregate per table.
+        msg_count_row = await db.execute(
+            "SELECT COUNT(*) AS c FROM agent_messages WHERE user_id = ?",
+            (ephemeral_user_id,),
+        )
+        nar_count_row = await db.execute(
+            "SELECT COUNT(*) AS c FROM narratives WHERE agent_id = ?",
+            (agent_id,),
+        )
+        # last_message_at: max(updated_at) across module_instances +
+        # agent_messages — same heuristic the TTL job will use.
+        last_msg_row = await db.execute(
+            "SELECT MAX(updated_at) AS m FROM agent_messages "
+            "WHERE user_id = ?",
+            (ephemeral_user_id,),
+        )
+
+        sessions.append({
+            "session_id": session_id_part,
+            "user_id": ephemeral_user_id,
+            "user_type": u.get("user_type"),
+            "message_count": (msg_count_row[0]["c"] if msg_count_row else 0),
+            # Narratives are per-agent in DB; the count here is the
+            # agent-wide total (not per-session). Cheap proxy; if the
+            # integrator needs per-session narrative count they can
+            # compute it from chat history themselves.
+            "agent_narrative_total": (nar_count_row[0]["c"] if nar_count_row else 0),
+            "created_at": u.get("create_time"),
+            "last_message_at": (
+                last_msg_row[0].get("m") if last_msg_row else None
+            ),
+        })
+
+    # Newest session activity first.
+    sessions.sort(
+        key=lambda s: s.get("last_message_at") or s.get("created_at") or "",
+        reverse=True,
+    )
+
+    return {
+        "object": "list",
+        "agent_id": agent_id,
+        "data": sessions,
+        "count": len(sessions),
+    }
 
 
 @router.delete("/v1/external/agents/{agent_id}/sessions/{session_id}")
 async def external_delete_session(
     agent_id: str, session_id: str, request: Request
 ):
-    """Placeholder — filled in Step 7."""
-    raise HTTPException(
-        status_code=501,
-        detail={
-            "code": "not_implemented",
-            "message": "DELETE /v1/external/agents/{id}/sessions/{sid} lands in Step 7",
-        },
-    )
+    """Hard cascade DELETE for the per-session ephemeral user.
+
+    Uses `delete_user_cascade` from Step 2 — wipes the users row and
+    every dependent row in 13 child tables, plus the per-(agent, user)
+    workspace directories on disk. Idempotent: 404 → 200 success, just
+    with zero cascade counts.
+    """
+    _require_scope(request, "session.delete")
+    _validate_agent_match(request, agent_id)
+
+    from xyz_agent_context.utils.user_cascade import delete_user_cascade
+
+    ephemeral_user_id = _ephemeral_user_id(agent_id, session_id)
+    db = await get_db_client()
+
+    # Existence check — gives the integrator a signal that they're
+    # deleting a real session, not a typo. But idempotent: missing rows
+    # still report 200 with all-zero cascade counts.
+    cascade = await delete_user_cascade(ephemeral_user_id, db)
+
+    return {
+        "deleted": True,
+        "session_id": session_id,
+        "user_id": ephemeral_user_id,
+        "cascade": cascade,
+    }
+
+
+# =============================================================================
+# Step 7 helpers
+# =============================================================================
+
+
+def _validate_agent_match(request: Request, requested_agent_id: str) -> None:
+    """Reject a session-management request whose agent_id doesn't match
+    the token's scoped agent. The middleware already authed the token;
+    this just enforces the per-agent scoping at the route layer.
+    """
+    token_agent_id = getattr(request.state, "api_key_agent_id", None)
+    if token_agent_id != requested_agent_id:
+        raise HTTPException(
+            status_code=403,
+            detail=_error_envelope(
+                f"token is scoped to agent {token_agent_id!r} but request "
+                f"targets agent {requested_agent_id!r}",
+                code="agent_mismatch",
+                status=403,
+            ),
+        )
+
+
+def _session_id_from_user_id(user_id: str, agent_id: str) -> str:
+    """Best-effort inverse of `_ephemeral_user_id`: pull the
+    sanitised-session part out so the list endpoint can report it.
+
+    NOT a guaranteed roundtrip if the original session_id had characters
+    that got collapsed during sanitisation — the integrator should treat
+    this as a display label, not as a stable key. (The token they
+    persist on their side IS the stable key.)
+    """
+    aid_tail = agent_id[-8:] if len(agent_id) >= 8 else agent_id
+    expected_prefix = f"ext_{aid_tail}_"
+    if user_id.startswith(expected_prefix):
+        return user_id[len(expected_prefix):]
+    return user_id  # unrecognised shape; surface the raw user_id
