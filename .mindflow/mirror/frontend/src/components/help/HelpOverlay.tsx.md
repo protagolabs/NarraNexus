@@ -6,6 +6,16 @@ stub: false
 
 # HelpOverlay.tsx — Hand-annotated page guide
 
+## 2026-06-11 (PM) — multi-page overlay + rail layout + centered controls
+
+Owner revision: 3 pages (Agent Setup / Interacting / Teams & Bundles)
+switched by handwriting tabs UNDER a bottom-centered "got it" (was
+top-right). Notes now live in left/right RAILS — stacked per rail
+sorted by anchor Y with collision push-down ([[measure]]
+layoutAnnotations), so notes can never overlap at any window size
+(the "左侧混乱" fix). Notes gained an optional `detail` second line
+for richer explanations.
+
 ## 2026-06-11 — theme-stable annotation ink
 
 First deploy was blank in dark mode: strokes/notes used --nm-paper,

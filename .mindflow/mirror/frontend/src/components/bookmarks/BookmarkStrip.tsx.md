@@ -6,6 +6,12 @@ stub: false
 
 # BookmarkStrip.tsx — Right-edge strip, atomic-tab IA
 
+## 2026-06-11 (PM) — 64px strip: icon + caption, horizontal category headers
+
+Owner: icons alone were not understandable. Strip widened 36→64px;
+each atomic tab is icon + 8px mono caption (stripLabel ?? label);
+category headers are horizontal micro-labels instead of rotated text.
+
 ## 为什么存在
 
 ~36px of right edge is the ONLY persistent footprint; chat + artifacts

@@ -6,6 +6,6 @@
 
 export { HelpButton } from './HelpButton';
 export { HelpOverlay } from './HelpOverlay';
-export { measureAnnotations } from './measure';
-export { CHAT_VIEW_ANNOTATIONS } from './helpContent';
-export type { HelpAnnotation, AnnotationSide } from './helpContent';
+export { measureAnnotations, layoutAnnotations } from './measure';
+export { CHAT_VIEW_PAGES } from './helpContent';
+export type { HelpAnnotation, HelpPage, AnnotationRail } from './helpContent';

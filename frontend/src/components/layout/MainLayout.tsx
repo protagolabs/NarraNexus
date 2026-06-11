@@ -41,7 +41,7 @@ import {
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { CostPopover } from '@/components/cost/CostPopover';
-import { HelpButton, CHAT_VIEW_ANNOTATIONS } from '@/components/help';
+import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
 import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
@@ -283,7 +283,7 @@ export function ChatView() {
       )}
 
       {/* Hand-annotated page guide — bottom-left ?, spec §12 */}
-      <HelpButton annotations={CHAT_VIEW_ANNOTATIONS} />
+      <HelpButton pages={CHAT_VIEW_PAGES} />
 
       {/* Slide-over drawer (default, unpinned) */}
       {!drawerPinned && agentId && (

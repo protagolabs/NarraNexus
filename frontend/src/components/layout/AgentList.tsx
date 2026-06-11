@@ -385,16 +385,18 @@ export function AgentList({ collapsed }: AgentListProps) {
                 <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
               </Button>
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate('/app/manage-agents')}
-              className="w-7 h-7"
-              title="Manage agents (batch · add / edit / delete)"
-              aria-label="Manage agents"
-            >
-              <ListChecks className="w-3.5 h-3.5" />
-            </Button>
+            <span data-help-id="sidebar.manage-agents">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate('/app/manage-agents')}
+                className="w-7 h-7"
+                title="Manage agents (batch · add / edit / delete)"
+                aria-label="Manage agents"
+              >
+                <ListChecks className="w-3.5 h-3.5" />
+              </Button>
+            </span>
             <Button
               variant="ghost"
               size="icon"
