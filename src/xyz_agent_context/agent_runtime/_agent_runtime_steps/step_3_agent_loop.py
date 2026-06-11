@@ -28,6 +28,9 @@ from xyz_agent_context.schema import (
 from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
+from xyz_agent_context.agent_runtime.response_processor import (
+    AUTH_EXPIRED_ERROR_TYPE,
+)
 
 if TYPE_CHECKING:
     from .context import RunContext
@@ -775,36 +778,56 @@ async def step_3_agent_loop(
     #     no helper_llm (we already spoke), but a warning badge
     #     surfaces the truncated execution.
     # Out-of-scope triggers (non-chat) and cancellation are skipped.
-    fallback_mode, skip_reason = _should_run_helper_llm_fallback(
-        working_source=ctx.working_source or "",
-        agent_loop_response=agent_loop_response,
-        cancellation=getattr(ctx, "cancellation", None),
+    # A framework auth failure (e.g. codex OAuth token expired / "refresh
+    # token already used") is NOT recoverable by a helper reply — the turn
+    # never ran. Fabricating a reply masks the dead login and misleads the
+    # user (incident 2026-06-11). response_processor already surfaced a
+    # fatal, actionable ErrorMessage tagged ``auth_expired``; when present,
+    # skip the helper recovery so the user sees the re-login prompt, not a
+    # gpt-5-generated answer pretending codex replied. We still fall
+    # through to the PathExecutionResult below — Step 4 must persist this
+    # (failed) turn like any other.
+    auth_failed = any(
+        isinstance(m, ErrorMessage)
+        and getattr(m, "error_type", "") == AUTH_EXPIRED_ERROR_TYPE
+        for m in agent_loop_response
     )
-    if fallback_mode is None and skip_reason != "already_replied_via_tool":
-        logger.info(
-            f"[FALLBACK] skipped: skip_reason={skip_reason!r} "
-            f"(captured_error={captured_error!r})"
-        )
-    if fallback_mode is not None:
+    if auth_failed:
         logger.warning(
-            f"[FALLBACK] mode={fallback_mode} "
-            f"(reasoning_chars={len(state.final_output)}, "
-            f"captured_error={bool(captured_error)})"
+            "[FALLBACK] skipped: agent auth expired — surfacing re-login "
+            "prompt instead of fabricating a reply"
         )
+    else:
+        fallback_mode, skip_reason = _should_run_helper_llm_fallback(
+            working_source=ctx.working_source or "",
+            agent_loop_response=agent_loop_response,
+            cancellation=getattr(ctx, "cancellation", None),
+        )
+        if fallback_mode is None and skip_reason != "already_replied_via_tool":
+            logger.info(
+                f"[FALLBACK] skipped: skip_reason={skip_reason!r} "
+                f"(captured_error={captured_error!r})"
+            )
+        if fallback_mode is not None:
+            logger.warning(
+                f"[FALLBACK] mode={fallback_mode} "
+                f"(reasoning_chars={len(state.final_output)}, "
+                f"captured_error={bool(captured_error)})"
+            )
 
-    async for msg in _stream_fallback_recovery(
-        fallback_mode=fallback_mode,
-        captured_error=captured_error,
-        context_messages=messages,
-        agent_loop_response=agent_loop_response,
-        final_output=state.final_output,
-        user_input=ctx.input_content,
-        cancellation=getattr(ctx, "cancellation", None),
-        db=db_client,
-        agent_id=ctx.agent_id,
-    ):
-        agent_loop_response.append(msg)
-        yield msg
+        async for msg in _stream_fallback_recovery(
+            fallback_mode=fallback_mode,
+            captured_error=captured_error,
+            context_messages=messages,
+            agent_loop_response=agent_loop_response,
+            final_output=state.final_output,
+            user_input=ctx.input_content,
+            cancellation=getattr(ctx, "cancellation", None),
+            db=db_client,
+            agent_id=ctx.agent_id,
+        ):
+            agent_loop_response.append(msg)
+            yield msg
 
     # Update 3.4 sub-step to completed status
     substeps[-1] = (

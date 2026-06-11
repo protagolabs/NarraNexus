@@ -57,6 +57,62 @@ def _looks_like_user_reply_tool(tool_name: str) -> bool:
     return bool(tool_name) and any(p in tool_name for p in _USER_REPLY_TOOL_PATTERNS)
 
 
+# Error categories / message fragments that mean "the coding-agent's
+# credentials are dead" — the turn cannot run until the user
+# re-authenticates. Framework-neutral (iron rule #9): covers codex OAuth
+# (``codex_error_info == "unauthorized"`` + "log out and sign in again"),
+# Anthropic/OpenAI 401s, and expired CLI sessions. A turn that fails this
+# way must NOT be papered over by a helper-LLM reply (incident
+# 2026-06-11: a used codex refresh token silently degraded to gpt-5 every
+# turn, and the Settings page kept showing "✓ auth ready").
+_AUTH_FAILURE_TYPES: frozenset[str] = frozenset({
+    "unauthorized",
+    "authentication_error",
+    "invalid_api_key",
+    "permission_error",
+    "invalid_request_error",  # often wraps a bad/expired key
+})
+_AUTH_FAILURE_PHRASES: tuple[str, ...] = (
+    "sign in again",
+    "log out and sign in",
+    "could not be refreshed",
+    "refresh token",
+    "not logged in",
+    "unauthorized",
+    "invalid api key",
+    "invalid_api_key",
+    "expired token",
+    "401",
+)
+
+
+def _is_auth_failure(error_type: str, error_message: str) -> bool:
+    """True when an API error means credentials are dead (re-login needed).
+
+    Matches on the error category first (exact / substring) and falls back
+    to message-text fragments, because codex surfaces the category as a
+    bare ``codex_error_info`` string while other providers only put a
+    useful signal in the human message.
+    """
+    et = (error_type or "").lower()
+    if et in _AUTH_FAILURE_TYPES or "auth" in et or "unauthor" in et:
+        return True
+    em = (error_message or "").lower()
+    return any(frag in em for frag in _AUTH_FAILURE_PHRASES)
+
+
+# error_type marker the runtime keys on to (a) prompt re-login and
+# (b) skip the helper-LLM no_reply fallback in step_3_agent_loop.
+AUTH_EXPIRED_ERROR_TYPE = "auth_expired"
+
+_AUTH_EXPIRED_USER_MESSAGE = (
+    "Your coding-agent login has expired or is no longer valid, so this "
+    "turn could not run. Re-authenticate — run `codex login` (or "
+    "`claude login`) on the host, or assign an API-key provider to the "
+    "Agent slot in Settings — then send the message again."
+)
+
+
 def _clean_reply_args_in_place(arguments: dict) -> dict:
     """Return a copy of ``arguments`` with citation tokens stripped
     from the fields that carry user-visible text. ``content`` covers
@@ -284,6 +340,27 @@ class ResponseProcessor:
             # warning) and logged here for ops visibility.
             error_message = data.get("error_message", "Unknown API error")
             error_type = data.get("error_type", "api_error")
+
+            # Auth failures are NOT recoverable by retrying or by a helper
+            # reply — the credentials are dead. Surface a fatal, actionable
+            # message and tag it ``auth_expired`` so step_3 skips the
+            # no_reply fallback (which would otherwise fabricate a reply
+            # over a turn that never ran — incident 2026-06-11).
+            if _is_auth_failure(error_type, error_message):
+                logger.error(
+                    f"[AGENT-LOOP-AUTH] credentials failure "
+                    f"({error_type}): {error_message}"
+                )
+                return ProcessedResponse(
+                    type=ResponseType.ERROR,
+                    message=ErrorMessage(
+                        error_message=_AUTH_EXPIRED_USER_MESSAGE,
+                        error_type=AUTH_EXPIRED_ERROR_TYPE,
+                        severity="fatal",
+                    ),
+                    state_update={"method": "increment_response", "args": {}}
+                )
+
             logger.error(f"[AGENT-LOOP-RECOVERABLE] API error ({error_type}): {error_message}")
             return ProcessedResponse(
                 type=ResponseType.ERROR,

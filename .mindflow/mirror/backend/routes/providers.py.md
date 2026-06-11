@@ -1,8 +1,24 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+## 2026-06-11 — /codex-status 不再把"文件存在"当"已登录"
+
+`get_codex_status` 原来 `logged_in = creds_file.is_file()`——文件在就报已
+登录，连已经读出来的 `expires_at` 都不用。后果：token 过期后 auth.json 还
+在，页面照报 "Logged in / ✓ auth ready"，而每轮 codex turn 实际 `unauthorized`
+失败（incident 2026-06-11，把用户误导了很久）。
+
+新增 `_expiry_is_past(raw)`：能**确定性**解析（epoch 秒 / 毫秒 / ISO-8601）
+且在过去 → `logged_in=False` + `expired=True`；**解析不了一律 fail-open**
+（宁可少报，也不误锁正常会话）。result 新增 `expired` 字段。
+
+局限（设计上绕不开）：本地读文件**抓不住 "refresh token already used"**——
+那种情况 access token 可能还没到 expires_at，只有真实调用才知道死了。那条路
+由 runtime 的 `auth_expired` 错误分类兜（见 response_processor /
+step_3_agent_loop 的 2026-06-11 条目）。测试：tests/backend/test_codex_status_route.py。
+
 ## 2026-06-10 (later) — framework auth probe recognises the API-key leg
 
 `_probe_agent_framework_auth(framework, user_id=None)` previously only

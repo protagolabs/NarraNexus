@@ -260,8 +260,9 @@ def test_top_level_error_with_string_codex_error_info_does_not_crash():
     assert len(evs) == 1
     assert evs[0]["data"]["type"] == "response.error"
     assert "stream disconnected" in evs[0]["data"]["error_message"]
-    # No structured type available from a string — fall back to "error".
-    assert evs[0]["data"]["error_type"] == "error"
+    # The bare-string codex_error_info IS the category — preserve it as
+    # error_type rather than discarding it to a generic "error".
+    assert evs[0]["data"]["error_type"] == "stream_error"
 
 
 def test_top_level_error_with_string_error_object_does_not_crash():
@@ -276,6 +277,54 @@ def test_top_level_error_with_string_error_object_does_not_crash():
     assert evs[0]["data"]["type"] == "response.error"
     assert evs[0]["data"]["error_message"] == "raw transport failure"
     assert evs[0]["data"]["error_type"] == "error"
+
+
+def test_top_level_error_unauthorized_surfaces_category_as_error_type():
+    """REAL incident payload (2026-06-11): an expired/used codex OAuth
+    token produces ``codex_error_info: "unauthorized"`` (a string). The
+    category must surface as error_type so the runtime can prompt the
+    user to re-login instead of silently falling back to the helper."""
+    evs = _t({
+        "method": "error",
+        "payload": {
+            "error": {
+                "additional_details": None,
+                "codex_error_info": "unauthorized",
+                "message": (
+                    "Your access token could not be refreshed because your "
+                    "refresh token was already used. Please log out and sign "
+                    "in again."
+                ),
+            },
+            "thread_id": "t",
+            "turn_id": "tu",
+            "will_retry": False,
+        },
+    })
+    assert evs[0]["data"]["type"] == "response.error"
+    assert evs[0]["data"]["error_type"] == "unauthorized"
+    assert "sign in again" in evs[0]["data"]["error_message"]
+
+
+def test_turn_completed_failed_unauthorized_surfaces_category():
+    """The same unauthorized error also arrives via turn/completed with
+    status=='failed' (notification #5 in the incident). Its error_type
+    must likewise be the 'unauthorized' category, not 'turn.failed'."""
+    evs = _t({
+        "method": "turn/completed",
+        "payload": {
+            "turn": {
+                "status": "failed",
+                "error": {
+                    "additional_details": None,
+                    "codex_error_info": "unauthorized",
+                    "message": "Please log out and sign in again.",
+                },
+            },
+        },
+    })
+    assert evs[0]["data"]["type"] == "response.error"
+    assert evs[0]["data"]["error_type"] == "unauthorized"
 
 
 # ---------------- Item lifecycle (delegates to v1 helpers) ----------

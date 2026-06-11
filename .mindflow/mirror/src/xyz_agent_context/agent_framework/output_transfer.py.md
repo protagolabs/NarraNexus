@@ -21,17 +21,19 @@ no attribute 'get'`。
 还没翻就崩了，`reasoning_chars=0`）。更糟的是它**盖住了 codex 真实
 的报错内容**——崩在翻译层，codex 到底报什么错根本没进日志。
 
-修复：`payload.error` 可能是 dict（TurnError）也可能是裸 str（传输层
-失败）；`codex_error_info` 可能是 dict 也可能是 str。每一层都先
-`isinstance` 判型再取值，取不到结构化 type 就回退 `"error"`。回归测试
-`test_top_level_error_with_string_codex_error_info_does_not_crash` /
-`test_top_level_error_with_string_error_object_does_not_crash`
-（test_output_transfer_codex_official.py）锁死。
+修复：抽出 `_codex_error_fields(err_obj)` helper，被 `_METHOD_ERROR` 和
+`turn/completed`（status=failed）两个分支共用。`payload.error` 可能是
+dict（TurnError）也可能是裸 str（传输层失败）；`codex_error_info` 可能
+是 dict 也可能是 str。每一层都先 `isinstance` 判型。**关键**：当
+`codex_error_info` 是字符串（如 `"unauthorized"`、`"stream_error"`）时，
+**把它原样作为 `error_type` 透出**，而不是丢成泛泛的 `"error"`——下游
+`response_processor` 靠这个分类识别鉴权失败并提示重新登录（见该文件
+2026-06-11 条目）。回归测试见 test_output_transfer_codex_official.py 的
+`test_top_level_error_*` / `test_turn_completed_failed_unauthorized_*`。
 
-> 注：修掉这个崩溃只是**止血**——它会让 codex 的真实 error 内容重新
-> 浮现到 `response.error` 里。codex 每轮发 error（`stream ended after
-> 4 notifications`）本身的根因（模型白名单 / OAuth / MCP）需要看暴露
-> 出来的真实 error_message 再判。
+> 后续验证发现 codex 每轮发 error 的**真实根因**就是
+> `codex_error_info: "unauthorized"`（OAuth refresh token 已用过）——
+> 即 codex 登录失效。止血后该真实 message 才得以浮现。
 
 ## 2026-05-14 — tool_output 必须是干净字符串，不能是 Python repr
 

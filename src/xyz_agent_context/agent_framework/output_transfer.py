@@ -766,6 +766,41 @@ _METHOD_CONTEXT_COMPACTED = "thread/compacted"
 _METHOD_TOKEN_USAGE_UPDATED = "thread/tokenUsage/updated"
 
 
+def _codex_error_fields(err_obj: Any) -> tuple[str | None, str | None]:
+    """Extract ``(message, error_type)`` from a codex error object.
+
+    The shape is NOT stable across codex builds. ``err_obj`` is usually a
+    dict (TurnError) but can arrive as a bare string for transport-level
+    failures. ``error_type`` prefers a structured top-level ``type``, then
+    the ``codex_error_info`` category — which itself is a dict in some
+    builds and a bare STRING (e.g. ``"unauthorized"``, ``"stream_error"``)
+    in others. Returning the category string verbatim lets downstream
+    classify auth failures (incident 2026-06-11: codex OAuth token expired
+    → ``codex_error_info == "unauthorized"``). Both levels are type-checked
+    so a string never reaches ``.get`` (the original AttributeError crash).
+
+    Returns ``(None, None)`` for shapes we can't read; callers supply their
+    own message/type defaults.
+    """
+    if isinstance(err_obj, str):
+        return err_obj, None
+    if not isinstance(err_obj, dict):
+        return None, None
+    msg = (
+        err_obj.get("message")
+        or err_obj.get("display_message")
+        or err_obj.get("additional_details")
+    )
+    error_type = err_obj.get("type")
+    if not error_type:
+        info = err_obj.get("codex_error_info")
+        if isinstance(info, dict):
+            error_type = info.get("type")
+        elif isinstance(info, str) and info:
+            error_type = info
+    return msg, error_type
+
+
 def _codex_official_to_openai_agents(
     message: Any, streaming: bool = True
 ) -> List[Dict[str, Any]]:
@@ -821,18 +856,17 @@ def _codex_official_to_openai_agents(
         turn_obj = payload.get("turn") or {}
         status = turn_obj.get("status") or ""
         if status == "failed":
-            err_obj = turn_obj.get("error") or {}
-            err_msg = (
-                err_obj.get("message")
-                or err_obj.get("display_message")
-                or "turn failed"
-            )
+            # A failed turn's error carries the same TurnError shape as the
+            # standalone ``error`` notification — including the bare-string
+            # ``codex_error_info`` (e.g. "unauthorized") we must preserve as
+            # error_type so the runtime can classify auth failures.
+            err_msg, err_type = _codex_error_fields(turn_obj.get("error"))
             return [{
                 "type": "raw_response_event",
                 "data": {
                     "type": "response.error",
-                    "error_message": str(err_msg),
-                    "error_type": err_obj.get("type") or "turn.failed",
+                    "error_message": str(err_msg or "turn failed"),
+                    "error_type": err_type or "turn.failed",
                 },
             }]
         # Healthy completion — emit response.done with usage.
@@ -853,43 +887,22 @@ def _codex_official_to_openai_agents(
         }]
 
     if method == _METHOD_ERROR:
-        # ErrorNotification.error is a TurnError, not a flat object —
-        # ``message`` lives one level down. Earlier draft read
-        # ``payload.message`` which would have been silently empty.
-        #
-        # REGRESSION GUARD (incident 2026-06-11): the field shapes here
-        # are NOT stable across codex builds. ``payload.error`` is
-        # usually a dict (TurnError) but can arrive as a bare string for
-        # transport-level failures; ``codex_error_info`` is usually a
-        # dict but in the wild arrives as a STRING (e.g. "stream_error").
-        # A bare ``or {}`` only catches None/falsy, so a non-empty string
-        # slipped through and ``info.get("type")`` raised
-        # ``AttributeError: 'str' object has no attribute 'get'``. That
-        # exception killed CodexSDKv2.agent_loop ([AGENT-LOOP-FATAL]) and
-        # forced the helper-LLM no_reply fallback on every codex turn,
-        # also leaving the Thinking panel empty. Type-check before
-        # ``.get`` on every level.
-        err_obj = payload.get("error")
-        if isinstance(err_obj, str):
-            msg: Any = err_obj
-            info: Any = {}
-        elif isinstance(err_obj, dict):
-            msg = (
-                err_obj.get("message")
-                or err_obj.get("additional_details")
-                or "unknown error"
-            )
-            info = err_obj.get("codex_error_info")
-        else:
-            msg = "unknown error"
-            info = {}
-        error_type = info.get("type") if isinstance(info, dict) else None
+        # ErrorNotification.error is a TurnError (dict) or — for some
+        # transport failures — a bare string. ``codex_error_info`` is a
+        # dict in some builds and a STRING (e.g. "unauthorized",
+        # "stream_error") in others. ``_codex_error_fields`` type-checks
+        # every level so a string never reaches ``.get`` — the original
+        # AttributeError crash (incident 2026-06-11) that killed
+        # CodexSDKv2.agent_loop and forced helper fallback every turn.
+        # It also surfaces the category string as error_type so the
+        # runtime can recognise an auth failure and prompt re-login.
+        err_msg, err_type = _codex_error_fields(payload.get("error"))
         return [{
             "type": "raw_response_event",
             "data": {
                 "type": "response.error",
-                "error_message": str(msg),
-                "error_type": error_type or "error",
+                "error_message": str(err_msg or "unknown error"),
+                "error_type": err_type or "error",
             },
         }]
 

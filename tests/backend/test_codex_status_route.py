@@ -130,3 +130,63 @@ async def test_unparseable_auth_file_still_reports_logged_in(tmp_path, monkeypat
     assert d["logged_in"] is True
     assert d["email"] is None
     assert d["expires_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_expired_token_reports_not_logged_in(tmp_path, monkeypatch):
+    """Honesty fix (incident 2026-06-11): a present auth.json with an
+    expiry in the PAST must report logged_in=False so the UI prompts
+    re-login — previously it reported logged_in=True (file existence
+    only) and the Settings page showed "✓ auth ready" on a dead session."""
+    from backend.routes.providers import get_codex_status
+
+    auth = tmp_path / "auth.json"
+    # Expired well in the past.
+    auth.write_text('{"token":{"expiresAt":"2020-01-01T00:00:00Z"}}')
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+
+    with patch("shutil.which", side_effect=lambda x: "/usr/local/bin/codex" if x == "codex" else None):
+        resp = await get_codex_status(_mock_request())
+
+    d = resp["data"]
+    assert d["cli_installed"] is True
+    assert d["logged_in"] is False
+    assert d["expired"] is True
+
+
+@pytest.mark.asyncio
+async def test_unparseable_expiry_fails_open_logged_in(tmp_path, monkeypatch):
+    """A present file with an expiry we CAN'T confidently parse must NOT
+    be reported as expired — fail open (under-warn rather than wrongly
+    lock out a working session)."""
+    from backend.routes.providers import get_codex_status
+
+    auth = tmp_path / "auth.json"
+    auth.write_text('{"token":{"expiresAt":"sometime-soon"}}')
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+
+    with patch("shutil.which", side_effect=lambda x: "/usr/local/bin/codex" if x == "codex" else None):
+        resp = await get_codex_status(_mock_request())
+
+    d = resp["data"]
+    assert d["logged_in"] is True
+    assert d["expired"] is False
+
+
+def test_expiry_is_past_helper():
+    """Unit-cover the parser: epoch seconds / ms / ISO, past vs future,
+    and fail-open on garbage."""
+    from datetime import datetime, timezone, timedelta
+
+    from backend.routes.providers import _expiry_is_past
+
+    now = datetime.now(timezone.utc)
+    assert _expiry_is_past(int((now - timedelta(days=1)).timestamp())) is True
+    assert _expiry_is_past(int((now + timedelta(days=1)).timestamp())) is False
+    assert _expiry_is_past(int((now - timedelta(days=1)).timestamp() * 1000)) is True
+    assert _expiry_is_past((now - timedelta(hours=1)).isoformat()) is True
+    assert _expiry_is_past((now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")) is False
+    assert _expiry_is_past("not-a-date") is False
+    assert _expiry_is_past(None) is False

@@ -792,6 +792,36 @@ async def get_claude_status(request: Request):
 # =============================================================================
 
 
+def _expiry_is_past(raw: object) -> bool:
+    """Best-effort: is this codex auth-token expiry in the past?
+
+    Returns False whenever we can't CONFIDENTLY parse the value — fail
+    open, because wrongly reporting a working session as expired is worse
+    than under-warning. Handles epoch seconds, epoch milliseconds, and
+    ISO-8601 strings (the codex auth.json schema is undocumented and
+    varies between versions).
+    """
+    from datetime import datetime, timezone
+
+    try:
+        is_numeric_str = (
+            isinstance(raw, str) and raw.strip().lstrip("-").isdigit()
+        )
+        if isinstance(raw, (int, float)) or is_numeric_str:
+            ts = float(raw)  # type: ignore[arg-type]
+            if ts > 1e11:  # milliseconds, not seconds
+                ts /= 1000.0
+            return ts < datetime.now(timezone.utc).timestamp()
+        if isinstance(raw, str):
+            dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt < datetime.now(timezone.utc)
+    except Exception:
+        return False
+    return False
+
+
 @router.get("/codex-status")
 async def get_codex_status(request: Request):
     """Check if Codex CLI is installed + has an active OAuth session.
@@ -816,6 +846,7 @@ async def get_codex_status(request: Request):
         "logged_in": False,
         "email": None,
         "expires_at": None,
+        "expired": False,
     }
 
     is_staff = getattr(request.state, "role", "") == "staff"
@@ -875,6 +906,20 @@ async def get_codex_status(request: Request):
             # (Codex itself would still try to use it), just leave
             # email + expires_at None.
             pass
+
+        # Honesty fix (incident 2026-06-11): a present auth.json is NOT
+        # proof the session works — an expired token leaves the file in
+        # place, so the old "file exists → logged_in=True" reported a dead
+        # session as live and the Settings page showed "✓ auth ready"
+        # while every codex turn failed unauthorized. When we can
+        # CONFIDENTLY parse the expiry and it's in the past, report
+        # logged_in=False so the UI prompts re-login. Fail open otherwise.
+        # (The "refresh token already used" case keeps a non-expired access
+        # token and can only be caught by a real call — handled at runtime
+        # via the auth_expired error path, not here.)
+        if result["expires_at"] is not None and _expiry_is_past(result["expires_at"]):
+            result["logged_in"] = False
+            result["expired"] = True
 
     return {"success": True, "data": result}
 

@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+## 2026-06-11 — 鉴权失效时跳过 helper fallback（不伪造回复）
+
+agent loop 出现 `ErrorMessage(error_type="auth_expired")`（response_processor
+对 codex OAuth 过期等鉴权失败的归类）时，**跳过 `_stream_fallback_recovery`**，
+不让 helper 编一个回复把"登录已失效"盖住（incident 2026-06-11：codex
+refresh token 已用过 → 每轮静默退化到 gpt-5，用户以为"codex 变笨了"）。
+此时 response_processor 已经发了那条 fatal、可操作的 re-login 提示，用户直接
+看到它即可。
+
+**坑（已避开）**：不能用 `return` 提前退出——后面还有必须 yield 的
+`PathExecutionResult`（Step 4 靠它持久化本轮 Event）。所以是把 fallback 计算
++ `_stream_fallback_recovery` 那段包进 `if not auth_failed: ... else: log`，
+auth_failed 时**继续 fall through** 到 sub-step 收尾 + PathExecutionResult。
+`auth_failed` 通过扫描 `agent_loop_response` 里是否有
+`error_type == AUTH_EXPIRED_ERROR_TYPE`（从 response_processor 导入常量）判定。
+
 ## 2026-06-10 — helper obtained via get_helper_sdk()
 
 The fallback-reply stream no longer instantiates OpenAIAgentsSDK directly —
