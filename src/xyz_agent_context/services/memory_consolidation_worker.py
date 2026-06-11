@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.api_config import clear_user_config
 from xyz_agent_context.agent_framework.provider_resolver import (
     resolve_and_set_provider_for_user,
 )
@@ -151,6 +152,11 @@ class MemoryConsolidationWorker:
         provider) — the scope is isolated as failed with facts intact, and
         retried once the owner's provider situation changes.
         """
+        # The worker processes every tenant's scopes in ONE task. Reset the
+        # ContextVars first so a scope that cannot resolve (deleted agent,
+        # missing owner) falls back to the GLOBAL config — never to the
+        # previous tenant's credentials left over from the last scope.
+        clear_user_config()
         agent_row = await self._db.get_one("agents", {"agent_id": agent_id})
         owner = (agent_row or {}).get("created_by")
         if not owner:

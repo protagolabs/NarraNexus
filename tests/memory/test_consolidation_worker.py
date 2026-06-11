@@ -324,3 +324,28 @@ async def test_resolver_failure_isolates_scope_with_facts_intact(db_client):
     assert row["status"] == "failed"
     assert row["consolidation_failed_at"] is not None
     assert int(row["pending_count"]) == 10
+
+
+@pytest.mark.asyncio
+async def test_inject_owner_credentials_never_leaks_previous_tenant(db_client):
+    """Scope N sets tenant A's config; scope N+1's agent has no owner row.
+    The fallback must be the GLOBAL config — not tenant A's leftovers."""
+    from xyz_agent_context.agent_framework.api_config import (
+        ClaudeConfig, OpenAIConfig, openai_config, set_user_config,
+    )
+
+    worker = _make_worker(db_client)
+    set_user_config(
+        ClaudeConfig(api_key="tenant_a_key"),
+        OpenAIConfig(api_key="tenant_a_key"),
+    )
+    assert openai_config.api_key == "tenant_a_key"
+
+    db_client.get_one = AsyncMock(return_value=None)  # deleted agent
+    with patch(
+        "xyz_agent_context.services.memory_consolidation_worker.resolve_and_set_provider_for_user",
+        new=AsyncMock(),
+    ):
+        await worker._inject_owner_credentials("agent_deleted")
+
+    assert openai_config.api_key != "tenant_a_key"

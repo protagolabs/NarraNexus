@@ -403,6 +403,18 @@ _current_user_id_ctx: ContextVar[Optional[str]] = ContextVar(
 )
 
 
+
+def clear_user_config() -> None:
+    """Reset this task's per-user config ContextVars to the global fallback.
+
+    Sequential multi-tenant loops (memory consolidation worker) MUST call
+    this before resolving each scope: without it, a scope whose resolution
+    is skipped (deleted agent, missing owner row) silently inherits the
+    PREVIOUS tenant's credentials still sitting in the task's ContextVars.
+    """
+    _claude_ctx.set(None)
+    _openai_ctx.set(None)
+
 def set_provider_source(src: Optional[str]) -> None:
     _provider_source_ctx.set(src)
 
