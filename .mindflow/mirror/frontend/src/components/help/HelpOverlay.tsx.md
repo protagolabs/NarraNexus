@@ -6,6 +6,17 @@ stub: false
 
 # HelpOverlay.tsx — Hand-annotated page guide
 
+## 2026-06-11 (round 3) — type scale up, page title, legible switcher
+
+Owner: 字小 / 排版不好 / 切页意图难懂. Caveat renders visually small
+for its point size, so the whole scale compensates upward (note 26 /
+detail 19 / title 34 / got-it 25). Top-center now shows the current
+guide's big title + "guide N of M"; rails start below it (HEADER
+clearance in [[measure]]). Page pills are numbered ("1 · Agent Setup"),
+the ACTIVE pill is solid light-ink with dark text, and a small "more
+guides — click to switch" hint sits above them — switchability reads
+at a glance. Notes widened to 310px with larger stacking gaps.
+
 ## 2026-06-11 (PM) — multi-page overlay + rail layout + centered controls
 
 Owner revision: 3 pages (Agent Setup / Interacting / Teams & Bundles)

@@ -48,13 +48,14 @@ export function measureAnnotations(
   return out.sort((a, b) => a.priority - b.priority);
 }
 
-const NOTE_W = 250;
-/** Estimated note height: headline + optional detail (wrapped). */
+const NOTE_W = 310;
+/** Estimated note height: headline + optional detail (wrapped).
+ *  Metrics track HelpOverlay's type scale (26px note / 19px detail). */
 function estimateHeight(a: MeasuredAnnotation): number {
-  const headline = 30;
-  if (!a.detail) return headline + 10;
-  const lines = Math.ceil(a.detail.length / 34);
-  return headline + lines * 19 + 10;
+  const headline = 38;
+  if (!a.detail) return headline + 12;
+  const lines = Math.ceil(a.detail.length / 30);
+  return headline + lines * 24 + 12;
 }
 
 /**
@@ -66,8 +67,9 @@ export function layoutAnnotations(
   vh: number,
 ): PlacedAnnotation[] {
   const placed: PlacedAnnotation[] = [];
-  const GAP = 14;
-  const FOOTER = 120; // keep clear of the centered controls
+  const GAP = 22;
+  const FOOTER = 140; // keep clear of the centered controls
+  const HEADER = 84;  // keep clear of the top-center page title
 
   for (const rail of ['left', 'right'] as const) {
     const items = measured
@@ -82,7 +84,7 @@ export function layoutAnnotations(
         ? Math.min(maxRight + 70, vw - NOTE_W - 16)
         : Math.max(minLeft - 70 - NOTE_W, 16);
 
-    let cursorY = 16;
+    let cursorY = HEADER;
     for (const m of items) {
       const h = estimateHeight(m);
       const targetY = m.rect.y + m.rect.height / 2;
@@ -108,7 +110,7 @@ export function layoutAnnotations(
     const h = estimateHeight(m);
     const cx = m.rect.x + m.rect.width / 2;
     const noteX = Math.max(16, Math.min(cx - NOTE_W / 2, vw - NOTE_W - 16));
-    const noteY = Math.max(16, m.rect.y - 90 - h);
+    const noteY = Math.max(HEADER, m.rect.y - 90 - h);
     placed.push({
       ...m,
       noteX,

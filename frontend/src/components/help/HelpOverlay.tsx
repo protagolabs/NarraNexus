@@ -5,8 +5,13 @@
  * @description: Hand-annotated, MULTI-PAGE help overlay — "another hand
  * wrote on the paper". Dims the page; handwritten notes sit in left /
  * right rails (stacked, never overlapping) with wobbly arrows to the
- * live controls. Bottom-center: a "got it" close control with the page
- * tabs beneath it (Owner layout, 2026-06-11).
+ * live controls. Top-center: the current guide's big handwritten title
+ * + "guide N of M". Bottom-center: a "got it" close control with the
+ * NUMBERED page pills beneath it — active pill is solid so switching
+ * intent reads at a glance (Owner round-3 feedback).
+ *
+ * Type scale: Caveat renders visually small for its point size, so all
+ * sizes are compensated upward (note 26 / detail 19 / title 34).
  *
  * Anchor registry: controls carry data-help-id; measurement happens at
  * open / page-switch / resize and silently skips missing or invisible
@@ -114,6 +119,17 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
         ))}
       </svg>
 
+      {/* Top-center: current guide title — anchors the page concept. */}
+      <div
+        className="absolute top-5 left-1/2 -translate-x-1/2 text-center pointer-events-none help-note-in"
+        style={{ fontFamily: 'var(--font-handwriting)', color: INK }}
+      >
+        <div style={{ fontSize: 34, lineHeight: 1.1 }}>{page.label}</div>
+        <div style={{ fontSize: 16, opacity: 0.7, marginTop: 2 }}>
+          guide {pageIdx + 1} of {pages.length}
+        </div>
+      </div>
+
       {/* Note layer — real DOM text (screen-reader readable). */}
       {placed.map((m, i) => (
         <div
@@ -129,9 +145,9 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
             textShadow: '0 1px 2px rgba(0,0,0,0.35)',
           }}
         >
-          <div style={{ fontSize: 20, lineHeight: 1.2 }}>{m.note}</div>
+          <div style={{ fontSize: 26, lineHeight: 1.15 }}>{m.note}</div>
           {m.detail && (
-            <div style={{ fontSize: 15.5, lineHeight: 1.25, opacity: 0.85, marginTop: 2 }}>
+            <div style={{ fontSize: 19, lineHeight: 1.28, opacity: 0.85, marginTop: 4 }}>
               {m.detail}
             </div>
           )}
@@ -156,10 +172,10 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
           type="button"
           aria-label="Close guide"
           onClick={onClose}
-          className="px-5 py-1.5 rounded-full cursor-pointer transition-transform hover:scale-105"
+          className="px-6 py-1.5 rounded-full cursor-pointer transition-transform hover:scale-105"
           style={{
             fontFamily: 'var(--font-handwriting)',
-            fontSize: 21,
+            fontSize: 25,
             lineHeight: 1.2,
             color: INK,
             border: `1.5px solid ${INK}`,
@@ -168,7 +184,19 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
           got it
         </button>
 
-        <div role="tablist" aria-label="Guide pages" className="flex items-center gap-2">
+        <div
+          style={{
+            fontFamily: 'var(--font-handwriting)',
+            fontSize: 15,
+            color: INK,
+            opacity: 0.7,
+          }}
+          aria-hidden
+        >
+          more guides — click to switch
+        </div>
+
+        <div role="tablist" aria-label="Guide pages" className="flex items-center gap-2.5">
           {pages.map((p, i) => {
             const activePage = i === pageIdx;
             return (
@@ -176,18 +204,22 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
                 key={p.id}
                 role="tab"
                 aria-selected={activePage}
+                aria-label={p.label}
                 onClick={() => setPageIdx(i)}
-                className="px-3 py-1 rounded-full cursor-pointer transition-colors"
+                className="px-4 py-1 rounded-full cursor-pointer transition-all hover:scale-105"
                 style={{
                   fontFamily: 'var(--font-handwriting)',
-                  fontSize: 16,
-                  lineHeight: 1.2,
-                  color: INK,
-                  opacity: activePage ? 1 : 0.55,
-                  border: `1px solid ${activePage ? INK : 'transparent'}`,
+                  fontSize: 19,
+                  lineHeight: 1.25,
+                  // Active pill is SOLID light ink with dark text — the
+                  // selected/unselected contrast that makes "these are
+                  // switchable pages" legible at a glance.
+                  color: activePage ? 'var(--color-gray-900)' : INK,
+                  background: activePage ? INK : 'transparent',
+                  border: `1.2px solid ${activePage ? INK : 'rgba(250,250,247,0.45)'}`,
                 }}
               >
-                {p.label}
+                {i + 1} · {p.label}
               </button>
             );
           })}
