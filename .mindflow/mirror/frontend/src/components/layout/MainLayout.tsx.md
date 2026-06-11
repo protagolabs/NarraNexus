@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — atomic-tab drawer
+
+Owner IA revision: drawerTab is now an AtomicTabId (one tab = one
+panel); focusKey deep-linking removed (the atomic tab IS the
+destination). Drawer content renders via [[BookmarkPanelHost]] (lazy
+per panel — the click-latency fix); title from the [[tabs]] registry.
 
 ## 2026-06-10 — Context column retired; bookmark strip + drawer
 

@@ -56,17 +56,17 @@ export const CHAT_VIEW_ANNOTATIONS: HelpAnnotation[] = [
     priority: 4,
   },
   {
-    helpId: 'bookmarks.activity',
-    note: 'Jobs & inbox live here — it lights up when something happens',
+    helpId: 'bookmarks.strip',
+    note: 'Everything about your agent lives along this edge — one bookmark per page',
     side: 'left',
     priority: 5,
-    circle: true,
   },
   {
-    helpId: 'bookmarks.agent',
-    note: 'Who your agent is: awareness, skills, memory',
+    helpId: 'bookmarks.jobs',
+    note: 'Jobs light up here when they finish or fail',
     side: 'left',
     priority: 6,
+    circle: true,
   },
   {
     helpId: 'chat.cost',

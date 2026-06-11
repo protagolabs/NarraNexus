@@ -103,7 +103,10 @@ export function HelpOverlay({ open, annotations, onClose }: HelpOverlayProps) {
       aria-modal="true"
       aria-label="Page guide"
       className="fixed inset-0 z-[300] animate-fade-in"
-      style={{ background: 'var(--nm-backdrop)' }}
+      // Backdrop must darken in BOTH themes (annotation ink is fixed
+      // light); --nm-backdrop is dark in light & dark modes, but harden
+      // the floor so a future token change can't blank the overlay again.
+      style={{ background: 'var(--nm-backdrop, rgba(20,16,12,0.5))' }}
       onClick={onClose}
     >
       {/* Stroke layer */}
@@ -122,7 +125,7 @@ export function HelpOverlay({ open, annotations, onClose }: HelpOverlayProps) {
               <path
                 d={wobblyArrow(from, to)}
                 fill="none"
-                stroke="var(--nm-paper)"
+                stroke="var(--color-gray-50)"
                 strokeWidth={1.8}
                 strokeLinecap="round"
               />
@@ -135,7 +138,7 @@ export function HelpOverlay({ open, annotations, onClose }: HelpOverlayProps) {
                     m.rect.height / 2 + 9,
                   )}
                   fill="none"
-                  stroke="var(--nm-paper)"
+                  stroke="var(--color-gray-50)"
                   strokeWidth={1.6}
                   strokeLinecap="round"
                 />
@@ -161,7 +164,7 @@ export function HelpOverlay({ open, annotations, onClose }: HelpOverlayProps) {
               fontFamily: 'var(--font-handwriting)',
               fontSize: 19,
               lineHeight: 1.25,
-              color: 'var(--nm-paper)',
+              color: 'var(--color-gray-50)',
               textShadow: '0 1px 2px rgba(0,0,0,0.35)',
             }}
           >
@@ -177,7 +180,7 @@ export function HelpOverlay({ open, annotations, onClose }: HelpOverlayProps) {
           style={{
             fontFamily: 'var(--font-handwriting)',
             fontSize: 24,
-            color: 'var(--nm-paper)',
+            color: 'var(--color-gray-50)',
           }}
         >
           Nothing to explain on this page yet.
@@ -193,7 +196,7 @@ export function HelpOverlay({ open, annotations, onClose }: HelpOverlayProps) {
         style={{
           fontFamily: 'var(--font-handwriting)',
           fontSize: 18,
-          color: 'var(--nm-paper)',
+          color: 'var(--color-gray-50)',
           border: '1px solid rgba(255,255,255,0.4)',
         }}
       >

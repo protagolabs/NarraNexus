@@ -34,12 +34,6 @@ export interface SubBookmark {
   isBadgeBacked: boolean;
 }
 
-export interface OverflowEntry {
-  overflow: number;
-}
-
-export type VisibleSubBookmarkEntry = SubBookmark | OverflowEntry;
-
 export interface AgentBookmarkState {
   /** Map from sub-bookmark key to highlight tier.  Running items have NO
    *  entry here — running is a spinner status, not a highlight (spec §5.3). */
@@ -116,48 +110,6 @@ function omitHighlight(
   return Object.fromEntries(
     Object.entries(highlights).filter(([k]) => k !== key),
   );
-}
-
-/** Priority order for visibleSubBookmarks sorting. */
-const STATUS_PRIORITY: Record<SubBookmarkStatus, number> = {
-  running: 0,
-  attention: 1,
-  info: 2,
-};
-
-// ---------------------------------------------------------------------------
-// Pure helper — exported for tests and UI consumers
-// ---------------------------------------------------------------------------
-
-/**
- * Return the sub-bookmarks to render, capped at `max`.
- *
- * Ordering: running > attention > info (spec §4).
- * When total > max, the last slot is replaced by an {overflow: k} entry
- * representing the number of hidden items.
- *
- * @param state  The AgentBookmarkState for one agent.
- * @param max    Maximum visible entries before overflow aggregation (default 3).
- */
-export function visibleSubBookmarks(
-  state: AgentBookmarkState,
-  max = 3,
-): VisibleSubBookmarkEntry[] {
-  if (state.subBookmarks.length === 0) return [];
-
-  const sorted = [...state.subBookmarks].sort(
-    (a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status],
-  );
-
-  if (sorted.length <= max) return sorted;
-
-  // Show the `max` highest-priority items, then append an overflow entry
-  // for the remaining items.  Overflow entry is NOT a replacement — it is
-  // appended as an extra slot so the "+k" badge is always visible.
-  const visible = sorted.slice(0, max) as VisibleSubBookmarkEntry[];
-  const hiddenCount = sorted.length - max;
-  visible.push({ overflow: hiddenCount });
-  return visible;
 }
 
 // ---------------------------------------------------------------------------

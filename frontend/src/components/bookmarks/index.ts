@@ -1,18 +1,18 @@
 /**
  * @file_name: index.ts
- * @date: 2026-06-10
- * @description: Barrel export for the bookmarks component family.
- *   Exports BookmarkStrip (right-edge 36px strip) and BookmarkDrawer
- *   (slide-over / pinned shell) together with their public types.
+ * @date: 2026-06-11
+ * @description: Barrel export for the bookmarks component family —
+ *   atomic-tab IA: BookmarkStrip (categories + atomic tabs),
+ *   BookmarkDrawer (slide-over / pinned shell), BookmarkPanelHost
+ *   (one lazy panel per tab), tabs registry.
  */
 
 export { BookmarkStrip } from './BookmarkStrip';
-export type { BookmarkTab, BookmarkOpenTarget } from './BookmarkStrip';
+export type { BookmarkStripProps } from './BookmarkStrip';
 
 export { BookmarkDrawer } from './BookmarkDrawer';
 
-export { ActivityPanel } from './ActivityPanel';
-export type { ActivityPanelProps } from './ActivityPanel';
+export { BookmarkPanelHost } from './BookmarkPanelHost';
 
-export { AgentProfilePanel } from './AgentProfilePanel';
-export type { AgentProfilePanelProps } from './AgentProfilePanel';
+export { STRIP_CATEGORIES, ALL_TABS, tabLabel, deriveTabStatus, markTabOpened } from './tabs';
+export type { AtomicTabId, AtomicTabDef, StripCategory, TabStatus } from './tabs';

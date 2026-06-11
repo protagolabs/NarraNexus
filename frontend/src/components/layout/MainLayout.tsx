@@ -36,10 +36,10 @@ import { ResizableDivider } from './ResizableDivider';
 import {
   BookmarkStrip,
   BookmarkDrawer,
-  ActivityPanel,
-  AgentProfilePanel,
+  BookmarkPanelHost,
+  tabLabel,
 } from '@/components/bookmarks';
-import type { BookmarkTab, BookmarkOpenTarget } from '@/components/bookmarks';
+import type { AtomicTabId } from '@/components/bookmarks';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { HelpButton, CHAT_VIEW_ANNOTATIONS } from '@/components/help';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
@@ -70,11 +70,10 @@ function readInitialSplit(): number {
 
 /** Default chat view with context panel */
 export function ChatView() {
-  // Bookmark drawer: which big bookmark is open (null = closed), the
-  // sub-bookmark deep-link key, and whether the drawer is pinned into a
-  // static column (persisted — pinning is a deliberate workspace choice).
-  const [drawerTab, setDrawerTab] = useState<BookmarkTab | null>(null);
-  const [drawerFocusKey, setDrawerFocusKey] = useState<string | undefined>(undefined);
+  // Bookmark drawer: which atomic tab is open (null = closed) and whether
+  // the drawer is pinned into a static column (persisted — pinning is a
+  // deliberate workspace choice). One tab = one panel (Owner IA).
+  const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(null);
   const [drawerPinned, setDrawerPinned] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(DRAWER_PINNED_KEY) === '1';
@@ -83,24 +82,19 @@ export function ChatView() {
   const { refreshAll } = useAutoRefresh({ agentId, userId });
   useBookmarkSignals(agentId);
 
-  const handleBookmarkOpen = (target: BookmarkOpenTarget) => {
-    // Re-clicking the open big bookmark closes the drawer (toggle).
-    if (drawerTab === target.tab && !target.key) {
+  const handleBookmarkOpen = (tab: AtomicTabId) => {
+    // Re-clicking the open tab closes the drawer (toggle).
+    if (drawerTab === tab) {
       setDrawerTab(null);
-      setDrawerFocusKey(undefined);
       return;
     }
-    setDrawerTab(target.tab);
-    setDrawerFocusKey(target.key);
+    setDrawerTab(tab);
     try {
       window.localStorage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
     } catch { /* storage unavailable — onboarding hint just stays */ }
   };
 
-  const handleDrawerClose = () => {
-    setDrawerTab(null);
-    setDrawerFocusKey(undefined);
-  };
+  const handleDrawerClose = () => setDrawerTab(null);
 
   const handlePinnedChange = (pinned: boolean) => {
     setDrawerPinned(pinned);
@@ -271,13 +265,9 @@ export function ChatView() {
             pinned
             onPinnedChange={handlePinnedChange}
             onClose={handleDrawerClose}
-            title={drawerTab === 'activity' ? 'Activity' : 'Agent'}
+            title={tabLabel(drawerTab)}
           >
-            {drawerTab === 'activity' ? (
-              <ActivityPanel agentId={agentId} focusKey={drawerFocusKey} />
-            ) : (
-              <AgentProfilePanel agentId={agentId} focusKey={drawerFocusKey} />
-            )}
+            <BookmarkPanelHost tab={drawerTab} agentId={agentId} />
           </BookmarkDrawer>
         </div>
       )}
@@ -302,13 +292,9 @@ export function ChatView() {
           pinned={false}
           onPinnedChange={handlePinnedChange}
           onClose={handleDrawerClose}
-          title={drawerTab === 'activity' ? 'Activity' : 'Agent'}
+          title={drawerTab ? tabLabel(drawerTab) : ''}
         >
-          {drawerTab === 'activity' ? (
-            <ActivityPanel agentId={agentId} focusKey={drawerFocusKey} />
-          ) : drawerTab === 'agent' ? (
-            <AgentProfilePanel agentId={agentId} focusKey={drawerFocusKey} />
-          ) : null}
+          {drawerTab && <BookmarkPanelHost tab={drawerTab} agentId={agentId} />}
         </BookmarkDrawer>
       )}
     </main>

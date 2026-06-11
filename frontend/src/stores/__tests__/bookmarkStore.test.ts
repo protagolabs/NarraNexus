@@ -12,7 +12,7 @@
  *   - markOpened clears info but not attention
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useBookmarkStore, visibleSubBookmarks } from '../bookmarkStore';
+import { useBookmarkStore } from '../bookmarkStore';
 
 // Reset store state between tests
 beforeEach(() => {
@@ -155,59 +155,6 @@ describe('resolveJobAttention', () => {
 // ---------------------------------------------------------------------------
 // (e) visibleSubBookmarks aggregation — max=3, priority: running > attention > info
 // ---------------------------------------------------------------------------
-describe('visibleSubBookmarks', () => {
-  it('returns all sub-bookmarks when at or under max', () => {
-    useBookmarkStore.getState().noteJobRunning(AGENT_A, 'j1', 'Job 1');
-    useBookmarkStore.getState().noteJobCompleted(AGENT_A, 'j2', 'Job 2');
-
-    const visible = visibleSubBookmarks(useBookmarkStore.getState().agents[AGENT_A]!, 3);
-    expect(visible.some((s) => 'overflow' in s)).toBe(false);
-    expect(visible).toHaveLength(2);
-  });
-
-  it('aggregates overflow items beyond max=3 into a single {overflow: k} entry', () => {
-    // 4 jobs: 1 running, 1 attention, 2 info — should get 3 + 1 overflow
-    useBookmarkStore.getState().noteJobRunning(AGENT_A, 'j_run', 'Running Job');
-    useBookmarkStore.getState().noteJobFailed(AGENT_A, 'j_fail', 'Failed Job');
-    useBookmarkStore.getState().noteJobCompleted(AGENT_A, 'j_info1', 'Info 1');
-    useBookmarkStore.getState().noteJobCompleted(AGENT_A, 'j_info2', 'Info 2');
-
-    const visible = visibleSubBookmarks(useBookmarkStore.getState().agents[AGENT_A]!, 3);
-    // Total is 4, max=3, so last slot becomes overflow of 1 + the 4th item
-    const overflowEntry = visible.find((s) => 'overflow' in s) as { overflow: number } | undefined;
-    expect(overflowEntry).toBeDefined();
-    expect(visible.filter((s) => !('overflow' in s))).toHaveLength(3);
-    // overflow count = total - visible non-overflow items
-    expect(overflowEntry?.overflow).toBeGreaterThanOrEqual(1);
-  });
-
-  it('orders: running first, then attention, then info', () => {
-    useBookmarkStore.getState().noteJobCompleted(AGENT_A, 'j_info', 'Info Job');
-    useBookmarkStore.getState().noteJobFailed(AGENT_A, 'j_attn', 'Attention Job');
-    useBookmarkStore.getState().noteJobRunning(AGENT_A, 'j_run', 'Running Job');
-
-    const visible = visibleSubBookmarks(useBookmarkStore.getState().agents[AGENT_A]!, 10);
-    const statuses = visible
-      .filter((s) => !('overflow' in s))
-      .map((s) => (s as import('../bookmarkStore').SubBookmark).status);
-
-    const runningIdx = statuses.indexOf('running');
-    const attnIdx = statuses.indexOf('attention');
-    const infoIdx = statuses.indexOf('info');
-
-    expect(runningIdx).toBeLessThan(attnIdx);
-    expect(attnIdx).toBeLessThan(infoIdx);
-  });
-
-  it('empty state returns empty array', () => {
-    const visible = visibleSubBookmarks(
-      { highlights: {}, subBookmarks: [], badges: { failedJobs: 0, inboxUnread: 0 } },
-      3,
-    );
-    expect(visible).toHaveLength(0);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // (f) per-agent isolation
 // ---------------------------------------------------------------------------

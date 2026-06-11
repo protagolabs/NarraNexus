@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/awareness/AwarenessPanel.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — atomic `section` prop
+
+`section?: 'awareness'|'workspace'|'channels'|'social'` renders exactly
+ONE section (bookmark-strip atomic IA: one tab = one content; the
+stacked all-sections view remains the default for any legacy callers).
+Stat strip only renders with the social section. Edit modal stays with
+the awareness section.
 
 ## 2026-06-10 — embedded mode
 

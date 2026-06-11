@@ -1,48 +1,34 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkStrip.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
 
-# BookmarkStrip.tsx — Right-edge vertical bookmark strip
+# BookmarkStrip.tsx — Right-edge strip, atomic-tab IA
 
 ## 为什么存在
 
-Workstream A (spec 2026-06-10) replaces the permanent 5-tab context
-panel with paper-edge index bookmarks: ~36px of right-edge strip is the
-ONLY persistent footprint; chat + artifacts get the rest. The metaphor
-extends the NM "warm paper" motif — plastic index tabs on a book page.
-
-## 上下游关系
-
-- **被谁用**: MainLayout's ChatView (renders strip + [[BookmarkDrawer]]).
-- **依赖谁**: [[bookmarkStore]] (highlights / subBookmarks / badges,
-  `visibleSubBookmarks` derivation), Radix tooltip, lucide icons.
+~36px of right edge is the ONLY persistent footprint; chat + artifacts
+get the rest. 2026-06-11 Owner revision: the first iteration (2 big
+bookmarks opening multi-section panels) was rejected — "每一个小标签页
+里面就一个内容". The smallest unit is now an atomic tab: ONE tab opens
+exactly ONE panel; categories ([[tabs]] STRIP_CATEGORIES) only group
+visually.
 
 ## 设计决策
 
-- **Two fixed big bookmarks only** (ACTIVITY / AGENT) — the bookmark
-  metaphor carries its own quantity discipline; system vocabulary
-  (Runtime / Awareness / Narrative / MCP) never appears at this level.
-- Sub-bookmark routing is by key prefix: `job:*` and `inbox` belong to
-  activity; `profile:*` to agent. Keys are minted by bookmarkStore.
-- Big-bookmark aggregate: any 'attention' under it → carbon pulse;
-  else any 'info' → static yellow dot. Activity's numeric badge is
-  `failedJobs + inboxUnread` (the persistent badge layer only — info
-  highlights never produce numbers).
-- 'running' renders a spinner and is deliberately NOT a highlight
-  (spec §5.3): an in-flight job doesn't need the user.
-- **Peek animation is a mount animation, not tracked state**: small
-  bookmarks are keyed by bookmark key, so a newly appearing key mounts
-  a fresh node and `animate-bookmark-peek` (index.css) plays exactly
-  once. No seen-key bookkeeping — render-time ref access is forbidden
-  by the React Compiler lint rules anyway.
-- Labels live in `aria-label` + tooltip; the 36px strip has no room
-  for horizontal text, and the rotated big-bookmark labels reuse the
-  ctx-tabs mono-uppercase type language.
+- All structure lives in the [[tabs]] registry — strip just renders it.
+- Live signals overlay the owning tab (derived per render via
+  deriveTabStatus): failed jobs → carbon pulse + count badge; running
+  job → corner spinner; inbox unread → pulse + count; awareness
+  external update → yellow info dot.
+- Active tab gets a 2px inset ink rule on the outer edge — the visible
+  tongue of an inserted bookmark.
+- Category labels are rotated 8px mono dividers, aria-hidden (tabs
+  carry their own aria-labels).
+- Strip scrolls vertically (scrollbar hidden) on short windows.
 
 ## 新人易踩的坑
 
-`visibleSubBookmarks` is called per-section with a synthetic state
-slice (only that section's subs) so the max=3 cap applies per big
-bookmark, not globally.
+data-help-id anchors (`bookmarks.<tabId>`, `bookmarks.strip`) are help
+overlay contract — keep in sync with [[helpContent]].

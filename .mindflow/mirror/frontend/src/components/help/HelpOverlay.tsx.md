@@ -6,6 +6,14 @@ stub: false
 
 # HelpOverlay.tsx — Hand-annotated page guide
 
+## 2026-06-11 — theme-stable annotation ink
+
+First deploy was blank in dark mode: strokes/notes used --nm-paper,
+which flips to near-black in .dark while the backdrop is dark in BOTH
+themes. Ink now uses --color-gray-50 (a fixed @theme constant) and the
+backdrop has an explicit dark fallback. Lesson: anything painted on
+the dim layer must use theme-STABLE light tones, never --nm-* tokens.
+
 ## 为什么存在
 
 Owner requirement (spec §12): "界面太复杂" — a bottom-left ? opens a
