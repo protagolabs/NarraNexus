@@ -4,6 +4,15 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 (round 7) — legend columns; ellipses deleted
+
+Owner: 排版仍乱 + 圈选显得不专业. Two changes: (1) rail notes now
+stack at an EVEN rhythm, vertically centered in the band between
+header and footer — a tidy legend list; leaders (engage at >40px
+drift) carry the correspondence to targets. (2) The ellipse stroke is
+GONE from the entire system (wobble.ts no longer exports it; manifest
+has no circle field) — pointing language is arrow/leader only.
+
 ## 2026-06-11 (round 6) — region notes for large targets
 
 Owner screenshot review: circling the full-width composer drew two

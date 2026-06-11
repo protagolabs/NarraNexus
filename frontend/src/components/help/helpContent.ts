@@ -30,8 +30,6 @@ export interface HelpAnnotation {
   rail: AnnotationRail;
   /** Lower = drawn earlier in the stagger animation + higher in rail. */
   priority: number;
-  /** Also draw a hand-drawn ellipse around the anchor. */
-  circle?: boolean;
 }
 
 export interface HelpPage {
@@ -52,7 +50,6 @@ export const CHAT_VIEW_PAGES: HelpPage[] = [
         detail: 'One click. Then shape who it is by simply chatting with it.',
         rail: 'left',
         priority: 1,
-        circle: true,
       },
       {
         helpId: 'sidebar.manage-agents',
@@ -108,7 +105,6 @@ export const CHAT_VIEW_PAGES: HelpPage[] = [
         detail: 'Drag files in to attach them; voice input supported.',
         rail: 'top',
         priority: 1,
-        circle: true,
       },
       {
         helpId: 'chat.messages',
@@ -171,7 +167,6 @@ export const CHAT_VIEW_PAGES: HelpPage[] = [
         detail: 'Create & manage teams. Export agents or whole teams as a .nxbundle; import bundles or marketplace templates.',
         rail: 'left',
         priority: 3,
-        circle: true,
       },
       {
         helpId: 'bookmarks.social',

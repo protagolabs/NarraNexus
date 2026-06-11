@@ -15,7 +15,7 @@ import type { MeasuredAnnotation } from '../measure';
 import { HelpButton } from '../HelpButton';
 import { CHAT_VIEW_PAGES } from '../helpContent';
 import type { HelpAnnotation, HelpPage } from '../helpContent';
-import { wobblyArrow, wobblyEllipse, wobblyLine } from '../wobble';
+import { wobblyArrow, wobblyLine } from '../wobble';
 
 const NOTE_A: HelpAnnotation = {
   helpId: 'test.alpha',
@@ -84,7 +84,6 @@ describe('layoutAnnotations — region mode for large targets', () => {
   it('large targets get a region note (no arrow, underline) instead of strokes', () => {
     const big: MeasuredAnnotation = {
       ...NOTE_A,
-      circle: true,
       rect: { x: 300, y: 0, width: 800, height: 700 },
     };
     const small: MeasuredAnnotation = {
@@ -164,7 +163,6 @@ describe('wobble paths', () => {
     expect(wobblyArrow({ x: 0, y: 0 }, { x: 100, y: 50 })).toBe(
       wobblyArrow({ x: 0, y: 0 }, { x: 100, y: 50 }),
     );
-    expect(wobblyEllipse(50, 50, 30, 15)).toBe(wobblyEllipse(50, 50, 30, 15));
     const d = wobblyLine({ x: 0, y: 0 }, { x: 10, y: 0 });
     expect(d.startsWith('M ')).toBe(true);
   });

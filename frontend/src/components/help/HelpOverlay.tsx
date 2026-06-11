@@ -27,7 +27,7 @@ import {
   layoutAnnotations,
   type PlacedAnnotation,
 } from './measure';
-import { wobblyArrow, wobblyEllipse, wobblyLeader, wobblyLine } from './wobble';
+import { wobblyArrow, wobblyLeader, wobblyLine } from './wobble';
 
 const INK = 'var(--color-gray-50)';
 
@@ -120,20 +120,6 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
               strokeWidth={1.8}
               strokeLinecap="round"
             />
-            )}
-            {m.kind === 'point' && m.circle && (
-              <path
-                d={wobblyEllipse(
-                  m.rect.x + m.rect.width / 2,
-                  m.rect.y + m.rect.height / 2,
-                  m.rect.width / 2 + 9,
-                  m.rect.height / 2 + 9,
-                )}
-                fill="none"
-                stroke={INK}
-                strokeWidth={1.6}
-                strokeLinecap="round"
-              />
             )}
           </g>
         ))}

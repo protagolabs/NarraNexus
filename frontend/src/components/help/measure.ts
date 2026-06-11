@@ -163,14 +163,18 @@ export function layoutAnnotations(
       .sort((a, b) => a.rect.y - b.rect.y);
     const noteX = railX[rail];
 
-    let cursorY = HEADER;
+    // Legend-style column: notes stack at an even rhythm (sorted by
+    // target Y), vertically centered in the available band — a tidy
+    // list instead of a ragged target-tracking scatter (round 7).
+    const totalH =
+      items.reduce((sum, m) => sum + estimateHeight(m), 0) +
+      Math.max(0, items.length - 1) * GAP;
+    const band = vh - FOOTER - HEADER;
+    let cursorY = HEADER + Math.max(0, (band - totalH) / 2);
     items.forEach((m, idx) => {
       const h = estimateHeight(m);
       const targetY = m.rect.y + m.rect.height / 2;
-      const noteY = Math.min(
-        Math.max(cursorY, targetY - h / 2),
-        vh - FOOTER - h,
-      );
+      const noteY = Math.min(Math.max(cursorY, HEADER), vh - FOOTER - h);
       cursorY = noteY + h + GAP;
 
       // Arrow leaves at the headline's vertical center, on the side
@@ -185,7 +189,7 @@ export function layoutAnnotations(
       // Large vertical travel → elbow leader through a per-item lane,
       // entering the target HORIZONTALLY at its center height.
       let laneX: number | undefined;
-      if (Math.abs(to.y - from.y) > 56) {
+      if (Math.abs(to.y - from.y) > 40) {
         const entryX =
           rail === 'right'
             ? m.rect.x - 8
