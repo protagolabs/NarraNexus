@@ -103,18 +103,37 @@ class ClaudeConfig:
 
         # Redirect Claude Code's *internal* LLM calls (WebFetch summarizer,
         # subagent task dispatch, alias-to-model resolution) to the same
-        # provider as the main loop. Without these, those calls fall back
-        # to official Anthropic model names, hit the provider's endpoint
-        # with an unknown model, and either fail or drift off-provider.
+        # PROXIED provider as the main loop. Without these, those calls
+        # would fall back to official Anthropic model names and hit the
+        # proxied endpoint with an unknown-to-proxy model, either failing
+        # or drifting off-provider.
+        #
+        # CRITICAL: only set the redirects when ``base_url`` is non-empty
+        # (we're going through a proxy / aggregator). On the official
+        # Anthropic OAuth path (base_url=""), these env vars MUST stay
+        # blank — setting them creates a circular alias resolution:
+        # ``ANTHROPIC_DEFAULT_SONNET_MODEL=sonnet`` tells the CLI "when
+        # user wants 'sonnet', use 'sonnet'", and the CLI then fails to
+        # resolve that alias to a concrete model id, returning
+        # ``invalid_request: selected model (sonnet) may not have access``.
+        # The Anthropic-native CLI does its own alias resolution and our
+        # env vars would only override that broken-ly. Reproduced live
+        # 2026-06-11: every Claude OAuth agent with slot model in
+        # {"opus", "sonnet", "haiku"} (the only registered Claude OAuth
+        # slot options per model_catalog.py) failed 100% until this
+        # condition was added.
+        #
         # Docs: https://code.claude.com/docs/en/model-config
-        if self.model:
+        if self.model and self.base_url:
             env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = self.model
             env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = self.model
             env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = self.model
             env["CLAUDE_CODE_SUBAGENT_MODEL"] = self.model
         else:
-            # No explicit model → blank these so a stale inherited value
-            # from os.environ can't steer CLI behavior for this run.
+            # Either no model, OR we're on the official Anthropic endpoint
+            # where the CLI's native alias resolution must run. Blank these
+            # either way so a stale inherited value from os.environ can't
+            # steer CLI behaviour for this run.
             env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = ""
             env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = ""
             env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = ""
