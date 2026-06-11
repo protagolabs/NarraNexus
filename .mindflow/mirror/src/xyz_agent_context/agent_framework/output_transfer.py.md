@@ -35,6 +35,15 @@ dict（TurnError）也可能是裸 str（传输层失败）；`codex_error_info`
 > `codex_error_info: "unauthorized"`（OAuth refresh token 已用过）——
 > 即 codex 登录失效。止血后该真实 message 才得以浮现。
 
+**同日补充——丢弃 `will_retry=True` 的瞬时重试错误**：codex 重连掉线
+的流时会连发 `error` 通知，payload 带 `will_retry: True`、message 形如
+`"Reconnecting... 2/5"`。这是 codex 自己的内部重试，不是最终结果，原来
+被当成 `response.error` 一条条推到前端，刷出一堆假错误气泡。现在
+`_METHOD_ERROR` 分支开头先看 `payload.will_retry`，为真则 drop（DEBUG
+日志）。最终结果仍由非重试的 `error` 或 `turn/completed(status=failed)`
+透出。测试：`test_transient_retrying_error_is_dropped` /
+`test_non_retrying_error_still_surfaces`。
+
 ## 2026-05-14 — tool_output 必须是干净字符串，不能是 Python repr
 
 `_convert_user_to_stream_events` 处理 `ToolResultBlock` 时，原来用

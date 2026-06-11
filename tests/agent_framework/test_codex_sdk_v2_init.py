@@ -224,6 +224,63 @@ def test_overrides_returns_tuple_not_list():
     assert all(isinstance(s, str) for s in result)
 
 
+# ---------------- API-key auth wiring (incident 2026-06-11) ----------
+
+
+def test_overrides_declares_model_provider_for_api_key():
+    """REGRESSION: an API-key agent slot needs a custom model_provider +
+    env_key so codex authenticates with CODEX_API_KEY. v1's config.toml
+    did this; the v2 cutover dropped it, so codex hit the Responses API
+    with no auth header → '401 Missing bearer'. These overrides restore
+    it."""
+    result = _build_codex_config_overrides(
+        instructions_path=Path("/tmp/i.md"),
+        mcp_server_urls={},
+        permissions=None,
+        api_key="sk-test-123",
+        base_url="https://api.openai.com/v1",
+        auth_type="api_key",
+    )
+    joined = "\n".join(result)
+    assert 'model_provider="narranexus"' in joined
+    assert 'model_providers.narranexus.env_key="CODEX_API_KEY"' in joined
+    assert 'model_providers.narranexus.base_url="https://api.openai.com/v1"' in joined
+    assert 'model_providers.narranexus.wire_api="responses"' in joined
+    # The key itself is NEVER inlined into config_overrides — it flows via
+    # the CODEX_API_KEY env var that env_key references.
+    assert "sk-test-123" not in joined
+
+
+def test_overrides_defaults_base_url_for_api_key_without_one():
+    """Empty base_url on an API-key slot → official OpenAI endpoint."""
+    result = _build_codex_config_overrides(
+        instructions_path=Path("/tmp/i.md"),
+        mcp_server_urls={},
+        permissions=None,
+        api_key="sk-x",
+        base_url="",
+        auth_type="api_key",
+    )
+    joined = "\n".join(result)
+    assert 'model_providers.narranexus.base_url="https://api.openai.com/v1"' in joined
+
+
+def test_overrides_no_model_provider_for_oauth():
+    """OAuth slots authenticate via the staged auth.json — they must NOT
+    declare a custom provider (that path expects CODEX_API_KEY, which is
+    blank for OAuth)."""
+    result = _build_codex_config_overrides(
+        instructions_path=Path("/tmp/i.md"),
+        mcp_server_urls={},
+        permissions=None,
+        api_key="",
+        auth_type="oauth",
+    )
+    joined = "\n".join(result)
+    assert "model_provider" not in joined
+    assert "model_providers" not in joined
+
+
 def test_thread_start_accepts_kwargs_we_actually_pass():
     """SDK contract test — ``AsyncCodex.thread_start`` must keep
     accepting the kwargs we pass at runtime. The v2 ``agent_loop``

@@ -887,6 +887,19 @@ def _codex_official_to_openai_agents(
         }]
 
     if method == _METHOD_ERROR:
+        # Transient retrying errors (codex reconnecting a dropped stream,
+        # etc.) carry ``will_retry: True``. They are codex's own internal
+        # retry chatter — e.g. "Reconnecting... 2/5" — NOT a final outcome.
+        # Surfacing them spams the chat with bogus error bubbles (incident
+        # 2026-06-11). Drop them; the real result still arrives via a
+        # non-retrying ``error`` or ``turn/completed`` (status=failed).
+        if isinstance(payload, dict) and payload.get("will_retry"):
+            logger.debug(
+                f"[codex_official translator] dropping transient retrying "
+                f"error: {payload.get('error')!r}"
+            )
+            return []
+
         # ErrorNotification.error is a TurnError (dict) or — for some
         # transport failures — a bare string. ``codex_error_info`` is a
         # dict in some builds and a STRING (e.g. "unauthorized",

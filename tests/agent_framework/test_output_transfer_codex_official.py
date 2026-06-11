@@ -306,6 +306,44 @@ def test_top_level_error_unauthorized_surfaces_category_as_error_type():
     assert "sign in again" in evs[0]["data"]["error_message"]
 
 
+def test_transient_retrying_error_is_dropped():
+    """codex emits ``error`` notifications with ``will_retry: True`` while
+    it reconnects a dropped stream (message like "Reconnecting... 2/5").
+    These are internal retry chatter, NOT a final outcome — surfacing them
+    spammed the chat with bogus error bubbles (incident 2026-06-11). Drop
+    them; the real result still arrives via a non-retrying error or
+    turn/completed(status=failed)."""
+    evs = _t({
+        "method": "error",
+        "payload": {
+            "error": {
+                "additional_details": "stream disconnected: tls handshake eof",
+                "codex_error_info": {"response_stream_disconnected": {"http_status_code": None}},
+                "message": "Reconnecting... 3/5",
+            },
+            "thread_id": "t",
+            "turn_id": "tu",
+            "will_retry": True,
+        },
+    })
+    assert evs == []
+
+
+def test_non_retrying_error_still_surfaces():
+    """A non-retrying error (will_retry False/absent) is the final outcome
+    — it must still surface."""
+    evs = _t({
+        "method": "error",
+        "payload": {
+            "error": {"message": "boom", "codex_error_info": "internal_error"},
+            "will_retry": False,
+        },
+    })
+    assert len(evs) == 1
+    assert evs[0]["data"]["type"] == "response.error"
+    assert evs[0]["data"]["error_type"] == "internal_error"
+
+
 def test_turn_completed_failed_unauthorized_surfaces_category():
     """The same unauthorized error also arrives via turn/completed with
     status=='failed' (notification #5 in the incident). Its error_type

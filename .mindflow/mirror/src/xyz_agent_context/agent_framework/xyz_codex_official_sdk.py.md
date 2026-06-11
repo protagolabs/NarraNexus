@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-06-08
+last_verified: 2026-06-11
 ---
+
+## 2026-06-11 — API-key 鉴权回归：补回 model_provider + env_key
+
+v2 切到 `config_overrides` 后，`_build_codex_config_overrides` 漏掉了 v1
+`_codex_config_toml_builder` 里的 `[model_providers.narranexus]` 块。
+后果分叉：
+
+- **OAuth**：codex 读 stage 进 `$CODEX_HOME/auth.json` 的凭证 → 正常。
+- **API key**：`CodexConfig.to_cli_env` 设了 `CODEX_API_KEY`，但**没人
+  告诉 codex 去读它**——codex 内置 openai provider 默认走 OAuth，于是裸
+  调 `api.openai.com/v1/responses`，无认证头 → `401 Missing bearer`，
+  每轮失败（incident 2026-06-11，前端表现为 "Reconnecting... 1/5~5/5"
+  后报错）。
+
+修复：`_build_codex_config_overrides` 新增 `api_key` / `base_url` /
+`auth_type` 参数；当 `auth_type=="api_key"` 且有 key 时，补回 v1 验证过
+的那组 override：`model_provider="narranexus"` +
+`model_providers.narranexus.{base_url, env_key="CODEX_API_KEY",
+wire_api="responses"}`（base_url 空则默认官方 OpenAI）。**key 本身绝不
+写进 config_overrides**，只通过 `env_key` 指向的 `CODEX_API_KEY` env 传。
+OAuth 路径不动。测试见 test_codex_sdk_v2_init.py 的
+`test_overrides_declares_model_provider_for_api_key` 等。
 
 ## Why it exists
 

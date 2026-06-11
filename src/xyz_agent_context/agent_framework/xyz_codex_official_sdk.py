@@ -107,6 +107,14 @@ except ImportError:  # absolute-import fallback for script-style runs
 _SANDBOX_DANGER_FULL_ACCESS = "danger-full-access"  # MCP requires this
 _REASONING_SUMMARY_DETAILED = "detailed"  # surfaces reasoning to UI
 
+# Custom model-provider name used in config_overrides when the agent slot
+# authenticates with an API key (not OAuth). Mirrors v1's
+# ``_codex_config_toml_builder._CUSTOM_PROVIDER_NAME``.
+_CODEX_CUSTOM_PROVIDER_NAME = "narranexus"
+# codex's built-in OpenAI provider endpoint — the default we point the
+# custom provider at when the slot didn't specify a base_url.
+_DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+
 # Required for ItemCompletedNotification.item discriminator matching
 # in the notification translator. The actual enum lives in
 # ``openai_codex.generated.v2_all.ThreadItem`` as a RootModel union;
@@ -128,6 +136,9 @@ def _build_codex_config_overrides(
     sandbox_mode: str = _SANDBOX_DANGER_FULL_ACCESS,
     reasoning_summary: str = _REASONING_SUMMARY_DETAILED,
     model: str | None = None,
+    api_key: str = "",
+    base_url: str = "",
+    auth_type: str = "oauth",
 ) -> tuple[str, ...]:
     """Assemble the ``CodexConfig.config_overrides`` tuple.
 
@@ -172,6 +183,25 @@ def _build_codex_config_overrides(
         model: Optional model name override. ``None`` leaves the codex
             binary's default in place (which is what the user's
             ``codex login`` selected).
+        api_key: The agent slot's API key (empty for OAuth). When set with
+            ``auth_type="api_key"`` we declare a custom model provider so
+            codex knows to authenticate with it — see below.
+        base_url: Custom OpenAI-compatible endpoint. Empty → official
+            OpenAI (``https://api.openai.com/v1``).
+        auth_type: ``"oauth"`` | ``"api_key"``. For OAuth, codex reads the
+            staged ``$CODEX_HOME/auth.json`` and no provider block is
+            needed. For api_key we MUST declare a ``model_providers``
+            block — see below.
+
+    API-key auth (incident 2026-06-11):
+        codex's built-in ``openai`` provider authenticates via OAuth
+        (auth.json) by default; it does NOT read ``CODEX_API_KEY``. So an
+        API-key slot that only sets the env var hits the Responses API
+        with no auth header → ``401 Missing bearer``. We must declare a
+        custom provider whose ``env_key`` points codex at ``CODEX_API_KEY``
+        and set ``model_provider`` to it — exactly what v1's config.toml
+        builder did and the v2 cutover dropped. ``wire_api="responses"``
+        keeps the reasoning-capable Responses surface.
 
     Returns:
         Tuple of TOML-literal ``key=value`` strings.
@@ -183,6 +213,20 @@ def _build_codex_config_overrides(
     ]
     if model:
         overrides.append(f'model="{model}"')
+
+    # API-key auth: declare the custom provider + env_key so codex reads
+    # the key from CODEX_API_KEY (which CodexConfig.to_cli_env sets). OAuth
+    # needs none of this — it uses the staged auth.json.
+    if auth_type == "api_key" and api_key:
+        provider_base_url = base_url or _DEFAULT_OPENAI_BASE_URL
+        p = _CODEX_CUSTOM_PROVIDER_NAME
+        overrides.extend([
+            f'model_provider="{p}"',
+            f'model_providers.{p}.name="NarraNexus-configured provider"',
+            f'model_providers.{p}.base_url="{provider_base_url}"',
+            f'model_providers.{p}.env_key="CODEX_API_KEY"',
+            f'model_providers.{p}.wire_api="responses"',
+        ])
 
     # MCP servers — one mcp_servers.<name>.url entry per server.
     for name in sorted(mcp_server_urls.keys()):
@@ -334,6 +378,9 @@ class CodexSDKv2:
                 sandbox_mode=_SANDBOX_DANGER_FULL_ACCESS,
                 reasoning_summary=_REASONING_SUMMARY_DETAILED,
                 model=codex_config.model or None,
+                api_key=codex_config.api_key,
+                base_url=codex_config.base_url,
+                auth_type=codex_config.auth_type,
             )
 
             _mcp_lines = [
