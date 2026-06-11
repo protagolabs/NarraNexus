@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { HelpOverlay } from '../HelpOverlay';
 import { measureAnnotations, layoutAnnotations } from '../measure';
 import type { MeasuredAnnotation } from '../measure';
@@ -134,8 +134,38 @@ describe('HelpOverlay — pages', () => {
   });
 });
 
+describe('HelpButton — first-visit auto-open', () => {
+  it('auto-opens for a new user and marks seen on close', async () => {
+    vi.useFakeTimers();
+    window.localStorage.removeItem('help_guide_seen_v1');
+    render(<HelpButton pages={[PAGE_ONE]} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close guide' }));
+    expect(window.localStorage.getItem('help_guide_seen_v1')).toBe('1');
+    vi.useRealTimers();
+  });
+
+  it('does not auto-open when already seen', async () => {
+    vi.useFakeTimers();
+    window.localStorage.setItem('help_guide_seen_v1', '1');
+    render(<HelpButton pages={[PAGE_ONE]} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200);
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    vi.useRealTimers();
+    window.localStorage.removeItem('help_guide_seen_v1');
+  });
+});
+
 describe('HelpButton', () => {
   it('opens on click and on the ? shortcut; ignores ? while typing', () => {
+    window.localStorage.setItem('help_guide_seen_v1', '1');
     render(
       <>
         <input aria-label="field" />

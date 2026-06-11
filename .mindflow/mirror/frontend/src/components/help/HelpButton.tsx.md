@@ -4,6 +4,15 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 — first-visit auto-open
+
+New users get the guide automatically ~700ms after the page settles
+(`help_guide_seen_v1` localStorage flag, written when the guide is
+DISMISSED — got it / Esc / backdrop — not when shown, so a mid-guide
+reload shows it again). Missing anchors degrade gracefully, so a
+brand-new user with no agent simply sees the setup notes. Storage
+unavailable → never auto-open.
+
 ## 2026-06-11 (PM)
 
 Prop change: `annotations` → `pages` (multi-page overlay).
