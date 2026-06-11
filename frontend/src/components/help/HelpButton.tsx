@@ -5,6 +5,11 @@
  * @description: The bottom-left "?" entry point for the help overlay.
  * Fixed-position circular button + the `?` keyboard shortcut (ignored
  * while typing in inputs). Owns the overlay open state.
+ *
+ * First-visit auto-open: a user who has never dismissed the guide gets
+ * it automatically shortly after the page settles (Owner, 2026-06-11).
+ * Dismissing it (got it / Esc / backdrop) marks it seen — manual
+ * re-entry stays available via the ? button forever.
  */
 
 import { useEffect, useState } from 'react';
@@ -25,8 +30,30 @@ function isTypingTarget(t: EventTarget | null): boolean {
   );
 }
 
+const GUIDE_SEEN_KEY = 'help_guide_seen_v1';
+
 export function HelpButton({ pages }: HelpButtonProps) {
   const [open, setOpen] = useState(false);
+
+  // First visit → auto-open once the layout has settled (anchors need
+  // their final positions). Missing anchors degrade gracefully, so a
+  // brand-new user with no agent yet simply sees the setup notes.
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(GUIDE_SEEN_KEY) === '1') return;
+    } catch {
+      return; // storage unavailable — never auto-open
+    }
+    const t = window.setTimeout(() => setOpen(true), 700);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  const handleClose = () => {
+    setOpen(false);
+    try {
+      window.localStorage.setItem(GUIDE_SEEN_KEY, '1');
+    } catch { /* non-fatal */ }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -55,7 +82,7 @@ export function HelpButton({ pages }: HelpButtonProps) {
       >
         <HelpCircle className="w-4 h-4" aria-hidden />
       </button>
-      <HelpOverlay open={open} pages={pages} onClose={() => setOpen(false)} />
+      <HelpOverlay open={open} pages={pages} onClose={handleClose} />
     </>
   );
 }
