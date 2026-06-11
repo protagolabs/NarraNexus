@@ -10,9 +10,10 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
+import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
@@ -228,20 +229,20 @@ function UpdatesSection() {
   );
 }
 
-// Providers panel. No more "Advanced configuration" gate — connecting a
-// provider and picking a model are primary actions, not advanced ones, so
-// the full ProviderSettings is surfaced directly. ProviderSettings tucks
-// the genuine power-user knobs (per-slot thinking / reasoning effort)
-// behind its own in-panel "Fine-tune" disclosure.
+// Providers section — same logic as the first-run /setup page: simple
+// surface first, the full 1400-line ProviderSettings behind an
+// "Advanced configuration" disclosure (collapsed by default).
 //
-//   zero providers → OneKeyOnboard hero (paste one key and go)
-//   any provider   → full ProviderSettings (add/connect providers +
-//                    framework + per-slot model assignment, live)
+//   zero providers  → OneKeyOnboard card (paste one key and go)
+//   any provider    → read-only ProviderSummaryCard (agent framework +
+//                     model, helper model, registered keys at a glance)
 //
-// Completing onboard bumps refreshToken (re-probe → flips to the full
-// panel) and settingsKey (remounts ProviderSettings on fresh config).
+// Collapsing the disclosure (or completing onboard) bumps refreshToken
+// so the summary re-fetches whatever was edited in Advanced, and
+// settingsKey remounts ProviderSettings so it re-reads fresh config.
 function ProvidersSection() {
   const [providerCount, setProviderCount] = useState<number | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [settingsKey, setSettingsKey] = useState(0);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -253,7 +254,7 @@ function ProvidersSection() {
         return;
       }
     } catch {
-      // Backend not ready — fall through to "unknown"
+      // Backend not ready — fall through to "unknown", card stays hidden
     }
     setProviderCount(null);
   };
@@ -268,21 +269,47 @@ function ProvidersSection() {
     setSettingsKey((k) => k + 1);
   };
 
-  // Empty account → lead with the one-key hero. Once any provider exists,
-  // surface the full panel directly.
-  if (providerCount === 0) {
-    return (
-      <section className="space-y-3">
-        <SectionHeader
-          label="LLM Providers"
-          hint="Paste one API key and we'll wire up your agent automatically. You can add more providers and fine-tune models afterwards."
-        />
-        <OneKeyOnboard onComplete={refresh} />
-      </section>
-    );
-  }
+  const toggleAdvanced = () => {
+    setShowAdvanced((v) => {
+      // Closing Advanced → re-sync the summary with whatever was edited.
+      if (v) refresh();
+      return !v;
+    });
+  };
 
-  return <ProviderSettings key={settingsKey} />;
+  return (
+    <section>
+      <SectionHeader label="LLM Providers" />
+      {providerCount === 0 ? (
+        <div className="mb-4">
+          <OneKeyOnboard onComplete={refresh} />
+        </div>
+      ) : (
+        <div className="mb-4">
+          <ProviderSummaryCard refreshToken={refreshToken} />
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="flex items-center gap-1.5 text-sm hover:opacity-80"
+        style={{ color: 'var(--nm-ink70)' }}
+        onClick={toggleAdvanced}
+      >
+        {showAdvanced ? (
+          <ChevronDown className="w-4 h-4" />
+        ) : (
+          <ChevronRight className="w-4 h-4" />
+        )}
+        Advanced configuration — providers, frameworks, per-slot models
+      </button>
+      {showAdvanced && (
+        <div className="mt-4">
+          <ProviderSettings key={settingsKey} />
+        </div>
+      )}
+    </section>
+  );
 }
 
 // Left-nav items (master). Each maps to one content panel (detail).

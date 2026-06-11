@@ -453,10 +453,6 @@ export function ProviderSettings() {
   const [knownModels, setKnownModels] = useState<Record<string, KnownModelMeta>>({})
   const [officialBaseUrls, setOfficialBaseUrls] = useState<Record<string, string[]>>({})
   const [error, setError] = useState('')
-  // Fine-tune disclosure: hides the power-user knobs (per-slot thinking /
-  // reasoning effort, the model-list sync) by default so the panel leads
-  // with the common path — connect a provider, pick framework + model.
-  const [showFineTune, setShowFineTune] = useState(false)
   const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null } | null>(null)
   const [claudeLoggingIn, setClaudeLoggingIn] = useState(false)
   const [claudeLoggingOut, setClaudeLoggingOut] = useState(false)
@@ -1082,10 +1078,8 @@ export function ProviderSettings() {
 
             {/* Reasoning params — agent slot only. Framework-neutral values;
                 each backend adapter maps them to its own dialect. Auto = ''
-                = adapter passes nothing (framework default behavior).
-                Tucked behind the Fine-tune disclosure — defaults are fine for
-                most users; only power users touch thinking / effort. */}
-            {slot.key === 'agent' && showFineTune && (
+                = adapter passes nothing (framework default behavior). */}
+            {slot.key === 'agent' && (
               <>
                 <div>
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">Thinking</label>
@@ -1534,19 +1528,6 @@ export function ProviderSettings() {
 
           <div className="space-y-3 ml-[34px]">
             {SLOT_DEFS.map((slot) => renderSlotRow(slot))}
-
-            {/* Fine-tune disclosure — reveals the per-slot thinking +
-                reasoning-effort knobs inside the agent slot row above.
-                Collapsed by default so Model Assignment leads with the
-                common provider + model choice; defaults suit most users. */}
-            <button
-              type="button"
-              onClick={() => setShowFineTune((v) => !v)}
-              className="flex items-center gap-1.5 text-sm text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-            >
-              <span aria-hidden>{showFineTune ? '▾' : '▸'}</span>
-              Fine-tune {'·'} thinking &amp; reasoning effort
-            </button>
 
             {/* Apply / Discard buttons */}
             {hasPendingChanges && (

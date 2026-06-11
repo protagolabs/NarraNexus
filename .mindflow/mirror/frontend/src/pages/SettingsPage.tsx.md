@@ -23,14 +23,6 @@ stub: false
   固定,下面 `flex` 横向分 nav(w-56,自身滚动)+ 内容(`ScrollArea` flex-1)。
 - 用户确认要**左侧栏**(常见约定),非最初口述的右侧。
 
-**同日续 — `ProvidersSection` 去掉 "Advanced configuration" 折叠**:连
-provider / 选模型是头等动作而非 advanced,所以不再藏。0 个 provider →
-`OneKeyOnboard` hero;有 provider → **直接渲染 `ProviderSettings`**(去掉了
-只读 `ProviderSummaryCard` 叠加 + showAdvanced 折叠按钮,`ProviderSettings`
-本身就是活的配置视图)。真正的旋钮(thinking/effort)由 `ProviderSettings`
-内部的 `showFineTune` 折叠收起(见其 mirror 2026-06-11 条目)。`ChevronDown/
-ChevronRight`、`ProviderSummaryCard` 的 import 随之移除。
-
 ## 2026-06-10 (later) — secondary sections collapse by default
 
 New `CollapsibleSection` wraps Bundle / Artifacts / Manage-agents
