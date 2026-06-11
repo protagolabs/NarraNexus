@@ -653,21 +653,23 @@ async def external_list_sessions(
         # Recover the original session_id from the user_id namespace.
         session_id_part = _session_id_from_user_id(ephemeral_user_id, agent_id)
 
-        # Count messages + narratives. Cheap one-row aggregate per table.
+        # Count events for this user (events.user_id is the per-session
+        # message ledger). agent_messages doesn't have user_id (it's a
+        # channel-class table) so events is the right source.
         msg_count_row = await db.execute(
-            "SELECT COUNT(*) AS c FROM agent_messages WHERE user_id = ?",
-            (ephemeral_user_id,),
+            "SELECT COUNT(*) AS c FROM events WHERE user_id = ? AND agent_id = ?",
+            (ephemeral_user_id, agent_id),
         )
         nar_count_row = await db.execute(
             "SELECT COUNT(*) AS c FROM narratives WHERE agent_id = ?",
             (agent_id,),
         )
-        # last_message_at: max(updated_at) across module_instances +
-        # agent_messages — same heuristic the TTL job will use.
+        # last_message_at: max(updated_at) from events for this user. Same
+        # heuristic the EphemeralSessionGCPoller uses for TTL.
         last_msg_row = await db.execute(
-            "SELECT MAX(updated_at) AS m FROM agent_messages "
-            "WHERE user_id = ?",
-            (ephemeral_user_id,),
+            "SELECT MAX(updated_at) AS m FROM events "
+            "WHERE user_id = ? AND agent_id = ?",
+            (ephemeral_user_id, agent_id),
         )
 
         sessions.append({

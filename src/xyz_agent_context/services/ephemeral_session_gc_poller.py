@@ -218,13 +218,16 @@ class EphemeralSessionGCPoller:
     ) -> Optional[datetime]:
         """Return last activity for an ephemeral user.
 
-        Definition: MAX(agent_messages.updated_at) WHERE user_id = ?.
+        Definition: MAX(events.updated_at) WHERE user_id = ?.
         Fallback: users.create_time. Returning None means "we have no
         idea" and the caller will skip GC.
+
+        agent_messages doesn't have user_id (channel-class table); the
+        per-session message ledger is `events`, same source the list
+        sessions endpoint uses for its freshness column.
         """
         rows = await self._db.execute(
-            "SELECT MAX(updated_at) AS m FROM agent_messages "
-            "WHERE user_id = ?",
+            "SELECT MAX(updated_at) AS m FROM events WHERE user_id = ?",
             (user_id,),
         )
         max_msg = rows[0].get("m") if rows else None
