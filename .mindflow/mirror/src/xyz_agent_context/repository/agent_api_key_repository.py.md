@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/repository/agent_api_key_repository.py
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — `_parse_dt` always returns UTC-aware
+
+Previously naive DB strings (SQLite's `YYYY-MM-DD HH:MM:SS`) parsed
+to naive datetimes. The downstream `expires_at < utc_now()` in
+`AgentApiKey.is_active()` then crashed with "can't compare offset-
+naive and offset-aware datetimes" — visible in the External API
+sidebar as soon as any token had `expires_at` set (e.g. a rotated
+key with its grace `expires_at`).
+
+`_parse_dt` now attaches `timezone.utc` to any naive result before
+returning. Storage convention is UTC, so this is safe — and it
+means callers can compare freely against `utc_now()` without each
+of them re-implementing the normalisation.
 
 # agent_api_key_repository.py
 
@@ -69,7 +83,9 @@ this is in production.
 None as "401 invalid_token" without try/except. Don't "fix" it to raise
 404 — that changes the trust boundary.
 
-**Datetime coercion handles three formats.** ISO 8601 with timezone, ISO
-8601 without timezone, and `YYYY-MM-DD HH:MM:SS` (SQLite's
-`datetime('now')` default). Anything else → None. Adding a fourth format
-should go through a single normalization helper.
+**Datetime coercion handles three formats AND always returns UTC-aware.**
+ISO 8601 with timezone, ISO 8601 without timezone, and
+`YYYY-MM-DD HH:MM:SS` (SQLite's `datetime('now')` default). Anything
+else → None. Naive results get `tzinfo=timezone.utc` attached before
+return — storage convention is UTC, so this is the right default and
+it protects downstream comparisons against the offset-naive crash.

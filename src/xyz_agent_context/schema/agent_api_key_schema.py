@@ -25,6 +25,20 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from xyz_agent_context.utils.timezone import utc_now
+
+
+def _ensure_utc(dt: datetime) -> datetime:
+    """Attach UTC tzinfo if dt is naive. Storage convention is UTC, so
+    naive rows from a DB driver (e.g. SQLite returning bare
+    'YYYY-MM-DD HH:MM:SS' strings) are treated as UTC rather than
+    raising on the next comparison.
+    """
+    if dt.tzinfo is None:
+        from datetime import timezone as _tz
+        return dt.replace(tzinfo=_tz.utc)
+    return dt
+
 
 # =============================================================================
 # Internal entity (DB row representation)
@@ -52,10 +66,16 @@ class AgentApiKey(BaseModel):
     updated_at: Optional[datetime] = None
 
     def is_active(self) -> bool:
-        """A key is active when not revoked and not expired."""
+        """A key is active when not revoked and not expired.
+
+        Both sides of the comparison MUST be timezone-aware UTC.
+        `expires_at` is stored UTC and `_parse_dt` in the repository
+        normalises naive DB rows to UTC, so we use `utc_now()` (NOT
+        `datetime.now()`) to keep the comparison sane.
+        """
         if self.revoked_at is not None:
             return False
-        if self.expires_at is not None and self.expires_at < datetime.now():
+        if self.expires_at is not None and _ensure_utc(self.expires_at) < utc_now():
             return False
         return True
 
@@ -63,7 +83,7 @@ class AgentApiKey(BaseModel):
         """Human-readable status for UI display."""
         if self.revoked_at is not None:
             return "revoked"
-        if self.expires_at is not None and self.expires_at < datetime.now():
+        if self.expires_at is not None and _ensure_utc(self.expires_at) < utc_now():
             return "expired"
         return "active"
 
