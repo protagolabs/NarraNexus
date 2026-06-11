@@ -9,6 +9,7 @@
  * the inline rename state is passed down so AgentList owns all mutations.
  */
 
+import { useState } from 'react';
 import { Loader2, Check, X, ArrowRight, Globe } from 'lucide-react';
 import type { AgentInfo } from '@/types';
 import { RingAvatar } from '@/components/nm';
@@ -309,6 +310,7 @@ function AgentRow({
 
   const isEditing = editingAgentId === agent.agent_id;
   const isOwner = agent.created_by === currentUserId;
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <div
@@ -317,6 +319,10 @@ function AgentRow({
         'w-full text-left px-3 py-2 cursor-pointer animate-slide-up',
         'rounded-[18px] transition-colors duration-150',
         'group',
+        // animate-slide-up retains a transform (fill: forwards), making
+        // every row a stacking context — lift the row while its kebab
+        // panel is open so the panel paints above the rows below.
+        menuOpen && 'relative z-30',
       )}
       style={{
         animationDelay: `${index * 50}ms`,
@@ -407,6 +413,7 @@ function AgentRow({
                   <AgentRowMenu
                     agentId={agent.agent_id}
                     agentName={displayName}
+                    onOpenChange={setMenuOpen}
                     isOwner={isOwner}
                     isPublic={!!agent.is_public}
                     showPublicToggle={showPublicToggle}

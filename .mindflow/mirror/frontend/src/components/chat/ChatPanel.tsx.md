@@ -4,6 +4,14 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 (v1.8.1) — clickable Processing chip + header truncation
+
+The Processing indicator is now [[ExecutionPopover]] — click opens a
+live pipeline-step list (the execution view retired with RuntimePanel,
+resurrected as click-to-peek). Header left side gained
+overflow-hidden + agent-id truncation so a narrow chat (artifact
+column open) can never run the label under the Processing/cost cluster.
+
 ## 2026-06-11 — CostPopover joins the header row
 
 The cost chip used to float `absolute top-2 right-2` over the chat

@@ -13,7 +13,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Square, Loader2, Sparkles, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
+import { Send, Square, Loader2, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
 import { CostPopover } from '@/components/cost/CostPopover';
@@ -28,6 +28,7 @@ import { getChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { TurnTimeline } from './TurnTimeline';
+import { ExecutionPopover } from './ExecutionPopover';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -782,32 +783,24 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     >
       {/* Header — NM mono section label + StatusDot per conversation state */}
       <div className="px-5 flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
-        <div className="flex items-center gap-2.5 min-w-0">
+        {/* min-w-0 + overflow-hidden: when the artifact column squeezes
+            the chat, the label/agent-id side TRUNCATES — it must never
+            run under the Processing/cost cluster on the right. */}
+        <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
           <StatusDot
             status={isStreaming ? 'warning' : agentId ? 'success' : 'neutral'}
             size={8}
             pulse={isStreaming}
           />
           <BracketSectionLabel
-            trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px]">{agentId}</span> : undefined}
+            trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px] truncate max-w-[180px]">{agentId}</span> : undefined}
           >
             Interaction
           </BracketSectionLabel>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          {isStreaming && (
-            <span
-              className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em]"
-              style={{
-                color: 'var(--color-warning)',
-                fontFamily: 'var(--font-mono)',
-              }}
-            >
-              <Sparkles className="w-3 h-3 animate-pulse" />
-              Processing
-            </span>
-          )}
+          {isStreaming && <ExecutionPopover steps={currentSteps} />}
           {/* Cost chip — a proper header member (it used to float
               absolutely over this corner and collided with the
               Processing indicator during runs). */}
