@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive, Plus } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
 import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
@@ -280,25 +280,20 @@ function ProvidersSection() {
   return (
     <section>
       <SectionHeader label="LLM Providers" />
-      {providerCount === 0 ? (
+      {/* Current setup (what's in use) — only once a provider exists. */}
+      {providerCount !== 0 && (
         <div className="mb-4">
-          <OneKeyOnboard onComplete={refresh} />
-        </div>
-      ) : (
-        <div className="mb-4 space-y-3">
           <ProviderSummaryCard refreshToken={refreshToken} />
-          {/* Surface "Add provider" directly — adding a key/provider is a
-              primary action, not something to hunt for inside Advanced.
-              Opens the config disclosure (Add Providers sits at its top).
-              Hidden once Advanced is open (the section is already visible). */}
-          {!showAdvanced && (
-            <Button variant="outline" className="gap-2" onClick={() => setShowAdvanced(true)}>
-              <Plus className="w-4 h-4" />
-              Add provider
-            </Button>
-          )}
         </div>
       )}
+
+      {/* Add / switch a provider — ALWAYS available so pasting a key is a
+          first-class action, not something to hunt for in Advanced. The
+          panel thus shows both the current setup (above) and a way to add
+          a new one (here). Custom endpoints + CLI sign-in stay in Advanced. */}
+      <div className="mb-4">
+        <OneKeyOnboard onComplete={refresh} />
+      </div>
 
       <button
         type="button"
@@ -311,7 +306,7 @@ function ProvidersSection() {
         ) : (
           <ChevronRight className="w-4 h-4" />
         )}
-        Advanced configuration — providers, frameworks, per-slot models
+        Advanced — CLI sign-in, custom endpoints, frameworks, per-slot models
       </button>
       {showAdvanced && (
         <div className="mt-4">

@@ -24,10 +24,17 @@ stub: false
 - 用户确认要**左侧栏**(常见约定),非最初口述的右侧。
 
 **同日续** — 试过的"providers 全展开 + Fine-tune"(commit 12d4fbf8)被回退
-(用户觉得不好看)。保留的唯一诉求:`ProvidersSection` 在摘要卡下加一个
-**"+ Add provider"** 按钮(`setShowAdvanced(true)`,Advanced 收起时才显示),
-让"加 provider"成为一级可见动作,而不必去 "Advanced configuration" 里找。
-其余维持 master-detail + 摘要卡 + Advanced 折叠不变。
+(用户觉得不好看)。最终方案:`ProvidersSection` **始终内嵌 `OneKeyOnboard`
+作为"添加 provider"部件**(以前只有 0 provider 时才显示),所以面板同时呈现
+**当前在用(`ProviderSummaryCard`)+ 添加新的(OneKeyOnboard 贴 key)**——
+"加 provider"不再藏在 Advanced。短暂加过的 "+ Add provider" 按钮已被这个真正
+的内嵌部件取代、移除。OneKeyOnboard 的介绍文案也精简成一行。Advanced 折叠保留
+(自定义端点 + Custom OpenAI/Anthropic + CLI 登录 + 每槽模型/微调仍在里面)。
+
+> 待办/可选:用户还提过把 "+ Custom OpenAI/Anthropic"(走 `add_provider`,带
+> base_url、不重配槽位)也并进这个添加部件。语义和 OneKeyOnboard 的 `onboard`
+> (重配两个槽)不同,暂留 Advanced;要并需给部件加 provider 类型含 custom +
+> base_url 输入 + 分流到 add_provider。
 
 ## 2026-06-10 (later) — secondary sections collapse by default
 

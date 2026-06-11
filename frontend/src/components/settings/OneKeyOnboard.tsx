@@ -147,10 +147,8 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
             One key to start
           </h2>
           <p className="text-sm mt-1" style={{ color: 'var(--nm-ink70)' }}>
-            Pick your provider, paste the key — agent framework, models and
-            both endpoints are configured for you. Fine-tune anytime in
-            Advanced. Prefer CLI sign-in (Claude Code / Codex)? It&rsquo;s in
-            Advanced too — note the helper model still needs an API key.
+            Pick a provider and paste its API key — agent, models, and
+            endpoints are wired up for you.
           </p>
         </div>
 
