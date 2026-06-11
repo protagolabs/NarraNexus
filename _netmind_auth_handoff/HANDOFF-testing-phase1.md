@@ -16,6 +16,21 @@
 
 **优先做 A**（最快、无外部依赖）。B 依赖 Power 配置 CORS（见 §5），不一定就绪。C 看你想不想真上 dev。
 
+### NetMind 端点对照表（dev/test vs prod）
+
+**测试用 dev/test 这套**（档 A/B/C 都用 dev）。prod 列出来仅供知悉，**现在别用**。
+
+| 用途 | dev / test（现在用这套） | prod（暂不用） |
+|---|---|---|
+| 后端验 token + 前端登录 API（`NETMIND_AUTH_API_URL`） | `https://userauth.protago-dev.com` | `https://auth-api.netmind.ai` |
+| OAuth 弹窗 accounts 域（`NETMIND_ACCOUNTS_URL`） | `https://accounts.protago-dev.com` | `https://accounts.netmind.ai` |
+| sysCode（`NETMIND_SYS_CODE`，两边相同） | `f925fc2c` | `f925fc2c` |
+| 注册页（`NETMIND_REGISTER_URL`） | 待 Power 给（暂空） | 待 Power 给（暂空） |
+
+- 这些 URL 是 Arena 在用的同一套（我已用 dev 那套 + 真测试账号实测跑通 emailLogin / balance）。
+- sysCode `f925fc2c` 是复用 Power 的（Power PM 确认：同 sysCode 才能打通 Power 登录态，token 通用）。
+- 注册页 URL 两套都还没拿到——所以 "Create Account" 外链暂时指向空，点了没反应是正常的，等 Power 给。
+
 ---
 
 ## 1. 代码在哪
