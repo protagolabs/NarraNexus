@@ -407,6 +407,20 @@ else:
     logger.info("Manyfold API disabled (ENABLE_MANYFOLD_API not set)")
 
 
+# ─── External API protocol (v0.3) — agent-bound nxk_ tokens ────────────
+# Registered only when ENABLE_EXTERNAL_API=1. Without the env,
+# /v1/external/* endpoints return 404, leaving cloud / run.sh / Tauri
+# DMG behaviour identical. See backend/auth.py for the matching
+# middleware that intercepts and validates nxk_ tokens.
+
+if os.environ.get("ENABLE_EXTERNAL_API", "").strip() in ("1", "true", "yes"):
+    from backend.routes.external_api import router as external_api_router
+    app.include_router(external_api_router, tags=["ExternalAPI"])
+    logger.info("External API enabled: /v1/external/* registered")
+else:
+    logger.info("External API disabled (ENABLE_EXTERNAL_API not set)")
+
+
 # ─── Frontend static files & SPA fallback ────────────────
 # Mounted after all API routes so /api/* and /ws/* take priority.
 

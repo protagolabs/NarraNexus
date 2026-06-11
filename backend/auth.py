@@ -138,6 +138,129 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
     )
 
 
+# =============================================================================
+# External API protocol (v0.3) — agent-bound nxk_ tokens
+# =============================================================================
+#
+# When ENABLE_EXTERNAL_API=1, the container exposes /v1/external/* routes
+# behind a nxk_-token middleware (this section). The token is minted via
+# the owner-facing /api/agents/{id}/api-keys endpoint and is permanently
+# scoped to one agent_id. Every request is validated as follows:
+#
+#   1. Authorization header starts with "Bearer nxk_..." or 401.
+#   2. parse_token() extracts key_id (~12 hex chars). Malformed → 401.
+#   3. agent_api_keys table lookup by key_id. No row → 401.
+#   4. revoked_at IS NULL and expires_at not yet past → otherwise 401.
+#   5. Constant-time SHA256 compare on the full token. Mismatch → 401.
+#   6. On success: stash agent_id, owner_user_id, scopes on request.state
+#      so downstream handlers know who's calling and what they may do.
+#   7. Best-effort, async last_used_at bump that NEVER blocks the response.
+#
+# /v1/external/healthz is unauthenticated by design — it must answer to
+# K8s readiness probes and third-party uptime monitors.
+#
+# Per-route scope enforcement happens inside the handlers (or via a
+# per-route dependency in Step 6 / Step 7). The middleware only checks
+# that the token is valid; route handlers check `request.state.api_key_scopes`
+# against what the operation requires.
+
+
+def _is_external_api_enabled() -> bool:
+    """External API is opt-in via env. Default off — other deployments
+    (cloud, run.sh, Tauri DMG) keep returning 404 on /v1/external/* with
+    no behaviour change."""
+    return os.environ.get("ENABLE_EXTERNAL_API", "").strip() in ("1", "true", "yes")
+
+
+def _is_external_api_path(path: str) -> bool:
+    """Paths covered by the nxk_-token middleware."""
+    return path.startswith("/v1/external/")
+
+
+async def _handle_external_api_auth(request: Request, call_next):
+    """Validate `Authorization: Bearer nxk_...` then pass through.
+
+    Returns either a 401 JSON response (token missing/invalid/revoked/expired/
+    mismatched), a 403 JSON response (path-implied scope check would
+    require a scope the token doesn't have), or whatever the downstream
+    handler returns.
+    """
+    from xyz_agent_context.utils.api_key_token import (
+        TOKEN_NAMESPACE_PREFIX,
+        parse_token,
+        verify_token_hash,
+    )
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return _json_response(401, {
+            "detail": "missing Authorization: Bearer header",
+            "code": "missing_auth",
+        })
+
+    plaintext = auth_header[7:].strip()
+    if not plaintext.startswith(TOKEN_NAMESPACE_PREFIX):
+        return _json_response(401, {
+            "detail": (
+                f"token does not start with {TOKEN_NAMESPACE_PREFIX!r} — "
+                f"/v1/external/* requires an nxk_ token"
+            ),
+            "code": "invalid_token",
+        })
+
+    key_id = parse_token(plaintext)
+    if not key_id:
+        return _json_response(401, {
+            "detail": "malformed nxk_ token",
+            "code": "invalid_token",
+        })
+
+    from xyz_agent_context.repository.agent_api_key_repository import (
+        AgentApiKeyRepository,
+    )
+    from xyz_agent_context.utils.db_factory import get_db_client
+
+    db = await get_db_client()
+    repo = AgentApiKeyRepository(db)
+    row = await repo.get_by_key_id(key_id)
+    if not row:
+        return _json_response(401, {
+            "detail": "unknown api-key — token may have been revoked or never existed",
+            "code": "invalid_token",
+        })
+
+    if not row.is_active():
+        if row.revoked_at is not None:
+            return _json_response(401, {
+                "detail": "this api-key has been revoked",
+                "code": "revoked_token",
+            })
+        return _json_response(401, {
+            "detail": "this api-key has expired",
+            "code": "expired_token",
+        })
+
+    if not verify_token_hash(plaintext, row.token_hash):
+        return _json_response(401, {
+            "detail": "token does not match — likely tampered or copy-paste error",
+            "code": "invalid_token",
+        })
+
+    # Auth passed. Stash details on request.state for handlers to pick up.
+    request.state.external_api_authed = True
+    request.state.api_key_id = row.key_id
+    request.state.api_key_agent_id = row.agent_id
+    request.state.api_key_owner_user_id = row.owner_user_id
+    request.state.api_key_scopes = list(row.scopes)
+
+    # Fire-and-forget last_used_at bump. Never block the response on this —
+    # it's purely advisory for the owner-facing UI.
+    import asyncio
+    asyncio.create_task(repo.touch_last_used(row.key_id))
+
+    return await call_next(request)
+
+
 def _is_cloud_mode() -> bool:
     """Check if running in cloud mode (MySQL) vs local mode (SQLite).
 
@@ -316,6 +439,22 @@ async def auth_middleware(request: Request, call_next):
     # through; CORSMiddleware will intercept and return the correct headers.
     if request.method == "OPTIONS":
         return await call_next(request)
+
+    # ---- External API protocol (v0.3) — agent-bound nxk_ tokens ------------
+    # When ENABLE_EXTERNAL_API=1, requests under `/v1/external/*` use the
+    # `nxk_` agent-bound token scheme (see utils/api_key_token.py +
+    # repository/agent_api_key_repository.py). This block intercepts the
+    # path FIRST so that even with ENABLE_MANYFOLD_API=1 the platform-level
+    # gateway token can't override a per-agent token check on this surface
+    # — owners deliberately scope tokens to one agent, and accepting a
+    # gateway token here would silently bypass that.
+    path = request.url.path
+    if _is_external_api_enabled() and _is_external_api_path(path):
+        # /healthz needs to be probe-able without auth so K8s readiness +
+        # third-party uptime monitors don't get 401-locked out.
+        if path == "/v1/external/healthz":
+            return await call_next(request)
+        return await _handle_external_api_auth(request, call_next)
 
     # ---- Manyfold gateway-token mode (deployment-gated) -------------------
     # When ENABLE_MANYFOLD_API=1, any request carrying a valid Bearer token

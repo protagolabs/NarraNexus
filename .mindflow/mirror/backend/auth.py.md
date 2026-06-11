@@ -1,8 +1,45 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-06-11
+last_verified: 2026-06-11-r2
 stub: false
 ---
+
+## 2026-06-11-r2 — external API protocol middleware (v0.3)
+
+Inserted a new auth path for `/v1/external/*` requests, gated by
+`ENABLE_EXTERNAL_API=1`. The check runs BEFORE the existing Manyfold
+block so that even with both env flags set, an external integrator's
+nxk_-scoped token cannot accidentally fall through to Manyfold's
+container-wide gateway-token rule (which would silently bypass the
+per-agent scoping).
+
+Pipeline for an `/v1/external/*` request when the env is set:
+
+  1. /healthz → unauth, returns 200 immediately
+  2. Else `_handle_external_api_auth(request, call_next)`:
+     - 401 if Authorization missing / wrong prefix
+     - 401 if parse_token() can't extract a key_id
+     - 401 if DB lookup misses
+     - 401 if revoked_at or expires_at exclude the row
+     - 401 if hmac.compare_digest mismatch on SHA256
+     - On success: stash agent_id / owner_user_id / scopes on
+       request.state, fire-and-forget last_used_at bump
+  3. Pass to handler
+
+Per-route scope enforcement happens inside the handlers (or via a
+shared FastAPI dependency in Step 6/7); the middleware itself only
+proves "this token is valid". A handler may still 403 if the scope
+list excludes the requested operation.
+
+Why insert BEFORE Manyfold: even if both env flags are set, the path
+`/v1/external/` is distinct from Manyfold's `/v1/chat/completions`.
+Ordering the external check first ensures an nxk_ token never
+accidentally satisfies a gateway-token comparison and vice versa.
+
+Async last_used_at: `asyncio.create_task(repo.touch_last_used(...))`
+runs concurrently with the response; failures inside that coroutine
+log at WARNING but never reach the user. Chat latency must NEVER
+depend on this DB write succeeding.
 
 ## 2026-06-11 — _is_cloud_mode honors NARRANEXUS_DEPLOYMENT_MODE
 
