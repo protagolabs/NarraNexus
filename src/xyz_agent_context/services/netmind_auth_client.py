@@ -124,6 +124,19 @@ class NetmindAuthClient:
         except httpx.HTTPError as exc:
             raise NetmindUpstreamError(f"NetMind auth API unreachable: {exc}") from exc
 
+        # Best-effort parse first: NetMind signals a rejected token with
+        # {success: false} even on some non-2xx statuses — e.g. a non-NetMind
+        # JWT yields a 500 carrying that envelope. A rejected token is the
+        # user's problem (401), not an upstream outage (502), so this signal
+        # is checked before the status-code fallbacks.
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+
+        if isinstance(body, dict) and body.get("success") is False:
+            raise NetmindAuthError("NetMind rejected the token")
+
         if response.status_code >= 500:
             raise NetmindUpstreamError(
                 f"NetMind auth API returned {response.status_code}"
@@ -131,13 +144,8 @@ class NetmindAuthClient:
         if response.status_code >= 400:
             raise NetmindAuthError("NetMind rejected the token")
 
-        try:
-            body = response.json()
-        except ValueError as exc:
-            raise NetmindUpstreamError("NetMind auth API returned non-JSON") from exc
-
-        if body.get("success") is False:
-            raise NetmindAuthError("NetMind rejected the token")
+        if not isinstance(body, dict):
+            raise NetmindUpstreamError("NetMind auth API returned non-JSON")
 
         user_obj = (body.get("data") or {}).get("user") or {}
         return self._extract_identity(user_obj)

@@ -119,6 +119,31 @@ async def test_verify_token_maps_5xx_to_upstream_error():
 
 
 @pytest.mark.asyncio
+async def test_verify_token_5xx_with_success_false_is_auth_error():
+    # A token NetMind explicitly rejects is the user's problem (401), even
+    # when NetMind wraps the rejection in a 5xx (observed: a non-NetMind JWT
+    # yields 500 carrying the {success:false} envelope). Must NOT look like
+    # an upstream outage (502).
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500, json={"success": False, "errorcode": "NOT_LOGGEDIN"}
+        )
+
+    with pytest.raises(NetmindAuthError):
+        await _client_with(handler).verify_token("garbage-jwt")
+
+
+@pytest.mark.asyncio
+async def test_verify_token_5xx_without_envelope_stays_upstream_error():
+    # A genuine server error with no NetMind envelope stays 502.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="<html>Internal Server Error</html>")
+
+    with pytest.raises(NetmindUpstreamError):
+        await _client_with(handler).verify_token("jwt-abc")
+
+
+@pytest.mark.asyncio
 async def test_verify_token_treats_missing_identity_fields_as_upstream_error():
     # Contract drift on NetMind's side must not look like a user auth failure.
     def handler(request: httpx.Request) -> httpx.Response:

@@ -141,15 +141,25 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
 def _is_cloud_mode() -> bool:
     """Check if running in cloud mode (MySQL) vs local mode (SQLite).
 
-    SAFETY: an unset / empty DATABASE_URL MUST default to local mode, not
-    cloud. A packaged desktop app (Tauri dmg) sets DATABASE_URL via Rust's
-    std::env::set_var, which is NOT thread-safe on macOS — the tokio-spawned
-    Python subprocess may not see it. If we defaulted to cloud here, the
-    bundled backend would demand passwords from users who are using the
-    desktop app in its intended local mode, which is exactly the bug that
-    surfaced in the v0.1.0 dmg. Cloud mode is only active when someone
-    explicitly provides a non-sqlite DATABASE_URL.
+    Precedence (consistent with utils.deployment_mode, the canonical
+    resolver the rest of the codebase uses):
+      1. An explicit NARRANEXUS_DEPLOYMENT_MODE ("cloud"/"local") wins —
+         this is what lets a sqlite + NARRANEXUS_DEPLOYMENT_MODE=cloud
+         local smoke run cloud semantics.
+      2. Else the legacy heuristic below.
+
+    SAFETY: with NO explicit env var, an unset / empty / sqlite DATABASE_URL
+    MUST default to local mode, not cloud. A packaged desktop app (Tauri
+    dmg) sets DATABASE_URL via Rust's std::env::set_var, which is NOT
+    thread-safe on macOS — the tokio-spawned Python subprocess may not see
+    it. If we defaulted to cloud here, the bundled backend would demand
+    NetMind login from users running the desktop app in its intended local
+    mode (the v0.1.0 dmg bug). The dmg does NOT set
+    NARRANEXUS_DEPLOYMENT_MODE, so step 1 never trips it into cloud.
     """
+    explicit = os.environ.get("NARRANEXUS_DEPLOYMENT_MODE", "").strip().lower()
+    if explicit in ("cloud", "local"):
+        return explicit == "cloud"
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
         return not db_url.startswith("sqlite")

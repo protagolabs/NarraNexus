@@ -4,6 +4,10 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 — 5xx carrying {success:false} maps to 401 not 502
+
+verify_token now best-effort parses the body BEFORE the status-code fallbacks: a {success:false} envelope is treated as a rejected token (NetmindAuthError -> 401) even on a 5xx. Observed in testing: a non-NetMind JWT yields a 500 wrapping NetMind's auth rejection — that's the caller's bad token (401), not an upstream outage (502). A genuine 5xx with no parseable envelope still maps to 502.
+
 ## 2026-06-11 — userSystemCode field name confirmed against dev
 
 Live-probed NetMind dev (auth-api at userauth.protago-dev.com) with a real test account: emailLogin (DES-CBC + ckType=2, no reCAPTCHA) and /user/balance both 200; response shape is {data:{user:{...userSystemCode...}}} exactly as assumed; the user object does carry loginToken/nettyToken/salt/loginPassword, so the secret-stripping before storing `raw` is load-bearing, not paranoia. The snake_case fallback for the field name is now defensive-only.

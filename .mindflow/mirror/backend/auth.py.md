@@ -4,6 +4,10 @@ last_verified: 2026-06-11
 stub: false
 ---
 
+## 2026-06-11 — _is_cloud_mode honors NARRANEXUS_DEPLOYMENT_MODE
+
+Aligned `_is_cloud_mode()` precedence with the canonical utils.deployment_mode resolver the rest of the codebase uses: an explicit NARRANEXUS_DEPLOYMENT_MODE ("cloud"/"local") now wins; otherwise the unchanged legacy heuristic (DATABASE_URL non-sqlite -> cloud, else DB_HOST fallback, else local). dmg-safe — the desktop app doesn't set that env var so the safety heuristic still pins it local. Surfaced by Phase-1 testing: a sqlite + NARRANEXUS_DEPLOYMENT_MODE=cloud local smoke previously 404'd netmind-login because the old copy ignored the env var.
+
 ## 2026-06-11 — bcrypt password helpers removed; exempt list pruned
 
 hash_password/verify_password (and the bcrypt import) deleted — cloud password login no longer exists, local login never had passwords. AUTH_EXEMPT_PATHS dropped /api/auth/register and /api/invite/internal/issue. users.password_hash column stays (no destructive DDL), it's just never read or written.
