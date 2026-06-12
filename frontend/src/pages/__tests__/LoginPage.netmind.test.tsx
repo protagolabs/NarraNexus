@@ -26,4 +26,13 @@ describe('LoginPage cloud branch (NetMind)', () => {
     const signup = screen.getByRole('link', { name: /sign up|create account/i }) as HTMLAnchorElement;
     expect(signup.href).toContain('reg.test');
   });
+
+  test('shows the account-migration notice with support contact', () => {
+    render(<MemoryRouter><LoginPage /></MemoryRouter>);
+    expect(screen.getByText(/reorganized our account system/i)).toBeTruthy();
+    const support = screen.getByRole('link', {
+      name: /bin\.liang@netmind\.ai/i,
+    }) as HTMLAnchorElement;
+    expect(support.href).toContain('mailto:bin.liang@netmind.ai');
+  });
 });

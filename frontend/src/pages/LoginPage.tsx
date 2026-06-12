@@ -174,6 +174,24 @@ export function LoginPage() {
         {isCloudMode ? (
           /* Cloud: NetMind email + password + OAuth */
           <div className="space-y-5 mt-6">
+            <div
+              className="rounded-xl p-3 text-xs leading-relaxed"
+              style={{
+                background: 'var(--color-surface-variant, rgba(0,0,0,0.05))',
+              }}
+              role="status"
+            >
+              <strong>We&apos;ve reorganized our account system.</strong> Your
+              data has been migrated to the account under the email you used to
+              receive your invite code. To sign in, please reset your password
+              for that email first (use &ldquo;Forgot password?&rdquo; below).
+              For any other questions, contact our team at{' '}
+              <a href="mailto:bin.liang@netmind.ai" className="underline">
+                bin.liang@netmind.ai
+              </a>
+              .
+            </div>
+
             <FormField label="Email">
               <TextInput
                 type="email"

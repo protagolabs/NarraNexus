@@ -4,11 +4,14 @@ last_verified: 2026-06-12
 stub: false
 ---
 
-## 2026-06-12 — "Forgot password?" entry
+## 2026-06-12 — "Forgot password?" entry + account-migration notice
 
 Cloud branch gained a "Forgot password?" link under the password field
 (`showForgot` state) that opens [[ForgotPasswordCard.tsx]], rendered next to the
-CreateUser / AuthBind dialogs. Local branch untouched.
+CreateUser / AuthBind dialogs. Also added a static notice banner at the top of
+the cloud form telling legacy users their data was migrated to the account
+under their invite-code email and that they must reset their password to sign
+in, with a support contact (bin.liang@netmind.ai). Local branch untouched.
 
 ## 2026-06-11 — cloud branch → NetMind login
 
