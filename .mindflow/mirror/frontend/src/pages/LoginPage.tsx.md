@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/pages/LoginPage.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — "Forgot password?" entry
+
+Cloud branch gained a "Forgot password?" link under the password field
+(`showForgot` state) that opens [[ForgotPasswordCard.tsx]], rendered next to the
+CreateUser / AuthBind dialogs. Local branch untouched.
 
 ## 2026-06-11 — cloud branch → NetMind login
 

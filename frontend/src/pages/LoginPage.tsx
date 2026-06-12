@@ -23,6 +23,7 @@ import { isSafeReturnTo } from '@/lib/safe-return';
 import { CreateUserDialog } from './CreateUserDialog';
 import { useNetmindAuth } from '@/lib/netmindAuth/useNetmindAuth';
 import { AuthBindDialog } from '@/components/auth/AuthBindDialog';
+import { ForgotPasswordCard } from '@/components/auth/ForgotPasswordCard';
 import { getNetmindConfig } from '@/lib/runtimeConfig';
 
 export function LoginPage() {
@@ -32,6 +33,7 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -196,6 +198,16 @@ export function LoginPage() {
                 className="h-12"
               />
             </FormField>
+
+            <div className="flex justify-end -mt-1">
+              <button
+                type="button"
+                onClick={() => setShowForgot(true)}
+                className="text-xs opacity-60 hover:opacity-100 transition-opacity"
+              >
+                Forgot password?
+              </button>
+            </div>
 
             {(netmind.error || error) && (
               <p
@@ -402,6 +414,10 @@ export function LoginPage() {
           onSubmit={netmind.submitBind}
           onClose={netmind.closeBind}
         />
+      )}
+
+      {showForgot && (
+        <ForgotPasswordCard onClose={() => setShowForgot(false)} />
       )}
     </div>
   );

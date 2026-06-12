@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/lib/netmindAuth/useNetmindAuth.ts
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — forgot-password methods (sendResetCode + resetPassword)
+
+Two methods added for NetMind's own password reset (cloud passwords ARE NetMind
+passwords, so no backend): `sendResetCode(email)` → POST `/user/sendCode` with
+`type: 2` (forgot-password path; no reCAPTCHA there), and
+`resetPassword(email, code, newPassword)` → POST `/user/resetPassword`. Both
+call NetMind directly via `netmindPost` like emailLogin, share the hook's
+loading/error state, and return a boolean so the UI ([[ForgotPasswordCard.tsx]])
+can advance step / close. Exposed on the hook's return.
 
 # useNetmindAuth.ts — NetMind login orchestration hook
 

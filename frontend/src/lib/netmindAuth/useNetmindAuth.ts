@@ -130,6 +130,43 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
 
   const closeBind = useCallback(() => setBindInfo(null), []);
 
+  // Forgot-password (NetMind). Two-step, no reCAPTCHA: send a code to the
+  // email (sendCode type=2), then reset with code + new password. Both call
+  // NetMind directly, like emailLogin. Return true on success so the UI can
+  // advance to the next step / close.
+  const sendResetCode = useCallback(async (email: string): Promise<boolean> => {
+    setLoading(true);
+    setError('');
+    try {
+      await netmindPost('/user/sendCode', { ...baseRequestParams(), email, type: 2 });
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to send code');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const resetPassword = useCallback(
+    async (email: string, code: string, newPassword: string): Promise<boolean> => {
+      setLoading(true);
+      setError('');
+      try {
+        await netmindPost('/user/resetPassword', {
+          ...baseRequestParams(), email, code, newPassword,
+        });
+        return true;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to reset password');
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.data?.type === 'auth' && e.data.code && e.data.state) {
@@ -143,5 +180,6 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
   return {
     loading, error, bindInfo,
     emailLogin, startOAuth, handleAuthCallback, submitBind, closeBind,
+    sendResetCode, resetPassword,
   };
 }

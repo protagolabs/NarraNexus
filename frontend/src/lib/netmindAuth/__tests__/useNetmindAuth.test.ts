@@ -34,6 +34,37 @@ describe('useNetmindAuth.emailLogin', () => {
   });
 });
 
+describe('useNetmindAuth password reset', () => {
+  test('sendResetCode posts to /user/sendCode with type=2 (forgot-password)', async () => {
+    netmindPost.mockResolvedValue({});
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.sendResetCode('a@b.com'); });
+    expect(netmindPost).toHaveBeenCalledWith('/user/sendCode', expect.objectContaining({
+      email: 'a@b.com', type: 2,
+    }));
+  });
+
+  test('resetPassword posts email+code+newPassword to /user/resetPassword', async () => {
+    netmindPost.mockResolvedValue({});
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => {
+      await result.current.resetPassword('a@b.com', '123456', 'NewPw1234');
+    });
+    expect(netmindPost).toHaveBeenCalledWith('/user/resetPassword', expect.objectContaining({
+      email: 'a@b.com', code: '123456', newPassword: 'NewPw1234',
+    }));
+  });
+
+  test('surfaces resetPassword failure as error state', async () => {
+    netmindPost.mockRejectedValue(new Error('Invalid code'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => {
+      await result.current.resetPassword('a@b.com', 'bad', 'NewPw1234');
+    });
+    expect(result.current.error).toBe('Invalid code');
+  });
+});
+
 describe('useNetmindAuth OAuth callback', () => {
   test('loginToken in callback exchanges via backend', async () => {
     netmindPost.mockResolvedValue({ loginToken: 'oauth-tok', user: { userSystemCode: 'c' } });
