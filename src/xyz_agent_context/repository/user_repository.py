@@ -41,6 +41,23 @@ class UserRepository(BaseRepository[User]):
 
     _json_fields = {"metadata"}
 
+    async def get_display_name(self, user_id: Optional[str]) -> str:
+        """Resolve a user_id to a human-readable name for agent prompts / UI.
+
+        Returns the user's display_name, falling back to the user_id itself
+        when there is no display name (or no such user). This is the single
+        place where the opaque user_id (in cloud mode, a 32-hex NetMind
+        userSystemCode) is turned into something a human / the LLM reads;
+        everywhere else user_id stays an internal scoping key. Never raises.
+        """
+        if not user_id:
+            return ""
+        try:
+            user = await self.get_user(user_id)
+        except Exception:  # noqa: BLE001 — identity display must never break callers
+            user = None
+        return (user.display_name or user_id) if user else user_id
+
     async def get_user(self, user_id: str) -> Optional[User]:
         """Get a user (case-sensitive)"""
         logger.debug(f"    → UserRepository.get_user({user_id})")

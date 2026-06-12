@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-06-09
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — owner-relay prompt names the owner; routing keeps the user_id
+
+`_build_prompt` gained an `owner_name=""` param. The human-facing relay line now
+reads `Your owner **{owner_name or owner_user_id}** originally asked…` so the LLM
+sees the owner's human name, not the opaque NetMind userSystemCode. The
+`send_message_to_user_directly` routing argument on the same prompt KEEPS
+`user_id="{owner_user_id}"` verbatim — the delivery tool needs the real key, so
+that hex must stay. The caller resolves `owner_name` via
+`UserRepository(await get_db_client()).get_display_name(owner_user_id)` (see
+[[user_repository.py]]).
 
 ## 2026-06-09 — `_get_channel_info` SQL dialect bug (silent bus-delivery break)
 

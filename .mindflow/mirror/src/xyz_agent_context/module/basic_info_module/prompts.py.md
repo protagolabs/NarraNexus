@@ -1,7 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-05-20
+last_verified: 2026-06-12
 ---
+
+## 2026-06-12 — identity lines render people by human name
+
+`BASIC_INFO_MODULE_INSTRUCTIONS` no longer prints `{creator_id}` / `{user_id}`
+as the agent's owner / counterpart. The identity block now reads
+`Creator (your owner): {creator_name}`, `Is the current speaker your Creator?:
+{is_creator}`, and `Talking with: {current_speaker_name}` — all human names
+resolved in [[basic_info_module.py]] `hook_data_gathering` via
+[[user_repository.py]] `get_display_name`. The opaque NetMind userSystemCode is
+no longer shown as a person. New placeholders require the matching
+[[context_schema.py]] fields (creator_name / is_creator / current_speaker_name)
+or `.format()` raises KeyError.
 
 ## 2026-05-20 (Fix #2 P3) — narrative-tools section added to instructions
 

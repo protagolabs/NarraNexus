@@ -55,16 +55,6 @@ to tools, use the user's timezone above. For tools that require a separate
 `timezone` field (e.g. job_create), set it to "{user_tz}".
 """
 
-# User Identity Context — states the agent's owner by HUMAN name (never the
-# opaque user_id), and, when the trigger carries a human sender (chat),
-# whether the current message is from the owner or a visitor. IM channels
-# inject their own richer sender/trust block, so `sender_line` is empty for
-# them and only the owner line shows.
-USER_IDENTITY_CONTEXT = """## User Identity
-
-This agent belongs to **{owner_name}**.{sender_line}
-"""
-
 SHORT_TERM_MEMORY_HEADER = """
 ## Recent Direct Dialogue Across Other Narratives
 

@@ -35,7 +35,6 @@ from xyz_agent_context.context_runtime.prompts import (
     RECENT_ACTIONS_HEADER,
     BOOTSTRAP_INJECTION_PROMPT,
     USER_TEMPORAL_CONTEXT,
-    USER_IDENTITY_CONTEXT,
 )
 
 
@@ -337,19 +336,6 @@ class ContextRuntime:
             logger.warning(f"        Failed to build User Temporal Context: {e}")
 
         # ========================================================================
-        # Part 0b: User Identity Context — owner (by human name) + current
-        # sender / is-owner signal for the chat trigger. user_id stays an
-        # opaque scoping key; the human name comes from users.display_name.
-        # ========================================================================
-        try:
-            identity_block = await self._build_user_identity_block(ctx_data)
-            if identity_block:
-                prompt_parts.append(identity_block)
-                logger.debug(f"        Added User Identity Context: {len(identity_block)} chars")
-        except Exception as e:
-            logger.warning(f"        Failed to build User Identity Context: {e}")
-
-        # ========================================================================
         # Part 1: Narrative Info (main Narrative)
         # ========================================================================
         if narrative_list:
@@ -435,51 +421,6 @@ class ContextRuntime:
             return ""
         now_local = now_local_dt.replace(tzinfo=None).isoformat(timespec="seconds")
         return USER_TEMPORAL_CONTEXT.format(user_tz=user_tz, now_local=now_local)
-
-    async def _build_user_identity_block(self, ctx_data: Any) -> str:
-        """Build the User Identity Context block.
-
-        States the agent's OWNER by human display name (never the opaque
-        user_id), and — for triggers that carry a human NarraNexus sender
-        (chat puts `sender_user_id` in extra_data) — whether the current
-        message is from the owner or a visitor.
-
-        `ctx_data.user_id` is the owner here (agent_runtime overrides any
-        trigger-supplied user_id to agents.created_by upstream). IM triggers
-        do NOT set `sender_user_id` (their own module injects a richer
-        sender/trust block), so they get only the owner line.
-        """
-        owner_id = getattr(ctx_data, "user_id", "") or ""
-        if not owner_id:
-            return ""
-
-        from xyz_agent_context.repository import UserRepository
-        repo = UserRepository(self.db)
-
-        async def _name(uid: str) -> str:
-            try:
-                user = await repo.get_user(uid)
-            except Exception:  # noqa: BLE001 — never let identity lookup break the prompt
-                user = None
-            return (getattr(user, "display_name", None) or uid) if user else uid
-
-        owner_name = await _name(owner_id)
-
-        sender_line = ""
-        extra = getattr(ctx_data, "extra_data", None) or {}
-        sender_uid = extra.get("sender_user_id") if isinstance(extra, dict) else None
-        if sender_uid:
-            if sender_uid == owner_id:
-                sender_line = "\n\nThe current message is from the owner."
-            else:
-                sender_name = await _name(sender_uid)
-                sender_line = (
-                    f"\n\nThe current message is from **{sender_name}**, who is "
-                    f"NOT the owner — treat them as a visitor; do not disclose "
-                    f"owner-private context or act with the owner's authority."
-                )
-
-        return USER_IDENTITY_CONTEXT.format(owner_name=owner_name, sender_line=sender_line)
 
     async def _build_auxiliary_narratives_prompt(
         self,

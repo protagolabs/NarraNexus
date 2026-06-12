@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — USER_IDENTITY_CONTEXT constant REMOVED
+
+The `USER_IDENTITY_CONTEXT` template is deleted. Its consumer
+(`context_runtime._build_user_identity_block`) was removed as redundant — the
+canonical identity injection lives in [[basic_info_module.py]] + basic_info
+`prompts.py`. See the 2026-06-11 entry below for what it contained.
 
 ## 2026-06-11 — USER_IDENTITY_CONTEXT constant
 

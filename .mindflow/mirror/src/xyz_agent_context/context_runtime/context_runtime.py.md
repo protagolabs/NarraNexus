@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — User Identity Context block REMOVED (治本: moved into basic_info)
+
+The `_build_user_identity_block` method, its "Part 0b: User Identity" injection
+in `build_complete_system_prompt`, and the `USER_IDENTITY_CONTEXT` import are
+all gone. That block was a redundant second place to inject owner/sender
+identity — the canonical identity injection lives in [[basic_info_module.py]]
+(`hook_data_gathering` + basic_info `prompts.py`), which is where the human-name
+fix now lives. Removing it avoids two competing identity sources in the system
+prompt. See the 2026-06-11 entry below for what the now-deleted block did.
 
 ## 2026-06-11 — User Identity Context block (owner + sender, by human name)
 

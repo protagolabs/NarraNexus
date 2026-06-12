@@ -299,9 +299,18 @@ class MessageBusTrigger:
             # Owner lookup up-front — used by both the prompt (to remind the
             # agent its owner is waiting in chat) and the inbox writer.
             owner_user_id = await self._get_agent_owner(agent_id)
+            # Resolve the owner's human name for the relay prose (the raw
+            # user_id stays as the send_message_to_user_directly routing key).
+            owner_name = ""
+            if owner_user_id:
+                from xyz_agent_context.utils.db_factory import get_db_client
+                from xyz_agent_context.repository import UserRepository
+                owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
 
             # Build prompt from messages
-            prompt = self._build_prompt(messages, owner_user_id=owner_user_id)
+            prompt = self._build_prompt(
+                messages, owner_user_id=owner_user_id, owner_name=owner_name
+            )
 
             logger.info(
                 f"MessageBusTrigger: triggering agent {agent_id} "
@@ -351,7 +360,7 @@ class MessageBusTrigger:
             )
 
     def _build_prompt(
-        self, messages: List[BusMessage], owner_user_id: str = ""
+        self, messages: List[BusMessage], owner_user_id: str = "", owner_name: str = ""
     ) -> str:
         # NOTE: this builds the full EXECUTION prompt (peer messages + the
         # repeated Owner-Relay boilerplate). For narrative retrieval, embed
@@ -384,8 +393,8 @@ class MessageBusTrigger:
             lines.append("## Owner Relay — REQUIRED")
             lines.append("")
             lines.append(
-                f"Your owner (user_id=`{owner_user_id}`) originally asked you "
-                f"to contact this peer agent. They are waiting in chat for "
+                f"Your owner **{owner_name or owner_user_id}** originally asked "
+                f"you to contact this peer agent. They are waiting in chat for "
                 f"the answer."
             )
             lines.append("")
