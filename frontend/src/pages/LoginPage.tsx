@@ -177,7 +177,9 @@ export function LoginPage() {
             <div
               className="rounded-xl p-3 text-xs leading-relaxed"
               style={{
-                background: 'var(--color-surface-variant, rgba(0,0,0,0.05))',
+                background: 'var(--nm-card)',
+                border: '1px solid var(--nm-hairline)',
+                color: 'var(--nm-ink70)',
               }}
               role="status"
             >

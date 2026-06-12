@@ -28,18 +28,26 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: 'rgba(0,0,0,0.4)' }}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="w-full max-w-sm rounded-2xl p-6 space-y-4 shadow-xl"
-        style={{ background: 'var(--color-surface)' }}
+        className="w-full max-w-sm p-6 space-y-4"
+        style={{
+          background: 'var(--nm-card)',
+          border: '1px solid var(--nm-hairline)',
+          borderRadius: 'var(--radius-md)',
+          boxShadow: 'var(--nm-elev-3)',
+        }}
       >
         {done ? (
           <>
-            <h2 className="text-lg font-semibold">Password updated</h2>
-            <p className="text-sm opacity-70">
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--nm-ink)' }}>
+              Password updated
+            </h2>
+            <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
               You can now sign in with your new password.
             </p>
             <Button variant="primary" onClick={onClose} className="w-full">
@@ -48,8 +56,10 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           <>
-            <h2 className="text-lg font-semibold">Reset password</h2>
-            <p className="text-sm opacity-70">
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--nm-ink)' }}>
+              Reset password
+            </h2>
+            <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
               We&apos;ll email a verification code to your NetMind account.
             </p>
 
@@ -98,15 +108,15 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
               </p>
             )}
 
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
+            <div className="flex gap-3 pt-1">
+              <Button
+                variant="secondary"
                 onClick={onClose}
                 disabled={netmind.loading}
-                className="flex-1 h-11 rounded-xl text-sm opacity-70 hover:opacity-100"
+                className="flex-1"
               >
                 Cancel
-              </button>
+              </Button>
               {!codeSent ? (
                 <Button
                   variant="primary"
