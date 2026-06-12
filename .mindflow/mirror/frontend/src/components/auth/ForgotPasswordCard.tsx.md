@@ -22,4 +22,4 @@ stub: false
 
 ## Gotcha / 边界
 
-- `THIRD_USER` 限制：NetMind 后端 `/user/resetPassword` 对第三方来源账号有 `THIRD_NOT_UPDATE` 限制；我们代建 / 迁移的账号是 `THIRD_USER` 来源——上线前需用一个代建测试号实测这条流程对它们是否可用。
+- NetMind 后端 `/user/resetPassword` 对 `THIRD_USER`（第三方来源）账号有 `THIRD_NOT_UPDATE` 限制——但**已与 Power 确认我们代建/迁移的账号不是 `THIRD_USER` 来源**（2026-06-12），所以 resetPassword 对它们可用，忘记密码流程对迁移用户有效。
