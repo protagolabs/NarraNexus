@@ -23,6 +23,17 @@ read_only;枚举名不对时打印可用成员并回退 full_access,不静默吞
 测法:Mac 上 `CODEX_SANDBOX_MODE=workspace-write` 重启 backend,跑带 MCP 的
 codex 对话,看 MCP 工具是否被取消。不取消 → 可把默认改 workspace-write 拿真隔离。
 
+**实测结果(2026-06-12,run_b35e0272):** `sandbox_mode=workspace-write` 下,
+MCP 工具调用经 v2 的 `item/autoApprovalReview`(`decision_source=agent`、
+low-risk、approved)**自动批准并正常完成**(`item/completed status=completed`)。
+→ **#16685 在 v2 app-server 模式不成立**(它是旧 exec 模式没人应答审批的 bug;
+v2 有 auto-reviewer)。
+
+**因此默认改为按部署模式分流**(`_resolve_sandbox_mode` 接 `get_deployment_mode()`):
+**cloud → `workspace-write`**(多租户内核级隔离,review §1/§2 落地)、
+**local → `danger-full-access`**(自己的机器,不变;和 `_tool_policy_guard`
+只在 cloud 收紧一致)。`CODEX_SANDBOX_MODE` 仍可强制覆盖任一。
+
 ## 2026-06-11 — API-key 鉴权回归：补回 model_provider + env_key
 
 v2 切到 `config_overrides` 后，`_build_codex_config_overrides` 漏掉了 v1

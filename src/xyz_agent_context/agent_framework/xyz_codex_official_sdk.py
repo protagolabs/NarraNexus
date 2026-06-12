@@ -123,27 +123,41 @@ _SANDBOX_ENUM_ATTR: dict[str, str] = {
 def _resolve_sandbox_mode() -> str:
     """Sandbox mode for codex runs.
 
-    Default ``danger-full-access`` (current behavior — OS sandbox off; the
-    app-layer ``[permissions]`` table + per-agent workspace are the only
-    guard). Set ``CODEX_SANDBOX_MODE=workspace-write`` to confine codex to
-    its workspace at the OS level (Seatbelt / bubblewrap) — reads/writes
-    outside the workspace and network are blocked by the kernel.
+    Default is deployment-mode aware (an explicit ``CODEX_SANDBOX_MODE`` env
+    var overrides both):
 
-    This knob exists to TEST whether codex issue #16685 (MCP tool calls
-    auto-cancelled under a non-full sandbox) still bites in the v2
-    app-server mode. If a workspace-write run completes MCP tool calls
-    without cancellation, we can make it the default and get real
-    multi-tenant isolation (PR #25 review §1/§2).
+    - **cloud → ``workspace-write``**: confine codex to its per-agent
+      workspace at the OS level (Seatbelt / bubblewrap). Reads/writes
+      outside the workspace and network are blocked by the kernel — the
+      multi-tenant isolation PR #25 review §1/§2 requires. Verified
+      2026-06-12: v2 app-server mode auto-approves MCP tool calls (an
+      ``item/autoApprovalReview`` step), so codex issue #16685 (MCP calls
+      auto-cancelled under a non-full sandbox, an old ``exec``-mode bug)
+      does NOT bite here — MCP tools complete normally under workspace-write.
+    - **local → ``danger-full-access``**: the user's own machine, no
+      multi-tenant boundary to enforce. Mirrors ``_tool_policy_guard``,
+      which only enforces workspace containment in cloud.
+
+    Override with ``CODEX_SANDBOX_MODE=workspace-write|danger-full-access|read-only``.
     """
     raw = (os.environ.get("CODEX_SANDBOX_MODE") or "").strip().lower()
     if raw in _SANDBOX_ENUM_ATTR:
         return raw
+
+    # No (valid) override → pick by deployment mode.
+    try:
+        from xyz_agent_context.utils.deployment_mode import get_deployment_mode
+        is_cloud = get_deployment_mode() == "cloud"
+    except Exception:  # noqa: BLE001 — a mode-lookup failure must not break the run
+        is_cloud = False
+    default = _SANDBOX_WORKSPACE_WRITE if is_cloud else _SANDBOX_DANGER_FULL_ACCESS
+
     if raw:
         logger.warning(
             f"[CodexSDKv2] unknown CODEX_SANDBOX_MODE={raw!r}; "
-            f"valid: {sorted(_SANDBOX_ENUM_ATTR)}; using {_SANDBOX_DANGER_FULL_ACCESS}"
+            f"valid: {sorted(_SANDBOX_ENUM_ATTR)}; using {default}"
         )
-    return _SANDBOX_DANGER_FULL_ACCESS
+    return default
 
 # Custom model-provider name used in config_overrides when the agent slot
 # authenticates with an API key (not OAuth). Mirrors v1's
