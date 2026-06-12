@@ -1,8 +1,40 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-06-09
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — legacy-bundle tolerance + rollback (v1.3.4 import bug)
+
+A real v1.3.4 bundle failed to import; two independent root causes,
+both environment-dependent (see tests/bundle/test_legacy_bundle_import.py
+docstring matrix):
+
+1. **Schema drift**: bundle rows carry columns later removed from the
+   schema (narratives.embedding_updated_at, unified-memory refactor) —
+   fatal on FRESH DBs only, because auto_migrate never drops columns so
+   old DBs still accept them. Fix: `_sanitize_for_schema` strips
+   unknown columns on every confirm() insert (`_ins` wrapper, 19 call
+   sites; preflight bookkeeping insert excluded) and counts them into
+   `written_summary["dropped_legacy_columns"]`.
+2. **Stringly-typed model reconstruction**: the social-entities branch
+   is the ONE importer path that rebuilds a pydantic model instead of
+   inserting a raw row (its destination moved to the unified memory
+   store); bundle list/dict fields are JSON strings → ValidationError.
+   Fix: `_loads_maybe` decodes before construction.
+
+**Atomicity**: confirm() is now a thin wrapper around `_confirm_inner`;
+on ANY failure `_rollback_partial_import` sweeps every registered table
+carrying agent_id (plus teams/bus by id) for the ids minted in id_map —
+no more orphan teams from failed imports. Rollback is best-effort
+per-table and never masks the original error. Skill pack FILES are
+deliberately not rolled back (shared across agents; re-import
+overwrites).
+
+Composite narrative ids (agent_<hex>_<user>_default_N-01): the global
+id regex matches the embedded agent id exactly and the same id_map is
+applied everywhere, so composites stay internally consistent — pinned
+by test.
 
 ## 2026-06-09 — import backfills the unified-memory search indexes
 

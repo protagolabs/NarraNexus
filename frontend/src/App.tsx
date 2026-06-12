@@ -8,6 +8,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
+import { takeInboundToken, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { api } from '@/lib/api';
 import { getRuntimeConfig, isForcedCloud, isForcedLocal } from '@/lib/runtimeConfig';
@@ -16,7 +17,6 @@ import UpdateBanner from '@/components/UpdateBanner';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
-const RegisterPage = lazy(() => import('@/pages/RegisterPage'));
 const ModeSelectPage = lazy(() => import('@/pages/ModeSelectPage'));
 const SetupPage = lazy(() => import('@/pages/SetupPage'));
 const SystemPage = lazy(() => import('@/pages/SystemPage'));
@@ -315,6 +315,27 @@ function App() {
     return () => useUpdaterStore.getState().teardown();
   }, []);
 
+  // NetMind inbound token bootstrap (scenario A): when the page is opened
+  // with ?token=<NetMind loginToken> (e.g. a link from netmind.ai or Arena),
+  // strip the token from the URL immediately to avoid it leaking into history,
+  // then exchange it for our session. `source` is stashed in sessionStorage
+  // for downstream Phase 2 provisioning (credits, api-key generation, etc.).
+  useEffect(() => {
+    const r = takeInboundToken(window.location);
+    if (r.source) sessionStorage.setItem('nx-entry-source', r.source);
+    if (!r.handled || !r.token) return;
+    if (useConfigStore.getState().isLoggedIn) return;
+    const token = r.token;
+    void exchangeInboundToken(token, r.source).then((res) => {
+      if (res.success && res.user_id) {
+        useConfigStore.getState().login(res.user_id, res.token || undefined, res.role || undefined, {
+          displayName: res.display_name, email: res.email,
+        });
+        useConfigStore.getState().setNetmindToken(token);
+      }
+    }).catch(() => { /* fall through to login page */ });
+  }, []);
+
   return (
     <>
       <MockBanner />
@@ -353,10 +374,6 @@ function App() {
         <Route
           path="/login"
           element={<PublicRoute><LoginPage /></PublicRoute>}
-        />
-        <Route
-          path="/register"
-          element={<PublicRoute><RegisterPage /></PublicRoute>}
         />
 
         {/* NM design system gallery — public dev tool, no auth required */}

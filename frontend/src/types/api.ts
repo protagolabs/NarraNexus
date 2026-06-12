@@ -297,6 +297,19 @@ export interface LoginResponse extends ApiResponse {
   role?: string;   // 'user' | 'staff' (cloud mode)
 }
 
+// Response from /api/auth/netmind-login (cloud NetMind account login).
+export interface NetmindLoginResponse extends ApiResponse {
+  user_id?: string;
+  token?: string;        // our self-issued JWT
+  role?: string;
+  is_new_user?: boolean;
+  display_name?: string;
+  email?: string;
+  has_system_quota?: boolean;
+  initial_input_tokens?: number;
+  initial_output_tokens?: number;
+}
+
 // Response from /api/auth/register. Carries the optional system free-tier
 // quota fields so the client can render a welcome toast without a follow-up
 // API call. has_system_quota is false in local mode or when the feature is

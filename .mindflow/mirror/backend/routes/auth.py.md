@@ -1,8 +1,20 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — identity hardening: create_agent / timezone / onboarding
+
+The last three routes that trusted a client-supplied user id now derive identity from auth_middleware via `resolve_current_user_id`: POST /agents (body created_by removed — clients could create agents under anyone's account), POST /timezone and GET+POST /onboarding (body/query user_id removed). Old clients sending the extra field are harmless (pydantic ignores unknown fields); old clients omitting X-User-Id/JWT get 401. scripts/bench_narrative_models.py updated to send X-User-Id.
+
+## 2026-06-11 — legacy cloud auth removed (invite codes retired)
+
+/login is local-only now (cloud -> 404, points at netmind-login); /register deleted outright; /create-user gained a cloud 404 guard (it was an unauthenticated open account-creation endpoint sitting in AUTH_EXEMPT_PATHS — known hole, now closed). Invite-code mechanism retired entirely per 2026-06-10 owner decision (signup == first NetMind login, everyone gets the free-tier quota): routes/invite.py and routes/admin_invite.py deleted, InviteCodeRepository and invite_code_gen deleted, INVITE_AUTO_ISSUE_CAP / INTERNAL_INVITE_SECRET config gone. The invite_codes TABLE survives — it holds the old-user-id -> email mapping the legacy-user migration script needs.
+
+## 2026-06-11 — POST /api/auth/netmind-login (Phase 1 user-system unification)
+
+New cloud-only login endpoint: verifies a NetMind loginToken via `NetmindAuthClient` (one network call to NetMind's /user/balance), lazily upserts the local user (`UserRepository.upsert_netmind_user`, user_id = NetMind userSystemCode), seeds the free-tier quota on FIRST login (registration no longer exists — first login is registration; invite codes are gone per 2026-06-10 decision), then issues NarraNexus's own JWT. Error mapping: bad token -> 401, NetMind unreachable/contract drift -> 502 (never disguised as a credential failure). `_get_netmind_auth_client()` is module-level for test monkeypatching. The legacy /login (cloud password branch) and /register are slated for removal in the same feature branch.
 
 ## 2026-06-10 — run-liveness helper moved to background_run.py (shared)
 
@@ -18,6 +30,77 @@ active_run filter is unchanged.
 ## 2026-06-08 — account deletion clears memory_* by agent_id
 
 Account deletion dropped `instance_social_entities` from `instance_sub_tables` and added a loop deleting every `memory_<kind>` table by agent_id (using `MEMORY_KINDS`), so a deleted account leaves no orphan rows in the unified memory store.
+
+## 2026-06-10 — analytics endpoints: identity from middleware only (review fix)
+
+PR #24 review hardening. All three analytics endpoints (`GET/PUT
+/settings/analytics`, `POST /funnel`) now derive the user exclusively from
+`request.state.user_id` via the shared `_require_request_user()` helper
+(401 when absent). `SetAnalyticsOptOutRequest` lost its `user_id` field and
+`FunnelEventRequest` lost `properties`:
+
+- Opt-out previously trusted a client-supplied `user_id` (query/body), so
+  any authenticated user could read or flip another user's privacy
+  preference. Now impossible by shape — the request can't name a target.
+- The funnel endpoint previously forwarded an arbitrary client `properties`
+  dict to PostHog, letting a client override the server-derived `surface`
+  (dict.setdefault doesn't protect present keys) or inject junk. The
+  setup_* events carry no payload by design, so client properties are no
+  longer accepted at all.
+
+Frontend `api.ts` methods changed in the same commit (no user_id param, no
+properties param). Tests: `test_user_settings_routes.py` (per-user
+isolation + 401), `test_funnel_capture.py` (client properties ignored).
+
+## 2026-06-09 — funnel redesign: /api/auth/funnel endpoint (setup_* events)
+
+Added `POST /api/auth/funnel` for the three pure-UI setup events
+(`setup_entered`, `setup_skipped`, `setup_completed`). These events have no
+backend signal, so the frontend reports them through this endpoint.
+
+Key design decisions:
+- **Identity from middleware only** (`request.state.user_id`, set by
+  `auth_middleware`). The body never carries identity — prevents a user from
+  spoofing events onto another user's funnel.
+- **Whitelist only** — `_ALLOWED_FUNNEL_EVENTS` (a `frozenset`) accepts only
+  the three `setup_*` constants. Any other event name returns 400. This
+  prevents the endpoint from becoming a generic event firehose.
+- **Delegates to `track()`** — inherits opt-out, distinct_id hashing, and the
+  surface label exactly like every other funnel event. Never raises.
+- `FunnelEventRequest` is a small inline `BaseModel` with `event: str` and
+  `properties: dict | None`.
+
+`create_agent` no longer emits any analytics (`EVENT_AGENT_CREATED` is
+removed). The funnel no longer tracks agent creation.
+
+## 2026-06-08 — analytics opt-out endpoints
+
+Added `GET /api/auth/settings/analytics` and `PUT /api/auth/settings/analytics`
+for the frontend privacy toggle. Both delegate to `UserSettingsRepository`
+(new dependency added this task). The GET returns `{"opted_out": bool}` where
+the absence of a user_settings row means `false` (opted in by default). The
+PUT accepts `{"user_id", "opted_out"}` and upserts the row.
+
+`SetAnalyticsOptOutRequest` is a small Pydantic `BaseModel` defined inline
+(not in `schema/` — it has two fields and no reuse elsewhere). `BaseModel` and
+`UserSettingsRepository` are imported at the top of the file alongside the
+existing imports.
+
+Tests: `tests/backend/test_user_settings_routes.py`.
+
+## 2026-06-08 — funnel: signed_up event
+
+`create_user` calls `identify_user` + `track(EVENT_SIGNED_UP)` on the
+success path. Additive instrumentation — best-effort, never raises.
+
+The `identify_user` traits deliberately carry only `role` — NOT
+`display_name`. The analytics layer hashes the distinct_id, so shipping the
+raw display name as a person trait would re-leak exactly the identity the
+hash is meant to hide. Keep identity-bearing fields out of traits.
+
+`create_agent` carries no analytics instrumentation. `EVENT_AGENT_CREATED`
+was removed in the 2026-06-09 funnel redesign; create_agent is not a
+tracked funnel milestone.
 
 ## 2026-05-21 — onboarding checklist endpoints
 

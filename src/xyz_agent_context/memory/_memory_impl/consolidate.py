@@ -17,6 +17,13 @@ MemoryKindSpec may override it via `consolidate_prompt`.
 Resilience: a failing LLM batch is bisected down to size 1; a single unit that
 still fails is skipped (never blocks the scope) — mirrors the long-running
 service discipline in CLAUDE.md.
+
+EXCEPT for systemic errors (auth / quota / connection / server): those are
+independent of fact content, so bisecting cannot help and dropping facts on
+them destroys memory — the 2026-06-11 P0 (cloud worker had no credentials;
+every batch 401'd, bisected to single facts, and dropped 4599 of them).
+Systemic errors now RAISE so the worker isolates the scope with its facts
+intact.
 """
 from __future__ import annotations
 
@@ -25,9 +32,39 @@ from typing import Any, List, Optional, Sequence
 from loguru import logger
 from pydantic import BaseModel, Field
 
+import openai
+
 from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 from xyz_agent_context.memory.record import MemoryRecord
 from xyz_agent_context.utils.timezone import utc_now
+
+
+class SystemicLLMError(RuntimeError):
+    """An LLM failure independent of fact content (auth / quota /
+    connection / server). Bisecting cannot help; the caller must fail the
+    whole scope and PRESERVE the facts."""
+
+
+_SYSTEMIC_STATUS = {401, 403, 407, 429}
+
+
+def _is_systemic_llm_error(e: BaseException) -> bool:
+    """True for errors where retrying smaller batches cannot succeed.
+    Walks the cause/context chain because the Agents SDK path may wrap the
+    underlying client error."""
+    seen: set[int] = set()
+    cur: Optional[BaseException] = e
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, (openai.AuthenticationError, openai.PermissionDeniedError,
+                            openai.RateLimitError, openai.APIConnectionError,
+                            openai.InternalServerError)):
+            return True
+        status = getattr(cur, "status_code", None)
+        if isinstance(status, int) and (status in _SYSTEMIC_STATUS or status >= 500):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
 
 DEFAULT_CONSOLIDATION_PROMPT = """\
 You maintain an agent's long-term memory as a set of OBSERVATIONS — concise,
@@ -173,6 +210,15 @@ async def _plan_with_bisect(
         )
         return result.final_output  # type: ignore[no-any-return]
     except Exception as e:  # noqa: BLE001 — bisect-and-isolate is the policy
+        if _is_systemic_llm_error(e):
+            # Content-independent failure: bisecting cannot help, and
+            # dropping facts on it destroys memory. Fail the scope loudly;
+            # the worker isolates it with every fact preserved.
+            logger.error(
+                f"[memory.consolidate] systemic LLM failure (agent={agent_id}) — "
+                f"failing the scope, facts preserved: {e}"
+            )
+            raise SystemicLLMError(str(e)) from e
         if len(facts) <= 1:
             logger.warning(f"[memory.consolidate] dropping unconsolidatable fact: {e}")
             return None

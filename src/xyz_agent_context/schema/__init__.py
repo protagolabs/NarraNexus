@@ -113,9 +113,9 @@ from .entity_schema import (
 from .api_schema import (
     # Auth
     LoginRequest,
+    NetmindLoginRequest,
+    NetmindLoginResponse,
     LoginResponse,
-    RegisterRequest,
-    RegisterResponse,
     ActiveRunInfo,
     AgentInfo,
     AgentListResponse,
@@ -328,9 +328,9 @@ __all__ = [
     # API Schema (API Request/Response Models)
     # Auth
     "LoginRequest",
+    "NetmindLoginRequest",
+    "NetmindLoginResponse",
     "LoginResponse",
-    "RegisterRequest",
-    "RegisterResponse",
     "ActiveRunInfo",
     "AgentInfo",
     "AgentListResponse",

@@ -65,6 +65,14 @@ out-of-vocabulary stored params degrade to auto with a warning instead of
 failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
 
 
+## 2026-06-09 — funnel redesign: providers.py carries no analytics
+
+`llm_slot_configured` was removed entirely from the lean funnel redesign.
+`providers.py` has no analytics instrumentation — no event is emitted from
+any route here. The service layer (`UserProviderService`) is also clean.
+The mid-funnel events tracking LLM configuration detail were cut to simplify
+the funnel to 5 lean events.
+
 ## 2026-06-08 (late evening) — `_ensure_codex_installed` 不再走 npm
 
 `_ensure_codex_installed` 之前是个 60+ 行的 `npm install -g @openai/codex` 流程，包含 cloud-mode 拒绝 / timeout / PATH 验证一堆分支。**全删了，只剩 ~20 行**。

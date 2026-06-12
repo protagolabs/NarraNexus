@@ -256,6 +256,28 @@ async def classify_provider_for_user(user_id: str, db) -> ProviderAvailability:
     return await resolver.classify(user_id)
 
 
+async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
+    """Wire the default services and push the user's effective LLM config
+    onto this task's ContextVars — the background-job twin of the
+    auth_middleware path, for callers that run OUTSIDE any HTTP request
+    (memory consolidation worker; future lifespan jobs).
+
+    Local mode / system-provider disabled: strict no-op, the global
+    llm_config.json / .env fallback stays in effect (iron rule #7).
+    Quota / no-provider verdicts raise the same ProviderResolverError
+    subclasses the request path uses — callers isolate, never drop data.
+    """
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        UserProviderService,
+    )
+    resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=SystemProviderService.instance(),
+        quota_svc=QuotaService.default(),
+    )
+    await resolver.resolve_and_set(user_id)
+
+
 def _is_user_config_complete(cfg: LLMConfig | None) -> bool:
     """All three slots present, each with a non-empty model, each pointing
     to an active provider that exists in `cfg.providers`.

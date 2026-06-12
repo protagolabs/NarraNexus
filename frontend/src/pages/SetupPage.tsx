@@ -13,7 +13,7 @@
  * "Get Started" footer button (re-probed when the disclosure toggles).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ChevronDown, ChevronRight, SkipForward } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
@@ -29,6 +29,20 @@ export function SetupPage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [providerCount, setProviderCount] = useState(0);
 
+  // Funnel: user reached the setup page. React StrictMode double-invokes
+  // effects in dev, so a ref guard ensures setup_entered fires exactly once
+  // per mount. Fire-and-forget.
+  const enteredFired = useRef(false);
+  useEffect(() => {
+    if (enteredFired.current) return;
+    enteredFired.current = true;
+    api.trackFunnelEvent('setup_entered').catch(() => {});
+  }, []);
+
+  // Check current provider count on mount and after changes. Routed
+  // through api.getProviders so identity travels in the X-User-Id /
+  // JWT header — bare fetch used to send neither, and the backend
+  // happily fell back to "first user in users table".
   const probe = async () => {
     try {
       const data = await api.getProviders();
@@ -44,7 +58,11 @@ export function SetupPage() {
     probe();
   }, []);
 
-  const goToChat = () => {
+  // Funnel: which event fires depends on WHICH button the user pressed, not
+  // on provider count — "Skip for now" is a skip; the primary "Get Started"
+  // button and one-key onboarding completion are completions. Fire-and-forget.
+  const finishSetup = (event: 'setup_completed' | 'setup_skipped') => {
+    api.trackFunnelEvent(event).catch(() => {});
     navigate('/app/chat', { replace: true });
   };
 
@@ -78,7 +96,7 @@ export function SetupPage() {
       <ScrollArea className="flex-1">
         <div className="max-w-2xl mx-auto px-4 pb-8 animate-fade-in" style={{ animationDelay: '0.05s' }}>
           {/* Primary: one-key onboarding (shared with Settings) */}
-          <OneKeyOnboard onComplete={goToChat} />
+          <OneKeyOnboard onComplete={() => finishSetup('setup_completed')} />
 
           {/* Advanced: the full provider configuration surface */}
           <div className="mt-6">
@@ -107,12 +125,12 @@ export function SetupPage() {
       {/* Footer actions */}
       <div className="flex items-center justify-center gap-4 py-6 border-t border-[var(--border-default)]">
         {providerCount > 0 ? (
-          <Button variant="accent" onClick={goToChat}>
+          <Button variant="accent" onClick={() => finishSetup('setup_completed')}>
             Get Started
             <ArrowRight className="w-4 h-4 ml-1" />
           </Button>
         ) : (
-          <Button variant="ghost" onClick={goToChat}>
+          <Button variant="ghost" onClick={() => finishSetup('setup_skipped')}>
             <SkipForward className="w-4 h-4 mr-1" />
             Skip for now
           </Button>

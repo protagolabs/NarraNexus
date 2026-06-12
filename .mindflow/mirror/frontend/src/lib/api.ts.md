@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
 ## 2026-06-10 — api.onboard
@@ -9,6 +9,52 @@ stub: false
 is only sent when the user manually overrode the sk-ant- prefix detection;
 otherwise null lets the backend decide.
 
+
+## 2026-06-11 — netmindLogin (NetMind token exchange)
+
+Added `netmindLogin(netmindToken, source?)` → `POST /api/auth/netmind-login`.
+POSTs `{ netmind_token, source }` to the backend which validates the NetMind
+access token and returns a self-issued JWT (`NetmindLoginResponse`). The
+response type mirrors `RegisterResponse` in shape (user_id, token, role,
+has_system_quota, initial_input_tokens, initial_output_tokens) plus
+`is_new_user`, `display_name`, and `email` which are specific to the NetMind
+identity handoff. `source` is optional — callers pass `'arena'` to indicate
+origination from the Arena SSO flow.
+
+`NetmindLoginResponse` is defined in `@/types/api.ts` immediately after
+`LoginResponse`.
+
+## 2026-06-10 — analytics methods: identity from auth header only (review fix)
+
+PR #24 review hardening, matching the backend change in `routes/auth.py`:
+`getAnalyticsOptOut()` / `setAnalyticsOptOut(optedOut)` no longer take a
+`userId` parameter (no query param, no body field) and `trackFunnelEvent(event)`
+no longer accepts `properties`. The server derives the user from the auth
+header and stamps event properties (surface etc.) itself.
+
+## 2026-06-09 — trackFunnelEvent (setup page UI actions)
+
+Added `trackFunnelEvent(event)` — POSTs `{event}` to
+`POST /api/auth/funnel`. Called fire-and-forget by `SetupPage` (callers
+`.catch(() => {})` to suppress errors). Identity travels in the auth header
+(X-User-Id / JWT) set by `getAuthHeaders`, not in the body — consistent with
+every other `ApiClient` method.
+
+This is the only `ApiClient` method that targets the `/api/auth/funnel`
+endpoint. It is intentionally not typed beyond `{ success: boolean }` because
+the funnel endpoint is write-only from the frontend's perspective.
+
+## 2026-06-08 — getAnalyticsOptOut / setAnalyticsOptOut
+
+Two new `ApiClient` methods added after `markOnboardingStep`:
+
+- `getAnalyticsOptOut()` → `GET /api/auth/settings/analytics`
+  returns `boolean` (false = opted in, true = opted out)
+- `setAnalyticsOptOut(optedOut)` → `PUT /api/auth/settings/analytics`
+  body `{opted_out}`, returns void
+
+Both use the standard `this.request<T>()` fetch wrapper. Called by
+`SettingsModal` when the user toggles the Privacy section switch.
 
 ## 2026-05-18 — importBundleFromUrl (one-click template install)
 

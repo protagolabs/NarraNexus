@@ -11,11 +11,13 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Cpu, Info } from 'lucide-react';
+import { X, Cpu, Info, Shield } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { Button, ScrollArea } from '@/components/ui';
 import { ProviderSettings } from './ProviderSettings';
+import { useConfigStore } from '@/stores/configStore';
+import { api } from '@/lib/api';
 
 // =============================================================================
 // Sidebar navigation sections
@@ -29,6 +31,7 @@ interface NavSection {
 
 const NAV_SECTIONS: NavSection[] = [
   { id: 'providers', label: 'LLM Providers', icon: Cpu },
+  { id: 'privacy', label: 'Privacy', icon: Shield },
 ];
 
 // =============================================================================
@@ -70,6 +73,38 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState('providers');
+
+  // Analytics opt-out state: true = analytics ON (opted_out = false)
+  const userId = useConfigStore((s) => s.userId);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  // Load analytics opt-out state when the Privacy section is first opened.
+  // userId only gates "is someone logged in" — identity itself travels in
+  // the auth header set by the api client.
+  useEffect(() => {
+    if (!isOpen || !userId || activeSection !== 'privacy') return;
+    api.getAnalyticsOptOut().then((optedOut) => {
+      setAnalyticsEnabled(!optedOut);
+    }).catch(() => {
+      // non-critical — keep current optimistic state
+    });
+  }, [isOpen, userId, activeSection]);
+
+  const handleAnalyticsToggle = useCallback(async () => {
+    if (!userId || analyticsLoading) return;
+    const nextEnabled = !analyticsEnabled;
+    setAnalyticsEnabled(nextEnabled);
+    setAnalyticsLoading(true);
+    try {
+      await api.setAnalyticsOptOut(!nextEnabled);
+    } catch {
+      // revert on failure
+      setAnalyticsEnabled(!nextEnabled);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [userId, analyticsEnabled, analyticsLoading]);
 
   // ESC key to close + lock body scroll
   const handleEscape = useCallback((e: KeyboardEvent) => {
@@ -200,6 +235,56 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
               )}
 
+              {/* ─── Privacy Section ─── */}
+              {activeSection === 'privacy' && (
+                <div className="space-y-4 max-w-2xl">
+                  <div>
+                    <h3 className="text-sm font-medium text-[var(--text-primary)] mb-2">
+                      Privacy
+                    </h3>
+                    <p className="text-xs text-[var(--text-tertiary)] leading-relaxed">
+                      Control what data NarraNexus collects to improve the product.
+                    </p>
+                  </div>
+
+                  {/* Analytics toggle row */}
+                  <div className="flex items-center justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+                    <div className="flex-1 min-w-0 pr-4">
+                      <p className="text-sm font-medium text-[var(--text-primary)]">
+                        Product analytics
+                      </p>
+                      <p className="text-xs text-[var(--text-tertiary)] mt-0.5 leading-relaxed">
+                        Allow NarraNexus to collect anonymous usage data to improve the product.
+                        No conversation content is ever collected.
+                      </p>
+                    </div>
+                    {/* Inline toggle button */}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={analyticsEnabled}
+                      disabled={analyticsLoading || !userId}
+                      onClick={handleAnalyticsToggle}
+                      className={cn(
+                        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full',
+                        'transition-colors duration-200 focus-visible:outline-none',
+                        'disabled:cursor-not-allowed disabled:opacity-50',
+                        analyticsEnabled
+                          ? 'bg-[var(--accent-primary)]'
+                          : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)]',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm',
+                          'transition-transform duration-200',
+                          analyticsEnabled ? 'translate-x-6' : 'translate-x-1',
+                        )}
+                      />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             </ScrollArea>
           </div>

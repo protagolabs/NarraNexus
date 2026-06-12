@@ -1278,12 +1278,12 @@ _register(
 
 
 # ----------------------------------------------------------------------------
-# invite_codes — cloud-mode registration gating (replaces the single global
-# INVITE_CODE env var). Each row is one unique, single-use code issued to one
-# email. status flow: issued -> used (consumed by /api/auth/register), or
-# waitlisted -> issued (admin promote) when the auto-issue cap is hit, or
-# -> revoked (admin kill). `code` carries its own unique index; lookups by
-# email / status drive idempotent re-requests and the cap count.
+# invite_codes — RETIRED feature, table kept for its data. The invite-code
+# registration gate was removed 2026-06-11 (cloud signup is NetMind login
+# now; everyone gets the free-tier quota). Rows are retained because they
+# hold the only old-user-id -> email mapping, which the legacy-user
+# migration (scripts/migrate_users_to_netmind.py) needs. No code writes
+# this table anymore; drop it after the migration is complete.
 # ----------------------------------------------------------------------------
 _register(
     TableDef(
@@ -1308,6 +1308,26 @@ _register(
     )
 )
 
+
+
+# ----------------------------------------------------------------------------
+# user_settings — per-user preferences. First use: analytics opt-out.
+# JSON-free flat columns for the few flags we have; add columns via
+# schema_registry as new prefs appear (auto_migrate is additive).
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="user_settings",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("analytics_opt_out", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_user_settings_user", ["user_id"], unique=True)],
+    )
+)
 
 
 # ============================================================================

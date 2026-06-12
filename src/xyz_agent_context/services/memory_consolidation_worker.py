@@ -27,6 +27,10 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.api_config import clear_user_config
+from xyz_agent_context.agent_framework.provider_resolver import (
+    resolve_and_set_provider_for_user,
+)
 from xyz_agent_context.memory.engine import MemoryEngine
 from xyz_agent_context.memory.record import _parse_dt
 from xyz_agent_context.memory.spec import get_spec
@@ -119,7 +123,13 @@ class MemoryConsolidationWorker:
         try:
             await self._engine_consolidate(**key)
         except Exception as e:  # noqa: BLE001 — isolate the bad scope
-            logger.warning(f"[memory.consolidation] scope {key} failed, isolating: {e}")
+            # Systemic LLM/provider failures are platform problems, not
+            # content problems — surface them at ERROR so they can never
+            # be silent again (incident lesson #4: L2 health is "is it
+            # doing useful work", not "is the loop alive").
+            from xyz_agent_context.memory._memory_impl.consolidate import SystemicLLMError
+            log = logger.error if isinstance(e, SystemicLLMError) else logger.warning
+            log(f"[memory.consolidation] scope {key} failed, isolating (facts preserved): {e}")
             await self._db.update(_QUEUE, key, {
                 "status": "failed", "consolidation_failed_at": utc_now(), "updated_at": utc_now(),
             })
@@ -129,12 +139,41 @@ class MemoryConsolidationWorker:
             "last_consolidated_at": utc_now(), "consolidation_failed_at": None, "updated_at": utc_now(),
         })
 
+    async def _inject_owner_credentials(self, agent_id: str) -> None:
+        """Resolve the agent OWNER's LLM config into this task's ContextVars.
+
+        The worker runs in the backend lifespan — outside any HTTP request —
+        so the auth_middleware ContextVar injection never happens here. On
+        cloud that meant every consolidation LLM call fell back to the empty
+        machine-global config and 401'd (2026-06-11 P0). Local mode: the
+        resolver is a strict no-op and the desktop llm_config.json applies.
+
+        Raises ProviderResolverError subclasses (quota exhausted / no
+        provider) — the scope is isolated as failed with facts intact, and
+        retried once the owner's provider situation changes.
+        """
+        # The worker processes every tenant's scopes in ONE task. Reset the
+        # ContextVars first so a scope that cannot resolve (deleted agent,
+        # missing owner) falls back to the GLOBAL config — never to the
+        # previous tenant's credentials left over from the last scope.
+        clear_user_config()
+        agent_row = await self._db.get_one("agents", {"agent_id": agent_id})
+        owner = (agent_row or {}).get("created_by")
+        if not owner:
+            logger.warning(
+                f"[memory.consolidation] agent {agent_id} has no owner row — "
+                f"falling back to global LLM config"
+            )
+            return
+        await resolve_and_set_provider_for_user(owner, self._db)
+
     async def _default_engine_consolidate(self, *, agent_id: str, scope_type: str, scope_id: str, kind: str) -> int:
         """Production consolidation: gather the scope's NEW raw units (the
         kind's subtypes, created since the last pass) and EXISTING consolidated
         records, run the engine, then tombstone the consumed raw units — their
         content now lives in the consolidated record, traceable via source_ids.
         """
+        await self._inject_owner_credentials(agent_id)
         spec = get_spec(kind)
         engine = MemoryEngine(self._db, agent_id)
         repo = engine.repo(kind)
