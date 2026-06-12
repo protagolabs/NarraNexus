@@ -38,7 +38,11 @@ export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { userId, agentId, logout } = useConfigStore();
+  const { userId, displayName, agentId, logout } = useConfigStore();
+  // user_id is an opaque NetMind userSystemCode (32-hex) in cloud mode, not
+  // human-readable. Show the NetMind nickname when we have it; fall back to
+  // user_id (local mode, where it IS the chosen username).
+  const userLabel = displayName || userId;
   const { clearAll: clearChat } = useChatStore();
   const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
   const clearPreload = usePreloadStore((s) => s.clearAll);
@@ -188,10 +192,10 @@ export function Sidebar() {
       {!collapsed && (
         <div className="px-4 py-3 border-b border-[var(--rule)]">
           <div className="flex items-center gap-3">
-            <RingAvatar species="carbon" label={userId || '?'} size="md" />
+            <RingAvatar species="carbon" label={userLabel || '?'} size="md" />
             <div className="flex-1 min-w-0 h-10 flex flex-col justify-center gap-1">
-              <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
-                {userId}
+              <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]" title={userLabel}>
+                {userLabel}
               </div>
               <div className="flex items-center gap-1.5 text-[10px] leading-none text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-[family-name:var(--font-mono)]">
                 <StatusDot status="success" size={6} />
@@ -204,7 +208,7 @@ export function Sidebar() {
       {/* Collapsed: just the carbon avatar centered */}
       {collapsed && userId && (
         <div className="px-4 py-3 border-b border-[var(--rule)] flex justify-center">
-          <RingAvatar species="carbon" label={userId} size="sm" title={userId} />
+          <RingAvatar species="carbon" label={userLabel} size="sm" title={userLabel} />
         </div>
       )}
 

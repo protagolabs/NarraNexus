@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — show NetMind nickname, not the opaque userSystemCode
+
+user_id is a 32-hex NetMind userSystemCode in cloud mode (not human-readable). The user-info block + RingAvatar now display `displayName || userId` (configStore.displayName = NetMind nickName), falling back to user_id in local mode where it IS the chosen username.
 
 ## 2026-06-10 — TeamFilterAndAgents wrapper retired
 
