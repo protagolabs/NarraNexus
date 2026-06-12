@@ -18,6 +18,10 @@ origination from the Arena SSO flow.
 `NetmindLoginResponse` is defined in `@/types/api.ts` immediately after
 `LoginResponse`.
 
+last_verified: 2026-06-10
+stub: false
+---
+
 ## 2026-06-10 — analytics methods: identity from auth header only (review fix)
 
 PR #24 review hardening, matching the backend change in `routes/auth.py`:

@@ -8,6 +8,10 @@ stub: false
 
 The chat WS now puts `sender_user_id = request.user_id` (the logged-in sender, JWT-validated) into trigger_extra_data, so the context builder can name the sender + derive is-owner (agent_runtime overrides ctx_data.user_id to the owner, dropping the original sender otherwise).
 
+last_verified: 2026-06-10
+stub: false
+---
+
 ## 2026-06-10 — reconnect 对「僵尸 running 行」回 run_ended 而不是 warning
 
 `_handle_reconnect` 在 `state=='running'` 且本进程 `active_runs` 没有

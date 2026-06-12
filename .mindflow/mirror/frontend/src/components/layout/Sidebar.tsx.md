@@ -8,6 +8,10 @@ stub: false
 
 user_id is a 32-hex NetMind userSystemCode in cloud mode (not human-readable). The user-info block + RingAvatar now display `displayName || userId` (configStore.displayName = NetMind nickName), falling back to user_id in local mode where it IS the chosen username.
 
+last_verified: 2026-06-10
+stub: false
+---
+
 ## 2026-06-10 — TeamFilterAndAgents wrapper retired
 
 The grouped-sidebar redesign deleted TeamFilterBar; Sidebar now renders

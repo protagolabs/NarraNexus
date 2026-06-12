@@ -12,6 +12,10 @@ stub: false
 
 invite_router / admin_invite_router imports and include_router calls removed alongside the route modules' deletion (invite-code mechanism retired).
 
+last_verified: 2026-06-09
+stub: false
+---
+
 ## 2026-06-09 — versioned migration runner wired into lifespan
 
 The startup lifespan now calls `run_pending_migrations(db)` after `auto_migrate`

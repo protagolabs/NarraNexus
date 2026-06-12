@@ -50,7 +50,7 @@ is already there.
   agents); `runtimeStore` (mode).
 - Writes: `api.markOnboardingStep` (dismiss); delegates agent creation to
   the `useCreateAgent` hook (which itself marks `first_agent_created`).
-- "Browse templates" opens `website.narra.nexus/templates` in a new tab —
+- "Browse templates" opens `www.narra.nexus/templates` in a new tab —
   the marketplace lives on the marketing site, not in-app.
 
 ## Gotchas

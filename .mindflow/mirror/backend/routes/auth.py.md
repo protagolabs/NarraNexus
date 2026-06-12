@@ -16,6 +16,10 @@ The last three routes that trusted a client-supplied user id now derive identity
 
 New cloud-only login endpoint: verifies a NetMind loginToken via `NetmindAuthClient` (one network call to NetMind's /user/balance), lazily upserts the local user (`UserRepository.upsert_netmind_user`, user_id = NetMind userSystemCode), seeds the free-tier quota on FIRST login (registration no longer exists — first login is registration; invite codes are gone per 2026-06-10 decision), then issues NarraNexus's own JWT. Error mapping: bad token -> 401, NetMind unreachable/contract drift -> 502 (never disguised as a credential failure). `_get_netmind_auth_client()` is module-level for test monkeypatching. The legacy /login (cloud password branch) and /register are slated for removal in the same feature branch.
 
+last_verified: 2026-06-10
+stub: false
+---
+
 ## 2026-06-10 — run-liveness helper moved to background_run.py (shared)
 
 The `_parse_db_utc` / `_run_is_live` heartbeat-freshness rule (running

@@ -15,6 +15,10 @@ that hex must stay. The caller resolves `owner_name` via
 `UserRepository(await get_db_client()).get_display_name(owner_user_id)` (see
 [[user_repository.py]]).
 
+last_verified: 2026-06-09
+stub: false
+---
+
 ## 2026-06-09 — `_get_channel_info` SQL dialect bug (silent bus-delivery break)
 
 `_get_channel_info` queried `bus_channels` with a MySQL `%s` placeholder via the
