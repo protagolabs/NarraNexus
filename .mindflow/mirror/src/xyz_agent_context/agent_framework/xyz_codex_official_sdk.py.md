@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 ---
+
+## 2026-06-12 — sandbox_mode 改为 env 可配（测 #16685 / 上线 workspace 隔离）
+
+PR #25 review §1/§2:云端 codex 现在 `danger-full-access` = OS 沙箱关着,
+无文件系统隔离(能读别租户 workspace + 共享 `~/.codex/auth.json`)。目标是切
+`workspace-write` + `writable_roots=[working_path]` 拿内核级隔离;唯一障碍
+#16685(非 full 沙箱下 MCP 调用被自动取消),而本文件注释说 v2 app-server
+模式可能没这 bug —— 需实测。
+
+把 sandbox 模式做成 **`CODEX_SANDBOX_MODE`** 环境变量:默认 `danger-full-access`
+(行为不变),可选 `workspace-write` / `read-only`。`_resolve_sandbox_mode()`
+解析(非法值回默认 + warn);两处都用它——`_build_codex_config_overrides`
+(写 `sandbox_mode="…"` + 已有 `writable_roots`)和 `thread_start(sandbox=)`
+(经 `_SANDBOX_ENUM_ATTR` 映射到 SDK `Sandbox` 枚举 full_access/workspace_write/
+read_only;枚举名不对时打印可用成员并回退 full_access,不静默吞)。加了
+`[CodexSDKv2] sandbox_mode=…` INFO 日志。
+
+测法:Mac 上 `CODEX_SANDBOX_MODE=workspace-write` 重启 backend,跑带 MCP 的
+codex 对话,看 MCP 工具是否被取消。不取消 → 可把默认改 workspace-write 拿真隔离。
 
 ## 2026-06-11 — API-key 鉴权回归：补回 model_provider + env_key
 

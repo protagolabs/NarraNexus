@@ -104,8 +104,46 @@ except ImportError:  # absolute-import fallback for script-style runs
 # enum values exported by ``openai_codex.Sandbox`` /
 # ``openai_codex.ApprovalMode``. See the spike output captured in
 # ``.mindflow/project/specs/2026-06-04-codex-sdk-v2-design.md``.
-_SANDBOX_DANGER_FULL_ACCESS = "danger-full-access"  # MCP requires this
+_SANDBOX_DANGER_FULL_ACCESS = "danger-full-access"  # OS sandbox OFF
+_SANDBOX_WORKSPACE_WRITE = "workspace-write"          # OS sandbox: workspace only
+_SANDBOX_READ_ONLY = "read-only"
 _REASONING_SUMMARY_DETAILED = "detailed"  # surfaces reasoning to UI
+
+# config_overrides uses codex's internal string names (matching the
+# ``--sandbox`` CLI flag); ``thread_start(sandbox=)`` takes the SDK's
+# ``Sandbox`` enum, which drops the "danger" prefix and uses snake_case.
+# This maps one to the other.
+_SANDBOX_ENUM_ATTR: dict[str, str] = {
+    _SANDBOX_DANGER_FULL_ACCESS: "full_access",
+    _SANDBOX_WORKSPACE_WRITE: "workspace_write",
+    _SANDBOX_READ_ONLY: "read_only",
+}
+
+
+def _resolve_sandbox_mode() -> str:
+    """Sandbox mode for codex runs.
+
+    Default ``danger-full-access`` (current behavior — OS sandbox off; the
+    app-layer ``[permissions]`` table + per-agent workspace are the only
+    guard). Set ``CODEX_SANDBOX_MODE=workspace-write`` to confine codex to
+    its workspace at the OS level (Seatbelt / bubblewrap) — reads/writes
+    outside the workspace and network are blocked by the kernel.
+
+    This knob exists to TEST whether codex issue #16685 (MCP tool calls
+    auto-cancelled under a non-full sandbox) still bites in the v2
+    app-server mode. If a workspace-write run completes MCP tool calls
+    without cancellation, we can make it the default and get real
+    multi-tenant isolation (PR #25 review §1/§2).
+    """
+    raw = (os.environ.get("CODEX_SANDBOX_MODE") or "").strip().lower()
+    if raw in _SANDBOX_ENUM_ATTR:
+        return raw
+    if raw:
+        logger.warning(
+            f"[CodexSDKv2] unknown CODEX_SANDBOX_MODE={raw!r}; "
+            f"valid: {sorted(_SANDBOX_ENUM_ATTR)}; using {_SANDBOX_DANGER_FULL_ACCESS}"
+        )
+    return _SANDBOX_DANGER_FULL_ACCESS
 
 # Custom model-provider name used in config_overrides when the agent slot
 # authenticates with an API key (not OAuth). Mirrors v1's
@@ -370,17 +408,22 @@ class CodexSDKv2:
                 cloud_mode=is_cloud,
             )
 
+            sandbox_mode = _resolve_sandbox_mode()
             config_overrides = _build_codex_config_overrides(
                 instructions_path=instructions_path,
                 mcp_server_urls=mcp_server_urls,
                 permissions=permissions,
                 writable_roots=[Path(self.working_path)],
-                sandbox_mode=_SANDBOX_DANGER_FULL_ACCESS,
+                sandbox_mode=sandbox_mode,
                 reasoning_summary=_REASONING_SUMMARY_DETAILED,
                 model=codex_config.model or None,
                 api_key=codex_config.api_key,
                 base_url=codex_config.base_url,
                 auth_type=codex_config.auth_type,
+            )
+            logger.info(
+                f"[CodexSDKv2] sandbox_mode={sandbox_mode} "
+                f"(workspace={self.working_path}) — set CODEX_SANDBOX_MODE to override"
             )
 
             _mcp_lines = [
@@ -441,7 +484,19 @@ class CodexSDKv2:
             # ``test_turn_is_coroutine_function`` locks in the
             # async-ness, so an SDK that flips ``thread.turn`` back
             # to sync would fail at CI not at user-turn time.
-            thread = await codex.thread_start(sandbox=Sandbox.full_access)
+            _sandbox_attr = _SANDBOX_ENUM_ATTR.get(sandbox_mode, "full_access")
+            _sandbox_enum = getattr(Sandbox, _sandbox_attr, None)
+            if _sandbox_enum is None:
+                # SDK renamed the enum member — don't crash opaquely; log the
+                # real member names (so a workspace-write test tells us the
+                # right attr) and fall back to full_access (current behavior).
+                _members = [m for m in dir(Sandbox) if not m.startswith("_")]
+                logger.warning(
+                    f"[CodexSDKv2] Sandbox has no {_sandbox_attr!r} "
+                    f"(available: {_members}); falling back to full_access"
+                )
+                _sandbox_enum = Sandbox.full_access
+            thread = await codex.thread_start(sandbox=_sandbox_enum)
             logger.info(
                 f"[CodexSDKv2] thread started "
                 f"(cwd={self.working_path}, CODEX_HOME={codex_home_path})"
