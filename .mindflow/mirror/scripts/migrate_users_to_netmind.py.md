@@ -1,8 +1,14 @@
 ---
 code_file: scripts/migrate_users_to_netmind.py
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — 内核提取至 identity_migration；脚本重构为薄 CLI 包装 + re-export
+
+迁移核心逻辑（`classify_identity_columns`、`execute_migration`、`verify_migration`、`build_report`、`IdentityColumns`）已移至 `src/xyz_agent_context/services/identity_migration.py`（platform service 层，铁律 3），由 `backend/routes/admin_migration.py` 和本脚本共享（铁律 8，单一真相源）。
+
+本脚本现在从 `xyz_agent_context.services.identity_migration` import 并 re-export 上述符号，让已有的 `from scripts.migrate_users_to_netmind import ...` 调用和测试零改动继续可用。脚本自身只保留 CLI 层：`_load_mapping`（CSV 解析）和 `_amain`（`--report` / `--execute` / `--verify` 三个子命令）。行为与重构前完全一致。
 
 # migrate_users_to_netmind.py — 存量用户 → NetMind userSystemCode 一次性迁移
 

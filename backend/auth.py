@@ -255,6 +255,10 @@ AUTH_EXEMPT_PATHS = {
     # API inside the route handler, then exchanged for our own JWT.
     "/api/auth/netmind-login",
     "/api/auth/create-user",
+    # Admin identity migration (Phase 1): gated on the X-Admin-Secret header
+    # inside the handler (admin_secret_key), not a user JWT — the offline batch
+    # migrator has no JWT. Same self-credentialed pattern as netmind-login.
+    "/api/admin/migrate-identity",
     "/api/providers/claude-status",
     "/docs",
     "/openapi.json",

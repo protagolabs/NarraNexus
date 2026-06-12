@@ -1,8 +1,12 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — admin_migration_router 注册
+
+新增 `from backend.routes.admin_migration import router as admin_migration_router` 和对应的 `app.include_router(admin_migration_router, tags=["AdminMigration"])`。router 自带 prefix `/api/admin`，最终挂载路径为 `POST /api/admin/migrate-identity`。与 `admin_quota_router` 同 pattern（自带 prefix，`include_router` 不再传 prefix 参数）。
 
 ## 2026-06-11 — invite routers unwired
 

@@ -325,6 +325,7 @@ from backend.routes.quota import router as quota_router
 from backend.routes.admin_quota import router as admin_quota_router
 from backend.routes.notifications import router as notifications_router
 from backend.routes.admin_logs import router as admin_logs_router
+from backend.routes.admin_migration import router as admin_migration_router
 from backend.routes.transcription import router as transcription_router
 from backend.routes.transcription_public import router as transcription_public_router
 from backend.routes.artifacts_public import router as artifacts_public_router
@@ -348,6 +349,7 @@ app.include_router(slack_router, prefix="/api/slack", tags=["Slack"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["Telegram"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
+app.include_router(admin_migration_router, tags=["AdminMigration"])
 app.include_router(notifications_router, tags=["Notifications"])
 app.include_router(admin_logs_router, prefix="/api/admin/logs", tags=["AdminLogs"])
 app.include_router(
