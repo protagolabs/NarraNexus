@@ -35,11 +35,11 @@ describe('useNetmindAuth.emailLogin', () => {
 });
 
 describe('useNetmindAuth password reset', () => {
-  test('sendResetCode posts to /user/sendCode with type=2 (forgot-password)', async () => {
+  test('sendResetCode posts to /register/sendCode with type=2 (forgot-password)', async () => {
     netmindPost.mockResolvedValue({});
     const { result } = renderHook(() => useNetmindAuth());
     await act(async () => { await result.current.sendResetCode('a@b.com'); });
-    expect(netmindPost).toHaveBeenCalledWith('/user/sendCode', expect.objectContaining({
+    expect(netmindPost).toHaveBeenCalledWith('/register/sendCode', expect.objectContaining({
       email: 'a@b.com', type: 2,
     }));
   });

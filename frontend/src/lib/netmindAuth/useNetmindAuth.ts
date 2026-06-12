@@ -138,7 +138,7 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
     setLoading(true);
     setError('');
     try {
-      await netmindPost('/user/sendCode', { ...baseRequestParams(), email, type: 2 });
+      await netmindPost('/register/sendCode', { ...baseRequestParams(), email, type: 2 });
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to send code');

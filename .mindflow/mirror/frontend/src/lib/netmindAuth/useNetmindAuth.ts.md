@@ -7,8 +7,9 @@ stub: false
 ## 2026-06-12 — forgot-password methods (sendResetCode + resetPassword)
 
 Two methods added for NetMind's own password reset (cloud passwords ARE NetMind
-passwords, so no backend): `sendResetCode(email)` → POST `/user/sendCode` with
-`type: 2` (forgot-password path; no reCAPTCHA there), and
+passwords, so no backend): `sendResetCode(email)` → POST `/register/sendCode`
+with `type: 2` (forgot-password path; no reCAPTCHA there — NOTE: send-code lives
+under `/register/`, only the reset itself is under `/user/`), and
 `resetPassword(email, code, newPassword)` → POST `/user/resetPassword`. Both
 call NetMind directly via `netmindPost` like emailLogin, share the hook's
 loading/error state, and return a boolean so the UI ([[ForgotPasswordCard.tsx]])
