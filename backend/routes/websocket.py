@@ -667,6 +667,11 @@ async def websocket_agent_run(websocket: WebSocket):
                 pass_mcp_urls=mcp_urls,
                 trigger_extra_data={
                     "trigger_id": f"ws_{_session_id[:8]}",
+                    # The logged-in sender's NarraNexus user_id. agent_runtime
+                    # overrides ctx_data.user_id to the agent owner, so this is
+                    # the only carrier of "who actually sent this turn" — the
+                    # context builder resolves their display name + is-owner.
+                    "sender_user_id": request.user_id,
                     # Front-end chat input is already a clean user message —
                     # use it directly as the narrative retrieval anchor.
                     "retrieval_anchor": request.input_content or "",
