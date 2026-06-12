@@ -166,6 +166,11 @@ export function LoginPage() {
               Cloud mode
             </Chip>
           )}
+          {isCloudMode && (
+            <p className="text-xs" style={{ color: 'var(--nm-ink50)' }}>
+              Sign in with your NetMind.AI account
+            </p>
+          )}
         </div>
 
         <Divider />
@@ -319,7 +324,7 @@ export function LoginPage() {
             </div>
 
             <a
-              href={getNetmindConfig().registerUrl}
+              href={getNetmindConfig().registerUrl || 'https://www.netmind.ai/sign/register'}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--nm-ink)] h-10 px-4 text-sm bg-[color:var(--nm-raised)] text-[color:var(--nm-ink)] border border-[color:var(--nm-ink)] hover:bg-[color:var(--nm-paper-warm)] w-full"
