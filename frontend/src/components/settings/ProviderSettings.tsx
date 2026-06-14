@@ -63,7 +63,10 @@ function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
       if (state.token) headers.set('Authorization', `Bearer ${state.token}`)
       if (state.userId) headers.set('X-User-Id', state.userId)
     }
-  } catch {}
+  } catch {
+    // Corrupt/absent localStorage config — proceed without auth headers;
+    // the backend 401s if the request actually needed them.
+  }
   return fetch(input, { ...init, headers })
 }
 
@@ -541,7 +544,9 @@ export function ProviderSettings() {
         setKnownModels(catRes.known_models)
         if (catRes.official_base_urls) setOfficialBaseUrls(catRes.official_base_urls)
       }
-    } catch {}
+    } catch (err) {
+      console.error('[ProviderSettings] refreshConfig failed:', err)
+    }
   }, [providerUrl])
 
   useEffect(() => { refreshConfig() }, [refreshConfig])
