@@ -59,13 +59,22 @@ class _ChatMessage(BaseModel):
 class _ChatMetadata(BaseModel):
     """Metadata block — the external integrator's identity per-call.
 
-    session_id is the ONLY required field. user_type and context are
-    optional.
+    session_id is the ONLY required field. user_type, context, and
+    user_id are optional.
+
+    user_id (v0.5 — bridged identity): when the integrator passes the
+    real NetMind userSystemCode here AND the token carries the
+    `bridge_identity` scope, the chat handler skips the ephemeral mint
+    and runs against the real user_id directly — so memory persists
+    across this integrator's session AND the user's direct chat on the
+    main site. When absent (or scope missing) the request falls back to
+    the v0.4 ephemeral path.
     """
 
     session_id: str = Field(..., min_length=1, max_length=256)
     user_type: str = Field(default="guest")
     context: Optional[dict] = None
+    user_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class ChatCompletionsRequest(BaseModel):
@@ -329,16 +338,75 @@ async def external_chat_completions(
             ),
         )
 
-    # Mint the ephemeral user_id and ensure the users row exists.
-    ephemeral_user_id = _ephemeral_user_id(agent_id, session_id)
-    user_type = _resolve_user_type(body.metadata.user_type)
+    # v0.5 — bridged identity. When the integrator passes a real NetMind
+    # userSystemCode in `metadata.user_id` AND the token carries the
+    # `bridge_identity` scope, skip the ephemeral mint and run against
+    # the real user_id directly. Memory / narratives / direct-chat
+    # history all share the same user_id, so the user gets a unified
+    # view of the agent across this integration and the main site.
+    #
+    # Three guards protect this path:
+    #   1. token scope (defence against a non-trusted integrator
+    #      claiming arbitrary real user_ids) — checked BEFORE the DB
+    #      so a bad request fails fast without an extra round-trip
+    #   2. user must actually exist in `users`
+    #   3. the row must NOT be someone else's ephemeral (owned_by_agent
+    #      must be NULL — real NetMind users have no owner)
+    declared_user_id = body.metadata.user_id
+    scopes = getattr(request.state, "api_key_scopes", []) or []
+    if declared_user_id and "bridge_identity" not in scopes:
+        return JSONResponse(
+            status_code=403,
+            content=_error_envelope(
+                "this token does not carry the `bridge_identity` "
+                "scope; cannot accept `metadata.user_id`",
+                code="bridge_not_allowed",
+                status=403,
+            ),
+        )
+
     db = await get_db_client()
-    await _ensure_ephemeral_user(
-        db,
-        user_id=ephemeral_user_id,
-        agent_id=agent_id,
-        user_type=user_type,
-    )
+    user_type = _resolve_user_type(body.metadata.user_type)
+
+    if declared_user_id:
+        target = await db.get_one("users", {"user_id": declared_user_id})
+        if not target:
+            return JSONResponse(
+                status_code=400,
+                content=_error_envelope(
+                    f"metadata.user_id {declared_user_id!r} is not a "
+                    f"known NarraNexus user",
+                    code="unknown_user",
+                ),
+            )
+        if target.get("owned_by_agent") is not None:
+            return JSONResponse(
+                status_code=400,
+                content=_error_envelope(
+                    f"metadata.user_id {declared_user_id!r} is an "
+                    f"agent-owned ephemeral user, not a real account; "
+                    f"cannot bridge",
+                    code="not_a_real_user",
+                ),
+            )
+        # Downstream variable name is `ephemeral_user_id` for historical
+        # reasons; in the bridged path it just carries the real id.
+        ephemeral_user_id = declared_user_id
+        logger.info(
+            "external_api: bridged identity — using real user_id={!r} "
+            "(token has bridge_identity scope)",
+            declared_user_id,
+        )
+    else:
+        # v0.4 ephemeral path — unchanged. Mint a per-session user_id and
+        # ensure the row exists.
+        ephemeral_user_id = _ephemeral_user_id(agent_id, session_id)
+        await _ensure_ephemeral_user(
+            db,
+            user_id=ephemeral_user_id,
+            agent_id=agent_id,
+            user_type=user_type,
+        )
 
     # Spin up the BackgroundRun against the ephemeral user_id. The
     # provider lookup deep inside the runtime will fall back to the
