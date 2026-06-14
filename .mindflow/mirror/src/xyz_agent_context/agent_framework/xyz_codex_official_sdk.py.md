@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-06-12
+last_verified: 2026-06-14
 ---
+
+## 2026-06-14 — ⚠️ 下方 2026-06-12 "workspace-write 即隔离" 结论作废(实测+死路)
+
+两次实测推翻了下面那条乐观结论,**codex 自带 sandbox+approval 无法单独满足
+"workspace 内可读写、出 workspace 拒"** 的上线要求:
+
+1. **`workspace-write` 单独不隔离**(Mac, `CODEX_SANDBOX_MODE=workspace-write`,
+   run_7abbf37f / run_7eff0217):`echo > /tmp/...` 写成功、`cat ~/.codex/auth.json`
+   读出了共享 OAuth 凭证,且**无 approval review** 直接执行。原因:`sandbox` 只声明
+   默认边界,越界时走 `approval_mode`;SDK 默认 `ApprovalMode.auto_review` =
+   LLM 审批员自动批准 low-risk 越界 → codex 把命令**升级到沙箱外**执行。
+
+2. **`approval_mode=deny_all` 能拦越界,但把 MCP 也一起拒了**(实测:发个 "hi" 都
+   回不出来)。`ApprovalMode` 枚举**只有两档** `auto_review` / `deny_all`,没有
+   "workspace 内放行 + 越界拒" 的中间档:
+   - `auto_review`:MCP 正常,但越界也被自动批 → **不隔离**;
+   - `deny_all`:越界被拒,但 MCP 工具调用(走 `autoApprovalReview` 的)也被拒
+     → **agent 不可用**。
+
+→ 2026-06-14 的 `deny_all` 修法已 **revert**(commit 66c57647)。当前代码停在
+`workspace-write`(cloud 默认)+ SDK 默认 `auto_review` = **声明了边界但不强制**。
+
+**下一步方向(都不靠 codex 原生 approval 做硬隔离):**
+- **OS/容器级隔离**:cloud 容器里给每个 agent 跑在受限 uid / 只挂载自己的
+  workspace / bubblewrap 外壳,让"出 workspace 无权限"由内核兜底(和
+  `_tool_policy_guard` 对 Read/Glob/Grep 的路径限制思路一致,但要覆盖 Bash/Write)。
+- **app 层命令校验**:在我们这侧拦截 codex 的 commandExecution(像 CC 的
+  PreToolUse hook),对越界路径直接拒——但 codex app-server 是否暴露可拦截的
+  审批回调待查(`autoApprovalReview` 是 agent 自动源,未必给我们否决权)。
+- 关键约束:任何方案都**不能拒 MCP**(否则 agent 直接哑火,如本次)。
 
 ## 2026-06-12 — sandbox_mode 改为 env 可配（测 #16685 / 上线 workspace 隔离）
 
