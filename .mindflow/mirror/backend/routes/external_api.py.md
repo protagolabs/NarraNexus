@@ -1,8 +1,43 @@
 ---
 code_file: backend/routes/external_api.py
-last_verified: 2026-06-11
+last_verified: 2026-06-14
 stub: false
 ---
+
+## 2026-06-14 — v0.5 bridged identity (`metadata.user_id`)
+
+`_ChatMetadata` gains optional `user_id` field. `external_chat_completions`
+gains 3 guards around `metadata.user_id`:
+
+1. **scope guard** (before any DB hit): `bridge_identity` token scope
+   required, else 403 `bridge_not_allowed`. Fast-fail so an untrusted
+   token never costs a DB round-trip.
+2. **existence guard**: user_id must exist in `users` table, else
+   400 `unknown_user`.
+3. **ephemeral guard**: row's `owned_by_agent` must be NULL — defends
+   against an integrator passing another agent's ephemeral as if it
+   were a real account (400 `not_a_real_user`).
+
+When all three pass: skip `_ephemeral_user_id()` mint and use the
+provided user_id directly as `ephemeral_user_id` (the variable name is
+historical; in the bridged path it just carries the real id). Memory /
+narratives / direct-chat history all live under the same user_id so
+the user sees a unified view across this integration AND the main
+site.
+
+When `metadata.user_id` is absent the v0.4 ephemeral path runs
+unchanged.
+
+**DELETE behaviour for bridged sessions is naturally no-op**: the
+DELETE handler computes `_ephemeral_user_id(agent_id, session_id)` and
+looks it up; since the bridged path never created such a row, the
+cascade returns all-zero. Real user data is therefore protected
+without a special DELETE branch. See `delete_user_cascade` for the
+idempotent miss behaviour.
+
+**List sessions** filters by `owned_by_agent=agent_id` so real users
+(`owned_by_agent IS NULL`) are not listed — owners discover them via
+the main-site backoffice, not the external API.
 
 # external_api.py
 

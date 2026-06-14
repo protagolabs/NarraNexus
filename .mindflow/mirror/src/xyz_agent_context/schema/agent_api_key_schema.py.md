@@ -4,6 +4,15 @@ last_verified: 2026-06-12
 stub: false
 ---
 
+## 2026-06-14 — `bridge_identity` scope added (v0.5)
+
+`_VALID_SCOPES` gains `"bridge_identity"`. NOT included in
+`_DEFAULT_SCOPES` — owner must explicitly grant when minting a token
+for a trusted first-party integrator (e.g. Arena's own server-side
+proxy). Tokens without this scope have `metadata.user_id` rejected at
+the route layer with 403 `bridge_not_allowed`, defending against any
+holder of a regular token claiming arbitrary real NetMind user_ids.
+
 ## 2026-06-12 — fix tz-mismatch crash in is_active / status
 
 `is_active()` and `status()` compared `expires_at` (loaded UTC-aware

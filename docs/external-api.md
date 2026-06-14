@@ -136,6 +136,51 @@ apply to every `/v1/external/*` request uniformly. Token scopes
 (`chat`, `session.delete`, `session.list`) only gate WHICH endpoints
 the token can call.
 
+### Bridged identity for logged-in users (v0.5)
+
+By default every external API turn runs against an ephemeral user_id
+derived from `metadata.session_id` (the v0.4 behaviour). For a trusted
+first-party integrator (e.g. Arena's own server-side proxy) we offer
+an opt-in bridge so a logged-in NetMind user gets unified memory across
+this integration AND their direct chat on the main site:
+
+1. The owner mints a token that includes the `bridge_identity` scope
+   (this scope is NOT in `_DEFAULT_SCOPES` — must be explicitly
+   granted).
+2. The integrator passes the real NetMind userSystemCode in
+   `metadata.user_id`:
+
+   ```json
+   {
+     "model": "agent_xxx",
+     "messages": [...],
+     "metadata": {
+       "session_id": "anon_or_tracking_cookie",
+       "user_type": "permanent",
+       "user_id": "8773c1b2..."
+     }
+   }
+   ```
+3. The route layer enforces three guards before honouring the bridge:
+   - 403 `bridge_not_allowed` if the token doesn't carry
+     `bridge_identity`
+   - 400 `unknown_user` if the user_id isn't in the `users` table
+   - 400 `not_a_real_user` if the row's `owned_by_agent` is non-NULL
+     (i.e., it's some other agent's ephemeral, not a real account)
+4. On all three passing, the chat skips the ephemeral mint and uses
+   the real user_id directly — memory / narrative / direct-chat
+   history are all under the same `user_id`.
+
+Without `metadata.user_id` (or without the scope) the v0.4 ephemeral
+path runs unchanged.
+
+**DELETE in bridged mode is a natural no-op**: the handler computes
+`ephemeral_user_id` from session_id and looks it up; the bridged
+path never wrote an ephemeral row, so the cascade returns all-zero
+counts. Real-user data is therefore safe from accidental wipe via
+`DELETE`. List sessions also filters by `owned_by_agent` so real
+users do not surface there.
+
 ### Failure codes
 
 | Code | Meaning |
@@ -146,6 +191,9 @@ the token can call.
 | 401 `expired_token` | `expires_at` has passed |
 | 403 `insufficient_scope` | Token lacks the scope this endpoint needs |
 | 403 `agent_mismatch` | URL or `model` field points at an agent the token isn't scoped to |
+| 403 `bridge_not_allowed` (v0.5) | Token lacks `bridge_identity` scope but request carried `metadata.user_id` |
+| 400 `unknown_user` (v0.5) | `metadata.user_id` is not a known NarraNexus user |
+| 400 `not_a_real_user` (v0.5) | `metadata.user_id` belongs to some other agent's ephemeral, rejected |
 | 404 — | Endpoint doesn't exist (deployment didn't set `ENABLE_EXTERNAL_API=1`) |
 
 ---

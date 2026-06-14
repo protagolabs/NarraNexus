@@ -94,7 +94,18 @@ class AgentApiKey(BaseModel):
 
 
 _DEFAULT_SCOPES = ["chat", "session.delete", "session.list"]
-_VALID_SCOPES = {"chat", "session.delete", "session.list", "usage.read"}
+# `bridge_identity` (v0.5) is NOT in DEFAULT — owner must explicitly grant
+# it when minting a token for a trusted first-party integrator. Without
+# this scope, the external API ignores any `metadata.user_id` the
+# integrator might pass and falls back to the ephemeral path (defence
+# against a token holder claiming arbitrary real user_ids).
+_VALID_SCOPES = {
+    "chat",
+    "session.delete",
+    "session.list",
+    "usage.read",
+    "bridge_identity",
+}
 
 
 class ApiKeyCreateRequest(BaseModel):
