@@ -85,6 +85,24 @@ server {
     root ${PROJECT_ROOT}/frontend/dist;
     index index.html;
 
+    # External API protocol (v0.3 + v0.4) — /v1/external/* and the
+    # Manyfold /v1/chat/completions surface. Without this block nginx
+    # falls through to the SPA catch-all and returns index.html for
+    # every /v1/* request, which breaks any external integrator before
+    # they reach the FastAPI router. Same timeouts as /api/ because
+    # both can stream long LLM responses.
+    location /v1/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+    }
+
     # API reverse proxy
     location /api/ {
         proxy_pass http://127.0.0.1:8000;
