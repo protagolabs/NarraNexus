@@ -304,7 +304,7 @@ def test_thread_start_accepts_kwargs_we_actually_pass():
 
     # Kwargs the v2 agent_loop currently passes — every one of these
     # MUST be in the SDK signature or thread_start blows up at runtime.
-    required = {"sandbox"}
+    required = {"sandbox", "approval_mode"}
     missing = required - params
     assert not missing, (
         f"openai_codex.AsyncCodex.thread_start lost kwarg(s) {missing}. "
@@ -535,3 +535,26 @@ def test_sandbox_full_access_attribute_exists():
     # they ever disappear (would signal a much bigger SDK API rework).
     assert hasattr(Sandbox, "read_only")
     assert hasattr(Sandbox, "workspace_write")
+
+
+def test_approval_mode_attributes_exist():
+    """SDK contract test — the ``openai_codex.ApprovalMode`` enum must
+    expose ``deny_all`` and ``auto_review``. The v2 ``agent_loop`` passes
+    one of these to ``thread_start(approval_mode=...)``.
+
+    This is the half of multi-tenant isolation that actually enforces it:
+    ``sandbox=workspace-write`` only DECLARES the boundary; ``deny_all`` is
+    what stops codex escalating past it. Verified 2026-06-14 — under the
+    SDK default ``auto_review`` codex read ``~/.codex/auth.json`` and wrote
+    ``/tmp`` despite ``sandbox=workspace-write``, because the LLM reviewer
+    auto-approved the escalation. If the SDK renames either member, the
+    getattr-guard in agent_loop falls back to ``auto_review`` (i.e. SILENTLY
+    drops confinement) — so this test must fail loudly first."""
+    from openai_codex import ApprovalMode
+
+    assert hasattr(ApprovalMode, "deny_all"), (
+        "openai_codex.ApprovalMode.deny_all missing — SDK upgrade likely "
+        "renamed the enum. Cloud codex isolation depends on it. Update "
+        "xyz_codex_official_sdk.py:_resolve_approval_mode and this test."
+    )
+    assert hasattr(ApprovalMode, "auto_review")

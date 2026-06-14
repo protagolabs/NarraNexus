@@ -127,13 +127,18 @@ def _resolve_sandbox_mode() -> str:
     var overrides both):
 
     - **cloud → ``workspace-write``**: confine codex to its per-agent
-      workspace at the OS level (Seatbelt / bubblewrap). Reads/writes
-      outside the workspace and network are blocked by the kernel — the
-      multi-tenant isolation PR #25 review §1/§2 requires. Verified
-      2026-06-12: v2 app-server mode auto-approves MCP tool calls (an
-      ``item/autoApprovalReview`` step), so codex issue #16685 (MCP calls
-      auto-cancelled under a non-full sandbox, an old ``exec``-mode bug)
-      does NOT bite here — MCP tools complete normally under workspace-write.
+      workspace at the OS level (Seatbelt / bubblewrap).
+
+      ⚠️  ``workspace-write`` ALONE does NOT enforce confinement. The
+      sandbox is the *default* boundary, but when a command would exceed
+      it codex consults the **approval policy** (see
+      ``_resolve_approval_mode``). Under the SDK default ``auto_review``
+      an LLM reviewer approves out-of-workspace reads/writes and codex
+      then ESCALATES them *outside* the sandbox — verified 2026-06-14:
+      codex read ``~/.codex/auth.json`` and wrote ``/tmp`` despite
+      ``sandbox=workspace-write``. Real isolation requires
+      ``workspace-write`` **plus** ``approval_mode=deny_all`` (cloud
+      default), so escalation is refused and the kernel boundary holds.
     - **local → ``danger-full-access``**: the user's own machine, no
       multi-tenant boundary to enforce. Mirrors ``_tool_policy_guard``,
       which only enforces workspace containment in cloud.
@@ -158,6 +163,56 @@ def _resolve_sandbox_mode() -> str:
             f"valid: {sorted(_SANDBOX_ENUM_ATTR)}; using {default}"
         )
     return default
+
+
+# ---------------- Approval-mode constants ----------------
+#
+# ``ApprovalMode`` decides what codex does when an action would exceed the
+# sandbox boundary. The SDK enum has exactly two members and (unlike
+# ``Sandbox``) the attr name == the string value, so no dash/prefix map:
+#   * ``auto_review`` — an LLM reviewer auto-approves; codex then ESCALATES
+#     the command *outside* the sandbox. The workspace-write boundary is
+#     therefore advisory, not enforced (proven 2026-06-14: codex read
+#     ~/.codex/auth.json and wrote /tmp under sandbox=workspace-write).
+#   * ``deny_all`` — refuse every escalation. The OS sandbox actually holds.
+_APPROVAL_AUTO_REVIEW = "auto_review"
+_APPROVAL_DENY_ALL = "deny_all"
+_APPROVAL_VALUES = (_APPROVAL_AUTO_REVIEW, _APPROVAL_DENY_ALL)
+
+
+def _resolve_approval_mode() -> str:
+    """Approval policy for codex runs (controls sandbox escalation).
+
+    Default is deployment-mode aware (``CODEX_APPROVAL_MODE`` env overrides):
+
+    - **cloud → ``deny_all``**: never escalate beyond the workspace-write
+      sandbox. This is the half of multi-tenant isolation that ACTUALLY
+      enforces it — ``sandbox=workspace-write`` only declares the boundary;
+      ``deny_all`` is what stops codex from stepping over it. (PR #25 review
+      §1/§2.)
+    - **local → ``auto_review``**: the user's own machine; let codex do
+      whatever it asks for (mirrors the local ``danger-full-access`` sandbox).
+
+    Override with ``CODEX_APPROVAL_MODE=deny_all|auto_review``.
+    """
+    raw = (os.environ.get("CODEX_APPROVAL_MODE") or "").strip().lower()
+    if raw in _APPROVAL_VALUES:
+        return raw
+
+    try:
+        from xyz_agent_context.utils.deployment_mode import get_deployment_mode
+        is_cloud = get_deployment_mode() == "cloud"
+    except Exception:  # noqa: BLE001 — a mode-lookup failure must not break the run
+        is_cloud = False
+    default = _APPROVAL_DENY_ALL if is_cloud else _APPROVAL_AUTO_REVIEW
+
+    if raw:
+        logger.warning(
+            f"[CodexSDKv2] unknown CODEX_APPROVAL_MODE={raw!r}; "
+            f"valid: {list(_APPROVAL_VALUES)}; using {default}"
+        )
+    return default
+
 
 # Custom model-provider name used in config_overrides when the agent slot
 # authenticates with an API key (not OAuth). Mirrors v1's
@@ -365,6 +420,7 @@ class CodexSDKv2:
         # association — they share __init__.py registration).
         try:
             from openai_codex import (  # noqa: PLC0415 — see comment above
+                ApprovalMode,
                 AsyncCodex,
                 CodexConfig,
                 Sandbox,
@@ -423,6 +479,7 @@ class CodexSDKv2:
             )
 
             sandbox_mode = _resolve_sandbox_mode()
+            approval_mode = _resolve_approval_mode()
             config_overrides = _build_codex_config_overrides(
                 instructions_path=instructions_path,
                 mcp_server_urls=mcp_server_urls,
@@ -437,7 +494,11 @@ class CodexSDKv2:
             )
             logger.info(
                 f"[CodexSDKv2] sandbox_mode={sandbox_mode} "
-                f"(workspace={self.working_path}) — set CODEX_SANDBOX_MODE to override"
+                f"approval_mode={approval_mode} "
+                f"(workspace={self.working_path}) — "
+                f"set CODEX_SANDBOX_MODE / CODEX_APPROVAL_MODE to override. "
+                f"NOTE: workspace-write only confines when paired with "
+                f"approval_mode=deny_all."
             )
 
             _mcp_lines = [
@@ -510,7 +571,25 @@ class CodexSDKv2:
                     f"(available: {_members}); falling back to full_access"
                 )
                 _sandbox_enum = Sandbox.full_access
-            thread = await codex.thread_start(sandbox=_sandbox_enum)
+
+            # approval_mode is the OTHER half: ``sandbox`` declares the
+            # boundary, ``approval_mode`` decides whether codex may step over
+            # it. ``deny_all`` is what actually enforces workspace-write
+            # (see _resolve_approval_mode). Same getattr-guard pattern: an SDK
+            # enum rename logs the real members and falls back to auto_review
+            # (the SDK's own default — i.e. no behavior change on a rename).
+            _approval_enum = getattr(ApprovalMode, approval_mode, None)
+            if _approval_enum is None:
+                _members = [m for m in dir(ApprovalMode) if not m.startswith("_")]
+                logger.warning(
+                    f"[CodexSDKv2] ApprovalMode has no {approval_mode!r} "
+                    f"(available: {_members}); falling back to auto_review"
+                )
+                _approval_enum = ApprovalMode.auto_review
+            thread = await codex.thread_start(
+                sandbox=_sandbox_enum,
+                approval_mode=_approval_enum,
+            )
             logger.info(
                 f"[CodexSDKv2] thread started "
                 f"(cwd={self.working_path}, CODEX_HOME={codex_home_path})"
