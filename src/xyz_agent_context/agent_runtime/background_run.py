@@ -178,6 +178,7 @@ class BackgroundRun:
         db: "AsyncDatabaseClient",
         active_runs: dict,
         cancellation: Optional[CancellationToken] = None,
+        runtime_factory: Optional[Any] = None,
     ) -> None:
         # run_id starts unset; drive() extracts the AgentRuntime-assigned
         # event_id from the first step-0 progress message and only THEN
@@ -210,6 +211,13 @@ class BackgroundRun:
         # Heartbeat task handle — started lazily on drive(), stopped on close.
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._task: Optional[asyncio.Task] = None
+        # v0.4: Optional factory that returns the AgentRuntime to drive.
+        # When None, drive() falls back to instantiating plain AgentRuntime
+        # (current behaviour for chat WS / Lark / Job / message_bus paths).
+        # External API path passes
+        # `make_external_runtime_factory(EXTERNAL_API_POLICY)` here so the
+        # run uses ExternalAgentRuntime with its policy restrictions.
+        self._runtime_factory = runtime_factory
         # final_output is captured when we see the chat module emit it.
         # On terminal write, this is what goes into events.final_output.
         self.final_output_buffer: list[str] = []
@@ -501,8 +509,14 @@ class BackgroundRun:
         # Lazy import to avoid circular dependency at module load time.
         from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
 
+        # v0.4: caller-supplied factory wins; default = main AgentRuntime.
+        # This is the single seam that decides which runtime variant the
+        # rest of the pipeline runs in — ModuleService, hooks, modules,
+        # agent_loop all read from `ctx.policy` which originates here.
+        runtime_factory = self._runtime_factory or (lambda: AgentRuntime())
+
         try:
-            async with AgentRuntime() as runtime:
+            async with runtime_factory() as runtime:
                 async for event in runtime.run(
                     agent_id=agent_id,
                     user_id=user_id,

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from xyz_agent_context.schema import PathExecutionResult, ModuleLoadResult
     from xyz_agent_context.module import ModuleService
     from xyz_agent_context.agent_runtime.cancellation import CancellationToken
+    from xyz_agent_context.agent_runtime.runtime_policy import RuntimePolicy
 
 
 @dataclass
@@ -89,6 +90,14 @@ class RunContext:
 
     # ===== Manager Instances =====
     module_service: Optional["ModuleService"] = None
+
+    # ===== Runtime Policy (v0.4) =====
+    # Set by AgentRuntime.run() from `self._policy` (always None on the
+    # main AgentRuntime; ExternalAgentRuntime / future variants set it).
+    # When non-None, downstream consumers (ModuleService, step_3 mcp
+    # filtering, etc.) read it to apply per-run restrictions. When None,
+    # every consumer behaves as today.
+    policy: Optional["RuntimePolicy"] = None
 
     # ===== Execution Path Related =====
     mcp_urls: Dict[str, str] = field(default_factory=dict)

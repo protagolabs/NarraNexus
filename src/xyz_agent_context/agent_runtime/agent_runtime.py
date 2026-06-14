@@ -134,6 +134,12 @@ class AgentRuntime:
         self._current_agent_id = None
         self._current_user_id = None
 
+        # Runtime policy (v0.4) — None on the main runtime; ExternalAgentRuntime
+        # and other variants set this to a RuntimePolicy instance. Main runtime
+        # code paths NEVER read this attribute; it's surfaced into ctx.policy
+        # at run() so downstream consumers (ModuleService, step_3) can branch.
+        self._policy = None
+
         logger.info("AgentRuntime initialized successfully")
     async def run(
         self,
@@ -292,6 +298,7 @@ class AgentRuntime:
                 forced_narrative_id=forced_narrative_id,
                 trigger_extra_data=trigger_extra_data or {},
                 cancellation=cancellation,
+                policy=self._policy,  # v0.4: None on main runtime, set by subclasses
             )
 
             # =============================================================================

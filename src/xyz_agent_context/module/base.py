@@ -81,7 +81,8 @@ class XYZBaseModule(ABC):
         user_id: Optional[str],
         database_client: DatabaseClient,
         instance_id: Optional[str] = None,
-        instance_ids: Optional[List[str]] = None
+        instance_ids: Optional[List[str]] = None,
+        policy: Optional[Any] = None,
     ):
         """
         Initialize Module
@@ -92,6 +93,12 @@ class XYZBaseModule(ABC):
             database_client: Database client
             instance_id: Instance ID (if provided, indicates operation for a specific instance)
             instance_ids: All instance IDs associated with the Narrative (used for hook_data_gathering, etc.)
+            policy: Optional RuntimePolicy from a runtime variant (e.g.
+                ExternalAgentRuntime). Most modules ignore this; policy-aware
+                modules (GeneralMemoryModule, BasicInfoModule, AwarenessModule)
+                read `self._policy` to branch behaviour. `None` means "main
+                runtime, no restrictions" — every module's default behaviour
+                is unchanged.
         """
         self.agent_id = agent_id
         self.user_id = user_id
@@ -100,6 +107,11 @@ class XYZBaseModule(ABC):
         # Instance-related
         self.instance_id = instance_id
         self.instance_ids = instance_ids or []
+
+        # Runtime policy (v0.4) — `Any` type hint to avoid importing
+        # RuntimePolicy here (would create a circular import via module/__init__
+        # → agent_runtime → module). Policy-aware modules import it lazily.
+        self._policy = policy
 
         self.config = self.get_config()
         self.instructions = ""

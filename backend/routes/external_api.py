@@ -344,6 +344,15 @@ async def external_chat_completions(
     # provider lookup deep inside the runtime will fall back to the
     # agent owner's config via UserProviderService.get_user_config's
     # owned_by_agent recursion.
+    #
+    # v0.4: pass `runtime_factory=make_external_runtime_factory()` so the
+    # underlying runtime is `ExternalAgentRuntime(policy=EXTERNAL_API_POLICY)`
+    # — this is the single seam that turns on per-user memory scoping,
+    # visitor-mode identity rendering, AwarenessModule MCP suppression,
+    # and the Write/Edit/Bash SDK denylist for this entire run.
+    from xyz_agent_context.agent_runtime.external_agent_runtime import (
+        make_external_runtime_factory,
+    )
     active_runs = request.app.state.active_runs
     cancellation = CancellationToken()
     bg = BackgroundRun(
@@ -353,6 +362,7 @@ async def external_chat_completions(
         db=db,
         active_runs=active_runs,
         cancellation=cancellation,
+        runtime_factory=make_external_runtime_factory(),
     )
 
     broadcaster_session_id = f"ext_{uuid.uuid4().hex[:8]}"
