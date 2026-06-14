@@ -1,8 +1,36 @@
 ---
 code_file: src/xyz_agent_context/module/general_memory_module/general_memory_module.py
-last_verified: 2026-06-08
+last_verified: 2026-06-14
 stub: false
 ---
+
+## 2026-06-14 — policy-driven SCOPE_USER for external API sessions (v0.4)
+
+This is the BIG isolation fix for the External API protocol. Before:
+`hook_after_event_execution` wrote observations with
+`scope_type=SCOPE_AGENT, scope_id=""` and `hook_data_gathering`
+recalled with no scope filter — so every visitor's facts polluted
+every other visitor's per-turn recall on the same agent.
+
+Now:
+- `_retain_scope()` returns `(SCOPE_USER, self.user_id)` when
+  `self._policy.memory_scope == "user"` (set by ExternalAgentRuntime
+  via EXTERNAL_API_POLICY), else `(SCOPE_AGENT, "")` (today's
+  behaviour, owner-facing path).
+- `_user_scope_kwargs()` returns the matching `scope_type` / `scope_id`
+  kwargs for `coordinator.remember()` so recall filters by the same
+  scope retain used.
+- `self._policy` arrives via the XYZBaseModule base class — propagated
+  by [[../module_service]] from ctx.policy → AgentRuntime.run().
+  Main runtime never sets `self._policy`, so default = None → falls
+  back to SCOPE_AGENT, exact today's behaviour.
+
+The companion MCP-tool `remember` / `grep_memory` in
+[[_general_memory_mcp_tools]] run in a separate MCP process and have no
+clean way to know "which user is calling". Rather than fake it, the
+EXTERNAL_API_POLICY simply adds `GeneralMemoryModule` to
+`mcp_denylist` — external sessions still get auto-recall every turn
+(via hook, with user scope) but can't explicitly cross-search.
 
 ## 2026-06-08 — passive injection uses passive_kinds()
 

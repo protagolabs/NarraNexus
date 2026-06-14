@@ -172,6 +172,16 @@ EXTERNAL_API_POLICY: RuntimePolicy = RuntimePolicy(
         # via prompt injection. Awareness CONTENT still flows in via the
         # data_gathering hook (which runs in-process and is unaffected).
         "AwarenessModule",
+        # GeneralMemoryModule's MCP server hosts agent-callable
+        # `remember` / `grep_memory`. These tools take agent_id as a
+        # parameter and run in a separate process — they have no way to
+        # know "which user is calling" so they cannot enforce
+        # per-user scope at the query layer. The in-process
+        # hook_data_gathering recall IS policy-aware (it filters by
+        # SCOPE_USER when memory_scope='user') and still auto-injects
+        # relevant memory every turn, so the agent isn't starved of
+        # memory; it just can't explicitly cross-search.
+        "GeneralMemoryModule",
     }),
     extra_disallowed_tools=frozenset({
         # Claude Code SDK built-in filesystem-write tools. Read / Glob /

@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/background_run.py
-last_verified: 2026-06-10
+last_verified: 2026-06-14
 stub: false
 ---
+
+## 2026-06-14 — `runtime_factory` kwarg for v0.4 runtime variants
+
+`__init__` accepts `runtime_factory: Optional[Any] = None`. `drive()`
+now uses `self._runtime_factory or (lambda: AgentRuntime())` — so
+callers that don't pass anything get exactly today's behaviour
+(plain `AgentRuntime()` in the `async with`).
+
+External API path passes
+`runtime_factory=make_external_runtime_factory()` (from
+[[external_agent_runtime]]) so the run uses `ExternalAgentRuntime` with
+its policy. The factory is invoked anew on each `drive()` so each run
+gets its own runtime instance with its own db/hook lifecycle.
+
+This is the single seam that lets the API route choose which
+AgentRuntime variant powers a request, without BackgroundRun needing
+to know anything about RuntimePolicy.
 
 ## 2026-06-10 — `_finalize` 广播终结 `complete` 帧（live WS 唯一带内结束信号）
 

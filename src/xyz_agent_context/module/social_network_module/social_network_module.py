@@ -71,9 +71,10 @@ class SocialNetworkModule(XYZBaseModule):
         user_id: Optional[str] = None,
         database_client: Optional[DatabaseClient] = None,
         instance_id: Optional[str] = None,
-        instance_ids: Optional[List[str]] = None
+        instance_ids: Optional[List[str]] = None,
+        **kwargs,
     ):
-        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
+        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids, **kwargs)
         self.port = 7802  # Use a different port to avoid conflict with awareness_module (7801)
 
         # Initialize repository (lazy initialization, since db may only be available at call time)

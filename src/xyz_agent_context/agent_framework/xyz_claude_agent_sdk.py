@@ -109,6 +109,7 @@ class ClaudeAgentSDK:
         streaming: bool = True,  # Whether to use streaming output
         extra_env: dict[str, str] | None = None,  # Additional env vars (e.g., skill-configured API keys)
         cancellation: Any | None = None,  # CancellationToken for cooperative cancellation
+        extra_disallowed_tools: list[str] | None = None,  # v0.4: RuntimePolicy.extra_disallowed_tools (e.g. Write/Edit/Bash for external API sessions)
         **kwargs: Any,
         ) -> AsyncGenerator[dict[str, Any], None]:
 
@@ -363,6 +364,15 @@ class ClaudeAgentSDK:
         disallowed_tools: list[str] = []
         if not supports_server_tools:
             disallowed_tools.append("WebSearch")
+        # v0.4: append RuntimePolicy.extra_disallowed_tools. For
+        # ExternalAgentRuntime + EXTERNAL_API_POLICY this typically
+        # carries {"Write","Edit","NotebookEdit","Bash"} so visitor
+        # sessions can read workspace files (Read/Glob/Grep) but
+        # cannot mutate them or shell out.
+        if extra_disallowed_tools:
+            for t in extra_disallowed_tools:
+                if t not in disallowed_tools:
+                    disallowed_tools.append(t)
 
         # Build ClaudeAgentOptions; only pass model when explicitly configured
         options_kwargs: dict[str, Any] = dict(

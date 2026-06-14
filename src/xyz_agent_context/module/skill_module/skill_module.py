@@ -200,9 +200,10 @@ class SkillModule(XYZBaseModule):
         user_id: Optional[str] = None,
         database_client: Optional[DatabaseClient] = None,
         instance_id: Optional[str] = None,
-        instance_ids: Optional[List[str]] = None
+        instance_ids: Optional[List[str]] = None,
+        **kwargs,
     ):
-        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
+        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids, **kwargs)
 
         # Base path
         from xyz_agent_context.settings import settings

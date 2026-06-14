@@ -112,7 +112,8 @@ class JobModule(XYZBaseModule):
         user_id: Optional[str] = None,
         database_client: Optional[DatabaseClient] = None,
         instance_id: Optional[str] = None,
-        instance_ids: Optional[List[str]] = None
+        instance_ids: Optional[List[str]] = None,
+        **kwargs,
     ):
         """
         Initialize JobModule
@@ -123,8 +124,9 @@ class JobModule(XYZBaseModule):
             database_client: Database client
             instance_id: Instance ID (if provided, indicates this is a specific instance operation)
             instance_ids: All instance IDs associated with the Narrative
+            **kwargs: Forwarded to XYZBaseModule (includes optional `policy`).
         """
-        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
+        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids, **kwargs)
         self.port = 7803  # MCP Server port
 
         # Initialize repository (lazy initialization)

@@ -41,15 +41,27 @@ class MemoryCoordinator:
         per_kind_limit: int = 12,
         limit: int = 20,
         token_budget: int = 2000,
+        scope_type: Optional[str] = None,
+        scope_id: Optional[str] = None,
     ) -> List[MemoryHit]:
         """Cross-kind ranked recall. Each kind ranks its own candidates
         (BM25 + boosts), then RRF fuses across kinds and a shared token budget
-        trims the final set."""
+        trims the final set.
+
+        scope_type / scope_id: optional per-kind filter. When supplied,
+        ONLY records matching that scope are returned. Used by the v0.4
+        external-API path to confine recall to the calling visitor's
+        session (scope_type='user', scope_id=visitor's user_id);
+        defaults preserve today's "agent-wide" recall behaviour.
+        """
         kinds = list(kinds or all_kinds())
         pool: dict[str, MemoryHit] = {}
         rank_lists: List[List[str]] = []
         for kind in kinds:
-            hits = await self.engine.recall(kind, query, limit=per_kind_limit)
+            hits = await self.engine.recall(
+                kind, query, limit=per_kind_limit,
+                scope_type=scope_type, scope_id=scope_id,
+            )
             rank_lists.append([h.record_id for h in hits])
             for h in hits:
                 pool[h.record_id] = MemoryHit(record=h, kind=kind)
@@ -77,13 +89,22 @@ class MemoryCoordinator:
         kinds: Optional[Sequence[str]] = None,
         regex: bool = False,
         limit: int = 50,
+        scope_type: Optional[str] = None,
+        scope_id: Optional[str] = None,
     ) -> List[MemoryHit]:
         """Cross-kind exact/regex search over content_text — the literal-match
-        complement to `remember`."""
+        complement to `remember`.
+
+        scope_type / scope_id behaviour matches `remember()`: when supplied,
+        confines the search to records at that scope.
+        """
         kinds = list(kinds or all_kinds())
         out: List[MemoryHit] = []
         for kind in kinds:
-            for rec in await self.engine.grep(kind, pattern, regex=regex):
+            for rec in await self.engine.grep(
+                kind, pattern, regex=regex,
+                scope_type=scope_type, scope_id=scope_id,
+            ):
                 out.append(MemoryHit(record=rec, kind=kind))
                 if len(out) >= limit:
                     return out
