@@ -1,44 +1,8 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-06-14
+last_verified: 2026-06-12
 ---
-
-## 2026-06-14 — workspace-write 单独不隔离!必须配 approval_mode=deny_all
-
-**推翻 2026-06-12 结论的关键一半。** Mac 上 `CODEX_SANDBOX_MODE=workspace-write`
-实测越界(run_7abbf37f / run_7eff0217):
-
-- `echo escape > /tmp/codex_escape_test.txt` → `exit_code 0`,**写到 workspace 外成功**;
-- `cat ~/.codex/auth.json` → codex **真的读出了共享 OAuth 凭证**(含 tokens 结构);
-- 而且这两条越界命令日志里**连 approval review 都没有**,直接 started→completed。
-
-根因不是 sandbox 枚举错(`Sandbox.workspace_write` 名字是对的,回退告警没触发):
-**codex 的 `sandbox` 只声明"默认边界",命令越界时走 `approval_mode`。SDK 默认
-`ApprovalMode.auto_review` = LLM 审批员自动批准 low-risk 越界 → codex 把命令
-"升级"到沙箱外执行 → 逃逸成功。** `ApprovalMode` 枚举只有两个值:`auto_review`
-和 `deny_all`。
-
-修法:把 `approval_mode` 也做成 **`CODEX_APPROVAL_MODE`** 可配
-(`_resolve_approval_mode()`,同 sandbox 的 env-override + 按部署模式分流):
-**cloud → `deny_all`**(拒一切越界升级,内核边界才真的成立)、
-**local → `auto_review`**(自己的机器,和 local 的 `danger-full-access` 一致)。
-`thread_start(sandbox=…, approval_mode=…)` 两个 enum 都用 getattr-guard
-(枚举名变 → 打印可用成员 + 回退,approval 回退 `auto_review`)。契约测试
-`test_thread_start_accepts_kwargs_we_actually_pass` 加进 `approval_mode`,
-新增 `test_approval_mode_attributes_exist` 锁 `deny_all`/`auto_review`。
-
-**2026-06-12 那条 "workspace-write 即可隔离" 的判断作废** —— 当时只验证了
-"MCP 不被取消"(`auto_review` 把 MCP 也自动批了),却没验证"越界被拦";
-恰恰是同一个 auto-reviewer,既批 MCP 也批越界。隔离 = `workspace-write`
-**且** `deny_all`,缺一不可。
-
-**待验证(deny_all 下 MCP 是否还能用):** `deny_all` 拒一切需审批的动作,
-而 MCP 工具调用在 auto_review 下是走过 `autoApprovalReview` 的 —— deny_all 可能
-连 MCP 一起拒。上线前必须在 Mac 上 `CODEX_APPROVAL_MODE=deny_all` 重测:
-①越界被拒 ②MCP(`send_message_to_user_directly` / 建 job)仍正常。两者同时成立
-才能让 cloud 默认 deny_all 落地;若 MCP 被拒,需另想办法(approval enum 只有两档,
-无 "workspace 内放行+越界拒" 的中间档)。
 
 ## 2026-06-12 — sandbox_mode 改为 env 可配（测 #16685 / 上线 workspace 隔离）
 
