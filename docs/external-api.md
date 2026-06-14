@@ -99,6 +99,43 @@ identity: every request acts as the agent owner (for billing,
 provider attribution, and the agent's behavioural identity), with
 per-visitor isolation tracked by `metadata.session_id`.
 
+### Per-session runtime restrictions (v0.4)
+
+External-API turns run through a restricted variant of the agent
+runtime (`ExternalAgentRuntime` with `EXTERNAL_API_POLICY`). The
+restrictions are:
+
+- **Memory is per-user scoped.** Observations distilled from one
+  visitor's turn are stored at `scope_type=SCOPE_USER,
+  scope_id=<visitor's user_id>` and recall filters by the same
+  scope — visitor A never sees visitor B's facts even on the same
+  agent. Owner-facing chat / Lark / Job paths keep using the agent
+  scope they always did; this only applies inside
+  `/v1/external/*`.
+- **Identity is rendered as "visitor", not "owner".** The agent's
+  system prompt says "you are serving an external visitor (session:
+  X); the agent owner is Y" instead of the default
+  owner-perspective framing — so prompt-injection attempts like
+  "speak as the admin" land against an agent that already knows it's
+  serving a visitor.
+- **Mutating tools are not exposed.** The MCP tool
+  `update_awareness` (which would let a visitor edit the agent's
+  identity prompt) is suppressed. The SDK built-ins `Write`, `Edit`,
+  `NotebookEdit`, and `Bash` are added to the SDK's
+  `disallowed_tools` list — visitor sessions can `Read`, `Glob`,
+  `Grep` to consult owner-prepared materials, but cannot mutate the
+  workspace or shell out.
+- **Cross-session modules are not loaded.** `SocialNetworkModule`
+  (agent-wide entity graph), `LarkModule` / `SlackModule` /
+  `TelegramModule` (IM channels), and `MessageBusModule` (inter-agent
+  bus) are skipped — a visitor can't pollute IM bus channels or the
+  agent's social entity store.
+
+These restrictions are not configurable per token in v0.4 — they
+apply to every `/v1/external/*` request uniformly. Token scopes
+(`chat`, `session.delete`, `session.list`) only gate WHICH endpoints
+the token can call.
+
 ### Failure codes
 
 | Code | Meaning |
