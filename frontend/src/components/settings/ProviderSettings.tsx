@@ -452,7 +452,11 @@ export function ProviderSettings() {
   const [knownModels, setKnownModels] = useState<Record<string, KnownModelMeta>>({})
   const [officialBaseUrls, setOfficialBaseUrls] = useState<Record<string, string[]>>({})
   const [error, setError] = useState('')
-  const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null } | null>(null)
+  // ``allowed`` is false only when the backend gated this caller out:
+  // cloud mode + non-staff. Staff and local mode omit it (→ undefined →
+  // allowed). Same field on codexStatus; both routes apply the identical
+  // ``is_cloud and not is_staff`` gate, so they always agree.
+  const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null; allowed?: boolean } | null>(null)
   const [claudeLoggingIn, setClaudeLoggingIn] = useState(false)
   const [claudeLoggingOut, setClaudeLoggingOut] = useState(false)
   // Codex CLI Login — parallel to Claude Code Login. Same shape. In
@@ -460,7 +464,7 @@ export function ProviderSettings() {
   // user opts into the codex_cli agent framework, but `codex login`
   // (OAuth) is still a manual terminal step because it opens a
   // browser.
-  const [codexStatus, setCodexStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null } | null>(null)
+  const [codexStatus, setCodexStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null; allowed?: boolean } | null>(null)
   // Seconds remaining on the login auto-abort timer, or null when no
   // login is in flight. Decremented every 1s by the effect below; on
   // hitting 0 we fire cancelClaudeLogin so the Rust side SIGTERMs the
@@ -875,6 +879,15 @@ export function ProviderSettings() {
       .map((mid) => ({ model_id: mid, display_name: knownModels[mid]?.display_name || mid }))
   }
 
+  // Switching the agent framework is staff-only in cloud (a framework
+  // with no API-key provider falls back to the shared CLI credentials —
+  // the backend 403s it; see providers.py §3 gate). The status routes
+  // already encode that exact predicate as ``allowed === false``, so we
+  // reuse it rather than re-deriving cloud + staff here. Fail-open on the
+  // UI if neither status loaded — the backend stays the security boundary.
+  const frameworkSwitchBlocked =
+    claudeStatus?.allowed === false || codexStatus?.allowed === false
+
   // ---- Slot row renderer ----
   const renderSlotRow = (slot: typeof SLOT_DEFS[number]) => {
     const selectedFramework = AGENT_FRAMEWORKS.find((f) => f.id === agentFramework)
@@ -947,35 +960,48 @@ export function ProviderSettings() {
                 </span>
               )}
             </label>
-            <select
-              value={agentFramework}
-              disabled={agentFrameworkSaving}
-              onChange={async (e) => {
-                const next = e.target.value
-                setAgentFramework(next)
-                setAgentFrameworkSaving(true)
-                setAgentFrameworkError('')
-                setAgentFrameworkInstall(null)
-                try {
-                  const resp = await api.setAgentFramework(next)
-                  if (resp.success) {
-                    setAgentFrameworkProbe(resp.data.probe)
-                    setAgentFrameworkInstall(resp.data.install)
+            {frameworkSwitchBlocked ? (
+              // Cloud + non-staff: switching is backend-gated (403). Show the
+              // current choice read-only instead of a control that errors.
+              <div className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
+                {selectedFramework
+                  ? `${selectedFramework.label} — ${selectedFramework.desc}`
+                  : agentFramework}
+                <span className="ml-2 text-xs text-[var(--text-tertiary)]">
+                  · managed by staff in cloud
+                </span>
+              </div>
+            ) : (
+              <select
+                value={agentFramework}
+                disabled={agentFrameworkSaving}
+                onChange={async (e) => {
+                  const next = e.target.value
+                  setAgentFramework(next)
+                  setAgentFrameworkSaving(true)
+                  setAgentFrameworkError('')
+                  setAgentFrameworkInstall(null)
+                  try {
+                    const resp = await api.setAgentFramework(next)
+                    if (resp.success) {
+                      setAgentFrameworkProbe(resp.data.probe)
+                      setAgentFrameworkInstall(resp.data.install)
+                    }
+                  } catch (err: unknown) {
+                    setAgentFrameworkError(
+                      err instanceof Error ? err.message : 'Failed to save framework'
+                    )
+                  } finally {
+                    setAgentFrameworkSaving(false)
                   }
-                } catch (err: unknown) {
-                  setAgentFrameworkError(
-                    err instanceof Error ? err.message : 'Failed to save framework'
-                  )
-                } finally {
-                  setAgentFrameworkSaving(false)
-                }
-              }}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50"
-            >
-              {AGENT_FRAMEWORKS.map((fw) => (
-                <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
-              ))}
-            </select>
+                }}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50"
+              >
+                {AGENT_FRAMEWORKS.map((fw) => (
+                  <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
+                ))}
+              </select>
+            )}
             {agentFrameworkSaving && isCodexFramework(agentFramework) && (
               <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">
                 {'Verifying Codex CLI…'}

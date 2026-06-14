@@ -108,6 +108,27 @@ def _get_user_id(request: Request) -> str:
     return uid
 
 
+# Card types that authenticate via a SHARED CLI credential file
+# (~/.claude/.credentials.json, ~/.codex/auth.json) staged from a single
+# staff `claude login` / `codex login`. The cloud image runs one `app`
+# user with one HOME, so those files are container-global. A non-staff
+# cloud user wiring such a card — or switching the agent framework to one
+# that resolves to them — would ride staff's credentials (consume their
+# quota, act under their identity). API-key cards carry the user's own
+# key and never touch the shared files, so they stay open.
+_OAUTH_CARD_TYPES = frozenset({"claude_oauth", "codex_oauth"})
+
+
+def _is_cloud() -> bool:
+    """Cloud deployment runs on a non-sqlite backend (MySQL)."""
+    return not os.environ.get("DATABASE_URL", "").startswith("sqlite")
+
+
+def _is_staff(request: Request) -> bool:
+    """Staff role, injected into request.state by auth_middleware."""
+    return getattr(request.state, "role", "") == "staff"
+
+
 async def _get_service():
     """Get UserProviderService with DB client."""
     from xyz_agent_context.utils.db_factory import get_db_client
@@ -190,6 +211,15 @@ async def get_providers(request: Request):
 @router.post("")
 async def add_provider(req: AddProviderRequest, request: Request):
     uid = _get_user_id(request)
+    if req.card_type in _OAUTH_CARD_TYPES and _is_cloud() and not _is_staff(request):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "OAuth provider cards (Claude / Codex CLI login) are "
+                "staff-only in cloud mode — they ride the shared CLI "
+                "credentials. Add an API-key provider instead."
+            ),
+        )
     try:
         service = await _get_service()
         config, new_ids = await service.add_provider(
@@ -629,6 +659,16 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     in cloud mode").
     """
     uid = _get_user_id(request)
+    if _is_cloud() and not _is_staff(request):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Switching the agent framework is staff-only in cloud mode "
+                "— a framework with no API-key provider falls back to the "
+                "shared CLI credentials. Use one-key onboarding with your "
+                "own API key instead."
+            ),
+        )
     if body.framework not in _SUPPORTED_AGENT_FRAMEWORKS:
         raise HTTPException(
             status_code=400,
@@ -698,9 +738,7 @@ async def get_claude_status(request: Request):
 
     result = {"cli_installed": False, "logged_in": False, "email": None, "expires_at": None}
 
-    is_staff = getattr(request.state, 'role', '') == 'staff'
-    is_cloud = not os.environ.get("DATABASE_URL", "").startswith("sqlite")
-    if is_cloud and not is_staff:
+    if _is_cloud() and not _is_staff(request):
         return {"success": True, "data": {**result, "allowed": False}}
 
     import shutil
@@ -849,9 +887,7 @@ async def get_codex_status(request: Request):
         "expired": False,
     }
 
-    is_staff = getattr(request.state, "role", "") == "staff"
-    is_cloud = not os.environ.get("DATABASE_URL", "").startswith("sqlite")
-    if is_cloud and not is_staff:
+    if _is_cloud() and not _is_staff(request):
         return {"success": True, "data": {**result, "allowed": False}}
 
     import shutil

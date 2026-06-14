@@ -1,8 +1,42 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-06-11
+last_verified: 2026-06-14
 stub: false
 ---
+## 2026-06-14 — PR #25 review §3：写接口补「凭证骑乘」门禁
+
+云端镜像单 `app` 用户、单 HOME，所以 `~/.codex/auth.json` /
+`~/.claude/.credentials.json` 是**容器全局**文件，由某个 staff 一次
+`codex login` / `claude login` 落地。review §3 指出：非 staff 云端用户能绕过
+前端隐藏、直接打写接口建一张 OAuth 卡挂到 slot，运行时就骑乘了 staff 的共享
+凭证（消耗额度、以其身份调用）。原先 `is_cloud and not is_staff` 门禁**只在两个
+只读 status 路由**（`/claude-status` / `/codex-status`）里有，三个写接口裸奔。
+
+**修法（精准门禁，不一刀切）**：抽出三个 helper —— `_OAUTH_CARD_TYPES =
+{claude_oauth, codex_oauth}`、`_is_cloud()`、`_is_staff(request)`，两个只读路由
+重构成复用它们（行为不变，去重）。新增两道写接口门禁：
+
+- `add_provider`（`POST /api/providers`）：仅当 `card_type ∈ _OAUTH_CARD_TYPES
+  且 _is_cloud() 且非 staff` → 403。**API-key 卡（anthropic/openai/custom）放行**
+  —— 它带的是用户自己的 key，永不碰共享文件。
+- `set_agent_framework`（`POST /api/providers/agent-framework`）：cloud 非 staff
+  一律 403（切到某 framework 后若无 API-key provider，运行时会回退到共享 OAuth
+  文件，间接骑乘）。
+
+**为什么 `onboard` 不加门禁**：`onboard_one_key` 强制要求 `api_key`，只会建
+API-key 卡，永远产生不了 OAuth 卡 → 无骑乘风险。一刀切会误伤本 PR 招牌的云端
+自助 onboarding，故只精准封堵 OAuth 向量。门禁都在 `_get_service()`/DB 调用
+**之前**触发。
+
+**前端跟进（待办）**：`ProviderSettings.tsx` 的 framework `<select>` 在云端非
+staff 时应隐藏/禁用，否则切换会收到 403 报错。后端门禁是安全边界，前端隐藏是
+体验优化，二者独立。
+
+测试：`tests/backend/test_provider_oauth_gating.py`（9 个，DB-free，stub
+`_get_service` 区分「过门禁」与门禁自身的 403）。**未动**的死路：§1/§2 沙箱
+（codex 原生 approval 只有 auto_review/deny_all 两档，给不了 workspace 内放行+
+越界拒的中间档，见 `xyz_codex_official_sdk.py.md` 2026-06-14 条目）。
+
 ## 2026-06-11 — /codex-status 不再把"文件存在"当"已登录"
 
 `get_codex_status` 原来 `logged_in = creds_file.is_file()`——文件在就报已

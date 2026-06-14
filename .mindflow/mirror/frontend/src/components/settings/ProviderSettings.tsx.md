@@ -1,7 +1,21 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-14
 ---
+## 2026-06-14 — 云端非 staff 隐藏 Agent Framework 切换(配合后端 §3 门禁)
+
+后端给 `POST /api/providers/agent-framework` 加了 `is_cloud and not is_staff`
+→ 403 的门禁(防凭证骑乘,见 `backend/routes/providers.py.md` 2026-06-14 条目)。
+前端若仍渲染可切换的 `<select>`,云端普通用户一切换就吃 403 报错。
+
+前端复用**现成的服务端信号**而非自己重推 cloud+staff:`/claude-status` 与
+`/codex-status` 在 cloud 非 staff 时返回 `allowed: false`(两路由同一门禁,恒一致)。
+两个 status state 的类型补了 `allowed?: boolean`;派生
+`frameworkSwitchBlocked = claudeStatus?.allowed === false || codexStatus?.allowed === false`。
+blocked 时 framework `<select>` 换成只读盒子(显示当前 framework + "· managed by
+staff in cloud"),非 blocked 走原 `<select>`。两 status 都没加载到时 **fail-open**
+(UI 显示控件)——后端 403 仍是真正的安全边界,前端只是体验优化。
+
 ## 2026-06-11 (later) — 移除内嵌 OneKeyOnboard(去重)
 
 Section 1 顶部原本渲染 `<OneKeyOnboard>`。现在 SettingsPage 在面板级始终内嵌
