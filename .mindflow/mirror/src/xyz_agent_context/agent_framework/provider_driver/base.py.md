@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/base.py
-last_verified: 2026-05-13
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — Driver grows build_anthropic_helper_config
+
+Third build method on the Driver protocol + `_DriverBase` default
+(NotImplementedError): `build_anthropic_helper_config(model)` →
+`AnthropicHelperConfig` for the helper_llm slot on anthropic-protocol cards.
+Implemented by custom_anthropic / netmind / yunwu / openrouter / system
+(guarded by their `_is_anthropic_row()` predicate); OAuth drivers keep the
+default — OAuth rows can't serve direct Messages-API calls.
+
 
 # base.py — ProviderCard + Driver Protocol
 

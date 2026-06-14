@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Protocol, runtime_checkable
 
 from xyz_agent_context.agent_framework.api_config import (
+    AnthropicHelperConfig,
     ClaudeConfig,
     OpenAIConfig,
 )
@@ -187,6 +188,15 @@ class Driver(Protocol):
         """
         ...
 
+    def build_anthropic_helper_config(self, model: str) -> AnthropicHelperConfig:
+        """Build an ``AnthropicHelperConfig`` for the HELPER_LLM slot
+        when it points at an anthropic-protocol provider.
+
+        Raises NotImplementedError on drivers that can't serve direct
+        Messages-API calls (openai-protocol drivers, OAuth drivers).
+        """
+        ...
+
     # ----- diagnostics + lifecycle hooks ------------------------------------
 
     async def probe(self) -> DriverHealth:
@@ -257,6 +267,11 @@ class _DriverBase:
     def build_openai_config(self, model: str) -> OpenAIConfig:
         raise NotImplementedError(
             f"{type(self).__name__} does not support helper_llm (openai) slot"
+        )
+
+    def build_anthropic_helper_config(self, model: str) -> AnthropicHelperConfig:
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support helper_llm (anthropic) slot"
         )
 
 

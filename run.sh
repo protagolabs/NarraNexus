@@ -413,8 +413,14 @@ case "${1:-}" in
       echo -e "${RED}uv sync failed. Aborting startup.${R}"
       exit 1
     }
-    # Ensure editable install is active (uv .pth can fail on some Python builds)
-    $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" --reinstall-package xyz-agent-context || {
+    # Ensure editable install is active. ``uv sync`` above tends to
+    # strip the project's own editable install because lockfile doesn't
+    # list the project as editable. ``--no-deps --reinstall`` is the
+    # reliable form — ``--reinstall-package xyz-agent-context`` is
+    # sometimes a no-op when uv thinks the install is already satisfied.
+    $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" \
+      --python "$SCRIPT_DIR/.venv/bin/python3" \
+      --no-deps --reinstall || {
       echo -e "${RED}editable install failed. Aborting startup.${R}"
       exit 1
     }

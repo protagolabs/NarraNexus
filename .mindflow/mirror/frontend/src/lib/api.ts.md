@@ -3,6 +3,12 @@ code_file: frontend/src/lib/api.ts
 last_verified: 2026-06-11
 stub: false
 ---
+## 2026-06-10 — api.onboard
+
+`onboard(apiKey, providerType?)` → POST /api/providers/onboard. providerType
+is only sent when the user manually overrode the sk-ant- prefix detection;
+otherwise null lets the backend decide.
+
 
 ## 2026-06-11 — netmindLogin (NetMind token exchange)
 

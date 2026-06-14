@@ -719,6 +719,19 @@ _register(
             # default. Used as a 24h debounce so a misbehaving slot doesn't
             # write a notification on every LLM call.
             Column("last_auto_repaired_at", "TEXT", "DATETIME(6)"),
+            # Coding-agent framework choice — only meaningful on the
+            # ``slot_name='agent'`` row. Drives step_3_agent_loop's SDK
+            # dispatch: "claude_code" → ClaudeAgentSDK,
+            # "codex_cli" → CodexSDK. Default keeps existing rows
+            # backward-compatible without a separate backfill pass —
+            # the resolver also treats null as claude_code.
+            Column(
+                "agent_framework",
+                "TEXT",
+                "VARCHAR(32)",
+                nullable=True,
+                default="'claude_code'",
+            ),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[

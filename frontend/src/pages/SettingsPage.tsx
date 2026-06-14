@@ -8,14 +8,18 @@
  * regions instead of plain `<h2>` headings.
  */
 
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
+import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
+import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
+import { api } from '@/lib/api';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -27,6 +31,60 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+// Each settings area is now a nav-selected panel (master–detail) instead
+// of a collapsible stack. One content component per nav item; the left nav
+// in SettingsPage switches between them.
+
+function BundleContent() {
+  const navigate = useNavigate();
+  return (
+    <section>
+      <SectionHeader
+        label="Bundle · Export / Import"
+        hint="Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you."
+      />
+      <div className="flex gap-3">
+        <Button onClick={() => navigate('/app/bundle/export')} className="gap-2">
+          <Package className="w-4 h-4" />
+          Export bundle…
+        </Button>
+        <Button onClick={() => navigate('/app/bundle/import')} variant="outline" className="gap-2">
+          <Upload className="w-4 h-4" />
+          Import bundle…
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function ArtifactsContent() {
+  return (
+    <section>
+      <SectionHeader
+        label="Artifacts"
+        hint="Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
+      />
+      <ArtifactsSection />
+    </section>
+  );
+}
+
+function ManageAgentsContent() {
+  const navigate = useNavigate();
+  return (
+    <section>
+      <SectionHeader
+        label="Manage agents · batch"
+        hint="Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them."
+      />
+      <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
+        <Users className="w-4 h-4" />
+        Open batch manager…
+      </Button>
+    </section>
   );
 }
 
@@ -171,68 +229,164 @@ function UpdatesSection() {
   );
 }
 
-export default function SettingsPage() {
-  const navigate = useNavigate();
+// Providers section — same logic as the first-run /setup page: simple
+// surface first, the full 1400-line ProviderSettings behind an
+// "Advanced configuration" disclosure (collapsed by default).
+//
+//   zero providers  → OneKeyOnboard card (paste one key and go)
+//   any provider    → read-only ProviderSummaryCard (agent framework +
+//                     model, helper model, registered keys at a glance)
+//
+// Collapsing the disclosure (or completing onboard) bumps refreshToken
+// so the summary re-fetches whatever was edited in Advanced, and
+// settingsKey remounts ProviderSettings so it re-reads fresh config.
+function ProvidersSection() {
+  const [providerCount, setProviderCount] = useState<number | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [settingsKey, setSettingsKey] = useState(0);
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  const probe = async () => {
+    try {
+      const data = await api.getProviders();
+      if (data.success && data.data?.providers) {
+        setProviderCount(Object.keys(data.data.providers).length);
+        return;
+      }
+    } catch {
+      // Backend not ready — fall through to "unknown", card stays hidden
+    }
+    setProviderCount(null);
+  };
+
+  useEffect(() => {
+    probe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
+
+  const refresh = () => {
+    setRefreshToken((t) => t + 1);
+    setSettingsKey((k) => k + 1);
+  };
+
+  const toggleAdvanced = () => {
+    setShowAdvanced((v) => {
+      // Closing Advanced → re-sync the summary with whatever was edited.
+      if (v) refresh();
+      return !v;
+    });
+  };
+
   return (
-    <ScrollArea className="h-full" viewportClassName="p-6">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <header>
-          <h1
-            className="text-3xl font-bold tracking-tight"
-            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
-          >
-            Settings
-          </h1>
-          <div className="mt-2">
-            <BracketSectionLabel>
-              Providers · Bundle · Artifacts · Agents
-            </BracketSectionLabel>
-          </div>
-        </header>
+    <section>
+      <SectionHeader label="LLM Providers" />
+      {/* Current setup (what's in use) — only once a provider exists. */}
+      {providerCount !== 0 && (
+        <div className="mb-4">
+          <ProviderSummaryCard refreshToken={refreshToken} />
+        </div>
+      )}
 
-        <section>
-          <SectionHeader label="LLM Providers" />
-          <ProviderSettings />
-        </section>
-
-        <section>
-          <SectionHeader
-            label="Bundle · Export / Import"
-            hint="Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you."
-          />
-          <div className="flex gap-3">
-            <Button onClick={() => navigate('/app/bundle/export')} className="gap-2">
-              <Package className="w-4 h-4" />
-              Export bundle…
-            </Button>
-            <Button onClick={() => navigate('/app/bundle/import')} variant="outline" className="gap-2">
-              <Upload className="w-4 h-4" />
-              Import bundle…
-            </Button>
-          </div>
-        </section>
-
-        <section>
-          <SectionHeader
-            label="Artifacts"
-            hint="Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
-          />
-          <ArtifactsSection />
-        </section>
-
-        <section>
-          <SectionHeader
-            label="Manage agents · batch"
-            hint="Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them."
-          />
-          <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
-            <Users className="w-4 h-4" />
-            Open batch manager…
-          </Button>
-        </section>
-
-        {isTauri() && <UpdatesSection />}
+      {/* Add / switch a provider — ALWAYS available so pasting a key is a
+          first-class action, not something to hunt for in Advanced. The
+          panel thus shows both the current setup (above) and a way to add
+          a new one (here). Custom endpoints + CLI sign-in stay in Advanced. */}
+      <div className="mb-4">
+        <OneKeyOnboard onComplete={refresh} />
       </div>
-    </ScrollArea>
+
+      <button
+        type="button"
+        className="flex items-center gap-1.5 text-sm hover:opacity-80"
+        style={{ color: 'var(--nm-ink70)' }}
+        onClick={toggleAdvanced}
+      >
+        {showAdvanced ? (
+          <ChevronDown className="w-4 h-4" />
+        ) : (
+          <ChevronRight className="w-4 h-4" />
+        )}
+        Advanced — CLI sign-in, custom endpoints, frameworks, per-slot models
+      </button>
+      {showAdvanced && (
+        <div className="mt-4">
+          <ProviderSettings key={settingsKey} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+// Left-nav items (master). Each maps to one content panel (detail).
+// ``desktopOnly`` items (App updates) only appear in the Tauri build.
+interface NavItem {
+  id: string;
+  label: string;
+  icon: typeof Cpu;
+  desktopOnly?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { id: 'providers', label: 'LLM Providers', icon: Cpu },
+  { id: 'bundle', label: 'Bundle', icon: Package },
+  { id: 'artifacts', label: 'Artifacts', icon: FolderArchive },
+  { id: 'agents', label: 'Manage agents', icon: Users },
+  { id: 'updates', label: 'App updates', icon: Download, desktopOnly: true },
+];
+
+export default function SettingsPage() {
+  const [active, setActive] = useState('providers');
+  const items = NAV_ITEMS.filter((it) => !it.desktopOnly || isTauri());
+
+  return (
+    <div className="h-full flex flex-col">
+      <header className="px-6 pt-6 pb-4 shrink-0">
+        <h1
+          className="text-3xl font-bold tracking-tight"
+          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+        >
+          Settings
+        </h1>
+      </header>
+
+      <div className="flex flex-1 min-h-0">
+        {/* Left nav (master) */}
+        <nav
+          className="w-56 shrink-0 overflow-y-auto px-3 py-4 space-y-1 border-r"
+          style={{ borderColor: 'var(--nm-line)' }}
+        >
+          {items.map((it) => {
+            const Icon = it.icon;
+            const isActive = active === it.id;
+            return (
+              <button
+                key={it.id}
+                type="button"
+                onClick={() => setActive(it.id)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                  isActive
+                    ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
+                    : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-line)]/40 hover:text-[var(--nm-ink)]'
+                }`}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                {it.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Content (detail) */}
+        <ScrollArea className="flex-1" viewportClassName="p-6">
+          <div className="max-w-3xl">
+            {active === 'providers' && <ProvidersSection />}
+            {active === 'bundle' && <BundleContent />}
+            {active === 'artifacts' && <ArtifactsContent />}
+            {active === 'agents' && <ManageAgentsContent />}
+            {active === 'updates' && isTauri() && <UpdatesSection />}
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
   );
 }

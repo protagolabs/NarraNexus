@@ -72,6 +72,14 @@ import type {
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 
+/** Sources accepted by POST /api/providers/onboard (one-key setup). */
+export type OnboardProviderType =
+  | 'anthropic'
+  | 'openai'
+  | 'netmind'
+  | 'yunwu'
+  | 'openrouter';
+
 class ApiClient {
   private getAuthHeaders(): Record<string, string> {
     // Read identity from configStore (localStorage).
@@ -842,6 +850,35 @@ class ApiClient {
     return this.request(`/api/providers`);
   }
 
+  /** One-key onboarding: a single API key wires the agent framework,
+   * the provider, and both slots (agent + helper_llm) in one call.
+   * providerType overrides the backend's sk-ant- prefix detection;
+   * aggregator keys (netmind/yunwu/openrouter) MUST pass it — they
+   * have no recognisable prefix. */
+  async onboard(
+    apiKey: string,
+    providerType?: OnboardProviderType,
+  ): Promise<{
+    success: boolean;
+    detail?: string;
+    provider_ids?: string[];
+    provider_type?: string;
+    agent_framework?: string;
+    agent_model?: string;
+    helper_model?: string;
+    /** "ok" | "unverified (<reason>)" — live key probe result. A
+     * definitively bad key never reaches success (400 instead). */
+    key_check?: string;
+  }> {
+    return this.request(`/api/providers/onboard`, {
+      method: 'POST',
+      body: JSON.stringify({
+        api_key: apiKey,
+        provider_type: providerType ?? null,
+      }),
+    });
+  }
+
   /** Backfill the latest default models from the catalog into existing providers.
    * Identity comes from the X-User-Id / JWT header — no query param. */
   async syncProviderDefaults(): Promise<{
@@ -857,6 +894,47 @@ class ApiClient {
     total_models_added: number;
   }> {
     return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
+  }
+
+  /** Get the user's coding-agent framework choice + auth probe. */
+  async getAgentFramework(): Promise<{
+    success: boolean;
+    data: {
+      framework: string;
+      supported: string[];
+      probe: { ok: boolean; detail: string };
+    };
+  }> {
+    return this.request(`/api/providers/agent-framework`);
+  }
+
+  /** Set the user's coding-agent framework choice.
+   *
+   * For ``framework === 'codex_cli'``, the backend may auto-install
+   * ``@openai/codex`` via ``npm install -g`` in local mode. The
+   * ``install`` field reports the outcome:
+   *   - ``null``                   — codex install not attempted (claude_code)
+   *   - ``{action: 'already_installed'}`` — binary was already on PATH
+   *   - ``{action: 'auto_installed'}``    — we just installed it
+   *   - ``{action: 'blocked'}``           — cloud mode: install refused
+   *   - ``{action: 'install_failed'}``    — see ``reason``
+   */
+  async setAgentFramework(framework: string): Promise<{
+    success: boolean;
+    data: {
+      framework: string;
+      probe: { ok: boolean; detail: string };
+      install: {
+        installed: boolean;
+        action: 'already_installed' | 'auto_installed' | 'blocked' | 'install_failed';
+        reason: string;
+      } | null;
+    };
+  }> {
+    return this.request(`/api/providers/agent-framework`, {
+      method: 'POST',
+      body: JSON.stringify({ framework }),
+    });
   }
 
   /**

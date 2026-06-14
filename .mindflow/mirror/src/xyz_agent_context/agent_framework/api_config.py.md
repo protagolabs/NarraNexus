@@ -3,6 +3,35 @@ code_file: src/xyz_agent_context/agent_framework/api_config.py
 last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — one-key onboarding: AnthropicHelperConfig joins the config stack
+
+New `AnthropicHelperConfig` (api_key/base_url/model/auth_type) carries the
+helper_llm config when that slot points at an anthropic-protocol provider —
+the single-Claude-key path. It rides a new `_anthropic_helper_ctx` ContextVar
++ `anthropic_helper_config` proxy (holder keeps a benign empty default).
+`set_user_config(claude, openai, codex=None, anthropic_helper=None)` — a call
+WITHOUT the new arg resets the ctx to None, which is what makes
+`get_helper_sdk()` dispatch safe across tasks. `RuntimeLLMConfigs` gains
+`anthropic_helper: Optional[...] = None`. The legacy strict fallback's helper
+block now branches on the provider protocol (anthropic → AnthropicHelperConfig,
+`.openai` left empty). `setup_mcp_llm_context` upgraded from the 2-tuple path
+to `get_agent_owner_runtime_llm_configs` so MCP tool processes see codex +
+anthropic_helper too. `CodexConfig` gains neutral `thinking`/`reasoning_effort`
+(mirror of ClaudeConfig's; dialect mapping in _codex_config_toml_builder).
+
+## 2026-06-10 — merge `dev` into codex branch: embeddings out, Codex stays
+
+Reconciling two opposite directions: `dev` retired embeddings (narrative/
+memory routing is BM25 now), while the codex branch had made an embedding
+slot *required*. Resolution = follow `dev`. `EmbeddingConfig`,
+`_embedding_ctx`, the embedding field on `RuntimeLLMConfigs`, and the
+embedding slot in the strict resolver are all gone. `RuntimeLLMConfigs` is
+now `{claude, openai, codex}`; `set_user_config(claude, openai, codex=None)`;
+`get_user_llm_configs` is back to a 2-tuple `(claude, openai)` — Codex rides
+the `*_runtime_*` accessors. The guardrail test `test_embedding_removal.py`
+was updated so the `set_user_config` signature assertion expects
+`(claude, openai, codex)` (still rejects any embedding arg).
+
 ## 2026-06-10 — ClaudeConfig carries neutral reasoning params
 
 `ClaudeConfig` gained `thinking` / `reasoning_effort` (both default ""
@@ -13,6 +42,39 @@ Claude-dialect mapping lives in xyz_claude_agent_sdk
 (`_resolve_reasoning_options`), NOT here. `to_cli_env()` is untouched —
 these ride ClaudeAgentOptions, not env vars.
 
+
+## 2026-05-29 — add CodexConfig + codex_config ContextVar
+
+Symmetric with the existing ClaudeConfig/OpenAIConfig/EmbeddingConfig
+trio. New ``CodexConfig`` frozen dataclass carries ``api_key`` /
+``base_url`` / ``model`` / ``auth_type`` for the Codex CLI subprocess
+spawned by ``xyz_codex_cli_sdk.CodexSDK``. ``to_cli_env()`` mirrors
+the ClaudeConfig invariant: explicit blank for ``CODEX_API_KEY``
+when not in use so a parent-process env can't leak across tenants.
+
+``base_url`` / ``model`` are NOT exported via env — Codex reads them
+from per-run ``config.toml`` ``[model_providers.<name>]`` instead.
+The wire is via ``_codex_config_toml_builder``.
+
+Per-task ContextVar (``_codex_ctx``) + ``_ConfigHolder._codex`` slot
+follow the existing pattern. Holder is initialised to an empty
+``CodexConfig()`` by default — there is no .env/llm_config.json
+source path because Codex auth flows through ``codex login`` (host
+CLI) rather than NarraNexus config. Per-user overrides arrive via
+the ContextVar at agent_loop time.
+
+## 2026-05-31 — runtime config bundle includes CodexConfig
+
+`RuntimeLLMConfigs` groups the four per-turn configs: Claude agent,
+helper LLM, embedding, and Codex agent. `get_user_runtime_llm_configs()`
+and `get_agent_owner_runtime_llm_configs()` return this bundle so
+`AgentRuntime.run()` can inject `codex_config` before Step 3 selects
+`CodexSDK`. The older `get_user_llm_configs()` still returns the three
+non-Codex configs for call sites that do not drive the agent loop.
+
+`CodexConfig` now carries `auth_ref` in addition to api key / base URL /
+model. It is not exported as an env var; `xyz_codex_cli_sdk` uses it to
+copy the host `codex login` auth file into the per-run `CODEX_HOME`.
 
 ## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)
 
