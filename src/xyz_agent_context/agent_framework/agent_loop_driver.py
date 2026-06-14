@@ -51,6 +51,7 @@ class AgentLoopDriver(Protocol):
         streaming: bool = True,
         extra_env: dict[str, str] | None = None,
         cancellation: Any | None = None,
+        extra_disallowed_tools: list[str] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[dict[str, Any], None]:
         ...

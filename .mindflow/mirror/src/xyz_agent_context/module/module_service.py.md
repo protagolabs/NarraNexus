@@ -1,7 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/module_service.py
-last_verified: 2026-04-10
+last_verified: 2026-06-14
 ---
+
+## 2026-06-14 — accept `policy` kwarg, filter MODULE_MAP, propagate to modules (v0.4)
+
+`__init__` accepts an optional `policy: Optional[Any] = None`. When
+non-None, `policy.skipped_modules` filters the local `_module_map`
+copy (those module names are dropped from the map ModuleLoader sees
+AND from `create_module`'s lookup). The policy is also forwarded to
+`ModuleLoader(...)` and to every `module_class(...)` instantiated by
+`create_module`, so policy-aware modules
+([[general_memory_module/general_memory_module]],
+[[basic_info_module/basic_info_module]], etc.) can read it via
+`self._policy`.
+
+Main runtime path: policy is None, no filtering, no propagation —
+behaviour identical to pre-v0.4.
 
 # module_service.py — Module 服务协议层（Facade）
 

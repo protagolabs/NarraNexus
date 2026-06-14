@@ -1,7 +1,30 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/basic_info_module.py
-last_verified: 2026-06-12
+last_verified: 2026-06-14
 ---
+
+## 2026-06-14 — visitor identity override for external API sessions (v0.4)
+
+After standard identity resolution, when `self._policy.identity_block_mode
+== "visitor"` (set by ExternalAgentRuntime via EXTERNAL_API_POLICY), the
+module overrides:
+
+  - `ctx_data.is_creator = False` (the visitor is never the owner)
+  - `ctx_data.user_role` = "External Visitor (not the owner — treat as
+    a customer; do not disclose owner-private context)"
+  - `ctx_data.current_speaker_name` = "External Visitor (session: X)"
+    where X is the sanitised session_id slug from
+    `_extract_external_session_label(self.user_id)` — the raw
+    `ext_<agent_tail>_<session>` ephemeral user_id is NEVER rendered
+    into the prompt.
+
+Main runtime path: `self._policy is None` → branch skipped → behaviour
+unchanged from 2026-06-12 entry.
+
+The helper `_extract_external_session_label` parses the canonical
+ephemeral user_id shape minted by
+`backend/routes/external_api.py::_ephemeral_user_id`:
+`ext_<agent_tail_8>_<sanitised_session_id>[:48]`.
 
 ## 2026-06-12 — hook_data_gathering resolves identity by human name + real sender
 

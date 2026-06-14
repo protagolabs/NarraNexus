@@ -1,7 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-05-29
+last_verified: 2026-06-14
 ---
+
+## 2026-06-14 — `policy` constructor arg threaded into every module (v0.4)
+
+`XYZBaseModule.__init__` accepts `policy: Optional[Any] = None` and
+stores it as `self._policy`. Every Module subclass inherits this
+transparently — they don't need to override anything to get the
+attribute. Policy-aware modules (`GeneralMemoryModule`,
+`BasicInfoModule`, and any future variant-sensitive module) read
+`self._policy.<field>` to branch behaviour; modules that don't care
+simply never touch the attribute.
+
+The type is `Optional[Any]` (not `Optional[RuntimePolicy]`) to avoid
+a circular import — base.py is imported by everything; importing
+`RuntimePolicy` from agent_runtime would create a dependency cycle.
+Policy-aware modules import `RuntimePolicy` lazily inside their hook
+functions if they need type info.
 
 ## 2026-05-29 — capability flags (decouple orchestration from class names)
 

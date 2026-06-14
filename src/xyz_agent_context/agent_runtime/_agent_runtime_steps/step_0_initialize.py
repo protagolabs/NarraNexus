@@ -89,7 +89,13 @@ async def step_0_initialize(
     # =========================================================================
     # 0.2 Initialize ModuleService
     # =========================================================================
-    ctx.module_service = ModuleService(ctx.agent_id, ctx.user_id, db_client)
+    # v0.4: ctx.policy is None on the main runtime (no filtering, no
+    # policy injection into modules) and a RuntimePolicy on variants like
+    # ExternalAgentRuntime (filters MODULE_MAP, passes policy into each
+    # module's constructor for policy-aware modules to read).
+    ctx.module_service = ModuleService(
+        ctx.agent_id, ctx.user_id, db_client, policy=ctx.policy,
+    )
     ctx.substeps_0.append("[0.2] ✓ ModuleService ready")
     logger.debug("ModuleService initialized")
 

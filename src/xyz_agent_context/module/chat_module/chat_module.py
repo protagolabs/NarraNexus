@@ -223,9 +223,10 @@ class ChatModule(XYZBaseModule):
         database_client: Optional[DatabaseClient] = None,
         if_use_event_memory: bool = True,
         instance_id: Optional[str] = None,
-        instance_ids: Optional[List[str]] = None
+        instance_ids: Optional[List[str]] = None,
+        **kwargs,
     ):
-        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
+        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids, **kwargs)
 
         # Narrative-level memory persistence. Depends on the repository
         # layer directly (modules → repository is the allowed direction);

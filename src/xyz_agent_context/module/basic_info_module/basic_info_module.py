@@ -95,9 +95,10 @@ class BasicInfoModule(XYZBaseModule):
         user_id: Optional[str] = None,
         database_client: Optional[DatabaseClient] = None,
         instance_id: Optional[str] = None,
-        instance_ids: Optional[List[str]] = None
+        instance_ids: Optional[List[str]] = None,
+        **kwargs,
     ):
-        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
+        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids, **kwargs)
 
         self.instructions = BASIC_INFO_MODULE_INSTRUCTIONS
         # MCP port for the narrative-awareness tools (Fix #2 P3). Registered in
@@ -166,10 +167,11 @@ class BasicInfoModule(XYZBaseModule):
 
                 # 3. Who is the CURRENT SENDER, and are they the Creator?
                 # agent_runtime overrides self.user_id to the owner (created_by),
-                # so self.user_id can't tell visitor from owner. The real sender
-                # rides in extra_data.sender_user_id (set by the chat trigger);
-                # absent that (IM / job / owner self-chat) we fall back to the
-                # owner identity.
+                # EXCEPT when working_source == EXTERNAL_API (v0.3 fix) — there
+                # self.user_id stays the ephemeral external visitor id. The real
+                # human sender for chat rides in extra_data.sender_user_id;
+                # absent that (IM / job / owner self-chat / external) we fall
+                # back to self.user_id.
                 extra = ctx_data.extra_data or {}
                 sender_id = extra.get("sender_user_id") or self.user_id
                 ctx_data.is_creator = (sender_id == agent.created_by)
@@ -179,6 +181,28 @@ class BasicInfoModule(XYZBaseModule):
                     if ctx_data.is_creator
                     else await user_repo.get_display_name(sender_id)
                 )
+
+                # v0.4: visitor identity override for external API sessions.
+                # When policy.identity_block_mode == "visitor", the agent
+                # is told explicitly it is serving an external visitor and
+                # NOT the owner — even if sender_id happens to collide with
+                # something on the owner side. Also rewrites the speaker
+                # name from the opaque ephemeral user_id (ext_xxx_sessA)
+                # into a clean "External Visitor (session: X)" form so the
+                # LLM never sees the raw ext_ string.
+                if self._policy is not None and getattr(
+                    self._policy, "identity_block_mode", "owner"
+                ) == "visitor":
+                    session_label = self._extract_external_session_label(self.user_id)
+                    ctx_data.is_creator = False
+                    ctx_data.user_role = (
+                        "External Visitor (not the owner — "
+                        "treat as a customer; do not disclose "
+                        "owner-private context)"
+                    )
+                    ctx_data.current_speaker_name = (
+                        f"External Visitor (session: {session_label})"
+                    )
 
                 logger.debug(f"            Agent info loaded: name={agent.agent_name}, creator={ctx_data.creator_name}")
                 logger.debug(f"            Current sender={sender_id}, is_creator={ctx_data.is_creator}, speaker={ctx_data.current_speaker_name}")
@@ -204,6 +228,26 @@ class BasicInfoModule(XYZBaseModule):
 
         logger.debug("          BasicInfoModule.data_gathering() completed")
         return ctx_data
+
+    @staticmethod
+    def _extract_external_session_label(user_id: Optional[str]) -> str:
+        """Pull the session_id slug out of an external ephemeral user_id.
+
+        Format from backend/routes/external_api.py:_ephemeral_user_id:
+            ``ext_<agent_tail_8>_<sanitised_session_id>[:48]``
+        We surface the sanitised session_id slug as a short label the
+        agent prompt can carry; the raw 32+ char ephemeral id is never
+        rendered. Falls back to the input as-is if it doesn't match the
+        expected shape.
+        """
+        if not user_id or not user_id.startswith("ext_"):
+            return user_id or "unknown"
+        # Strip `ext_` then drop the agent_tail8_ prefix (8 chars + 1 _).
+        body = user_id[4:]
+        underscore = body.find("_")
+        if underscore == -1:
+            return body
+        return body[underscore + 1:] or "unknown"
 
     async def _get_user_timezone(self) -> str:
         """Look up the current user's preferred timezone (IANA string).

@@ -13,7 +13,7 @@ Refactoring notes (2025-12-24):
 """
 
 import json
-from typing import List, Dict, Optional, TYPE_CHECKING
+from typing import Any, List, Dict, Optional, TYPE_CHECKING
 from datetime import datetime
 from uuid import uuid4
 from loguru import logger
@@ -102,6 +102,7 @@ class ModuleLoader:
         user_id: str,
         database_client: "DatabaseClient",
         module_map: Dict[str, type],
+        policy: Optional[Any] = None,
     ):
         """
         Initialize ModuleLoader
@@ -111,11 +112,14 @@ class ModuleLoader:
             user_id: User ID
             database_client: Database client
             module_map: Mapping of module names to classes
+            policy: Optional RuntimePolicy. Passed into every module
+                instantiation; policy-aware modules read it.
         """
         self.agent_id = agent_id
         self.user_id = user_id
         self.database_client = database_client
         self.module_map = module_map
+        self._policy = policy
         self._instance_factory: Optional[InstanceFactory] = None
         self._instance_sync_service: Optional[InstanceSyncService] = None
 
@@ -228,7 +232,7 @@ class ModuleLoader:
             module_class = self.module_map.get(inst.module_class)
             if module_class:
                 # Create temporary instance to get config
-                temp_module = module_class(self.agent_id, self.user_id, self.database_client)
+                temp_module = module_class(self.agent_id, self.user_id, self.database_client, policy=self._policy)
                 module_type = temp_module.config.module_type
                 if module_type == "task":
                     task_instances.append(inst)
@@ -248,7 +252,7 @@ class ModuleLoader:
         for inst in capability_instances:
             module_class = self.module_map.get(inst.module_class)
             if module_class:
-                temp_module = module_class(self.agent_id, self.user_id, self.database_client)
+                temp_module = module_class(self.agent_id, self.user_id, self.database_client, policy=self._policy)
                 capability_info.append({
                     "module_class": inst.module_class,
                     "instance_id": inst.instance_id,
@@ -557,7 +561,7 @@ class ModuleLoader:
                 logger.warning(f"ModuleLoader: Unknown module name '{module_name}', skipping")
                 continue
             module_class = self.module_map[module_name]
-            module = module_class(self.agent_id, self.user_id, self.database_client)
+            module = module_class(self.agent_id, self.user_id, self.database_client, policy=self._policy)
             module_list.append(module)
 
         logger.info(f"ModuleLoader: Successfully loaded {len(module_list)} modules")
@@ -593,7 +597,8 @@ class ModuleLoader:
                 self.user_id,
                 self.database_client,
                 instance_id=inst.instance_id,
-                instance_ids=[i.instance_id for i in instances]
+                instance_ids=[i.instance_id for i in instances],
+                policy=self._policy,
             )
 
             inst.module = module

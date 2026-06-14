@@ -47,9 +47,10 @@ class AwarenessModule(XYZBaseModule):
         user_id: Optional[str] = None,
         database_client: Optional[DatabaseClient] = None,
         instance_id: Optional[str] = None,
-        instance_ids: Optional[List[str]] = None
+        instance_ids: Optional[List[str]] = None,
+        **kwargs,
     ):
-        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
+        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids, **kwargs)
         
         self.instructions = AWARENESS_MODULE_INSTRUCTIONS 
         self.port = 7801

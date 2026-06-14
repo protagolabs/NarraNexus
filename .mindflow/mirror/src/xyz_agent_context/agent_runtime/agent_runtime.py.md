@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-05-20
+last_verified: 2026-06-14
 stub: false
 ---
+
+## 2026-06-14 — `self._policy` plumbing for v0.4 runtime variants
+
+Two new lines, zero behaviour change. The base `AgentRuntime` now
+declares `self._policy = None` in `__init__` and sets
+`ctx.policy = self._policy` when constructing `RunContext` in `run()`.
+Main runtime path: policy stays None, downstream consumers
+(ModuleService, step_3, modules) see a None policy and fall through
+to their existing behaviour.
+
+The `_policy` attribute exists so [[external_agent_runtime]] (and any
+future variant) can simply set it in their own `__init__` without
+having to override `run()` or any step function. This is the entire
+extension surface for "new runtime mode" — the rest is data
+(RuntimePolicy fields) and consumer-side `if policy is not None`
+branches.
+
+Strict invariant: NO main-AgentRuntime code path reads `self._policy`.
+It is *only* surfaced into `ctx.policy`; from there, downstream
+consumers read it. This keeps the main runtime's behaviour
+mechanically identical to pre-v0.4.
 
 ## 2026-05-20 — Step 4.6: synchronous turn persistence before background
 

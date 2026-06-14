@@ -25,7 +25,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
-from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, MemoryRecord, SCOPE_AGENT, get_spec, passive_kinds
+from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, MemoryRecord, SCOPE_AGENT, SCOPE_USER, get_spec, passive_kinds
 from xyz_agent_context.module.base import XYZBaseModule, mcp_host
 from xyz_agent_context.schema.context_schema import ContextData
 from xyz_agent_context.schema.hook_schema import HookAfterExecutionParams
@@ -67,8 +67,8 @@ class _Extracted(BaseModel):
 class GeneralMemoryModule(XYZBaseModule):
     """Capability module: always loaded; learns observations every turn."""
 
-    def __init__(self, agent_id, user_id=None, database_client=None, instance_id=None, instance_ids=None):
-        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
+    def __init__(self, agent_id, user_id=None, database_client=None, instance_id=None, instance_ids=None, **kwargs):
+        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids, **kwargs)
         self.port = _MCP_PORT
 
     @staticmethod
@@ -84,6 +84,42 @@ class GeneralMemoryModule(XYZBaseModule):
     def _engine(self) -> MemoryEngine:
         return MemoryEngine(self.db, self.agent_id)
 
+    # ── v0.4 policy-driven memory scoping ────────────────────────────────────
+    #
+    # `self._policy` is set by ModuleService when an ExternalAgentRuntime
+    # (or any policy-bearing variant) constructs the module. When None —
+    # i.e. the main AgentRuntime path — behaviour falls through to today's
+    # SCOPE_AGENT semantics.
+
+    def _retain_scope(self) -> tuple[str, str]:
+        """Return (scope_type, scope_id) for retain calls.
+
+        Policy `memory_scope='user'` confines observation rows to this
+        caller's user_id so a different visitor's recall (filtered on the
+        same scope) cannot see them. Without a user_id we cannot honour
+        per-user scope and fall back to SCOPE_AGENT (logged).
+        """
+        if (
+            self._policy is not None
+            and getattr(self._policy, "memory_scope", "agent") == "user"
+            and self.user_id
+        ):
+            return (SCOPE_USER, self.user_id)
+        return (SCOPE_AGENT, "")
+
+    def _user_scope_kwargs(self) -> dict:
+        """Return kwargs to pass into `coordinator.remember()` /
+        `grep_memory()` for per-user recall filtering. Empty dict =
+        no scope filter (agent-wide recall, current behaviour).
+        """
+        if (
+            self._policy is not None
+            and getattr(self._policy, "memory_scope", "agent") == "user"
+            and self.user_id
+        ):
+            return {"scope_type": SCOPE_USER, "scope_id": self.user_id}
+        return {}
+
     # ── read: inject relevant unified memory into context ───────────────────
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
         """Recall across ALL memory kinds (observations, entities, chat,
@@ -98,9 +134,17 @@ class GeneralMemoryModule(XYZBaseModule):
             # job/bus) are excluded here — they are searchable via the remember
             # TOOL, and recent chat/jobs are already injected by their own
             # modules. This is the fix for the chat-echo pollution (design §4/§5).
+            #
+            # v0.4: when the runtime is policy-restricted to per-user scope
+            # (ExternalAgentRuntime + EXTERNAL_API_POLICY), confine recall
+            # to records the calling visitor wrote — so visitor A never
+            # sees visitor B's facts. Main runtime path: scope_kwargs is
+            # empty and behaviour is unchanged (agent-wide recall).
+            scope_kwargs = self._user_scope_kwargs()
             hits = await coord.remember(
                 ctx_data.input_content or "", kinds=passive_kinds(),
                 limit=_RECALL_LIMIT, token_budget=_RECALL_TOKENS,
+                **scope_kwargs,
             )
             ctx_data.extra_data["relevant_memories"] = [
                 f"[{h.kind}] {_recalled_at(h.record)} {h.record.content_text}" for h in hits
@@ -136,8 +180,13 @@ class GeneralMemoryModule(XYZBaseModule):
                 subtype = fact.kind.strip().lower()
                 if subtype not in _VALID_SUBTYPES or not fact.text.strip():
                     continue
+                # v0.4: policy-driven scope. Default = agent (current),
+                # external API session = user (per-visitor isolation).
+                rec_scope_type, rec_scope_id = self._retain_scope()
                 await engine.retain(MemoryRecord(
-                    agent_id=self.agent_id, scope_type=SCOPE_AGENT, kind="observation",
+                    agent_id=self.agent_id,
+                    scope_type=rec_scope_type, scope_id=rec_scope_id,
+                    kind="observation",
                     subtype=subtype, content_text=fact.text.strip(),
                     source_ids=[event_id] if event_id else [], proof_count=1,
                 ))

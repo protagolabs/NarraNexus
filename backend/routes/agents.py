@@ -11,6 +11,7 @@ Aggregates domain-specific sub-routers under the /api/agents prefix:
 - Files (workspace file management)
 - MCPs (MCP URL management)
 - RAG (RAG file management)
+- API Keys (external API protocol v0.3)
 """
 
 from fastapi import APIRouter
@@ -22,6 +23,7 @@ from backend.routes.agents_files import router as files_router
 from backend.routes.agents_attachments import router as attachments_router
 from backend.routes.agents_mcps import router as mcps_router
 from backend.routes.agents_cost import router as cost_router
+from backend.routes.agents_api_keys import router as api_keys_router
 
 
 router = APIRouter()
@@ -33,3 +35,4 @@ router.include_router(files_router)
 router.include_router(attachments_router)
 router.include_router(mcps_router)
 router.include_router(cost_router)
+router.include_router(api_keys_router)

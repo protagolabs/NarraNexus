@@ -23,6 +23,7 @@ import {
   Puzzle,
   Server,
   BookOpen,
+  KeyRound,
   type LucideIcon,
 } from 'lucide-react';
 import type { AgentBookmarkState } from '@/stores/bookmarkStore';
@@ -37,7 +38,8 @@ export type AtomicTabId =
   | 'inbox'
   | 'skills'
   | 'mcp'
-  | 'memory';
+  | 'memory'
+  | 'api-keys';
 
 export interface AtomicTabDef {
   id: AtomicTabId;
@@ -83,6 +85,19 @@ export const STRIP_CATEGORIES: StripCategory[] = [
   {
     label: 'Memory',
     tabs: [{ id: 'memory', label: 'Memory', icon: BookOpen }],
+  },
+  // External API (v0.3): owner-only "External API" tab for minting
+  // nxk_ tokens that let third-party apps drive this agent. Only
+  // appears as a UI surface — the routes are gated server-side by
+  // ENABLE_EXTERNAL_API. The tab is visible regardless of that flag;
+  // if the deployment doesn't have it set, mint will succeed (it's a
+  // /api/* call) but the token won't authenticate against /v1/external/*
+  // until the operator enables the surface.
+  {
+    label: 'API',
+    tabs: [
+      { id: 'api-keys', label: 'External API', icon: KeyRound, stripLabel: 'API' },
+    ],
   },
 ];
 

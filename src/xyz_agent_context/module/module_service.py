@@ -14,7 +14,7 @@ Features:
 
 from __future__ import annotations
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 
 from loguru import logger
 
@@ -63,6 +63,7 @@ class ModuleService:
         agent_id: str,
         user_id: str,
         database_client: "DatabaseClient",
+        policy: Optional[Any] = None,
     ):
         """
         Initialize ModuleService
@@ -71,21 +72,40 @@ class ModuleService:
             agent_id: Agent ID
             user_id: User ID
             database_client: Database client
+            policy: Optional RuntimePolicy from a runtime variant. When
+                non-None, `policy.skipped_modules` filters MODULE_MAP at
+                construction (those modules never instantiate), and the
+                policy itself is passed into every created module's
+                constructor so policy-aware modules can read it. None =
+                main-runtime behaviour, no filtering.
         """
         self.agent_id = agent_id
         self.user_id = user_id
         self.database_client = database_client
+        self._policy = policy
 
         # Get MODULE_MAP (lazy import to avoid circular references)
         from xyz_agent_context.module import MODULE_MAP
-        self._module_map = MODULE_MAP
+        # Filter out modules the policy forbids loading. The filtered map
+        # is used by both the loader (decision-time module list) and
+        # create_module (explicit instantiation guard).
+        skipped = getattr(policy, "skipped_modules", frozenset()) if policy else frozenset()
+        self._module_map = {
+            name: cls for name, cls in MODULE_MAP.items() if name not in skipped
+        }
+        if skipped:
+            logger.info(
+                f"ModuleService: policy skipped_modules filtered out: "
+                f"{sorted(skipped & set(MODULE_MAP.keys()))}"
+            )
 
         # Implementation modules
         self._loader = ModuleLoader(
             agent_id=agent_id,
             user_id=user_id,
             database_client=database_client,
-            module_map=self._module_map
+            module_map=self._module_map,
+            policy=policy,
         )
 
         logger.info(f"ModuleService initialized (agent_id={agent_id})")
@@ -163,5 +183,6 @@ class ModuleService:
             self.user_id,
             self.database_client,
             instance_id=instance_id,
-            instance_ids=instance_ids or []
+            instance_ids=instance_ids or [],
+            policy=self._policy,
         )

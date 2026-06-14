@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — to_cli_env: skip ANTHROPIC_DEFAULT_*_MODEL when not proxying
+
+`to_cli_env()` previously set
+`ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL` unconditionally whenever
+`self.model` was set. That's correct when the user is on a PROXIED
+provider (NetMind / OpenRouter / Yunwu): without those env vars,
+Claude Code's internal calls (WebFetch summarizer, subagent dispatch)
+would hit the proxy with an unknown-to-proxy model name.
+
+But on the OFFICIAL Anthropic OAuth path (`base_url=""`), the only
+registered slot models are aliases (`opus` / `sonnet` / `haiku` per
+`model_catalog.py`). Setting `ANTHROPIC_DEFAULT_SONNET_MODEL=sonnet`
+creates a circular reference: the CLI looks up the alias, finds it
+remapped to itself, and fails with
+`invalid_request: selected model (sonnet) may not have access`.
+
+The fix: only set the redirects when `base_url` is non-empty. On
+official Anthropic, blank these and let the CLI's native alias
+resolution run.
+
+Reproduced live 2026-06-11: every Claude OAuth-backed agent failed
+chat completion until this condition was added. Affected ALL chat
+paths (native WebSocket /ws/agent/run, Manyfold /v1/chat/completions,
+external /v1/external/chat/completions) — the bug was in the
+ClaudeConfig env builder, downstream of all the route layers.
+
 ## 2026-06-10 — ClaudeConfig carries neutral reasoning params
 
 `ClaudeConfig` gained `thinking` / `reasoning_effort` (both default ""

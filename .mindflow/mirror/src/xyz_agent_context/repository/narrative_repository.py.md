@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/repository/narrative_repository.py
-last_verified: 2026-05-29
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — user_id isolation verified for external API protocol (v0.3)
+
+The external API protocol design (see Obsidian: Work/Arena 客服接入/v0.3 design
+doc) depends on a strong invariant: **two external sessions under the same
+agent_id must not see each other's narratives**. Verified by reading the
+call chain:
+
+`NarrativeService.select(agent_id, user_id, …)` → `retrieve_top_k(query,
+user_id, agent_id, …)` → `_keyword_search(query, user_id, agent_id, …)` →
+`crud.load_by_agent_user(agent_id, user_id, …)` → `repo.get_by_agent_user`
+→ `_scan_agent_filter_user(agent_id, user_id, limit)`.
+
+The SQL layer scopes to `agent_id`; the Python layer enforces user_id by
+checking `narrative.narrative_info.actors[*].id == user_id` (line ~96). The
+PARTICIPANT lookup path (`_get_participant_narratives` →
+`get_narratives_by_participant`) is also user_id-scoped. There is no code
+path that returns narratives across user_ids within an agent — confirmed.
+
+**Why this matters for v0.3**: ephemeral external users get user_ids of the
+form `ext_<agent>_<session>`. Each session is its own user_id, so each
+session gets its own narrative pool by virtue of the existing
+`(agent_id, user_id)` double-key isolation. No new isolation code is needed.
+
+**Watch for**: anyone refactoring this repo (or adding a new
+`get_narratives_by_*` method) MUST preserve the user_id filter. If you find
+yourself touching `_scan_agent_filter_user`, read this entry first.
 
 ## 2026-05-29 — paged user-filter scan (F2)
 

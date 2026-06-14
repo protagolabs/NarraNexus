@@ -87,6 +87,20 @@ def _render_entry(msg: Any, max_per_entry: int) -> str | None:
     return None
 
 
+def _module_snake(class_name: str) -> str:
+    """Convert "AwarenessModule" -> "awareness_module" for matching against
+    a module's MCP server_name slug. Used by step_3's policy.mcp_denylist
+    enforcement so policy authors can name modules by their class name
+    (matching MODULE_MAP keys) and we still find their MCP entries.
+    """
+    out = []
+    for i, ch in enumerate(class_name):
+        if ch.isupper() and i > 0:
+            out.append("_")
+        out.append(ch.lower())
+    return "".join(out)
+
+
 def _serialize_agent_loop_for_prompt(
     agent_loop_response: list,
     *,
@@ -627,6 +641,38 @@ async def step_3_agent_loop(
     # ------------- 3.3: Extract messages and MCP URLs -------------
     messages = context.messages
     ctx.mcp_urls.update(context.mcp_urls)
+
+    # v0.4: policy-driven MCP suppression. When a RuntimePolicy (e.g.
+    # EXTERNAL_API_POLICY) names a module in `mcp_denylist`, drop that
+    # module's MCP URL before exposing the tool set to the LLM. The
+    # module itself still loaded and its in-process hooks still ran;
+    # this only hides its MCP tools from the LLM's tool list.
+    # MCP server names follow the module's `get_mcp_config().server_name`
+    # convention — usually a snake_case slug derived from the module
+    # class name. We accept BOTH the module class name and any explicit
+    # server_name a module exposes, to keep policy authoring simple.
+    if ctx.policy is not None and ctx.policy.mcp_denylist:
+        denied = ctx.policy.mcp_denylist
+        # Build the suppression set: for each policy-denied module
+        # class name, also include its likely server_name slug.
+        suppressed_names: set[str] = set()
+        for mod_name in denied:
+            suppressed_names.add(mod_name)
+            # Snake-case slug ("AwarenessModule" -> "awareness_module").
+            suppressed_names.add(_module_snake(mod_name))
+        before = len(ctx.mcp_urls)
+        ctx.mcp_urls = {
+            server: url
+            for server, url in ctx.mcp_urls.items()
+            if server not in suppressed_names
+        }
+        dropped = before - len(ctx.mcp_urls)
+        if dropped:
+            logger.info(
+                f"step_3: policy mcp_denylist dropped {dropped} MCP URL(s) "
+                f"(suppressed names: {sorted(suppressed_names)})"
+            )
+
     substeps.append(
         f"[3.3] ✓ Extraction complete: {len(messages)} messages, {len(ctx.mcp_urls)} MCP servers"
     )
@@ -675,12 +721,23 @@ async def step_3_agent_loop(
     # framework=None resolves through AGENT_LOOP_FRAMEWORK env -> "claude"
     # default; pass an agent-scoped name here once per-agent selection lands.
     driver = get_agent_loop_driver(working_path=agent_working_path)
+    # v0.4: forward policy.extra_disallowed_tools so the framework driver
+    # (e.g. ClaudeAgentSDK) can append them to the SDK's `disallowed_tools`
+    # list. Default = empty frozenset → no change to today's behaviour.
+    extra_disallowed: list[str] = []
+    if ctx.policy is not None and ctx.policy.extra_disallowed_tools:
+        extra_disallowed = sorted(ctx.policy.extra_disallowed_tools)
+        logger.info(
+            f"step_3: policy extra_disallowed_tools forwarded to SDK: "
+            f"{extra_disallowed}"
+        )
     try:
         async for response in driver.agent_loop(
             messages=messages,
             mcp_server_urls=ctx.mcp_urls,
             extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
+            extra_disallowed_tools=extra_disallowed,
         ):
             # ResponseProcessor.process is a generator yielding 0..N
             # ProcessedResponse per raw event (Phase B 2026-05-13 —

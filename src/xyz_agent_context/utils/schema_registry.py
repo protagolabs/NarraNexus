@@ -93,6 +93,13 @@ _register(
             Column("agent_type", "TEXT", "VARCHAR(32)"),
             Column("is_public", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             Column("agent_metadata", "TEXT", "MEDIUMTEXT"),
+            # External API protocol (v0.3): TTL in seconds for ephemeral external
+            # sessions owned by this agent. NULL = no auto-cleanup (external
+            # integrator fully manages session lifecycle via DELETE). > 0 = the
+            # EphemeralSessionGCPoller will hard-delete external sessions whose
+            # last activity exceeds this TTL. No system-side minimum — the owner
+            # is fully responsible for choosing a sane value.
+            Column("external_session_ttl_seconds", "INTEGER", "INT"),
             Column("agent_create_time", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("agent_update_time", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -122,6 +129,18 @@ _register(
             Column("timezone", "TEXT", "VARCHAR(64)", nullable=False, default="'UTC'"),
             Column("status", "TEXT", "VARCHAR(32)", nullable=False, default="'active'"),
             Column("metadata", "TEXT", "MEDIUMTEXT"),
+            # External API protocol (v0.3): when this row was provisioned by an
+            # external integration (i.e. the user_id was minted from a session_id
+            # via /v1/external/chat/completions), this column stores the agent_id
+            # that "owns" the row. NULL = a normal NarraNexus user (login or
+            # local-default). NON-NULL = an external-session-derived user that:
+            #   - never shows up in admin/dashboard "list users" by default
+            #   - is subject to cascade DELETE when its session is closed
+            #   - may be auto-cleaned by EphemeralSessionGCPoller if the owning
+            #     agent has external_session_ttl_seconds set
+            # This is the canonical "is this an external user?" predicate —
+            # NEVER rely on user_type string matching for that decision.
+            Column("owned_by_agent", "TEXT", "VARCHAR(64)"),
             Column("last_login_time", "TEXT", "DATETIME(6)"),
             Column("create_time", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("update_time", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
@@ -130,6 +149,11 @@ _register(
             Index("idx_users_user_id", ["user_id"], unique=True),
             Index("idx_users_user_type", ["user_type"]),
             Index("idx_users_status", ["status"]),
+            # Supports two query patterns: "list every external user of agent X"
+            # (TTL GC + DELETE cascade) and "count external users for storage
+            # monitoring". The partial NULL filter is implicit — most rows have
+            # owned_by_agent IS NULL and won't match agent_id queries.
+            Index("idx_users_owned_by_agent", ["owned_by_agent"]),
         ],
     )
 )
@@ -1416,6 +1440,72 @@ _register(
             Index("uk_consolidation_scope", ["agent_id", "scope_type", "scope_id", "kind"], unique=True),
             Index("idx_consolidation_status", ["status"]),
             Index("idx_consolidation_dirty", ["status", "last_dirty_at"]),
+        ],
+    )
+)
+
+
+# External API protocol (v0.3) — agent-bound API tokens issued by the agent
+# owner so external applications can call /v1/external/chat/completions on the
+# owner's behalf. Each token is scoped to exactly one agent_id; the owner can
+# create / rotate / revoke at will from the agent detail page. DB never stores
+# the plaintext token — only SHA256 of it — so a DB leak can't reveal anything
+# usable. Lookup is keyed by the short `key_id` prefix so the middleware never
+# scans the whole table.
+_register(
+    TableDef(
+        name="agent_api_keys",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            # `apk_<random12>` — embedded in the plaintext token so the
+            # middleware can find the row in O(1) instead of brute-force hashing.
+            Column("key_id", "TEXT", "VARCHAR(32)", nullable=False, unique=True),
+            # SHA256(full token) hex digest. The full token is shown to the
+            # owner exactly once at creation and is never retrievable thereafter.
+            Column("token_hash", "TEXT", "VARCHAR(64)", nullable=False),
+            # First ~12 chars of the plaintext token (e.g. `nxk_apk_abc123`),
+            # for UI list display so the owner can recognise which key is which.
+            Column("token_prefix", "TEXT", "VARCHAR(20)", nullable=False),
+            # The agent this token is allowed to act on. Strict — the middleware
+            # 403s any request whose `model` field doesn't match.
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            # The NarraNexus user who created the token. MUST equal
+            # agents.created_by(agent_id) at creation time. Used to gate the
+            # /api/agents/{agent_id}/api-keys/* management endpoints.
+            Column("owner_user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            # Human-readable alias picked by the owner ("Arena prod", "staging").
+            Column("name", "TEXT", "VARCHAR(128)", nullable=False),
+            # JSON array of operation scopes the token may perform. Default
+            # allows everything: chat + delete session + list sessions. Owner
+            # may narrow at creation time (e.g. chat-only for a read-only
+            # integration). Middleware checks per-request.
+            Column("scopes", "TEXT", "JSON", nullable=False, default="'[\"chat\",\"session.delete\",\"session.list\"]'"),
+            # Optional expiry. NULL = never expires.
+            Column("expires_at", "TEXT", "DATETIME(6)"),
+            # Soft-delete via timestamp — non-NULL means the token is dead.
+            # Keeping the row around preserves audit history (last_used_at,
+            # name, scopes) without breaking foreign-key-style lookups by
+            # key_id in logs.
+            Column("revoked_at", "TEXT", "DATETIME(6)"),
+            # Updated async on every successful auth. Failure to update is
+            # logged at warning level but does NOT fail the request.
+            Column("last_used_at", "TEXT", "DATETIME(6)"),
+            # Free-form JSON for integrator notes (deployment name, environment,
+            # team contact, …). Not interpreted by the platform.
+            Column("metadata", "TEXT", "JSON"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            # Primary lookup: middleware extracts key_id from the token and
+            # looks the row up directly. Must be unique because key_id IS the
+            # token's identifier inside the system.
+            Index("idx_apikey_key_id", ["key_id"], unique=True),
+            # Owner / agent management views: "show me every token for agent X"
+            # (UI) and "show me every token I own across all my agents" (future
+            # account-level dashboard).
+            Index("idx_apikey_agent_id", ["agent_id"]),
+            Index("idx_apikey_owner_active", ["owner_user_id", "revoked_at"]),
         ],
     )
 )
