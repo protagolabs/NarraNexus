@@ -650,13 +650,19 @@ async def get_agent_framework(request: Request):
 async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     """Persist the user's coding-agent framework choice.
 
-    Side effect: when ``framework == "codex_cli"`` and the ``codex``
-    binary is not on PATH (local mode only), this endpoint
-    auto-installs ``@openai/codex`` via ``npm install -g`` before
-    persisting the choice. The install result is returned in the
-    response so the frontend can surface it ("auto-installed, now
-    run ``codex login``" / "install failed, see reason" / "blocked
-    in cloud mode").
+    Cloud: staff-only — the gate above 403s non-staff (switching to a
+    framework with no API-key provider would fall back to the shared CLI
+    credentials).
+
+    Side effect: when ``framework == "codex_cli"`` this verifies the
+    codex binary bundled with the ``openai-codex-cli-bin`` wheel is
+    available (``_ensure_codex_installed``) and returns the result in
+    ``data.install`` so the frontend can surface a clear error if the
+    wheel is missing (deploy ran without ``uv sync``). There is NO npm
+    install — codex ships as a wheel since the v2 cutover, so ``action``
+    is ``already_installed`` or ``install_failed`` (never the old
+    ``auto_installed`` / ``blocked``). claude_code skips this — the
+    ``claude`` binary is installed at run.sh boot.
     """
     uid = _get_user_id(request)
     if _is_cloud() and not _is_staff(request):
@@ -678,12 +684,11 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
             ),
         )
 
-    # Auto-install codex CLI on opt-in (local mode only; cloud mode
-    # returns action="blocked"). claude_code path skips this — the
-    # `claude` binary is already installed at run.sh boot time. The
-    # ``openai-codex`` Python SDK internally spawns the ``codex``
-    # binary in app-server mode, so the install side-effect is still
-    # required.
+    # Verify the wheel-bundled codex binary is present on opt-in. The
+    # ``openai-codex`` SDK spawns it in app-server mode, so a missing
+    # wheel must surface here, not at agent_loop time. No npm install —
+    # see _ensure_codex_installed. claude_code skips this (the `claude`
+    # binary is already installed at run.sh boot time).
     install_result: dict | None = None
     if body.framework == "codex_cli":
         install_result = await _ensure_codex_installed()

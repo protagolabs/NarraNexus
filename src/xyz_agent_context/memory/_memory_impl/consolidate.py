@@ -27,6 +27,7 @@ intact.
 """
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any, List, Optional, Sequence
 
 from loguru import logger
@@ -48,17 +49,49 @@ class SystemicLLMError(RuntimeError):
 _SYSTEMIC_STATUS = {401, 403, 407, 429}
 
 
+@lru_cache(maxsize=1)
+def _systemic_exc_types() -> tuple[type[BaseException], ...]:
+    """Client exception classes meaning "smaller batches can't help".
+
+    Covers BOTH provider SDKs because the helper SDK is openai-shaped OR
+    anthropic-shaped depending on the user's helper slot protocol
+    (``get_helper_sdk`` → AnthropicHelperSDK for the anthropic leg). The
+    connection-class errors (``APIConnectionError``) carry NO
+    ``status_code`` — a request that died before any HTTP response — so the
+    status check below cannot catch them; only this isinstance can. Missing
+    the anthropic variants is exactly the gap that re-opens the 2026-06-11
+    bisect-drop fact loss for anthropic-helper users.
+
+    anthropic is lazy-imported: an openai-only deploy may not ship it.
+    Cached because the class set is fixed for the process lifetime.
+    """
+    types: list[type[BaseException]] = [
+        openai.AuthenticationError, openai.PermissionDeniedError,
+        openai.RateLimitError, openai.APIConnectionError,
+        openai.InternalServerError,
+    ]
+    try:
+        import anthropic
+        types += [
+            anthropic.AuthenticationError, anthropic.PermissionDeniedError,
+            anthropic.RateLimitError, anthropic.APIConnectionError,
+            anthropic.InternalServerError,
+        ]
+    except ImportError:
+        pass
+    return tuple(types)
+
+
 def _is_systemic_llm_error(e: BaseException) -> bool:
     """True for errors where retrying smaller batches cannot succeed.
     Walks the cause/context chain because the Agents SDK path may wrap the
     underlying client error."""
+    systemic_types = _systemic_exc_types()
     seen: set[int] = set()
     cur: Optional[BaseException] = e
     while cur is not None and id(cur) not in seen:
         seen.add(id(cur))
-        if isinstance(cur, (openai.AuthenticationError, openai.PermissionDeniedError,
-                            openai.RateLimitError, openai.APIConnectionError,
-                            openai.InternalServerError)):
+        if isinstance(cur, systemic_types):
             return True
         status = getattr(cur, "status_code", None)
         if isinstance(status, int) and (status in _SYSTEMIC_STATUS or status >= 500):
