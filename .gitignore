@@ -140,6 +140,13 @@ scripts/.control.sh
 # Local audio fixtures for manual transcription testing
 /test_assets/
 
+# ── Personal session logs / scratch / WIP design drafts ──────────────────
+# `drafts/` is the personal-CLAUDE.local convention for per-topic session
+# logs (see CLAUDE.local.md). Lives only on the Owner's machine — never
+# committed. The five files previously tracked here were untracked in
+# the same commit as adding this rule (2026-06-15).
+/drafts/
+
 # Local-only scratch / test-run state — never committed.
 .tmp/
 /real_case_e2e_test/reports/
