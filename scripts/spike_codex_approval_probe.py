@@ -87,7 +87,10 @@ def _probe_approval_handler(method: str, params: dict | None) -> dict:
         "item/commandExecution/requestApproval",
         "item/fileChange/requestApproval",
     ):
-        return {"decision": "accept"}
+        # PROBE_CANCEL=1 productionizes the write-gate decision: cancel every
+        # escalation and confirm the out-of-workspace write is actually blocked.
+        decision = "cancel" if os.environ.get("PROBE_CANCEL", "").strip() == "1" else "accept"
+        return {"decision": decision}
     return {}
 
 
@@ -153,8 +156,9 @@ PROMPT = (
     f"2. `echo tmp > {_TMP_FILE}`  (write to /tmp — likely in writable set)\n"
     f"3. `echo outside > {_OUTSIDE_FILE}`  (write to $HOME — OUTSIDE writable set)\n"
     "4. `cat /etc/hosts > /dev/null`  (read OUTSIDE the workspace)\n"
-    "5. `test -r \"$HOME/.codex/auth.json\" && echo CREDS_READABLE || echo CREDS_BLOCKED`"
-    "  (probe shared-credential readability WITHOUT printing it)\n"
+    "5. `head -c 1 \"$HOME/.codex/auth.json\" > /dev/null 2>&1 && echo CREDS_READABLE || echo CREDS_BLOCKED`"
+    "  (probe shared-credential readability WITHOUT printing it — reports"
+    " only READABLE/BLOCKED)\n"
     "Then stop."
 )
 
@@ -199,6 +203,22 @@ async def main() -> int:
     model = os.environ.get("PROBE_MODEL", "").strip()
     if model:
         config_overrides.append(f'model="{model}"')
+
+    # PROBE_PERMISSIONS=1 — test whether codex ENFORCES the [permissions]
+    # filesystem read rules under workspace-write. Replicates v2's exact
+    # emission shape (permissions.filesystem."<k>"="<v>"), but flips the
+    # shared-creds dir to deny-read. If codex honors it, `cat
+    # ~/.codex/auth.json` is blocked → [permissions] is a viable read gate
+    # for the honest-tenant model. If the read still succeeds, the declarative
+    # read gate does NOT work under workspace-write.
+    if os.environ.get("PROBE_PERMISSIONS", "").strip() == "1":
+        home = str(Path.home())
+        config_overrides += [
+            f'permissions.filesystem."{workspace}"="write"',
+            'permissions.filesystem."**"="read"',
+            f'permissions.filesystem."{home}/.codex/**"="deny"',
+        ]
+        print(f"[setup] PROBE_PERMISSIONS: deny-read on {home}/.codex/**")
 
     sdk_config = CodexConfig(
         env=env,
@@ -306,8 +326,14 @@ def _report(workspace: Path) -> None:
         for i in cmd_items:
             it = i["item"]
             cmd = it.get("command")
+            # Output field name varies across SDK builds — try the common ones.
+            out = (it.get("aggregated_output") or it.get("output")
+                   or it.get("stdout") or "")
+            out = str(out).strip().replace("\n", " ⏎ ")[:120]
             print(f"      exit={it.get('exit_code', '?')}  "
                   f"status={it.get('status', '?')}  cmd={cmd!r}")
+            if out:
+                print(f"         out: {out!r}")
     if errors:
         print(f"\n`error` notifications ({len(errors)}):")
         for e in errors[:6]:

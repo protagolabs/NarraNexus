@@ -313,6 +313,113 @@ def _build_codex_config_overrides(
     return tuple(overrides)
 
 
+# =========================================================================
+# Workspace-write escalation gate (cloud) — PR #25 §1/§2
+# =========================================================================
+#
+# ``workspace-write`` confines writes to the workspace (+ $TMPDIR) at the
+# OS-sandbox (Seatbelt / Landlock) layer. But the boundary is SOFT: when a
+# command would breach it, codex asks for approval to run it ESCALATED
+# (outside the sandbox), and the default ``ApprovalMode.auto_review`` LLM
+# reviewer auto-approves low-risk escalations — so out-of-workspace writes
+# succeed (verified: scripts/spike_codex_approval_probe.py). We close that
+# leak by routing approvals to a client-side handler that CANCELS every
+# escalation. The handler decision vocab is accept / acceptWithExecpolicy-
+# Amendment / cancel (verified from the live requestApproval payload).
+#
+# Scope: WRITES only. workspace-write does not gate reads, and reads never
+# reach this handler — read isolation needs OS/container-level work (see
+# reference/self_notebook/specs/2026-06-14-codex-sandbox-isolation-design.md).
+
+# Server→client approval-request methods codex sends when a command would
+# breach the OS sandbox. Under workspace-write these fire ONLY for
+# out-of-writable-set ops, so cancelling them all == confining writes to the
+# workspace (+ $TMPDIR). MCP tool calls use OTHER request methods → the
+# handler must pass them through untouched or the agent goes dark.
+_ESCALATION_METHODS = (
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval",
+)
+
+
+def _workspace_write_cancel_handler(method: str, params: dict | None) -> dict:
+    """Client-side approval handler: deny every out-of-workspace escalation,
+    pass everything else (notably MCP) through.
+
+    Runs on the SDK reader thread (``client.py:_reader_loop``) — keep it pure
+    and fast: a plain dict return plus loguru only, never await/blocking I/O.
+    No command-string parsing: an escalation request IS the out-of-bounds
+    signal, so cancelling unconditionally is both correct and unbypassable.
+    """
+    if method in _ESCALATION_METHODS:
+        logger.info(f"[CodexSDKv2] write-gate: cancelling escalation {method}")
+        return {"decision": "cancel"}
+    return {}
+
+
+def _install_write_gate(codex) -> bool:
+    """Point the underlying CodexClient at the cancel-handler.
+
+    Object graph: ``AsyncCodex._client`` (AsyncCodexClient) ``._sync``
+    (CodexClient, owns ``._approval_handler``). Returns False (logging,
+    never raising) if the layout changed, so the caller can fall back to the
+    ungated default rather than crash the run.
+    """
+    sync = getattr(getattr(codex, "_client", None), "_sync", None)
+    if sync is None or not hasattr(sync, "_approval_handler"):
+        logger.warning(
+            "[CodexSDKv2] write-gate: cannot reach CodexClient._approval_handler "
+            "(SDK layout changed) — running WITHOUT the gate"
+        )
+        return False
+    sync._approval_handler = _workspace_write_cancel_handler
+    return True
+
+
+async def _thread_start_gated(codex, *, sandbox_enum, is_cloud: bool):
+    """Start a codex thread.
+
+    In cloud, force per-thread approval routing to ``(on_request,
+    reviewer=None)`` so out-of-workspace escalations reach our client handler
+    instead of the ``auto_review`` LLM (which auto-approves them, leaving
+    workspace-write a soft boundary). Local — or ANY SDK-shape failure —
+    takes the unchanged high-level call (today's behavior), logging loudly
+    rather than silently dropping the gate.
+    """
+    if not is_cloud:
+        return await codex.thread_start(sandbox=sandbox_enum)
+    try:
+        from openai_codex.api import AsyncThread  # noqa: PLC0415
+        from openai_codex._sandbox import _sandbox_mode  # noqa: PLC0415
+        from openai_codex.generated.v2_all import (  # noqa: PLC0415
+            AskForApproval,
+            AskForApprovalValue,
+            ThreadStartParams,
+        )
+    except ImportError as e:
+        logger.warning(
+            f"[CodexSDKv2] write-gate: SDK internals moved ({e}); falling back "
+            "to default thread_start (auto_review — escalations NOT cancelled)"
+        )
+        return await codex.thread_start(sandbox=sandbox_enum)
+
+    # config_overrides on CodexConfig already carry model / provider / mcp /
+    # permissions / instructions — ThreadStartParams adds ONLY the per-thread
+    # approval routing + sandbox, mirroring what the high-level path passes.
+    await codex._ensure_initialized()
+    params = ThreadStartParams(
+        approval_policy=AskForApproval(root=AskForApprovalValue.on_request),
+        approvals_reviewer=None,
+        sandbox=_sandbox_mode(sandbox_enum),
+    )
+    started = await codex._client.thread_start(params)
+    logger.info(
+        "[CodexSDKv2] write-gate active: on_request + reviewer=None "
+        "(out-of-workspace escalations will be cancelled)"
+    )
+    return AsyncThread(codex, started.thread.id)
+
+
 # NOTE: An earlier draft of this file shipped an ``_aiter_stream``
 # wrapper that ran ``next(stream, SENTINEL)`` through
 # ``asyncio.to_thread`` — built on the (wrong) assumption that
@@ -472,6 +579,14 @@ class CodexSDKv2:
 
             codex = AsyncCodex(sdk_config)
 
+            # Cloud write-gate: install the cancel-handler so out-of-workspace
+            # escalations are denied (closes the workspace-write soft boundary).
+            # ``gate_on`` is True only when BOTH cloud AND the handler injection
+            # succeeded — if the SDK layout drifted, _install_write_gate returns
+            # False and we fall back to the ungated default thread_start below.
+            # Local mode keeps danger-full-access + default approval untouched.
+            gate_on = is_cloud and _install_write_gate(codex)
+
             # Note the two-layer naming mismatch we deliberately preserve:
             #   * ``config_overrides`` sets ``sandbox_mode="danger-full-access"``
             #     — that's codex's *internal* config value name (matches the
@@ -510,7 +625,9 @@ class CodexSDKv2:
                     f"(available: {_members}); falling back to full_access"
                 )
                 _sandbox_enum = Sandbox.full_access
-            thread = await codex.thread_start(sandbox=_sandbox_enum)
+            thread = await _thread_start_gated(
+                codex, sandbox_enum=_sandbox_enum, is_cloud=gate_on
+            )
             logger.info(
                 f"[CodexSDKv2] thread started "
                 f"(cwd={self.working_path}, CODEX_HOME={codex_home_path})"

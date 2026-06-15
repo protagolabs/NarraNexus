@@ -1,8 +1,44 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-06-14
+last_verified: 2026-06-15
 ---
+
+## 2026-06-15 — 写隔离落地:cloud 用 reviewer=None + client cancel-handler
+
+承接下方 2026-06-14 的"死路"——那条死路只针对 `ApprovalMode` 两值枚举。SDK 通读
++ 探针(`scripts/spike_codex_approval_probe.py`)找到第三档并落地:
+
+- `ApprovalMode` 枚举掩盖了 `(approval_policy=on_request, approvals_reviewer=None)`
+  这一档,只能经**低层** `codex._client.thread_start(ThreadStartParams(...))` 设
+  (公开 `thread_start(approval_mode=)` 表达不了)。reviewer=None 关掉 auto_review
+  LLM → 越界 escalation 不再被自动批,而是**回到客户端 handler**。
+- 新 helper(本文件):`_workspace_write_cancel_handler`(对 `_ESCALATION_METHODS`
+  = commandExecution/fileChange 的 requestApproval 返回 `{"decision":"cancel"}`,
+  其余返回 `{}` 保 MCP)、`_install_write_gate`(注入到
+  `AsyncCodex._client._sync._approval_handler`,SDK 形状漂移则 False+warn 不 raise)、
+  `_thread_start_gated`(cloud 走低层 reviewer=None;local 或任何 SDK import 失败
+  → 回退高层 `thread_start`,响亮 warn,绝不静默丢 gate)。
+- agent_loop 接线:`gate_on = is_cloud and _install_write_gate(codex)`;
+  `thread = await _thread_start_gated(codex, sandbox_enum=_sandbox_enum, is_cloud=gate_on)`。
+  **cloud-only**;local 维持 danger-full-access + 默认审批,和 `_tool_policy_guard`
+  只在 cloud 收紧一致。
+
+**实测确认(2026-06-15, PROBE_CANCEL=1)**:越界 `$HOME` 写 → handler cancel →
+命令 `declined`、`$HOME write present: False`(内核挡住);workspace 内写 + /tmp 写
+照常;reviewer=None 下 0 个 autoApprovalReview。decision 词表 = accept /
+acceptWithExecpolicyAmendment / **cancel**。
+
+**为什么不解析命令**:escalation 请求本身就是"越界"信号(只有出可写集才会发),
+所以无条件 cancel 既正确又**不可绕**(拦在内核,handler 只是拒绝"解除沙箱")。
+对抗模型下写隔离也成立。
+
+**读仍未隔离(刻意)**:workspace-write 不 gate 读、`[permissions]` 拒读实测无效
+(设了 deny `~/.codex/**` 仍 `CREDS_READABLE`)、handler 看不到读、codex 读走 shell
+无结构化工具可挂钩。读侧只能 OS/容器级(per-agent uid / mount namespace),需 Owner
+授权动 deploy。设计与全部实测见
+`reference/self_notebook/specs/2026-06-14-codex-sandbox-isolation-design.md`。
+契约测试 `tests/agent_framework/test_codex_write_gate.py`。
 
 ## 2026-06-14 — ⚠️ 下方 2026-06-12 "workspace-write 即隔离" 结论作废(实测+死路)
 
