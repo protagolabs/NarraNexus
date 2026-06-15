@@ -26,7 +26,7 @@ import subprocess
 import zipfile
 import json
 from pathlib import Path
-from typing import Optional, List
+from typing import Any, Optional, List
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -113,13 +113,49 @@ WORKSPACE_RULES_LOCAL = (
 )
 
 
-def _resolve_workspace_rules(ctx_data: "ContextData") -> str:
-    """Pick the cloud or local workspace-rules block for the current run.
+WORKSPACE_RULES_EXTERNAL = (
+    "- **This is an EXTERNAL API session**, not the agent owner. The "
+    "agent's workspace has two zones with different rules:\n"
+    "  - **OWNER-CURATED (read-only):** `skills/`, plus any top-level "
+    "files (e.g. `instructions.md`) and directories (e.g. `data/`) the "
+    "owner prepared. You may READ, OPEN, and INVOKE skills from these "
+    "paths but MUST NOT write into them. The owner already installed "
+    "skill dependencies; do not try to install more.\n"
+    "  - **VISITOR-OWNED (read-write):** `uploads/` holds files the "
+    "user uploaded for this session (images, PDFs, etc.). `outputs/` "
+    "is where YOU write any artifacts you generate (reports, code, "
+    "results). These are the ONLY two directories you may write to.\n"
+    "- If a `SKILL.md` instructs you to write into `skills/<name>/...` "
+    "(e.g. saving credentials, caching intermediate files), **REMAP** "
+    "that write to `outputs/<name>/...` for this session — never back "
+    "into `skills/<name>/`. The owner's skill state must not be "
+    "mutated by an external visitor.\n"
+    "- **Do NOT install new skills, `pip install` to skills/, or call "
+    "`skill_save_config`.** If a task needs a capability that isn't "
+    "available, explain to the user that they should reach out to the "
+    "agent owner.\n"
+    "- The `Write` / `Edit` / `Bash` / `NotebookEdit` tools are "
+    "disabled in this session; you have READ-side tools (`Read`, "
+    "`Glob`, `Grep`) for consulting owner-prepared materials."
+)
 
-    Falls back to cloud (the stricter set) when ``deployment_mode`` is
-    missing so we never accidentally hand a local-style prompt to a
-    cloud agent.
+
+def _resolve_workspace_rules(ctx_data: "ContextData", policy: Any = None) -> str:
+    """Pick the workspace-rules block for the current run.
+
+    Order:
+      1. If a policy is set and confines memory to per-user scope (the
+         External API contract — `memory_scope='user'`), use the
+         EXTERNAL rules. These take precedence over deployment_mode
+         because an external session is the same regardless of where
+         NarraNexus itself is deployed.
+      2. If ``ctx_data.deployment_mode == "local"``, use the LOCAL
+         rules (relaxed file access, local-machine convenience).
+      3. Otherwise — including cloud and any missing/unknown mode —
+         fall back to the CLOUD rules (stricter, sandboxed).
     """
+    if policy is not None and getattr(policy, "memory_scope", "agent") == "user":
+        return WORKSPACE_RULES_EXTERNAL
     mode = getattr(ctx_data, "deployment_mode", None)
     if mode == "local":
         return WORKSPACE_RULES_LOCAL
@@ -281,10 +317,12 @@ class SkillModule(XYZBaseModule):
             skills_table = ctx_data.extra_data.get("skills_table", "")
             skills_count = ctx_data.extra_data.get("skills_count", 0)
 
-        # Deployment mode (populated by BasicInfoModule.hook_data_gathering)
-        # decides whether the agent sees the strict cloud rules or the
-        # relaxed local rules.
-        workspace_rules = _resolve_workspace_rules(ctx_data)
+        # Policy + deployment mode together decide which workspace-rules
+        # variant the agent sees. External API runs (policy.memory_scope=
+        # 'user') always get the read-only-owner-curated EXTERNAL block;
+        # otherwise BasicInfoModule's deployment_mode picks LOCAL vs the
+        # strict CLOUD default.
+        workspace_rules = _resolve_workspace_rules(ctx_data, policy=self._policy)
 
         # Agent's cwd is already {base_working_path}/{agent_id}_{user_id}/
         # Use relative path skills/ in prompt to avoid path duplication

@@ -43,6 +43,146 @@ _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ..
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 
 
+# Names that the External-mode workspace setup reserves for visitor-owned
+# write areas. These directories are CREATED in the visitor workspace as
+# real (writeable) dirs and are NEVER mirrored from owner — even if the
+# owner happens to have same-named directories, they are skipped.
+_VISITOR_RESERVED_DIRS: tuple[str, ...] = ("uploads", "outputs")
+
+
+def _setup_agent_workspace(
+    visitor_path: str,
+    agent_id: str,
+    user_id: str,
+    base_working_path: str,
+    owner_user_id: str | None,
+    is_external: bool,
+) -> None:
+    """Initialize the agent's working directory for this run.
+
+    Three cases:
+
+      1. The visitor directory already exists: no-op. The previous
+         session(s) for this (agent, user) populated it; subsequent runs
+         pick up whatever was left there.
+
+      2. Main runtime (is_external=False): create an empty directory.
+         The owner manages it directly through the workspace UI. Same
+         behaviour as before this helper existed.
+
+      3. External runtime (is_external=True): create the directory, then
+         **copy** each top-level entry of `{base}/{aid}_{owner}/` into it
+         so the visitor can READ owner-curated skills + instructions +
+         data, including via `Glob` discovery. Two visitor-owned write
+         dirs (`uploads/`, `outputs/`) are then created as fresh real
+         directories that shadow any same-named owner entry.
+
+    Why copy and not symlink: an earlier symlink-based implementation
+    (commit history, 2026-06-15 first attempt) was correct at the
+    POSIX level but the Claude Agent SDK's `Glob` tool — backed by
+    fast-glob — defaults to `followSymbolicLinks: false`, which means
+    `Glob('*')` and `Glob('**')` from the visitor cwd returned "No
+    files found" even though the symlinks resolved fine via `Read` and
+    `ls -L`. The agent literally could not DISCOVER owner-curated
+    content. Copying produces a real-file tree that walks natively.
+
+    Trade-off: every External-API visitor consumes `sizeof(owner
+    workspace)` of disk. For typical agents (sub-MB curated skills +
+    instructions + data) this is acceptable; v0.5 bridged users
+    accumulate one copy per (agent, real-user) pair until cascade
+    DELETE collects them. If an owner workspace grows large in
+    practice, the follow-up is the recursive "real dirs + file symlinks"
+    structure documented in the design log.
+
+    Defense-in-depth against visitor mutating their copy is still
+    three-layered (RuntimePolicy `extra_disallowed_tools` blocking
+    Write/Edit/Bash/NotebookEdit, prompt EXTERNAL rules, plus the FS
+    isolation that copy gives us for free — visitor writes can no
+    longer corrupt the owner side even if they bypass the first two).
+
+    Fallback behaviour: if owner workspace is missing or any copy
+    fails, the failure is logged at WARNING and the visitor directory
+    is left as it stands (possibly empty plus the two write dirs); the
+    agent will start with reduced owner-curated context. We never
+    raise — the run proceeds.
+    """
+    if os.path.exists(visitor_path):
+        return
+
+    os.makedirs(visitor_path, exist_ok=True)
+
+    if not is_external:
+        return
+
+    if not owner_user_id:
+        logger.warning(
+            f"external workspace: agent {agent_id} has no created_by; "
+            f"visitor starts empty"
+        )
+        # Still create the visitor-owned write dirs so skills that
+        # presume they exist don't blow up on the first write.
+        for sub in _VISITOR_RESERVED_DIRS:
+            os.makedirs(os.path.join(visitor_path, sub), exist_ok=True)
+        return
+
+    owner_workspace = os.path.join(
+        base_working_path, f"{agent_id}_{owner_user_id}"
+    )
+    if not os.path.isdir(owner_workspace):
+        logger.info(
+            f"external workspace: owner workspace missing "
+            f"(agent={agent_id}, owner={owner_user_id}); visitor starts empty"
+        )
+        for sub in _VISITOR_RESERVED_DIRS:
+            os.makedirs(os.path.join(visitor_path, sub), exist_ok=True)
+        return
+
+    import shutil as _shutil
+
+    mirrored: list[str] = []
+    skipped: list[str] = []
+    try:
+        owner_entries = os.listdir(owner_workspace)
+    except OSError as exc:
+        logger.warning(
+            f"external workspace: listdir({owner_workspace}) failed: {exc}; "
+            f"visitor starts empty"
+        )
+        owner_entries = []
+
+    for entry_name in owner_entries:
+        if entry_name in _VISITOR_RESERVED_DIRS:
+            # Owner happens to have a same-named dir. Skip; visitor's
+            # own write dir will shadow it. This keeps the contract that
+            # uploads/ and outputs/ are ALWAYS the visitor's, never the
+            # owner's.
+            skipped.append(entry_name)
+            continue
+        src = os.path.join(owner_workspace, entry_name)
+        dst = os.path.join(visitor_path, entry_name)
+        try:
+            if os.path.isdir(src) and not os.path.islink(src):
+                # `symlinks=False`: resolve any owner-internal symlinks
+                # while copying so the visitor tree has no dangling
+                # references back to owner-private paths.
+                _shutil.copytree(src, dst, symlinks=False)
+            else:
+                _shutil.copy2(src, dst, follow_symlinks=True)
+            mirrored.append(entry_name)
+        except OSError as exc:
+            logger.warning(
+                f"external workspace: copy {entry_name!r} failed: {exc}"
+            )
+
+    for sub in _VISITOR_RESERVED_DIRS:
+        os.makedirs(os.path.join(visitor_path, sub), exist_ok=True)
+
+    logger.info(
+        f"external workspace: initialized agent={agent_id} user={user_id} "
+        f"(mirrored={mirrored}, skipped={skipped})"
+    )
+
+
 def _truncate(text: str, limit: int) -> str:
     """Tail-truncate ``text`` to ``limit`` bytes, appending a clear
     marker so the LLM knows content was dropped."""
@@ -699,12 +839,28 @@ async def step_3_agent_loop(
 
     state = ExecutionState()
 
-    # Set up Agent working directory
+    # Set up Agent working directory.
+    # v0.4/v0.5: under an ExternalAgentRuntime (ctx.policy != None), the
+    # visitor's per-user workspace is bootstrapped with read-only
+    # symlinks to the owner's `{aid}_{owner}/` so visitors see
+    # owner-curated skills + instructions + data; the only writeable
+    # zones are `uploads/` and `outputs/` (real dirs in the visitor's
+    # own space). See `_setup_agent_workspace` above + the
+    # external-workspace design log (2026-06-15).
     from xyz_agent_context.settings import settings
     working_path = settings.base_working_path
     agent_working_path = f"{working_path}/{ctx.agent_id}_{ctx.user_id}"
-    if not os.path.exists(agent_working_path):
-        os.makedirs(agent_working_path)
+    owner_user_id = (
+        (ctx.agent_data or {}).get("created_by") if ctx.agent_data else None
+    )
+    _setup_agent_workspace(
+        visitor_path=agent_working_path,
+        agent_id=ctx.agent_id,
+        user_id=ctx.user_id,
+        base_working_path=working_path,
+        owner_user_id=owner_user_id,
+        is_external=ctx.policy is not None,
+    )
 
     # Extract skill-configured env vars from context for runtime injection
     skill_env_vars = {}

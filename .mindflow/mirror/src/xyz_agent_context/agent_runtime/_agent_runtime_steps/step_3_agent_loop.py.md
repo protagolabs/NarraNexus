@@ -1,8 +1,47 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-05-29
+last_verified: 2026-06-15
 stub: false
 ---
+
+## 2026-06-15 — External-visitor workspace bootstrap (`_setup_agent_workspace`)
+
+The bare `if not exists → os.makedirs` workspace-init pattern was
+replaced by a helper that branches on whether the run is policy-restricted
+(i.e. an `ExternalAgentRuntime`). Three code paths:
+
+1. **Visitor dir already exists** — no-op. Subsequent runs for the same
+   `(agent_id, user_id)` pair see whatever the previous session left.
+2. **Main runtime (`ctx.policy is None`)** — `os.makedirs` only. Owner
+   manages contents through the workspace UI.
+3. **External runtime (`ctx.policy is not None`)** — symlink each
+   top-level entry of `{base}/{aid}_{owner}/` into the new visitor dir,
+   then create `uploads/` and `outputs/` as real directories that
+   shadow any same-named entry in the owner workspace (defensive).
+
+Why this matters: before the fix, every External-API visitor (v0.4
+ephemeral + v0.5 bridged) booted into an empty `{aid}_{visitor}/`, so
+the agent never saw the owner's skills / instructions / data. Agent
+behaviour was visibly worse. IM-channel visitors and the owner's own
+WebSocket sessions were unaffected (they collapse to the owner's
+user_id and reuse `{aid}_{owner}/` directly — also a real bug, but a
+separate one tracked under "IM cross-visitor narrative串味").
+
+`owner_user_id` is pulled from `ctx.agent_data["created_by"]` (already
+loaded by step_0_initialize) so the helper adds zero DB round-trips per
+run. If the owner workspace is missing on disk we still create the
+visitor write dirs so skill writes don't crash, just log a WARNING.
+
+Companion change: `SkillModule._resolve_workspace_rules` now picks
+`WORKSPACE_RULES_EXTERNAL` whenever `policy.memory_scope == "user"`,
+which tells the LLM the read-only-owner / writeable-visitor contract
+at the prompt layer. Defense-in-depth lives at three layers: FS perms
+(if NarraNexus runs as a different OS user), policy
+`extra_disallowed_tools` blocks Write/Edit/Bash/NotebookEdit, and the
+prompt directive instructs the LLM not to mutate owner-curated paths.
+
+Tests pinning the contract:
+`tests/runtime/test_external_workspace_isolation.py` (9 cases).
 
 ## 2026-05-29 — pluggable driver + EverMemOS removed
 

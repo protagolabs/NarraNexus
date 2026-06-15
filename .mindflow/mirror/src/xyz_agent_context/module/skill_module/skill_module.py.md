@@ -1,7 +1,38 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-05-27
+last_verified: 2026-06-15
 ---
+
+## 2026-06-15 — `WORKSPACE_RULES_EXTERNAL` for External-API sessions
+
+Added a third workspace-rules variant gated on
+`policy.memory_scope == "user"` (the External-API contract). When the
+current run is policy-restricted to per-user memory scope, the prompt
+declares an explicit read-only/writeable split:
+
+- READ-ONLY (owner-curated): `skills/`, `instructions.md`, `data/`, any
+  other top-level owner files.
+- READ-WRITE (visitor-owned): `uploads/` (multimodal uploads), `outputs/`
+  (artifacts the agent generates this session).
+
+If a `SKILL.md` instructs writing into `skills/<name>/` (the common
+"install creds here" convention), the EXTERNAL block tells the LLM to
+remap that write to `outputs/<name>/...` for the session — owner
+skill state must not be mutated by an external visitor.
+
+Selection precedence in `_resolve_workspace_rules`: external > local >
+cloud (default). External wins over deployment_mode because the
+external contract is the same regardless of where NarraNexus itself is
+running. Companion change in
+`agent_runtime/_agent_runtime_steps/step_3_agent_loop.py` materialises
+the same split at the filesystem layer by symlinking owner top-level
+entries into the visitor workspace + creating real `uploads/` and
+`outputs/` dirs.
+
+Tests:
+`tests/runtime/test_external_workspace_isolation.py::TestWorkspaceRulesPicker`
+(4 cases covering external-wins-over-cloud / over-local / no-policy
+fallback / agent-scope-stays-cloud).
 
 # skill_module.py — SkillModule 主体
 
