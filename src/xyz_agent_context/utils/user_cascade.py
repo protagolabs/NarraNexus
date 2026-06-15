@@ -90,6 +90,28 @@ TABLES_KEYED_BY_INSTANCE_ID: Tuple[str, ...] = (
 )
 
 
+# Memory tier-2 tables (added 2026-06-15 — was the GDPR-leak bug). All
+# unified-memory rows go into one of these 7 kind-tables (identical
+# schema, partitioned by kind for query locality) plus the consolidation
+# queue. They're keyed by (agent_id, scope_type, scope_id):
+#
+#   SCOPE_USER       → scope_id == user_id              (per-visitor PII)
+#   SCOPE_INSTANCE   → scope_id ∈ user's instance_ids   (per-instance state)
+#   SCOPE_NARRATIVE  → scope_id ∈ user's narrative_ids  (per-thread facts)
+#   SCOPE_AGENT      → not user-specific, do NOT delete
+#   SCOPE_GLOBAL     → cross-agent shared, do NOT delete
+#
+# Without this list the cascade left observation rows behind (LLM-
+# extracted facts about the visitor: name, preferences, relationships,
+# locations) — same-agent recall would still surface them after DELETE.
+MEMORY_KIND_TABLES: Tuple[str, ...] = tuple(
+    f"memory_{kind}" for kind in (
+        "event", "narrative", "chat", "entity", "bus", "job", "observation",
+    )
+)
+MEMORY_QUEUE_TABLE: str = "memory_consolidation_queue"
+
+
 async def delete_user_cascade(
     user_id: str,
     db: Any,
@@ -163,6 +185,16 @@ async def delete_user_cascade(
                 table_name, user_id, exc,
             )
             cascade[table_name] = -1
+
+    # ── Step 4.5: memory tier-2 tables across SCOPE_USER / SCOPE_INSTANCE
+    #     / SCOPE_NARRATIVE — added 2026-06-15. ───
+    mem_counts = await _delete_memory_by_scopes(
+        db,
+        user_id=user_id,
+        instance_ids=instance_ids,
+        narrative_ids=narrative_ids,
+    )
+    cascade.update(mem_counts)
 
     # ── Step 5: narratives (JSON actor) + module_report_memory ──
     cascade["narratives"] = await _delete_narratives_by_id(db, narrative_ids)
@@ -361,6 +393,87 @@ async def _delete_module_report_memory(
                 nid, exc,
             )
     return total
+
+
+# ---------------------------------------------------------------------------
+# Step 4.5 helpers — memory tier-2 by scope
+# ---------------------------------------------------------------------------
+
+
+async def _delete_memory_by_scopes(
+    db: Any,
+    *,
+    user_id: str,
+    instance_ids: List[str],
+    narrative_ids: List[str],
+) -> Dict[str, int]:
+    """Drop every memory_<kind> + memory_consolidation_queue row that
+    belongs to this user across the three user-bearing scopes.
+
+    Strategy: three scope axes × eight tables = 24 targeted DELETEs.
+    SCOPE_AGENT (cross-user, agent-scoped) and SCOPE_GLOBAL (cross-agent
+    shared) rows stay — they're not user-specific.
+
+    Returns a dict where each table contributes three keys
+    (``"{table}__user"`` / ``"{table}__instance"`` / ``"{table}__narrative"``)
+    so the caller can see per-scope counts in the cascade report. A value
+    of -1 on any key indicates that scope's DELETE raised — see logs for
+    the underlying exception. Per-table failures are independent: a
+    failed SCOPE_USER delete does not block SCOPE_INSTANCE / NARRATIVE
+    deletes on the same table.
+    """
+    out: Dict[str, int] = {}
+    targets = list(MEMORY_KIND_TABLES) + [MEMORY_QUEUE_TABLE]
+
+    for table in targets:
+        # SCOPE_USER — direct match on scope_id == user_id.
+        try:
+            out[f"{table}__user"] = await db.delete(
+                table, {"scope_type": "user", "scope_id": user_id}
+            )
+        except Exception as exc:
+            logger.warning(
+                "delete_user_cascade: memory {!r} scope=user user_id={!r} "
+                "DELETE failed: {}",
+                table, user_id, exc,
+            )
+            out[f"{table}__user"] = -1
+
+        # SCOPE_INSTANCE — loop over each snapshotted instance_id.
+        n_inst = 0
+        inst_failed = False
+        for iid in instance_ids:
+            try:
+                n_inst += await db.delete(
+                    table, {"scope_type": "instance", "scope_id": iid}
+                )
+            except Exception as exc:
+                inst_failed = True
+                logger.warning(
+                    "delete_user_cascade: memory {!r} scope=instance "
+                    "instance_id={!r} DELETE failed: {}",
+                    table, iid, exc,
+                )
+        out[f"{table}__instance"] = -1 if inst_failed and n_inst == 0 else n_inst
+
+        # SCOPE_NARRATIVE — loop over each snapshotted narrative_id.
+        n_nar = 0
+        nar_failed = False
+        for nid in narrative_ids:
+            try:
+                n_nar += await db.delete(
+                    table, {"scope_type": "narrative", "scope_id": nid}
+                )
+            except Exception as exc:
+                nar_failed = True
+                logger.warning(
+                    "delete_user_cascade: memory {!r} scope=narrative "
+                    "narrative_id={!r} DELETE failed: {}",
+                    table, nid, exc,
+                )
+        out[f"{table}__narrative"] = -1 if nar_failed and n_nar == 0 else n_nar
+
+    return out
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/user_cascade.py
-last_verified: 2026-06-11
+last_verified: 2026-06-15
 stub: false
 ---
 
@@ -34,6 +34,29 @@ explicit and easy to audit.
   Gotchas)
 
 ## Design decisions
+
+**Three classes of cleanup, not one.** The cascade is divided into:
+
+1. **`TABLES_KEYED_BY_USER_ID`** — direct hard DELETE per table.
+2. **`TABLES_KEYED_BY_INSTANCE_ID`** — pre-snapshot instance_ids, then
+   DELETE child rows by instance_id BEFORE module_instances itself goes.
+3. **`MEMORY_KIND_TABLES` + `MEMORY_QUEUE_TABLE`** (added 2026-06-15) —
+   unified-memory tier-2 tables (7 kind tables + 1 consolidation queue),
+   keyed by `(agent_id, scope_type, scope_id)`. Step 4.5 walks them
+   across three scope axes:
+     - SCOPE_USER (`scope_id == user_id`) — per-visitor PII
+     - SCOPE_INSTANCE (`scope_id ∈ instance_ids`) — per-instance state
+     - SCOPE_NARRATIVE (`scope_id ∈ narrative_ids`) — per-thread facts
+   SCOPE_AGENT / SCOPE_GLOBAL rows stay (not user-specific).
+
+Before Step 4.5 was added, `delete_user_cascade` left every LLM-extracted
+fact about the visitor (entity attributes, observations, episodic
+memory) live in the database. Same-agent recall continued to surface
+them after the visitor's DELETE — directly contradicting the
+external-API protocol's "DELETE cleans up everything" contract and
+creating a real GDPR exposure. The drift-check test
+`test_kind_tables_match_schema_registry` asserts the constant tracks
+schema_registry's `MEMORY_KINDS`.
 
 **Explicit table list, not registry introspection.** `TABLES_KEYED_BY_USER_ID`
 is a hand-maintained tuple. The companion test
