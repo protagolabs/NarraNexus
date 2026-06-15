@@ -14,10 +14,26 @@ replaced by a helper that branches on whether the run is policy-restricted
    `(agent_id, user_id)` pair see whatever the previous session left.
 2. **Main runtime (`ctx.policy is None`)** — `os.makedirs` only. Owner
    manages contents through the workspace UI.
-3. **External runtime (`ctx.policy is not None`)** — symlink each
-   top-level entry of `{base}/{aid}_{owner}/` into the new visitor dir,
-   then create `uploads/` and `outputs/` as real directories that
-   shadow any same-named entry in the owner workspace (defensive).
+3. **External runtime (`ctx.policy is not None`)** — **copy** each
+   top-level entry of `{base}/{aid}_{owner}/` into the new visitor dir
+   via `shutil.copytree` / `shutil.copy2`, then create `uploads/` and
+   `outputs/` as real directories that shadow any same-named entry in
+   the owner workspace (defensive).
+
+Why copy and not symlink (recorded so a future reader doesn't try to
+"optimise" it back): the first attempt used `os.symlink` for each
+top-level entry. POSIX-layer reads worked fine (`Read` and `ls -L`
+followed through), but the Claude Agent SDK's `Glob` tool —
+fast-glob — defaults to `followSymbolicLinks: false`, so
+`Glob('*')` and `Glob('**')` from the visitor cwd returned "No files
+found" even though the symlinks resolved. The agent could not
+DISCOVER what was in the workspace, which defeated the whole fix.
+Switching to `copytree` gives the agent a real-file tree fast-glob
+walks natively. The disk cost is `sizeof(owner workspace) ×
+visitor_count`; for the smoke-test agent that's 468 KB/visitor —
+acceptable. If owner workspaces grow large in practice, the
+follow-up is the recursive "real dirs + file symlinks" structure
+(documented in the design log).
 
 Why this matters: before the fix, every External-API visitor (v0.4
 ephemeral + v0.5 bridged) booted into an empty `{aid}_{visitor}/`, so
@@ -35,10 +51,12 @@ visitor write dirs so skill writes don't crash, just log a WARNING.
 Companion change: `SkillModule._resolve_workspace_rules` now picks
 `WORKSPACE_RULES_EXTERNAL` whenever `policy.memory_scope == "user"`,
 which tells the LLM the read-only-owner / writeable-visitor contract
-at the prompt layer. Defense-in-depth lives at three layers: FS perms
-(if NarraNexus runs as a different OS user), policy
-`extra_disallowed_tools` blocks Write/Edit/Bash/NotebookEdit, and the
-prompt directive instructs the LLM not to mutate owner-curated paths.
+at the prompt layer. Defense-in-depth lives at three layers: the
+visitor's copy is filesystem-isolated from the owner (no shared
+inodes), policy `extra_disallowed_tools` blocks
+Write/Edit/Bash/NotebookEdit, and the prompt directive instructs the
+LLM not to mutate the owner-curated paths even though it technically
+could write to its own copy.
 
 Tests pinning the contract:
 `tests/runtime/test_external_workspace_isolation.py` (9 cases).
