@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/onboarding/OnboardingChecklist.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-16
 stub: false
 ---
 
