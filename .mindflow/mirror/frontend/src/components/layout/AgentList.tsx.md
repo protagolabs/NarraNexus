@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-16
 stub: false
 ---
 
@@ -113,3 +113,7 @@ Inline rename: clicking the pencil enters editing mode on that agent row. Enter/
 `handleSelectAgent` always navigates back to `/app/chat` if the user is on a sub-page (Settings, System). This is intentional — clicking an agent always means "go talk to this agent".
 
 Delete hits `api.deleteAgent` which cascades all related DB data server-side. There is no undo.
+
+## 2026-06-16 — per-team "Add agent" (#43)
+
+Each named team section header now carries a hover "+" button. `handleCreateAgentInTeam` calls `createAgent({ teamId })` and is threaded to `AgentGroupSection` via `onAddAgentToTeam` / `addingAgent`. The new agent is attached to that team server-side; the hook refreshes the teams store so it appears under the team immediately instead of in Ungrouped.

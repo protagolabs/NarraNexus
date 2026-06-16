@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-11
+last_verified: 2026-06-16
 stub: false
 ---
 
@@ -137,3 +137,5 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 **`searchSocialNetwork` uses `URLSearchParams` while most other calls build URLs manually with template literals.** Both approaches work, but mixing them makes the code harder to scan. Future endpoint additions should use `URLSearchParams` for consistency.
 
 **`provisionArena()` (2026-06-16).** `POST /api/arena/provision`, no body — identity comes from the session headers. Idempotent server-side (one Arena agent per user). Called by `lib/arenaLanding.ts` after login when the entry source is Arena.
+
+**`createAgent()` 4th arg (2026-06-16, #43).** Optional `opts?: { teamId }` adds `team_id` to the `POST /api/auth/agents` body, so an agent created from a team's sidebar "+" is attached to that team server-side.

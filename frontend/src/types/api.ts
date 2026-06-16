@@ -247,6 +247,8 @@ export interface CreateAgentRequest {
   agent_name?: string;
   agent_description?: string;
   created_by: string;
+  // #43: optional team to attach the new agent to on creation.
+  team_id?: string;
 }
 
 /**

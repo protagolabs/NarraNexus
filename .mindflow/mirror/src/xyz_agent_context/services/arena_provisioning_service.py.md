@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/services/arena_provisioning_service.py
-last_verified: 2026-06-15
+last_verified: 2026-06-16
 stub: false
 ---
 
@@ -78,3 +78,5 @@ network to Arena); everything else is sub-200ms. Total cold provision ≈ 0.7s.
   SQLite `'T'`-vs-space lexical bug fires a "future" job immediately).
 - `_set_awareness` requires the AwarenessModule instance to exist, so
   `InstanceFactory` must run before it.
+- The welcome artifact (`_arena_welcome_en` / `_arena_welcome_zh`) foot links
+  the official site `https://arena42.ai` (2026-06-16).

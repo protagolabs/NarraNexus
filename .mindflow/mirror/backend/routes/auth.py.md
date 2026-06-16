@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-06-11
+last_verified: 2026-06-16
 stub: false
 ---
 
@@ -222,6 +222,8 @@ to render a one-shot welcome toast on successful cloud-mode registration
 **create_agent 创建默认实例（2026-06-15）**：`create_agent` 在写入 `agents` 行后会调用 `InstanceFactory.create_agent_level_instances(agent_id)`，补齐 Awareness/SocialNetwork/BasicInfo/MessageBus/Lark 五个 agent 级实例（此前 HTTP 路由只写 agents 行、不建实例，下游 awareness 写入无处挂靠）。幂等（factory 先查后插）、best-effort（失败仅告警，不阻断建 Agent）。
 
 **create_agent 走 bootstrap profile（2026-06-16）**：首次体验不再内联写死 `BOOTSTRAP_MD_TEMPLATE`，而是 `apply_bootstrap(get_profile(request.bootstrap or "default"))`。请求体新增 `bootstrap` 字段选 profile（缺省=`default`=原行为）；profile 渲染 Bootstrap.md + greeting + 删除阈值并写入 workspace/metadata。响应里的 `bootstrap_active` 改为按是否真写了 Bootstrap.md 计算（`none` profile → False）。见 `bootstrap/profiles.py`。
+
+**POST /agents 接受可选 team_id（#43）**：`CreateAgentRequest` 新增可选 `team_id` 字段。创建 Agent 成功后，如果 `team_id` 存在且该 team 属于当前调用者（ownership-checked），则把 agent 加入该 team。操作 best-effort，失败仅告警，不阻断 Agent 创建和响应。
 
 ## Gotcha / 边界情况
 
