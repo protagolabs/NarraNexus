@@ -8,7 +8,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
-import { takeInboundToken, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
+import { getInboundEntry, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
 import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { api } from '@/lib/api';
@@ -333,8 +333,11 @@ function App() {
   // then exchange it for our session. `source` is stashed in sessionStorage
   // for downstream Phase 2 provisioning (credits, api-key generation, etc.).
   useEffect(() => {
-    const r = takeInboundToken(window.location);
-    if (r.source) sessionStorage.setItem('nx-entry-source', r.source);
+    // Read the inbound params captured synchronously at startup
+    // (main.tsx → captureInboundEntry), NOT window.location: by the time this
+    // effect runs, a logged-out arena/redirect path may have already rewritten
+    // the URL, dropping ?token/?source. `source` is stashed there too.
+    const r = getInboundEntry();
     if (!r.handled || !r.token) return;
     if (useConfigStore.getState().isLoggedIn) return;
     const token = r.token;
