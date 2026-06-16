@@ -1,12 +1,30 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-16
 stub: false
 ---
 
+## 2026-06-16 — inbound entry read pre-render, not from window.location
+
+The bootstrap useEffect no longer calls `takeInboundToken(window.location)`; it
+calls `getInboundEntry()` to read the result captured synchronously in
+`main.tsx` (`captureInboundEntry`, see [[tokenInbound]] / [[main]]).
+
+Why: the old effect read the URL too late for a **logged-out arena entry**
+(`/?source=arena`). React fires effects child-before-parent, and `/` maps to
+`RootRedirect` (NOT a ProtectedRoute). When logged out, `RootRedirect`
+synchronously renders `<Navigate to="/login">`; that descendant navigation
+effect rewrites the URL before App's mount effect runs, so `?source=arena` was
+gone before it could be stashed → `isArenaEntry()` found nothing post-login →
+no Agent provisioned and no prompt. (Logged-in worked only because
+`RootRedirect` waits on the async `checkProviders()` gate before navigating,
+leaving a window for the mount effect to read the URL first.) Capturing pre-
+render removes the dependency on effect ordering entirely. Token-exchange
+logic is unchanged — it just consumes `getInboundEntry()` instead of re-parsing.
+
 ## 2026-06-11 — NetMind ?token= inbound bootstrap; /register removed
 
-Added a one-shot bootstrap useEffect: on app init it calls `takeInboundToken(window.location)` (lib/netmindAuth/tokenInbound) — when the page is opened with `?token=<NetMind loginToken>` (a link from netmind.ai or Arena), it strips the token from the URL immediately and exchanges it for our session via api.netmindLogin, then writes configStore (login + setNetmindToken). `?source=` is stashed in sessionStorage('nx-entry-source') for Phase 2 provisioning. Already-logged-in users are skipped. Also removed the RegisterPage lazy import and the `/register` route — cloud sign-up now links out to NetMind's registration page (see LoginPage). RegisterPage.tsx deleted.
+Added a one-shot bootstrap useEffect: on app init it calls `takeInboundToken(window.location)` (lib/netmindAuth/tokenInbound) — when the page is opened with `?token=<NetMind loginToken>` (a link from netmind.ai or Arena), it strips the token from the URL immediately and exchanges it for our session via api.netmindLogin, then writes configStore (login + setNetmindToken). `?source=` is stashed in sessionStorage('nx-entry-source') for Phase 2 provisioning. Already-logged-in users are skipped. Also removed the RegisterPage lazy import and the `/register` route — cloud sign-up now links out to NetMind's registration page (see LoginPage). RegisterPage.tsx deleted. (Superseded 2026-06-16: see above — the read moved pre-render.)
 
 last_verified: 2026-06-02
 stub: false
