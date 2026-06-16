@@ -291,6 +291,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     [agents, agentId]
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
+  // Per-agent greeting (Arena etc.) with generic fallback. MUST match the
+  // backend-persisted greeting (agent_metadata.bootstrap_greeting), otherwise
+  // the instant bubble and the DB greeting differ and both render (dup).
+  const bootstrapGreeting = currentAgent?.bootstrap_greeting || BOOTSTRAP_GREETING;
 
   const { run, reconnect, stop, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
@@ -725,7 +729,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               {
                 id: 'bootstrap-greeting',
                 role: 'assistant' as const,
-                content: BOOTSTRAP_GREETING,
+                content: bootstrapGreeting,
                 timestamp: Date.now() - 1,
               },
               ...(state.agentSessions[agentId]?.messages ?? []),
@@ -866,7 +870,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               message={{
                 id: 'bootstrap-greeting',
                 role: 'assistant',
-                content: BOOTSTRAP_GREETING,
+                content: bootstrapGreeting,
                 timestamp: Date.now(),
               }}
             />

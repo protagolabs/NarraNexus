@@ -424,6 +424,20 @@ class ApiClient {
     return this.request<AgentListResponse>(`/api/auth/agents`);
   }
 
+  // Arena onboarding: ensure the authenticated user has a provisioned Arena
+  // agent and return it. Idempotent server-side (one Arena agent per user);
+  // no body — the user is derived from the session. See backend/routes/arena.py.
+  async provisionArena(): Promise<{
+    success: boolean;
+    reused?: boolean;
+    status?: string;
+    agent_id?: string;
+    arena_agent_id?: string;
+    arena_name?: string;
+  }> {
+    return this.request('/api/arena/provision', { method: 'POST' });
+  }
+
   async createAgent(createdBy: string, agentName?: string, agentDescription?: string): Promise<CreateAgentResponse> {
     return this.request<CreateAgentResponse>('/api/auth/agents', {
       method: 'POST',

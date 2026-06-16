@@ -80,7 +80,7 @@ Without this class, the assembly logic would bleed into `AgentRuntime` steps, ea
 - `step_3_agent_loop.py` (inside `agent_runtime/_agent_runtime_steps/`) is the exclusive runtime caller. It constructs a `ContextRuntime` instance with the `agent_id`, `user_id`, and a `DatabaseClient`, then calls `.run()` with the Narrative list and active module instances produced by earlier pipeline steps.
 - `NarrativeService` (`narrative/`) — called inside `build_complete_system_prompt()` to format the main Narrative's summary prompt via `combine_main_narrative_prompt()`.
 - `HookManager` (`module/hook_manager.py`) — invoked in `run()` Step 1-2 to fire `hook_data_gathering` on every loaded module, which allows modules like `ChatModule` to populate `ctx_data.chat_history`.
-- `AgentRepository` (`repository/`) — queried directly inside the Bootstrap injection block to look up who created the agent, bypassing `BasicInfoModule` to avoid a module-load dependency.
+- `AgentRepository` (`repository/`) — queried directly inside the Bootstrap injection block to look up who created the agent, bypassing `BasicInfoModule` to avoid a module-load dependency. **Bootstrap deletion is now profile-driven (2026-06-16)**: the auto-delete threshold is no longer a hard-coded `>= 3` — it comes from `bootstrap.profiles.auto_delete_threshold_from_meta(agent_record.agent_metadata)` (missing key → historical default 3; `None` → never rule-delete, semantic-only). The injection prompt stays the global `BOOTSTRAP_INJECTION_PROMPT`.
 - `prompts.py` — all section header strings are imported from the sibling file.
 - `schema` (`ContextData`, `ModuleInstructions`, `ContextRuntimeOutput`, `WorkingSource`) — provides the typed containers that flow through the pipeline.
 

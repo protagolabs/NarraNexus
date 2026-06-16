@@ -135,3 +135,5 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 **`register` and `createUser` are different endpoints with different semantics.** `register` (`POST /api/auth/register`) requires an invite code, returns a JWT, and creates an account in cloud mode. `createUser` (`POST /api/auth/create-user`) is a no-auth admin endpoint for local mode that creates a user without a password. Using the wrong one silently succeeds on some backends and fails on others.
 
 **`searchSocialNetwork` uses `URLSearchParams` while most other calls build URLs manually with template literals.** Both approaches work, but mixing them makes the code harder to scan. Future endpoint additions should use `URLSearchParams` for consistency.
+
+**`provisionArena()` (2026-06-16).** `POST /api/arena/provision`, no body — identity comes from the session headers. Idempotent server-side (one Arena agent per user). Called by `lib/arenaLanding.ts` after login when the entry source is Arena.

@@ -846,6 +846,12 @@ _register(
 )
 
 
+# Note: there is intentionally NO `arena_credentials` table. Arena is an external
+# service — Arena owns the identity, and the agent's api_key lives only in its
+# workspace (skills/arena/). Idempotency ("does this user already have an Arena
+# agent") keys on the `agents` table via agent_metadata.provisioned_source.
+
+
 # 28. user_quotas (system-default free-tier token quota per user)
 _register(
     TableDef(

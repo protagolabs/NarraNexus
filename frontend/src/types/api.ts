@@ -274,6 +274,10 @@ export interface AgentInfo {
   is_public?: boolean;
   created_by?: string;
   bootstrap_active?: boolean;
+  /** Per-agent first-run greeting (Arena etc.); falls back to the generic
+   *  constant when absent. Must match the DB-persisted greeting so the
+   *  instant frontend bubble and the persisted one don't duplicate. */
+  bootstrap_greeting?: string;
   /**
    * Set when the backend has a BackgroundRun task in the running state
    * for this agent + the current user. Null means "not currently running".
