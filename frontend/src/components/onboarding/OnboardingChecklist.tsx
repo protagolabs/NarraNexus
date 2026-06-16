@@ -54,7 +54,7 @@ interface StepRow {
 export function OnboardingChecklist() {
   const navigate = useNavigate();
   const mode = useRuntimeStore((s) => s.mode);
-  const isCloud = mode === 'cloud-app' || mode === 'cloud-web';
+  const isCloud = mode === 'cloud-web';
   const userId = useConfigStore((s) => s.userId);
   const agentCount = useConfigStore((s) => s.agents.length);
   const { createAgent, creating } = useCreateAgent();

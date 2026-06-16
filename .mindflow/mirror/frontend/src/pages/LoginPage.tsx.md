@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/pages/LoginPage.tsx
-last_verified: 2026-06-12
+last_verified: 2026-06-16
 stub: false
 ---
+
+## 2026-06-16 — "Change mode" button removed; `cloud-app` mode gone
+
+The "Change Mode" / `handleChangeMode` button and its handler were removed from
+the login form. There are now only two modes (`local` | `cloud-web`); mode is
+resolved automatically by `useResolveAppMode` in App.tsx — no user-facing
+chooser exists. `isCloudMode` is `mode === 'cloud-web'` (was previously
+`mode === 'cloud-web' || mode === 'cloud-app'` to cover the removed
+`cloud-app` variant).
+
+The conditional `"Change mode" button is hidden for cloud-web` in the Design
+decisions section no longer applies — the button is absent entirely.
 
 ## 2026-06-12 — "Forgot password?" entry + account-migration notice
 
@@ -41,14 +53,12 @@ Reads `mode` from `runtimeStore` to determine which branch to render.
 
 **`handleLocalLogin` replaces the old `handleLogin`.** The cloud login path is now fully owned by `useNetmindAuth`; the old unified `handleLogin` was split to avoid dead code in cloud mode. `handleLocalLogin` is only reachable in local mode.
 
-**"Change Mode" button is hidden for `cloud-web` mode.** Force-deployed cloud builds should not offer users a way to switch to local mode. The button is only shown when `mode !== 'cloud-web'`.
-
-**`handleChangeMode` clears `cloudApiUrl` before resetting mode.** Clearing the URL prevents the next cloud mode selection from silently reusing the old server URL without prompting the user.
+**No mode-switch UI.** Mode is resolved automatically by `useResolveAppMode` (App.tsx); the login page has no button for switching modes. Users on the hosted website always see the cloud-web (NetMind) form; users on any local build always see the local (user_id) form.
 
 **Post-login `?next=` return path (open-redirect guarded).** `ProtectedRoute` sends unauthenticated visitors to `/login?next=<encoded-path>`; after auth, login reads `next` from `location.search` and navigates there via `navigate(isSafeReturnTo(next) ? next : '/')`. The guard (`lib/safe-return`) accepts only same-origin relative paths, so a crafted `?next=https://evil.com` falls through to `/` instead of redirecting off-site.
 
 ## Gotchas
 
-**`PublicRoute` redirects to `/mode-select` if `mode` is null.** If a user's localStorage was cleared (e.g., via DevTools or a `localStorage.clear()` call in Tauri mode-switch logic), they will be redirected from `/login` to `/mode-select` even if they navigate directly. This is correct behavior but can be surprising during testing.
+**`PublicRoute` shows a spinner if `mode` is null.** If localStorage is cleared (e.g., DevTools), the page briefly shows `PageFallback` on the first tick before `useResolveAppMode` sets mode to `local`. This resolves immediately and is not a regression from the old `/mode-select` redirect.
 
 **`CreateUserDialog` auto-fills the login field via `onCreated(userId)`.** After successful user creation, the dialog calls `onCreated` which sets the `userId` state in `LoginPage`. The user still needs to click "Access Terminal" manually — there is no auto-submit.

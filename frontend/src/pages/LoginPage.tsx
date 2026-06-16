@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowRight, ArrowLeft, UserPlus, Cloud } from 'lucide-react';
+import { ArrowRight, UserPlus, Cloud } from 'lucide-react';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
@@ -40,11 +40,8 @@ export function LoginPage() {
   const { isDark } = useTheme();
   const { login, setNetmindToken, setAgents, setAgentId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
-  const setMode = useRuntimeStore((s) => s.setMode);
-  const setCloudApiUrl = useRuntimeStore((s) => s.setCloudApiUrl);
 
-  const isCloudMode = mode === 'cloud-app' || mode === 'cloud-web';
-  const canChangeMode = mode !== 'cloud-web';
+  const isCloudMode = mode === 'cloud-web';
 
   const netmind = useNetmindAuth({
     onSuccess: async (res, loginToken) => {
@@ -67,12 +64,6 @@ export function LoginPage() {
       navigate(isSafeReturnTo(next) ? next : '/');
     },
   });
-
-  const handleChangeMode = () => {
-    setCloudApiUrl('');
-    setMode(null);
-    navigate('/mode-select');
-  };
 
   // Local-mode only login (cloud mode uses netmind hook instead)
   const handleLocalLogin = async () => {
@@ -131,23 +122,6 @@ export function LoginPage() {
           borderRadius: 'var(--radius-md)',
         }}
       >
-        {canChangeMode && (
-          <button
-            type="button"
-            onClick={handleChangeMode}
-            className="flex items-center gap-1.5 text-[11px] mb-6 -mt-2 transition-colors hover:opacity-100 opacity-60"
-            style={{
-              color: 'var(--nm-ink50)',
-              fontFamily: 'var(--font-mono)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.10em',
-            }}
-          >
-            <ArrowLeft className="w-3 h-3" />
-            <span>Change mode</span>
-          </button>
-        )}
-
         {/* Brand header — original NarraNexus logo preserved */}
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <img

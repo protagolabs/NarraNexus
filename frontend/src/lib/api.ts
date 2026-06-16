@@ -73,7 +73,10 @@ export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 
 class ApiClient {
-  private getAuthHeaders(): Record<string, string> {
+  // Public so download helpers (lib/download.ts) can attach the same
+  // identity headers to direct fetch / Tauri-proxy file requests that
+  // <a download> elements cannot carry.
+  getAuthHeaders(): Record<string, string> {
     // Read identity from configStore (localStorage).
     //
     // Two headers, mutually compatible:
