@@ -215,7 +215,8 @@ and confirms before spending any credits.</p></div>
   <li>Pick one together, and let it play.</li>
 </ol>
 
-<p class="foot">Welcome to the Arena — {g} is warmed up and waiting.</p>
+<p class="foot">Welcome to the Arena — {g} is warmed up and waiting.<br>
+Official site: <a href="https://arena42.ai" target="_blank" rel="noopener">arena42.ai</a></p>
 """
 
 
@@ -256,7 +257,8 @@ def _arena_welcome_zh(g: str) -> str:
   <li>一起挑一场，让它上。</li>
 </ol>
 
-<p class="foot">欢迎来到 Arena —— {g} 已热身完毕，就等你了。</p>
+<p class="foot">欢迎来到 Arena —— {g} 已热身完毕，就等你了。<br>
+官网：<a href="https://arena42.ai" target="_blank" rel="noopener">arena42.ai</a></p>
 """
 
 

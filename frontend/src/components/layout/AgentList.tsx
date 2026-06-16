@@ -160,6 +160,15 @@ export function AgentList({ collapsed }: AgentListProps) {
     await createAgent();
   };
 
+  // #43: create an agent already attached to a team (from the team section's
+  // hover + button), then jump into chat with it like the global add does.
+  const handleCreateAgentInTeam = async (teamId: string) => {
+    const id = await createAgent({ teamId });
+    if (id && location.pathname !== '/app/chat' && location.pathname !== '/app') {
+      navigate('/app/chat');
+    }
+  };
+
   const handleTogglePublic = async (agent: typeof rawAgents[0], e: React.MouseEvent) => {
     e.stopPropagation();
     const newIsPublic = !agent.is_public;
@@ -468,6 +477,8 @@ export function AgentList({ collapsed }: AgentListProps) {
                   currentUserId={userId}
                   showPublicToggle={SHOW_AGENT_PUBLIC_TOGGLE}
                   onNavigateToTeam={(tid) => navigate(`/app/teams/${tid}`)}
+                  onAddAgentToTeam={handleCreateAgentInTeam}
+                  addingAgent={creatingAgent}
                   editingAgentId={editingAgentId}
                   editingName={editingName}
                   onEditNameChange={setEditingName}

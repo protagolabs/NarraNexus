@@ -518,6 +518,31 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             # Non-fatal: agent is already created, bootstrap is best-effort
             logger.warning(f"Failed to apply bootstrap profile: {bootstrap_err}")
 
+        # Team assignment (#43): when the sidebar "Add agent" was clicked under
+        # a specific team, attach the new agent to that team so it lands in the
+        # right group instead of Ungrouped. Best-effort + ownership-checked: a
+        # missing or foreign team_id never blocks creation — it just leaves the
+        # agent ungrouped.
+        if request.team_id:
+            try:
+                from xyz_agent_context.repository import (
+                    TeamRepository,
+                    TeamMemberRepository,
+                )
+                team = await TeamRepository(db_client).get_team(request.team_id)
+                if team and team.owner_user_id == created_by:
+                    await TeamMemberRepository(db_client).add_member(
+                        request.team_id, agent_id
+                    )
+                    logger.info(f"Agent {agent_id} added to team {request.team_id}")
+                else:
+                    logger.warning(
+                        f"Skip team assignment for {agent_id}: team "
+                        f"{request.team_id} missing or not owned by {created_by}"
+                    )
+            except Exception as team_err:
+                logger.warning(f"Failed to assign {agent_id} to team: {team_err}")
+
         # Return the created agent info
         # Re-fetch from DB to get server-generated fields (created_at)
         agent_row = await db_client.get_one("agents", {"agent_id": agent_id})

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-16
 stub: false
 ---
 
@@ -28,6 +28,14 @@ AgentList so the list file stays orchestration-only.
 - **依赖谁**: `AgentRowMenu` (kebab), `agentGroupUtils.aggregateSectionUnread`,
   `RingAvatar` (nm), `AgentInfo` from `@/types`. All mutations (rename /
   delete / toggle-public / select) are callbacks owned by AgentList.
+
+## 2026-06-16 (#43) — per-team "+" button in named section headers
+
+Each named team section header now shows a hover-visible "+" button (props
+`onAddAgentToTeam` + `addingAgent`) that creates a new agent directly inside
+that team. It sits beside the existing navigate-to-team arrow ("→"). The
+Ungrouped section has no "+" — it has no team to attach to. `AgentList`
+wires this via `handleCreateAgentInTeam` → `createAgent({ teamId })`.
 
 ## 设计决策
 

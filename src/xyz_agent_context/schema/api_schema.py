@@ -131,6 +131,10 @@ class CreateAgentRequest(BaseModel):
     # Bootstrap profile name (first-run flow). None/omitted → "default" (today's
     # behavior). Scenario creators (e.g. Arena) use their own profile instead.
     bootstrap: Optional[str] = None
+    # Team to attach the new agent to (#43). Set when "Add agent" is clicked
+    # under a team in the sidebar. Ownership-checked server-side; an absent /
+    # foreign team leaves the agent ungrouped rather than failing creation.
+    team_id: Optional[str] = None
 
 
 class CreateAgentResponse(BaseModel):

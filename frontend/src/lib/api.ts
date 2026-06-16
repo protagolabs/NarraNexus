@@ -438,13 +438,20 @@ class ApiClient {
     return this.request('/api/arena/provision', { method: 'POST' });
   }
 
-  async createAgent(createdBy: string, agentName?: string, agentDescription?: string): Promise<CreateAgentResponse> {
+  async createAgent(
+    createdBy: string,
+    agentName?: string,
+    agentDescription?: string,
+    opts?: { teamId?: string },
+  ): Promise<CreateAgentResponse> {
     return this.request<CreateAgentResponse>('/api/auth/agents', {
       method: 'POST',
       body: JSON.stringify({
         created_by: createdBy,
         agent_name: agentName,
         agent_description: agentDescription,
+        // #43: attach to the team the user clicked "Add agent" under.
+        team_id: opts?.teamId,
       }),
     });
   }

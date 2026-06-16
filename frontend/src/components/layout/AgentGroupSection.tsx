@@ -10,7 +10,7 @@
  */
 
 import { useState } from 'react';
-import { Loader2, Check, X, ArrowRight, Globe } from 'lucide-react';
+import { Loader2, Check, X, ArrowRight, Globe, Plus } from 'lucide-react';
 import type { AgentInfo } from '@/types';
 import { RingAvatar } from '@/components/nm';
 import { AgentRowMenu } from './AgentRowMenu';
@@ -52,6 +52,15 @@ export interface AgentGroupSectionProps {
    * section header. Not called for the Ungrouped section (teamId=null).
    */
   onNavigateToTeam?: (teamId: string) => void;
+
+  /**
+   * Called when the user clicks the hover-visible + button on a named team
+   * section header to create a new agent directly inside that team (#43).
+   * Not offered for the Ungrouped section (teamId=null).
+   */
+  onAddAgentToTeam?: (teamId: string) => void;
+  /** True while an agent create is in flight — disables the per-team +. */
+  addingAgent?: boolean;
 
   getRowMeta: (agentId: string) => RowMeta;
   getIsStreaming: (agentId: string) => boolean;
@@ -102,6 +111,8 @@ export function AgentGroupSection({
   hideHeader = false,
   onSelectAgent,
   onNavigateToTeam,
+  onAddAgentToTeam,
+  addingAgent = false,
   getRowMeta,
   getIsStreaming,
   completedAgentIds,
@@ -211,6 +222,30 @@ export function AgentGroupSection({
           title="Go to team detail"
         >
           <ArrowRight className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
+        </button>
+      )}
+
+      {/* Add-agent-to-team + — hover-visible, only for named teams (#43) */}
+      {!hideHeader && teamId !== null && onAddAgentToTeam && (
+        <button
+          aria-label="Add agent to team"
+          disabled={addingAgent}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddAgentToTeam(teamId);
+          }}
+          className={cn(
+            'absolute right-14 top-0 h-7 w-6 flex items-center justify-center',
+            'opacity-0 group-hover/section:opacity-100 transition-opacity duration-150',
+            'hover:bg-[var(--nm-paper-warm)] rounded-[var(--radius-xs)]',
+            addingAgent && 'opacity-100 cursor-not-allowed',
+          )}
+          title="Add a new agent to this team"
+        >
+          <Plus
+            className={cn('w-3 h-3', addingAgent && 'animate-pulse')}
+            style={{ color: 'var(--nm-ink50)' }}
+          />
         </button>
       )}
 

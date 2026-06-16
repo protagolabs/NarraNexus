@@ -17,8 +17,12 @@ cannot disagree):
   1. quota row exists AND prefer_system_override=True (the default for
      newly registered users — they start on the free tier):
      1a. quota has budget  -> route "system" (cost_tracker deducts post-call)
-     1b. no budget + has complete own config -> FreeTierExhaustedError
-         (user can uncheck the Settings toggle to switch to their own key)
+     1b. no budget + has complete own config -> AUTO-MIGRATE: the free-tier
+         preference is turned off (persisted) and the request routes "user"
+         on their own key. Without this the configured key was ignored and
+         every request 402-looped (#48). The toggle stays off — and cannot
+         be turned back on — until the quota is replenished (QuotaService
+         gates re-enable on has_budget()).
      1c. no budget + no own provider         -> QuotaExceededError
          (user must add a provider before the app becomes usable again)
 
@@ -178,15 +182,21 @@ class ProviderResolver:
         )
 
         if prefer_system:
-            # Branch 1: user opted in to the free tier — honour it even if they
-            # also configured an own provider (the runtime will NOT fall back
-            # to it; that asymmetry is what the resume gate must respect).
+            # Branch 1: user opted in to the free tier.
             if await self.quota_svc.check(user_id):
                 return ProviderAvailability.SYSTEM_OK
-            return (
-                ProviderAvailability.FREE_TIER_EXHAUSTED if has_own
-                else ProviderAvailability.QUOTA_EXCEEDED
-            )
+            # Free tier exhausted. If the user has their own complete provider,
+            # auto-disable the free-tier preference so their key takes over
+            # immediately instead of 402-looping (#48: the configured key was
+            # being ignored because prefer_system_override stayed on). The flip
+            # is persisted, so the next request takes branch 2 directly; the
+            # toggle stays off until the quota is replenished (re-enable is
+            # gated in QuotaService.set_preference). With no own provider there
+            # is nothing to fall back to → surface the gate unchanged.
+            if has_own:
+                await self.quota_svc.set_preference(user_id, False)
+                return ProviderAvailability.USER_OK
+            return ProviderAvailability.QUOTA_EXCEEDED
 
         # Branch 2: opted out (or no quota row) — own provider only.
         return ProviderAvailability.USER_OK if has_own else ProviderAvailability.NO_PROVIDER
