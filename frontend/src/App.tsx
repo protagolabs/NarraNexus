@@ -9,11 +9,13 @@ import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { takeInboundToken, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
+import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { api } from '@/lib/api';
 import { getRuntimeConfig, isForcedCloud, isForcedLocal } from '@/lib/runtimeConfig';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
+import { ArenaProvisioningModal } from '@/components/arena/ArenaProvisioningModal';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
@@ -186,6 +188,16 @@ function RootRedirect() {
     checkProviders();
   }, [isLoggedIn, userId]);
 
+  // Warm the MainLayout chunk the moment we know the user is logged in, in
+  // parallel with the provider check — so the redirect to /app/chat doesn't sit
+  // on a cold lazy-load (that's the "opening the page" spinner). The import is
+  // deduped, so this just kicks off the transform/download early.
+  useEffect(() => {
+    if (isLoggedIn) {
+      void import('@/components/layout/MainLayout');
+    }
+  }, [isLoggedIn]);
+
   if (!mode) {
     return <Navigate to="/mode-select" replace />;
   }
@@ -336,10 +348,23 @@ function App() {
     }).catch(() => { /* fall through to login page */ });
   }, []);
 
+  // Arena landing (scenario from arena42.ai): once the user is logged in — via
+  // the inbound token above, or the normal LoginPage flow — provision (or
+  // reuse) their Arena agent and open it. Covers both the "already logged in"
+  // case (runs on mount) and the "logs in after landing" case (login subscribe).
+  useEffect(() => {
+    void runArenaLandingIfNeeded();
+    const unsub = useConfigStore.subscribe((s, prev) => {
+      if (s.isLoggedIn && !prev.isLoggedIn) void runArenaLandingIfNeeded();
+    });
+    return unsub;
+  }, []);
+
   return (
     <>
       <MockBanner />
       <UpdateBanner />
+      <ArenaProvisioningModal />
       {quotaExceeded && (
         <div
           className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"

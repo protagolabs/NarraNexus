@@ -331,6 +331,7 @@ from backend.routes.transcription_public import router as transcription_public_r
 from backend.routes.artifacts_public import router as artifacts_public_router
 from backend.routes.teams import router as teams_router
 from backend.routes.bundle import router as bundle_router
+from backend.routes.arena import router as arena_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -347,6 +348,7 @@ app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
 app.include_router(slack_router, prefix="/api/slack", tags=["Slack"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["Telegram"])
+app.include_router(arena_router, tags=["Arena"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
 app.include_router(admin_migration_router, tags=["AdminMigration"])

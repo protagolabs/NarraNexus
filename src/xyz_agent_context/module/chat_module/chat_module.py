@@ -916,6 +916,29 @@ class ChatModule(XYZBaseModule):
 
         return short_term_messages
 
+    async def _resolve_bootstrap_greeting(self) -> str:
+        """
+        Per-agent bootstrap greeting override.
+
+        Reads `agents.agent_metadata.bootstrap_greeting` (set by scenario
+        provisioners such as the Arena onboarding flow) and falls back to the
+        generic `BOOTSTRAP_GREETING` constant. Keeps the generic constant
+        scenario-free (铁律 #4); only runs on the first turn (rare).
+        """
+        try:
+            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.repository.agent_repository import AgentRepository
+
+            db = await get_db_client()
+            agent = await AgentRepository(db).get_agent(self.agent_id)
+            if agent and agent.agent_metadata:
+                custom = agent.agent_metadata.get("bootstrap_greeting")
+                if custom:
+                    return custom
+        except Exception as e:  # noqa: BLE001 — greeting override is best-effort
+            logger.warning(f"ChatModule: bootstrap greeting override failed: {e}")
+        return BOOTSTRAP_GREETING
+
     async def hook_persist_turn(self, params: HookAfterExecutionParams) -> None:
         """
         Synchronous, next-turn-critical persistence: write THIS turn's
@@ -966,6 +989,7 @@ class ChatModule(XYZBaseModule):
         # so we subtract 1ms; the fallback (no event) uses now()-1ms which
         # also stays below the user message stamped a moment later.
         if len(messages) == 0 and getattr(params.ctx_data, 'bootstrap_active', False):
+            greeting = await self._resolve_bootstrap_greeting()
             base_dt = (
                 params.event.created_at
                 if params.event is not None and params.event.created_at is not None
@@ -974,7 +998,7 @@ class ChatModule(XYZBaseModule):
             greeting_ts_iso = (base_dt - timedelta(milliseconds=1)).isoformat()
             messages.append({
                 "role": "assistant",
-                "content": BOOTSTRAP_GREETING,
+                "content": greeting,
                 "meta_data": {
                     "event_id": params.event_id,
                     "timestamp": greeting_ts_iso,

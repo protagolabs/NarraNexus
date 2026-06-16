@@ -14,6 +14,7 @@ Provides endpoints for:
 """
 
 import os
+import json
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
@@ -265,7 +266,8 @@ async def get_agents(request: Request):
                 agent_type,
                 agent_create_time,
                 created_by,
-                is_public
+                is_public,
+                agent_metadata
             FROM agents
             WHERE created_by = %s OR is_public = 1
             ORDER BY agent_create_time DESC
@@ -359,6 +361,19 @@ async def get_agents(request: Request):
                 )
                 bootstrap_active = os.path.isfile(bootstrap_path)
 
+            # Per-agent greeting override (only meaningful while bootstrapping).
+            # The frontend's instant greeting must match the DB-persisted one,
+            # so both read agent_metadata.bootstrap_greeting.
+            bootstrap_greeting = None
+            if bootstrap_active:
+                raw_meta = row.get('agent_metadata')
+                if raw_meta:
+                    try:
+                        meta = raw_meta if isinstance(raw_meta, dict) else json.loads(raw_meta)
+                        bootstrap_greeting = (meta or {}).get('bootstrap_greeting')
+                    except (ValueError, TypeError):
+                        bootstrap_greeting = None
+
             active_run = None
             ar_row = active_runs_by_agent.get(row['agent_id'])
             if ar_row:
@@ -396,6 +411,7 @@ async def get_agents(request: Request):
                 is_public=bool(row.get('is_public', 0)),
                 created_by=created_by,
                 bootstrap_active=bootstrap_active,
+                bootstrap_greeting=bootstrap_greeting,
                 active_run=active_run,
                 last_assistant_preview=last_assistant_preview,
                 last_assistant_at=last_assistant_at,
@@ -461,26 +477,46 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
 
         logger.info(f"Agent created: {agent_id}, record_id: {record_id}")
 
-        # Compute workspace path (used by bootstrap)
+        # Create the default agent-level instances (Awareness, SocialNetwork,
+        # BasicInfo, MessageBus, Lark). Without this the HTTP-created agent has
+        # no AwarenessModule instance and downstream provisioning / awareness
+        # writes have nothing to attach to. Idempotent (factory checks first);
+        # best-effort so a transient failure never blocks agent creation.
+        try:
+            from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
+            await InstanceFactory(db_client).create_agent_level_instances(agent_id)
+        except Exception as inst_err:
+            logger.warning(f"Failed to create default instances for {agent_id}: {inst_err}")
+
+        # First-run flow via a bootstrap PROFILE (default = today's behavior).
+        # The profile renders Bootstrap.md + the greeting + the deletion rule and
+        # apply_bootstrap stores them (workspace + agent_metadata). Pass
+        # `bootstrap` in the request to pick a profile; unknown/None → "default".
         from xyz_agent_context.settings import settings
         workspace_path = os.path.join(
             settings.base_working_path,
             f"{agent_id}_{created_by}"
         )
-        os.makedirs(workspace_path, exist_ok=True)
-
-        # Eagerly create workspace and write Bootstrap.md for first-run setup
+        bootstrap_active = False
         try:
-            from xyz_agent_context.bootstrap.template import BOOTSTRAP_MD_TEMPLATE
-
-            bootstrap_file = os.path.join(workspace_path, "Bootstrap.md")
-            with open(bootstrap_file, "w", encoding="utf-8") as f:
-                f.write(BOOTSTRAP_MD_TEMPLATE)
-
-            logger.info(f"Bootstrap.md written to {bootstrap_file}")
+            from xyz_agent_context.bootstrap.profiles import (
+                apply_bootstrap, get_profile, BootstrapContext,
+            )
+            profile = get_profile(getattr(request, "bootstrap", None) or "default")
+            await apply_bootstrap(
+                db_client,
+                agent_id=agent_id,
+                user_id=created_by,
+                profile=profile,
+                ctx=BootstrapContext(
+                    agent_id=agent_id, user_id=created_by, agent_name=agent_name,
+                ),
+            )
+            bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
+            logger.info(f"Bootstrap profile '{profile.name}' applied to {agent_id}")
         except Exception as bootstrap_err:
             # Non-fatal: agent is already created, bootstrap is best-effort
-            logger.warning(f"Failed to write Bootstrap.md: {bootstrap_err}")
+            logger.warning(f"Failed to apply bootstrap profile: {bootstrap_err}")
 
         # Return the created agent info
         # Re-fetch from DB to get server-generated fields (created_at)
@@ -492,7 +528,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             status='active',
             created_at=format_for_api(agent_row.get("agent_create_time")) if agent_row else None,
             created_by=created_by,
-            bootstrap_active=True,
+            bootstrap_active=bootstrap_active,
         )
 
         return CreateAgentResponse(

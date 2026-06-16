@@ -93,6 +93,11 @@ class AgentInfo(BaseModel):
     is_public: bool = False
     created_by: Optional[str] = None
     bootstrap_active: bool = False
+    # Per-agent first-run greeting (from agent_metadata.bootstrap_greeting,
+    # set by scenario provisioners like Arena onboarding). None → the frontend
+    # uses the generic default. Single source of truth so the instant
+    # frontend greeting and the DB-persisted greeting match (no dup bubble).
+    bootstrap_greeting: Optional[str] = None
     # Phase C (2026-05-13): summarise the agent's active run for the
     # frontend "running" badge. None means the agent is not currently
     # running for this user. The query is one event-table SELECT per
@@ -123,6 +128,9 @@ class CreateAgentRequest(BaseModel):
     auth_middleware, never from the body."""
     agent_name: Optional[str] = None
     agent_description: Optional[str] = None
+    # Bootstrap profile name (first-run flow). None/omitted → "default" (today's
+    # behavior). Scenario creators (e.g. Arena) use their own profile instead.
+    bootstrap: Optional[str] = None
 
 
 class CreateAgentResponse(BaseModel):

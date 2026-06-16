@@ -258,3 +258,5 @@ The `shouldAutoScrollRef` is the gating mechanism for scroll behavior. User scro
 `BOOTSTRAP_GREETING` must be kept in sync with the Python backend constant. It's a frontend-only rendering shortcut — the greeting is never actually stored as a chat message until the user replies.
 
 **Artifact preview placement**: the `ArtifactToolCallCards` render is gated by `hasArtifactTools`, which checks `item.role === 'assistant'`, `agentId` being truthy, and at least one qualifying tool call. This prevents the component from mounting on user messages or when `agentId` is not yet set. The `allArtifacts` dependency means the cards re-render when the store updates (e.g., after `ensureArtifactLoaded` upserts the fetched artifact), replacing the placeholder with the real card automatically.
+
+**Per-agent bootstrap greeting (2026-06-16).** The instant first-run greeting bubble now uses `currentAgent?.bootstrap_greeting || BOOTSTRAP_GREETING` (the per-agent override set by scenario provisioners like Arena, surfaced on `AgentInfo`). It MUST match the DB-persisted greeting (chat_module reads the same metadata) or the instant bubble and the persisted one would both render (dup).

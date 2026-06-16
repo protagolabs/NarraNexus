@@ -382,12 +382,21 @@ class ContextRuntime:
                     except Exception:
                         event_count = 0
 
-                    if event_count >= 3:
+                    # Rule-based deletion threshold comes from the agent's
+                    # bootstrap profile (stored in metadata at creation). None =
+                    # never auto-delete (semantic-only: the agent deletes the doc
+                    # itself per its instructions). Missing key (pre-profile
+                    # agents) → historical default of 3.
+                    from xyz_agent_context.bootstrap.profiles import (
+                        auto_delete_threshold_from_meta,
+                    )
+                    threshold = auto_delete_threshold_from_meta(agent_record.agent_metadata)
+                    if threshold is not None and event_count >= threshold:
                         try:
                             os.remove(bootstrap_path)
                             logger.info(
                                 f"        Auto-deleted Bootstrap.md after {event_count} events "
-                                f"(agent={self.agent_id})"
+                                f"(threshold={threshold}, agent={self.agent_id})"
                             )
                         except OSError as rm_err:
                             logger.warning(f"        Failed to auto-delete Bootstrap.md: {rm_err}")
