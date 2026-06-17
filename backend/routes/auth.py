@@ -354,9 +354,11 @@ async def get_agents(request: Request):
             bootstrap_active = False
             created_by = row.get('created_by')
             if created_by:
+                from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
                 bootstrap_path = os.path.join(
-                    app_settings.base_working_path,
-                    f"{row['agent_id']}_{created_by}",
+                    str(resolve_existing_workspace(
+                        row['agent_id'], created_by, app_settings.base_working_path
+                    )),
                     "Bootstrap.md"
                 )
                 bootstrap_active = os.path.isfile(bootstrap_path)
@@ -493,9 +495,9 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # apply_bootstrap stores them (workspace + agent_metadata). Pass
         # `bootstrap` in the request to pick a profile; unknown/None → "default".
         from xyz_agent_context.settings import settings
-        workspace_path = os.path.join(
-            settings.base_working_path,
-            f"{agent_id}_{created_by}"
+        from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+        workspace_path = str(
+            agent_workspace_path(agent_id, created_by, base=settings.base_working_path)
         )
         bootstrap_active = False
         try:
@@ -634,10 +636,10 @@ async def update_agent(
             updated_agent = await repo.get_agent(agent_id)
             # Check bootstrap_active (Bootstrap.md exists in workspace)
             from xyz_agent_context.settings import settings
-            workspace_path = os.path.join(
-                settings.base_working_path,
-                f"{agent_id}_{updated_agent.created_by}"
-            )
+            from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+            workspace_path = str(resolve_existing_workspace(
+                agent_id, updated_agent.created_by, settings.base_working_path
+            ))
             bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
 
             agent_info = AgentInfo(

@@ -53,12 +53,20 @@ migration (binding rule #6), READERS of existing data use:
   resolves a stored base-relative-with-prefix path to a file that exists,
   swapping the prefix flat↔nested if needed.
 
-Wired into the 6 hardcoded flat sites the nested flip would otherwise break
-(binding rule #8 sweep): `backend/routes/artifacts_public.py`,
-`agents_artifacts.py`, `agents_files.py`, `manyfold_files.py`, `auth.py`
-(workspace delete), and `common_tools_module.py` (artifact list display).
-So both old (flat) and new (nested) rows resolve — no DB rewrite, works
-through the transition forever.
+Wired into every hardcoded flat site the nested flip would otherwise break
+(binding rule #8 sweep): `artifacts_public.py`, `agents_artifacts.py`,
+`agents_files.py`, `manyfold_files.py`, `auth.py` (workspace delete + the
+THREE `bootstrap_active` checks: GET agents, update agent, create agent),
+`common_tools_module.py` (artifact list display), `context_runtime.py`
+(Bootstrap.md path → bootstrap_active gate), and `_social_mcp_tools.py`
+(sub-agent workspace create). So both old (flat) and new (nested) rows
+resolve — no DB rewrite, works through the transition forever.
+
+**Why the bootstrap ones mattered:** `apply_bootstrap` writes `Bootstrap.md`
+to the nested path, but `bootstrap_active` was checked at the flat path in
+3 places → the gate read False → the new-agent greeting + "read Bootstrap.md
+and introduce yourself" prompt silently vanished. The audit first missed
+these (they key off `created_by`/`owner_user_id` + multiline joins).
 
 ## Gotchas
 

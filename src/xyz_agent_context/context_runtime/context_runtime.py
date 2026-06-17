@@ -379,9 +379,13 @@ class ContextRuntime:
 
             agent_record = await AgentRepository(self.db).get_agent(self.agent_id)
             if agent_record and agent_record.created_by and agent_record.created_by == ctx_data.user_id:
+                from xyz_agent_context.utils.workspace_paths import (
+                    resolve_existing_workspace,
+                )
                 bootstrap_path = os.path.join(
-                    settings.base_working_path,
-                    f"{self.agent_id}_{agent_record.created_by}",
+                    str(resolve_existing_workspace(
+                        self.agent_id, agent_record.created_by, settings.base_working_path
+                    )),
                     "Bootstrap.md"
                 )
                 if os.path.isfile(bootstrap_path):
