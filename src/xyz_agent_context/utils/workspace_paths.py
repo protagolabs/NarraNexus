@@ -57,6 +57,69 @@ def agent_workspace_path(
     return Path(base) / agent_workspace_relpath(agent_id, user_id)
 
 
+def _candidate_relpaths(agent_id: str, user_id: str) -> list[str]:
+    """All workspace-dir relpath forms, current layout first then legacy.
+
+    Used by readers of EXISTING data so a row/dir written under the old flat
+    layout still resolves after the flip to nested (and vice-versa), without
+    a database rewrite. Order matters: the current layout wins.
+    """
+    return [
+        agent_workspace_relpath(agent_id, user_id),   # current layout
+        f"{agent_id}_{user_id}",                       # legacy flat
+        f"{agent_id}_{_LEGACY_INFIX}{user_id}",        # legacy `_user_` infix
+    ]
+
+
+def resolve_existing_workspace(
+    agent_id: str, user_id: str, base: Optional[str] = None
+) -> Path:
+    """Workspace dir for reads/cleanup — the first candidate that EXISTS,
+    preferring the current layout, falling back to legacy forms. Returns the
+    current-layout path if none exist (so callers get a sensible default).
+    """
+    if base is None:
+        from xyz_agent_context.settings import settings
+        base = settings.base_working_path
+    root = Path(base)
+    for rel in _candidate_relpaths(agent_id, user_id):
+        p = root / rel
+        if p.is_dir():
+            return p
+    return root / agent_workspace_relpath(agent_id, user_id)
+
+
+def resolve_workspace_relative_file(
+    file_path: str, agent_id: str, user_id: str, base: Optional[str] = None
+) -> Path:
+    """Resolve a base-relative file path that carries a workspace prefix
+    (e.g. ``instance_artifacts.file_path``) to an absolute path that EXISTS,
+    tolerating a layout mismatch between when it was stored and now.
+
+    Tries ``base/file_path`` as-is first (covers rows already in the current
+    layout). If that's missing, strips whichever known workspace prefix the
+    stored value carries and re-prepends the CURRENT relpath. Falls back to
+    the as-is join so a genuinely-missing file still 404s meaningfully.
+    """
+    if base is None:
+        from xyz_agent_context.settings import settings
+        base = settings.base_working_path
+    root = Path(base)
+    direct = root / file_path
+    if direct.exists():
+        return direct
+    norm = file_path.replace("\\", "/")
+    for rel in _candidate_relpaths(agent_id, user_id):
+        prefix = rel + "/"
+        if norm.startswith(prefix):
+            rest = norm[len(prefix):]
+            cand = agent_workspace_path(agent_id, user_id, base=base) / rest
+            if cand.exists():
+                return cand
+            break
+    return direct
+
+
 # ---------------------------------------------------------------------------
 # One-off migration: flat ``{agent_id}_{user_id}`` → nested ``{user_id}/{agent_id}``
 # ---------------------------------------------------------------------------

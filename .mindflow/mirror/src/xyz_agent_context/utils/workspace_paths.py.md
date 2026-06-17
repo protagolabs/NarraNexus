@@ -41,6 +41,25 @@ reported as `unknown` and **left in place — never guessed** (avoids
 creating bogus user dirs). Verified on real data 2026-06-17: 284 moved,
 0 conflicts, 53 unknown orphans safely left.
 
+## Reader fallback resolvers (avoid a DB rewrite)
+
+The dir migration moves files, but DB columns that store a workspace path
+WITH the prefix (notably `instance_artifacts.file_path`, base-relative like
+`agent_x_user_y/work/o.html`) are NOT rewritten. Rather than a risky DB
+migration (binding rule #6), READERS of existing data use:
+- `resolve_existing_workspace(agent_id, user_id, base)` — the workspace dir
+  that EXISTS, current layout first then legacy flat / `_user_` fallback.
+- `resolve_workspace_relative_file(file_path, agent_id, user_id, base)` —
+  resolves a stored base-relative-with-prefix path to a file that exists,
+  swapping the prefix flat↔nested if needed.
+
+Wired into the 6 hardcoded flat sites the nested flip would otherwise break
+(binding rule #8 sweep): `backend/routes/artifacts_public.py`,
+`agents_artifacts.py`, `agents_files.py`, `manyfold_files.py`, `auth.py`
+(workspace delete), and `common_tools_module.py` (artifact list display).
+So both old (flat) and new (nested) rows resolve — no DB rewrite, works
+through the transition forever.
+
 ## Gotchas
 
 - `_LAYOUT` must be flipped to `"nested"` ONLY after the migration has run

@@ -96,3 +96,48 @@ def test_migrate_conflict_left_in_place(tmp_path):
     rep = wp.migrate_flat_to_nested(str(tmp_path), _KNOWN, dry_run=False)
     assert "agent_a1_userx" in rep["conflicts"]
     assert (tmp_path / "agent_a1_userx").is_dir()          # NOT moved/clobbered
+
+
+# ---------- reader fallback resolvers (flat data after nested flip) ----------
+
+def test_resolve_existing_workspace_prefers_nested(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    (tmp_path / "u" / "agent_x").mkdir(parents=True)
+    assert wp.resolve_existing_workspace("agent_x", "u", str(tmp_path)) == tmp_path / "u" / "agent_x"
+
+
+def test_resolve_existing_workspace_falls_back_to_flat(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    (tmp_path / "agent_x_u").mkdir()                       # only legacy flat exists
+    assert wp.resolve_existing_workspace("agent_x", "u", str(tmp_path)) == tmp_path / "agent_x_u"
+
+
+def test_resolve_existing_workspace_default_when_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    assert wp.resolve_existing_workspace("agent_x", "u", str(tmp_path)) == tmp_path / "u" / "agent_x"
+
+
+def test_resolve_file_direct_when_nested(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    f = tmp_path / "u" / "agent_x" / "work" / "o.html"
+    f.parent.mkdir(parents=True)
+    f.write_text("x")
+    # stored file_path already nested → direct join hits
+    got = wp.resolve_workspace_relative_file("u/agent_x/work/o.html", "agent_x", "u", str(tmp_path))
+    assert got == f
+
+
+def test_resolve_file_flat_stored_but_dir_migrated(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    # file lives at the NEW nested location, but DB row still has the FLAT prefix
+    f = tmp_path / "u" / "agent_x" / "work" / "o.html"
+    f.parent.mkdir(parents=True)
+    f.write_text("x")
+    got = wp.resolve_workspace_relative_file("agent_x_u/work/o.html", "agent_x", "u", str(tmp_path))
+    assert got == f
+
+
+def test_resolve_file_missing_returns_direct(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    got = wp.resolve_workspace_relative_file("u/agent_x/nope.html", "agent_x", "u", str(tmp_path))
+    assert got == tmp_path / "u/agent_x/nope.html"

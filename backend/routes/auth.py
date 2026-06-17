@@ -923,8 +923,11 @@ async def delete_agent(
             import os
             import shutil
             from xyz_agent_context.settings import settings
-            workspace_path = os.path.join(
-                settings.base_working_path, f"{agent_id}_{agent.created_by}"
+            from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+            workspace_path = str(
+                resolve_existing_workspace(
+                    agent_id, agent.created_by, settings.base_working_path
+                )
             )
             if os.path.isdir(workspace_path):
                 shutil.rmtree(workspace_path)
