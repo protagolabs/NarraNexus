@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-06-17
 ---
 
+## 2026-06-17 — 日志写到 user 目录
+
+`main()` 启动时把 loguru 文件 sink 落到**该用户 workspace 目录**下的
+`.executor_logs/`(`_resolve_executor_log_dir`:容器只挂了一个 user 子目录,
+取那个唯一子目录;取不到则回退 base)。这样每个用户的 executor 日志隔离、
+随挂载卷持久化到宿主,便于按用户排查。stderr sink 保留(`docker logs` 仍可用)。
+文件日志 best-effort(失败只 warning,不挂服务)。
+
 ## Why it exists
 
 The agent-loop **Executor** — a thin FastAPI service that is the ONLY

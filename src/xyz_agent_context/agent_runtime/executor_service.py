@@ -27,6 +27,7 @@ scope for this module, which just runs the loop it is handed.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -92,10 +93,43 @@ async def agent_loop(request: Request) -> StreamingResponse:
     return StreamingResponse(_stream(), media_type="application/x-ndjson")
 
 
+def _resolve_executor_log_dir(base_working_path: str) -> Path:
+    """Where the executor writes its logs: under the (single) mounted user
+    workspace dir, so each user's executor logs land in THEIR directory and
+    persist on the host volume — not in a shared sink.
+
+    The broker mounts exactly one user subtree at
+    ``{base}/{user_id}``, so ``base`` has a single non-hidden subdir = the
+    user. Falls back to ``{base}/.executor_logs`` if it can't be uniquely
+    determined (so logging never hard-fails).
+    """
+    base = Path(base_working_path)
+    try:
+        subdirs = [p for p in base.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    except OSError:
+        subdirs = []
+    user_dir = subdirs[0] if len(subdirs) == 1 else base
+    return user_dir / ".executor_logs"
+
+
 def main() -> None:
     import os
 
     import uvicorn
+
+    base = os.environ.get("BASE_WORKING_PATH", "/opt/narranexus/workspaces")
+    log_dir = _resolve_executor_log_dir(base)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        logger.add(
+            str(log_dir / "executor_{time:YYYY-MM-DD}.log"),
+            rotation="50 MB",
+            retention="14 days",
+            enqueue=True,
+        )
+        logger.info(f"[Executor] file logging at {log_dir}")
+    except OSError as e:  # noqa: BLE001 — file logging is best-effort
+        logger.warning(f"[Executor] could not set up file logging at {log_dir}: {e}")
 
     port = int(os.environ.get("AGENT_EXECUTOR_PORT", "8020"))
     uvicorn.run(app, host="0.0.0.0", port=port)
