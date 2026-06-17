@@ -537,9 +537,17 @@ def clear_user_config() -> None:
     this before resolving each scope: without it, a scope whose resolution
     is skipped (deleted agent, missing owner row) silently inherits the
     PREVIOUS tenant's credentials still sitting in the task's ContextVars.
+
+    ALL FOUR config ContextVars are reset. Resetting only claude/openai
+    (the historical behavior) left ``_codex_ctx`` and ``_anthropic_helper_ctx``
+    carrying the previous tenant's credentials — a cross-tenant leak that the
+    helper-SDK factory keys off (a stale ``_anthropic_helper_ctx`` would route
+    tenant B's helper to tenant A's Claude key).
     """
     _claude_ctx.set(None)
     _openai_ctx.set(None)
+    _codex_ctx.set(CodexConfig())
+    _anthropic_helper_ctx.set(None)
 
 def set_provider_source(src: Optional[str]) -> None:
     _provider_source_ctx.set(src)

@@ -13,6 +13,13 @@ stub: false
 活路径(`get_agent_owner_runtime_llm_configs` → 此函数)。resolver 侧把 codex /
 helper 派发收进 driver 多态(见 resolver.py.md 2026-06-17)。
 
+**同日 — `clear_user_config` 重置全 4 个 config ctxvar(LATENT-3)。** 原来只
+reset `_claude_ctx`/`_openai_ctx`,留下 `_codex_ctx`/`_anthropic_helper_ctx` 携带
+上一租户凭证。顺序多租户 worker(memory consolidation)靠 clear 防串户;把
+provider_resolver 的 priming 修成 4 参后,若不同时补齐 clear,一个 resolve 被
+跳过的 scope 会继承前一租户的 anthropic_helper → helper 工厂据此把 B 的 helper
+路由到 A 的 Claude key。现 reset 全 4 个。
+
 ## 2026-06-10 — one-key onboarding: AnthropicHelperConfig joins the config stack
 
 New `AnthropicHelperConfig` (api_key/base_url/model/auth_type) carries the
