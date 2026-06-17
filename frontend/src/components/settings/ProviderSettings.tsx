@@ -27,7 +27,6 @@ import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
-import { QuotaPanel } from './QuotaPanel'
 import { api } from '@/lib/api'
 import { isTauri, triggerClaudeLogin, triggerClaudeLogout, cancelClaudeLogin } from '@/lib/tauri'
 
@@ -1159,8 +1158,9 @@ export function ProviderSettings() {
   return (
     <div className="space-y-8">
 
-      {/* System free-tier quota — renders only in cloud mode + feature on */}
-      <QuotaPanel />
+      {/* System free-tier quota is surfaced at the Providers-panel top level
+          (SettingsPage), not here — keeping it inside this collapsed-by-
+          default Advanced section hid it from cloud users. */}
 
       {/* ================================================================= */}
       {/* SECTION 1: Add Providers                                          */}

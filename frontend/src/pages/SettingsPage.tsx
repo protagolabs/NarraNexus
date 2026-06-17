@@ -14,6 +14,7 @@ import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download,
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
 import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
+import { QuotaPanel } from '@/components/settings/QuotaPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
@@ -280,6 +281,13 @@ function ProvidersSection() {
   return (
     <section>
       <SectionHeader label="LLM Providers" />
+      {/* System free-tier quota — top-level so cloud users see their
+          balance without expanding Advanced. Self-gates to null in local
+          mode / when the free tier is disabled. (Previously only rendered
+          inside the collapsed Advanced panel.) */}
+      <div className="mb-4">
+        <QuotaPanel />
+      </div>
       {/* Current setup (what's in use) — only once a provider exists. */}
       {providerCount !== 0 && (
         <div className="mb-4">
