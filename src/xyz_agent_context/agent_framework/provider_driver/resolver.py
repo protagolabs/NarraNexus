@@ -62,12 +62,11 @@ if TYPE_CHECKING:
     from xyz_agent_context.utils.database import AsyncDatabaseClient
 
 
-# Slot name → (build method name, config builder mapping). Single source
-# of truth so we can iterate cleanly below.
-_SLOT_BUILDERS = {
-    "agent": "build_claude_config",
-    "helper_llm": "build_openai_config",
-}
+# The slots every user must have bound. Which driver method builds each
+# one is decided per-call by ``_resolve_slot_target`` (it depends on the
+# agent framework and the card's protocol), so this is just the set of
+# required slot names to iterate.
+_REQUIRED_SLOTS = ("agent", "helper_llm")
 
 
 # Coding-agent framework names this resolver knows. Must stay in sync
@@ -107,35 +106,34 @@ def _slot_reasoning_params(slot: dict | None) -> tuple[str, str]:
     return str(data.get("thinking") or ""), str(data.get("reasoning_effort") or "")
 
 
-def _codex_config_from_card(
-    card: ProviderCard,
-    model: str,
-    thinking: str = "",
-    reasoning_effort: str = "",
-) -> CodexConfig:
-    """Build the Codex runtime config from an OpenAI-protocol provider row."""
-    if (card.protocol or "").lower() != "openai":
-        raise NotImplementedError(
-            f"Codex CLI requires an OpenAI-protocol agent provider, got "
-            f"{card.protocol!r}."
-        )
+def _resolve_slot_target(
+    slot_name: str, agent_framework: str, card: ProviderCard
+) -> tuple[str, str]:
+    """Single decision point: ``(driver build-method name, cfgs key)``.
 
-    auth_ref = card.auth_ref or ""
-    if card.source == "codex_oauth" and (card.auth_type or "").lower() == "oauth":
-        from xyz_agent_context.agent_framework.provider_driver.derive import (
-            CODEX_CLI_CREDENTIALS_REF,
-        )
-        auth_ref = CODEX_CLI_CREDENTIALS_REF
+    This is the one place that maps a (slot, framework, card-protocol)
+    triple to the Driver method that builds its config — replacing the
+    scattered ``if codex`` / ``if anthropic`` branches that used to live
+    in the resolve loop (and were hand-mirrored in api_config's legacy
+    path). Every build is then a uniform ``getattr(driver, method)(...)``
+    call, and adding a config shape means teaching this map + the driver,
+    not editing the loop.
 
-    return CodexConfig(
-        api_key=card.api_key,
-        base_url=card.base_url,
-        model=model,
-        auth_type=card.auth_type or "api_key",
-        auth_ref=auth_ref,
-        thinking=thinking,
-        reasoning_effort=reasoning_effort,
-    )
+    The ``cfgs key`` is the slot's destination in the assembled
+    ``RuntimeLLMConfigs``: ``agent`` → ``claude``, ``helper_llm`` →
+    ``openai``, ``codex`` → ``codex``, ``helper_anthropic`` →
+    ``anthropic_helper``.
+    """
+    if slot_name == "agent":
+        if _is_codex_framework(agent_framework):
+            return "build_codex_config", "codex"
+        return "build_claude_config", "agent"
+    if slot_name == "helper_llm":
+        if (card.protocol or "").lower() == "anthropic":
+            return "build_anthropic_helper_config", "helper_anthropic"
+        return "build_openai_config", "helper_llm"
+    # _SLOT_BUILDERS keys are the only slots iterated, so unreachable.
+    raise LLMConfigNotConfigured(f"Unknown slot {slot_name!r}.")
 
 
 def _is_visible(card: ProviderCard, user_id: str) -> bool:
@@ -178,7 +176,7 @@ async def resolve_user_runtime_llm_configs(
     slot_rows = await db.get("user_slots", {"user_id": user_id})
     by_slot_name = {r.get("slot_name"): r for r in slot_rows or []}
 
-    required = set(_SLOT_BUILDERS.keys())
+    required = set(_REQUIRED_SLOTS)
     missing_slots = required - by_slot_name.keys()
     if missing_slots:
         raise LLMConfigNotConfigured(
@@ -189,7 +187,7 @@ async def resolve_user_runtime_llm_configs(
     # For each slot: card lookup → visibility check → self-heal → Driver
     # dispatch → build_*_config.
     cfgs: dict[str, object] = {}
-    for slot_name, builder_method in _SLOT_BUILDERS.items():
+    for slot_name in _REQUIRED_SLOTS:
         slot = by_slot_name[slot_name]
 
         provider_id = slot.get("provider_id")
@@ -263,63 +261,46 @@ async def resolve_user_runtime_llm_configs(
             )
 
         driver = driver_cls(card)
-        if slot_name == "agent" and _is_codex_framework(_agent_framework_from_slot(slot)):
-            thinking, reasoning_effort = _slot_reasoning_params(slot)
-            try:
-                cfgs["codex"] = _codex_config_from_card(
-                    card, slot["model"],
-                    thinking=thinking, reasoning_effort=reasoning_effort,
-                )
-                cfgs[slot_name] = ClaudeConfig()
-            except NotImplementedError as e:
-                raise LLMConfigNotConfigured(
-                    f"User {user_id!r} slot {slot_name!r}: driver "
-                    f"{driver_type!r} cannot satisfy this slot ({e})."
-                ) from e
-            continue
+        framework = _agent_framework_from_slot(slot)
+        method_name, cfgs_key = _resolve_slot_target(slot_name, framework, card)
+        thinking, reasoning_effort = _slot_reasoning_params(slot)
 
-        # helper_llm dispatches on the provider's protocol: an anthropic
-        # provider routes to the Messages-API helper (single-Claude-key
-        # path); openai keeps the existing Chat-Completions helper.
-        if slot_name == "helper_llm" and (card.protocol or "").lower() == "anthropic":
-            try:
-                cfgs["helper_anthropic"] = driver.build_anthropic_helper_config(
-                    slot["model"]
-                )
-            except NotImplementedError as e:
-                raise LLMConfigNotConfigured(
-                    f"User {user_id!r} slot {slot_name!r}: driver "
-                    f"{driver_type!r} cannot satisfy this slot ({e})."
-                ) from e
-            continue
-
-        builder = getattr(driver, builder_method)
+        builder = getattr(driver, method_name)
         try:
-            cfgs[slot_name] = builder(slot["model"])
+            if method_name == "build_codex_config":
+                # Codex builder takes the framework-neutral reasoning
+                # knobs directly (CodexConfig carries them); the other
+                # builders only know the card, so the agent ClaudeConfig
+                # gets them patched in below.
+                cfg = builder(
+                    slot["model"],
+                    thinking=thinking,
+                    reasoning_effort=reasoning_effort,
+                )
+            else:
+                cfg = builder(slot["model"])
         except NotImplementedError as e:
             raise LLMConfigNotConfigured(
                 f"User {user_id!r} slot {slot_name!r}: driver "
                 f"{driver_type!r} cannot satisfy this slot ({e})."
             ) from e
 
-        # Thread the agent slot's framework-neutral reasoning params into
-        # the built ClaudeConfig. Drivers don't take params (they only
-        # know the provider card); the slot-level knobs are patched in
-        # here — previously only the legacy fallback path honored them.
-        if slot_name == "agent":
-            thinking, reasoning_effort = _slot_reasoning_params(slot)
-            if thinking or reasoning_effort:
-                cfgs[slot_name] = dataclasses.replace(
-                    cfgs[slot_name],  # type: ignore[arg-type]
-                    thinking=thinking,
-                    reasoning_effort=reasoning_effort,
-                )
+        # Patch the agent slot's framework-neutral reasoning params into
+        # the built ClaudeConfig (build_claude_config doesn't take params).
+        if cfgs_key == "agent" and (thinking or reasoning_effort):
+            cfg = dataclasses.replace(
+                cfg,  # type: ignore[arg-type]
+                thinking=thinking,
+                reasoning_effort=reasoning_effort,
+            )
+
+        cfgs[cfgs_key] = cfg
 
     return RuntimeLLMConfigs(
-        claude=cfgs["agent"],          # type: ignore[arg-type]
-        # When the helper runs on anthropic, ``openai`` stays an empty
-        # default and is unused — get_helper_sdk dispatches off
-        # ``anthropic_helper`` being set.
+        # A codex agent leaves ``agent`` (claude) unset → empty default;
+        # an anthropic helper leaves ``helper_llm`` (openai) unset →
+        # get_helper_sdk dispatches off ``anthropic_helper`` being set.
+        claude=cfgs.get("agent") or ClaudeConfig(),  # type: ignore[arg-type]
         openai=cfgs.get("helper_llm") or OpenAIConfig(),  # type: ignore[arg-type]
         codex=cfgs.get("codex", CodexConfig()),  # type: ignore[arg-type]
         anthropic_helper=cfgs.get("helper_anthropic"),  # type: ignore[arg-type]

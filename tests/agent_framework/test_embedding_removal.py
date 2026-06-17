@@ -147,12 +147,12 @@ def test_slot_required_protocols_no_embedding():
     )
 
 
-# ── 6. provider_driver.resolver._SLOT_BUILDERS has no "embedding" key ────────
+# ── 6. provider_driver.resolver._REQUIRED_SLOTS has no "embedding" ───────────
 
 def test_slot_builders_no_embedding():
-    from xyz_agent_context.agent_framework.provider_driver.resolver import _SLOT_BUILDERS
-    assert "embedding" not in _SLOT_BUILDERS, (
-        "_SLOT_BUILDERS in provider_driver.resolver must not contain 'embedding'"
+    from xyz_agent_context.agent_framework.provider_driver.resolver import _REQUIRED_SLOTS
+    assert "embedding" not in _REQUIRED_SLOTS, (
+        "_REQUIRED_SLOTS in provider_driver.resolver must not contain 'embedding'"
     )
 
 

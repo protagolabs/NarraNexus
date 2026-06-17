@@ -30,6 +30,7 @@ from typing import Optional, Protocol, runtime_checkable
 from xyz_agent_context.agent_framework.api_config import (
     AnthropicHelperConfig,
     ClaudeConfig,
+    CodexConfig,
     OpenAIConfig,
 )
 
@@ -197,6 +198,25 @@ class Driver(Protocol):
         """
         ...
 
+    def build_codex_config(
+        self,
+        model: str,
+        *,
+        thinking: str = "",
+        reasoning_effort: str = "",
+    ) -> CodexConfig:
+        """Build a ``CodexConfig`` for the AGENT slot when the agent
+        framework is ``codex_cli``.
+
+        Codex is a *mode* over OpenAI-protocol providers rather than a
+        protocol of its own, so this is implemented on ``_DriverBase`` for
+        every openai-protocol card and only specialised by drivers that
+        carry a non-trivial credential shape (e.g. ``CodexOAuthDriver``
+        injects the shared CLI auth-ref). Raises NotImplementedError on
+        non-openai cards (Codex CLI has no anthropic endpoint).
+        """
+        ...
+
     # ----- diagnostics + lifecycle hooks ------------------------------------
 
     async def probe(self) -> DriverHealth:
@@ -272,6 +292,32 @@ class _DriverBase:
     def build_anthropic_helper_config(self, model: str) -> AnthropicHelperConfig:
         raise NotImplementedError(
             f"{type(self).__name__} does not support helper_llm (anthropic) slot"
+        )
+
+    def build_codex_config(
+        self,
+        model: str,
+        *,
+        thinking: str = "",
+        reasoning_effort: str = "",
+    ) -> CodexConfig:
+        # Codex runs over any OpenAI-protocol card. The api-key path is
+        # generic and lives here; CodexOAuthDriver overrides to inject the
+        # shared CLI auth-ref. Non-openai cards can't drive Codex.
+        if (self.card.protocol or "").lower() != "openai":
+            raise NotImplementedError(
+                f"{type(self).__name__} (protocol={self.card.protocol!r}) "
+                f"cannot serve a Codex agent — Codex CLI requires an "
+                f"OpenAI-protocol provider."
+            )
+        return CodexConfig(
+            api_key=self.card.api_key,
+            base_url=self.card.base_url,
+            model=model,
+            auth_type=self.card.auth_type or "api_key",
+            auth_ref=self.card.auth_ref or "",
+            thinking=thinking,
+            reasoning_effort=reasoning_effort,
         )
 
 

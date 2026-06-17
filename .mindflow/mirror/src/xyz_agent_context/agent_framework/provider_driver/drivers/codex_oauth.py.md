@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/drivers/codex_oauth.py
 stub: false
-last_verified: 2026-05-29
+last_verified: 2026-06-17
 ---
+
+## 2026-06-17 — override build_codex_config(凭证 ref 特例归位)
+
+agent slot 现在走 `build_codex_config`(不再是 resolver 的 free function)。本
+driver override 它:强制 `auth_ref = CODEX_CLI_CREDENTIALS_REF`、`api_key` 留空
+(`to_cli_env` 对 oauth 会 blank `CODEX_API_KEY`),让 `codex exec` 从
+`~/.codex/auth.json` 读 token。`build_claude_config`/`build_openai_config` 仍是
+`_DriverBase` 的 NotImplementedError default。原来散在 resolver
+`if source=="codex_oauth"` 的凭证 ref 特例,现在归位到这个最该知道它的 driver。
 
 ## Why it exists
 

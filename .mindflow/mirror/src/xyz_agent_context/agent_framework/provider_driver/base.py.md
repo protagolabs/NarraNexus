@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/base.py
-last_verified: 2026-06-10
+last_verified: 2026-06-17
 stub: false
 ---
+## 2026-06-17 — Driver grows build_codex_config(codex 进多态,铁律 #9)
+
+第四个 build 方法 `build_codex_config(model, *, thinking, reasoning_effort)`
+加到 Driver Protocol + `_DriverBase`。和前三个不同:`_DriverBase` 给的是**真实
+现 default**(不是抛 NotImplementedError)——因为 codex 是"openai 协议卡上的一
+种模式",不是某个 driver 独占的协议,所以任意 openai 卡都能用这个通用 api-key
+路径;非 openai 卡才抛 NotImplementedError。`CodexOAuthDriver` override 它注入
+共享 CLI 凭证 ref。这样 resolver 不再用 free function 特判 codex(见
+resolver.py.md 2026-06-17)。
+
 ## 2026-06-10 — Driver grows build_anthropic_helper_config
 
 Third build method on the Driver protocol + `_DriverBase` default

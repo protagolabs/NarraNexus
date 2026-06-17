@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/resolver.py
-last_verified: 2026-06-10
+last_verified: 2026-06-17
 stub: false
 ---
+## 2026-06-17 — 把 codex / helper 派发收进 driver 多态(铁律 #9)
+
+去掉 resolve loop 里两处 `if` 特判,改成单一决策点 `_resolve_slot_target(
+slot, framework, card) → (driver 方法名, cfgs key)`,loop body 变成统一的
+`getattr(driver, method)(...)`:
+
+- **codex 不再走 resolver 里的 free function**。原 `_codex_config_from_card`
+  已删除,逻辑下沉到 driver:`_DriverBase.build_codex_config`(任意 openai 协议
+  卡的通用 api-key 路径,非 openai 抛 NotImplementedError)+ `CodexOAuthDriver`
+  override(强制 `CODEX_CLI_CREDENTIALS_REF`)。codex_oauth 的凭证 ref 特例现在
+  住在 codex_oauth driver 里,而不是 resolver 的 `if source=="codex_oauth"`。
+- **helper anthropic 派发**也并入这一个决策点(原 `if protocol=="anthropic"`)。
+- `_SLOT_BUILDERS` dict(值已无用)换成 `_REQUIRED_SLOTS` tuple。
+- 末尾组装统一用 `cfgs.get(key) or default`:codex agent 时 `claude` 留空默认,
+  anthropic helper 时 `openai` 留空默认。
+- 加协议(如 Gemini)从此只需教 `_resolve_slot_target` + 写一个 driver,
+  不再编辑 loop body / 不再有第二份手抄(api_config legacy fallback 已删,见
+  该文件 2026-06-17 条目)。回归:`test_codex_oauth_driver.py` 新增
+  build_codex_config 三例;103 个 provider/resolver 测试全绿。
+
 ## 2026-06-10 — helper protocol dispatch + slot reasoning params threaded
 
 Two changes to the slot loop: (1) helper_llm now branches on the card's
