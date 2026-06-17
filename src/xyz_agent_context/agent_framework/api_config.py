@@ -793,116 +793,27 @@ async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, Open
     """Strict version: raises LLMConfigNotConfigured on any missing
     slot / broken provider. The public `get_user_llm_configs` wraps
     this with a system-default fallback.
-
-    Provider Unification (2026-05-13): the body has been delegated to
-    ``provider_driver.resolve_user_llm_configs`` — the single-point
-    resolver that also handles reverse-validation self-heal for broken
-    slot/model bindings. The legacy hand-rolled code below remains as
-    a fallback so old call paths still work during the migration window
-    if the new resolver hits an unexpected edge case.
     """
     cfg = await _get_user_runtime_llm_configs_strict(user_id)
     return cfg.claude, cfg.openai
 
 
 async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfigs:
+    """Resolve agent + helper (+ codex) configs via the single-point
+    Provider Driver resolver. There is deliberately NO second
+    hand-rolled fallback path: a young project keeps one resolver and
+    lets any unexpected error surface (iron rule #2 / #5) rather than
+    silently re-deriving configs through a stale parallel copy — the old
+    fallback predated Codex and would mis-wire a codex agent into a
+    ClaudeConfig.
+    """
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.provider_driver import (
         resolve_user_runtime_llm_configs,
     )
 
     db = await get_db_client()
-    try:
-        return await resolve_user_runtime_llm_configs(user_id, db)
-    except LLMConfigNotConfigured:
-        # Let the actionable message bubble up; the caller's UI surfaces it.
-        raise
-    except Exception as e:  # noqa: BLE001 — fall back during migration window
-        logger.warning(
-            f"[api_config] resolve_user_runtime_llm_configs raised {type(e).__name__}: {e}. "
-            f"Falling back to legacy resolution for user_id={user_id!r}."
-        )
-
-    # === Legacy fallback path (kept until Phase 1 confidence accumulates) ===
-    from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
-
-    service = UserProviderService(db)
-    config = await service.get_user_config(user_id)
-
-    # ─── Agent slot ──────────────────────────────────────────────────
-    agent_slot = config.slots.get(SlotName.AGENT) or config.slots.get("agent")
-    if not agent_slot:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: 'agent' slot is not configured. "
-            "Please add an Anthropic-protocol provider and assign it to "
-            "the agent slot in Settings → Providers."
-        )
-    agent_provider = config.providers.get(agent_slot.provider_id)
-    if not agent_provider:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: agent slot references provider "
-            f"{agent_slot.provider_id!r} which no longer exists."
-        )
-    claude = ClaudeConfig(
-        api_key=agent_provider.api_key,
-        base_url=agent_provider.base_url,
-        model=agent_slot.model,
-        auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
-        supports_anthropic_server_tools=bool(
-            getattr(agent_provider, "supports_anthropic_server_tools", False)
-        ),
-        thinking=agent_slot.thinking,
-        reasoning_effort=agent_slot.reasoning_effort,
-    )
-
-    # ─── Helper LLM slot ─────────────────────────────────────────────
-    helper_slot = config.slots.get(SlotName.HELPER_LLM) or config.slots.get("helper_llm")
-    if not helper_slot:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: 'helper_llm' slot is not configured. "
-            "Please add an OpenAI- or Anthropic-protocol provider and "
-            "assign it to the helper_llm slot in Settings → Providers."
-        )
-    helper_provider = config.providers.get(helper_slot.provider_id)
-    if not helper_provider:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: helper_llm slot references provider "
-            f"{helper_slot.provider_id!r} which no longer exists."
-        )
-    # Dispatch on the helper provider's protocol — mirror of the driver
-    # resolver's helper_llm branch (anthropic → Messages-API helper).
-    helper_protocol = (
-        helper_provider.protocol.value
-        if isinstance(helper_provider.protocol, ProviderProtocol)
-        else str(helper_provider.protocol)
-    ).lower()
-    if helper_protocol == "anthropic":
-        anthropic_helper = AnthropicHelperConfig(
-            api_key=helper_provider.api_key,
-            base_url=helper_provider.base_url,
-            model=helper_slot.model,
-            auth_type=(
-                helper_provider.auth_type.value
-                if isinstance(helper_provider.auth_type, AuthType)
-                else str(helper_provider.auth_type)
-            ),
-        )
-        return RuntimeLLMConfigs(
-            claude=claude,
-            openai=OpenAIConfig(),
-            anthropic_helper=anthropic_helper,
-        )
-
-    openai_cfg = OpenAIConfig(
-        api_key=helper_provider.api_key,
-        base_url=helper_provider.base_url,
-        model=helper_slot.model,
-    )
-
-    return RuntimeLLMConfigs(
-        claude=claude,
-        openai=openai_cfg,
-    )
+    return await resolve_user_runtime_llm_configs(user_id, db)
 
 
 async def setup_mcp_llm_context(agent_id: str) -> None:

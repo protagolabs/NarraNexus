@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-06-10
+last_verified: 2026-06-17
 stub: false
 ---
+## 2026-06-17 — 删除 `_get_user_runtime_llm_configs_strict` 的 legacy fallback(铁律 #2/#5)
+
+原函数是"先调单点 resolver,任何意外异常就 fall back 到一份 80 行手写的旧
+解析逻辑"。那份 fallback 是 codex 出现**之前**写的——它无脑从 agent slot 拼
+`ClaudeConfig`,完全不懂 codex,一旦被触发会把 codex agent 配成 ClaudeConfig。
+按铁律 #2(年轻项目不留兼容 shim)+ #5(治根)删掉整段 fallback,函数现在纯
+委托 `resolve_user_runtime_llm_configs`,意外异常直接冒出去报错。这是 agent-loop
+活路径(`get_agent_owner_runtime_llm_configs` → 此函数)。resolver 侧把 codex /
+helper 派发收进 driver 多态(见 resolver.py.md 2026-06-17)。
+
 ## 2026-06-10 — one-key onboarding: AnthropicHelperConfig joins the config stack
 
 New `AnthropicHelperConfig` (api_key/base_url/model/auth_type) carries the
