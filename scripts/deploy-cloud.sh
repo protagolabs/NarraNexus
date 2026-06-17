@@ -198,6 +198,9 @@ create_service "slack" "Slack Trigger" \
 create_service "telegram" "Telegram Trigger" \
     "${UV_BIN} run python -m xyz_agent_context.module.telegram_module.run_telegram_trigger"
 
+create_service "discord" "Discord Trigger" \
+    "${UV_BIN} run python -m xyz_agent_context.module.discord_module.run_discord_trigger"
+
 sudo systemctl daemon-reload
 echo -e "${G}  Systemd services created${R}"
 
