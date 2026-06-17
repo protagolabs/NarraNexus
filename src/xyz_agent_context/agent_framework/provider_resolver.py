@@ -43,6 +43,7 @@ from typing import Optional
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
     OpenAIConfig,
+    RuntimeLLMConfigs,
     set_provider_source,
     set_user_config,
 )
@@ -203,18 +204,21 @@ class ProviderResolver:
 
     async def resolve(
         self, user_id: str
-    ) -> Optional[tuple[ClaudeConfig, OpenAIConfig, str]]:
+    ) -> Optional[tuple[RuntimeLLMConfigs, str]]:
         """Resolve a user's effective LLM configs WITHOUT mutating ContextVars.
 
-        Returns ``(claude, openai, source)`` where ``source`` is
+        Returns ``(RuntimeLLMConfigs, source)`` where ``source`` is
         ``"system"`` or ``"user"``, or ``None`` when the system-default
         feature is disabled (local mode / env not set) — in that case the
         caller keeps whatever global/desktop config is already in effect.
 
-        Thin mapping over :meth:`classify`: verdict → config or
-        ``ProviderResolverError``. Background jobs that need a provider outside
-        the request path call this and build their
-        own client from the returned config.
+        The USER branch delegates to the single-point Provider Driver
+        resolver (``resolve_user_runtime_llm_configs``) — the SAME builder the
+        agent-loop path uses — so a codex agent or an anthropic-protocol
+        helper is wired correctly here too. There is intentionally no second
+        protocol-blind builder on this path (that drift was the root of the
+        consolidation anthropic-helper bug). The SYSTEM/free-tier branch keeps
+        the controlled NetMind (openai-protocol) shape.
         """
         verdict = await self.classify(user_id)
 
@@ -224,11 +228,18 @@ class ProviderResolver:
             claude, openai = _llm_config_to_dataclasses(
                 self.system_provider_svc.get_config()
             )
-            return claude, openai, "system"
+            return RuntimeLLMConfigs(claude=claude, openai=openai), "system"
         if verdict == ProviderAvailability.USER_OK:
-            user_cfg = await self.user_provider_svc.get_user_config(user_id)
-            claude, openai = _llm_config_to_dataclasses(user_cfg)
-            return claude, openai, "user"
+            from xyz_agent_context.agent_framework.provider_driver import (
+                resolve_user_runtime_llm_configs,
+            )
+
+            # Use the db behind the injected user_provider_svc (DI), not a
+            # global — the same dependency classify() already read from.
+            cfgs = await resolve_user_runtime_llm_configs(
+                user_id, self.user_provider_svc.db
+            )
+            return cfgs, "user"
         if verdict == ProviderAvailability.FREE_TIER_EXHAUSTED:
             raise FreeTierExhaustedError(user_id)
         if verdict == ProviderAvailability.QUOTA_EXCEEDED:
@@ -238,14 +249,17 @@ class ProviderResolver:
     async def resolve_and_set(self, user_id: str) -> None:
         """Resolve the user's configs and push them onto the request ContextVars.
 
-        Thin wrapper over :meth:`resolve` — the HTTP request path uses this so
-        downstream LLM clients pick up the right provider implicitly.
+        Thin wrapper over :meth:`resolve` — pushes ALL FOUR configs (claude /
+        openai / codex / anthropic_helper) so the helper-SDK factory and the
+        codex agent slot are wired correctly off the request/background task.
         """
         resolved = await self.resolve(user_id)
         if resolved is None:
             return
-        claude, openai, source = resolved
-        set_user_config(claude, openai)
+        cfgs, source = resolved
+        set_user_config(
+            cfgs.claude, cfgs.openai, cfgs.codex, cfgs.anthropic_helper
+        )
         set_provider_source(source)
 
 
@@ -311,9 +325,14 @@ def _is_user_config_complete(cfg: LLMConfig | None) -> bool:
 def _llm_config_to_dataclasses(
     cfg: LLMConfig,
 ) -> tuple[ClaudeConfig, OpenAIConfig]:
-    """Convert an LLMConfig (slot-addressed) into the three dataclasses
-    set_user_config expects. Assumes the caller already verified completeness
-    via `_is_user_config_complete` (or that the system config is valid).
+    """Convert a CONTROLLED LLMConfig (system / free-tier NetMind) into the
+    (claude, openai) dataclasses. This is openai-protocol by construction and
+    carries no codex / anthropic-helper, so the 2-config shape is correct here.
+
+    NOTE: user configs do NOT go through this — they resolve via the
+    protocol/framework-aware single-point resolver
+    (``resolve_user_runtime_llm_configs``). Keeping a protocol-blind builder
+    on the user path was the root of the anthropic-helper consolidation bug.
     """
     agent_slot = cfg.slots["agent"]
     agent_prov: ProviderConfig = cfg.providers[agent_slot.provider_id]

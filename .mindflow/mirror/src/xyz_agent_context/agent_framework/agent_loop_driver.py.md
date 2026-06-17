@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/agent_loop_driver.py
-last_verified: 2026-05-29
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — 默认 framework 名 "claude" → "claude_code"
+
+`DEFAULT_AGENT_LOOP_FRAMEWORK` 从 `"claude"` 改名为 `"claude_code"`，文档串里的
+fallback 说明同步更新。意图是把默认 driver 的名字对齐到实际注册的
+claude-code agent-loop driver（与新引入的 `codex_oauth` 等 provider 形成清晰的
+命名空间），避免「默认值写的名字根本没人注册」导致 `get_agent_loop_driver`
+当场 ValueError。纯重命名，注册/选择优先级机制不变。
 
 # agent_loop_driver.py — 可插拔 Agent 框架的注册表（铁律 #9 的落地点）
 

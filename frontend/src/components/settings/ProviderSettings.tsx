@@ -63,7 +63,10 @@ function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
       if (state.token) headers.set('Authorization', `Bearer ${state.token}`)
       if (state.userId) headers.set('X-User-Id', state.userId)
     }
-  } catch {}
+  } catch {
+    // Corrupt/absent localStorage config — proceed without auth headers;
+    // the backend 401s if the request actually needed them.
+  }
   return fetch(input, { ...init, headers })
 }
 
@@ -103,45 +106,10 @@ interface KnownModelMeta {
   max_output_tokens: number | null
 }
 
-// =============================================================================
-// Preset providers (web-side copy — must match backend card_type support)
-// =============================================================================
-
-interface WebPresetProvider {
-  id: string       // card_type sent to backend
-  name: string
-  description: string
-  get_key_url: string
-}
-
-const PRESET_PROVIDERS: WebPresetProvider[] = [
-  { id: 'netmind',    name: 'NetMind.AI Power', description: 'One key covers both Anthropic & OpenAI endpoints', get_key_url: 'https://www.netmind.ai/user/dashboard' },
-  { id: 'yunwu',      name: 'Yunwu',            description: 'Proxies official Claude & OpenAI APIs',           get_key_url: 'https://yunwu.ai' },
-  { id: 'openrouter', name: 'OpenRouter',       description: 'Proxies official Claude & OpenAI APIs',           get_key_url: 'https://openrouter.ai/keys' },
-]
-
-// When a preset provider is Quick-Added, auto-assign these models to any
-// slot the user hasn't configured yet — so a brand-new user with just an
-// API key is immediately usable, no manual slot wiring needed.
-//
-// Only NetMind is wired up today: a single NetMind key creates BOTH an
-// Anthropic-protocol and an OpenAI-protocol endpoint, so all three slots
-// can be filled from one key. `protocol` must match a protocol the preset
-// actually creates; `model` must be a model id that endpoint serves (see
-// model_catalog.py DEFAULT_MODELS[("netmind", ...)]). `label` is for the
-// post-add confirmation dialog only.
-//
-// This only ever fills EMPTY slots — set_slot is an upsert, so an
-// already-configured slot is left untouched (don't clobber user choices).
-const PRESET_DEFAULT_SLOTS: Record<
-  string,
-  Record<string, { protocol: string; model: string; label: string }>
-> = {
-  netmind: {
-    agent:      { protocol: 'anthropic', model: 'deepseek-ai/DeepSeek-V4-Pro',   label: 'DeepSeek V4 Pro' },
-    helper_llm: { protocol: 'openai',    model: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek V4 Flash' },
-  },
-}
+// Preset quick-add moved to the shared OneKeyOnboard component (one-key
+// setup via POST /api/providers/onboard) — the provider list, Get Key
+// URLs, and recommended default models now live there / in
+// model_catalog._ONBOARD_*_MODELS.
 
 // =============================================================================
 // Agent Framework definitions
@@ -154,14 +122,36 @@ interface AgentFramework {
   desc: string
 }
 
+// One framework name per agent kind. ``codex_cli`` runs the official
+// ``openai-codex`` Python SDK under the hood; the older hand-rolled
+// implementation file is kept in the repo as a revival fallback only,
+// not registered as a driver.
 const AGENT_FRAMEWORKS: AgentFramework[] = [
   { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
+  { id: 'codex_cli', label: 'Codex CLI', protocol: 'openai', desc: 'Official openai-codex SDK — streaming reasoning + RPC interrupt' },
 ]
+
+// Codex-framework predicate. Kept as a helper rather than an inline
+// ``=== 'codex_cli'`` comparison so a future v3 framework id lands in
+// one spot instead of being scattered across three UI branches
+// (model curation, provider source filter, install banner).
+const isCodexFramework = (framework: string | null | undefined): boolean =>
+  framework === 'codex_cli'
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
   { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic)', protocol: 'anthropic' },
-  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI)', protocol: 'openai' },
+  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI / Anthropic)', protocol: 'openai' },
 ]
+
+// What the helper_llm "Default (recommended)" option actually resolves to,
+// per provider protocol. Mirrors backend ``_ONBOARD_HELPER_MODELS`` in
+// model_catalog.py (openai → gpt-5.4-mini, anthropic → claude-haiku-4-5).
+// Surfaced in the option label so users aren't left guessing what "default"
+// means. Keep in sync with the backend map.
+const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
+  openai: 'gpt-5.4-mini',
+  anthropic: 'claude-haiku-4-5',
+}
 
 // =============================================================================
 // Model Name Suggestions
@@ -465,22 +455,25 @@ export function ProviderSettings() {
   const [knownModels, setKnownModels] = useState<Record<string, KnownModelMeta>>({})
   const [officialBaseUrls, setOfficialBaseUrls] = useState<Record<string, string[]>>({})
   const [error, setError] = useState('')
-  const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null } | null>(null)
+  // ``allowed`` is false only when the backend gated this caller out:
+  // cloud mode + non-staff. Staff and local mode omit it (→ undefined →
+  // allowed). Same field on codexStatus; both routes apply the identical
+  // ``is_cloud and not is_staff`` gate, so they always agree.
+  const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null; allowed?: boolean } | null>(null)
   const [claudeLoggingIn, setClaudeLoggingIn] = useState(false)
   const [claudeLoggingOut, setClaudeLoggingOut] = useState(false)
+  // Codex CLI Login — parallel to Claude Code Login. Same shape. In
+  // local mode the backend auto-installs `@openai/codex` when the
+  // user opts into the codex_cli agent framework, but `codex login`
+  // (OAuth) is still a manual terminal step because it opens a
+  // browser.
+  const [codexStatus, setCodexStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null; allowed?: boolean } | null>(null)
   // Seconds remaining on the login auto-abort timer, or null when no
   // login is in flight. Decremented every 1s by the effect below; on
   // hitting 0 we fire cancelClaudeLogin so the Rust side SIGTERMs the
   // dangling `claude auth login` child.
   const [claudeLoginRemaining, setClaudeLoginRemaining] = useState<number | null>(null)
 
-  // Quick Add (preset provider)
-  const [selectedPreset, setSelectedPreset] = useState<string>(PRESET_PROVIDERS[0].id)
-  const [presetKey, setPresetKey] = useState('')
-  const [presetAdding, setPresetAdding] = useState(false)
-  // Set after a Quick Add that auto-filled one or more empty slots —
-  // drives the "ready to go" confirmation dialog. null = dialog closed.
-  const [autoConfigured, setAutoConfigured] = useState<{ label: string; model: string }[] | null>(null)
   const [syncing, setSyncing] = useState(false)
   // Inline summary line for the sync-defaults action: success / error / null.
   // Cleared whenever the user re-runs the sync so the UI never lies.
@@ -495,8 +488,25 @@ export function ProviderSettings() {
   const [formModels, setFormModels] = useState<string[]>([])
   const [formAdding, setFormAdding] = useState(false)
 
-  // Agent framework
+  // Agent framework — loaded from backend on mount + on every refresh.
+  // ``probe`` reports whether the chosen framework's host CLI auth is
+  // currently usable (e.g. ``codex login`` was completed). null until
+  // the first fetch lands.
   const [agentFramework, setAgentFramework] = useState<string>(AGENT_FRAMEWORKS[0].id)
+  const [agentFrameworkProbe, setAgentFrameworkProbe] = useState<{ ok: boolean; detail: string } | null>(null)
+  const [agentFrameworkSaving, setAgentFrameworkSaving] = useState(false)
+  const [agentFrameworkError, setAgentFrameworkError] = useState<string>('')
+  // Install banner — surfaced after switching to codex_cli. Post-2026-06-08
+  // the codex binary ships as a Python wheel (``openai-codex-cli-bin``)
+  // so the install side-effect is just a wheel-presence check; no more
+  // npm path. ``auto_installed`` / ``blocked`` no longer fire from the
+  // backend but the union keeps them for forward-compat in case we
+  // add a different fallback later.
+  const [agentFrameworkInstall, setAgentFrameworkInstall] = useState<{
+    installed: boolean
+    action: 'already_installed' | 'auto_installed' | 'blocked' | 'install_failed'
+    reason: string
+  } | null>(null)
 
   // Pending slot changes (local draft, not yet submitted)
   const [pendingSlots, setPendingSlots] = useState<Record<string, SlotConfig>>({})
@@ -517,12 +527,14 @@ export function ProviderSettings() {
   // ---- Data loading ----
   const refreshConfig = useCallback(async () => {
     try {
-      const [cfgRes, catRes, claudeRes] = await Promise.all([
+      const [cfgRes, catRes, claudeRes, codexRes] = await Promise.all([
         authFetch(providerUrl()).then((r) => r.json()),
         authFetch(providerUrl('/catalog')).then((r) => r.json()),
         authFetch(providerUrl('/claude-status')).then((r) => r.json()).catch(() => null),
+        authFetch(providerUrl('/codex-status')).then((r) => r.json()).catch(() => null),
       ])
       if (claudeRes?.success) setClaudeStatus(claudeRes.data)
+      if (codexRes?.success) setCodexStatus(codexRes.data)
       if (cfgRes.success) {
         setProviders(cfgRes.data.providers)
         setSlots(cfgRes.data.slots)
@@ -532,10 +544,31 @@ export function ProviderSettings() {
         setKnownModels(catRes.known_models)
         if (catRes.official_base_urls) setOfficialBaseUrls(catRes.official_base_urls)
       }
-    } catch {}
+    } catch (err) {
+      console.error('[ProviderSettings] refreshConfig failed:', err)
+    }
   }, [providerUrl])
 
   useEffect(() => { refreshConfig() }, [refreshConfig])
+
+  // Load the user's coding-agent framework choice + auth probe on
+  // mount and whenever refreshConfig fires (so a Settings page
+  // re-open re-checks whether the OAuth file is still present).
+  useEffect(() => {
+    let cancelled = false
+    api.getAgentFramework().then((resp) => {
+      if (cancelled) return
+      if (resp.success) {
+        setAgentFramework(resp.data.framework)
+        setAgentFrameworkProbe(resp.data.probe)
+      }
+    }).catch((err: unknown) => {
+      if (cancelled) return
+      // Non-fatal — keep the default selection visible
+      console.error('[ProviderSettings] getAgentFramework failed:', err)
+    })
+    return () => { cancelled = true }
+  }, [refreshConfig])
 
   // Login auto-abort timer. Set claudeLoginRemaining to N to start
   // counting down to 0; reaching 0 fires cancelClaudeLogin which
@@ -560,9 +593,7 @@ export function ProviderSettings() {
   const providerList = Object.values(providers)
   const hasProviders = providerList.length > 0
   const hasClaude = providerList.some((p) => p.source === 'claude_oauth')
-
-  // Check which preset providers are already added
-  const addedPresets = new Set(providerList.map((p) => p.source))
+  const hasCodex = providerList.some((p) => p.source === 'codex_oauth')
 
   // Compute effective config per slot: pending overrides server state
   const getEffectiveSlotConfig = (slotKey: string): SlotConfig | null => {
@@ -591,45 +622,12 @@ export function ProviderSettings() {
     } catch { setError('Network error'); return false }
   }
 
-  const handleQuickAdd = async () => {
-    if (!presetKey.trim()) { setError('Please enter your API key'); return }
-    setPresetAdding(true)
-
-    // Auto-fill any UNCONFIGURED slot with this preset's recommended model
-    // (NetMind today). A slot is "empty" when it has no `config`. Slots the
-    // user already configured are left out of `default_slots` entirely —
-    // backend set_slot is an upsert and would otherwise clobber them.
-    const presetDefaults = PRESET_DEFAULT_SLOTS[selectedPreset]
-    const defaultSlots: Record<string, { protocol: string; model: string }> = {}
-    const autoFilled: { label: string; model: string }[] = []
-    if (presetDefaults) {
-      for (const [slotKey, def] of Object.entries(presetDefaults)) {
-        if (!slots[slotKey]?.config) {
-          defaultSlots[slotKey] = { protocol: def.protocol, model: def.model }
-          autoFilled.push({
-            label: SLOT_DEFS.find((s) => s.key === slotKey)?.label ?? slotKey,
-            model: def.label,
-          })
-        }
-      }
-    }
-
-    const body: Record<string, unknown> = {
-      card_type: selectedPreset,
-      api_key: presetKey.trim(),
-    }
-    if (Object.keys(defaultSlots).length > 0) body.default_slots = defaultSlots
-
-    const ok = await addProvider(body)
-    if (ok) {
-      setPresetKey('')
-      if (autoFilled.length > 0) setAutoConfigured(autoFilled)
-    }
-    setPresetAdding(false)
-  }
-
   const handleAddClaudeOAuth = async () => {
     await addProvider({ card_type: 'claude_oauth' })
+  }
+
+  const handleAddCodexOAuth = async () => {
+    await addProvider({ card_type: 'codex_oauth' })
   }
 
   const handleClaudeLogin = async () => {
@@ -832,31 +830,104 @@ export function ProviderSettings() {
     setFormKey(''); setFormAuth('api_key'); setFormModels([]); setError('')
   }
 
-  const getProvidersForSlot = (protocol: string) =>
-    providerList.filter((p) => p.protocol === protocol && p.is_active)
-
   const isOfficialProvider = (prov: ProviderSummary) => {
     const urls = officialBaseUrls[prov.protocol] || []
     return urls.includes(prov.base_url || '')
   }
 
-  const getModelsForSlot = (prov: ProviderSummary, _slotKey: string) => {
+  // Curated model list the Codex CLI subprocess actually accepts.
+  // Must stay in sync with backend ``CODEX_CURATED_MODELS`` in
+  // ``user_provider_service.py`` — verified 2026-06-02 from
+  // codex CLI's interactive "Select Model and Effort" picker.
+  // Both codex_oauth and "Custom OpenAI provider used as codex_cli
+  // agent" funnel through this list; otherwise the dropdown would
+  // offer e.g. gpt-4.1 / o3 which codex CLI rejects at runtime.
+  const CODEX_CURATED_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
+
+  // Provider sources the codex_cli framework actually works with.
+  // Codex CLI expects OpenAI's Responses API; third-party
+  // aggregators (NetMind / Yunwu / OpenRouter / etc.) only expose
+  // ``chat/completions``, so codex CLI silently fails — model is
+  // missing, tool-calling format mismatches, MCP integration
+  // broken. Without testing each aggregator against codex CLI
+  // we can't claim support. Whitelist what's verified:
+  //   * codex_oauth — ChatGPT login (OpenAI's own backend)
+  //   * user        — Provider added via "+ Custom OpenAI" form
+  //                  (assumes user pointed it at api.openai.com or
+  //                  a Responses-API-compatible endpoint — that's
+  //                  on the user to get right).
+  // Anything else (netmind, yunwu, openrouter, etc.) is hidden
+  // from the agent slot dropdown when framework=codex_cli.
+  // Note: "openai" is a PROTOCOL value, not a SOURCE — preset
+  // aggregators are openai-protocol too. Filter by source, not
+  // protocol (protocol is already enforced upstream by the slot
+  // framework check).
+  const CODEX_ALLOWED_PROVIDER_SOURCES = ['codex_oauth', 'user']
+
+  const getModelsForSlot = (prov: ProviderSummary, slotKey: string) => {
+    // Agent slot + codex_cli framework → always show the codex-
+    // curated set, regardless of provider source AND regardless of
+    // whether the provider's stored ``models`` happens to include
+    // them. A Custom OpenAI provider's ``models`` column is the
+    // user's "I have access to these" claim for non-agent slots
+    // (helper_llm). The codex CLI subprocess talks straight to
+    // OpenAI with the API key — OpenAI's tier check is the real
+    // gate, not this list. Offer all three; if the user's tier
+    // doesn't permit one, they'll see a clear error at run time.
+    if (slotKey === 'agent' && isCodexFramework(agentFramework)) {
+      return CODEX_CURATED_MODELS.map((mid) => ({
+        model_id: mid,
+        display_name: knownModels[mid]?.display_name || mid,
+      }))
+    }
     return prov.models
       .map((mid) => ({ model_id: mid, display_name: knownModels[mid]?.display_name || mid }))
   }
 
+  // Switching the agent framework is staff-only in cloud (a framework
+  // with no API-key provider falls back to the shared CLI credentials —
+  // the backend 403s it; see providers.py §3 gate). The status routes
+  // already encode that exact predicate as ``allowed === false``, so we
+  // reuse it rather than re-deriving cloud + staff here. Fail-open on the
+  // UI if neither status loaded — the backend stays the security boundary.
+  const frameworkSwitchBlocked =
+    claudeStatus?.allowed === false || codexStatus?.allowed === false
+
   // ---- Slot row renderer ----
   const renderSlotRow = (slot: typeof SLOT_DEFS[number]) => {
     const selectedFramework = AGENT_FRAMEWORKS.find((f) => f.id === agentFramework)
-    const effectiveProtocol = slot.key === 'agent' && selectedFramework
-      ? selectedFramework.protocol
-      : slot.protocol
+    // Protocols this slot accepts. Agent follows the selected framework;
+    // other slots use the SERVER's required_protocols (helper_llm is
+    // [openai, anthropic] since the one-key work — a hardcoded 'openai'
+    // here silently hid anthropic providers from the helper dropdown).
+    const effectiveProtocols: string[] = slot.key === 'agent' && selectedFramework
+      ? [selectedFramework.protocol]
+      : (slots[slot.key]?.required_protocols?.length
+          ? slots[slot.key].required_protocols
+          : [slot.protocol])
 
     const cfg = getEffectiveSlotConfig(slot.key)
     const ready = !!(cfg?.provider_id && cfg?.model)
-    const matching = getProvidersForSlot(effectiveProtocol)
+    // Agent slot + codex_cli framework → hide third-party
+    // aggregators that codex CLI can't talk to (Responses API
+    // gate); see CODEX_ALLOWED_PROVIDER_SOURCES above.
+    // Helper slot → hide OAuth providers (claude_oauth / codex_oauth):
+    // CLI OAuth credentials only drive the agent subprocess and cannot
+    // make direct Messages / Chat-Completions calls — picking one here
+    // would only fail at agent-loop time with NotImplementedError.
+    const matching = providerList.filter((p) =>
+      effectiveProtocols.includes(p.protocol) && p.is_active &&
+      (
+        !(slot.key === 'agent' && isCodexFramework(agentFramework)) ||
+        CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source)
+      ) &&
+      !(slot.key === 'helper_llm' && p.auth_type === 'oauth')
+    )
     const curProv = cfg?.provider_id ? providers[cfg.provider_id] : null
     const isChanged = !!pendingSlots[slot.key]
+    const slotDesc = slot.key === 'agent' && selectedFramework
+      ? `Main dialogue (${selectedFramework.label})`
+      : slot.desc
 
     return (
       <div key={slot.key} className={cn('p-4 rounded-xl border',
@@ -866,7 +937,7 @@ export function ProviderSettings() {
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-medium text-[var(--text-primary)]">
             {slot.label}
-            <span className="text-[var(--text-tertiary)] font-normal ml-2">{slot.desc}</span>
+            <span className="text-[var(--text-tertiary)] font-normal ml-2">{slotDesc}</span>
           </span>
           <div className="flex items-center gap-2">
             {isChanged && <span className="text-xs text-[var(--accent-primary)]">modified</span>}
@@ -879,16 +950,84 @@ export function ProviderSettings() {
         {/* Agent Framework selector */}
         {slot.key === 'agent' && (
           <div className="mb-3">
-            <label className="block text-sm text-[var(--text-tertiary)] mb-1">Agent Framework</label>
-            <select
-              value={agentFramework}
-              onChange={(e) => setAgentFramework(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-            >
-              {AGENT_FRAMEWORKS.map((fw) => (
-                <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
-              ))}
-            </select>
+            <label className="block text-sm text-[var(--text-tertiary)] mb-1">
+              Agent Framework
+              {agentFrameworkProbe !== null && (
+                <span
+                  className={`ml-2 text-xs ${
+                    agentFrameworkProbe.ok
+                      ? 'text-[var(--color-success)]'
+                      : 'text-[var(--color-error)]'
+                  }`}
+                  title={agentFrameworkProbe.detail}
+                >
+                  {agentFrameworkProbe.ok ? '✓ auth ready' : '✗ auth missing'}
+                </span>
+              )}
+            </label>
+            {frameworkSwitchBlocked ? (
+              // Cloud + non-staff: switching is backend-gated (403). Show the
+              // current choice read-only instead of a control that errors.
+              <div className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
+                {selectedFramework
+                  ? `${selectedFramework.label} — ${selectedFramework.desc}`
+                  : agentFramework}
+                <span className="ml-2 text-xs text-[var(--text-tertiary)]">
+                  · managed by staff in cloud
+                </span>
+              </div>
+            ) : (
+              <select
+                value={agentFramework}
+                disabled={agentFrameworkSaving}
+                onChange={async (e) => {
+                  const next = e.target.value
+                  setAgentFramework(next)
+                  setAgentFrameworkSaving(true)
+                  setAgentFrameworkError('')
+                  setAgentFrameworkInstall(null)
+                  try {
+                    const resp = await api.setAgentFramework(next)
+                    if (resp.success) {
+                      setAgentFrameworkProbe(resp.data.probe)
+                      setAgentFrameworkInstall(resp.data.install)
+                    }
+                  } catch (err: unknown) {
+                    setAgentFrameworkError(
+                      err instanceof Error ? err.message : 'Failed to save framework'
+                    )
+                  } finally {
+                    setAgentFrameworkSaving(false)
+                  }
+                }}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50"
+              >
+                {AGENT_FRAMEWORKS.map((fw) => (
+                  <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
+                ))}
+              </select>
+            )}
+            {agentFrameworkSaving && isCodexFramework(agentFramework) && (
+              <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">
+                {'Verifying Codex CLI…'}
+              </div>
+            )}
+            {agentFrameworkError && (
+              <div className="text-xs text-[var(--color-error)] mt-1">
+                {agentFrameworkError}
+              </div>
+            )}
+            {agentFrameworkInstall && agentFrameworkInstall.action === 'install_failed' && (
+              <div className="text-xs text-[var(--color-error)] mt-1">
+                Codex binary unavailable: {agentFrameworkInstall.reason}
+              </div>
+            )}
+            {agentFrameworkProbe !== null && !agentFrameworkProbe.ok &&
+             !(agentFrameworkInstall && agentFrameworkInstall.action === 'install_failed') && (
+              <div className="text-xs text-[var(--text-tertiary)] mt-1">
+                {agentFrameworkProbe.detail}
+              </div>
+            )}
           </div>
         )}
 
@@ -929,11 +1068,16 @@ export function ProviderSettings() {
 
                 if (slot.key === 'helper_llm' && isOfficialProvider(curProv)) {
                   const llmModels = getModelsForSlot(curProv, 'helper_llm')
+                  // Show which concrete model "Default" resolves to, so the
+                  // user isn't left guessing (e.g. "Default · gpt-5.4-mini").
+                  const recHelperModel =
+                    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[curProv.protocol] || 'gpt-5.4-mini'
+                  const recHelperLabel = knownModels[recHelperModel]?.display_name || recHelperModel
                   return (
                     <>
                       <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
                         className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                        <option value="default">Default (recommended)</option>
+                        <option value="default">Default · {recHelperLabel} (recommended)</option>
                         {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
                       </select>
                       {cfg?.model && cfg.model !== 'default' && (
@@ -1000,7 +1144,11 @@ export function ProviderSettings() {
           </div>
         ) : (
           <p className="text-sm text-[var(--color-error)]">
-            No {effectiveProtocol} protocol provider configured. Add one in Step 1 above.
+            {slot.key === 'agent' && isCodexFramework(agentFramework)
+              ? 'Codex CLI needs an OpenAI provider that speaks the Responses API: ' +
+                'sign in with Codex CLI (codex login) or add a Custom OpenAI key in Step 1. ' +
+                'Aggregator providers (NetMind / Yunwu / OpenRouter) are not supported by Codex.'
+              : `No ${effectiveProtocols.join(' / ')} protocol provider configured. Add one in Step 1 above.`}
           </p>
         )}
       </div>
@@ -1025,54 +1173,12 @@ export function ProviderSettings() {
         />
 
         <div className="space-y-4 ml-[34px]">
-          {/* ---- Quick Add: Preset provider selector ---- */}
-          <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">Quick Add — Preset Provider</h4>
-            <p className="text-sm text-[var(--text-tertiary)] mb-3">
-              Select a provider, paste your API key, and both protocol endpoints
-              will be created automatically. New here? <span className="text-[var(--text-secondary)]">NetMind.AI
-              Power</span> is the easiest start — one key, and default models are
-              pre-selected so you can finish right away.
-            </p>
-
-            <div className="space-y-3">
-              {/* Provider selector */}
-              <div>
-                <label className="block text-sm text-[var(--text-secondary)] mb-1">Provider</label>
-                <select
-                  value={selectedPreset}
-                  onChange={(e) => setSelectedPreset(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-                >
-                  {PRESET_PROVIDERS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}{p.id === 'netmind' ? ' (Recommended)' : ''} — {p.description}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* API Key + Get Key + Add button */}
-              <div className="flex gap-2">
-                <input type="password" value={presetKey} onChange={(e) => setPresetKey(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAdd() }}
-                  placeholder={addedPresets.has(selectedPreset) ? 'New key to re-configure...' : 'Paste your API key'}
-                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-                <a
-                  href={PRESET_PROVIDERS.find((p) => p.id === selectedPreset)?.get_key_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-2 text-sm text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 rounded-lg hover:bg-[var(--accent-primary)]/20 whitespace-nowrap transition-colors"
-                >
-                  Get Key
-                </a>
-                <button onClick={handleQuickAdd} disabled={presetAdding}
-                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
-                  {presetAdding ? 'Adding...' : addedPresets.has(selectedPreset) ? 'Update' : 'Add'}
-                </button>
-              </div>
-            </div>
-          </div>
+          {/* One-key preset setup (pick provider + paste key) now lives at
+              the panel level — SettingsPage embeds <OneKeyOnboard> directly,
+              and SetupPage shows it as the first-run hero. It used to be
+              duplicated here; removed so Advanced doesn't repeat it. This
+              section is the rest: model sync, CLI OAuth sign-in, and custom
+              (base_url) endpoints. */}
 
           {/* ---- Sync available models ---- */}
           {/*
@@ -1233,7 +1339,100 @@ export function ProviderSettings() {
             )}
           </div>
 
-          {/* ---- Custom: Add Protocol Buttons ---- */}
+          {/* ---- Codex CLI Login Card ----
+            *
+            * Parallel to "Claude Code Login" above. Same two-layer
+            * model:
+            *   1. OS credential state — owned by the `codex` CLI and
+            *      stored in `~/.codex/auth.json`. Login is a terminal
+            *      action (`codex login` opens a browser); we surface
+            *      status only — no Tauri IPC for codex yet, so the
+            *      card always shows the "run codex login" hint.
+            *   2. Provider record state — owned by NarraNexus and
+            *      stored in `user_providers`. Drives "Add as Provider"
+            *      / "Added ✓" affordance.
+            *
+            * Once added as a provider, the Codex OAuth credential
+            * becomes assignable to the agent slot. The backend
+            * auto-installs ``@openai/codex`` when the user picks
+            * "Codex CLI" as the Agent Framework, so by the time the
+            * user sees this card the binary is usually already on
+            * PATH.
+            */}
+          <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+            <div className="flex items-center gap-2 mb-1">
+              <h4 className="text-sm font-medium text-[var(--text-primary)]">Codex CLI Login</h4>
+            </div>
+            <p className="text-sm text-[var(--text-tertiary)] mb-3">
+              OAuth login via Codex CLI (Sign in with ChatGPT). No API key needed.
+              Usage covered by your ChatGPT Plus / Pro subscription.
+            </p>
+
+            {!codexStatus && (
+              <p className="text-sm text-[var(--text-tertiary)]">Checking status...</p>
+            )}
+
+            {codexStatus && (
+              <div className="space-y-3">
+                {/* ---- Section A: OS credential state ---- */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={cn('inline-block w-2 h-2 rounded-full',
+                      codexStatus.logged_in ? 'bg-[var(--color-success)]' :
+                      codexStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
+                    )} />
+                    <span className="text-sm text-[var(--text-secondary)]">
+                      {codexStatus.logged_in
+                        ? <>Logged in{codexStatus.email ? <> as <span className="font-mono">{codexStatus.email}</span></> : null}</>
+                        : codexStatus.cli_installed ? 'Not logged in' : 'CLI not installed'}
+                    </span>
+                    {codexStatus.logged_in && codexStatus.expires_at && (
+                      <span className="text-xs text-[var(--text-tertiary)]">
+                        {'·'} expires {formatExpiresAt(codexStatus.expires_at)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Always show terminal hint. Codex CLI's OAuth flow
+                    * opens a browser when `codex login` runs; we don't
+                    * shell out via Tauri yet (unlike claude). */}
+                  <p className="text-sm text-[var(--text-tertiary)]">
+                    {codexStatus.cli_installed
+                      ? 'Run "codex login" / "codex logout" in your terminal, then refresh this page.'
+                      : 'Install Codex CLI first (auto-installs when you pick "Codex CLI" in the Agent Framework dropdown below), then run "codex login" in your terminal.'}
+                  </p>
+                </div>
+
+                {/* ---- Section B: Provider record state ---- */}
+                <div className="pt-2 border-t border-[var(--border-subtle)]">
+                  {hasCodex ? (
+                    <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+                      <span>{'✓'}</span>
+                      <span>Added as a NarraNexus provider {'—'} assignable in Step 2 below.</span>
+                    </div>
+                  ) : codexStatus.logged_in ? (
+                    <button onClick={handleAddCodexOAuth}
+                      className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
+                      Add as Provider
+                    </button>
+                  ) : (
+                    <p className="text-sm text-[var(--text-tertiary)]">
+                      Log in above to add Codex CLI as a provider.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ---- Custom: Add Protocol Buttons ----
+            *
+            * Note: API-key Codex flows through ``+ Custom OpenAI`` —
+            * the resolver builds CodexConfig from any OpenAI-protocol
+            * provider when ``agent_framework=codex_cli`` is set on
+            * the slot. No dedicated card needed; auth.json fetch is
+            * the only thing the OAuth card adds functionally.
+            */}
           <div className="flex gap-2">
             <button onClick={() => openForm('anthropic')}
               className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
@@ -1442,44 +1641,6 @@ export function ProviderSettings() {
         )
       })()}
 
-      {/* ================================================================= */}
-      {/* Quick Add auto-config confirmation                                 */}
-      {/* Shown after a preset Quick Add that auto-filled empty model slots. */}
-      {/* ================================================================= */}
-      <Dialog
-        isOpen={autoConfigured !== null}
-        onClose={() => setAutoConfigured(null)}
-        title="You're ready to go"
-      >
-        <DialogContent>
-          <p className="text-sm text-[var(--text-secondary)] mb-3">
-            Your key is in, and we&rsquo;ve set up your model slots so you can
-            start chatting right away:
-          </p>
-          <ul className="space-y-1.5 mb-4">
-            {autoConfigured?.map((a) => (
-              <li key={a.label} className="flex items-baseline gap-2 text-sm">
-                <span className="text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.1em] w-24 shrink-0">
-                  {a.label}
-                </span>
-                <span className="text-[var(--text-primary)] font-medium">{a.model}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs text-[var(--text-tertiary)]">
-            Want different models? Change any slot in the configuration section
-            below — your edits always win over these defaults.
-          </p>
-        </DialogContent>
-        <DialogFooter>
-          <button
-            onClick={() => setAutoConfigured(null)}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary)]/90 transition-colors"
-          >
-            Got it
-          </button>
-        </DialogFooter>
-      </Dialog>
     </div>
   )
 }
