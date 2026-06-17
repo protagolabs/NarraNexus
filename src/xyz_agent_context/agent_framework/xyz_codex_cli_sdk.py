@@ -342,7 +342,7 @@ class CodexSDK:
 
                     if line_task not in done:
                         # Idle — log a warning and continue waiting.
-                        # 铁律 #14: no force-stop based on silence.
+                        # Binding rule #14: no force-stop based on silence.
                         if process.returncode is not None:
                             logger.error(
                                 f"[CodexSDK] subprocess exited "
@@ -427,10 +427,11 @@ class CodexSDK:
                 )
                 if line_count == 0:
                     logger.error(
-                        "[CodexSDK] ⚠️ 收到 0 行输出！可能原因：\n"
-                        "  1. Codex CLI 未登录（终端跑 `codex login` 完成认证）\n"
-                        "  2. CODEX_API_KEY 不正确\n"
-                        "  3. config.toml 里的 model_provider 配置错误"
+                        "[CodexSDK] Received 0 lines of output. Likely causes:\n"
+                        "  1. Codex CLI not logged in "
+                        "(run `codex login` in a terminal to authenticate)\n"
+                        "  2. CODEX_API_KEY is incorrect\n"
+                        "  3. Wrong model_provider in config.toml"
                     )
                     if cli_stderr_lines:
                         logger.error(
