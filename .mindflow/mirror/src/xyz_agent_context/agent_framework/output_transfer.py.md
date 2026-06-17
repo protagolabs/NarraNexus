@@ -1,9 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/output_transfer.py
-last_verified: 2026-06-11
+last_verified: 2026-06-17
 stub: false
 ---
 # output_transfer.py — Claude SDK 消息格式转换为统一事件流
+
+## 2026-06-17 — reasoning textDelta vs summaryTextDelta 同进 Thinking 面板的安全前提
+
+`item/reasoning/textDelta`(原始 `reasoning_text`)和 `summaryTextDelta`(受控
+`summary_text`)都映射成可见的 `thinking_item`。这是**靠不变式安全,不是靠运
+气**:codex 只有在 `show_raw_agent_reasoning` 打开时才流原始 `textDelta`,而我们
+**从不设它**(config 只写 `model_reasoning_summary="detailed"`)→ OpenAI 受控
+CoT 模型只会出 `summaryTextDelta`,原始思维链不外泄。`textDelta` 只有对**原生
+暴露 reasoning 的 provider**(DeepSeek-R1 等)才有内容,那种情况下显示就是预期
+UX。**若哪天开了 `show_raw_agent_reasoning`,必须回来改这个分支**,否则会把
+OpenAI 原始 CoT 泄给用户。仅加注释,无行为变更(PR #25 评审 M3)。
 
 ## 2026-06-11 — codex `error` 通知字段不可信，逐层判型再 `.get`
 

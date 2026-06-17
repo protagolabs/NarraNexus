@@ -932,9 +932,20 @@ def _codex_official_to_openai_agents(
         }]
 
     if method in (
-        _METHOD_REASONING_TEXT_DELTA,
-        _METHOD_REASONING_SUMMARY_DELTA,
+        _METHOD_REASONING_TEXT_DELTA,        # raw ``reasoning_text`` delta
+        _METHOD_REASONING_SUMMARY_DELTA,     # gated ``summary_text`` delta
     ):
+        # Both land in the same visible Thinking panel. This is safe by an
+        # invariant, NOT by luck: codex only streams raw ``textDelta``
+        # (``reasoning_text``) when ``show_raw_agent_reasoning`` is enabled,
+        # and we deliberately never set it (the config builder writes only
+        # ``model_reasoning_summary="detailed"``). So for OpenAI's
+        # gated-CoT models only ``summaryTextDelta`` fires — raw chain of
+        # thought is never surfaced. ``textDelta`` carries content only for
+        # providers that NATIVELY expose reasoning (DeepSeek-R1 and similar),
+        # where showing it is the intended UX (matches CC/DeepSeek thinking
+        # streaming). If you ever enable ``show_raw_agent_reasoning``, revisit
+        # this branch — it would then leak OpenAI's raw CoT to the user.
         delta = payload.get("delta") or ""
         if not delta:
             return []
