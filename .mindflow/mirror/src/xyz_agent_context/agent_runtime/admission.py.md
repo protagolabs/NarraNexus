@@ -41,3 +41,15 @@ otherwise it queues. Released slot → `notify_all` re-checks waiters.
   round-robin out-queue is a future refinement.
 - `_free_mem_mb` reads `/proc/meminfo`; returns +inf off-Linux so the
   guard never blocks on desktop.
+
+## Idle bookkeeping (feeds the executor reaper)
+
+The controller also tracks WHEN each user dropped to zero active loops
+(`_idle_since`, stamped in `release`, cleared in `acquire`), using an
+injected `clock` (default `time.monotonic`, swappable for deterministic
+tests). `claim_idle_users(ttl)` atomically returns + un-tracks users idle
+≥ ttl. This is the controller's ONLY outward knowledge of culling — it
+stays ignorant of brokers/executors. The reaper
+([[executor_reaper.py]]) is the coordinator that consumes this and calls
+the broker to stop them. Single-responsibility: controller = state,
+reaper = WHEN, broker_client = HOW.

@@ -96,6 +96,38 @@ async def test_slot_context_manager_releases_on_exit():
     assert c._per_user.get("u", 0) == 0   # released on exit
 
 
+@pytest.mark.asyncio
+async def test_idle_tracking_and_claim():
+    now = {"t": 1000.0}
+    c = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    tok = await c.acquire("u")
+    assert await c.claim_idle_users(60) == []      # active → not idle
+    await c.release(tok)                            # idle since t=1000
+    assert await c.claim_idle_users(60) == []       # 0s elapsed < ttl
+    now["t"] = 1070.0
+    assert await c.claim_idle_users(60) == ["u"]    # 70s >= ttl
+    assert await c.claim_idle_users(60) == []       # consumed (un-tracked)
+
+
+@pytest.mark.asyncio
+async def test_active_user_never_claimed():
+    now = {"t": 0.0}
+    c = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await c.acquire("u")                            # never released → active
+    now["t"] = 99999.0
+    assert await c.claim_idle_users(1) == []
+
+
+@pytest.mark.asyncio
+async def test_reacquire_clears_idle():
+    now = {"t": 0.0}
+    c = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await c.release(await c.acquire("u"))           # idle @ 0
+    now["t"] = 100.0
+    await c.acquire("u")                            # active again → idle cleared
+    assert await c.claim_idle_users(1) == []
+
+
 def test_cloud_defaults(monkeypatch):
     monkeypatch.setattr(
         "xyz_agent_context.utils.deployment_mode.get_deployment_mode", lambda: "cloud"

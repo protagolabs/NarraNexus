@@ -55,3 +55,20 @@ async def resolve_executor_url(user_id: str, *, timeout: float = 120.0) -> Optio
     if not executor_url:
         raise RuntimeError(f"broker returned no executor_url for user {user_id!r}: {data}")
     return executor_url
+
+
+async def stop_executor(user_id: str, *, timeout: float = 30.0) -> None:
+    """Tell the broker to stop this user's executor (idle-cull).
+
+    No-op when no broker is configured. Best-effort: a transport error is
+    raised to the caller (the reaper), which logs and moves on — the
+    broker's own label-based reaper is the backstop for orphans.
+    """
+    base = broker_url()
+    if not base:
+        return
+    endpoint = f"{base.rstrip('/')}/executors/{user_id}"
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.delete(endpoint)
+        resp.raise_for_status()
+    logger.info(f"[broker] stopped idle executor user={user_id}")

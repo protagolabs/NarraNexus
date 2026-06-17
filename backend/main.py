@@ -257,10 +257,23 @@ async def lifespan(app: FastAPI):
     app.state.memory_consolidation_worker = memory_worker
     logger.info("Memory consolidation worker started")
 
+    # Per-user Executor idle-cull reaper (cloud + broker only; no-op
+    # otherwise). Stops executor containers whose user has gone idle past
+    # the TTL — only idle ones, never a running loop (iron rule #14).
+    from xyz_agent_context.agent_runtime.executor_reaper import (
+        maybe_start_executor_reaper,
+    )
+    app.state.executor_reaper_task = maybe_start_executor_reaper()
+    if app.state.executor_reaper_task is not None:
+        logger.info("Executor idle-cull reaper started")
+
     yield
 
     # Shutdown
     logger.info("Shutting down FastAPI application...")
+    reaper_task = getattr(app.state, "executor_reaper_task", None)
+    if reaper_task is not None:
+        reaper_task.cancel()
     worker = getattr(app.state, "memory_consolidation_worker", None)
     if worker is not None:
         await worker.stop()

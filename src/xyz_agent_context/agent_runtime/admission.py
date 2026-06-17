@@ -33,8 +33,9 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import time
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Callable, Optional
 
 
 def _free_mem_mb() -> float:
@@ -69,14 +70,19 @@ class AgentAdmissionController:
         max_loops_per_user: Optional[int],
         max_loops_global: Optional[int],
         min_free_mem_mb: int,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.max_users = max_users
         self.max_loops_per_user = max_loops_per_user
         self.max_loops_global = max_loops_global
         self.min_free_mem_mb = min_free_mem_mb
+        self._clock = clock
         self._cond = asyncio.Condition()
         self._global = 0
         self._per_user: dict[str, int] = {}
+        # user_id -> monotonic time it dropped to zero active loops. Present
+        # ONLY while a user is idle; the executor reaper consumes this.
+        self._idle_since: dict[str, float] = {}
 
     @property
     def enabled(self) -> bool:
@@ -114,6 +120,7 @@ class AgentAdmissionController:
             await self._cond.wait_for(lambda: self._can_admit(user_id))
             self._global += 1
             self._per_user[user_id] = self._per_user.get(user_id, 0) + 1
+            self._idle_since.pop(user_id, None)  # active again → not idle
         return user_id
 
     async def release(self, token: str) -> None:
@@ -123,7 +130,25 @@ class AgentAdmissionController:
                 self._per_user[token] -= 1
                 if self._per_user[token] <= 0:
                     del self._per_user[token]
+                    self._idle_since[token] = self._clock()  # went idle now
             self._cond.notify_all()
+
+    async def claim_idle_users(self, ttl_seconds: float) -> list[str]:
+        """Atomically return + un-track users idle for >= ttl_seconds.
+
+        A user is "idle" once its active-loop count hits zero (stamped in
+        release). Returned users are removed from idle tracking under the
+        lock so the reaper can stop their executor without double-reaping;
+        if a new run arrives afterwards the broker just cold-starts a fresh
+        container. Users with active loops are never returned (rule #14 —
+        we never reap a running loop).
+        """
+        async with self._cond:
+            now = self._clock()
+            ready = [u for u, ts in self._idle_since.items() if now - ts >= ttl_seconds]
+            for u in ready:
+                del self._idle_since[u]
+            return ready
 
     @asynccontextmanager
     async def slot(self, user_id: str):

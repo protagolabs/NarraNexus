@@ -25,3 +25,6 @@ broker"确保该用户 executor 在跑"来现取它的 URL。
   → RemoteAgentLoopDriver(该用户容器)`。executor 看到的 workspace 路径与
   orchestrator 一致(两边 BASE_WORKING_PATH 都是 `/opt/narranexus/workspaces`,
   nested 布局 `{user}/{agent}`),故 `working_path` 直接透传,无需翻译。
+- `stop_executor(user_id)`:DELETE /executors/{user},供 idle-cull 用(见
+  [[executor_reaper.py]])。同样 `BROKER_URL` 门控(未配置则 no-op);出错抛给
+  reaper,reaper 记录并跳过,broker label-based reaper 兜底。
