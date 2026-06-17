@@ -209,7 +209,11 @@ class SkillModule(XYZBaseModule):
         self.base_path = Path(settings.base_working_path)
 
         # Skills directory (same as Claude Agent's cwd)
-        self.skills_dir = self.base_path / f"{agent_id}_{user_id}" / "skills" if user_id else None
+        from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+        self.skills_dir = (
+            self.base_path / agent_workspace_relpath(agent_id, user_id) / "skills"
+            if user_id else None
+        )
 
         # MCP Server port
         self.port = 7806

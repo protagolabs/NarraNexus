@@ -373,7 +373,8 @@ class ArenaProvisioningService:
             # + claim_token are written here (credentials.json + skill env) — the
             # only place they live on our side.
             t = perf_counter()
-            workspace = Path(settings.base_working_path) / f"{agent_id}_{user_id}"
+            from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+            workspace = agent_workspace_path(agent_id, user_id, base=settings.base_working_path)
             onboarder.install_skill(
                 workspace / "skills", creds, owner_user_id=user_id
             )

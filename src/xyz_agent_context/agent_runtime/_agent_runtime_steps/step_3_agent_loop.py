@@ -688,7 +688,8 @@ async def step_3_agent_loop(
     # Set up Agent working directory
     from xyz_agent_context.settings import settings
     working_path = settings.base_working_path
-    agent_working_path = f"{working_path}/{ctx.agent_id}_{ctx.user_id}"
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    agent_working_path = str(agent_workspace_path(ctx.agent_id, ctx.user_id, base=working_path))
     if not os.path.exists(agent_working_path):
         os.makedirs(agent_working_path)
 
