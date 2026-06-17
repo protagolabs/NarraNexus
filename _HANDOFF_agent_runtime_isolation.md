@@ -73,6 +73,26 @@ MIN_FREE_MEM_MB       = 6144  # 动态阀:空闲<6G 即使没满也暂缓,防子
 
 ---
 
+## ✦ 部署模型(已确认)+ Broker 设计(已定,待实现)
+
+**部署模型**:云端 = 起 per-user docker 强隔离;**本地/桌面 = 进程内直调、不隔离**(用户自己的机器,期望 agent 能跨任意文件夹干活,且无多租户/平台密钥要保护)。所有接缝按 `NARRANEXUS_DEPLOYMENT_MODE` 分叉。
+- 配套修复:`SECURITY_IRON_RULES` 改成**云端专属**注入(本地不注入,否则禁读 workspace 外会废掉本地体验)。已改 `context_runtime.build_complete_system_prompt` + 测试。
+
+**Broker(方案 c,已定参数):**
+- 角色:唯一持 `docker.sock` 的小服务,只按**写死形态**起/停/查 per-user executor;orchestrator 不碰 docker、只调它。
+- **executor 镜像 = slim**(只 node+claude+codex+SDK+瘦 driver,新建 Dockerfile)。
+- **executor 内存上限 = 1.5GB**;非 root、cap-drop ALL、no-new-privileges、read-only rootfs+tmpfs、pids-limit、无平台 `.env`、**只 bind-mount `{WS_HOST_ROOT}/{user_id}`**(user_id 严格校验防穿越)。
+- **idle-cull = 20 分钟**(orchestrator 按 admission 活跃计数决定 `DELETE`;broker 跑 label-based 兜底 reaper 清孤儿)。
+- broker 实现 = **Python + FastAPI + docker SDK**,代码放 **deploy 仓库**。
+- API:`POST /executors {user_id}`(幂等 ensure→返回 executor_url)、`DELETE /executors/{user_id}`、`GET /executors`、`GET /health`。
+- orchestrator 接法:`run → admission.acquire(user) → broker.ensure(user)=url → RemoteAgentLoopDriver(working_path=/opt/narranexus/workspaces/{user}/{agent}, executor_url=url) → 跑`。executor URL 不再是静态 env,而是按 user 向 broker 现取。
+- deploy:`workspaces` 命名卷 → **宿主目录**(broker 才能按 `{user_id}` 子目录挂)。
+
+**唤醒 UX(冷启动)**:executor 被 idle 回收后用户再发消息 → 需要冷启动(几秒)。前端要**温柔可爱**地呈现:整页虚化 + 弹窗「你的 Agents 刚刚睡觉去了,正在唤醒…」,**激活完成后再开始跑用户输入**。
+- 实现要点:run 启动流程在"broker.ensure 触发冷启动"时,先向前端/WS 发一个 `warming`(唤醒中)状态事件;executor 就绪后再进 agent_loop。需 backend(状态事件)+ 前端(虚化遮罩 + 文案 + 就绪后解除)协同。复用同一 agent 的保温 executor 时**不**触发(无冷启动)。
+
+---
+
 ## 1. 我们碰到了什么问题
 
 ### 1.1 事件(2026-06-17)
