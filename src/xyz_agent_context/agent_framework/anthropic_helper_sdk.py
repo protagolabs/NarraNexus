@@ -146,12 +146,21 @@ class AnthropicHelperSDK:
             f"output_type={output_type.__name__ if output_type else 'None'}"
         )
 
-        resp = await client.messages.create(
+        # Stream internally and collect the final Message. The Anthropic
+        # SDK REFUSES a non-streaming ``create`` when max_tokens is large
+        # enough to risk a >10-minute operation ("Streaming is required for
+        # operations that may take longer than 10 minutes"). Helper inputs
+        # routinely run tens of thousands of tokens (narrative continuity,
+        # consolidation), so the plain create path raised on every large
+        # call. ``stream().get_final_message()`` returns the same Message
+        # shape (content + usage) the rest of this method expects.
+        async with client.messages.stream(
             model=model_name,
             max_tokens=max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": user_input}],
-        )
+        ) as stream:
+            resp = await stream.get_final_message()
 
         raw_content = "".join(
             block.text for block in resp.content if getattr(block, "type", "") == "text"

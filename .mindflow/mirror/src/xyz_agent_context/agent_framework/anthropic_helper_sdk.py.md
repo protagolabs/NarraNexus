@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/anthropic_helper_sdk.py
-last_verified: 2026-06-10
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — llm_function 必须内部 streaming(否则大输入必挂)
+
+`llm_function` 原来用非流式 `client.messages.create`。Anthropic SDK 有个守卫:
+当 `max_tokens` 大到可能让操作 >10 分钟时,非流式请求直接抛
+`ValueError: Streaming is required ...`。helper 的输入动辄几万 token(narrative
+continuity / consolidation / entity update),于是 anthropic-helper 槽的**每个
+结构化 helper 调用都挂**。改为内部 `messages.stream().get_final_message()` 收口,
+`resp` 形状(content+usage)不变、调用方零改动。这个 bug 是被单点 resolver 重构
+**暴露**的——以前 anthropic-helper 用户被错误路由到 OpenAI SDK,根本走不到这里
+(见 helper_sdk.py.md 2026-06-17)。线上实测:claude_code agent + anthropic helper
+一轮 3× `llm_function ok`(修前 5× failed),记忆正确落地。
 # anthropic_helper_sdk.py — Anthropic-protocol helper_llm client
 
 ## Why it exists
