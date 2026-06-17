@@ -85,7 +85,7 @@ MIN_FREE_MEM_MB       = 6144  # 动态阀:空闲<6G 即使没满也暂缓,防子
 - **idle-cull = 20 分钟**(orchestrator 按 admission 活跃计数决定 `DELETE`;broker 跑 label-based 兜底 reaper 清孤儿)。
 - broker 实现 = **Python + FastAPI + docker SDK**,代码放 **deploy 仓库**。
 - API:`POST /executors {user_id}`(幂等 ensure→返回 executor_url)、`DELETE /executors/{user_id}`、`GET /executors`、`GET /health`。
-- orchestrator 接法:`run → admission.acquire(user) → broker.ensure(user)=url → RemoteAgentLoopDriver(working_path=/opt/narranexus/workspaces/{user}/{agent}, executor_url=url) → 跑`。executor URL 不再是静态 env,而是按 user 向 broker 现取。
+- orchestrator 接法:`run → admission.acquire(user) → broker.ensure(user)=url → RemoteAgentLoopDriver(working_path=/opt/narranexus/workspaces/{user}/{agent}, executor_url=url) → 跑`。executor URL 不再是静态 env,而是按 user 向 broker 现取。**✅ 已实现**(NarraNexus 侧):`agent_framework/broker_client.py`(`resolve_executor_url`,`BROKER_URL` 门控)+ `get_agent_loop_driver(executor_url=...)` 优先级参数 + step_3 接线;544 测试绿。剩 compose 接线 + 唤醒 UX。
 - deploy:`workspaces` 命名卷 → **宿主目录**(broker 才能按 `{user_id}` 子目录挂)。
 
 **唤醒 UX(冷启动)**:executor 被 idle 回收后用户再发消息 → 需要冷启动(几秒)。前端要**温柔可爱**地呈现:整页虚化 + 弹窗「你的 Agents 刚刚睡觉去了,正在唤醒…」,**激活完成后再开始跑用户输入**。

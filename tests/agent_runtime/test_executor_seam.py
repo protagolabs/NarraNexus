@@ -89,6 +89,23 @@ def test_factory_remote_when_executor_url_set(monkeypatch):
     assert d._url == "http://agent-executor:8020/agent-loop"
 
 
+def test_per_user_executor_url_param_overrides_env(monkeypatch):
+    # The broker-resolved per-user URL wins over the static env var.
+    monkeypatch.setenv("AGENT_EXECUTOR_URL", "http://static:8020")
+    d = get_agent_loop_driver(
+        "claude_code", executor_url="http://nx-exec-alice:8020", working_path="/ws/a"
+    )
+    assert isinstance(d, RemoteAgentLoopDriver)
+    assert d._url == "http://nx-exec-alice:8020/agent-loop"
+
+
+def test_executor_url_none_falls_back_to_local(monkeypatch):
+    # No broker URL + no env → in-process driver (local/desktop).
+    monkeypatch.delenv("AGENT_EXECUTOR_URL", raising=False)
+    d = get_agent_loop_driver("claude_code", executor_url=None, working_path="/ws/a")
+    assert not isinstance(d, RemoteAgentLoopDriver)
+
+
 # ---------- remote streaming (mock aiohttp) ----------
 
 class _FakeResp:

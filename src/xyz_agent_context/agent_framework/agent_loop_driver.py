@@ -92,13 +92,20 @@ def resolve_framework_name(framework: str | None = None) -> str:
 
 
 def get_agent_loop_driver(
-    framework: str | None = None, **factory_kwargs: Any
+    framework: str | None = None,
+    *,
+    executor_url: str | None = None,
+    **factory_kwargs: Any,
 ) -> AgentLoopDriver:
     """Resolve and construct the agent-loop driver for this turn.
 
     Args:
         framework: explicit framework name; ``None`` falls through to env
             / default. This is the per-agent extension point.
+        executor_url: explicit per-user Executor URL (resolved via the
+            broker). Overrides the static ``AGENT_EXECUTOR_URL`` env. When
+            ``None``/empty, falls back to the env var (local → unset →
+            in-process driver).
         **factory_kwargs: forwarded verbatim to the driver factory
             (e.g. ``working_path``).
 
@@ -109,20 +116,19 @@ def get_agent_loop_driver(
     """
     name = resolve_framework_name(framework)
 
-    # Executor seam (binding rule #7/#9): when AGENT_EXECUTOR_URL is set
-    # (cloud orchestrator), the loop runs on the remote Executor service
-    # instead of spawning the CLI in-process — so claude/codex only ever
-    # spawn in that one isolated container. Unset (local / desktop) →
-    # in-process driver below, behaviour unchanged. The executor's own
-    # container does NOT set this var, so it resolves to the local driver
-    # (no self-recursion).
-    executor_url = os.getenv("AGENT_EXECUTOR_URL", "").strip()
-    if executor_url:
+    # Executor seam (binding rule #7/#9/#20): route the loop to a remote
+    # Executor when an executor URL is available — per-user (resolved by
+    # the broker, passed as `executor_url`) or the static env fallback
+    # (`AGENT_EXECUTOR_URL`). So claude/codex only ever spawn in that one
+    # isolated container. No URL (local / desktop, or inside the executor
+    # container itself) → in-process driver below, behaviour unchanged.
+    resolved_executor_url = (executor_url or os.getenv("AGENT_EXECUTOR_URL", "")).strip()
+    if resolved_executor_url:
         from xyz_agent_context.agent_framework.remote_agent_loop_driver import (
             RemoteAgentLoopDriver,
         )
         return RemoteAgentLoopDriver(
-            framework=name, executor_url=executor_url, **factory_kwargs
+            framework=name, executor_url=resolved_executor_url, **factory_kwargs
         )
 
     try:

@@ -4,14 +4,15 @@ last_verified: 2026-06-17
 stub: false
 ---
 
-## 2026-06-17 — Executor seam:`AGENT_EXECUTOR_URL` 设了就走远程
+## 2026-06-17 — Executor seam:per-user `executor_url` 优先,`AGENT_EXECUTOR_URL` 兜底
 
-`get_agent_loop_driver` 增加一个分支:当 `AGENT_EXECUTOR_URL` 非空(云端
-orchestrator),返回 `RemoteAgentLoopDriver`(打到独立 Executor 服务),
-而不是本地 spawn claude/codex。未设(本地/桌面)→ 仍走注册表里的本地
-driver,行为不变(铁律 #7)。Executor 容器自身**不设**这个变量,所以它内部
-解析到本地 driver,无自递归。这是把 step-3 spawn 收敛进一个隔离容器的接缝
-(铁律 #20 控制面/数据面分离)。
+`get_agent_loop_driver` 新增 keyword-only 参数 `executor_url`:非空时返回
+`RemoteAgentLoopDriver` 打到**该用户**的 Executor 容器(由 broker 现取,见
+`broker_client.py` + step_3)。未传则回退到静态 env `AGENT_EXECUTOR_URL`;
+都没有(本地/桌面,或 executor 容器自身)→ 注册表里的本地 driver,行为不变
+(铁律 #7)。优先级:`executor_url` 参数 > `AGENT_EXECUTOR_URL` env > 本地。
+这是把 step-3 的 claude/codex spawn 收敛进**每用户隔离容器**的接缝
+(铁律 #20 控制面/数据面分离 + per-user 工作区挂载隔离)。
 
 ## 2026-06-17 — 默认 framework 名 "claude" → "claude_code"
 

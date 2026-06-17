@@ -713,7 +713,17 @@ async def step_3_agent_loop(
     # the system supports will resolve.
     framework_name = await _resolve_agent_framework_name(ctx.user_id, db_client)
     logger.info(f"[step_3] agent_loop framework: {framework_name!r} (user={ctx.user_id})")
-    driver = get_agent_loop_driver(framework=framework_name, working_path=agent_working_path)
+    # Per-user executor routing (cloud): ask the broker to ensure this
+    # user's Executor container and use its URL. Returns None when no
+    # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
+    # so get_agent_loop_driver falls back. This is the cold-start point.
+    from xyz_agent_context.agent_framework.broker_client import resolve_executor_url
+    executor_url = await resolve_executor_url(ctx.user_id)
+    driver = get_agent_loop_driver(
+        framework=framework_name,
+        executor_url=executor_url,
+        working_path=agent_working_path,
+    )
     try:
         async for response in driver.agent_loop(
             messages=messages,
