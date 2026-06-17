@@ -90,19 +90,25 @@ class InProcessAgentRuntimeClient:
         working_source: Any,
         **extra_kwargs: Any,
     ) -> "RunCollection":
+        from xyz_agent_context.agent_runtime.admission import (
+            get_admission_controller,
+        )
         from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
         from xyz_agent_context.agent_runtime.run_collector import collect_run
 
-        return await collect_run(
-            AgentRuntime(),
-            agent_id=agent_id,
-            user_id=user_id,
-            input_content=input_content,
-            working_source=working_source,
-            **extra_kwargs,
-        )
+        # Two-level concurrency gate (no-op locally; enforced in cloud).
+        # Queues the START only, never interrupts (binding rule #14).
+        async with get_admission_controller().slot(user_id):
+            return await collect_run(
+                AgentRuntime(),
+                agent_id=agent_id,
+                user_id=user_id,
+                input_content=input_content,
+                working_source=working_source,
+                **extra_kwargs,
+            )
 
-    def run_stream(
+    async def run_stream(
         self,
         *,
         agent_id: str,
@@ -111,6 +117,9 @@ class InProcessAgentRuntimeClient:
         working_source: Any = None,
         **extra_kwargs: Any,
     ) -> AsyncGenerator:
+        from xyz_agent_context.agent_runtime.admission import (
+            get_admission_controller,
+        )
         from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
 
         # working_source is optional for the streaming consumers (chat
@@ -118,12 +127,16 @@ class InProcessAgentRuntimeClient:
         # preserve AgentRuntime.run's own default.
         if working_source is not None:
             extra_kwargs["working_source"] = working_source
-        return AgentRuntime().run(
-            agent_id=agent_id,
-            user_id=user_id,
-            input_content=input_content,
-            **extra_kwargs,
-        )
+        # Admission gate held for the lifetime of the stream (rule #14:
+        # delays start; the slot frees when the stream is exhausted).
+        async with get_admission_controller().slot(user_id):
+            async for event in AgentRuntime().run(
+                agent_id=agent_id,
+                user_id=user_id,
+                input_content=input_content,
+                **extra_kwargs,
+            ):
+                yield event
 
 
 def get_agent_runtime_client() -> AgentRuntimeClient:
