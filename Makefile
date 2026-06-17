@@ -12,7 +12,7 @@
 .PHONY: help lint lint-backend lint-frontend typecheck typecheck-backend typecheck-frontend \
         test test-backend build build-frontend \
         dev-db-proxy dev-backend dev-frontend dev-mcp dev-poller \
-        clean
+        verify-release clean
 
 # Default target
 help:
@@ -105,6 +105,11 @@ dev-poller:
 
 db-doctor: ## Verify schema integrity + print row counts (no side-effects unless repair needed)
 	uv run python scripts/db_doctor.py
+
+# ── Release ─────────────────────────────────────────────────────────────────
+
+verify-release: ## Pre-push gate for upstream sync — catches squash-merge dup artifacts (run before release step 6 push)
+	bash scripts/verify_release_artifacts.sh
 
 # ── MindFlow (doc tooling moved to MindFlow plugin) ────────────────────────
 # Doc check/scaffold/audit commands are now in the MindFlow plugin CLI.
