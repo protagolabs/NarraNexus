@@ -427,6 +427,14 @@ function SectionHeader({ step, title, subtitle }: { step: number; title: string;
 // Main Component
 // =============================================================================
 
+// Security hardening (2026-06-17): user-supplied custom (arbitrary
+// base_url) providers let an agent's LLM traffic be pointed at an
+// external endpoint. The "+ Custom Anthropic / + Custom OpenAI" add
+// flow is temporarily disabled pending the workspace/credential
+// isolation work. Flip this back to `true` to restore it — the form
+// code below is preserved and only gated, so re-enabling is one line.
+const CUSTOM_PROVIDER_ENABLED = false
+
 export function ProviderSettings() {
   const userId = useConfigStore((s) => s.userId)
 
@@ -1433,6 +1441,8 @@ export function ProviderSettings() {
             * the slot. No dedicated card needed; auth.json fetch is
             * the only thing the OAuth card adds functionally.
             */}
+          {CUSTOM_PROVIDER_ENABLED ? (
+          <>
           <div className="flex gap-2">
             <button onClick={() => openForm('anthropic')}
               className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
@@ -1498,6 +1508,19 @@ export function ProviderSettings() {
                 className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
                 {formAdding ? 'Adding...' : 'Add Provider'}
               </button>
+            </div>
+          )}
+          </>
+          ) : (
+            <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)]">
+              <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">
+                Adding custom providers is temporarily unavailable
+              </h4>
+              <p className="text-sm text-[var(--text-tertiary)]">
+                Custom (custom base URL) provider setup is paused for security
+                hardening and will be restored soon. Your already-configured
+                providers remain fully usable.
+              </p>
             </div>
           )}
 

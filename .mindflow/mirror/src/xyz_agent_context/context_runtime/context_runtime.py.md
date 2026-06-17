@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-06-12
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — system prompt 第一段注入安全铁律
+
+`build_complete_system_prompt` 现在在所有其它段(temporal / narrative /
+module / bootstrap)之前,先 append `prompts.SECURITY_IRON_RULES`,确保没有
+后续段落或用户消息能覆盖它。详见 `prompts.py.md`。
 
 ## 2026-06-12 — User Identity Context block REMOVED (治本: moved into basic_info)
 

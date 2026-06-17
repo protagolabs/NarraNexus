@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — chat 顶部新增安全提醒横幅
+
+在 Header 与消息滚动区之间插入一条**常驻、不可关闭**的细横幅,提醒用户不要
+在聊天里粘贴钱包地址、私钥、助记词、密码、账号凭据等敏感信息(这些会落进
+trajectory 日志并发给 LLM provider)。属 2026-06-17 安全加固的一部分,纯展示、
+无状态。
 
 ## 2026-06-11 (v1.8.1) — clickable Processing chip + header truncation
 

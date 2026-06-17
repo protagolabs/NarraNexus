@@ -4,6 +4,17 @@ stub: false
 last_verified: 2026-06-17
 ---
 
+## 2026-06-17 — 安全修复:env 改白名单(不再全量注入)
+
+Step 4 的 `env = {**os.environ}` 把 backend 容器的**全部环境(含所有平台
+密钥)**注入了 codex 子进程 → agent 在 workspace 里一句 `env` 就能 dump
+出 `DB_PASSWORD`/`JWT_SECRET`/`*_API_KEY`(2026-06-17 事件)。改为调用
+`_codex_env.build_codex_subprocess_env`:只透传最小系统白名单 +
+`CODEX_HOME` + `NO_PROXY` + `to_cli_env` 的 scoped `CODEX_API_KEY`。
+**注意**:文件系统沙箱(`workspace-write`)解决不了这条——`env` 读的是
+进程内存,不是文件。详见 `_codex_env.py.md`。v1(`xyz_codex_cli_sdk`)同步
+做了一样的修改。
+
 ## 2026-06-17 — PR #25 评审收尾:删诊断 + 收日志 + 修 docstring
 
 三处一起改(均无行为变更,纯日志/文档):

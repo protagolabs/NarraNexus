@@ -75,6 +75,7 @@ from xyz_agent_context.utils.logging import timed
 # coexistence period the direct import keeps the diff small.
 try:
     from .api_config import codex_config
+    from ._codex_env import build_codex_subprocess_env
     from ._codex_permission_translator import (
         translate_tool_policy_to_codex_permissions,
     )
@@ -86,6 +87,7 @@ try:
     from .output_transfer import output_transfer
 except ImportError:  # absolute-import fallback for script-style runs
     from api_config import codex_config  # type: ignore[no-redef]
+    from _codex_env import build_codex_subprocess_env  # type: ignore[no-redef]
     from _codex_permission_translator import (  # type: ignore[no-redef]
         translate_tool_policy_to_codex_permissions,
     )
@@ -564,19 +566,19 @@ class CodexSDKv2:
                 f"entries, MCP servers:\n" + "\n".join(_mcp_lines)
             )
 
-            # ---- Step 4: env vars (CODEX_HOME + NO_PROXY + api_key) ----
-            env: dict[str, str] = {**os.environ}
-            env["CODEX_HOME"] = str(codex_home_path)
-            # MCP servers run locally — must NOT route through HTTPS_PROXY.
-            no_proxy_hosts = "localhost,127.0.0.1"
-            env["NO_PROXY"] = no_proxy_hosts
-            env["no_proxy"] = no_proxy_hosts
-            # CODEX_API_KEY + any provider-specific env vars from
-            # CodexConfig.to_cli_env (carries the resolver's choice).
-            for k, v in codex_config.to_cli_env().items():
-                env[k] = v
-            if extra_env:
-                env.update(extra_env)
+            # ---- Step 4: env vars (allowlist — NO secret passthrough) ----
+            # SECURITY (incident 2026-06-17): the codex subprocess must NOT
+            # inherit the backend's full os.environ. Doing so exposed every
+            # platform secret (DB_PASSWORD/JWT_SECRET/*_API_KEY) to any agent
+            # that ran `env` in its workspace. build_codex_subprocess_env
+            # passes only a minimal system allowlist + CODEX_HOME + NO_PROXY
+            # + the scoped CODEX_API_KEY from CodexConfig.to_cli_env. A
+            # filesystem sandbox can't fix this — `env` reads process memory.
+            env = build_codex_subprocess_env(
+                cli_env=codex_config.to_cli_env(),
+                codex_home=codex_home_path,
+                extra_env=extra_env,
+            )
 
             # ---- Step 5: construct SDK client + start thread ----
             sdk_config = CodexConfig(

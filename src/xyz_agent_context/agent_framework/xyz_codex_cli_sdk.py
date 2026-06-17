@@ -74,6 +74,7 @@ from xyz_agent_context.utils.logging import timed
 
 try:
     from .api_config import codex_config
+    from ._codex_env import build_codex_subprocess_env
     from .output_transfer import output_transfer
     from ._codex_config_toml_builder import build_codex_config_toml
     from ._codex_permission_translator import (
@@ -82,6 +83,7 @@ try:
     from .provider_driver.derive import resolve_codex_credentials_path
 except ImportError:  # pragma: no cover — direct-script fallback
     from api_config import codex_config
+    from _codex_env import build_codex_subprocess_env
     from output_transfer import output_transfer
     from _codex_config_toml_builder import build_codex_config_toml
     from _codex_permission_translator import translate_tool_policy_to_codex_permissions
@@ -222,20 +224,17 @@ class CodexSDK:
                 + "\n".join(_mcp_lines)
             )
 
-            # ---- Step 3: env vars ----------------------------------
-            cli_env = codex_config.to_cli_env()
-            cli_env["CODEX_HOME"] = str(codex_home_path)
-            # Subprocess must NOT route MCP traffic through a system
-            # proxy — MCP servers are local. Mirror CC wrapper.
-            no_proxy_hosts = "localhost,127.0.0.1"
-            cli_env["NO_PROXY"] = no_proxy_hosts
-            cli_env["no_proxy"] = no_proxy_hosts
-            if extra_env:
-                cli_env.update(extra_env)
-            # Build full env: inherit parent, then layer our overrides.
-            # ``cli_env`` already has explicit empty strings where we
-            # want to suppress parent values (mirrors CC pattern).
-            full_env = {**os.environ, **cli_env}
+            # ---- Step 3: env vars (allowlist — NO secret passthrough) ----
+            # SECURITY (incident 2026-06-17): do NOT inherit the backend's
+            # full os.environ — that handed every platform secret to any
+            # agent that ran `env` in its workspace. Only a minimal system
+            # allowlist + CODEX_HOME / NO_PROXY / scoped CODEX_API_KEY reach
+            # the subprocess. See _codex_env.build_codex_subprocess_env.
+            full_env = build_codex_subprocess_env(
+                cli_env=codex_config.to_cli_env(),
+                codex_home=codex_home_path,
+                extra_env=extra_env,
+            )
 
             # ---- Step 4: spawn subprocess --------------------------
             # DO NOT pass ``--ignore-user-config``: that flag skips

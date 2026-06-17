@@ -1,7 +1,18 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-06-14
+last_verified: 2026-06-17
 ---
+## 2026-06-17 — 临时屏蔽「自定义 Provider」上传(安全加固)
+
+新增模块级开关 `CUSTOM_PROVIDER_ENABLED = false`。`+ Custom Anthropic /
++ Custom OpenAI` 按钮与协议表单(`showForm` 那段)被该开关 gate 起来,关闭
+时改显示一段「Adding custom providers is temporarily unavailable」声明。
+原因:用户自定义(任意 base_url)provider 可把 agent 的 LLM 流量指向外部
+端点,在 workspace/凭据隔离做完前先关。**表单代码保留、只是 gate**,恢复时
+把开关翻成 `true` 即可(对应用户「之后会恢复」的要求)。OneKeyOnboard 预置
+接入与已配置 Provider 列表不受影响。后端 `POST /api/providers` 未改(UI 层
+屏蔽);后端硬门禁留到整体安全分支。
+
 ## 2026-06-14 — 云端非 staff 隐藏 Agent Framework 切换(配合后端 §3 门禁)
 
 后端给 `POST /api/providers/agent-framework` 加了 `is_cloud and not is_staff`

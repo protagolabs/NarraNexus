@@ -814,6 +814,26 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         </div>
       </div>
 
+      {/* Security reminder banner — persistent, non-dismissible. Warns
+          users not to paste sensitive personal data into chat (it would be
+          stored in trajectories + sent to the LLM provider). Added as part
+          of the 2026-06-17 security hardening. */}
+      <div
+        className="px-5 py-1.5 flex items-center gap-1.5 text-[11px] leading-snug border-b"
+        style={{
+          borderColor: 'var(--nm-hairline)',
+          background: 'var(--bg-tertiary)',
+          color: 'var(--color-warning, var(--text-tertiary))',
+        }}
+      >
+        <span aria-hidden="true">⚠</span>
+        <span>
+          Security reminder: never paste sensitive personal information here —
+          wallet addresses, private keys, seed phrases, passwords, or account
+          credentials.
+        </span>
+      </div>
+
       {/* Messages area — single unified timeline.
           Wrapped in <ScrollArea> so the scrollbar is JS-rendered (Radix) and
           cannot be hijacked by macOS's "always show scrollbars" AppKit

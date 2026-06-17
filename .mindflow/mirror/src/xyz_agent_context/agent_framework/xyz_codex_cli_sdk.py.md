@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-06-17
 ---
 
+## 2026-06-17 — 安全修复:env 改白名单(不再全量注入)
+
+Step 3 的 `full_env = {**os.environ, **cli_env}` 把 backend 全部环境(含
+平台密钥)注入了 codex 子进程。改为调用
+`_codex_env.build_codex_subprocess_env`(与 v2 共用),只透传最小系统白
+名单 + `CODEX_HOME` / `NO_PROXY` / scoped `CODEX_API_KEY`。v1 虽是 revival
+fallback、当前不注册,但一旦被拉回活跃路径必须同样安全,故一并修。详见
+`_codex_env.py.md`。
+
 ## 2026-06-17 — PR #25 评审收尾(v1 现为 revival fallback,不注册)
 
 v1 已不在活跃路径——`__init__.py` 只注册 v2(`CodexSDKv2` → `codex_cli`),

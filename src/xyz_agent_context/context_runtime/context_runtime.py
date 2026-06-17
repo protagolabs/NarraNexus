@@ -35,6 +35,7 @@ from xyz_agent_context.context_runtime.prompts import (
     RECENT_ACTIONS_HEADER,
     BOOTSTRAP_INJECTION_PROMPT,
     USER_TEMPORAL_CONTEXT,
+    SECURITY_IRON_RULES,
 )
 
 
@@ -321,6 +322,15 @@ class ContextRuntime:
         logger.debug("      → build_complete_system_prompt() started")
         prompt_parts = []
         narrative_service = NarrativeService(self.agent_id)
+
+        # ========================================================================
+        # Part -1: Security iron rules (FIRST — highest priority, platform-wide)
+        # Hard prohibition on reading anything outside the agent's own
+        # workspace (files + env vars) and on running un-vetted code. Injected
+        # before everything else so no later section or user message can
+        # supersede it. See prompts.SECURITY_IRON_RULES (incident 2026-06-17).
+        # ========================================================================
+        prompt_parts.append(SECURITY_IRON_RULES)
 
         # ========================================================================
         # Part 0: User Temporal Context (v2 timezone protocol, 2026-04-21)
