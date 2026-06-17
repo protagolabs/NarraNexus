@@ -54,6 +54,25 @@ MIN_FREE_MEM_MB       = 6144  # 动态阀:空闲<6G 即使没满也暂缓,防子
 
 ---
 
+## ✦ 进度(截至 2026-06-17,branch `security/agent-isolation`)
+
+| 提交 | 内容 | 状态 |
+|---|---|---|
+| `9b46e848` | AgentRuntimeClient seam(trigger 改走 client) | ✅ |
+| `ba2f0288` | Executor 抽离(executor_service + remote driver + 协议),量内存 | ✅ |
+| `c183c42f` | workspace 改 nested `{user_id}/{agent_id}` + DB 感知迁移脚本 | ✅(本地真数据迁移 284 移动 0 冲突,e2e 验证) |
+| `11d4391b` | 两级并发闸(全局+每用户+内存阀,50/5/50/6144) | ✅ |
+
+**NarraNexus 代码侧 P2 准备基本就绪。剩下的主要在 deploy 侧 + 少量胶水:**
+
+1. **per-user executor 容器(deploy,核心剩余项)**:compose 加 `agent-runtime`/executor 容器,镜像/容器**不带平台 `.env`**(→ claude/codex 子进程 env 自动干净,#1 claude env 在"executor 无密钥"下自然解决,不需单独代码 fix);只 bind-mount `{base}/{user_id}`(→ 跨用户隔离靠挂载);绑 run 起停 + 路由 + idle-cull。需要 deploy 把 `workspaces` 从不透明命名卷改成宿主目录/volume-subpath。
+2. **backend WS / BackgroundRun 走 admission 闸**:目前 WS 路径直接 `runtime.run()`,绕过了两级闸(交互路并发低、风险小,但要补全)。
+3. **`AGENT_EXECUTOR_URL` 接通**:cloud orchestrator 设它 → 走 RemoteAgentLoopDriver → executor 容器;executor 容器自身不设(用本地 driver)。
+4. **run.sh 的 `/data/workspaces` 也要跑一次迁移**(`--base /data/workspaces --apply`)才能在 nested 下工作(我只迁了 `~/.nexusagent/workspaces`)。
+5. 收尾:fair round-robin 出队;铁律 #20 状态搬 Redis(多副本时)。
+
+---
+
 ## 1. 我们碰到了什么问题
 
 ### 1.1 事件(2026-06-17)
