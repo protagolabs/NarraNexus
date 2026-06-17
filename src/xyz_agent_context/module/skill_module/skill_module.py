@@ -10,7 +10,8 @@ Skill Module manages Skills under the user's workspace:
 - Always loaded: No intelligent decision-making or Instance records needed
 
 Skills directory:
-- Located at {agent_workspace}/{agent_id}_{user_id}/skills/
+- Located at {base}/{agent_workspace_relpath}/skills/ (resolved via
+  utils.workspace_paths; nested {user_id}/{agent_id} under current layout)
 - Same as Claude Agent's cwd
 
 MCP Tools:
