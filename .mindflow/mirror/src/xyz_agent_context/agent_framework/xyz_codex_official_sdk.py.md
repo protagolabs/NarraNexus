@@ -4,13 +4,24 @@ stub: false
 last_verified: 2026-06-17
 ---
 
-## 2026-06-17 — 移除 `[CodexSDKv2][raw]` 临时诊断
+## 2026-06-17 — PR #25 评审收尾:删诊断 + 收日志 + 修 docstring
 
-2026-06-11 为排查 empty-turn 加的 per-event INFO raw-dump(`method` +
-截断 payload)已删除——根因已由 method-namespace + camelCase 归一化修复,
-该诊断在云端长 agent_loop 下是 INFO 刷屏。流式路径恢复为"不默认打 raw"
-(见下方 "What v1 did that v2 does NOT" 一节)。`event_count` 仍由
-"stream ended after N notifications" 收尾日志使用,保留。
+三处一起改(均无行为变更,纯日志/文档):
+
+- **移除 `[CodexSDKv2][raw]` 临时诊断**:2026-06-11 为排查 empty-turn 加的
+  per-event INFO raw-dump(`method` + 截断 payload)已删除——根因已由
+  method-namespace + camelCase 归一化修复,该诊断在云端长 agent_loop 下是
+  INFO 刷屏。流式路径恢复为"不默认打 raw"(见下方 "What v1 did that v2
+  does NOT")。`event_count` 仍由 "stream ended after N notifications"
+  收尾日志使用,保留。
+- **system prompt 指纹降级**:`system prompt → path (N chars)` 保持 INFO
+  (无内容),head/tail 两行(回显 prompt 文本,可能含凭证/上下文)降到
+  DEBUG。v1(xyz_codex_cli_sdk.py)同样模式同步降级。
+- **修正 Registration 段 docstring**(铁律 #8):原文称注册为
+  `codex_cli_v2` + `codex_official`、v1 占 `codex_cli`/`codex`——与实际相反。
+  实际:v2 是唯一规范名 `codex_cli`,A/B 别名已删,v1 `CodexSDK` 保持可
+  import 但**不注册**(revival fallback)。config_overrides 那段描述本就正确
+  (v2 用 `CodexConfig.config_overrides`,非 v1 的 config.toml 落盘),未动。
 
 ## 2026-06-15 — 写隔离落地:cloud 用 reviewer=None + client cancel-handler
 

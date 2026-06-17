@@ -42,12 +42,14 @@ Also reused unchanged:
 
 Registration
 ------------
-This class registers itself in the ``agent_loop_driver`` registry as
-both ``codex_cli_v2`` (the user-facing framework name written to
-``user_slots.agent_framework``) and ``codex_official`` (short alias
-for env override ``AGENT_LOOP_FRAMEWORK=codex_official``). v1's
-``CodexSDK`` remains registered as ``codex_cli`` (default) and ``codex``
-during the A/B coexistence period.
+This class is the single canonical codex driver: ``__init__.py``
+registers it as ``codex_cli`` (the only user-facing codex framework
+name written to ``user_slots.agent_framework``). The transitional
+``codex_cli_v2`` / ``codex_official`` aliases used during the A/B
+cutover have been removed. v1's ``CodexSDK`` (xyz_codex_cli_sdk.py) is
+kept importable as a revival fallback but is NOT registered — if the
+official ``openai-codex`` SDK is missing, ``codex_cli`` is left
+unregistered rather than silently downgraded to v1.
 """
 
 from __future__ import annotations
@@ -509,16 +511,22 @@ class CodexSDKv2:
             instructions_path = codex_home_path / "instructions.md"
             instructions_path.write_text(system_prompt, encoding="utf-8")
 
-            # INFO proof-of-wiring: fingerprint the prompt so the
-            # backend log shows exactly what codex will read.
-            _sp_head = system_prompt[:160].replace("\n", " ⏎ ")
-            _sp_tail = system_prompt[-160:].replace("\n", " ⏎ ")
+            # Proof-of-wiring: size + path at INFO (no content). The
+            # head/tail fingerprint dumps actual prompt text — which
+            # routinely carries credentials/context in NarraNexus — so it
+            # only goes to DEBUG, never the default backend log.
             logger.info(
                 f"[CodexSDKv2] system prompt → {instructions_path} "
                 f"({len(system_prompt):,} chars)"
             )
-            logger.info(f"[CodexSDKv2]   head: {_sp_head!r}")
-            logger.info(f"[CodexSDKv2]   tail: {_sp_tail!r}")
+            logger.debug(
+                "[CodexSDKv2]   head: {!r}",
+                system_prompt[:160].replace("\n", " ⏎ "),
+            )
+            logger.debug(
+                "[CodexSDKv2]   tail: {!r}",
+                system_prompt[-160:].replace("\n", " ⏎ "),
+            )
 
             _stage_codex_oauth_credentials(codex_home_path)
 

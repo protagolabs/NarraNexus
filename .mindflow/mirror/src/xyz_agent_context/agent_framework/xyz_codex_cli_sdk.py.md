@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_cli_sdk.py
 stub: false
-last_verified: 2026-06-01
+last_verified: 2026-06-17
 ---
+
+## 2026-06-17 — PR #25 评审收尾(v1 现为 revival fallback,不注册)
+
+v1 已不在活跃路径——`__init__.py` 只注册 v2(`CodexSDKv2` → `codex_cli`),
+本文件保持可 import 作为 revival fallback。两处清理(无行为变更):
+
+- **铁律 #1**:`_idle` 分支注释 + "received 0 lines of output" 诊断串原为
+  中文,翻译成英文。
+- **system prompt 指纹降级**:head/tail 两行(回显 prompt 文本)从 INFO
+  降到 DEBUG,与 v2 一致;size+path 行保持 INFO。
 
 ## Why it exists
 

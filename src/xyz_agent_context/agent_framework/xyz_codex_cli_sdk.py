@@ -160,19 +160,21 @@ class CodexSDK:
             # 2a. instructions.md (system prompt + history)
             instructions_path = codex_home_path / "instructions.md"
             instructions_path.write_text(system_prompt, encoding="utf-8")
-            # INFO-level proof-of-wiring: print a short fingerprint of
-            # the prompt so the backend log shows exactly what Codex
-            # will read (head/tail + length). Keeps secrets out of
-            # the log (no full body), but enough to confirm the file
-            # is not empty and matches what the runtime assembled.
-            _sp_head = system_prompt[:160].replace("\n", " ⏎ ")
-            _sp_tail = system_prompt[-160:].replace("\n", " ⏎ ")
+            # Proof-of-wiring: size + path at INFO (no content). The
+            # head/tail still echoes prompt text — which routinely carries
+            # credentials/context — so it only goes to DEBUG.
             logger.info(
                 f"[CodexSDK] system prompt → {instructions_path} "
                 f"({len(system_prompt):,} chars)"
             )
-            logger.info(f"[CodexSDK]   head: {_sp_head!r}")
-            logger.info(f"[CodexSDK]   tail: {_sp_tail!r}")
+            logger.debug(
+                "[CodexSDK]   head: {!r}",
+                system_prompt[:160].replace("\n", " ⏎ "),
+            )
+            logger.debug(
+                "[CodexSDK]   tail: {!r}",
+                system_prompt[-160:].replace("\n", " ⏎ "),
+            )
             _stage_codex_oauth_credentials(codex_home_path)
 
             # 2b. config.toml (MCP + custom provider + permissions)
