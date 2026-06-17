@@ -108,6 +108,23 @@ def get_agent_loop_driver(
             caught immediately instead of masquerading as "claude".
     """
     name = resolve_framework_name(framework)
+
+    # Executor seam (binding rule #7/#9): when AGENT_EXECUTOR_URL is set
+    # (cloud orchestrator), the loop runs on the remote Executor service
+    # instead of spawning the CLI in-process — so claude/codex only ever
+    # spawn in that one isolated container. Unset (local / desktop) →
+    # in-process driver below, behaviour unchanged. The executor's own
+    # container does NOT set this var, so it resolves to the local driver
+    # (no self-recursion).
+    executor_url = os.getenv("AGENT_EXECUTOR_URL", "").strip()
+    if executor_url:
+        from xyz_agent_context.agent_framework.remote_agent_loop_driver import (
+            RemoteAgentLoopDriver,
+        )
+        return RemoteAgentLoopDriver(
+            framework=name, executor_url=executor_url, **factory_kwargs
+        )
+
     try:
         factory = _REGISTRY[name]
     except KeyError:

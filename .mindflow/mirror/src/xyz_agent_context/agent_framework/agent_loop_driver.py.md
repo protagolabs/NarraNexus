@@ -4,6 +4,15 @@ last_verified: 2026-06-17
 stub: false
 ---
 
+## 2026-06-17 — Executor seam:`AGENT_EXECUTOR_URL` 设了就走远程
+
+`get_agent_loop_driver` 增加一个分支:当 `AGENT_EXECUTOR_URL` 非空(云端
+orchestrator),返回 `RemoteAgentLoopDriver`(打到独立 Executor 服务),
+而不是本地 spawn claude/codex。未设(本地/桌面)→ 仍走注册表里的本地
+driver,行为不变(铁律 #7)。Executor 容器自身**不设**这个变量,所以它内部
+解析到本地 driver,无自递归。这是把 step-3 spawn 收敛进一个隔离容器的接缝
+(铁律 #20 控制面/数据面分离)。
+
 ## 2026-06-17 — 默认 framework 名 "claude" → "claude_code"
 
 `DEFAULT_AGENT_LOOP_FRAMEWORK` 从 `"claude"` 改名为 `"claude_code"`，文档串里的
