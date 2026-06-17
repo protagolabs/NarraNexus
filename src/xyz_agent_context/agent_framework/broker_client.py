@@ -22,18 +22,34 @@ flow surfaces a "waking up" state to the user (see handoff doc).
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Optional
 
 import httpx
 from loguru import logger
 
 
+@dataclass(frozen=True)
+class ExecutorEnsureResult:
+    """Outcome of ensuring a user's executor.
+
+    ``cold_started`` is True when the broker had to spawn a new container
+    (vs reuse a warm one) — the signal the run-start flow uses to surface
+    the "waking up" UX to the user.
+    """
+
+    url: str
+    cold_started: bool
+
+
 def broker_url() -> Optional[str]:
     return (os.getenv("BROKER_URL") or "").strip() or None
 
 
-async def resolve_executor_url(user_id: str, *, timeout: float = 120.0) -> Optional[str]:
-    """Ensure this user's executor via the broker and return its URL.
+async def ensure_executor(
+    user_id: str, *, timeout: float = 120.0
+) -> Optional[ExecutorEnsureResult]:
+    """Ensure this user's executor via the broker; return url + cold-start.
 
     Returns ``None`` when no broker is configured (caller falls back).
     Raises on broker/transport error — in cloud we must NOT silently fall
@@ -49,12 +65,13 @@ async def resolve_executor_url(user_id: str, *, timeout: float = 120.0) -> Optio
         resp.raise_for_status()
         data = resp.json()
     executor_url = data.get("executor_url")
+    status = data.get("status")
     logger.info(
-        f"[broker] ensured executor user={user_id} status={data.get('status')} url={executor_url}"
+        f"[broker] ensured executor user={user_id} status={status} url={executor_url}"
     )
     if not executor_url:
         raise RuntimeError(f"broker returned no executor_url for user {user_id!r}: {data}")
-    return executor_url
+    return ExecutorEnsureResult(url=executor_url, cold_started=(status == "started"))
 
 
 async def stop_executor(user_id: str, *, timeout: float = 30.0) -> None:

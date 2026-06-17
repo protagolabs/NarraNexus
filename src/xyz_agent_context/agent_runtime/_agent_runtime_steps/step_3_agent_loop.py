@@ -717,13 +717,28 @@ async def step_3_agent_loop(
     # user's Executor container and use its URL. Returns None when no
     # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
     # so get_agent_loop_driver falls back. This is the cold-start point.
-    from xyz_agent_context.agent_framework.broker_client import resolve_executor_url
-    executor_url = await resolve_executor_url(ctx.user_id)
+    from xyz_agent_context.agent_framework.broker_client import ensure_executor
+    ensured = await ensure_executor(ctx.user_id)
+    executor_url = ensured.url if ensured else None
+    if ensured is not None and ensured.cold_started:
+        # The user's executor was asleep and is being woken — emit a
+        # semantic marker so the frontend can show the "waking up" overlay.
+        # English text only (iron rule #1); the localized friendly copy
+        # lives in the frontend, keyed on step="executor.warming".
+        yield ProgressMessage(
+            step="executor.warming",
+            title="Waking up your agent",
+            description="Your agent was idle; starting it up…",
+            status=ProgressStatus.RUNNING,
+        )
     driver = get_agent_loop_driver(
         framework=framework_name,
         executor_url=executor_url,
         working_path=agent_working_path,
     )
+    # Clear the "waking up" overlay the instant the (now-awake) executor
+    # emits its first event — the COMPLETED that pairs the RUNNING above.
+    _warming_active = ensured is not None and ensured.cold_started
     try:
         async for response in driver.agent_loop(
             messages=messages,
@@ -731,6 +746,14 @@ async def step_3_agent_loop(
             extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
         ):
+            if _warming_active:
+                _warming_active = False
+                yield ProgressMessage(
+                    step="executor.warming",
+                    title="Agent ready",
+                    description="Your agent is awake.",
+                    status=ProgressStatus.COMPLETED,
+                )
             # ResponseProcessor.process is a generator yielding 0..N
             # ProcessedResponse per raw event (Phase B 2026-05-13 —
             # thinking deltas get coalesced via _ThinkingBatcher, and a
