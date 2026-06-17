@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-06-11
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — 收紧 auth 误判:`invalid_request_error` 退出类型集合
+
+`_AUTH_FAILURE_TYPES` 原含 `invalid_request_error`（注释「常包着坏/过期
+key」）。但这是 OpenAI 的 **catch-all 客户端错误类型**,同时覆盖坏 key 和
+大量非 auth 400(context_length_exceeded / 坏 model id / content-policy)。
+codex 把这些原样透传上来,于是每次上下文超长 / 坏 model 的 turn 都被误判成
+`auth_expired`(fatal)+ 掐掉 helper fallback。改为:类型集合删掉
+`invalid_request_error`;phrase 列表补 `"incorrect api key"`。真正的 auth
+仍精确命中——codex 发 `unauthorized`、Claude 发 `invalid_request`(无
+`_error`)、OpenAI 坏 key 靠报文 "Incorrect API key provided" 兜住。回归测试:
+`test_invalid_request_error_is_not_auth_by_type_alone` +
+`test_openai_bad_key_still_classified_by_message`。
 
 ## 2026-06-11 — 鉴权失败单独归类为 fatal + auth_expired
 

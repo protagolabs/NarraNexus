@@ -61,6 +61,29 @@ def test_is_auth_failure_ignores_transient_errors():
     assert not _is_auth_failure("server_error", "internal error")
 
 
+def test_invalid_request_error_is_not_auth_by_type_alone():
+    """``invalid_request_error`` is OpenAI's catch-all client-error type;
+    keying auth on it alone misfired non-auth 400s (context length, bad
+    model, content policy) into a fatal 're-login'. These must stay
+    non-auth so the turn can still recover / use the helper fallback."""
+    assert not _is_auth_failure(
+        "invalid_request_error",
+        "This model's maximum context length is 200000 tokens.",
+    )
+    assert not _is_auth_failure("invalid_request_error", "Unknown model: gpt-9")
+    assert not _is_auth_failure(
+        "invalid_request_error", "Your input was blocked by content policy."
+    )
+
+
+def test_openai_bad_key_still_classified_by_message():
+    """Removing the bare type must NOT regress a genuine bad OpenAI key —
+    its message wording ('Incorrect API key provided') is caught by phrase."""
+    assert _is_auth_failure(
+        "invalid_request_error", "Incorrect API key provided: sk-***"
+    )
+
+
 # ---------------- classification through process() ------------------
 
 

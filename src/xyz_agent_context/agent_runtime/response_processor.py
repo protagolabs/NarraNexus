@@ -71,8 +71,16 @@ _AUTH_FAILURE_TYPES: frozenset[str] = frozenset({
     "authentication_error",
     "invalid_api_key",
     "permission_error",
-    "invalid_request_error",  # often wraps a bad/expired key
 })
+# NB: ``invalid_request_error`` is deliberately NOT a type here. It is
+# OpenAI's catch-all client-error category covering bad/expired keys AND
+# many non-auth 400s (context_length_exceeded, bad model id,
+# content-policy). codex passes those through verbatim, so keying auth on
+# the bare type misfired every long-context / bad-model turn into a fatal
+# "re-login" (and suppressed the helper fallback). Genuine auth still
+# resolves precisely: codex emits ``unauthorized``, Claude emits
+# ``invalid_request`` (no ``_error``), and a bad OpenAI key carries the
+# "Incorrect API key provided" phrase below.
 _AUTH_FAILURE_PHRASES: tuple[str, ...] = (
     "sign in again",
     "log out and sign in",
@@ -82,6 +90,7 @@ _AUTH_FAILURE_PHRASES: tuple[str, ...] = (
     "unauthorized",
     "invalid api key",
     "invalid_api_key",
+    "incorrect api key",  # OpenAI's bad-key message wording
     "expired token",
     "401",
 )
