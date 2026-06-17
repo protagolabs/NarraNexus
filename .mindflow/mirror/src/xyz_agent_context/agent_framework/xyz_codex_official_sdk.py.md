@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-06-15
+last_verified: 2026-06-17
 ---
+
+## 2026-06-17 — 移除 `[CodexSDKv2][raw]` 临时诊断
+
+2026-06-11 为排查 empty-turn 加的 per-event INFO raw-dump(`method` +
+截断 payload)已删除——根因已由 method-namespace + camelCase 归一化修复,
+该诊断在云端长 agent_loop 下是 INFO 刷屏。流式路径恢复为"不默认打 raw"
+(见下方 "What v1 did that v2 does NOT" 一节)。`event_count` 仍由
+"stream ended after N notifications" 收尾日志使用,保留。
 
 ## 2026-06-15 — 写隔离落地:cloud 用 reviewer=None + client cancel-handler
 

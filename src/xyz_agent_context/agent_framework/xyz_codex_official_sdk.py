@@ -688,22 +688,6 @@ class CodexSDKv2:
                             else pl
                         )
 
-                    # DIAGNOSTIC (2026-06-11): turns end with
-                    # reasoning_chars=0 + no_reply and only ~5 notifications
-                    # — none of which translate to text/reasoning/tool.
-                    # Dump every raw notification (method + truncated
-                    # payload) so we can see exactly what codex emits and
-                    # why nothing maps. INFO-level, self-contained; remove
-                    # once the turn-empty root cause is found. (Mirror doc
-                    # notes v1 had the same ``[CodexSDK][raw]`` diagnostic.)
-                    _raw_pl = repr(dump.get("payload"))
-                    if len(_raw_pl) > 1000:
-                        _raw_pl = _raw_pl[:1000] + "…<truncated>"
-                    logger.info(
-                        f"[CodexSDKv2][raw] #{event_count} "
-                        f"method={dump.get('method')!r} payload={_raw_pl}"
-                    )
-
                     for translated in output_transfer(
                         dump,
                         transfer_type="codex_official",
