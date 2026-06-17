@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-06-11
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — user_slots.agent_framework column
+
+`user_slots` 新增 nullable `agent_framework`（TEXT/VARCHAR(32)，DDL 默认
+`'claude_code'`）。只在 `slot_name='agent'` 那一行有意义，驱动
+`step_3_agent_loop` 的 SDK 分发：`"claude_code"` → ClaudeAgentSDK，
+`"codex_cli"` → CodexSDK。带默认值是为了让已存在的旧行无需单独 backfill 就向后兼容
+——resolver 同样把 null 当作 claude_code 处理。纯 additive，`auto_migrate` 下次启动
+自动 `ALTER TABLE ADD COLUMN`。
 
 ## 2026-06-11 — invite_codes table marked retired (data kept)
 
