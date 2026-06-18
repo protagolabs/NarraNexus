@@ -844,6 +844,35 @@ export interface TelegramCredentialResponse extends ApiResponse {
   data: TelegramCredentialData | null;
 }
 
+export interface NarramessengerCredentialData {
+  agent_id: string;
+  backend_base_url: string;
+  matrix_homeserver_url: string;
+  matrix_user_id: string;
+  nexus_principal_id: string;
+  nexus_profile_id: string;
+  bind_room_id: string;
+  owner_matrix_user_id: string;
+  owner_name: string;
+  connection_mode: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface NarramessengerCredentialResponse extends ApiResponse {
+  data: NarramessengerCredentialData | null;
+}
+
+export interface NarramessengerBindResponse extends ApiResponse {
+  data?: {
+    matrix_user_id: string;
+    principal_id: string;
+    room_id: string;
+    connection_mode: string;
+  };
+}
+
 export interface TelegramBindResponse extends ApiResponse {
   data?: {
     bot_user_id: string;

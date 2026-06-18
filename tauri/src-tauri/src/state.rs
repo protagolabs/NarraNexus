@@ -328,6 +328,20 @@ impl ServiceDef {
                 order: 8,
                 startup_delay_ms: None,
             },
+            ServiceDef {
+                id: "narramessenger_trigger".to_string(),
+                label: "NarraMessenger Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.module.narramessenger_module.run_narramessenger_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 9,
+                startup_delay_ms: None,
+            },
         ]
     }
 
@@ -486,6 +500,22 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 8,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "narramessenger_trigger".to_string(),
+                label: "NarraMessenger Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.module.narramessenger_module.run_narramessenger_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 9,
                 startup_delay_ms: None,
             },
         ]

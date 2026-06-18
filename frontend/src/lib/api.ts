@@ -63,6 +63,8 @@ import type {
   SlackTestResponse,
   TelegramCredentialResponse,
   TelegramBindResponse,
+  NarramessengerCredentialResponse,
+  NarramessengerBindResponse,
   TelegramTestResponse,
 } from '@/types';
 
@@ -1109,6 +1111,24 @@ class ApiClient {
 
   async unbindTelegramBot(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/telegram/unbind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async getNarramessengerCredential(agentId: string): Promise<NarramessengerCredentialResponse> {
+    return this.request<NarramessengerCredentialResponse>(`/api/narramessenger/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindNarramessenger(agentId: string, bindCommand: string): Promise<NarramessengerBindResponse> {
+    return this.request<NarramessengerBindResponse>('/api/narramessenger/bind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, bind_command: bindCommand }),
+    });
+  }
+
+  async unbindNarramessenger(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/narramessenger/unbind', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });

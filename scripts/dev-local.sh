@@ -40,7 +40,8 @@ pkill -f "message_bus_trigger" 2>/dev/null || true
 pkill -f "run_lark_trigger" 2>/dev/null || true
 pkill -f "run_slack_trigger" 2>/dev/null || true
 pkill -f "run_telegram_trigger" 2>/dev/null || true
-for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
+pkill -f "run_narramessenger_trigger" 2>/dev/null || true
+for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7833; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -209,6 +210,7 @@ draw_panel() {
   status_line "Lark Trigger"        "pgrep -f 'run_lark_trigger' >/dev/null"
   status_line "Slack Trigger"       "pgrep -f 'run_slack_trigger' >/dev/null"
   status_line "Telegram Trigger"    "pgrep -f 'run_telegram_trigger' >/dev/null"
+  status_line "NarraMsg Trigger"    "pgrep -f 'run_narramessenger_trigger' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -236,6 +238,7 @@ while true; do
       pkill -f "run_lark_trigger" 2>/dev/null || true
       pkill -f "run_slack_trigger" 2>/dev/null || true
       pkill -f "run_telegram_trigger" 2>/dev/null || true
+      pkill -f "run_narramessenger_trigger" 2>/dev/null || true
       # Kill processes on known ports
       for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
@@ -323,6 +326,10 @@ tmux new-window -t "$SESSION" -n "SlackTrigger" \
 # --- Telegram Trigger ---
 tmux new-window -t "$SESSION" -n "TelegramTrigger" \
   "$ENV_CMD; echo '=== Telegram Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.telegram_module.run_telegram_trigger; echo 'Telegram Trigger stopped. Press Enter to close.'; read"
+
+# --- NarraMessenger Trigger ---
+tmux new-window -t "$SESSION" -n "NarraMsgTrigger" \
+  "$ENV_CMD; echo '=== NarraMessenger Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.narramessenger_module.run_narramessenger_trigger; echo 'NarraMessenger Trigger stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \
