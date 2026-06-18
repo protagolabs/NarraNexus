@@ -21,7 +21,9 @@ flow surfaces a "waking up" state to the user (see handoff doc).
 """
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -72,6 +74,41 @@ async def ensure_executor(
     if not executor_url:
         raise RuntimeError(f"broker returned no executor_url for user {user_id!r}: {data}")
     return ExecutorEnsureResult(url=executor_url, cold_started=(status == "started"))
+
+
+async def _executor_healthy(health_url: str) -> bool:
+    """True iff the executor answers 200 on its /health. Never raises."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(health_url)
+            return resp.status_code == 200
+    except Exception:  # noqa: BLE001 — still booting / not reachable yet
+        return False
+
+
+async def wait_until_ready(
+    executor_url: str, *, timeout: float = 60.0, interval: float = 0.5
+) -> None:
+    """Block until a freshly cold-started executor finishes booting.
+
+    A new container takes a few seconds to bring uvicorn up on :8020;
+    connecting to ``/agent-loop`` before then races the startup and fails
+    into the fallback path. This polls the executor's ``/health`` until it
+    answers — a condition-based wait, NOT a fixed sleep, and NOT a cap on the
+    agent loop (binding rule #14): it only waits for infrastructure to become
+    ready. Raises ``RuntimeError`` if the executor never comes up within
+    ``timeout`` (a genuinely broken container — failing loudly is correct).
+    """
+    health = f"{executor_url.rstrip('/')}/health"
+    deadline = time.monotonic() + timeout
+    while True:
+        if await _executor_healthy(health):
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"executor at {executor_url} did not become ready within {timeout}s"
+            )
+        await asyncio.sleep(interval)
 
 
 async def stop_executor(user_id: str, *, timeout: float = 30.0) -> None:

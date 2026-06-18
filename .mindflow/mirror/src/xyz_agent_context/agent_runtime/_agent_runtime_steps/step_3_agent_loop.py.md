@@ -3,6 +3,14 @@ code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent
 last_verified: 2026-06-18
 stub: false
 ---
+## 2026-06-18 — 冷启动 executor 先等就绪再驱动
+
+冷启动分支（`ensured.cold_started`）发完 `executor.warming` UX 事件后,**先
+`await wait_until_ready(executor_url)`(poll executor 的 /health)再驱动 loop**。
+否则容器刚 `docker run` 起、uvicorn 还没起来,第一次连接撞冷启动 → 失败 → 错误地
+落进 fallback(用户看到"醒来中"然后直接 fallback)。等就绪是 infra 等待,不是
+agent-loop 上限(铁律 #14)。
+
 ## 2026-06-18 — executor OOM（exit code -9）审计可见性
 
 `_record_oom_if_killed(db_client, user_id, error_str, output_already_emitted)`

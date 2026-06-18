@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/broker_client.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-06-18
 ---
+
+## 2026-06-18 — wait for cold-started executors before driving
+
+`ensure_executor` returns as soon as the broker `docker run`s the container —
+it does NOT wait for uvicorn on :8020. So a cold start (`cold_started=True`)
+returns a not-yet-ready URL; connecting immediately races the boot and the run
+wrongly drops into the fallback path. New `wait_until_ready(executor_url)`
+polls the executor's `/health` (via `_executor_healthy`, a monkeypatch seam for
+tests) until 200 — condition-based, not a fixed sleep, and NOT an agent-loop
+cap (rule #14); it only waits for infra. step_3 calls it on cold start, right
+after emitting the `executor.warming` UX event and before driving the loop.
+Raises if the container never comes up within the timeout (genuinely broken).
 
 ## 为什么存在
 

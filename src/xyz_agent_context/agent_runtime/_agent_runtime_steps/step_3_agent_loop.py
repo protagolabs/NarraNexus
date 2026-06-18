@@ -748,7 +748,10 @@ async def step_3_agent_loop(
     # user's Executor container and use its URL. Returns None when no
     # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
     # so get_agent_loop_driver falls back. This is the cold-start point.
-    from xyz_agent_context.agent_framework.broker_client import ensure_executor
+    from xyz_agent_context.agent_framework.broker_client import (
+        ensure_executor,
+        wait_until_ready,
+    )
     ensured = await ensure_executor(ctx.user_id)
     executor_url = ensured.url if ensured else None
     if ensured is not None and ensured.cold_started:
@@ -762,6 +765,11 @@ async def step_3_agent_loop(
             description="Your agent was idle; starting it up…",
             status=ProgressStatus.RUNNING,
         )
+        # The container is started but uvicorn on :8020 takes a few seconds to
+        # come up. Wait for it to be ready BEFORE driving the loop — otherwise
+        # the first connection races the cold start, fails, and the run drops
+        # into the fallback path instead of actually running the agent.
+        await wait_until_ready(executor_url)
     driver = get_agent_loop_driver(
         framework=framework_name,
         executor_url=executor_url,
