@@ -360,6 +360,13 @@ run_container_mode() {
       fi
       sleep 1
     done
+    # MUST export so the child processes below (MCP runner, module poller,
+    # job/bus/IM triggers, backend) route their writes through the proxy.
+    # Without this, every child opens its own SQLite connection to the
+    # same file and concurrent writes deadlock with "database is locked"
+    # (the proxy was started but nobody talks to it). scripts/dev-local.sh
+    # exports the same var for the local-development path.
+    export SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:8100}"
   fi
 
   # 2. MCP module runner
