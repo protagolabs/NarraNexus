@@ -577,6 +577,37 @@ async def _stream_fallback_recovery(
         )
 
 
+async def _record_oom_if_killed(
+    db_client: Any, user_id: str, error_str: str, output_already_emitted: bool
+) -> None:
+    """Record an audit row when the agent loop died from an executor OOM
+    (subprocess SIGKILL — ``exit code -9``), for monitoring/alerting.
+
+    Best-effort: never raises. A retry/recovery path is intentionally NOT
+    added here yet — the streaming loop must first be made cleanly
+    re-runnable (tracked separately in the scheduling-resource plan); today
+    an OOM falls through to the existing fallback. We only need visibility so
+    the platform can alert and the affected user's memory cap can be tuned.
+    """
+    if "exit code -9" not in error_str:
+        return
+    try:
+        from xyz_agent_context.repository.executor_audit_repository import (
+            ExecutorAuditRepository,
+        )
+
+        await ExecutorAuditRepository(db_client).record(
+            event_type="oom_killed",
+            user_id=user_id,
+            detail={
+                "error_message": error_str[:500],
+                "output_already_emitted": output_already_emitted,
+            },
+        )
+    except Exception as audit_err:  # noqa: BLE001
+        logger.warning(f"[oom-audit] failed to record OOM event: {audit_err}")
+
+
 @timed("step.3_agent_loop")
 
 async def step_3_agent_loop(
@@ -688,7 +719,8 @@ async def step_3_agent_loop(
     # Set up Agent working directory
     from xyz_agent_context.settings import settings
     working_path = settings.base_working_path
-    agent_working_path = f"{working_path}/{ctx.agent_id}_{ctx.user_id}"
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    agent_working_path = str(agent_workspace_path(ctx.agent_id, ctx.user_id, base=working_path))
     if not os.path.exists(agent_working_path):
         os.makedirs(agent_working_path)
 
@@ -712,7 +744,32 @@ async def step_3_agent_loop(
     # the system supports will resolve.
     framework_name = await _resolve_agent_framework_name(ctx.user_id, db_client)
     logger.info(f"[step_3] agent_loop framework: {framework_name!r} (user={ctx.user_id})")
-    driver = get_agent_loop_driver(framework=framework_name, working_path=agent_working_path)
+    # Per-user executor routing (cloud): ask the broker to ensure this
+    # user's Executor container and use its URL. Returns None when no
+    # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
+    # so get_agent_loop_driver falls back. This is the cold-start point.
+    from xyz_agent_context.agent_framework.broker_client import ensure_executor
+    ensured = await ensure_executor(ctx.user_id)
+    executor_url = ensured.url if ensured else None
+    if ensured is not None and ensured.cold_started:
+        # The user's executor was asleep and is being woken — emit a
+        # semantic marker so the frontend can show the "waking up" overlay.
+        # English text only (iron rule #1); the localized friendly copy
+        # lives in the frontend, keyed on step="executor.warming".
+        yield ProgressMessage(
+            step="executor.warming",
+            title="Waking up your agent",
+            description="Your agent was idle; starting it up…",
+            status=ProgressStatus.RUNNING,
+        )
+    driver = get_agent_loop_driver(
+        framework=framework_name,
+        executor_url=executor_url,
+        working_path=agent_working_path,
+    )
+    # Clear the "waking up" overlay the instant the (now-awake) executor
+    # emits its first event — the COMPLETED that pairs the RUNNING above.
+    _warming_active = ensured is not None and ensured.cold_started
     try:
         async for response in driver.agent_loop(
             messages=messages,
@@ -720,6 +777,14 @@ async def step_3_agent_loop(
             extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
         ):
+            if _warming_active:
+                _warming_active = False
+                yield ProgressMessage(
+                    step="executor.warming",
+                    title="Agent ready",
+                    description="Your agent is awake.",
+                    status=ProgressStatus.COMPLETED,
+                )
             # ResponseProcessor.process is a generator yielding 0..N
             # ProcessedResponse per raw event (Phase B 2026-05-13 —
             # thinking deltas get coalesced via _ThinkingBatcher, and a
@@ -759,6 +824,13 @@ async def step_3_agent_loop(
         error_type = type(e).__name__
         logger.exception(f"[AGENT-LOOP-FATAL] {error_type}: {error_str}")
         captured_error = {"error_type": error_type, "error_message": error_str}
+
+        # Executor OOM (SIGKILL / exit code -9): record for monitoring +
+        # alerting. Retry is deferred (scheduling-resource plan) — the OOM
+        # falls through to the fallback recovery below as before.
+        await _record_oom_if_killed(
+            db_client, ctx.user_id, error_str, bool(agent_loop_response)
+        )
 
     # Finalize state BEFORE inspecting it — accessing `state.final_output`
     # on an unfinalized state is undefined per ExecutionState's contract.

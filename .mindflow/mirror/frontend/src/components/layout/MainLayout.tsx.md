@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — 唤醒遮罩挂载
+
+ChatView 在 ChatPanel 的 relative 容器内挂了 `[[../chat/WakingOverlay.tsx]]`
+(`absolute inset-0`),冷启动 per-user executor 时虚化聊天面。只虚化聊天卡片、
+不挡整个 App。
 
 ## 2026-06-11 — atomic-tab drawer
 

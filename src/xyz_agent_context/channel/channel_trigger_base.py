@@ -45,13 +45,15 @@ if TYPE_CHECKING:
 
 from loguru import logger
 
-# NOTE: AgentRuntime / collect_run / RunError are imported lazily inside
+# NOTE: the AgentRuntimeClient (and RunError) are imported lazily inside
 # the methods that need them. Eager top-level import causes a circular
 # load when ``channel/__init__.py`` (which re-exports ChannelTriggerBase
 # for ergonomic imports) is reached during ``module/__init__.py``'s
 # initial pass — module imports ``LarkModule`` → ``ChannelSenderRegistry``
-# → ``channel/__init__.py`` → ``channel_trigger_base`` → ``AgentRuntime``
-# → back into ``module``, which is still partially initialised.
+# → ``channel/__init__.py`` → ``channel_trigger_base`` → the runtime
+# → back into ``module``, which is still partially initialised. The
+# client seam (agent_runtime/client.py) is itself import-safe, but we
+# keep the call-site import lazy to preserve this guarantee.
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_PROCESSED,
     EVENT_INGRESS_DROPPED_DEDUP,
@@ -1083,8 +1085,9 @@ class ChannelTriggerBase(ABC):
         Mirrors ``backend/routes/websocket.py`` which uses the same key.
         """
         # Lazy import — see top-of-file comment about circular dependency.
-        from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
-        from xyz_agent_context.agent_runtime.run_collector import collect_run
+        from xyz_agent_context.agent_runtime.client import (
+            get_agent_runtime_client,
+        )
 
         agent_id = getattr(credential, "agent_id", "")
 
@@ -1134,9 +1137,7 @@ class ChannelTriggerBase(ABC):
                 a.model_dump(mode="json") for a in attachments
             ]
 
-        runtime = AgentRuntime()
-        result = await collect_run(
-            runtime,
+        result = await get_agent_runtime_client().run_and_collect(
             agent_id=agent_id,
             user_id=owner_user_id,
             input_content=tagged_prompt,

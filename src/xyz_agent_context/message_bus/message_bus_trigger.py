@@ -453,17 +453,16 @@ class MessageBusTrigger:
             RuntimeError: If AgentRuntime cannot be imported or execution fails.
         """
         try:
-            from xyz_agent_context.agent_runtime import AgentRuntime
-            from xyz_agent_context.agent_runtime.run_collector import collect_run
+            from xyz_agent_context.agent_runtime.client import (
+                get_agent_runtime_client,
+            )
             from xyz_agent_context.schema import WorkingSource
         except ImportError as e:
             raise RuntimeError(
                 f"Cannot import AgentRuntime dependencies: {e}"
             ) from e
 
-        runtime = AgentRuntime()
-        collection = await collect_run(
-            runtime,
+        collection = await get_agent_runtime_client().run_and_collect(
             agent_id=agent_id,
             user_id=sender_agent_id,
             input_content=prompt,

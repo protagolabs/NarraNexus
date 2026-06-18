@@ -54,3 +54,10 @@ def test_iron_rules_injected_first_in_system_prompt():
         "SECURITY_IRON_RULES must be appended FIRST (before all other "
         "prompt sections) so no later section can supersede it."
     )
+    # ...and it must be CLOUD-ONLY: local/desktop deliberately omits it so
+    # the agent can operate across the user's own folders.
+    gate = src.index('get_deployment_mode() == "cloud"')
+    assert gate < idx_security, (
+        "SECURITY_IRON_RULES injection must be gated on cloud mode — local "
+        "agents must NOT be restricted to their workspace."
+    )

@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-06-11
+last_verified: 2026-06-18
 stub: false
 ---
+## 2026-06-18 — executor OOM（exit code -9）审计可见性
+
+`_record_oom_if_killed(db_client, user_id, error_str, output_already_emitted)`
+模块级 helper，在 agent loop 的 `except` 捕获点被调用一次：若错误是
+executor 子进程被 OOM-kill（`exit code -9`），best-effort 写一条
+`oom_killed` 审计行（`instance_executor_audit`），供监测发现。**告警本身不在
+这里做**——NarraNexus 开源，只产生信号（审计行 + `/admin/runtime/status`）；推
+Lark 告警由 deploy 仓的 watcher 读这些信号去做（信号/告警分离,开源边界）。
+**故意不做重试**——干净重试要求把流式 loop 改成可从头重跑，风险大，留作
+后续专项（scheduling-resource plan）；今天 OOM 仍照常落入下方 fallback。
+helper 绝不抛错（审计失败只 log），不影响 loop。
+
 ## 2026-06-11 — 鉴权失效时跳过 helper fallback（不伪造回复）
 
 agent loop 出现 `ErrorMessage(error_type="auth_expired")`（response_processor

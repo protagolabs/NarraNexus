@@ -502,6 +502,23 @@ def set_user_config(
     _anthropic_helper_ctx.set(anthropic_helper)
 
 
+def snapshot_user_config() -> dict[str, Optional[object]]:
+    """Return the CURRENT task's provider configs (the ContextVar values).
+
+    Used by the remote agent-loop executor seam: the orchestrator (which
+    has the DB + resolver) snapshots the resolved configs here and ships
+    them to the executor service, which re-applies them via
+    ``set_user_config`` before running the loop. Returns the raw config
+    objects (or None when unset); serialization is the caller's job.
+    """
+    return {
+        "claude": _claude_ctx.get(),
+        "openai": _openai_ctx.get(),
+        "codex": _codex_ctx.get(),
+        "anthropic_helper": _anthropic_helper_ctx.get(),
+    }
+
+
 # =============================================================================
 # Quota-routing ContextVars (system-default free-tier feature)
 # =============================================================================
