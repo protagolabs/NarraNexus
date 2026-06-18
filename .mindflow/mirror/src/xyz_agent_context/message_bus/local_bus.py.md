@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-06-08
+last_verified: 2026-06-18
 stub: false
 ---
+
+## 2026-06-18 — same-user boundary on bus discovery + messaging
+
+The bus must never cross user boundaries (an agent can't find or message
+another user's agents). Three guards, all keyed off `_agent_owner(agent_id)`
+(authoritative `agents.created_by`):
+- `search_agents(query, requester_agent_id=...)` filters to the requester's
+  owner; unknown requester → returns nothing (never leak all).
+- `send_to_agent` raises `PermissionError` if from/to owners differ.
+- `create_channel` raises `PermissionError` if any member's owner differs from
+  the creator's (closes the group-channel path).
+Empty/unknown owner ("" — e.g. seed/system agents) skips the guard so internal
+flows aren't broken. The `bus_search_agents` MCP tool now takes the caller's
+`agent_id` to pass as `requester_agent_id`. (social_network search is already
+instance-scoped, so no change there.)
 
 ## 2026-06-08 — bus message search index (projection)
 
