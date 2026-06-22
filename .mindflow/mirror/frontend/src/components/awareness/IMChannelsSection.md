@@ -1,13 +1,20 @@
 ---
 code_file: frontend/src/components/awareness/IMChannelsSection.tsx
 stub: false
-last_verified: 2026-05-22
+last_verified: 2026-06-22
 ---
+
+## 2026-06-22 — NarraMessenger added to `IM_CHANNELS`
+
+The tab now lists **four** channels: Lark, Slack, Telegram, NarraMessenger.
+NarraMessenger was added exactly as the extension point promises — one
+`IM_CHANNELS` entry + a `NarramessengerConfig` card + `api.getNarramessengerCredential`
+(`enabled` truthiness). No structural change to this component.
 
 ## Why it exists
 
 Single grouping component inside the Awareness panel for **all** IM
-channel bindings (currently Lark + Slack; future Telegram). Replaces
+channel bindings (Lark, Slack, Telegram, NarraMessenger). Replaces
 having one top-level Lark card and one top-level Slack card with a
 collapsible "IM Channels" section that scales to N channels without
 visually overwhelming the panel.
