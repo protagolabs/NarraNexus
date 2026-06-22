@@ -257,10 +257,23 @@ async def lifespan(app: FastAPI):
     app.state.memory_consolidation_worker = memory_worker
     logger.info("Memory consolidation worker started")
 
+    # Per-user Executor idle-cull reaper (cloud + broker only; no-op
+    # otherwise). Stops executor containers whose user has gone idle past
+    # the TTL — only idle ones, never a running loop (iron rule #14).
+    from xyz_agent_context.agent_runtime.executor_reaper import (
+        maybe_start_executor_reaper,
+    )
+    app.state.executor_reaper_task = maybe_start_executor_reaper()
+    if app.state.executor_reaper_task is not None:
+        logger.info("Executor idle-cull reaper started")
+
     yield
 
     # Shutdown
     logger.info("Shutting down FastAPI application...")
+    reaper_task = getattr(app.state, "executor_reaper_task", None)
+    if reaper_task is not None:
+        reaper_task.cancel()
     worker = getattr(app.state, "memory_consolidation_worker", None)
     if worker is not None:
         await worker.stop()
@@ -327,6 +340,7 @@ from backend.routes.admin_quota import router as admin_quota_router
 from backend.routes.notifications import router as notifications_router
 from backend.routes.admin_logs import router as admin_logs_router
 from backend.routes.admin_migration import router as admin_migration_router
+from backend.routes.admin_runtime import router as admin_runtime_router
 from backend.routes.transcription import router as transcription_router
 from backend.routes.transcription_public import router as transcription_public_router
 from backend.routes.artifacts_public import router as artifacts_public_router
@@ -354,6 +368,7 @@ app.include_router(arena_router, tags=["Arena"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
 app.include_router(admin_migration_router, tags=["AdminMigration"])
+app.include_router(admin_runtime_router, tags=["AdminRuntime"])
 app.include_router(notifications_router, tags=["Notifications"])
 app.include_router(admin_logs_router, prefix="/api/admin/logs", tags=["AdminLogs"])
 app.include_router(

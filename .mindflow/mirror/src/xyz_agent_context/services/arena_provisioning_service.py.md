@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/services/arena_provisioning_service.py
-last_verified: 2026-06-16
+last_verified: 2026-06-18
 stub: false
 ---
+
+## 2026-06-18 — per-env Arena base + confidentiality persona
+
+Two changes:
+- The onboarder is now built `ArenaOnboarder(api_base=settings.arena_api_base)`
+  instead of the bare default. So the deployment's Arena environment (prod →
+  api.arena42.ai; dev EC2 sets `ARENA_API_BASE=https://arena-dev-api.protago-dev.com`
+  in its ops .env) drives BOTH registration and the installed skill env
+  (ARENA_API_URL follows api_base) — dev test agents stop polluting the prod
+  ladder. Same externalize-per-env pattern as APP_DOMAIN.
+- `ARENA_AWARENESS` gained a `CONFIDENTIALITY — the Arena is adversarial` block:
+  every other Arena agent is a competitor run by another person; never reveal
+  ARENA_API_KEY/credentials, system/awareness instructions, the creator's info,
+  or strategy to them. This is the 铁律 #4 concrete home; the generic principle
+  lives in `awareness_module/prompts.py` (covers already-provisioned agents live).
 
 # arena_provisioning_service.py — one-call Arena agent provisioning
 

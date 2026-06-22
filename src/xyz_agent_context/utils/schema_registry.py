@@ -1478,6 +1478,42 @@ _register(
 )
 
 
+# ----------------------------------------------------------------------------
+# instance_executor_audit — executor/loop lifecycle + OOM events audit log.
+#
+# Motivation (incident lesson #5): container restart wipes docker logs; DB
+# rows survive. After any OOM or runaway-loop incident the question is always
+# "what was the executor doing in the 10 minutes before it died?" — this table
+# is the answer. Append-only; one row per lifecycle event (container start /
+# reuse / cull / orphan reap / OOM / admit queue / admit grant). `detail_json`
+# stores arbitrary context so callers never need a migration per new field.
+#
+# Indexed on (event_type, created_at) to support the L3 monitoring query
+# ExecutorAuditRepository.counts_since() which counts event types over a window.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="instance_executor_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("event_type", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(128)"),
+            Column("container_id", "TEXT", "VARCHAR(64)"),
+            Column("run_id", "TEXT", "VARCHAR(64)"),
+            Column("active_loops", "INTEGER", "INT"),
+            Column("active_users", "INTEGER", "INT"),
+            Column("queue_depth", "INTEGER", "INT"),
+            Column("free_mem_mb", "INTEGER", "INT"),
+            Column("detail_json", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_exec_audit_type_time", ["event_type", "created_at"]),
+        ],
+    )
+)
+
+
 # Migration ledger — records which ordered data migrations have been applied to
 # THIS database, so the startup runner skips them (run-once) and a cross-version
 # upgrade applies every still-pending step in order. See migrations/.

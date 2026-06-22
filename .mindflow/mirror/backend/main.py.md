@@ -10,6 +10,13 @@ stub: false
 和 `app.include_router(...)`，挂载路径 `/api/narramessenger`（`bind` / `unbind` /
 `credential`）。与 lark/slack/telegram channel 的 router 同 pattern。
 
+## 2026-06-17 — executor idle-cull reaper 接入 lifespan
+
+`lifespan` 启动时调 `maybe_start_executor_reaper()`(存 `app.state.executor_reaper_task`),
+teardown 时 `cancel()`。云端+broker 才真正起,本地/桌面 no-op(返回 None)。
+回收空闲 per-user executor 容器,只碰空闲的(铁律 #14)。见
+`[[../src/xyz_agent_context/agent_runtime/executor_reaper.py]]`。
+
 ## 2026-06-12 — admin_migration_router 注册
 
 新增 `from backend.routes.admin_migration import router as admin_migration_router` 和对应的 `app.include_router(admin_migration_router, tags=["AdminMigration"])`。router 自带 prefix `/api/admin`，最终挂载路径为 `POST /api/admin/migrate-identity`。与 `admin_quota_router` 同 pattern（自带 prefix，`include_router` 不再传 prefix 参数）。

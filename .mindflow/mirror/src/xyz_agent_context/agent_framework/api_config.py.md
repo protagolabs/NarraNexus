@@ -3,6 +3,15 @@ code_file: src/xyz_agent_context/agent_framework/api_config.py
 last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — 新增 `snapshot_user_config()`(Executor seam 用)
+
+`set_user_config` 旁新增 `snapshot_user_config()`,返回当前 task 四个
+provider 配置 ContextVar 的值(claude/openai/codex/anthropic_helper)。
+用途:orchestrator(有 DB + resolver)快照已解析的 scoped 配置 → 经
+`executor_protocol` 序列化 → 发给 Executor 服务 → 它 `set_user_config` 重新
+设上。让 scoped 凭据跨网络边界显式传递(本来只走 ContextVar,过网会丢)。
+
 ## 2026-06-17 — 删除 `_get_user_runtime_llm_configs_strict` 的 legacy fallback(铁律 #2/#5)
 
 原函数是"先调单点 resolver,任何意外异常就 fall back 到一份 80 行手写的旧

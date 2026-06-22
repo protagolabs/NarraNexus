@@ -40,14 +40,16 @@ class _FakeResponse:
 
 
 class _FakeClient:
-    """Scripts a sequence of register responses; records the names attempted."""
+    """Scripts a sequence of register responses; records the names + URLs attempted."""
 
     def __init__(self, responses):
         self._responses = list(responses)
         self.attempted_names = []
+        self.attempted_urls = []
 
     def post(self, url, headers=None, json=None, **kw):
         self.attempted_names.append(json["name"])
+        self.attempted_urls.append(url)
         return self._responses.pop(0)
 
     def get(self, url, headers=None, **kw):
@@ -139,6 +141,106 @@ def test_install_skill_writes_files_consumable_by_skillmodule(tmp_path: Path):
     assert pj["provisioned_by"] == "NarraNexus"
     # api_key must NOT leak into the non-secret profile
     assert "arena_sk_xyz" not in (sd / "arena_profile.json").read_text()
+
+
+def test_register_targets_configured_api_base():
+    # The configured api_base (e.g. the Arena dev env) is where registration
+    # goes — not the hard-coded prod default. This is what keeps dev agents off
+    # the live ladder.
+    client = _FakeClient([_ok()])
+    onb = ArenaOnboarder(
+        api_base="https://arena-dev-api.protago-dev.com", http_client=client
+    )
+    onb.register()
+    assert client.attempted_urls == [
+        "https://arena-dev-api.protago-dev.com/api/v1/agents/register"
+    ]
+
+
+def test_install_skill_api_url_follows_api_base(tmp_path: Path):
+    # The agent's runtime calls read ARENA_API_URL from the installed skill env;
+    # it must match the api_base the agent registered against, so a dev agent
+    # calls the dev Arena, never prod.
+    onb = ArenaOnboarder(
+        api_base="https://arena-dev-api.protago-dev.com", http_client=_FakeClient([])
+    )
+    creds = ArenaCredentials(
+        api_key="k", agent_id="a", agent_name="Swift_Nova_Wolf",
+        claim_token="t", claim_url="u", referral_code=None,
+    )
+    result = onb.install_skill(
+        tmp_path / "skills", creds, skill_md="# Arena\n", owner_user_id="user_1"
+    )
+    meta = json.loads((result.skill_dir / ".skill_meta.json").read_text())
+    api_url = base64.b64decode(meta["env_config"]["ARENA_API_URL"]).decode()
+    assert api_url == "https://arena-dev-api.protago-dev.com"
+
+
+def test_provisioning_uses_settings_arena_api_base(monkeypatch):
+    # The provisioning service must build the onboarder with the configured base
+    # (settings.arena_api_base), not ArenaOnboarder's hard-coded default — this
+    # is the single wiring line that binds dev provisioning to the dev Arena.
+    import asyncio
+
+    from xyz_agent_context.services import arena_provisioning_service as svc
+
+    monkeypatch.setattr(svc.settings, "arena_api_base", "https://arena-dev-api.protago-dev.com")
+
+    captured = {}
+
+    class _CapturingOnboarder:
+        def __init__(self, *, api_base, **kw):
+            captured["api_base"] = api_base
+
+        def register(self, *a, **kw):
+            raise RuntimeError("stop after construction")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(svc, "ArenaOnboarder", _CapturingOnboarder)
+
+    class _NoAgents:
+        def __init__(self, db):
+            pass
+
+        async def find(self, *a, **kw):
+            return []
+
+    # provision() imports AgentRepository locally from its source module.
+    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+    monkeypatch.setattr(agent_repo_mod, "AgentRepository", _NoAgents)
+
+    service = svc.ArenaProvisioningService(db_client=object())
+    with pytest.raises(RuntimeError, match="stop after construction"):
+        asyncio.run(service.provision("user_x"))
+    assert captured["api_base"] == "https://arena-dev-api.protago-dev.com"
+
+
+def test_arena_awareness_has_confidentiality_rule():
+    # 铁律 #4 home: the concrete "never leak to competitors" rule lives in the
+    # Arena persona, naming the adversarial threat.
+    from xyz_agent_context.services.arena_provisioning_service import ARENA_AWARENESS
+
+    text = ARENA_AWARENESS.lower()
+    assert "confidentiality" in text
+    assert "competitor" in text
+    assert "arena_api_key" in text or "credential" in text
+
+
+def test_generic_awareness_has_confidentiality_rule():
+    # Defense-in-depth: the generic confidentiality principle is in the awareness
+    # instruction template, so every agent (incl. already-provisioned ones) gets
+    # it live, with no scenario naming (铁律 #4: generic stays generic).
+    from xyz_agent_context.module.awareness_module.prompts import (
+        AWARENESS_MODULE_INSTRUCTIONS,
+    )
+
+    text = AWARENESS_MODULE_INSTRUCTIONS.lower()
+    assert "confidential" in text
+    assert "creator" in text
+    # generic layer must not hard-code the Arena scenario
+    assert "arena" not in text
 
 
 def test_no_arena_credentials_table():

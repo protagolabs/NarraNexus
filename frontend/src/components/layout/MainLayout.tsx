@@ -43,6 +43,7 @@ import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
+import { WakingOverlay } from '@/components/chat/WakingOverlay';
 import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { ArtifactColumn } from '@/components/artifacts';
@@ -209,6 +210,7 @@ export function ChatView() {
           <OnboardingChecklist />
           <div className="relative flex-1 min-h-0">
             <ChatPanel onAgentComplete={refreshAll} />
+            <WakingOverlay />
           </div>
         </div>
 
