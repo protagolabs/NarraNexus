@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — slimmed to agent rows only; group chats moved out
+
+The group-chat row + team rename/delete/open logic was extracted to
+[[TeamChatRow]] (now rendered in [[AgentList]]'s TEAMS section). This component
+is now just the section header (optional) + the agent rows. It keeps
+`activeTeamChatId` only to compute `effectiveAgentId` — when a team group chat is
+open, NO agent row should look selected. In the new layout AgentList always
+passes `hideHeader` + `teamId=null` (a single flat AGENTS list), so the header
+path is effectively vestigial but retained for the tests / ungrouped case.
 
 # AgentGroupSection.tsx — One collapsible team section in the grouped sidebar
 

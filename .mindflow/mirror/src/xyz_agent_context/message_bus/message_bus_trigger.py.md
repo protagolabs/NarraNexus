@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-06-12
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — team group-chat branch + cascade cap + faster polling + cursor fix
+
+`_handle_channel_batch` now branches on `channel_owner.startswith("team_")` (a
+team group-chat room — see `teams.py.md`). **Team branch**: a group-chat prompt
+(`_build_team_prompt`) that forbids tools / process-narration and just talks; the
+agent's plain reply is posted BACK into the channel as that agent, with
+@mentions parsed (`_extract_team_mentions`, @Name/@all → member ids / `@everyone`)
+so a hand-off pulls teammates in. Every non-team channel (peer DM, IM bridges)
+keeps the original owner-relay + inbox path untouched. **Cascade cap**:
+`_team_cascade_depth` counts consecutive trailing agent (non-`usr_`) messages;
+past `MAX_TEAM_AGENT_HOPS` (4) the reply's @mentions are dropped so two agents
+can't @ each other forever (a human message resets the chain). **Latency**:
+adaptive poll bounds lowered to MIN 3s / MAX 12s (was 10/120) so a reply lands
+quickly after idle.
+
+Bug fix (shared, all bus delivery): the cursor-advance calls used
+`str(latest.created_at)`. When `created_at` is an auto-parsed `datetime`, `str()`
+gives space-format `"YYYY-MM-DD HH:MM:SS+00:00"` while `created_at` is isoformat
+`"…T…+00:00"`; lexicographic compare in `get_pending_messages` ('T' > ' ') then
+makes every newer message look unprocessed → the agent loops. Dropped the
+`str()` wraps; canonicalisation now lives in `local_bus.ack_processed`.
 
 ## 2026-06-12 — owner-relay prompt names the owner; routing keeps the user_id
 

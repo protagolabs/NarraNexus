@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkStrip.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-20
 stub: false
 ---
+
+## 2026-06-20 — cleaner strip: no text headers, carbon highlight, centered
+
+Owner-driven polish:
+- **Category text headers removed** (CONFIG / ACTIVITY / …). Groups are now
+  divided by a hairline only (`border-t` between categories) — the strip reads
+  as icon-only. `category.label` survives solely as the React key.
+- **Carbon (orange) highlight**: hover and active now tint the tab — bg
+  `--color-carbon-soft`, icon + caption `--color-carbon`, and the active
+  "bookmark tongue" edge rule is carbon (was ink/`--text-primary`). Resting
+  icons stay `--text-tertiary` so the species color reads as accent, not noise
+  (Axiom #1). Implemented with a `group` + `group-hover:` on the button.
+- **Centered**: caption gained `text-center`; icon/caption already centered.
+- MCP caption now "MCP" (see [[tabs]] `stripLabel`).
 
 # BookmarkStrip.tsx — Right-edge strip, atomic-tab IA
 

@@ -13,12 +13,14 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Square, Loader2, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
+import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot, Kbd, RingAvatar } from '@/components/nm';
+import { BracketEmptyState, BracketLoading, BracketSectionLabel, BindingDot, RingAvatar } from '@/components/nm';
+import { OnboardingJourney } from './OnboardingJourney';
+import { ComposerModelBadge } from './ComposerModelBadge';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
@@ -774,24 +776,22 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       // itself (see onDragOver/onDrop there) because <textarea> processes
       // drop synchronously into its value before bubbling.
       className={cn(
-        'flex flex-col h-full overflow-hidden transition-colors',
+        'chat-frosted flex flex-col h-full overflow-hidden transition-colors',
         isDragging && 'ring-2 ring-inset ring-[var(--accent-primary)]'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Header — NM mono section label + StatusDot per conversation state */}
-      <div className="px-5 flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
+      {/* Header — carbon·silicon binding-dot brand motif + NM mono label.
+          Hidden on mobile: the top bar shows the breadcrumb, and the activity
+          icon moves into the Chat/Artifacts tab row (see MainLayout). */}
+      <div className="px-5 hidden md:flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
         {/* min-w-0 + overflow-hidden: when the artifact column squeezes
             the chat, the label/agent-id side TRUNCATES — it must never
             run under the Processing/cost cluster on the right. */}
         <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
-          <StatusDot
-            status={isStreaming ? 'warning' : agentId ? 'success' : 'neutral'}
-            size={8}
-            pulse={isStreaming}
-          />
+          <BindingDot size={7} pulse={isStreaming} className="shrink-0" />
           <BracketSectionLabel
             trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px] truncate max-w-[180px]">{agentId}</span> : undefined}
           >
@@ -821,7 +821,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         className="flex-1 min-h-0"
         data-help-id="chat.messages"
         viewportRef={scrollContainerRef}
-        viewportClassName="p-5"
+        viewportClassName="p-5 max-md:p-3"
         onViewportScroll={(e) => {
           const el = e.currentTarget;
           if (el.scrollTop < 50 && !isLoadingMore && historyMessages.length < historyTotalCount) {
@@ -847,16 +847,22 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        {/* Empty state — NM bracket-wrapped */}
+        {/* Empty state. With an agent selected → the JourneyBand onboarding
+            (binding-dot eyebrow, memory→network→team stations, suggested
+            prompts that fill the composer). With no agent → the plain
+            bracket prompt to pick one from the sidebar. */}
         {showEmptyState && (
-          <BracketEmptyState
-            label={!agentId ? 'Select an agent' : 'Start a conversation'}
-            hint={
-              !agentId
-                ? 'Choose an agent from the sidebar to begin your interaction.'
-                : 'Send a message to interact with the AI agent.'
-            }
-          />
+          agentId ? (
+            <OnboardingJourney
+              agentName={currentAgent?.name || agentId}
+              onPrompt={(text) => composerRef.current?.setText(text)}
+            />
+          ) : (
+            <BracketEmptyState
+              label="Select an agent"
+              hint="Choose an agent from the sidebar to begin your interaction."
+            />
+          )
         )}
 
         {/* Bootstrap greeting */}
@@ -1015,7 +1021,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           );
         })()}
 
-        <div ref={messagesEndRef} />
+        {/* Scroll anchor. max-md:-mt-4 cancels the space-y-4 margin this empty
+            div would otherwise add, killing the dead gap below the last message
+            on mobile (combined with the smaller viewport padding below). */}
+        <div ref={messagesEndRef} className="max-md:-mt-4" />
       </div>
       </ScrollArea>
 
@@ -1099,26 +1108,96 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        <div className="flex gap-2.5 items-stretch" data-help-id="chat.composer">
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFilePick}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFilePick}
+        />
+        {/* clawcreek-style composer: the textarea owns the box, the send/stop
+            button is docked bottom-right inside it, and a tools row (attach +
+            voice) sits beneath. Textarea state is isolated in <Composer> so a
+            keystroke re-renders only it, not this monolith (see Composer.tsx);
+            key={agentId} remounts it on agent switch to restore that agent's
+            draft. The drag/paste handlers live on the textarea too because the
+            native default (insert dropped path / paste-as-text) wins otherwise. */}
+        <div className="relative" data-help-id="chat.composer">
+          <Composer
+            key={agentId ?? '__none__'}
+            ref={composerRef}
+            agentId={agentId}
+            disabled={!agentId}
+            placeholder={
+              !agentId
+                ? 'Select an agent first…'
+                : isDragging
+                  ? 'Drop file to attach…'
+                  : 'Type a message or / for skills…'
+            }
+            onSubmit={stableSubmit}
+            onEmptyChange={setComposerEmpty}
+            onDragOver={stableDragOver}
+            onDragLeave={stableDragLeave}
+            onDrop={stableDrop}
+            onPaste={stablePaste}
           />
+          {/* Send / Stop — vertically centered at the right edge of the
+              textarea. The send (↵) button rests neutral gray and lights up in
+              the Carbon (human) palette — carbon-soft fill + carbon border +
+              carbon glyph, matching the user's own chat bubble — only once the
+              composer has content (text or an attachment), not merely on
+              focus/hover. Stop stays oxblood (danger). */}
+          {isStreaming ? (
+            <Button
+              variant="danger"
+              size="icon"
+              onClick={() => agentId && stop(agentId)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9"
+              title="Stop generation"
+            >
+              <Square className="w-4 h-4 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleSubmit}
+              disabled={
+                (composerEmpty && pendingAttachments.length === 0)
+                || isLoading
+                || !agentId
+                || uploadingCount > 0
+              }
+              className={cn(
+                'absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-[var(--radius-lg)] border transition-colors',
+                !composerEmpty || pendingAttachments.length > 0
+                  ? 'border-[var(--color-carbon)] bg-[var(--color-carbon-soft)] text-[var(--color-carbon)] hover:bg-[var(--color-carbon-soft)] hover:text-[var(--color-carbon)]'
+                  : 'border-[var(--nm-hairline)] bg-[var(--nm-paper-warm)] text-[var(--text-tertiary)]',
+              )}
+              title="Send (Enter)"
+            >
+              <CornerDownLeft className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
+
+        {/* Tools row — attach (+) and voice on the left; read-only model
+            badge on the right (links to Settings — see ComposerModelBadge). */}
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-0.5">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => fileInputRef.current?.click()}
             disabled={!agentId || isLoading}
-            className="shrink-0 h-[52px] w-[52px]"
+            className="h-8 w-8 text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]"
             title="Attach file"
           >
-            <Paperclip className="w-4 h-4" />
+            <Plus className="w-4 h-4" />
           </Button>
-          {/* Voice capture: hands the recorded blob to the same upload
-              path as Paperclip / drag-drop, so transcription, the
+          {/* Voice capture: hands the recorded blob to the same upload path as
+              the attach button / drag-drop, so transcription, the
               "transcription unavailable" notice, and the pendingAttachments
               chip all behave identically across input methods. */}
           <AudioRecorder
@@ -1149,69 +1228,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               }
             }}
           />
-          {/* Textarea + draft state isolated in <Composer> so keystrokes don't
-              re-render this monolith (see Composer.tsx). key={agentId} remounts
-              it on agent switch to restore that agent's draft. The drag/paste
-              handlers are bound here too (also on the wrapper div) because the
-              native textarea default (insert dropped path / paste-as-text) wins
-              otherwise. Stays editable while the agent runs; sending is gated by
-              handleSubmit/the Send→Stop swap. */}
-          <Composer
-            key={agentId ?? '__none__'}
-            ref={composerRef}
-            agentId={agentId}
-            disabled={!agentId}
-            placeholder={
-              !agentId
-                ? 'Select an agent first…'
-                : isDragging
-                  ? 'Drop file to attach…'
-                  : 'Type your message… (drag files here to attach)'
-            }
-            onSubmit={stableSubmit}
-            onEmptyChange={setComposerEmpty}
-            onDragOver={stableDragOver}
-            onDragLeave={stableDragLeave}
-            onDrop={stableDrop}
-            onPaste={stablePaste}
-          />
-          {isStreaming ? (
-            <Button
-              variant="danger"
-              size="icon"
-              onClick={() => agentId && stop(agentId)}
-              className="shrink-0 h-[52px] w-[52px]"
-              title="Stop generation"
-            >
-              <Square className="w-4 h-4 fill-current" />
-            </Button>
-          ) : (
-            <Button
-              variant="accent"
-              size="icon"
-              onClick={handleSubmit}
-              disabled={
-                (composerEmpty && pendingAttachments.length === 0)
-                || isLoading
-                || !agentId
-                || uploadingCount > 0
-              }
-              className="shrink-0 h-[52px] w-[52px]"
-              title="Send"
-            >
-              <Send className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
-        <div
-          className="mt-2 flex items-center justify-center gap-3 text-[10px] uppercase tracking-[0.12em]"
-          style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
-        >
-          <span className="inline-flex items-center gap-1"><Kbd keys={['Enter']} /> to send</span>
-          <span className="opacity-40">·</span>
-          <span className="inline-flex items-center gap-1"><Kbd keys={['Shift', 'Enter']} /> new line</span>
-          <span className="opacity-40">·</span>
-          <span className="inline-flex items-center gap-1"><Kbd keys={['Drop']} /> to attach</span>
+          </div>
+          <ComposerModelBadge />
         </div>
       </div>
 

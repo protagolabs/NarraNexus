@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-06-10
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — two-section sidebar: TEAMS (group chats) over AGENTS (flat)
+
+The expanded list no longer renders one [[AgentGroupSection]] per team with the
+agents interleaved. Instead two collapsible categories (local `CategoryHeader`,
+persisted to localStorage): a **TEAMS** section listing one [[TeamChatRow]] per
+team (the group chats), then an **AGENTS** section that renders ALL agents once,
+flat, via a single headerless `AgentGroupSection` (`teamId=null`,
+`agents=rawAgents`). This fixes an agent that belonged to two teams appearing
+twice. The toolbar's `+` is now a [[CreateMenu]] (Create Agent / Create Team);
+the bracket label reads `CHATS` with the combined teams+agents count.
+`activeTeamChatId` (parsed from `/app/teams/:id/chat`) drives the active row +
+suppresses agent-row selection while a team chat is open. Per-team collapse
+state / `buildAgentGroups`-keyed section collapse was retired (groups are still
+used by the collapsed avatar rail).
 
 ## 2026-06-10 — Grouped sidebar: teams become sections, chip filter retired
 

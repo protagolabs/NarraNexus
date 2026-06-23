@@ -3,8 +3,9 @@
  * Agent selection and navigation with dramatic visual effects
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import {
   LogOut,
   Trash2,
@@ -20,7 +21,7 @@ import {
 import { Button, ThemeToggle, ScrollArea, useConfirm } from '@/components/ui';
 import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTheme } from '@/hooks';
-import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore } from '@/stores';
+import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore, useUIStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -30,11 +31,28 @@ import { cn } from '@/lib/utils';
 const prefetchDashboard = () => {
   void import('@/pages/DashboardPage');
 };
+
+// Left-nav hover/active treatment: light up the label + icon (carbon), no
+// background fill — matches the right BookmarkStrip. Destructive actions
+// (Clear History / Logout) light up in error red instead of carbon. Both
+// override the ghost variant's default `hover:bg` via tailwind-merge.
+const NAV_ITEM = 'text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]';
+const NAV_ITEM_ACTIVE = 'text-[var(--color-carbon)]';
+const NAV_ITEM_DANGER = 'text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-error)]';
 import { AgentList } from './AgentList';
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [showModePopup, setShowModePopup] = useState(false);
+  // Mobile (< md): the sidebar is an off-canvas drawer toggled from the TopBar.
+  const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
+  const isMobile = useIsMobile();
+
+  // The icon-only collapsed layout makes no sense inside the mobile drawer
+  // (it's a full-width overlay, not a docked rail) — force it expanded there.
+  useEffect(() => {
+    if (isMobile && collapsed) setCollapsed(false);
+  }, [isMobile, collapsed]);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -148,13 +166,20 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'h-full flex flex-col relative',
+        'flex flex-col relative',
         // NM canonical (FinChats:461): chat-list container bg = var(--nm-paper).
         // Rows sit on paper directly with rounded highlight when active.
         'bg-[color:var(--nm-paper)]',
         'border-r border-[color:var(--nm-hairline)]',
-        'transition-all duration-400 ease-out',
-        collapsed ? 'w-[72px]' : 'w-72'
+        'transition-all duration-300 ease-out',
+        // Mobile (< md): off-canvas drawer below the 36px TopBar, slides in.
+        // Height comes from top-9 + bottom-0 (NOT h-full, which would overflow
+        // 36px below the viewport and clip the footer / theme toggle).
+        'fixed top-9 bottom-0 left-0 z-40 w-72',
+        mobileNavOpen ? 'translate-x-0 shadow-[var(--nm-elev-3)]' : '-translate-x-full',
+        // Tablet/desktop (md+): back in normal flow, full height, width by collapse.
+        'md:static md:top-auto md:bottom-auto md:z-auto md:h-full md:translate-x-0 md:shadow-none',
+        collapsed ? 'md:w-[72px]' : 'md:w-72',
       )}
     >
       {confirmDialog}
@@ -176,7 +201,7 @@ export function Sidebar() {
             variant="ghost"
             size="icon"
             onClick={() => setCollapsed(!collapsed)}
-            className={cn('shrink-0', collapsed && 'mx-auto')}
+            className={cn('shrink-0 hidden md:inline-flex', collapsed && 'mx-auto')}
           >
             {collapsed ? (
               <ChevronRight className="w-4 h-4" />
@@ -229,7 +254,7 @@ export function Sidebar() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowModePopup(!showModePopup)}
-                className="w-full justify-start gap-2 text-[var(--text-secondary)]"
+                className={cn('w-full justify-start gap-2', NAV_ITEM)}
               >
                 {mode === 'local' ? (
                   <Monitor className="w-4 h-4" />
@@ -266,9 +291,10 @@ export function Sidebar() {
               onMouseEnter={prefetchDashboard}
               onFocus={prefetchDashboard}
               className={cn(
-                'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                'w-full justify-start gap-2',
+                NAV_ITEM,
                 location.pathname === '/app/dashboard' &&
-                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                  NAV_ITEM_ACTIVE,
               )}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -279,9 +305,10 @@ export function Sidebar() {
               size="sm"
               onClick={() => navigate('/app/settings')}
               className={cn(
-                'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                'w-full justify-start gap-2',
+                NAV_ITEM,
                 location.pathname === '/app/settings' &&
-                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                  NAV_ITEM_ACTIVE,
               )}
             >
               <Sliders className="w-4 h-4" />
@@ -293,9 +320,10 @@ export function Sidebar() {
                 size="sm"
                 onClick={() => navigate('/app/system')}
                 className={cn(
-                  'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                  'w-full justify-start gap-2',
+                  NAV_ITEM,
                   location.pathname === '/app/system' &&
-                    'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                    NAV_ITEM_ACTIVE,
                 )}
               >
                 <Server className="w-4 h-4" />
@@ -310,6 +338,7 @@ export function Sidebar() {
               size="icon"
               onClick={() => setShowModePopup(!showModePopup)}
               title={mode === 'local' ? 'Local Mode' : 'Cloud Mode'}
+              className={NAV_ITEM}
             >
               {mode === 'local' ? (
                 <Monitor className="w-4 h-4" />
@@ -325,8 +354,9 @@ export function Sidebar() {
               onFocus={prefetchDashboard}
               title="Dashboard"
               className={cn(
+                NAV_ITEM,
                 location.pathname === '/app/dashboard' &&
-                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                  NAV_ITEM_ACTIVE,
               )}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -337,8 +367,9 @@ export function Sidebar() {
               onClick={() => navigate('/app/settings')}
               title="Settings"
               className={cn(
+                NAV_ITEM,
                 location.pathname === '/app/settings' &&
-                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                  NAV_ITEM_ACTIVE,
               )}
             >
               <Sliders className="w-4 h-4" />
@@ -350,8 +381,9 @@ export function Sidebar() {
                 onClick={() => navigate('/app/system')}
                 title="System"
                 className={cn(
+                  NAV_ITEM,
                   location.pathname === '/app/system' &&
-                    'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                    NAV_ITEM_ACTIVE,
                 )}
               >
                 <Server className="w-4 h-4" />
@@ -369,7 +401,7 @@ export function Sidebar() {
               variant="ghost"
               size="sm"
               onClick={handleClearHistory}
-              className="w-full justify-start gap-2 text-[var(--text-secondary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+              className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
               <Trash2 className="w-4 h-4" />
               Clear History
@@ -378,7 +410,7 @@ export function Sidebar() {
               variant="ghost"
               size="sm"
               onClick={handleLogout}
-              className="w-full justify-start gap-2 text-[var(--text-secondary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+              className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
               <LogOut className="w-4 h-4" />
               Logout
@@ -398,7 +430,7 @@ export function Sidebar() {
               size="icon"
               onClick={handleClearHistory}
               title="Clear History"
-              className="hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+              className={NAV_ITEM_DANGER}
             >
               <Trash2 className="w-4 h-4" />
             </Button>
@@ -407,7 +439,7 @@ export function Sidebar() {
               size="icon"
               onClick={handleLogout}
               title="Logout"
-              className="hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+              className={NAV_ITEM_DANGER}
             >
               <LogOut className="w-4 h-4" />
             </Button>

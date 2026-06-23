@@ -1052,12 +1052,14 @@ export function ProviderSettings() {
                 </select>
               </div>
 
-              {/* API Key + Get Key + Add button */}
-              <div className="flex gap-2">
+              {/* API Key + Get Key + Add button. flex-wrap so on a narrow
+                  (mobile) card the Get Key / Add buttons wrap below the field
+                  instead of overflowing off-screen. */}
+              <div className="flex flex-wrap gap-2">
                 <input type="password" value={presetKey} onChange={(e) => setPresetKey(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAdd() }}
                   placeholder={addedPresets.has(selectedPreset) ? 'New key to re-configure...' : 'Paste your API key'}
-                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                  className="flex-1 min-w-[150px] px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 <a
                   href={PRESET_PROVIDERS.find((p) => p.id === selectedPreset)?.get_key_url}
                   target="_blank"
@@ -1084,11 +1086,14 @@ export function ProviderSettings() {
             up the additions. Quick Add would re-create + lose those bonds.
           */}
           <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">Update Available Models</h4>
-            <p className="text-sm text-[var(--text-tertiary)] mb-3">
+            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1.5">Update Available Models</h4>
+            <p className="text-sm text-[var(--text-tertiary)]">
               Pull the latest default model list into your existing preset providers (NetMind, Claude Code, Yunwu, OpenRouter). Existing entries are kept; only missing models are appended.
             </p>
-            <div className="flex items-center gap-3">
+            {/* Gap lives on this row, not the <p>/<h4> above: index.css resets
+                `p`/`h*` margins (unlayered), which kills any mb-* utility on
+                them — so the spacing must sit on a div. */}
+            <div className="flex items-center gap-3 mt-5">
               <button
                 onClick={handleSyncDefaults}
                 disabled={syncing || !userId}

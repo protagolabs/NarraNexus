@@ -21,14 +21,11 @@ import { useCreateAgent } from '@/hooks';
 import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
-import {
-  buildAgentGroups,
-  getCollapsedState,
-  setCollapsedState,
-} from './agentGroupUtils';
-import type { CollapsedState } from './agentGroupUtils';
+import { buildAgentGroups } from './agentGroupUtils';
 import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
 import { AgentsHeaderMenu } from './AgentsHeaderMenu';
+import { CreateMenu } from './CreateMenu';
+import { TeamChatRow } from './TeamChatRow';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 
 interface AgentListProps {
@@ -52,6 +49,47 @@ interface AgentListProps {
  * Flip this to `true` to bring the toggle back. */
 const SHOW_AGENT_PUBLIC_TOGGLE = false;
 
+/** Small collapsible category header (TEAMS / AGENTS) in the sidebar list. */
+function CategoryHeader({
+  label,
+  count,
+  collapsed,
+  onToggle,
+}: {
+  label: string;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[var(--nm-paper-warm)]"
+    >
+      <span
+        className="flex-1 min-w-0 text-[11px] font-mono uppercase tracking-wider truncate"
+        style={{ color: 'var(--nm-ink50)' }}
+      >
+        {label}
+      </span>
+      <span className="text-[10px] font-mono shrink-0" style={{ color: 'var(--nm-ink30)' }}>
+        {count}
+      </span>
+      <span
+        className={cn(
+          'text-[10px] shrink-0 transition-transform duration-150',
+          collapsed ? 'rotate-0' : 'rotate-90',
+        )}
+        style={{ color: 'var(--nm-ink30)' }}
+        aria-hidden
+      >
+        ▶
+      </span>
+    </button>
+  );
+}
+
 export function AgentList({ collapsed }: AgentListProps) {
   const [loadingAgents, setLoadingAgents] = useState(false);
   const { createAgent, creating: creatingAgent } = useCreateAgent();
@@ -59,8 +97,21 @@ export function AgentList({ collapsed }: AgentListProps) {
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
-  const [sectionCollapsed, setSectionCollapsed] = useState<CollapsedState>(() => getCollapsedState());
   const [openMgmt, setOpenMgmt] = useState(false);
+  // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
+  const [teamsCollapsed, setTeamsCollapsed] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('sidebar_cat_teams') === '1',
+  );
+  const [agentsCollapsed, setAgentsCollapsed] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('sidebar_cat_agents') === '1',
+  );
+  const setCatCollapsed = (cat: 'teams' | 'agents', v: boolean) => {
+    if (cat === 'teams') setTeamsCollapsed(v);
+    else setAgentsCollapsed(v);
+    try {
+      localStorage.setItem(cat === 'teams' ? 'sidebar_cat_teams' : 'sidebar_cat_agents', v ? '1' : '0');
+    } catch { /* storage unavailable — collapse just won't persist */ }
+  };
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -70,6 +121,8 @@ export function AgentList({ collapsed }: AgentListProps) {
   const teams = useTeamsStore((s) => s.teams);
   const teamsLoaded = useTeamsStore((s) => s.loaded);
   const teamsRefresh = useTeamsStore((s) => s.refresh);
+  const teamsUpdate = useTeamsStore((s) => s.updateTeam);
+  const teamsDelete = useTeamsStore((s) => s.deleteTeam);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
   // Ensure teams are loaded so grouping is accurate.
@@ -259,13 +312,6 @@ export function AgentList({ collapsed }: AgentListProps) {
     }
   };
 
-  const handleToggleSection = (teamId: string | null) => {
-    const key = teamId ?? '__ungrouped__';
-    const next = !sectionCollapsed[key];
-    setSectionCollapsed((prev) => ({ ...prev, [key]: next }));
-    setCollapsedState(key, next);
-  };
-
   const handleImport = () => navigate('/app/bundle/import');
   const handleExport = () => {
     // Pre-fill export wizard with agents if a team context is relevant.
@@ -273,9 +319,38 @@ export function AgentList({ collapsed }: AgentListProps) {
   };
   const handleManageTeams = () => setOpenMgmt(true);
 
+  const handleDeleteTeam = async (teamId: string) => {
+    const t = teams.find((x) => x.team.team_id === teamId);
+    const ok = await confirm({
+      title: 'Delete team',
+      message: `Delete team "${t?.team.name ?? teamId}"? Members are unlinked; the agents themselves are NOT deleted.`,
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await teamsDelete(teamId);
+      // If the deleted team's chat/detail is open, fall back to the chat view.
+      if (location.pathname.startsWith(`/app/teams/${teamId}`)) {
+        navigate('/app/chat');
+      }
+    } catch (err) {
+      await alert({
+        title: 'Delete failed',
+        message: err instanceof Error ? err.message : String(err),
+        danger: true,
+      });
+    }
+  };
+
   // Grouped sections — shared by the expanded list and the collapsed
   // avatar rail (the rail draws a hairline between team groups).
   const groups = buildAgentGroups(rawAgents, teams);
+
+  // Which team's group chat is open (route /app/teams/:id/chat) — drives the
+  // active highlight on the Group chat row and suppresses agent-row selection.
+  const teamChatMatch = location.pathname.match(/^\/app\/teams\/([^/]+)\/chat$/);
+  const activeTeamChatId = teamChatMatch ? teamChatMatch[1] : null;
 
   // Collapsed mode: avatar rail — EVERY agent across all groups (spec §11.2;
   // the old rail silently capped at 4). The rail's job is fast agent
@@ -367,23 +442,18 @@ export function AgentList({ collapsed }: AgentListProps) {
         <div className="flex items-center justify-between px-1 gap-2">
           <span data-help-id="sidebar.agent-list">
             <BracketSectionLabel
-              trailing={<span className="text-[10px] opacity-60">{rawAgents.length}</span>}
+              trailing={<span className="text-[10px] opacity-60">{teams.length + rawAgents.length}</span>}
             >
-              Agents
+              Chats
             </BracketSectionLabel>
           </span>
           <div className="flex items-center gap-1 shrink-0">
             <span data-help-id="sidebar.create-agent">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCreateAgent}
+              <CreateMenu
+                onCreateAgent={handleCreateAgent}
+                onCreateTeam={() => setOpenMgmt(true)}
                 disabled={creatingAgent}
-                className="w-7 h-7"
-                title="Create New Agent"
-              >
-                <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
-              </Button>
+              />
             </span>
             <span data-help-id="sidebar.manage-agents">
               <Button
@@ -419,7 +489,7 @@ export function AgentList({ collapsed }: AgentListProps) {
       </div>
 
       <div className="px-1 pb-3">
-        {rawAgents.length === 0 ? (
+        {rawAgents.length === 0 && teams.length === 0 ? (
           <BracketEmptyState
             label="No agents yet"
             hint="Create your first agent to start a conversation."
@@ -437,50 +507,79 @@ export function AgentList({ collapsed }: AgentListProps) {
             }
           />
         ) : (
-          <div>
-            {groups.map((group) => {
-              // Pure no-teams scenario (single Ungrouped group): render the
-              // rows flat — an "Ungrouped" header with nothing to contrast
-              // against is noise.
-              const isOnlyGroup = groups.length === 1 && group.teamId === null;
-
-              // Skip Ungrouped section if it's empty (other groups have all agents).
-              if (group.teamId === null && group.agents.length === 0) return null;
-
-              const key = group.teamId ?? '__ungrouped__';
-              const isSectionCollapsed = !!sectionCollapsed[key];
-
-              return (
-                <AgentGroupSection
-                  key={key}
-                  teamId={group.teamId}
-                  teamName={group.teamName}
-                  teamColor={group.teamColor}
-                  agents={group.agents}
-                  agentId={agentId}
-                  collapsed={isSectionCollapsed}
-                  hideHeader={isOnlyGroup}
-                  onToggleCollapse={handleToggleSection}
-                  onSelectAgent={handleSelectAgent}
-                  getRowMeta={getRowMeta}
-                  getIsStreaming={getIsStreaming}
-                  completedAgentIds={completedAgentIds}
-                  currentUserId={userId}
-                  showPublicToggle={SHOW_AGENT_PUBLIC_TOGGLE}
-                  onNavigateToTeam={(tid) => navigate(`/app/teams/${tid}`)}
-                  editingAgentId={editingAgentId}
-                  editingName={editingName}
-                  onEditNameChange={setEditingName}
-                  onSaveEdit={handleSaveEdit}
-                  onCancelEdit={handleCancelEdit}
-                  savingName={savingName}
-                  onStartEdit={handleStartEdit}
-                  onDelete={handleDeleteAgent}
-                  onTogglePublic={handleTogglePublic}
-                  deletingAgentId={deletingAgentId}
+          <div className="space-y-1">
+            {/* TEAMS — group chats, collected at the top (one row per team). */}
+            {teams.length > 0 && (
+              <div>
+                <CategoryHeader
+                  label="Teams"
+                  count={teams.length}
+                  collapsed={teamsCollapsed}
+                  onToggle={() => setCatCollapsed('teams', !teamsCollapsed)}
                 />
-              );
-            })}
+                {!teamsCollapsed && (
+                  <div className="space-y-0.5 px-1 pb-1">
+                    {teams.map((t) => (
+                      <TeamChatRow
+                        key={t.team.team_id}
+                        teamId={t.team.team_id}
+                        teamName={t.team.name}
+                        agentCount={t.member_agent_ids.length}
+                        active={activeTeamChatId === t.team.team_id}
+                        onOpen={(tid) => navigate(`/app/teams/${tid}/chat`)}
+                        onRename={(tid, name) => { void teamsUpdate(tid, { name }); }}
+                        onDelete={handleDeleteTeam}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* AGENTS — every agent once, flat (no per-team duplication). */}
+            <div>
+              <CategoryHeader
+                label="Agents"
+                count={rawAgents.length}
+                collapsed={agentsCollapsed}
+                onToggle={() => setCatCollapsed('agents', !agentsCollapsed)}
+              />
+              {!agentsCollapsed && (
+                rawAgents.length === 0 ? (
+                  <div className="px-3 py-2 text-xs" style={{ color: 'var(--nm-ink50)' }}>
+                    No agents yet.
+                  </div>
+                ) : (
+                  <AgentGroupSection
+                    teamId={null}
+                    teamName=""
+                    teamColor={null}
+                    agents={rawAgents}
+                    agentId={agentId}
+                    activeTeamChatId={activeTeamChatId}
+                    collapsed={false}
+                    hideHeader
+                    onToggleCollapse={() => {}}
+                    onSelectAgent={handleSelectAgent}
+                    getRowMeta={getRowMeta}
+                    getIsStreaming={getIsStreaming}
+                    completedAgentIds={completedAgentIds}
+                    currentUserId={userId}
+                    showPublicToggle={SHOW_AGENT_PUBLIC_TOGGLE}
+                    editingAgentId={editingAgentId}
+                    editingName={editingName}
+                    onEditNameChange={setEditingName}
+                    onSaveEdit={handleSaveEdit}
+                    onCancelEdit={handleCancelEdit}
+                    savingName={savingName}
+                    onStartEdit={handleStartEdit}
+                    onDelete={handleDeleteAgent}
+                    onTogglePublic={handleTogglePublic}
+                    deletingAgentId={deletingAgentId}
+                  />
+                )
+              )}
+            </div>
           </div>
         )}
       </div>

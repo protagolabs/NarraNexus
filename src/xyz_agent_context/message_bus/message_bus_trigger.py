@@ -30,8 +30,18 @@ from loguru import logger
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.schemas import BusMessage
 
-# Poll interval in seconds
-POLL_INTERVAL = 10
+# Poll interval in seconds (initial; adaptive bounds below)
+POLL_INTERVAL = 3
+
+# A team group-chat channel's ``created_by`` is this prefix + team_id (a
+# non-agent marker), set by the team-chat route. It both identifies the
+# room and ensures no member agent is the always-activated channel owner —
+# delivery is purely @-mention driven. Keep in sync with backend/routes/teams.py.
+TEAM_ROOM_OWNER_PREFIX = "team_"
+
+# The user posts into a team room as this prefix + user_id (a non-agent
+# sender). Keep in sync with backend/routes/teams.py.
+USER_SENDER_PREFIX = "usr_"
 
 # Maximum concurrent agent processing workers
 MAX_WORKERS = 3
@@ -40,10 +50,18 @@ MAX_WORKERS = 3
 RATE_LIMIT_MAX = 20
 RATE_LIMIT_WINDOW = 1800  # 30 minutes in seconds
 
-# Adaptive polling constants
-POLL_MIN_INTERVAL = 10
-POLL_MAX_INTERVAL = 120
-POLL_STEP_UP = 15
+# Adaptive polling constants. Kept low so a team group-chat reply lands quickly
+# (the trigger is a separate process; this is the latency the user feels after
+# an idle period). Worst-case idle latency ≈ POLL_MAX_INTERVAL.
+POLL_MIN_INTERVAL = 3
+POLL_MAX_INTERVAL = 12
+POLL_STEP_UP = 3
+
+# Team group chat: cap how many consecutive agent-to-agent hops can keep the
+# @-mention cascade alive without a human message. Past this, an agent reply's
+# @mentions are dropped so two agents can't @ each other forever. A user
+# message resets the chain.
+MAX_TEAM_AGENT_HOPS = 4
 
 
 def build_bus_anchor(messages: List[BusMessage]) -> str:
@@ -232,7 +250,7 @@ class MessageBusTrigger:
                     _IM_CHANNEL_PREFIXES = ("lark_", "telegram_", "slack_")
                     if channel_id.startswith(_IM_CHANNEL_PREFIXES):
                         latest = max(messages, key=lambda m: str(m.created_at))
-                        await self._bus.ack_processed(agent_id, channel_id, str(latest.created_at))
+                        await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
                         continue
 
                     channel_type, channel_owner = await self._get_channel_info(channel_id)
@@ -246,7 +264,7 @@ class MessageBusTrigger:
                         # Still ack to advance cursor
                         latest = max(messages, key=lambda m: str(m.created_at))
                         await self._bus.ack_processed(
-                            agent_id, channel_id, str(latest.created_at)
+                            agent_id, channel_id, latest.created_at
                         )
                         continue
 
@@ -254,13 +272,13 @@ class MessageBusTrigger:
                     if not self._check_rate_limit(agent_id, channel_id):
                         latest = max(relevant, key=lambda m: str(m.created_at))
                         await self._bus.ack_processed(
-                            agent_id, channel_id, str(latest.created_at)
+                            agent_id, channel_id, latest.created_at
                         )
                         continue
 
                     trigger_msg = relevant[-1]
                     await self._handle_channel_batch(
-                        agent_id, channel_id, relevant, trigger_msg
+                        agent_id, channel_id, relevant, trigger_msg, channel_owner
                     )
                     handled_any = True
 
@@ -288,33 +306,47 @@ class MessageBusTrigger:
         channel_id: str,
         messages: List[BusMessage],
         trigger_message: BusMessage,
+        channel_owner: str = "",
     ) -> None:
         """
         Handle a batch of messages from a single channel for an agent.
 
         Builds a prompt, invokes AgentRuntime, and on success advances the
         processing cursor. On failure, records the failure for retry tracking.
-        """
-        try:
-            # Owner lookup up-front — used by both the prompt (to remind the
-            # agent its owner is waiting in chat) and the inbox writer.
-            owner_user_id = await self._get_agent_owner(agent_id)
-            # Resolve the owner's human name for the relay prose (the raw
-            # user_id stays as the send_message_to_user_directly routing key).
-            owner_name = ""
-            if owner_user_id:
-                from xyz_agent_context.utils.db_factory import get_db_client
-                from xyz_agent_context.repository import UserRepository
-                owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
 
-            # Build prompt from messages
-            prompt = self._build_prompt(
-                messages, owner_user_id=owner_user_id, owner_name=owner_name
-            )
+        Team group chat (``channel_owner`` is the synthetic ``team_<id>``
+        marker) is a distinct surface: the agent gets a group-chat prompt
+        (not the owner-relay), and its reply is posted BACK INTO the channel
+        — with any @mentions parsed so teammates get pulled in — so the user
+        and teammates all see it in the shared room. Every other channel
+        (peer DM, IM bridges) keeps the original owner-relay + inbox path.
+        """
+        is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)
+        member_map: Dict[str, str] = {}
+        try:
+            if is_team:
+                member_map = await self._team_member_names(channel_id)
+                prompt = self._build_team_prompt(agent_id, messages, member_map)
+            else:
+                # Owner lookup up-front — used by both the prompt (to remind the
+                # agent its owner is waiting in chat) and the inbox writer.
+                owner_user_id = await self._get_agent_owner(agent_id)
+                # Resolve the owner's human name for the relay prose (the raw
+                # user_id stays as the send_message_to_user_directly routing key).
+                owner_name = ""
+                if owner_user_id:
+                    from xyz_agent_context.utils.db_factory import get_db_client
+                    from xyz_agent_context.repository import UserRepository
+                    owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
+
+                # Build prompt from messages
+                prompt = self._build_prompt(
+                    messages, owner_user_id=owner_user_id, owner_name=owner_name
+                )
 
             logger.info(
                 f"MessageBusTrigger: triggering agent {agent_id} "
-                f"for channel {channel_id} ({len(messages)} messages)"
+                f"for channel {channel_id} ({len(messages)} messages, team={is_team})"
             )
 
             # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
@@ -341,11 +373,34 @@ class MessageBusTrigger:
                 f"{len(messages)} messages in channel {channel_id}"
             )
 
-            # Write response to inbox
             if response_text:
-                await self._write_to_inbox(
-                    agent_id, channel_id, trigger_message, response_text
-                )
+                if is_team:
+                    # Post the reply back into the shared room as this agent.
+                    # Parse @mentions so an agent can hand off to a teammate
+                    # (e.g. "@rabbit can you summarise?") and pull them in.
+                    mentions = self._extract_team_mentions(response_text, member_map)
+                    # Cap agent↔agent cascades: if too many agent hops have
+                    # piled up since the last human message, stop propagating
+                    # @mentions so two agents can't loop forever.
+                    if mentions:
+                        depth = await self._team_cascade_depth(channel_id)
+                        if depth >= MAX_TEAM_AGENT_HOPS:
+                            logger.info(
+                                f"Team cascade depth {depth} >= {MAX_TEAM_AGENT_HOPS} "
+                                f"in {channel_id}; dropping @mentions to break the loop"
+                            )
+                            mentions = []
+                    await self._bus.send_message(
+                        from_agent=agent_id,
+                        to_channel=channel_id,
+                        content=response_text,
+                        mentions=mentions or None,
+                    )
+                else:
+                    # Write response to inbox
+                    await self._write_to_inbox(
+                        agent_id, channel_id, trigger_message, response_text
+                    )
 
         except Exception as e:
             logger.exception(
@@ -358,6 +413,91 @@ class MessageBusTrigger:
                 agent_id=agent_id,
                 error=str(e),
             )
+
+    async def _team_member_names(self, channel_id: str) -> Dict[str, str]:
+        """Map each channel member's agent_id → display name (agent_name)."""
+        out: Dict[str, str] = {}
+        for m in await self._bus.get_channel_members(channel_id):
+            row = await self._bus._db.get_one("agents", {"agent_id": m.agent_id})
+            if row:
+                out[m.agent_id] = row.get("agent_name") or m.agent_id
+        return out
+
+    def _build_team_prompt(
+        self, agent_id: str, messages: List[BusMessage], member_map: Dict[str, str]
+    ) -> str:
+        """Group-chat prompt for a team room. The agent's plain reply is posted
+        back into the shared room (the user + teammates see it), so — unlike the
+        peer/owner-relay path — there is no send_message_to_user_directly step."""
+        me = member_map.get(agent_id, agent_id)
+        teammates = [n for a, n in member_map.items() if a != agent_id]
+        lines = [
+            "[Team Group Chat]",
+            f'You are "{me}" in a team group chat with the user and your '
+            f'teammates: {", ".join(teammates) or "(none)"}.',
+            "",
+            "Recent messages:",
+        ]
+        for msg in messages:
+            sender = (
+                "User"
+                if msg.from_agent.startswith(USER_SENDER_PREFIX)
+                else member_map.get(msg.from_agent, msg.from_agent)
+            )
+            lines.append(f"{sender}: {msg.content}")
+        lines += [
+            "",
+            "Write your chat reply now. Rules:",
+            "- Output ONLY the message itself — natural, conversational text "
+            "(markdown is fine). It is posted to the group as-is; everyone sees it.",
+            "- Do NOT use any tools and do NOT call any send/bus function. Your "
+            "text reply is delivered automatically — there is nothing to invoke.",
+            "- Do NOT narrate your process or thinking. No \"Let me…\", no \"I "
+            "need to find…\", no tool/function names, no step-by-step. Just talk.",
+            "- Keep it short, like a real group chat. To pull in a teammate, "
+            "@mention them by name (e.g. @Name); say @all for everyone — but only "
+            "when you genuinely need them, not as a reflex.",
+        ]
+        return "\n".join(lines)
+
+    def _extract_team_mentions(
+        self, text: str, member_map: Dict[str, str]
+    ) -> List[str]:
+        """Resolve @mentions in an agent's reply to channel-member agent_ids
+        (or ["@everyone"] for @all/@everyone), so a hand-off pulls teammates in."""
+        import re
+
+        tokens = {t.lower() for t in re.findall(r"@([\w一-鿿]+)", text or "")}
+        if not tokens:
+            return []
+        if "all" in tokens or "everyone" in tokens:
+            return ["@everyone"]
+        out: List[str] = []
+        for aid, name in member_map.items():
+            nm = (name or aid).lower()
+            first = nm.split()[0] if nm.split() else nm
+            if nm in tokens or first in tokens or any(
+                len(t) >= 2 and nm.startswith(t) for t in tokens
+            ):
+                out.append(aid)
+        return out
+
+    async def _team_cascade_depth(self, channel_id: str) -> int:
+        """How many consecutive agent (non-user) messages end the channel — i.e.
+        how many agent hops have happened since the last human message. A user
+        message resets this to 0 on its next turn."""
+        ph = self._bus._db.placeholder
+        rows = await self._bus._db.execute(
+            f'SELECT "from_agent" FROM "bus_messages" WHERE "channel_id" = {ph} '
+            f'ORDER BY "created_at" DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}',
+            (channel_id,),
+        )
+        depth = 0
+        for r in rows or []:
+            if str(r["from_agent"]).startswith(USER_SENDER_PREFIX):
+                break
+            depth += 1
+        return depth
 
     def _build_prompt(
         self, messages: List[BusMessage], owner_user_id: str = "", owner_name: str = ""

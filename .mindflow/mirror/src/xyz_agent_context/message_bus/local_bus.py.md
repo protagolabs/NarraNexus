@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-06-08
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — ack_processed canonicalises the cursor timestamp
+
+`ack_processed` now does `up_to_timestamp = up_to_timestamp.isoformat()` when
+given a `datetime`, so the stored cursor and `bus_messages.created_at` (both
+TEXT, compared lexicographically in `get_pending_messages`) always share the
+isoformat `…T…+00:00` shape. Previously a `datetime` could be persisted as
+`str()` space-format (`"… …+00:00"`); since 'T' > ' ', every newer message then
+looked unprocessed and the agent re-triggered forever. See the matching note in
+`message_bus_trigger.py.md` (the call sites also dropped their `str()` wraps).
 
 ## 2026-06-08 — bus message search index (projection)
 

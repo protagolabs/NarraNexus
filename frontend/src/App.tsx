@@ -402,6 +402,9 @@ function App() {
               triggers the auto-fetch-then-preflight path. */}
           <Route path="templates/install" element={<BundleImportPage />} />
           <Route path="teams/:teamId" element={<TeamDetailPage />} />
+          {/* Team group chat — element null; MainLayout renders TeamChatView
+              in the main slot (like /app/chat) so it isn't a sub-page overlay. */}
+          <Route path="teams/:teamId/chat" element={null} />
           <Route path="manage-agents" element={<ManageAgentsPage />} />
         </Route>
 

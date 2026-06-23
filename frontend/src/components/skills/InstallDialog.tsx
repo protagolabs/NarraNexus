@@ -78,7 +78,7 @@ export function InstallDialog({
       className="fixed inset-0 flex items-center justify-center z-50 animate-fade-in"
       style={{ background: 'var(--nm-backdrop)' }}
     >
-      <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+      <div className="bg-[var(--nm-card)] border border-[var(--nm-hairline)] rounded-[var(--radius-lg)] p-6 w-full max-w-md shadow-[var(--nm-elev-3)]">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">
             {mode === 'github' ? (

@@ -52,6 +52,8 @@ import type {
   LarkAuthCompleteResponse,
   TeamListResponse,
   TeamOperationResponse,
+  TeamChatHistoryResponse,
+  TeamChatSendResponse,
   BundleExportRequest,
   BundlePreflightResponse,
   BundleConfirmResponse,
@@ -842,6 +844,20 @@ class ApiClient {
     return this.request(`/api/providers`);
   }
 
+  /** Update one provider slot (e.g. 'agent' / 'helper_llm') — the model the
+   *  user's agents use for that role. Same endpoint Settings › Providers uses;
+   *  surfaced in the composer so the model can be switched without leaving chat. */
+  async setProviderSlot(
+    slot: string,
+    body: { provider_id: string; model: string; thinking?: string; reasoning_effort?: string },
+  ): Promise<{ success: boolean; detail?: string }> {
+    return this.request(`/api/providers/slots/${slot}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
   /** Backfill the latest default models from the catalog into existing providers.
    * Identity comes from the X-User-Id / JWT header — no query param. */
   async syncProviderDefaults(): Promise<{
@@ -1063,6 +1079,24 @@ class ApiClient {
     return this.request<TeamOperationResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(agentId)}`,
       { method: 'DELETE' }
+    );
+  }
+
+  // --- Team group chat (over the message bus) ---
+
+  async getTeamChat(teamId: string, since?: string): Promise<TeamChatHistoryResponse> {
+    const q = since ? `?since=${encodeURIComponent(since)}` : '';
+    return this.request<TeamChatHistoryResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/chat/messages${q}`,
+    );
+  }
+
+  /** Post a user message into a team's group chat. `mentions` carries
+   *  agent_ids and/or the literal "@all" (the backend maps it to @everyone). */
+  async sendTeamChat(teamId: string, content: string, mentions: string[]): Promise<TeamChatSendResponse> {
+    return this.request<TeamChatSendResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/chat/messages`,
+      { method: 'POST', body: JSON.stringify({ content, mentions }) },
     );
   }
 

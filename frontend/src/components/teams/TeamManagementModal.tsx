@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, X, Trash2, Users, FileText, Loader2, Check } from 'lucide-react';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { Button, useConfirm } from '@/components/ui';
@@ -133,7 +134,12 @@ export function TeamManagementModal({ open, onClose }: Props) {
     }
   };
 
-  return (
+  // Portal to <body>: the sidebar <aside> uses `translate` (mobile drawer
+  // slide) which — even at the desktop value of 0px — establishes a
+  // containing block for position:fixed descendants, trapping this modal
+  // inside the 288px sidebar. Rendering into <body> escapes that subtree so
+  // the overlay is viewport-relative and centered.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm"
       style={{ background: 'var(--nm-backdrop)' }}
@@ -302,6 +308,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
         </div>
         {dialog}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

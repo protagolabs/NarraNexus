@@ -1,8 +1,31 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-20
 stub: false
 ---
+
+## 2026-06-20 — design-ref pass: binding-dot header, JourneyBand empty state, Connected footer
+
+Three changes aligning with the Narra Agent App design ref:
+
+- **Header**: the lone `StatusDot` is replaced by [[identity|BindingDot]]
+  (carbon·silicon motif) before the `[ Interaction <agent> ]` label; it
+  `pulse`s while streaming, keeping the live cue the StatusDot carried.
+- **Empty state**: with an agent selected, the generic "Start a conversation"
+  bracket is replaced by [[OnboardingJourney]] (binding-dot eyebrow,
+  memory→network→team stations, suggested-prompt chips). With NO agent it still
+  shows the plain `BracketEmptyState` ("Select an agent"). Note the brand-new
+  unnamed-agent path is unchanged — `showBootstrapGreeting` (BOOTSTRAP_GREETING
+  "I just woke up" bubble) takes precedence over `showEmptyState`, so the two
+  never collide.
+- **Composer footer**: briefly carried Enter/Shift+Enter/Drop hints + a
+  readiness indicator, but both were **removed** (clawcreek-style minimal
+  composer). The send button now uses the `CornerDownLeft` (↵) glyph and a
+  `title="Send (Enter)"` so the button itself signals "Enter sends" — no
+  separate hint row. (StatusDot/Kbd imports dropped with it.)
+
+Suggested-prompt chips call `composerRef.current.setText(...)` (see
+[[Composer]]) — fill, don't send.
 
 ## 2026-06-11 (v1.8.1) — clickable Processing chip + header truncation
 

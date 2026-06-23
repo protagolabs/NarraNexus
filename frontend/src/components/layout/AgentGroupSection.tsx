@@ -10,7 +10,7 @@
  */
 
 import { useState } from 'react';
-import { Loader2, Check, X, ArrowRight, Globe } from 'lucide-react';
+import { Loader2, Check, X, Globe } from 'lucide-react';
 import type { AgentInfo } from '@/types';
 import { RingAvatar } from '@/components/nm';
 import { AgentRowMenu } from './AgentRowMenu';
@@ -34,6 +34,9 @@ export interface AgentGroupSectionProps {
 
   agents: AgentInfo[];
   agentId: string | null;
+  /** The team whose group chat is currently open (route /app/teams/:id/chat).
+   *  When set, this team's Group chat row is highlighted and NO agent row is. */
+  activeTeamChatId?: string | null;
 
   /** Whether the section is collapsed (agent rows hidden). */
   collapsed: boolean;
@@ -46,12 +49,6 @@ export interface AgentGroupSectionProps {
   hideHeader?: boolean;
 
   onSelectAgent: (agentId: string) => void;
-
-  /**
-   * Called when the user clicks the hover-visible → arrow on a named team
-   * section header. Not called for the Ungrouped section (teamId=null).
-   */
-  onNavigateToTeam?: (teamId: string) => void;
 
   getRowMeta: (agentId: string) => RowMeta;
   getIsStreaming: (agentId: string) => boolean;
@@ -94,14 +91,13 @@ export interface AgentGroupSectionProps {
 export function AgentGroupSection({
   teamId,
   teamName,
-  teamColor,
   agents,
   agentId,
+  activeTeamChatId,
   collapsed,
   onToggleCollapse,
   hideHeader = false,
   onSelectAgent,
-  onNavigateToTeam,
   getRowMeta,
   getIsStreaming,
   completedAgentIds,
@@ -120,32 +116,44 @@ export function AgentGroupSection({
 }: AgentGroupSectionProps) {
   const totalUnread = aggregateSectionUnread(agents, (aid) => getRowMeta(aid).unread);
 
+  // When a team's group chat is the active view, no agent row should look
+  // selected (avoids the confusing "an agent is highlighted while I'm in the
+  // group chat" state). Teams themselves live in the separate TEAMS section.
+  const effectiveAgentId = activeTeamChatId ? null : agentId;
+
   return (
     <div className="group/section relative">
-      {/* Section header */}
+      {/* Section header — clicking the team name opens its group chat; clicking
+          anywhere else on the row toggles the section's collapse. Rendered as a
+          div (not a button) so the name can be a nested button. */}
       {!hideHeader && (
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         aria-label={teamName}
         data-help-id="sidebar.team-section"
         onClick={() => onToggleCollapse(teamId)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggleCollapse(teamId);
+          }
+        }}
         className={cn(
-          'w-full flex items-center gap-2 px-3 py-1.5',
+          'w-full flex items-center gap-2 px-3 py-1.5 cursor-pointer',
           'text-left transition-colors hover:bg-[var(--nm-paper-warm)]',
         )}
       >
-        {/* Color swatch or hollow dot for Ungrouped */}
-        {teamId !== null ? (
-          <span
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ backgroundColor: teamColor ?? 'var(--nm-ink30)' }}
-          />
-        ) : (
+        {/* The Ungrouped pseudo-section keeps a plain hollow dot; named teams
+            carry their group-chat avatar on the dedicated row below. */}
+        {teamId === null && (
           <span
             className="w-2 h-2 rounded-full shrink-0 border"
             style={{ borderColor: 'var(--nm-ink30)' }}
           />
         )}
 
+        {/* Section label */}
         <span
           className="flex-1 min-w-0 text-[11px] font-mono uppercase tracking-wider truncate"
           style={{ color: 'var(--nm-ink50)' }}
@@ -192,26 +200,7 @@ export function AgentGroupSection({
         >
           ▶
         </span>
-      </button>
-      )}
-
-      {/* Navigate-to-team arrow — hover-visible, only for named teams */}
-      {!hideHeader && teamId !== null && onNavigateToTeam && (
-        <button
-          aria-label="Go to team"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigateToTeam(teamId);
-          }}
-          className={cn(
-            'absolute right-8 top-0 h-7 w-6 flex items-center justify-center',
-            'opacity-0 group-hover/section:opacity-100 transition-opacity duration-150',
-            'hover:bg-[var(--nm-paper-warm)] rounded-[var(--radius-xs)]',
-          )}
-          title="Go to team detail"
-        >
-          <ArrowRight className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
-        </button>
+      </div>
       )}
 
       {/* Agent rows — a headerless section cannot be collapsed */}
@@ -221,7 +210,7 @@ export function AgentGroupSection({
             <AgentRow
               key={agent.agent_id}
               agent={agent}
-              activeAgentId={agentId}
+              activeAgentId={effectiveAgentId}
               index={index}
               getRowMeta={getRowMeta}
               getIsStreaming={getIsStreaming}
@@ -317,7 +306,9 @@ function AgentRow({
       onClick={() => onSelectAgent(agent.agent_id)}
       className={cn(
         'w-full text-left px-3 py-2 cursor-pointer animate-slide-up',
-        'rounded-[18px] transition-colors duration-150',
+        // Slight editorial radius matching the chat bubbles (--radius-lg = 4px)
+        // so the selected-row background reads consistently with the messages.
+        'rounded-[var(--radius-lg)] transition-colors duration-150',
         'group',
         // animate-slide-up retains a transform (fill: forwards), making
         // every row a stacking context — lift the row while its kebab

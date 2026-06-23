@@ -5,11 +5,13 @@
  * @description: Right-edge vertical bookmark strip — atomic-tab IA.
  *
  * Owner-decided structure: the smallest unit is an atomic tab (one tab =
- * one panel; icon + small caption so labels are readable without
- * tooltips). Categories from STRIP_CATEGORIES group the tabs with
- * horizontal mono micro-headers. Live signals from bookmarkStore render
- * as a status overlay on the owning tab: spinner (running), carbon
- * pulse + count (attention), yellow dot (info).
+ * one panel; centered icon + small caption so labels are readable without
+ * tooltips). Categories from STRIP_CATEGORIES group the tabs; the groups
+ * are divided by a hairline only (the mono text headers were dropped for a
+ * cleaner, icon-only strip). Hover/active highlight in carbon (orange);
+ * resting icons stay neutral so species color reads as accent, not noise.
+ * Live signals from bookmarkStore render as a status overlay on the owning
+ * tab: spinner (running), carbon pulse + count (attention), yellow dot (info).
  *
  * 64px wide; scrolls vertically if the window is short.
  */
@@ -48,21 +50,26 @@ export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps
     >
       {STRIP_CATEGORIES.map((category, ci) => (
         <div key={category.label} className="flex flex-col items-stretch">
-          {/* Category header — horizontal mono micro-label */}
-          <div
-            className={cn(
-              'px-2 pt-2 pb-1',
-              ci > 0 && 'mt-1.5 border-t border-[var(--nm-hairline)]',
-            )}
-            aria-hidden
-          >
-            <span
-              className="block text-[8px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] leading-none whitespace-nowrap"
-              style={{ color: 'var(--nm-ink30)' }}
-            >
-              {category.label}
-            </span>
-          </div>
+          {/* Every group (after the first) is separated by a hairline. Brand-
+              spine groups (Narra/Nexus) additionally show a colored title. */}
+          {ci > 0 && (
+            <div className="mx-2 my-1.5 border-t border-[var(--nm-hairline)]" aria-hidden />
+          )}
+          {category.title && (
+            <div className="px-1 pt-1.5 pb-1 text-center" aria-hidden>
+              <span
+                className="block text-[8px] font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] leading-none"
+                style={{
+                  color:
+                    category.accent === 'silicon'
+                      ? 'var(--color-silicon)'
+                      : 'var(--color-carbon)',
+                }}
+              >
+                {category.title}
+              </span>
+            </div>
+          )}
 
           {category.tabs.map((tab) => (
             <AtomicTab
@@ -103,28 +110,27 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
             data-help-id={`bookmarks.${tab.id}`}
             onClick={() => onOpen(tab.id)}
             className={cn(
-              'relative flex flex-col items-center justify-center gap-0.5 h-11 w-full shrink-0',
+              'group relative flex flex-col items-center justify-center gap-0.5 h-11 w-full shrink-0',
               'cursor-pointer transition-colors duration-150',
-              'hover:bg-[var(--nm-paper-warm)]',
-              active && 'bg-[var(--nm-paper-warm)]',
+              // No background highlight — only the icon + caption (and the
+              // active edge rule) light up carbon.
             )}
             style={
-              // Bookmark tongue: the active tab shows a 2px ink rule on the
+              // Bookmark tongue: the active tab shows a 2px carbon rule on the
               // outer edge — the bit of the bookmark you can see from the
               // page edge.
-              active ? { boxShadow: 'inset -2px 0 0 var(--text-primary)' } : undefined
+              active ? { boxShadow: 'inset -2px 0 0 var(--color-carbon)' } : undefined
             }
           >
             <Icon
-              className={cn('w-4 h-4', status.status === 'attention' && 'animate-pulse')}
-              style={{
-                color:
-                  status.status === 'attention'
-                    ? 'var(--color-carbon)'
-                    : active
-                      ? 'var(--text-primary)'
-                      : 'var(--text-tertiary)',
-              }}
+              className={cn(
+                'w-4 h-4 transition-colors',
+                status.status === 'attention'
+                  ? 'text-[var(--color-carbon)] animate-pulse'
+                  : active
+                    ? 'text-[var(--color-carbon)]'
+                    : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
+              )}
               aria-hidden
             />
 
@@ -155,10 +161,12 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
 
             {/* Caption — readable without a tooltip */}
             <span
-              className="block max-w-full px-0.5 truncate text-[8px] font-[family-name:var(--font-mono)] uppercase tracking-[0.06em] leading-none"
-              style={{
-                color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
-              }}
+              className={cn(
+                'block max-w-full px-0.5 truncate text-center text-[8px] font-[family-name:var(--font-mono)] uppercase tracking-[0.06em] leading-none transition-colors',
+                active
+                  ? 'text-[var(--color-carbon)]'
+                  : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
+              )}
             >
               {tab.stripLabel ?? tab.label}
             </span>
