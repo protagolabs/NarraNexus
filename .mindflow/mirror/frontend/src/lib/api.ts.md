@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-16
+last_verified: 2026-06-23
 stub: false
 ---
 ## 2026-06-10 — api.onboard
@@ -142,6 +142,6 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 **`searchSocialNetwork` uses `URLSearchParams` while most other calls build URLs manually with template literals.** Both approaches work, but mixing them makes the code harder to scan. Future endpoint additions should use `URLSearchParams` for consistency.
 
-**`provisionArena()` (2026-06-16).** `POST /api/arena/provision`, no body — identity comes from the session headers. Idempotent server-side (one Arena agent per user). Called by `lib/arenaLanding.ts` after login when the entry source is Arena.
+**`provisionArena(userToken?)` (2026-06-16; body added 2026-06-23).** `POST /api/arena/provision` — identity comes from the session headers. When `userToken` (the user's NetMind JWT) is passed it goes in the body as `{user_token}` so the backend can bind the agent's owner email via Arena's platform-only endpoint (optional; omitted → bind skipped; the token is forwarded to Arena, never persisted). Idempotent server-side (one Arena agent per user). Called by `lib/arenaLanding.ts` after login when the entry source is Arena.
 
 **`createAgent()` 4th arg (2026-06-16, #43).** Optional `opts?: { teamId }` adds `team_id` to the `POST /api/auth/agents` body, so an agent created from a team's sidebar "+" is attached to that team server-side.

@@ -436,17 +436,24 @@ class ApiClient {
   }
 
   // Arena onboarding: ensure the authenticated user has a provisioned Arena
-  // agent and return it. Idempotent server-side (one Arena agent per user);
-  // no body — the user is derived from the session. See backend/routes/arena.py.
-  async provisionArena(): Promise<{
+  // agent and return it. Idempotent server-side (one Arena agent per user).
+  // The user identity comes from the session; the optional `userToken` is the
+  // user's NetMind JWT, forwarded so the backend can bind the agent's owner
+  // email via Arena's platform-only endpoint (no email round-trip). It is sent
+  // to Arena and never persisted. See backend/routes/arena.py.
+  async provisionArena(userToken?: string): Promise<{
     success: boolean;
     reused?: boolean;
     status?: string;
     agent_id?: string;
     arena_agent_id?: string;
     arena_name?: string;
+    owner_bind?: string;
   }> {
-    return this.request('/api/arena/provision', { method: 'POST' });
+    return this.request('/api/arena/provision', {
+      method: 'POST',
+      body: userToken ? JSON.stringify({ user_token: userToken }) : undefined,
+    });
   }
 
   async createAgent(
