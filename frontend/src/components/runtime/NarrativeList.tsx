@@ -138,12 +138,15 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
           <Icon className={cn('w-3.5 h-3.5', config.colorClass)} />
         </div>
 
-        <div className="flex-1 min-w-0">
-          <span className="text-xs font-medium text-[var(--text-primary)] font-mono tracking-wide">
+        <div className="flex-1 min-w-0 flex items-baseline gap-2">
+          <span className="shrink-0 text-xs font-medium text-[var(--text-primary)] font-mono tracking-wide">
             {config.label}
           </span>
           {instance.description && (
-            <span className="text-[10px] text-[var(--text-tertiary)] ml-2 truncate">
+            // min-w-0 + truncate so a long description (e.g. "Always-loaded
+            // module (no database record)") shortens with an ellipsis instead
+            // of overflowing onto the status badge.
+            <span className="min-w-0 truncate text-[10px] text-[var(--text-tertiary)]">
               {instance.description}
             </span>
           )}
@@ -151,6 +154,7 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
 
         {/* Status label */}
         <Badge
+          className="shrink-0"
           variant={instance.status === 'active' ? 'success' : instance.status === 'blocked' ? 'warning' : 'default'}
           size="sm"
           glow={instance.status === 'active'}
