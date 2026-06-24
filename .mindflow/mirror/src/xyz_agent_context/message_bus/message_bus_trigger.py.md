@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-06-23
+last_verified: 2026-06-24
 stub: false
 ---
+
+## 2026-06-24 — team group chat forces a dedicated room narrative (1:1 isolation)
+
+Root-cause fix for group chat polluting 1:1: [[agent_runtime.py]] overrides a
+bus run's `user_id` → the agent owner, so a team reply used to land in the
+owner's 1:1 narrative / chat history. Now the **team branch** of
+`_handle_channel_batch` calls `_get_or_create_team_room_narrative_id(agent,
+channel)` (→ [[narrative_service.py]] `get_or_create_team_room_narrative`, built
+in [[team_room.py]]) and passes the result as `forced_narrative_id` through
+`_invoke_runtime` → `collect_run` → `AgentRuntime.run`. That pins the run to a
+per-room narrative keyed under a room-scoped pseudo-user, so events / chat memory
+never touch the owner's 1:1 surfaces. `_invoke_runtime` gained a
+`forced_narrative_id=""` param and only forwards it when non-empty — every other
+channel (peer DM, IM bridges) keeps normal 1:1 narrative selection untouched.
 
 ## 2026-06-23 (PM) — prompt names the live roster, forbids off-channel @mentions
 

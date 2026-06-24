@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_select_narrative.py
-last_verified: 2026-05-29
+last_verified: 2026-06-24
 stub: false
 ---
+
+## 2026-06-24 — team-room narratives key their chat instance under the room user
+
+New helper `_chat_user_id_for_narrative(ctx_user_id, narrative)`: for a
+`is_special == "team_room"` narrative it returns the room-scoped pseudo-user
+from `env_variables.room_user_id` instead of the run's `user_id` (the owner).
+The `user_chat_instances` loop now routes `_ensure_user_chat_instance` through
+it, so a team group-chat reply's ChatModule instance lands under
+`room_<channel>` — invisible to the owner's 1:1 simple-chat-history (which
+queries instances by owner id). Forced team-room narratives arrive via
+`ctx.forced_narrative_id` from [[message_bus_trigger.py]]; the narrative itself
+is built by [[team_room.py]]. Falls back to `ctx_user_id` if a team_room
+narrative is missing `room_user_id` (defensive, never routes nowhere).
 
 ## 2026-05-19 — 新 `_is_user_chat(ctx)` helper
 
