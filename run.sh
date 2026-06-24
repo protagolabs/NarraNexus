@@ -71,6 +71,7 @@ stop_all() {
   pkill -f "run_lark_trigger" 2>/dev/null || true
   pkill -f "run_slack_trigger" 2>/dev/null || true
   pkill -f "run_telegram_trigger" 2>/dev/null || true
+  pkill -f "run_wechat_trigger" 2>/dev/null || true
   pkill -f "run_narramessenger_trigger" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
@@ -388,6 +389,7 @@ run_container_mode() {
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.lark_module.run_lark_trigger &
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.slack_module.run_slack_trigger &
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.telegram_module.run_telegram_trigger &
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.wechat_module.run_wechat_trigger &
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.narramessenger_module.run_narramessenger_trigger &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.

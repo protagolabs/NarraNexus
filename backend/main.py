@@ -334,6 +334,7 @@ from backend.routes.dashboard import router as dashboard_router
 from backend.routes.lark import router as lark_router
 from backend.routes.slack import router as slack_router
 from backend.routes.telegram import router as telegram_router
+from backend.routes.wechat import router as wechat_router
 from backend.routes.narramessenger import router as narramessenger_router
 from backend.routes.quota import router as quota_router
 from backend.routes.admin_quota import router as admin_quota_router
@@ -365,6 +366,7 @@ app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
 app.include_router(slack_router, prefix="/api/slack", tags=["Slack"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["Telegram"])
+app.include_router(wechat_router, prefix="/api/wechat", tags=["WeChat"])
 app.include_router(narramessenger_router, prefix="/api/narramessenger", tags=["NarraMessenger"])
 app.include_router(arena_router, tags=["Arena"])
 app.include_router(quota_router, tags=["Quota"])
