@@ -71,6 +71,7 @@ stop_all() {
   pkill -f "run_lark_trigger" 2>/dev/null || true
   pkill -f "run_slack_trigger" 2>/dev/null || true
   pkill -f "run_telegram_trigger" 2>/dev/null || true
+  pkill -f "run_narramessenger_trigger" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
 
@@ -359,6 +360,13 @@ run_container_mode() {
       fi
       sleep 1
     done
+    # MUST export so the child processes below (MCP runner, module poller,
+    # job/bus/IM triggers, backend) route their writes through the proxy.
+    # Without this, every child opens its own SQLite connection to the
+    # same file and concurrent writes deadlock with "database is locked"
+    # (the proxy was started but nobody talks to it). scripts/dev-local.sh
+    # exports the same var for the local-development path.
+    export SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:8100}"
   fi
 
   # 2. MCP module runner
@@ -380,6 +388,7 @@ run_container_mode() {
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.lark_module.run_lark_trigger &
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.slack_module.run_slack_trigger &
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.telegram_module.run_telegram_trigger &
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.narramessenger_module.run_narramessenger_trigger &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
   exec "$SCRIPT_DIR/.venv/bin/python3" -m uvicorn backend.main:app \

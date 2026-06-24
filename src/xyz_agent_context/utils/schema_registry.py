@@ -859,6 +859,44 @@ _register(
 )
 
 
+# --- 27d. channel_narramessenger_credentials -------------------------------
+# NarraMessenger (formerly NexusMatrix) per-agent binding. v1 transport is
+# Gateway Polling + /chat/send — pure bearer-token HTTP, no Matrix client, so
+# the only secret is the runtime bearer token (base64-encoded, NOT encryption;
+# same placeholder convention as lark/slack/telegram). matrix_user_id is the
+# bot identity; one Matrix bot binds to AT MOST one agent.
+_register(
+    TableDef(
+        name="channel_narramessenger_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bearer_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("backend_base_url", "TEXT", "VARCHAR(255)"),
+            Column("matrix_homeserver_url", "TEXT", "VARCHAR(255)"),
+            Column("matrix_user_id", "TEXT", "VARCHAR(255)"),
+            # NarraMessenger identity ids returned at connect.
+            Column("nexus_principal_id", "TEXT", "VARCHAR(64)"),
+            Column("nexus_profile_id", "TEXT", "VARCHAR(64)"),
+            Column("bind_room_id", "TEXT", "VARCHAR(255)"),
+            # Owner — drives the is_owner_interacting trust signal.
+            Column("owner_matrix_user_id", "TEXT", "VARCHAR(255)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("connection_mode", "TEXT", "VARCHAR(16)", nullable=False, default="'gateway'"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_nm_cred_agent_id", ["agent_id"], unique=True),
+            # Same Matrix bot identity binds to AT MOST one agent — two agents
+            # polling the same bearer would split invocations arbitrarily.
+            Index("idx_nm_cred_matrix_user", ["matrix_user_id"], unique=True),
+        ],
+    )
+)
+
+
 # Note: there is intentionally NO `arena_credentials` table. Arena is an external
 # service — Arena owns the identity, and the agent's api_key lives only in its
 # workspace (skills/arena/). Idempotency ("does this user already have an Arena
