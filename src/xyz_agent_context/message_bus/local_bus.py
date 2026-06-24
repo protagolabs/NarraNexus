@@ -115,14 +115,14 @@ class LocalMessageBus(MessageBusService):
         ph = self._db.placeholder
         if since:
             rows = await self._db.execute(
-                f'SELECT * FROM "bus_messages" WHERE "channel_id" = {ph} '
-                f'AND "created_at" > {ph} ORDER BY "created_at" ASC LIMIT {int(limit)}',
+                f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+                f"AND created_at > {ph} ORDER BY created_at ASC LIMIT {int(limit)}",
                 (channel_id, since),
             )
         else:
             rows = await self._db.execute(
-                f'SELECT * FROM "bus_messages" WHERE "channel_id" = {ph} '
-                f'ORDER BY "created_at" ASC LIMIT {int(limit)}',
+                f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+                f"ORDER BY created_at ASC LIMIT {int(limit)}",
                 (channel_id,),
             )
         return [self._row_to_message(row) for row in rows]
@@ -466,7 +466,7 @@ class LocalMessageBus(MessageBusService):
         """Get all members of a channel."""
         ph = self._db.placeholder
         rows = await self._db.execute(
-            f'SELECT * FROM "bus_channel_members" WHERE "channel_id" = {ph}',
+            f"SELECT * FROM bus_channel_members WHERE channel_id = {ph}",
             (channel_id,),
         )
         return [BusChannelMember(

@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-06-23
+last_verified: 2026-06-24
 stub: false
 ---
+
+## 2026-06-24 — raw SQL must use BARE identifiers, not double quotes (MySQL gotcha)
+
+`get_messages` and `get_channel_members` had used double-quoted identifiers
+(`SELECT * FROM "bus_messages" WHERE "channel_id" = ?`). SQLite accepts `"..."`
+as an identifier quote, but MySQL (prod/dev, no `ANSI_QUOTES`) treats it as a
+**string literal** → `ProgrammingError 1064` syntax error. These queries were
+latent since the pluggable-DB-backend commit and only surfaced when team group
+chat became the first cloud-mode caller of these methods (silent UX: the
+team-chat POST 500'd and the composer restored the draft). Fixed to bare
+identifiers (`FROM bus_messages WHERE channel_id = ?`), matching every other raw
+query in this file. **Rule: any `db.execute` raw SQL here must be dialect-safe —
+bare identifiers + `self._db.placeholder`, never `"`-quoted names.** (Same fix
+applied to `_team_cascade_depth` in [[message_bus_trigger]].)
 
 ## 2026-06-23 — ack_processed canonicalises the cursor timestamp
 

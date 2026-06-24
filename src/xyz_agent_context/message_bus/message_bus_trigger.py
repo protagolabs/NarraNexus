@@ -497,8 +497,8 @@ class MessageBusTrigger:
         message resets this to 0 on its next turn."""
         ph = self._bus._db.placeholder
         rows = await self._bus._db.execute(
-            f'SELECT "from_agent" FROM "bus_messages" WHERE "channel_id" = {ph} '
-            f'ORDER BY "created_at" DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}',
+            f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
+            f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
             (channel_id,),
         )
         depth = 0
