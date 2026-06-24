@@ -4,6 +4,11 @@ stub: false
 last_verified: 2026-06-24
 ---
 
+> 2026-06-24: the section now defaults to **expanded** (`sectionOpen` initial
+> = `true`) — opening Channels should show the channel list straight away, not
+> a collapsed one-liner. The three-level disclosure still applies (the user can
+> collapse it; each channel still opens inline); only the initial state changed.
+
 ## 2026-06-22 — NarraMessenger added to `IM_CHANNELS`
 
 The tab now lists **four** channels: Lark, Slack, Telegram, NarraMessenger.

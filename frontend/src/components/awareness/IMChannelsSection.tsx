@@ -116,7 +116,9 @@ const IM_CHANNELS: ChannelEntry[] = [
 
 export function IMChannelsSection() {
   const { agentId } = useConfigStore();
-  const [sectionOpen, setSectionOpen] = useState(false);
+  // Expanded by default: opening Channels should show the channel list, not a
+  // collapsed one-liner the user has to click to reveal.
+  const [sectionOpen, setSectionOpen] = useState(true);
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
   const [connectedMap, setConnectedMap] = useState<Record<string, boolean>>({});
 
