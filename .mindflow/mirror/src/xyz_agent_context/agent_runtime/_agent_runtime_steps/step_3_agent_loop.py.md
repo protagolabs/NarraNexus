@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-06-18
+last_verified: 2026-06-24
 stub: false
 ---
+## 2026-06-24 — distrust scratch workspace (IM distrust v1)
+
+The working-dir resolution now branches on `ctx.policy.workspace_mode`: a distrust
+visitor turn ("scratch") runs in `distrust_scratch_path(agent_id, im_room_id)` (an
+ephemeral per-room dir OUTSIDE the owner's `{user_id}/` subtree), reading
+`im_room_id` from `ctx.trigger_extra_data`. The owner path ("owner", the default)
+keeps `agent_workspace_path(agent_id, user_id)` unchanged. See [[runtime_policy.py]]
+/ [[workspace_paths.py]]. (env scrub / tool-guard for distrust are NOT yet wired
+here — pending the v1 confirm round on the client-API + auth questions.)
+
 ## 2026-06-18 — 冷启动 executor 先等就绪再驱动
 
 冷启动分支（`ensured.cold_started`）发完 `executor.warming` UX 事件后,**先

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-06-17
+last_verified: 2026-06-24
 stub: false
 ---
+## 2026-06-24 — instance_im_short_term table (IM distrust v1)
+
+New table `instance_im_short_term`: lightweight cross-turn memory for distrust
+IM-channel visitors (a distrust turn skips the owner's narrative/memory hooks, so
+this is its only continuity). Keyed (agent_id, im_room_id) with an (owner_id,
+created_at) secondary index for owner read-back. See
+[[im_short_term_repository.py]]. NOT the agent-to-agent room table — distinct
+`room_id` semantics.
+
 ## 2026-06-10 — user_slots.params_json column
 
 `user_slots` gained a nullable `params_json` (TEXT/MEDIUMTEXT) column: one

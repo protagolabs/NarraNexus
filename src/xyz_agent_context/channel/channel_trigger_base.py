@@ -125,6 +125,26 @@ def _compute_next_backoff(
     return min(max(current, base) * 2, max_backoff)
 
 
+# How many recent IM short-term rows to load into a distrust turn's prompt.
+_IM_SHORT_TERM_LIMIT = 20
+
+
+def _format_im_short_term_block(rows: list[dict]) -> str:
+    """Render recent IM short-term rows into a prompt block (empty string if none).
+
+    A distrust (static-visitor) turn skips the owner's narrative/memory hooks, so
+    this block is the visitor's ONLY cross-turn continuity. Rows arrive
+    chronological (oldest first); each line is labelled with the sender, falling
+    back to the role.
+    """
+    if not rows:
+        return ""
+    lines = [
+        f"{r.get('sender') or r.get('role', '')}: {r.get('body', '')}" for r in rows
+    ]
+    return "[Recent messages in this conversation]\n" + "\n".join(lines) + "\n\n"
+
+
 class ChannelTriggerBase(ABC):
     """Abstract base class for IM channel triggers.
 
@@ -1091,6 +1111,13 @@ class ChannelTriggerBase(ABC):
 
         agent_id = getattr(credential, "agent_id", "")
 
+        # Trust gate (IM distrust v1). An untrusted binding routes its turns to the
+        # static-visitor runtime (skips owner hooks, ephemeral scratch workspace,
+        # IM short-term memory). Default "trusted" → zero regression: existing
+        # channels behave exactly as before until a binding opts in. v1 is
+        # channel-level only — owner-vs-sender is NOT distinguished here.
+        distrust = getattr(credential, "trust", "trusted") == "distrust"
+
         builder = self.create_context_builder(message, credential, agent_id)
         prompt = await builder.build_prompt(self._history_config)
         # Clean retrieval anchor (sender + this-turn body) for narrative
@@ -1111,7 +1138,13 @@ class ChannelTriggerBase(ABC):
             sender_id=message.sender_id,
             room_id=message.chat_id,
         )
-        tagged_prompt = f"{channel_tag.format()}\n{prompt}"
+        # For a distrust turn, prepend this room's IM short-term memory — the
+        # distrust runtime skips the owner's narrative/memory hooks, so this table
+        # (keyed by im_room_id) is its only cross-turn continuity.
+        short_term_block = ""
+        if distrust:
+            short_term_block = await self._load_im_short_term_block(agent_id, message.chat_id)
+        tagged_prompt = f"{channel_tag.format()}\n{short_term_block}{prompt}"
 
         # Resolve the AGENT'S OWNER (NarraNexus user_id), NOT the IM
         # sender. ProviderResolver maps the owner's user_id to API keys;
@@ -1123,6 +1156,8 @@ class ChannelTriggerBase(ABC):
         extra_data: dict[str, Any] = {
             "channel_tag": channel_tag.to_dict(),
             "retrieval_anchor": anchor,
+            # IM room id — the distrust scratch workspace is keyed on this.
+            "im_room_id": message.chat_id,
             "trigger_id": (
                 f"{self.channel_name}_{message.message_id}"
                 if message.message_id
@@ -1137,13 +1172,28 @@ class ChannelTriggerBase(ABC):
                 a.model_dump(mode="json") for a in attachments
             ]
 
-        result = await get_agent_runtime_client().run_and_collect(
-            agent_id=agent_id,
-            user_id=owner_user_id,
-            input_content=tagged_prompt,
-            working_source=self.working_source,
-            trigger_extra_data=extra_data,
-        )
+        if distrust:
+            # Drive the static-visitor runtime directly (it carries the distrust
+            # RuntimePolicy). Lazy import — same circular-import reason as the
+            # client import above.
+            from xyz_agent_context.agent_runtime.static_visitor_runtime import (
+                StaticVisitorRuntime,
+            )
+            result = await StaticVisitorRuntime().run_and_collect(
+                agent_id=agent_id,
+                user_id=owner_user_id,
+                input_content=tagged_prompt,
+                working_source=self.working_source,
+                trigger_extra_data=extra_data,
+            )
+        else:
+            result = await get_agent_runtime_client().run_and_collect(
+                agent_id=agent_id,
+                user_id=owner_user_id,
+                input_content=tagged_prompt,
+                working_source=self.working_source,
+                trigger_extra_data=extra_data,
+            )
 
         if result.is_error:
             logger.warning(
@@ -1155,7 +1205,69 @@ class ChannelTriggerBase(ABC):
         # Subclasses may want to extract platform-specific tool-call output;
         # default returns the agent's text. Lark's subclass will override
         # to look at result.raw_items in Phase 2.
-        return self.extract_output(result, message, credential)
+        output_text = self.extract_output(result, message, credential)
+
+        # Persist this exchange to IM short-term memory for a distrust turn — the
+        # after-execution hooks that would normally record it are skipped, so this
+        # is what gives the next distrust turn in this room its context.
+        if distrust:
+            await self._write_im_short_term(
+                agent_id, owner_user_id, message, output_text
+            )
+
+        return output_text
+
+    # ────────────────────────────────────────────────────────────────────
+    # IM short-term memory (distrust turns only)
+    # ────────────────────────────────────────────────────────────────────
+
+    async def _load_im_short_term_block(self, agent_id: str, im_room_id: str) -> str:
+        """Recent IM short-term memory for this room, rendered as a prompt block.
+
+        Best-effort: a DB hiccup must never block the agent run, so failures
+        degrade to no memory (empty string), not an exception.
+        """
+        if self._db is None or not agent_id or not im_room_id:
+            return ""
+        try:
+            from xyz_agent_context.repository.im_short_term_repository import (
+                IMShortTermRepository,
+            )
+            rows = await IMShortTermRepository(self._db).recent(
+                agent_id, im_room_id, limit=_IM_SHORT_TERM_LIMIT
+            )
+            return _format_im_short_term_block(rows)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"IM short-term load failed (non-fatal): {e}")
+            return ""
+
+    async def _write_im_short_term(
+        self, agent_id: str, owner_id: str, message: ParsedMessage, output_text: str
+    ) -> None:
+        """Append the inbound message and the agent's reply to IM short-term memory.
+
+        Best-effort: never raises into the caller (the reply was already produced).
+        """
+        if self._db is None or not agent_id or not message.chat_id:
+            return
+        try:
+            from xyz_agent_context.repository.im_short_term_repository import (
+                IMShortTermRepository,
+            )
+            repo = IMShortTermRepository(self._db)
+            await repo.append(
+                agent_id=agent_id, owner_id=owner_id, channel=self.channel_name,
+                im_room_id=message.chat_id, sender=message.sender_id,
+                role="user", body=message.content or "",
+            )
+            if output_text:
+                await repo.append(
+                    agent_id=agent_id, owner_id=owner_id, channel=self.channel_name,
+                    im_room_id=message.chat_id, sender="agent",
+                    role="agent", body=output_text,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"IM short-term write failed (non-fatal): {e}")
 
     # ────────────────────────────────────────────────────────────────────
     # Owner resolution + agent output extraction (subclass override hooks)

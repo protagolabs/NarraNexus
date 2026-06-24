@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_5_execute_hooks.py
-last_verified: 2026-05-29
+last_verified: 2026-06-24
 stub: false
 ---
+
+## 2026-06-24 — distrust policy short-circuit (IM distrust v1)
+
+`step_5_execute_hooks` now early-returns at the top when
+`ctx.policy.skip_after_execution_hooks` (the static-visitor/distrust profile) — it
+yields one COMPLETED ProgressMessage and returns BEFORE building params or calling
+any hook, so no module after-execution hook runs and no callback_results is yielded
+(the background driver's Step 6 is guarded by `if hook_callback_results`, so it
+no-ops too). Purpose: an untrusted external IM visitor turn must not mutate the
+owner's persistent state (narrative / memory / chat history). The matching
+synchronous phase — `hook_persist_turn` after Step 4 in `agent_runtime.run()` — is
+gated by the SAME flag (otherwise the ChatModule conversation row would still be
+written into the owner's scope). See [[runtime_policy.py]].
 
 ## 2026-05-20 — extracted `build_after_execution_params(ctx)`
 

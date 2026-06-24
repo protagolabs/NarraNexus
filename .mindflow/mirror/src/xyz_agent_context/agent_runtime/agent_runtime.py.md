@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-05-31
+last_verified: 2026-06-24
 stub: false
 ---
+
+## 2026-06-24 — per-run RuntimePolicy seam (IM distrust v1)
+
+`__init__` now sets `self._policy = OWNER_POLICY`, and `run()` passes
+`policy=self._policy` into the `RunContext`. The base runtime is always
+OWNER_POLICY (every restriction off == historical behavior — zero regression).
+The new `StaticVisitorRuntime` subclass (see [[static_visitor_runtime.py]])
+overrides `self._policy` with a distrust profile; downstream steps branch on
+`ctx.policy.<flag>`. This is the "new runtime mode = subclass + RuntimePolicy,
+never modify the main runtime" rule made concrete — the only change to this file
+is the default-policy attribute + threading it into ctx. See [[runtime_policy.py]].
+Note the existing `user_id` → `agents.created_by` override (line ~225) and the
+agent-owner-based LLM config resolution (line ~327, independent of `user_id`) are
+UNCHANGED: a distrust visitor turn still bills the owner.
 
 ## 2026-05-20 — Step 4.6: synchronous turn persistence before background
 

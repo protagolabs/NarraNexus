@@ -122,6 +122,13 @@ class AgentRuntime:
         self._response_processor = response_processor or ResponseProcessor()
         self.hook_manager = hook_manager or HookManager()
 
+        # Per-run behavioral policy. The base runtime is always OWNER_POLICY
+        # (every restriction off == historical behavior). Subclasses such as
+        # StaticVisitorRuntime override this to a distrust profile; each pipeline
+        # step then branches on ctx.policy.<flag>. See runtime_policy.py.
+        from xyz_agent_context.agent_runtime.runtime_policy import OWNER_POLICY
+        self._policy = OWNER_POLICY
+
         # Managers created at runtime
         self.agent_hooks = []
 
@@ -274,6 +281,7 @@ class AgentRuntime:
                 forced_narrative_id=forced_narrative_id,
                 trigger_extra_data=trigger_extra_data or {},
                 cancellation=cancellation,
+                policy=self._policy,
             )
 
             # =============================================================================
@@ -607,15 +615,20 @@ class AgentRuntime:
             # write the conversation row) runs synchronously here. Placed AFTER Step 4
             # so the P3 narrative-routing rebind (4.0) has already repointed the chat
             # instance, and the message lands in the thread it now belongs to.
-            from ._agent_runtime_steps.step_5_execute_hooks import (
-                build_after_execution_params,
-            )
-            try:
-                await self.hook_manager.hook_persist_turn(
-                    ctx.module_list, build_after_execution_params(ctx)
+            # Distrust path skips this synchronous persist too — otherwise the
+            # ChatModule conversation row would still be written into the owner's
+            # scope. ctx.policy.skip_after_execution_hooks gates both the sync
+            # persist here and Step 5 below.
+            if not ctx.policy.skip_after_execution_hooks:
+                from ._agent_runtime_steps.step_5_execute_hooks import (
+                    build_after_execution_params,
                 )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"hook_persist_turn phase failed (non-fatal): {e}")
+                try:
+                    await self.hook_manager.hook_persist_turn(
+                        ctx.module_list, build_after_execution_params(ctx)
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"hook_persist_turn phase failed (non-fatal): {e}")
 
             # =============================================================================
             # Step 5: Execute Hooks

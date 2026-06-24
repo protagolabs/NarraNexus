@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/utils/workspace_paths.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-06-24
 ---
+
+> 2026-06-24（IM distrust v1）：新增 `distrust_scratch_path(agent_id, im_room_id, base)`
+> + `_sanitize_room_id`。distrust IM 访客的 turn 在 `{base}/_im_scratch/{room}/{agent}`
+> 这个**临时 scratch** 里跑，**永远不在 owner 的 `{user_id}/` 子树下** → 访客的写不可能
+> 落到 owner workspace。按 `im_room_id` key（DM 独立、群共享）。step_3 在
+> `ctx.policy.workspace_mode == "scratch"` 时走它。见 [[runtime_policy.py]]。
 
 ## Why it exists
 

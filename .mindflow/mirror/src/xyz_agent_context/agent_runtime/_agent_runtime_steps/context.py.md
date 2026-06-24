@@ -1,9 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/context.py
-last_verified: 2026-05-29
+last_verified: 2026-06-24
 stub: false
 ---
 
+> 2026-06-24：新增 `policy: RuntimePolicy = OWNER_POLICY` 字段（IM distrust v1）。
+> 各 step 读 `ctx.policy.<flag>` 决定是否走限制行为；默认 OWNER_POLICY 即历史行为，
+> owner 路径零回归。policy 由 `agent_runtime.py` 的 `run()` 用 `self._policy` 填入，
+> `StaticVisitorRuntime` 子类把它换成 distrust profile。见 [[runtime_policy.py]]。
+>
 > 2026-05-29：删除 `evermemos_task` 字段（EverMemOS 整体移除）。
 
 # context.py — AgentRuntime 执行流水线的共享状态容器

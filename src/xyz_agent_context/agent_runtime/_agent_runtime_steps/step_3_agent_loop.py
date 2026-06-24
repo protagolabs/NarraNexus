@@ -719,8 +719,18 @@ async def step_3_agent_loop(
     # Set up Agent working directory
     from xyz_agent_context.settings import settings
     working_path = settings.base_working_path
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
-    agent_working_path = str(agent_workspace_path(ctx.agent_id, ctx.user_id, base=working_path))
+    from xyz_agent_context.utils.workspace_paths import (
+        agent_workspace_path,
+        distrust_scratch_path,
+    )
+    if ctx.policy.workspace_mode == "scratch":
+        # Distrust visitor: ephemeral per-room scratch OUTSIDE the owner's subtree,
+        # so a visitor's writes can never land in the owner's workspace. Keyed by
+        # the IM room id passed by the trigger.
+        im_room_id = ctx.trigger_extra_data.get("im_room_id", "")
+        agent_working_path = str(distrust_scratch_path(ctx.agent_id, im_room_id, base=working_path))
+    else:
+        agent_working_path = str(agent_workspace_path(ctx.agent_id, ctx.user_id, base=working_path))
     if not os.path.exists(agent_working_path):
         os.makedirs(agent_working_path)
 

@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
+from xyz_agent_context.agent_runtime.runtime_policy import RuntimePolicy, OWNER_POLICY
+
 if TYPE_CHECKING:
     from xyz_agent_context.narrative import Event, Narrative, Session
     from xyz_agent_context.schema import PathExecutionResult, ModuleLoadResult
@@ -77,6 +79,12 @@ class RunContext:
 
     # ===== Cancellation =====
     cancellation: Optional["CancellationToken"] = None  # Cooperative cancellation token
+
+    # ===== Runtime behavioral policy =====
+    # Per-run behavioral profile. Defaults to OWNER_POLICY (every restriction off
+    # == historical behavior). The StaticVisitorRuntime subclass sets this to the
+    # distrust profile so each step can branch on ctx.policy.<flag>.
+    policy: RuntimePolicy = OWNER_POLICY
 
     # ===== Core Data Objects =====
     agent_data: Optional[Dict[str, Any]] = None

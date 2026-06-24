@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-05-21
+last_verified: 2026-06-24
 ---
+
+## 2026-06-24 — IM distrust v1: trust gate + short-term memory
+
+`_build_and_run_agent` now reads a per-binding trust signal —
+`getattr(credential, "trust", "trusted")`. Default `"trusted"` ⇒ ZERO regression:
+every existing channel runs exactly as before until a binding opts into
+`"distrust"`. A distrust turn:
+- routes to `StaticVisitorRuntime().run_and_collect(...)` (carries the distrust
+  RuntimePolicy: skip owner hooks, ephemeral scratch workspace, IM short-term
+  memory) instead of `get_agent_runtime_client()`;
+- gets this room's IM short-term memory prepended to the prompt
+  (`_load_im_short_term_block`, keyed on `message.chat_id`) — the distrust runtime
+  skips the owner's narrative/memory hooks, so this table is its only cross-turn
+  continuity;
+- persists the exchange via `_write_im_short_term` afterward (the after-execution
+  hooks that normally record it are skipped).
+`extra_data["im_room_id"] = message.chat_id` is always passed (the distrust scratch
+workspace keys on it). v1 is CHANNEL-LEVEL only — owner-vs-sender is not
+distinguished. The `trust` COLUMN is added per channel credential table as each
+channel opts in (none on dev yet; narramessenger connects later like any other
+channel). See [[runtime_policy.py]] / [[static_visitor_runtime.py]] /
+[[im_short_term_repository.py]].
 
 ## Why it exists
 

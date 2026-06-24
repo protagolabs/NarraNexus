@@ -57,6 +57,40 @@ def agent_workspace_path(
     return Path(base) / agent_workspace_relpath(agent_id, user_id)
 
 
+# Distrust IM visitors run in an ephemeral scratch workspace UNDER this root,
+# never under an owner's `{user_id}/` subtree — so a visitor's writes can never
+# land in (or even resolve to) the owner's workspace. Bounded by TTL cleanup.
+_DISTRUST_SCRATCH_ROOT = "_im_scratch"
+
+
+def _sanitize_room_id(im_room_id: str) -> str:
+    """Make an IM room id safe as a single path component.
+
+    IM room ids carry sigils/separators (Matrix ``!abc:server``, etc.) that would
+    otherwise inject extra path segments or escape the scratch root. Keep
+    alphanumerics, ``-`` and ``_``; collapse everything else to ``_``. Empty input
+    maps to a stable placeholder so the path never loses its room component.
+    """
+    safe = "".join(c if (c.isalnum() or c in "-_") else "_" for c in (im_room_id or ""))
+    return safe or "_default"
+
+
+def distrust_scratch_path(
+    agent_id: str, im_room_id: str, base: Optional[str] = None
+) -> Path:
+    """Absolute ephemeral scratch workspace for a distrust IM visitor turn.
+
+    Layout: ``{base}/_im_scratch/{sanitized_room}/{agent_id}``. Lives outside any
+    owner's ``{user_id}/`` subtree (isolation), and is keyed by ``im_room_id`` so a
+    room keeps continuity within its TTL window. A DM room is a distinct id (its
+    own scratch); a group room is shared.
+    """
+    if base is None:
+        from xyz_agent_context.settings import settings
+        base = settings.base_working_path
+    return Path(base) / _DISTRUST_SCRATCH_ROOT / _sanitize_room_id(im_room_id) / agent_id
+
+
 def _candidate_relpaths(agent_id: str, user_id: str) -> list[str]:
     """All workspace-dir relpath forms, current layout first then legacy.
 

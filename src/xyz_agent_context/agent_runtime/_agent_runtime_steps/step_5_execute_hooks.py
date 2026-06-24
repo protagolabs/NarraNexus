@@ -136,6 +136,22 @@ async def step_5_execute_hooks(
     """
     ctx.substeps_5 = []
 
+    # Distrust (static visitor) path: skip ALL module after-execution hooks so the
+    # owner's persistent state (narrative / memory / chat history) is never mutated
+    # by an untrusted external visitor turn. Returns before building params or
+    # calling any hook; yields no callback_results, so the background driver's
+    # Step 6 (guarded by `if hook_callback_results`) is a no-op too.
+    if ctx.policy.skip_after_execution_hooks:
+        logger.info("[policy] skip_after_execution_hooks: Step 5 hooks skipped (owner state left static)")
+        yield ProgressMessage(
+            step="5",
+            title="Execute Hooks",
+            description="Skipped (distrust policy): owner state left static",
+            status=ProgressStatus.COMPLETED,
+            substeps=ctx.substeps_5,
+        )
+        return
+
     yield ProgressMessage(
         step="5",
         title="Execute Hooks",

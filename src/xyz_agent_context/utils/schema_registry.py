@@ -1492,6 +1492,35 @@ _register(
 )
 
 
+# instance_im_short_term — lightweight cross-turn memory for distrust IM visitors.
+# NOT the agent-to-agent room table; this is IM-channel specific. A distrust
+# (static visitor) turn skips the owner's narrative/memory hooks, so this table
+# is its only cross-turn continuity. Keyed by (agent_id, im_room_id): a 1:1 DM
+# room is naturally per-sender (isolated), a group room is shared (group messages
+# are public anyway). owner_id is recorded so the owner can later read "what was
+# said in my channels today". Bounded retention via cleanup_older_than_days.
+_register(
+    TableDef(
+        name="instance_im_short_term",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("owner_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("channel", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("im_room_id", "TEXT", "VARCHAR(191)", nullable=False),
+            Column("sender", "TEXT", "VARCHAR(191)"),
+            Column("role", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("body", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_im_short_term_room", ["agent_id", "im_room_id", "created_at"]),
+            Index("idx_im_short_term_owner", ["owner_id", "created_at"]),
+        ],
+    )
+)
+
+
 # ============================================================================
 # DDL Generation
 # ============================================================================
