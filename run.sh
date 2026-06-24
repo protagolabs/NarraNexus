@@ -378,6 +378,9 @@ run_container_mode() {
   "$SCRIPT_DIR/.venv/bin/python3" src/xyz_agent_context/module/job_module/job_trigger.py &
   # 5. Message bus trigger
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.message_bus.message_bus_trigger &
+  # 5b. Discord channel trigger (Gateway receive → AgentRuntime). dev-local.sh
+  #     already launches this; run.sh must match it (binding rule #7).
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.discord_module.run_discord_trigger &
 
   # 6. IM channel triggers (inbound long-poll). message_bus_trigger
   #    deliberately defers IM channels to these dedicated processes, so
