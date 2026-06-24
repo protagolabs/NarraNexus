@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/_dashboard_helpers.py
-last_verified: 2026-04-21
+last_verified: 2026-06-23
 stub: true
 ---
+
+> 2026-06-23：recent-events 映射新增 `trigger == "MESSAGE_BUS"` → kind `chat` /
+> verb "Group chat reply"（团队群聊 Event 现在带 `trigger=message_bus`，见
+> [[models]]）；否则会落到 else 显示成 "Message_Bus"。
 
 # _dashboard_helpers.py
 

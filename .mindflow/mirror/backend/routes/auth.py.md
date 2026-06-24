@@ -1,8 +1,28 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-06-11
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — sidebar preview excludes group-chat replies (forward only)
+
+`/api/auth/agents`' `last_assistant_preview` window query filters
+`trigger != 'message_bus'`. New team group-chat runs are tagged at creation
+([[step_0_initialize]] / [[models]]), so their replies are excluded → previews
+stay clean **going forward**.
+
+**Why historical rows can't be filtered** (investigated 2026-06-24): the root
+leak is that a message-bus run records its reply under the agent's *regular*
+narratives (default `*_default_N-*` AND topic `nar_*`), identical to a 1:1
+reply — same `trigger_source` (the user), no marker. Most replies never reached
+`bus_messages` (e.g. rabbit: 2 rows vs many leaked events), so content-matching
+is incomplete; and the same reply is duplicated across default + topic
+narratives, so neither narrative-id nor actors separate them. Pre-tag previews
+therefore can't be cleaned by query — they age out as the agent has genuine 1:1
+activity, or the user clears history.
+
+Real fix (pending): stop bus runs writing into 1:1 narratives — route them to a
+dedicated team-room narrative in narrative selection.
 
 ## 2026-06-11 — identity hardening: create_agent / timezone / onboarding
 

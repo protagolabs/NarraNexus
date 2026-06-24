@@ -331,6 +331,11 @@ async def get_agents(request: Request):
                         WHERE agent_id IN ({placeholders})
                           AND final_output IS NOT NULL
                           AND final_output != ''
+                          -- 1:1 sidebar preview only — exclude team group-chat
+                          -- (message bus) replies. New runs are tagged at
+                          -- creation (step_0_initialize); see the note below on
+                          -- why historical rows can't be filtered reliably.
+                          AND (trigger IS NULL OR trigger != 'message_bus')
                     ) ranked
                     WHERE rn = 1
                     """,
