@@ -323,10 +323,17 @@ class MessageBusTrigger:
         """
         is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)
         member_map: Dict[str, str] = {}
+        # Team group-chat runs force a dedicated per-room narrative so the
+        # agent's reply / chat memory never pollutes its 1:1 narratives. Every
+        # other channel keeps normal narrative selection (forced id stays "").
+        forced_narrative_id = ""
         try:
             if is_team:
                 member_map = await self._team_member_names(channel_id)
                 prompt = self._build_team_prompt(agent_id, messages, member_map)
+                forced_narrative_id = await self._get_or_create_team_room_narrative_id(
+                    agent_id, channel_id
+                )
             else:
                 # Owner lookup up-front — used by both the prompt (to remind the
                 # agent its owner is waiting in chat) and the inbox writer.
@@ -359,6 +366,7 @@ class MessageBusTrigger:
                 channel_id=channel_id,
                 trigger_message_id=trigger_message.message_id,
                 retrieval_anchor=build_bus_anchor(messages),
+                forced_narrative_id=forced_narrative_id,
             )
 
             # On success: advance cursor
@@ -413,6 +421,20 @@ class MessageBusTrigger:
                 agent_id=agent_id,
                 error=str(e),
             )
+
+    async def _get_or_create_team_room_narrative_id(
+        self, agent_id: str, channel_id: str
+    ) -> str:
+        """Get (or create) the dedicated team-room narrative id for (agent,
+        channel). The team run forces this narrative so the agent's reply and
+        chat memory stay isolated from its 1:1 narratives. See
+        ``narrative/_narrative_impl/team_room.py``.
+        """
+        from xyz_agent_context.narrative import NarrativeService
+
+        service = NarrativeService(agent_id)
+        narrative = await service.get_or_create_team_room_narrative(agent_id, channel_id)
+        return narrative.id
 
     async def _team_member_names(self, channel_id: str) -> Dict[str, str]:
         """Map each channel member's agent_id → display name (agent_name)."""
@@ -592,9 +614,13 @@ class MessageBusTrigger:
         channel_id: str,
         trigger_message_id: str = "",
         retrieval_anchor: str = "",
+        forced_narrative_id: str = "",
     ) -> str:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
+
+        ``forced_narrative_id`` (set for team group-chat rooms) pins the run to
+        a dedicated room narrative so it bypasses 1:1 narrative selection.
 
         Returns the collected agent response text.
 
@@ -611,6 +637,9 @@ class MessageBusTrigger:
             ) from e
 
         runtime = AgentRuntime()
+        extra_kwargs = {}
+        if forced_narrative_id:
+            extra_kwargs["forced_narrative_id"] = forced_narrative_id
         collection = await collect_run(
             runtime,
             agent_id=agent_id,
@@ -626,6 +655,7 @@ class MessageBusTrigger:
                     else f"bus_chan_{channel_id}"
                 ),
             },
+            **extra_kwargs,
         )
 
         # Error path (Bug 2): previously the loop only checked

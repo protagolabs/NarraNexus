@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-06-04
+last_verified: 2026-06-24
 stub: false
 ---
+
+## 2026-06-24 — `get_or_create_team_room_narrative` (team group-chat isolation)
+
+New method: get-or-create the dedicated per-`(agent, channel)` narrative for a
+team group-chat room (`is_special="team_room"`), keyed under a room-scoped
+pseudo-user so it never pollutes the agent's 1:1 narratives. Deterministic id →
+`load_by_id` → `upsert` (concurrency-safe, idempotent). The ChatModule instance
+is NOT created here — [[step_1_select_narrative.py]] provisions it lazily under
+the room user. Called by [[message_bus_trigger.py]], which passes the id as
+`forced_narrative_id`. Builder + id/user helpers live in
+[[team_room.py]] (`_narrative_impl/team_room.py`).
 
 ## 2026-06-01 — embed a clean retrieval anchor, not the execution prompt
 

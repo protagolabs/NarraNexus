@@ -342,6 +342,39 @@ class NarrativeService:
             save_to_db=save_to_db
         )
 
+    async def get_or_create_team_room_narrative(
+        self,
+        agent_id: str,
+        channel_id: str,
+    ) -> Narrative:
+        """Get (or create) the dedicated narrative for a team group-chat room.
+
+        Team group-chat (message_bus) runs are routed here via
+        ``forced_narrative_id`` so their events / chat memory never land in the
+        agent's 1:1 narratives. The narrative is keyed under a room-scoped
+        pseudo-user (``room_<channel_id>``) — never the owner — so every
+        owner-keyed 1:1 surface is naturally isolated. Stable + idempotent per
+        (agent, channel): the deterministic id means concurrent / repeated
+        calls converge on one row, and ``upsert`` is concurrency-safe.
+
+        The ChatModule instance is NOT created here; ``step_1`` provisions it
+        lazily (under the room user) the first time the narrative is used.
+        """
+        from ._narrative_impl.team_room import (
+            build_team_room_narrative_id,
+            create_team_room_narrative,
+        )
+
+        narrative_id = build_team_room_narrative_id(agent_id, channel_id)
+        existing = await self._crud.load_by_id(narrative_id)
+        if existing:
+            return existing
+
+        narrative = create_team_room_narrative(agent_id, channel_id)
+        await self._crud.upsert(narrative)
+        logger.info(f"Created team-room narrative {narrative.id} for channel {channel_id}")
+        return narrative
+
     # =========================================================================
     # Instance Management
     # =========================================================================

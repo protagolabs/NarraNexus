@@ -89,6 +89,26 @@ if TYPE_CHECKING:
     from xyz_agent_context.narrative import NarrativeService, SessionService
 
 
+def _chat_user_id_for_narrative(ctx_user_id: str, narrative) -> str:
+    """Pick the user id under which this narrative's ChatModule instance is
+    keyed.
+
+    Normally the run's user_id (the agent owner). For a team group-chat room
+    narrative (``is_special == "team_room"``) the chat instance MUST be keyed
+    under the room-scoped pseudo-user stored in ``env_variables.room_user_id``,
+    NOT the owner — otherwise the owner's 1:1 simple-chat-history (which queries
+    ChatModule instances by owner id) would surface the group chat. See
+    ``_narrative_impl/team_room.py``.
+    """
+    from xyz_agent_context.narrative._narrative_impl.team_room import TEAM_ROOM_SPECIAL
+
+    if getattr(narrative, "is_special", "other") == TEAM_ROOM_SPECIAL:
+        room_user_id = (narrative.env_variables or {}).get("room_user_id")
+        if room_user_id:
+            return room_user_id
+    return ctx_user_id
+
+
 async def _ensure_user_chat_instance(
     agent_id: str,
     user_id: str,
@@ -305,11 +325,15 @@ async def step_1_select_narrative(
     user_chat_instances = {}
     for narrative in narrative_list:
         try:
+            # Team-room narratives key their chat instance under a room-scoped
+            # pseudo-user (not the owner) so group chat stays out of the owner's
+            # 1:1 surfaces. Everything else uses the run's user_id.
+            chat_user_id = _chat_user_id_for_narrative(ctx.user_id, narrative)
             chat_instance_id = await _ensure_user_chat_instance(
-                ctx.agent_id, ctx.user_id, narrative.id
+                ctx.agent_id, chat_user_id, narrative.id
             )
             user_chat_instances[narrative.id] = chat_instance_id
-            logger.debug(f"User {ctx.user_id} ChatModule instance: {chat_instance_id} (Narrative: {narrative.id})")
+            logger.debug(f"User {chat_user_id} ChatModule instance: {chat_instance_id} (Narrative: {narrative.id})")
         except Exception as e:
             logger.warning(f"Failed to ensure ChatModule instance (Narrative: {narrative.id}): {e}")
 
