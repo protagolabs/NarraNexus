@@ -1,15 +1,12 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-06-17
+last_verified: 2026-06-23
 stub: false
 ---
 
-## 2026-06-17 — executor idle-cull reaper 接入 lifespan
+## 2026-06-23 — me_router 注册
 
-`lifespan` 启动时调 `maybe_start_executor_reaper()`(存 `app.state.executor_reaper_task`),
-teardown 时 `cancel()`。云端+broker 才真正起,本地/桌面 no-op(返回 None)。
-回收空闲 per-user executor 容器,只碰空闲的(铁律 #14)。见
-`[[../src/xyz_agent_context/agent_runtime/executor_reaper.py]]`。
+新增 `from backend.routes.me import router as me_router` + `app.include_router(me_router, prefix="/api/me", tags=["Me"])`。owner 级(跨用户全部 agent)只读聚合,服务 "You" 工作区([[YouWorkspace]])。详见 [[me]]。
 
 ## 2026-06-12 — admin_migration_router 注册
 

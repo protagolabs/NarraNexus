@@ -1198,11 +1198,14 @@ export function ProviderSettings() {
             up the additions. Quick Add would re-create + lose those bonds.
           */}
           <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">Update Available Models</h4>
-            <p className="text-sm text-[var(--text-tertiary)] mb-3">
+            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1.5">Update Available Models</h4>
+            <p className="text-sm text-[var(--text-tertiary)]">
               Pull the latest default model list into your existing preset providers (NetMind, Claude Code, Yunwu, OpenRouter). Existing entries are kept; only missing models are appended.
             </p>
-            <div className="flex items-center gap-3">
+            {/* Gap lives on this row, not the <p>/<h4> above: index.css resets
+                `p`/`h*` margins (unlayered), which kills any mb-* utility on
+                them — so the spacing must sit on a div. */}
+            <div className="flex items-center gap-3 mt-5">
               <button
                 onClick={handleSyncDefaults}
                 disabled={syncing || !userId}

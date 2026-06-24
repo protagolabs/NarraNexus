@@ -15,6 +15,27 @@
 import '@testing-library/jest-dom/vitest';
 
 
+// Node 22 ships an experimental built-in `localStorage` (gated by
+// `--localstorage-file`). When that flag reaches the runner without a valid
+// path it installs a BROKEN global that shadows jsdom's — `localStorage.clear`
+// is then "not a function", so every test with a `beforeEach(localStorage.clear)`
+// fails before running. Install a small in-memory Storage whenever the global
+// one is missing or incomplete, so the suite is independent of the Node build.
+if (typeof localStorage === 'undefined' || typeof localStorage.clear !== 'function') {
+  let store: Record<string, string> = {};
+  const mem = {
+    get length() { return Object.keys(store).length; },
+    clear() { store = {}; },
+    getItem(k: string) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+    setItem(k: string, v: string) { store[k] = String(v); },
+    removeItem(k: string) { delete store[k]; },
+    key(i: number) { return Object.keys(store)[i] ?? null; },
+  } as Storage;
+  const def = { value: mem, configurable: true, writable: true };
+  Object.defineProperty(globalThis, 'localStorage', def);
+  if (typeof window !== 'undefined') Object.defineProperty(window, 'localStorage', def);
+}
+
 if (typeof window !== 'undefined' && !window.matchMedia) {
   window.matchMedia = (query: string) =>
     ({

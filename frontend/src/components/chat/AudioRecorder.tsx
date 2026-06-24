@@ -242,7 +242,7 @@ export function AudioRecorder({
       <Button
         variant="danger"
         onClick={stopRecording}
-        className="shrink-0 h-[52px] px-3 gap-2 font-[family-name:var(--font-mono)] text-xs uppercase tracking-[0.1em]"
+        className="shrink-0 h-8 px-2.5 gap-1.5 font-[family-name:var(--font-mono)] text-xs uppercase tracking-[0.1em]"
         title="Stop recording"
       >
         <span className="relative inline-flex w-2.5 h-2.5">
@@ -268,7 +268,7 @@ export function AudioRecorder({
         }}
         disabled={disabled}
         className={cn(
-          'shrink-0 h-[52px] w-[52px]',
+          'shrink-0 h-8 w-8',
           'text-[color:var(--color-error)]',
         )}
         title="Microphone access denied — click to retry after enabling permission"
@@ -284,7 +284,7 @@ export function AudioRecorder({
       size="icon"
       onClick={startRecording}
       disabled={disabled || state === 'requesting'}
-      className="shrink-0 h-[52px] w-[52px]"
+      className="shrink-0 h-8 w-8 text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]"
       title="Record voice message"
     >
       <Mic className="w-4 h-4" />

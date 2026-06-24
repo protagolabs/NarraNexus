@@ -2,7 +2,7 @@
  * @file_name: HelpButton.tsx
  * @author:
  * @date: 2026-06-11
- * @description: The bottom-left "?" entry point for the help overlay.
+ * @description: The bottom-right "?" entry point for the help overlay.
  * Fixed-position circular button + the `?` keyboard shortcut (ignored
  * while typing in inputs). Owns the overlay open state.
  *
@@ -72,7 +72,7 @@ export function HelpButton({ pages }: HelpButtonProps) {
         aria-label="Explain this page"
         title="Explain this page (?)"
         onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-4 left-4 z-[150] flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-all duration-150 hover:scale-110"
+        className="fixed bottom-4 right-4 z-[150] flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-all duration-150 hover:scale-110"
         style={{
           background: 'var(--nm-card)',
           border: '1px solid var(--nm-hairline)',

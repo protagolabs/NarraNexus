@@ -50,9 +50,17 @@ export interface AtomicTabDef {
 export interface StripCategory {
   label: string;
   tabs: AtomicTabDef[];
+  /** When set, the group shows a colored brand header (instead of just the
+   *  divider hairline). Used for the Narra/Nexus spine. */
+  title?: string;
+  /** Brand accent for the title: carbon (Narra) or silicon (Nexus). */
+  accent?: 'carbon' | 'silicon';
 }
 
-/** Strip layout, top to bottom. ONE content per tab — no nested stacks. */
+/** Strip layout, top to bottom. ONE content per tab — no nested stacks.
+ *  Narra·Memory (carbon) and Nexus·Network (silicon) carry colored brand
+ *  headers; Memory sits between Inbox and Social so the spine reads
+ *  Activity → Narrative → Nexus. */
 export const STRIP_CATEGORIES: StripCategory[] = [
   {
     label: 'Config',
@@ -70,19 +78,23 @@ export const STRIP_CATEGORIES: StripCategory[] = [
     ],
   },
   {
-    label: 'Network',
-    tabs: [{ id: 'social', label: 'Social Network', icon: Network, stripLabel: 'Social' }],
+    label: 'Narra',
+    title: 'Narra',
+    accent: 'carbon',
+    tabs: [{ id: 'memory', label: 'Memory', icon: BookOpen }],
+  },
+  {
+    label: 'Nexus',
+    title: 'Nexus',
+    accent: 'silicon',
+    tabs: [{ id: 'social', label: 'Social Network', icon: Network, stripLabel: 'Network' }],
   },
   {
     label: 'Skills',
     tabs: [
       { id: 'skills', label: 'Skills', icon: Puzzle },
-      { id: 'mcp', label: 'MCP Servers', icon: Server },
+      { id: 'mcp', label: 'MCP Servers', icon: Server, stripLabel: 'MCP' },
     ],
-  },
-  {
-    label: 'Memory',
-    tabs: [{ id: 'memory', label: 'Memory', icon: BookOpen }],
   },
 ];
 

@@ -106,7 +106,7 @@ export function BookmarkDrawer({
         aria-modal={true}
         aria-label={title}
         className={cn(
-          'relative flex flex-col w-[440px] h-full pointer-events-auto',
+          'relative flex flex-col w-full max-w-[440px] h-full pointer-events-auto',
           'animate-slide-in-right',
         )}
         style={{

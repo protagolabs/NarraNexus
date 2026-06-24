@@ -13,6 +13,9 @@ import type {
   ClearHistoryResponse,
   SocialNetworkResponse,
   SocialNetworkListResponse,
+  MyNarrativesResponse,
+  MyNetworkResponse,
+  MyWorldviewResponse,
   SocialNetworkSearchResponse,
   ChatHistoryResponse,
   SimpleChatHistoryResponse,
@@ -52,6 +55,8 @@ import type {
   LarkAuthCompleteResponse,
   TeamListResponse,
   TeamOperationResponse,
+  TeamChatHistoryResponse,
+  TeamChatSendResponse,
   BundleExportRequest,
   BundlePreflightResponse,
   BundleConfirmResponse,
@@ -271,6 +276,26 @@ class ApiClient {
     return this.request<SocialNetworkListResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/social-network`
     );
+  }
+
+  /** Owner-scoped: every narrative across all the user's agents, for the
+   *  "You" workspace Narra Memory timeline. Seeded scaffold narratives are
+   *  excluded unless includeDefault is set. */
+  async getMyNarratives(includeDefault = false): Promise<MyNarrativesResponse> {
+    const qs = includeDefault ? '?include_default=true' : '';
+    return this.request<MyNarrativesResponse>(`/api/me/narratives${qs}`);
+  }
+
+  /** Owner-scoped: every entity the user's agents know, merged across agents,
+   *  for the "You" workspace Nexus Network graph. */
+  async getMyNetwork(): Promise<MyNetworkResponse> {
+    return this.request<MyNetworkResponse>('/api/me/network');
+  }
+
+  /** Owner-scoped: how each of the user's agents sees them + each agent's own
+   *  worldview, for the "You" workspace Worldview tab. */
+  async getMyWorldview(): Promise<MyWorldviewResponse> {
+    return this.request<MyWorldviewResponse>('/api/me/worldview');
   }
 
   // 语义搜索 Social Network Entities
@@ -910,6 +935,20 @@ class ApiClient {
     });
   }
 
+  /** Update one provider slot (e.g. 'agent' / 'helper_llm') — the model the
+   *  user's agents use for that role. Same endpoint Settings › Providers uses;
+   *  surfaced in the composer so the model can be switched without leaving chat. */
+  async setProviderSlot(
+    slot: string,
+    body: { provider_id: string; model: string; thinking?: string; reasoning_effort?: string },
+  ): Promise<{ success: boolean; detail?: string }> {
+    return this.request(`/api/providers/slots/${slot}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
   /** Backfill the latest default models from the catalog into existing providers.
    * Identity comes from the X-User-Id / JWT header — no query param. */
   async syncProviderDefaults(): Promise<{
@@ -1172,6 +1211,24 @@ class ApiClient {
     return this.request<TeamOperationResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(agentId)}`,
       { method: 'DELETE' }
+    );
+  }
+
+  // --- Team group chat (over the message bus) ---
+
+  async getTeamChat(teamId: string, since?: string): Promise<TeamChatHistoryResponse> {
+    const q = since ? `?since=${encodeURIComponent(since)}` : '';
+    return this.request<TeamChatHistoryResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/chat/messages${q}`,
+    );
+  }
+
+  /** Post a user message into a team's group chat. `mentions` carries
+   *  agent_ids and/or the literal "@all" (the backend maps it to @everyone). */
+  async sendTeamChat(teamId: string, content: string, mentions: string[]): Promise<TeamChatSendResponse> {
+    return this.request<TeamChatSendResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/chat/messages`,
+      { method: 'POST', body: JSON.stringify({ content, mentions }) },
     );
   }
 

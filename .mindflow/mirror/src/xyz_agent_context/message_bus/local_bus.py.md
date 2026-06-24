@@ -1,23 +1,18 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-06-18
+last_verified: 2026-06-23
 stub: false
 ---
 
-## 2026-06-18 — same-user boundary on bus discovery + messaging
+## 2026-06-23 — ack_processed canonicalises the cursor timestamp
 
-The bus must never cross user boundaries (an agent can't find or message
-another user's agents). Three guards, all keyed off `_agent_owner(agent_id)`
-(authoritative `agents.created_by`):
-- `search_agents(query, requester_agent_id=...)` filters to the requester's
-  owner; unknown requester → returns nothing (never leak all).
-- `send_to_agent` raises `PermissionError` if from/to owners differ.
-- `create_channel` raises `PermissionError` if any member's owner differs from
-  the creator's (closes the group-channel path).
-Empty/unknown owner ("" — e.g. seed/system agents) skips the guard so internal
-flows aren't broken. The `bus_search_agents` MCP tool now takes the caller's
-`agent_id` to pass as `requester_agent_id`. (social_network search is already
-instance-scoped, so no change there.)
+`ack_processed` now does `up_to_timestamp = up_to_timestamp.isoformat()` when
+given a `datetime`, so the stored cursor and `bus_messages.created_at` (both
+TEXT, compared lexicographically in `get_pending_messages`) always share the
+isoformat `…T…+00:00` shape. Previously a `datetime` could be persisted as
+`str()` space-format (`"… …+00:00"`); since 'T' > ' ', every newer message then
+looked unprocessed and the agent re-triggered forever. See the matching note in
+`message_bus_trigger.py.md` (the call sites also dropped their `str()` wraps).
 
 ## 2026-06-08 — bus message search index (projection)
 

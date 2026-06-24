@@ -46,23 +46,22 @@ export function AgentRowMenu({
   onTogglePublic,
   onOpenChange,
 }: AgentRowMenuProps) {
-  const [open, setOpenState] = useState(false);
-  const setOpen = (next: boolean | ((v: boolean) => boolean)) => {
-    setOpenState((prev) => {
-      const value = typeof next === 'function' ? next(prev) : next;
-      if (value !== prev) onOpenChange?.(value);
-      return value;
-    });
+  const [open, setOpen] = useState(false);
+  // Notify the parent from the event handler (NOT inside a setState updater —
+  // that runs during render and triggers a cross-component setState warning).
+  const setOpenAndNotify = (next: boolean) => {
+    setOpen(next);
+    onOpenChange?.(next);
   };
 
   const handleTrigger = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setOpen((v) => !v);
+    setOpenAndNotify(!open);
   };
 
   const handleItem = (handler: (e: React.MouseEvent) => void) => (e: React.MouseEvent) => {
     e.stopPropagation();
-    setOpen(false);
+    setOpenAndNotify(false);
     handler(e);
   };
 
@@ -85,7 +84,7 @@ export function AgentRowMenu({
           {/* Click-outside overlay */}
           <div
             className="fixed inset-0 z-40"
-            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+            onClick={(e) => { e.stopPropagation(); setOpenAndNotify(false); }}
           />
           <div
             className={cn(

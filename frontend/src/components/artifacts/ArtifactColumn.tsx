@@ -32,9 +32,16 @@ interface Props {
    * proportion. Sliver mode always uses the fixed 36 px width.
    */
   flexGrow?: number;
+  /**
+   * Force the full expanded view and never the collapsed sliver — used by the
+   * mobile Chat/Artifacts tab, where the column IS the whole pane (there is no
+   * side sliver to collapse to). Desktop leaves this unset and keeps the
+   * sliver ⇄ expanded behaviour.
+   */
+  forceExpanded?: boolean;
 }
 
-export default function ArtifactColumn({ agentId, flexGrow }: Props) {
+export default function ArtifactColumn({ agentId, flexGrow, forceExpanded = false }: Props) {
   // All hooks must run in the same order on every render — no conditional hook
   // calls. Selectors first, then early returns.
   const artifacts = useArtifactStore((s) => s.artifacts);
@@ -94,7 +101,7 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
   // artifacts exist yet. The empty-state sliver advertises the panel's
   // existence so users know where artifacts will appear once the agent
   // creates one.
-  const effectiveCollapsed = collapsed || artifacts.length === 0;
+  const effectiveCollapsed = !forceExpanded && (collapsed || artifacts.length === 0);
   if (effectiveCollapsed) {
     const hasArtifacts = artifacts.length > 0;
     // A <div> wrapper (not a single <button>) so the sliver can hold TWO
@@ -103,10 +110,10 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
     // — that's exactly when the user wants to force a re-sync but the
     // expanded-header refresh button isn't reachable.
     return (
-      <div className="w-9 border border-[var(--border-default)] bg-[var(--bg-primary)] flex flex-col items-center pt-3 pb-2 gap-2">
+      <div className="group chat-frosted w-9 hover:bg-[var(--bg-secondary)] transition-colors flex flex-col items-center pt-3 pb-2 gap-2">
         <button
           onClick={() => setCollapsed(false)}
-          className="flex-1 flex flex-col items-center group hover:bg-[var(--bg-secondary)] transition-colors w-full"
+          className="flex-1 flex flex-col items-center w-full"
           title={
             hasArtifacts
               ? `Click to expand · ${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'}`
@@ -141,6 +148,22 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
     );
   }
 
+  // Forced-expanded (mobile Artifacts tab) with nothing yet — a calm empty
+  // state instead of a blank pane, since the tab is always present on mobile.
+  if (forceExpanded && artifacts.length === 0) {
+    return (
+      <aside
+        className="chat-frosted flex flex-1 flex-col items-center justify-center min-w-0 p-6 text-center overflow-hidden"
+        data-help-id="layout.artifacts"
+      >
+        <div className="text-sm text-[var(--text-secondary)]">No artifacts yet</div>
+        <div className="mt-1 text-xs text-[var(--text-tertiary)]">
+          They&apos;ll appear here as the agent creates them.
+        </div>
+      </aside>
+    );
+  }
+
   const minimized = artifacts.filter((a) => minimizedTabIds.has(a.artifact_id));
 
   const visibleArtifacts = artifacts.filter((a) => !minimizedTabIds.has(a.artifact_id));
@@ -161,8 +184,8 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
     flexGrow !== undefined ? { flexGrow, flexBasis: 0 } : undefined;
   const expandedClass =
     flexGrow !== undefined
-      ? 'flex flex-col min-w-[320px] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden'
-      : 'flex flex-col min-w-[320px] flex-[2] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden';
+      ? 'chat-frosted flex flex-col min-w-[320px] overflow-hidden'
+      : 'chat-frosted flex flex-col min-w-[320px] flex-[2] overflow-hidden';
 
   return (
     <aside className={expandedClass} style={expandedStyle} data-help-id="layout.artifacts">
