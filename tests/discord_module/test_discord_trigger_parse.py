@@ -105,6 +105,67 @@ def test_message_to_raw_extracts_attachments_and_reference():
     assert raw["reference_id"] == "parent1"
 
 
+# ── bot self-mention stripping (channel @mention → clean content) ──────
+#
+# Regression: a guild "@bot hi" arrives as raw markup "<@BOTID> hi". The
+# opaque numeric mention is noise the model cannot resolve to "this is me",
+# which degraded channel replies (DMs, with no such prefix, worked). We strip
+# the bot's OWN mention so channel content matches the DM shape.
+
+
+def test_strips_leading_bot_mention():
+    bot = SimpleNamespace(id=999)
+    msg = _fake_message(guild_id="g1", mentions=[999], content="<@999> hi")
+    raw = DiscordTrigger._message_to_raw(msg, bot)
+    assert raw["content"] == "hi"
+    assert raw["mentions_me"] is True  # detection still works after strip
+
+
+def test_strips_nickname_form_bot_mention():
+    bot = SimpleNamespace(id=999)
+    msg = _fake_message(guild_id="g1", mentions=[999], content="<@!999> hello there")
+    raw = DiscordTrigger._message_to_raw(msg, bot)
+    assert raw["content"] == "hello there"
+
+
+def test_strips_trailing_and_inner_bot_mention():
+    bot = SimpleNamespace(id=999)
+    msg = _fake_message(guild_id="g1", mentions=[999], content="hey <@999> you")
+    raw = DiscordTrigger._message_to_raw(msg, bot)
+    assert raw["content"] == "hey you"
+
+
+def test_preserves_other_user_mentions():
+    bot = SimpleNamespace(id=999)
+    msg = _fake_message(guild_id="g1", mentions=[999, 5], content="<@999> ping <@5>")
+    raw = DiscordTrigger._message_to_raw(msg, bot)
+    assert raw["content"] == "ping <@5>"  # only the bot's own mention is removed
+
+
+def test_bare_bot_mention_not_blanked():
+    # A bare "@bot" ping with no other text must NOT become empty — an empty
+    # content is dropped by the trigger's empty guard, which would make the
+    # bot ignore a direct ping. Keep the original so the agent still runs.
+    bot = SimpleNamespace(id=999)
+    msg = _fake_message(guild_id="g1", mentions=[999], content="<@999>")
+    raw = DiscordTrigger._message_to_raw(msg, bot)
+    assert raw["content"].strip() != ""
+
+
+def test_dm_content_unchanged_by_strip():
+    bot = SimpleNamespace(id=999)
+    msg = _fake_message(guild_id="", mentions=[], content="just hi")
+    raw = DiscordTrigger._message_to_raw(msg, bot)
+    assert raw["content"] == "just hi"
+
+
+def test_strip_noop_when_bot_user_missing():
+    # bot_user can be None before the gateway READY — don't crash, don't strip.
+    msg = _fake_message(guild_id="g1", mentions=[999], content="<@999> hi")
+    raw = DiscordTrigger._message_to_raw(msg, None)
+    assert raw["content"] == "<@999> hi"
+
+
 # ── parse_event reply policy ───────────────────────────────────────────
 
 

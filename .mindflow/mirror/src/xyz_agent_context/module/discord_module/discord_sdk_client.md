@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/discord_sdk_client.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-06-24
 ---
 
 > Also exposes ``create_dm_channel(user_id)`` (POST /users/@me/channels →
@@ -54,3 +54,8 @@ name fallback (``get_user``), attachment download (``download_url``).
   fine for current volume; revisit if throughput pain shows up.
 - Discord rate-limits (429) surface as ``rate_limited`` with no retry —
   callers should not hammer.
+- ``send_message`` / ``create_reply`` skip **whitespace-only** chunks
+  (``not chunk.strip()``), not just truly-empty ones — Discord renders a
+  whitespace body as a blank message. This is the last-line guard against
+  posting a blank reply; the MCP tools also reject whitespace-only text
+  upstream so the agent gets a clear error instead of a silent no-send.

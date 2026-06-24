@@ -160,6 +160,43 @@ async def test_discord_dm_requires_args(monkeypatch):
     assert res["success"] is False
 
 
+# ── whitespace-only reply guard ────────────────────────────────────────
+# A degenerate whitespace-only reply ("   ", "\n") used to slip past the
+# `if not text` guard and post a blank-looking Discord message. The guard
+# now rejects whitespace-only text so a degenerate turn fails loudly (and
+# the inbox records "(stayed silent)") instead of posting an empty message.
+
+
+@pytest.mark.asyncio
+async def test_discord_send_rejects_whitespace_only(monkeypatch):
+    cred = DiscordCredential(agent_id="a", bot_token="MTA.tok", bot_user_id="B1")
+    monkeypatch.setattr(mcp_mod, "_get_credential", lambda agent_id: _async(cred))
+    monkeypatch.setattr(mcp_mod, "DiscordSDKClient", lambda token: _FakeSDK(token))
+    mcp = _register()
+    res = await mcp.tools["discord_send"]("a", "chan1", "   \n  ")
+    assert res["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_discord_reply_rejects_whitespace_only(monkeypatch):
+    cred = DiscordCredential(agent_id="a", bot_token="MTA.tok", bot_user_id="B1")
+    monkeypatch.setattr(mcp_mod, "_get_credential", lambda agent_id: _async(cred))
+    monkeypatch.setattr(mcp_mod, "DiscordSDKClient", lambda token: _FakeSDK(token))
+    mcp = _register()
+    res = await mcp.tools["discord_reply"]("a", "chan1", "m1", "\n\n")
+    assert res["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_discord_dm_rejects_whitespace_only(monkeypatch):
+    cred = DiscordCredential(agent_id="a", bot_token="MTA.tok", bot_user_id="B1")
+    monkeypatch.setattr(mcp_mod, "_get_credential", lambda agent_id: _async(cred))
+    monkeypatch.setattr(mcp_mod, "DiscordSDKClient", lambda token: _FakeSDK(token))
+    mcp = _register()
+    res = await mcp.tools["discord_dm"]("a", "123", " ")
+    assert res["success"] is False
+
+
 @pytest.mark.asyncio
 async def test_discord_list_channels_filters_to_postable(monkeypatch):
     cred = DiscordCredential(agent_id="a", bot_token="MTA.tok", bot_user_id="B1")

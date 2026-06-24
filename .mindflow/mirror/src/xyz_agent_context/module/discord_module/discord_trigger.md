@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/discord_trigger.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-06-24
 ---
 
 ## Why it exists
@@ -70,3 +70,12 @@ into the shared dedup → worker → AgentRuntime pipeline. Sibling of
 - ``extract_output`` returns ``"(stayed silent)"`` when the agent ran but
   never called a send tool — same convention as Slack/Lark; don't treat
   that sentinel as a real reply downstream.
+- **``_message_to_raw`` strips the bot's OWN @-mention from ``content``**
+  (``_strip_bot_mention``). A guild "@bot hi" arrives as raw markup
+  ``<@BOTID> hi``; the opaque numeric token is noise the model can't map to
+  "this is me" and it degraded channel replies while DMs (no prefix) worked
+  — the 2026-06-24 "DM replies fine, channel @mention replies blank" report.
+  Only the bot's own mention is removed (other users' mentions survive), the
+  reply-policy gate reads the structured ``mentions`` list (not the markup)
+  so stripping doesn't affect gating, and a bare "@bot" ping falls back to
+  the original so it isn't blanked into an empty-content drop.

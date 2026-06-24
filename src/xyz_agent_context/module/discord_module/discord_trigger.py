@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
@@ -258,6 +259,26 @@ class DiscordTrigger(ChannelTriggerBase):
                 client_task.cancel()
 
     @staticmethod
+    def _strip_bot_mention(content: str, bot_user_id: Any) -> str:
+        """Remove the bot's own @-mention tokens from message content.
+
+        Discord embeds an @-mention as raw markup ``<@123>`` (or the nickname
+        form ``<@!123>``). Only the BOT's own mention is removed — other users'
+        mentions are left intact so "@bot ping @alice" keeps "@alice". The
+        whitespace the removed token leaves behind is collapsed.
+
+        A bare ping ("@bot" with no other text) would strip to empty, which the
+        trigger's empty-content guard then drops — so the bot would silently
+        ignore a direct ping. To avoid that, an all-stripped result falls back
+        to the original content so the message still reaches the agent.
+        """
+        if not content or bot_user_id in (None, ""):
+            return content
+        stripped = re.sub(rf"<@!?{re.escape(str(bot_user_id))}>", "", content)
+        stripped = re.sub(r"\s{2,}", " ", stripped).strip()
+        return stripped if stripped else content
+
+    @staticmethod
     def _message_to_raw(message: Any, bot_user: Any) -> dict:
         """Normalize a discord.Message into a plain dict (testable shape)."""
         guild = getattr(message, "guild", None)
@@ -267,6 +288,17 @@ class DiscordTrigger(ChannelTriggerBase):
         mentions_me = bool(bot_user) and any(
             u.id == bot_user.id for u in getattr(message, "mentions", [])
         )
+
+        # Strip the bot's OWN @-mention from the body. In a guild the user
+        # addresses the bot as "@bot hi", which Discord delivers as raw markup
+        # "<@BOTID> hi". The opaque numeric token is noise the model cannot map
+        # to "this is me" and it degraded channel replies (DMs, with no such
+        # prefix, were unaffected — the DM-works / channel-blank asymmetry). The
+        # reply policy (mentions_me, above) is computed from the structured
+        # `mentions` list, so stripping the markup here doesn't affect gating.
+        content = message.content or ""
+        if bot_user is not None:
+            content = DiscordTrigger._strip_bot_mention(content, bot_user.id)
 
         refs: list[dict[str, Any]] = []
         for a in getattr(message, "attachments", []) or []:
@@ -296,7 +328,7 @@ class DiscordTrigger(ChannelTriggerBase):
             "author_id": str(author.id),
             "author_name": getattr(author, "display_name", None) or author.name,
             "author_is_bot": bool(getattr(author, "bot", False)),
-            "content": message.content or "",
+            "content": content,
             "is_dm": is_dm,
             "mentions_me": mentions_me,
             "mentioned_ids": mentioned_ids,

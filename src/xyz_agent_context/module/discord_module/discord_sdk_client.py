@@ -158,7 +158,10 @@ class DiscordSDKClient:
         """
         last: dict[str, Any] = {}
         for chunk in split_discord_message(text):
-            if not chunk:
+            # Skip whitespace-only chunks — Discord renders them as a
+            # blank message (and rejects a truly-empty body). This is the
+            # last-line choke point so no send path can post a blank.
+            if not chunk.strip():
                 continue
             last = await self._request(
                 "POST",
@@ -177,7 +180,7 @@ class DiscordSDKClient:
         post as plain follow-ups. ``fail_if_not_exists=False`` degrades a
         reply-to-deleted-message into a normal message instead of erroring.
         """
-        chunks = [c for c in split_discord_message(text) if c]
+        chunks = [c for c in split_discord_message(text) if c.strip()]
         last: dict[str, Any] = {}
         for i, chunk in enumerate(chunks):
             body: dict[str, Any] = {"content": chunk}

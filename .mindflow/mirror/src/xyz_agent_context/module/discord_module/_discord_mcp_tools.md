@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/_discord_mcp_tools.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-06-24
 ---
 
 ## Why it exists
@@ -46,3 +46,7 @@ types 0/5) when it didn't get one from an inbound message — the answer to
 
 - Tool names are load-bearing for reply extraction — see
   ``discord_module.md`` and ``discord_trigger.md``. Rename in lockstep.
+- The arg guards reject **whitespace-only** ``text`` (``not text.strip()``),
+  not just empty — a degenerate "   "/"\n" reply otherwise posts a
+  blank-looking Discord message. ``discord_sdk_client`` skips whitespace
+  chunks too (the last-line choke point); both layers must keep the guard.

@@ -61,8 +61,8 @@ def register_discord_mcp_tools(mcp: Any) -> None:
         messages automatically. Returns
         ``{"success": bool, "error"?: str, "data"?: {"message_id": str}}``.
         """
-        if not channel_id or not text:
-            return {"success": False, "error": "channel_id and text are required"}
+        if not channel_id or not text or not text.strip():
+            return {"success": False, "error": "channel_id and non-empty text are required"}
         cred = await _get_credential(agent_id)
         if not cred:
             return {
@@ -89,10 +89,10 @@ def register_discord_mcp_tools(mcp: Any) -> None:
         referenced message was deleted. ``text`` over 2000 chars is split
         automatically.
         """
-        if not channel_id or not message_id or not text:
+        if not channel_id or not message_id or not text or not text.strip():
             return {
                 "success": False,
-                "error": "channel_id, message_id and text are required",
+                "error": "channel_id, message_id and non-empty text are required",
             }
         cred = await _get_credential(agent_id)
         if not cred:
@@ -197,8 +197,8 @@ def register_discord_mcp_tools(mcp: Any) -> None:
         user, and the user's privacy settings must allow DMs from server
         members — otherwise Discord returns ``forbidden``.
         """
-        if not user_id or not text:
-            return {"success": False, "error": "user_id and text are required"}
+        if not user_id or not text or not text.strip():
+            return {"success": False, "error": "user_id and non-empty text are required"}
         cred = await _get_credential(agent_id)
         if not cred:
             return {
