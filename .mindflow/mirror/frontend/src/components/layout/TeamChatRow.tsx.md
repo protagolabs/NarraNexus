@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/layout/TeamChatRow.tsx
-last_verified: 2026-06-23
+last_verified: 2026-06-24
 stub: false
 ---
+
+> 2026-06-24：`GroupAvatar` size `md`→`sm` (32px),与 agent 行 + 用户头部统一大小。
+> 同时改成**单行**:去掉 "Group chat · N agents" 副标题,成员数 "N agents" 移到右侧
+> (像 agent 行的时间戳,`ml-auto`),`items-start`→`items-center`、`py-2`→`py-1.5`,
+> 行高与 agent 行一致。
 
 # layout/TeamChatRow.tsx — One team's group-chat entry in the sidebar
 

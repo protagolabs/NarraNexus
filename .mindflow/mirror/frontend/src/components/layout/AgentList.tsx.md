@@ -4,6 +4,17 @@ last_verified: 2026-06-23
 stub: false
 ---
 
+## 2026-06-23 (PM) — collapsed rail rebuilt to match the expanded list
+
+The collapsed avatar rail no longer groups agents by team (which duplicated an
+agent in two teams and showed no group avatar). It now mirrors the expanded
+list: team **group avatars** (`GroupAvatar`, carbon·silicon split → open the
+group chat) on top, then a **flat deduped** `rawAgents` rail. The "+" is a
+portal `Popover` (Create Agent / Create Team) — a plain inline dropdown would
+be clipped by the rail's scroll/overflow; its trigger and the manage-agents
+button are now 32px circles matching the avatars. `buildAgentGroups` no longer
+used here.
+
 ## 2026-06-23 — two-section sidebar: TEAMS (group chats) over AGENTS (flat)
 
 The expanded list no longer renders one [[AgentGroupSection]] per team with the

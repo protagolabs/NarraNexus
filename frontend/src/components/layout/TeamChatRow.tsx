@@ -59,15 +59,15 @@ export function TeamChatRow({
       onClick={() => { if (!renaming) onOpen(teamId); }}
       title={`${teamName} — group chat`}
       className={cn(
-        'group/gc w-full text-left px-3 py-2 cursor-pointer rounded-[var(--radius-lg)] transition-colors duration-150',
+        'group/gc w-full text-left px-3 py-1.5 cursor-pointer rounded-[var(--radius-lg)] transition-colors duration-150',
         !active && 'hover:bg-[var(--nm-paper-warm)]',
         menuOpen && 'relative z-30',
       )}
       style={active ? { background: 'var(--nm-row-active)' } : undefined}
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex items-center gap-2.5">
         <GroupAvatar
-          size="md"
+          size="sm"
           members={[{ species: 'carbon' }, { species: 'silicon' }]}
           label={initials}
           className="shrink-0"
@@ -108,11 +108,16 @@ export function TeamChatRow({
                   onDelete={() => onDelete(teamId)}
                 />
               </div>
+
+              {/* Member count — on the right, like an agent row's timestamp */}
+              <span
+                className="ml-auto pl-2 text-[10px] shrink-0"
+                style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
+              >
+                {agentCount} agent{agentCount === 1 ? '' : 's'}
+              </span>
             </div>
           )}
-          <div className="text-xs truncate" style={{ color: 'var(--nm-ink70)' }}>
-            Group chat · {agentCount} agent{agentCount === 1 ? '' : 's'}
-          </div>
         </div>
       </div>
     </div>

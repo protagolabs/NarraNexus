@@ -213,11 +213,24 @@ export function Sidebar() {
       </div>
 
       {/* User Info — NM RingAvatar carbon (human species), name + StatusDot status row.
-          Carbon ring marks "this is a human user" per Axiom #1. */}
+          Carbon ring marks "this is a human user" per Axiom #1. Clicking it opens
+          the owner-scoped "You" workspace (Memory / Network / World + Notes) — the
+          carbon counterpart to clicking an agent. */}
       {!collapsed && (
-        <div className="px-4 py-3 border-b border-[var(--rule)]">
+        <button
+          type="button"
+          onClick={() => navigate('/app/you')}
+          aria-label="Open your workspace"
+          aria-current={location.pathname === '/app/you' ? 'page' : undefined}
+          className={cn(
+            'group w-full px-4 py-3 border-b border-[var(--rule)] text-left transition-colors',
+            location.pathname === '/app/you'
+              ? 'bg-[var(--bg-elevated)]'
+              : 'hover:bg-[var(--bg-elevated)]',
+          )}
+        >
           <div className="flex items-center gap-3">
-            <RingAvatar species="carbon" label={userLabel || '?'} size="md" />
+            <RingAvatar species="carbon" label={userLabel || '?'} size="sm" />
             <div className="flex-1 min-w-0 h-10 flex flex-col justify-center gap-1">
               <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]" title={userLabel}>
                 {userLabel}
@@ -227,14 +240,46 @@ export function Sidebar() {
                 <span>Online</span>
               </div>
             </div>
+            {/* Affordance: this row opens your "You" workspace — a chevron that
+                brightens on hover (and a "your space" hint label). */}
+            <span
+              className={cn(
+                'shrink-0 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] transition-colors',
+                location.pathname === '/app/you'
+                  ? 'text-[var(--color-carbon)]'
+                  : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
+              )}
+            >
+              You
+            </span>
+            <ChevronRight
+              className={cn(
+                'w-4 h-4 shrink-0 transition-all group-hover:translate-x-0.5',
+                location.pathname === '/app/you'
+                  ? 'text-[var(--color-carbon)]'
+                  : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
+              )}
+              aria-hidden
+            />
           </div>
-        </div>
+        </button>
       )}
-      {/* Collapsed: just the carbon avatar centered */}
+      {/* Collapsed: just the carbon avatar centered (still opens the workspace) */}
       {collapsed && userId && (
-        <div className="px-4 py-3 border-b border-[var(--rule)] flex justify-center">
+        <button
+          type="button"
+          onClick={() => navigate('/app/you')}
+          aria-label="Open your workspace"
+          aria-current={location.pathname === '/app/you' ? 'page' : undefined}
+          className={cn(
+            'w-full px-4 py-3 border-b border-[var(--rule)] flex justify-center transition-colors',
+            location.pathname === '/app/you'
+              ? 'bg-[var(--bg-elevated)]'
+              : 'hover:bg-[var(--bg-elevated)]',
+          )}
+        >
           <RingAvatar species="carbon" label={userLabel} size="sm" title={userLabel} />
-        </div>
+        </button>
       )}
 
       {/* Agent list — grouped by team (spec §11); teams are sections inside

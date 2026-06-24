@@ -4,6 +4,17 @@ last_verified: 2026-06-23
 stub: false
 ---
 
+## 2026-06-24 — compact single-line agent rows (denser list)
+
+Owner: shrink the rows so more agents fit. `AgentRow` is now ONE line —
+**chat preview dropped** (it also conflated group-chat content into the 1:1
+list, an unfixable historical-data leak), avatar down to `size="sm"` (32px),
+row padding `py-2`→`py-1.5`, container `items-start`→`items-center`. The line
+is name + public globe + **kebab next to the name** (not flex-1 on the name, so
+the ⋮ hugs it like TeamChatRow's), then the unread pill + time pushed to the
+right edge via `ml-auto`. `getRowMeta().preview` is no longer read here. Avatar
+is `size="sm"` (32px) to match teams + the user header (all sm now).
+
 ## 2026-06-23 — slimmed to agent rows only; group chats moved out
 
 The group-chat row + team rename/delete/open logic was extracted to

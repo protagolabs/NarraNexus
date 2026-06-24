@@ -16,14 +16,19 @@
  * 64px wide; scrolls vertically if the window is short.
  */
 
+import { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Loader2 } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Loader2, ChevronsUpDown, Check } from 'lucide-react';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
+import { useConfigStore } from '@/stores/configStore';
+import { useChatStore } from '@/stores/chatStore';
 import {
   STRIP_CATEGORIES,
   deriveTabStatus,
@@ -48,6 +53,10 @@ export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps
       style={{ borderLeft: '1px solid var(--nm-hairline)', scrollbarWidth: 'none' }}
       data-help-id="bookmarks.strip"
     >
+      {/* Agent identity header — pins "this whole rail is <agent>'s" on top,
+          and doubles as the quick agent switcher (click → pick another). */}
+      <AgentRailHeader agentId={agentId} />
+
       {STRIP_CATEGORIES.map((category, ci) => (
         <div key={category.label} className="flex flex-col items-stretch">
           {/* Every group (after the first) is separated by a hairline. Brand-
@@ -83,6 +92,123 @@ export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps
         </div>
       ))}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AgentRailHeader — identity header + quick agent switcher
+// ---------------------------------------------------------------------------
+
+/**
+ * The rail's top header: a tiny mono "agent" eyebrow + the agent name in
+ * sentence case (an identity heading, not another uppercase tab caption).
+ * Clicking it opens a popover to switch which agent the rail (and chat) is
+ * scoped to — the same select action as the left sidebar's agent list, so
+ * the user can hop agents without leaving the right edge.
+ *
+ * Hidden until the agent record (and name) is loaded. The popover is a Radix
+ * portal so it escapes the strip's `overflow-x-hidden` / 64px width.
+ */
+function AgentRailHeader({ agentId }: { agentId: string }) {
+  const agents = useConfigStore((s) => s.agents);
+  const setAgentId = useConfigStore((s) => s.setAgentId);
+  const setActiveAgent = useChatStore((s) => s.setActiveAgent);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [open, setOpen] = useState(false);
+
+  const agentName = agents.find((a) => a.agent_id === agentId)?.name?.trim();
+  if (!agentName) return null;
+
+  const handleSelect = (id: string) => {
+    setOpen(false);
+    if (id !== agentId) {
+      setAgentId(id);
+      setActiveAgent(id);
+    }
+    if (location.pathname !== '/app/chat' && location.pathname !== '/app') {
+      navigate('/app/chat');
+    }
+  };
+
+  return (
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            data-help-id="bookmarks.agent"
+            aria-label={`Current agent: ${agentName}. Switch agent`}
+            title="Switch agent"
+            className="group/agent w-full px-1 pt-2 pb-1.5 text-center cursor-pointer outline-none"
+          >
+            <span className="block mb-1 text-[7.5px] font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.13em] leading-none text-[var(--text-tertiary)]">
+              agent
+            </span>
+            <span className="flex items-center justify-center gap-0.5 px-0.5">
+              <span className="truncate text-[12px] font-semibold leading-tight text-[var(--text-primary)]">
+                {agentName}
+              </span>
+              <ChevronsUpDown
+                className="w-2.5 h-2.5 shrink-0 text-[var(--text-tertiary)] group-hover/agent:text-[var(--color-carbon)] transition-colors"
+                aria-hidden
+              />
+            </span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="left"
+          align="start"
+          sideOffset={4}
+          className="w-auto min-w-[160px] max-w-[240px] p-1"
+        >
+          <div className="px-2 pt-1 pb-1.5 text-[8px] font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
+            Switch agent
+          </div>
+          <div className="flex flex-col">
+            {agents.map((a) => {
+              const isCurrent = a.agent_id === agentId;
+              const label = (a.name || a.agent_id).trim();
+              return (
+                <button
+                  key={a.agent_id}
+                  type="button"
+                  onClick={() => handleSelect(a.agent_id)}
+                  aria-current={isCurrent ? 'true' : undefined}
+                  className={cn(
+                    'flex items-center gap-2 w-full px-2 py-1.5 rounded-[var(--radius-sm)] text-left transition-colors',
+                    'hover:bg-[var(--bg-elevated)]',
+                  )}
+                >
+                  <span
+                    className="w-1.5 h-1.5 shrink-0 rounded-full allow-circle"
+                    style={{ background: 'var(--color-silicon)' }}
+                    aria-hidden
+                  />
+                  <span
+                    className={cn(
+                      'flex-1 truncate text-[13px] leading-tight',
+                      isCurrent
+                        ? 'font-semibold text-[var(--color-carbon)]'
+                        : 'text-[var(--text-primary)]',
+                    )}
+                  >
+                    {label}
+                  </span>
+                  {isCurrent && (
+                    <Check
+                      className="w-3 h-3 shrink-0 text-[var(--color-carbon)]"
+                      aria-hidden
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+      <div className="mx-2 mb-0.5 border-t border-[var(--nm-hairline)]" aria-hidden />
+    </>
   );
 }
 

@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-24 — user header avatar → sm + "YOU ›" affordance
+
+The expanded user-header `RingAvatar` is now `size="sm"` (32px) to match the
+agent rows + team avatars (uniform avatar size across the sidebar). Collapsed
+variant was already sm.
+
+Also added a right-aligned **"YOU ›"** cue (mono label + `ChevronRight`) so the
+row reads as clickable → the "You" workspace. Faint (`text-tertiary`) at rest,
+carbon on `group-hover` (chevron nudges `translate-x-0.5`); carbon + active when
+already on `/app/you`. It's a visual cue inside the existing row-button, not a
+nested button (would be invalid).
+
+## 2026-06-23 — user avatar opens the "You" workspace
+
+The carbon user-info block (avatar + name + Online) is now a `<button>` that
+navigates to `/app/you` ([[YouWorkspace]]) — the owner-scoped Memory / Network
+/ World + Notes page, the carbon counterpart to selecting a silicon agent.
+Both the expanded row and the collapsed-avatar variant carry the click,
+`aria-label="Open your workspace"`, and an active highlight (`bg-elevated` +
+`aria-current="page"`) when on `/app/you`.
 
 ## 2026-06-11 — show NetMind nickname, not the opaque userSystemCode
 

@@ -13,15 +13,17 @@ import {
   RefreshCw,
   Plus,
   ListChecks,
+  Bot,
+  Users2,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
-import { BracketSectionLabel, BracketEmptyState } from '@/components/nm';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { BracketSectionLabel, BracketEmptyState, GroupAvatar } from '@/components/nm';
 import { useConfigStore, useChatStore, useTeamsStore } from '@/stores';
 import { useCreateAgent } from '@/hooks';
 import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
-import { buildAgentGroups } from './agentGroupUtils';
 import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
 import { AgentsHeaderMenu } from './AgentsHeaderMenu';
 import { CreateMenu } from './CreateMenu';
@@ -98,6 +100,7 @@ export function AgentList({ collapsed }: AgentListProps) {
   const [savingName, setSavingName] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   const [openMgmt, setOpenMgmt] = useState(false);
+  const [collapsedCreateOpen, setCollapsedCreateOpen] = useState(false);
   // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
   const [teamsCollapsed, setTeamsCollapsed] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('sidebar_cat_teams') === '1',
@@ -343,10 +346,6 @@ export function AgentList({ collapsed }: AgentListProps) {
     }
   };
 
-  // Grouped sections — shared by the expanded list and the collapsed
-  // avatar rail (the rail draws a hairline between team groups).
-  const groups = buildAgentGroups(rawAgents, teams);
-
   // Which team's group chat is open (route /app/teams/:id/chat) — drives the
   // active highlight on the Group chat row and suppresses agent-row selection.
   const teamChatMatch = location.pathname.match(/^\/app\/teams\/([^/]+)\/chat$/);
@@ -357,76 +356,123 @@ export function AgentList({ collapsed }: AgentListProps) {
   // switching: RingAvatar + unread badge, hairline divider between teams,
   // no team chips / filter glyphs.
   if (collapsed) {
-    const nonEmptyGroups = groups.filter((g) => g.agents.length > 0);
     return (
-      <div className="p-2 space-y-2">
-        <button
-          onClick={handleCreateAgent}
-          disabled={creatingAgent}
-          className={cn(
-            'w-full aspect-square rounded-xl flex items-center justify-center transition-all',
-            'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
-            'hover:bg-[var(--accent-glow)] hover:shadow-[0_0_20px_var(--accent-glow)]',
-            'border border-dashed border-[var(--accent-primary)]/30',
-            creatingAgent && 'opacity-50 cursor-not-allowed'
-          )}
-          title="Create New Agent"
-        >
-          <Plus className={cn('w-5 h-5', creatingAgent && 'animate-pulse')} />
-        </button>
+      <div className="p-2 flex flex-col items-center gap-2">
+        {/* Create — a portal dropdown (Agent / Team) so it escapes the rail's
+            scroll clip; trigger is sized to match the agent avatars below. */}
+        <Popover open={collapsedCreateOpen} onOpenChange={setCollapsedCreateOpen}>
+          <PopoverTrigger asChild>
+            <button
+              disabled={creatingAgent}
+              className={cn(
+                'w-8 h-8 rounded-full flex items-center justify-center transition-all',
+                'text-[var(--accent-primary)] border border-dashed border-[var(--accent-primary)]/40',
+                'hover:bg-[var(--bg-elevated)]',
+                creatingAgent && 'opacity-50 cursor-not-allowed',
+              )}
+              title="Create agent or team"
+              aria-label="Create agent or team"
+            >
+              <Plus className={cn('w-4 h-4', creatingAgent && 'animate-pulse')} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="right" align="start" sideOffset={8} className="w-auto min-w-[150px] p-1">
+            <CollapsedCreateItem
+              icon={<Bot className="w-3.5 h-3.5" />}
+              label="Create Agent"
+              onClick={() => { setCollapsedCreateOpen(false); handleCreateAgent(); }}
+            />
+            <CollapsedCreateItem
+              icon={<Users2 className="w-3.5 h-3.5" />}
+              label="Create Team"
+              onClick={() => { setCollapsedCreateOpen(false); setOpenMgmt(true); }}
+            />
+          </PopoverContent>
+        </Popover>
+
+        {/* Manage agents — same 32px circular footprint as the avatars. */}
         <button
           onClick={() => navigate('/app/manage-agents')}
-          className="w-full aspect-square flex items-center justify-center border border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
+          className="w-8 h-8 rounded-full flex items-center justify-center border border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] transition-colors"
           title="Manage agents (batch · add / edit / delete)"
           aria-label="Manage agents"
         >
-          <ListChecks className="w-4 h-4" />
+          <ListChecks className="w-3.5 h-3.5" />
         </button>
-        {nonEmptyGroups.map((group, gi) => (
-          <div key={group.teamId ?? '__ungrouped__'} className="space-y-2">
-            {gi > 0 && (
-              <div className="mx-2 border-t border-[var(--nm-hairline)]" aria-hidden />
-            )}
-            {group.agents.map((agent) => {
-              const isSelected = agentId === agent.agent_id;
-              const completed = completedAgentIds.includes(agent.agent_id);
-              const label = (agent.name || agent.agent_id).slice(0, 2);
-              const streaming = isAgentStreaming(agent.agent_id) || !!agent.active_run;
-              const { unread } = getRowMeta(agent.agent_id);
-              return (
-                <div key={agent.agent_id} className="relative flex justify-center">
-                  <button
-                    onClick={() => handleSelectAgent(agent.agent_id)}
-                    className={cn(
-                      'p-1.5 rounded-full transition-colors duration-150',
-                      isSelected ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]'
-                    )}
-                    title={agent.name || agent.agent_id}
-                    aria-label={agent.name || agent.agent_id}
-                    aria-current={isSelected ? 'true' : undefined}
-                  >
-                    <AvatarWithStreaming label={label} streaming={streaming} size="sm" />
-                  </button>
-                  {unread > 0 && (
-                    <span
-                      className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-[8px] flex items-center justify-center text-[9px] font-mono"
-                      style={{
-                        background: 'var(--nm-card)',
-                        border: '1px solid var(--nm-ink30)',
-                        color: 'var(--nm-ink70)',
-                      }}
-                    >
-                      {unread > 9 ? '9+' : unread}
-                    </span>
-                  )}
-                  {completed && !isSelected && unread === 0 && (
-                    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+
+        {/* TEAMS — two-colour group avatars open the group chat. */}
+        {teams.length > 0 && (
+          <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
+        )}
+        {teams.map((t) => {
+          const initials = t.team.name
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((w) => w[0])
+            .join('')
+            .slice(0, 2)
+            .toUpperCase();
+          const active = activeTeamChatId === t.team.team_id;
+          return (
+            <button
+              key={t.team.team_id}
+              onClick={() => navigate(`/app/teams/${t.team.team_id}/chat`)}
+              className={cn(
+                'p-0.5 rounded-full transition-colors duration-150',
+                active ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]',
+              )}
+              title={`${t.team.name} — group chat`}
+              aria-label={`${t.team.name} group chat`}
+              aria-current={active ? 'true' : undefined}
+            >
+              <GroupAvatar size="sm" members={[{ species: 'carbon' }, { species: 'silicon' }]} label={initials} />
+            </button>
+          );
+        })}
+
+        {/* AGENTS — flat & deduped (every agent once), matching the expanded
+            list; the old per-team grouping duplicated agents in two teams. */}
+        {teams.length > 0 && rawAgents.length > 0 && (
+          <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
+        )}
+        {rawAgents.map((agent) => {
+          const isSelected = activeTeamChatId ? false : agentId === agent.agent_id;
+          const completed = completedAgentIds.includes(agent.agent_id);
+          const label = (agent.name || agent.agent_id).slice(0, 2);
+          const streaming = isAgentStreaming(agent.agent_id) || !!agent.active_run;
+          const { unread } = getRowMeta(agent.agent_id);
+          return (
+            <div key={agent.agent_id} className="relative flex justify-center">
+              <button
+                onClick={() => handleSelectAgent(agent.agent_id)}
+                className={cn(
+                  'p-1.5 rounded-full transition-colors duration-150',
+                  isSelected ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]'
+                )}
+                title={agent.name || agent.agent_id}
+                aria-label={agent.name || agent.agent_id}
+                aria-current={isSelected ? 'true' : undefined}
+              >
+                <AvatarWithStreaming label={label} streaming={streaming} size="sm" />
+              </button>
+              {unread > 0 && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-[8px] flex items-center justify-center text-[9px] font-mono"
+                  style={{
+                    background: 'var(--nm-card)',
+                    border: '1px solid var(--nm-ink30)',
+                    color: 'var(--nm-ink70)',
+                  }}
+                >
+                  {unread > 9 ? '9+' : unread}
+                </span>
+              )}
+              {completed && !isSelected && unread === 0 && (
+                <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -585,5 +631,30 @@ export function AgentList({ collapsed }: AgentListProps) {
       </div>
 
     </div>
+  );
+}
+
+/** A row in the collapsed rail's "+" create popover (Agent / Team). */
+function CollapsedCreateItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-xs text-left',
+        'text-[var(--nm-ink)] hover:bg-[var(--nm-paper-warm)] transition-colors',
+      )}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   );
 }

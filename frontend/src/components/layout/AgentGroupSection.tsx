@@ -286,7 +286,9 @@ function AgentRow({
 }: AgentRowProps) {
   const isSelected = activeAgentId === agent.agent_id;
   const completed = completedAgentIds.includes(agent.agent_id);
-  const { preview, time, unread } = getRowMeta(agent.agent_id);
+  // Compact single-line rows: no chat preview (it conflated group-chat content
+  // anyway) — just name + time + unread, so more agents fit on screen.
+  const { time, unread } = getRowMeta(agent.agent_id);
   const streaming = getIsStreaming(agent.agent_id) || !!agent.active_run;
   const displayName = agent.name || agent.agent_id;
 
@@ -305,7 +307,7 @@ function AgentRow({
     <div
       onClick={() => onSelectAgent(agent.agent_id)}
       className={cn(
-        'w-full text-left px-3 py-2 cursor-pointer animate-slide-up',
+        'w-full text-left px-3 py-1.5 cursor-pointer animate-slide-up',
         // Slight editorial radius matching the chat bubbles (--radius-lg = 4px)
         // so the selected-row background reads consistently with the messages.
         'rounded-[var(--radius-lg)] transition-colors duration-150',
@@ -330,10 +332,10 @@ function AgentRow({
         }
       }}
     >
-      <div className="flex items-start gap-2.5">
-        {/* Avatar */}
+      <div className="flex items-center gap-2.5">
+        {/* Avatar — small (sm) so rows stay short */}
         <div className="relative shrink-0">
-          <AvatarWithStreaming label={displayName.slice(0, 2)} streaming={streaming} />
+          <AvatarWithStreaming label={displayName.slice(0, 2)} streaming={streaming} size="sm" />
           {completed && !isSelected && (
             <div
               className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full allow-circle"
@@ -377,45 +379,63 @@ function AgentRow({
               </button>
             </div>
           ) : (
-            <>
-              {/* Row 1: name + kebab + time */}
-              <div className="flex items-center gap-1">
-                <span
-                  className={cn('text-sm truncate', isSelected ? 'font-semibold' : 'font-medium')}
-                  style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-sans)' }}
-                >
-                  {displayName}
+            /* Single line: name + kebab(hover, next to name) … unread + time */
+            <div className="flex items-center gap-1">
+              <span
+                className={cn('min-w-0 truncate text-sm', isSelected ? 'font-semibold' : 'font-medium')}
+                style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-sans)' }}
+              >
+                {displayName}
+              </span>
+              {agent.is_public && !isOwner && (
+                <span title={`Public · by ${agent.created_by}`} className="shrink-0">
+                  <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
                 </span>
-                {agent.is_public && !isOwner && (
-                  <span title={`Public · by ${agent.created_by}`} className="shrink-0">
-                    <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
+              )}
+
+              {/* Kebab menu — shown on hover or when selected */}
+              <div
+                className={cn(
+                  'shrink-0',
+                  isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                  'transition-opacity duration-150',
+                )}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <AgentRowMenu
+                  agentId={agent.agent_id}
+                  agentName={displayName}
+                  onOpenChange={setMenuOpen}
+                  isOwner={isOwner}
+                  isPublic={!!agent.is_public}
+                  showPublicToggle={showPublicToggle}
+                  onStartEdit={(e) => onStartEdit(agent, e)}
+                  onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
+                  onTogglePublic={(e) => onTogglePublic(agent, e)}
+                />
+              </div>
+
+              {/* Trailing meta — pushed to the right edge */}
+              <div className="ml-auto pl-2 flex items-center gap-1.5 shrink-0">
+                {unread > 0 && (
+                  <span
+                    className="inline-flex items-center justify-center text-[10px] font-semibold"
+                    style={{
+                      minWidth: 18,
+                      height: 16,
+                      padding: '0 5px',
+                      borderRadius: 8,
+                      background: 'transparent',
+                      border: '1px solid var(--nm-ink30)',
+                      color: 'var(--nm-ink70)',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    {unread > 99 ? '99+' : unread}
                   </span>
                 )}
-
-                {/* Kebab menu — shown on hover or when selected */}
-                <div
-                  className={cn(
-                    'shrink-0',
-                    isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                    'transition-opacity duration-150',
-                  )}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <AgentRowMenu
-                    agentId={agent.agent_id}
-                    agentName={displayName}
-                    onOpenChange={setMenuOpen}
-                    isOwner={isOwner}
-                    isPublic={!!agent.is_public}
-                    showPublicToggle={showPublicToggle}
-                    onStartEdit={(e) => onStartEdit(agent, e)}
-                    onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
-                    onTogglePublic={(e) => onTogglePublic(agent, e)}
-                  />
-                </div>
-
                 <span
-                  className="ml-auto pl-2 text-[10px] shrink-0"
+                  className="text-[10px]"
                   style={{
                     color: unread > 0 ? 'var(--color-silicon)' : 'var(--nm-ink50)',
                     fontWeight: unread > 0 ? 500 : 400,
@@ -426,36 +446,7 @@ function AgentRow({
                   {time}
                 </span>
               </div>
-
-              {/* Row 2: preview + unread pill */}
-              <div className="flex items-center gap-2 mt-0.5">
-                <p
-                  className="flex-1 min-w-0 text-xs truncate leading-snug"
-                  style={{ color: 'var(--nm-ink70)' }}
-                >
-                  {preview || (
-                    <span style={{ color: 'var(--nm-ink30)' }}>No messages yet</span>
-                  )}
-                </p>
-                {unread > 0 && (
-                  <span
-                    className="inline-flex items-center justify-center text-[10px] font-semibold shrink-0"
-                    style={{
-                      minWidth: 20,
-                      height: 18,
-                      padding: '0 6px',
-                      borderRadius: 9,
-                      background: 'transparent',
-                      border: '1px solid var(--nm-ink30)',
-                      color: 'var(--nm-ink70)',
-                      fontFamily: 'var(--font-mono)',
-                    }}
-                  >
-                    {unread > 99 ? '99+' : unread}
-                  </span>
-                )}
-              </div>
-            </>
+            </div>
           )}
         </div>
       </div>
