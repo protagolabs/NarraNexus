@@ -4,6 +4,15 @@ last_verified: 2026-06-23
 stub: false
 ---
 
+## 2026-06-23 (PM) — prompt names the live roster, forbids off-channel @mentions
+
+`_build_team_prompt` now states the current channel members explicitly and adds
+a rule: only @mention someone in that list; anyone named in history but not a
+member has left / was never here. Fixes agents @mentioning a non-member (e.g.
+Nex @rabbit when rabbit isn't in the channel). Delivery was already safe
+(`_extract_team_mentions` only resolves to real members) — this stops the agent
+from *writing* the dead mention in the first place.
+
 ## 2026-06-23 — team group-chat branch + cascade cap + faster polling + cursor fix
 
 `_handle_channel_batch` now branches on `channel_owner.startswith("team_")` (a

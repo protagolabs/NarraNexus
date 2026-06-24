@@ -431,10 +431,15 @@ class MessageBusTrigger:
         peer/owner-relay path — there is no send_message_to_user_directly step."""
         me = member_map.get(agent_id, agent_id)
         teammates = [n for a, n in member_map.items() if a != agent_id]
+        roster = ", ".join(teammates) if teammates else "(no other agents yet)"
         lines = [
             "[Team Group Chat]",
             f'You are "{me}" in a team group chat with the user and your '
-            f'teammates: {", ".join(teammates) or "(none)"}.',
+            f"teammates.",
+            f"Channel members RIGHT NOW (besides the user): {roster}.",
+            "These are the ONLY participants who can see this chat. Someone "
+            "named in the history but not in that list has LEFT or was never "
+            "here — they are not present.",
             "",
             "Recent messages:",
         ]
@@ -457,6 +462,10 @@ class MessageBusTrigger:
             "- Keep it short, like a real group chat. To pull in a teammate, "
             "@mention them by name (e.g. @Name); say @all for everyone — but only "
             "when you genuinely need them, not as a reflex.",
+            "- You may ONLY @mention a current channel member listed above. Do "
+            "NOT @mention anyone who is not in that list — they are not in the "
+            "channel and cannot see or answer it. If you want someone else "
+            "involved, ask the user to add them instead of @mentioning them.",
         ]
         return "\n".join(lines)
 
