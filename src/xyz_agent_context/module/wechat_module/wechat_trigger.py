@@ -51,6 +51,7 @@ class WeChatTrigger(ChannelTriggerBase):
     """WeChat (iLink) long-poll trigger."""
 
     channel_name = "wechat"
+    brand_display = "WeChat"
     working_source = WorkingSource.WECHAT
 
     # Idle wake-up so ``self.running`` is checked even when the bot is quiet.
