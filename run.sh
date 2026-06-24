@@ -417,10 +417,18 @@ case "${1:-}" in
   *)
     check_deps
 
-    # Install frontend deps if needed
-    if [ ! -d "$SCRIPT_DIR/frontend/node_modules" ]; then
-      echo -e "${Y}Installing frontend dependencies...${R}"
-      (cd "$SCRIPT_DIR/frontend" && npm ci)
+    # Install frontend deps if needed. Re-run `npm ci` not only when
+    # node_modules is missing, but also when the lockfile CHANGED since the last
+    # install — otherwise pulling a branch that ADDS a dependency (e.g. crypto-js
+    # in the NetMind-login work) leaves node_modules stale and Vite fails to
+    # resolve the new import (observed as a broken login page after `git pull`).
+    # npm writes node_modules/.package-lock.json on install; compare against it.
+    _fe="$SCRIPT_DIR/frontend"
+    if [ ! -d "$_fe/node_modules" ] \
+       || [ ! -f "$_fe/node_modules/.package-lock.json" ] \
+       || [ "$_fe/package-lock.json" -nt "$_fe/node_modules/.package-lock.json" ]; then
+      echo -e "${Y}Installing frontend dependencies (lockfile changed or first run)...${R}"
+      (cd "$_fe" && npm ci)
     fi
 
     # Sync Python deps — clear ALL external Python env vars that interfere with uv
