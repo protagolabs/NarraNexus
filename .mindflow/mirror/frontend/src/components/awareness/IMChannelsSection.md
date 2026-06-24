@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/awareness/IMChannelsSection.tsx
 stub: false
-last_verified: 2026-06-22
+last_verified: 2026-06-24
 ---
+
+## 2026-06-24 — WeChat added to `IM_CHANNELS`
+
+The tab now lists **five** channels: Lark, Slack, Telegram,
+NarraMessenger, WeChat. WeChat was added as one more `IM_CHANNELS`
+entry (`key: 'wechat'`, `label: 'WeChat'`, `Icon: QrCode`,
+`Component: WeChatConfig`, `fetchConnected` → `api.getWeChatCredential`)
+— again no structural change to this component. The `QrCode` icon hints
+at the QR-scan bind flow that makes WeChat unlike the token-paste bot
+channels (see `WeChatConfig.md`).
 
 ## 2026-06-22 — NarraMessenger added to `IM_CHANNELS`
 

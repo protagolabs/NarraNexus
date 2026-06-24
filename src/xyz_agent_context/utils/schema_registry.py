@@ -877,12 +877,15 @@ _register(
             # falls back to the default host when empty.
             Column("base_url", "TEXT", "VARCHAR(256)", nullable=False, default="''"),
             # Bot's own WeChat id, when the gateway reports it (may be empty).
-            Column("bot_wx_id", "TEXT", "VARCHAR(128)"),
+            Column("bot_wx_id", "TEXT", "VARCHAR(128)", nullable=False, default="''"),
             # Owner — owner_wx_id claimed on first DM; owner_user_id is the
-            # NarraNexus account (agents.created_by).
-            Column("owner_wx_id", "TEXT", "VARCHAR(128)"),
-            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
-            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            # NarraNexus account (agents.created_by). owner_wx_id MUST default to
+            # '' (NOT NULL): claim_owner's first-DM CAS filters on
+            # `owner_wx_id = ''`, and SQL `= ''` never matches NULL — a NULL here
+            # would make the owner unclaimable forever.
+            Column("owner_wx_id", "TEXT", "VARCHAR(128)", nullable=False, default="''"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)", nullable=False, default="''"),
+            Column("owner_name", "TEXT", "VARCHAR(255)", nullable=False, default="''"),
             Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),

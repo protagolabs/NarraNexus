@@ -71,6 +71,9 @@ import type {
   NarramessengerCredentialResponse,
   NarramessengerBindResponse,
   TelegramTestResponse,
+  WeChatCredentialResponse,
+  WeChatQrStartResponse,
+  WeChatQrPollResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1157,6 +1160,36 @@ class ApiClient {
 
   async unbindTelegramBot(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/telegram/unbind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // WeChat (iLink) Integration API — QR-scan bind flow (no token paste).
+  async getWeChatCredential(agentId: string): Promise<WeChatCredentialResponse> {
+    return this.request<WeChatCredentialResponse>(`/api/wechat/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async startWeChatQrcode(agentId: string): Promise<WeChatQrStartResponse> {
+    return this.request<WeChatQrStartResponse>('/api/wechat/qrcode/start', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async pollWeChatQrcode(
+    agentId: string,
+    qrcode: string,
+    baseUrl: string = '',
+  ): Promise<WeChatQrPollResponse> {
+    return this.request<WeChatQrPollResponse>('/api/wechat/qrcode/poll', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, qrcode, base_url: baseUrl }),
+    });
+  }
+
+  async unbindWeChat(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/wechat/unbind', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });

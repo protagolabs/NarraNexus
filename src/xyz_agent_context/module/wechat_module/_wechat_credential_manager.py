@@ -102,6 +102,10 @@ class WeChatCredentialManager:
             logger.info(f"[wechat:{agent_id}] credentials updated")
         else:
             row["created_at"] = now_iso
+            # owner_wx_id MUST be the empty string (never NULL) so the first-DM
+            # claim_owner CAS (`WHERE owner_wx_id = ''`) can match this row.
+            row.setdefault("owner_wx_id", "")
+            row.setdefault("bot_wx_id", "")
             await self._db.insert(self.TABLE, row)
             logger.info(f"[wechat:{agent_id}] credentials inserted")
         return {"success": True, "data": {"base_url": row["base_url"]}}
