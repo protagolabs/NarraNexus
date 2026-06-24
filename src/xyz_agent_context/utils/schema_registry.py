@@ -859,6 +859,45 @@ _register(
 )
 
 
+# --- 27c-wx. channel_wechat_credentials ------------------------------------
+# Per-agent personal-WeChat binding via the iLink ("ClawBot") gateway. The
+# secret is the iLink bot_token produced by the QR-scan bind (base64-encoded,
+# NOT encryption — same placeholder convention as lark/slack/telegram). The
+# owner's WeChat id is opaque until they DM the freshly bound account, so it is
+# claimed on the first inbound DM (owner_wx_id), not supplied at bind time.
+_register(
+    TableDef(
+        name="channel_wechat_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            # iLink bot_token from QR bind (base64-encoded placeholder, like telegram).
+            Column("bot_token_encoded", "TEXT", "VARCHAR(1024)", nullable=False),
+            # iLink API base URL — bind may return a per-account `baseurl`;
+            # falls back to the default host when empty.
+            Column("base_url", "TEXT", "VARCHAR(256)", nullable=False, default="''"),
+            # Bot's own WeChat id, when the gateway reports it (may be empty).
+            Column("bot_wx_id", "TEXT", "VARCHAR(128)"),
+            # Owner — owner_wx_id claimed on first DM; owner_user_id is the
+            # NarraNexus account (agents.created_by).
+            Column("owner_wx_id", "TEXT", "VARCHAR(128)"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            # One WeChat account per agent. We do NOT add a cross-agent unique
+            # bot-identity index: the bound account's wxid is not known at bind
+            # time, so it can't be the uniqueness key (unlike telegram's
+            # bot_user_id from getMe).
+            Index("idx_wx_cred_agent_id", ["agent_id"], unique=True),
+        ],
+    )
+)
+
+
 # --- 27d. channel_narramessenger_credentials -------------------------------
 # NarraMessenger (formerly NexusMatrix) per-agent binding. v1 transport is
 # Gateway Polling + /chat/send — pure bearer-token HTTP, no Matrix client, so
