@@ -331,6 +331,7 @@ from backend.routes.transcription_public import router as transcription_public_r
 from backend.routes.artifacts_public import router as artifacts_public_router
 from backend.routes.teams import router as teams_router
 from backend.routes.bundle import router as bundle_router
+from backend.routes.me import router as me_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -342,6 +343,7 @@ app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
 app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
+app.include_router(me_router, prefix="/api/me", tags=["Me"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])

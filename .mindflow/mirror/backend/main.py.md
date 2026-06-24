@@ -1,8 +1,12 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-06-12
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — me_router 注册
+
+新增 `from backend.routes.me import router as me_router` + `app.include_router(me_router, prefix="/api/me", tags=["Me"])`。owner 级(跨用户全部 agent)只读聚合,服务 "You" 工作区([[YouWorkspace]])。详见 [[me]]。
 
 ## 2026-06-12 — admin_migration_router 注册
 

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — `/app/you` route added
+
+Added a lazy `/app/you` → [[YouWorkspace]] route under the `/app` (MainLayout)
+group. Like `dashboard` / `system`, it is a sub-page rendered through the
+`<Outlet>` overlay (so `isSubPage` in [[MainLayout]] is true and it gets the
+close-X). Entered from the sidebar user avatar ([[Sidebar]]).
 
 ## 2026-06-11 — NetMind ?token= inbound bootstrap; /register removed
 

@@ -13,6 +13,9 @@ import type {
   ClearHistoryResponse,
   SocialNetworkResponse,
   SocialNetworkListResponse,
+  MyNarrativesResponse,
+  MyNetworkResponse,
+  MyWorldviewResponse,
   SocialNetworkSearchResponse,
   ChatHistoryResponse,
   SimpleChatHistoryResponse,
@@ -262,6 +265,26 @@ class ApiClient {
     return this.request<SocialNetworkListResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/social-network`
     );
+  }
+
+  /** Owner-scoped: every narrative across all the user's agents, for the
+   *  "You" workspace Narra Memory timeline. Seeded scaffold narratives are
+   *  excluded unless includeDefault is set. */
+  async getMyNarratives(includeDefault = false): Promise<MyNarrativesResponse> {
+    const qs = includeDefault ? '?include_default=true' : '';
+    return this.request<MyNarrativesResponse>(`/api/me/narratives${qs}`);
+  }
+
+  /** Owner-scoped: every entity the user's agents know, merged across agents,
+   *  for the "You" workspace Nexus Network graph. */
+  async getMyNetwork(): Promise<MyNetworkResponse> {
+    return this.request<MyNetworkResponse>('/api/me/network');
+  }
+
+  /** Owner-scoped: how each of the user's agents sees them + each agent's own
+   *  worldview, for the "You" workspace Worldview tab. */
+  async getMyWorldview(): Promise<MyWorldviewResponse> {
+    return this.request<MyWorldviewResponse>('/api/me/worldview');
   }
 
   // 语义搜索 Social Network Entities

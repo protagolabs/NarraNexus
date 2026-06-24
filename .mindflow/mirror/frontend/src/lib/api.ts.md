@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-11
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — getMyNarratives / getMyNetwork (owner-scoped)
+
+Added `getMyNarratives(includeDefault = false)` → `GET /api/me/narratives`,
+`getMyNetwork()` → `GET /api/me/network`, and `getMyWorldview()` →
+`GET /api/me/worldview` (owner-level, cross-agent). Power the three "You"
+workspace tabs — [[NarraMemoryTimeline]] / [[NexusNetworkGraph]] /
+[[WorldviewLenses]]; types in [[you]].
 
 ## 2026-06-11 — netmindLogin (NetMind token exchange)
 
