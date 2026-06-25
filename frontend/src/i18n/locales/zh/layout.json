@@ -72,7 +72,9 @@
     "teamRowMenu": {
       "options": "群聊选项",
       "rename": "重命名",
-      "delete": "删除"
+      "delete": "删除",
+      "addAgent": "添加智能体",
+      "addingAgent": "添加中…"
     },
     "topBar": {
       "crumbDashboard": "仪表盘",

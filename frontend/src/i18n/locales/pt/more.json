@@ -28,7 +28,8 @@
       "preferToggle": "Usar a quota gratuita mesmo quando tenho o meu próprio fornecedor configurado",
       "preferOn": "Atualmente: a encaminhar através do fornecedor do sistema — o uso gratuito aplica-se. Recorre ao seu próprio fornecedor se a quota gratuita se esgotar.",
       "preferOff": "Atualmente: a usar o seu próprio fornecedor quando configurado; a quota gratuita só se aplica quando não tem nenhum fornecedor definido.",
-      "exhaustedNote": "Quota gratuita consumida. Adicione o seu próprio fornecedor abaixo ou desmarque a opção acima para encaminhar através do seu fornecedor existente."
+      "exhaustedNote": "Quota gratuita consumida. Adicione o seu próprio fornecedor abaixo ou desmarque a opção acima para encaminhar através do seu fornecedor existente.",
+      "exhaustedLockHint": "Bloqueado enquanto o nível gratuito estiver esgotado — é reativado automaticamente assim que sua cota for reabastecida."
     },
     "modal": {
       "title": "Definições",
@@ -163,7 +164,23 @@
       "readyTitle": "Está tudo pronto",
       "readyIntro": "A sua chave está inserida e configurámos as suas ranhuras de modelo para que possa começar a conversar de imediato:",
       "readyNote": "Quer modelos diferentes? Altere qualquer ranhura na secção de configuração abaixo — as suas edições prevalecem sempre sobre estas predefinições.",
-      "gotIt": "Entendido"
+      "gotIt": "Entendido",
+      "authReady": "✓ autenticação pronta",
+      "authMissing": "✗ autenticação ausente",
+      "managedByStaff": "· gerenciado pela equipe na nuvem",
+      "saveFrameworkFailed": "Falha ao salvar o framework",
+      "verifyingCodex": "Verificando o Codex CLI…",
+      "codexBinaryUnavailable": "Binário do Codex indisponível: {{reason}}",
+      "defaultRecommendedNamed": "Padrão · {{model}} (recomendado)",
+      "codexNoProvider": "O Codex CLI precisa de um provedor OpenAI compatível com a Responses API: faça login com o Codex CLI (codex login) ou adicione uma chave personalizada da OpenAI na Etapa 1. Provedores agregadores (NetMind / Yunwu / OpenRouter) não são suportados pelo Codex.",
+      "claudeLoginTitle": "Login do Claude Code",
+      "codexLoginTitle": "Login do Codex CLI",
+      "codexOauthDesc": "Login OAuth via Codex CLI (Entrar com ChatGPT). Nenhuma chave de API necessária. O uso é coberto pela sua assinatura do ChatGPT Plus / Pro.",
+      "codexTerminalHint": "Execute \"codex login\" / \"codex logout\" no seu terminal e atualize esta página.",
+      "codexInstallHint": "Instale primeiro o Codex CLI (instala automaticamente ao escolher \"Codex CLI\" no menu de framework de agente abaixo) e depois execute \"codex login\" no seu terminal.",
+      "codexLoginToAdd": "Faça login acima para adicionar o Codex CLI como provedor.",
+      "customDisabledTitle": "Adicionar provedores personalizados está temporariamente indisponível",
+      "customDisabledDesc": "A configuração de provedores personalizados (URL base personalizada) está pausada para reforço de segurança e será restaurada em breve. Seus provedores já configurados continuam totalmente utilizáveis."
     }
   },
   "system": {

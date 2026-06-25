@@ -72,7 +72,9 @@
     "teamRowMenu": {
       "options": "그룹 채팅 옵션",
       "rename": "이름 변경",
-      "delete": "삭제"
+      "delete": "삭제",
+      "addAgent": "에이전트 추가",
+      "addingAgent": "추가 중…"
     },
     "topBar": {
       "crumbDashboard": "대시보드",

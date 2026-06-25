@@ -28,7 +28,8 @@
       "preferToggle": "即使我已配置自己的服务商，也优先使用免费额度",
       "preferOn": "当前：通过系统服务商路由——使用免费额度。免费额度用尽后回退到你自己的服务商。",
       "preferOff": "当前：已配置时使用你自己的服务商；仅当未设置服务商时才使用免费额度。",
-      "exhaustedNote": "免费额度已用尽。请在下方添加你自己的服务商，或取消上方开关以通过现有服务商路由。"
+      "exhaustedNote": "免费额度已用尽。请在下方添加你自己的服务商，或取消上方开关以通过现有服务商路由。",
+      "exhaustedLockHint": "免费额度用尽期间已锁定 — 额度补充后将自动重新启用。"
     },
     "modal": {
       "title": "设置",
@@ -163,7 +164,23 @@
       "readyTitle": "你已准备就绪",
       "readyIntro": "你的密钥已就位，我们已为你设置好模型槽位，可立即开始对话：",
       "readyNote": "想用别的模型？在下方配置区更改任意槽位——你的修改始终优先于这些默认值。",
-      "gotIt": "知道了"
+      "gotIt": "知道了",
+      "authReady": "✓ 认证就绪",
+      "authMissing": "✗ 缺少认证",
+      "managedByStaff": "· 云端由管理员管理",
+      "saveFrameworkFailed": "保存框架失败",
+      "verifyingCodex": "正在验证 Codex CLI…",
+      "codexBinaryUnavailable": "Codex 二进制文件不可用：{{reason}}",
+      "defaultRecommendedNamed": "默认 · {{model}}（推荐）",
+      "codexNoProvider": "Codex CLI 需要一个支持 Responses API 的 OpenAI 提供商：请使用 Codex CLI 登录（codex login），或在步骤 1 中添加自定义 OpenAI 密钥。聚合类提供商（NetMind / Yunwu / OpenRouter）不受 Codex 支持。",
+      "claudeLoginTitle": "Claude Code 登录",
+      "codexLoginTitle": "Codex CLI 登录",
+      "codexOauthDesc": "通过 Codex CLI 进行 OAuth 登录（使用 ChatGPT 登录）。无需 API 密钥。用量由你的 ChatGPT Plus / Pro 订阅承担。",
+      "codexTerminalHint": "在终端中运行 \"codex login\" / \"codex logout\"，然后刷新本页面。",
+      "codexInstallHint": "请先安装 Codex CLI（在下方的智能体框架下拉菜单中选择 \"Codex CLI\" 时会自动安装），然后在终端中运行 \"codex login\"。",
+      "codexLoginToAdd": "请在上方登录，以将 Codex CLI 添加为提供商。",
+      "customDisabledTitle": "添加自定义提供商暂时不可用",
+      "customDisabledDesc": "自定义（自定义 Base URL）提供商配置已暂停以进行安全加固，将很快恢复。你已配置的提供商仍可正常使用。"
     }
   },
   "system": {

@@ -73,7 +73,9 @@
     "teamRowMenu": {
       "options": "Group chat options",
       "rename": "Rename",
-      "delete": "Delete"
+      "delete": "Delete",
+      "addAgent": "Add agent",
+      "addingAgent": "Adding…"
     },
     "topBar": {
       "crumbDashboard": "Dashboard",

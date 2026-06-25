@@ -28,7 +28,8 @@
       "preferToggle": "Kostenloses Kontingent auch dann nutzen, wenn ich einen eigenen Anbieter konfiguriert habe",
       "preferOn": "Aktuell: Routing über den System-Anbieter — die kostenlose Nutzung gilt. Greift auf deinen eigenen Anbieter zurück, wenn das Kontingent aufgebraucht ist.",
       "preferOff": "Aktuell: Es wird dein eigener Anbieter verwendet, sofern konfiguriert; das kostenlose Kontingent gilt nur, wenn kein Anbieter eingerichtet ist.",
-      "exhaustedNote": "Kostenloses Kontingent aufgebraucht. Füge unten deinen eigenen Anbieter hinzu oder deaktiviere den Schalter oben, um über deinen vorhandenen Anbieter zu routen."
+      "exhaustedNote": "Kostenloses Kontingent aufgebraucht. Füge unten deinen eigenen Anbieter hinzu oder deaktiviere den Schalter oben, um über deinen vorhandenen Anbieter zu routen.",
+      "exhaustedLockHint": "Gesperrt, solange das Gratis-Kontingent aufgebraucht ist — wird automatisch wieder aktiviert, sobald dein Kontingent aufgefüllt ist."
     },
     "modal": {
       "title": "Einstellungen",
@@ -163,7 +164,23 @@
       "readyTitle": "Du bist startklar",
       "readyIntro": "Dein Schlüssel ist eingetragen, und wir haben deine Modell-Slots eingerichtet, sodass du sofort loschatten kannst:",
       "readyNote": "Möchtest du andere Modelle? Ändere einen beliebigen Slot im Konfigurationsbereich unten — deine Anpassungen haben immer Vorrang vor diesen Standardeinstellungen.",
-      "gotIt": "Verstanden"
+      "gotIt": "Verstanden",
+      "authReady": "✓ Authentifizierung bereit",
+      "authMissing": "✗ Authentifizierung fehlt",
+      "managedByStaff": "· in der Cloud vom Team verwaltet",
+      "saveFrameworkFailed": "Framework konnte nicht gespeichert werden",
+      "verifyingCodex": "Codex CLI wird überprüft…",
+      "codexBinaryUnavailable": "Codex-Binärdatei nicht verfügbar: {{reason}}",
+      "defaultRecommendedNamed": "Standard · {{model}} (empfohlen)",
+      "codexNoProvider": "Codex CLI benötigt einen OpenAI-Anbieter, der die Responses-API unterstützt: Melde dich mit der Codex CLI an (codex login) oder füge in Schritt 1 einen benutzerdefinierten OpenAI-Schlüssel hinzu. Aggregator-Anbieter (NetMind / Yunwu / OpenRouter) werden von Codex nicht unterstützt.",
+      "claudeLoginTitle": "Claude Code-Anmeldung",
+      "codexLoginTitle": "Codex CLI-Anmeldung",
+      "codexOauthDesc": "OAuth-Anmeldung über die Codex CLI (Mit ChatGPT anmelden). Kein API-Schlüssel erforderlich. Die Nutzung ist durch dein ChatGPT Plus / Pro-Abo abgedeckt.",
+      "codexTerminalHint": "Führe \"codex login\" / \"codex logout\" in deinem Terminal aus und aktualisiere dann diese Seite.",
+      "codexInstallHint": "Installiere zuerst die Codex CLI (wird automatisch installiert, wenn du unten im Agent-Framework-Dropdown \"Codex CLI\" auswählst) und führe dann \"codex login\" in deinem Terminal aus.",
+      "codexLoginToAdd": "Melde dich oben an, um die Codex CLI als Anbieter hinzuzufügen.",
+      "customDisabledTitle": "Das Hinzufügen benutzerdefinierter Anbieter ist vorübergehend nicht verfügbar",
+      "customDisabledDesc": "Die Einrichtung benutzerdefinierter Anbieter (eigene Basis-URL) ist zur Sicherheitshärtung pausiert und wird bald wiederhergestellt. Deine bereits konfigurierten Anbieter bleiben voll nutzbar."
     }
   },
   "system": {

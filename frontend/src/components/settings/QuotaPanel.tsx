@@ -158,7 +158,7 @@ export function QuotaPanel() {
         </label>
         <div className="mt-1 text-[11px] text-[var(--text-tertiary)] pl-6">
           {exhausted
-            ? 'Locked while the free tier is exhausted — re-enables automatically once your quota is replenished.'
+            ? t('settings.quota.exhaustedLockHint')
             : preferSystem
               ? t('settings.quota.preferOn')
               : t('settings.quota.preferOff')}

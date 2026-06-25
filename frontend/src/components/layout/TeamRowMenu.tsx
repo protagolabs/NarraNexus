@@ -73,7 +73,7 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpe
           >
             <MenuItem
               icon={<UserPlus className="w-3 h-3" />}
-              label={addingAgent ? 'Adding…' : 'Add agent'}
+              label={addingAgent ? t('layout.teamRowMenu.addingAgent') : t('layout.teamRowMenu.addAgent')}
               disabled={addingAgent}
               onClick={handleItem(onAddAgent)}
             />

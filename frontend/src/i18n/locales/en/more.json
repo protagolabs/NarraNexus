@@ -28,7 +28,8 @@
       "preferToggle": "Use free-tier quota even when I have my own provider configured",
       "preferOn": "Currently: routing through system provider — free-tier usage applies. Falls back to your own provider if the free tier runs out.",
       "preferOff": "Currently: using your own provider when configured; free tier only applies when you have no provider set.",
-      "exhaustedNote": "Free tier consumed. Add your own provider below, or uncheck the toggle above to route through your existing provider."
+      "exhaustedNote": "Free tier consumed. Add your own provider below, or uncheck the toggle above to route through your existing provider.",
+      "exhaustedLockHint": "Locked while the free tier is exhausted — re-enables automatically once your quota is replenished."
     },
     "modal": {
       "title": "Settings",
@@ -163,7 +164,23 @@
       "readyTitle": "You're ready to go",
       "readyIntro": "Your key is in, and we've set up your model slots so you can start chatting right away:",
       "readyNote": "Want different models? Change any slot in the configuration section below — your edits always win over these defaults.",
-      "gotIt": "Got it"
+      "gotIt": "Got it",
+      "authReady": "✓ auth ready",
+      "authMissing": "✗ auth missing",
+      "managedByStaff": "· managed by staff in cloud",
+      "saveFrameworkFailed": "Failed to save framework",
+      "verifyingCodex": "Verifying Codex CLI…",
+      "codexBinaryUnavailable": "Codex binary unavailable: {{reason}}",
+      "defaultRecommendedNamed": "Default · {{model}} (recommended)",
+      "codexNoProvider": "Codex CLI needs an OpenAI provider that speaks the Responses API: sign in with Codex CLI (codex login) or add a Custom OpenAI key in Step 1. Aggregator providers (NetMind / Yunwu / OpenRouter) are not supported by Codex.",
+      "claudeLoginTitle": "Claude Code Login",
+      "codexLoginTitle": "Codex CLI Login",
+      "codexOauthDesc": "OAuth login via Codex CLI (Sign in with ChatGPT). No API key needed. Usage covered by your ChatGPT Plus / Pro subscription.",
+      "codexTerminalHint": "Run \"codex login\" / \"codex logout\" in your terminal, then refresh this page.",
+      "codexInstallHint": "Install Codex CLI first (auto-installs when you pick \"Codex CLI\" in the Agent Framework dropdown below), then run \"codex login\" in your terminal.",
+      "codexLoginToAdd": "Log in above to add Codex CLI as a provider.",
+      "customDisabledTitle": "Adding custom providers is temporarily unavailable",
+      "customDisabledDesc": "Custom (custom base URL) provider setup is paused for security hardening and will be restored soon. Your already-configured providers remain fully usable."
     }
   },
   "system": {

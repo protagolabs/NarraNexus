@@ -73,7 +73,9 @@
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",
       "rename": "Renommer",
-      "delete": "Supprimer"
+      "delete": "Supprimer",
+      "addAgent": "Ajouter un agent",
+      "addingAgent": "Ajout…"
     },
     "topBar": {
       "crumbDashboard": "Tableau de bord",

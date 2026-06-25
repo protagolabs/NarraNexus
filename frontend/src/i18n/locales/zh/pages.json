@@ -59,7 +59,10 @@
       "subtitle": "设置你的 API 密钥，让 NarraNexus 能够连接语言模型。",
       "skipForNow": "暂时跳过",
       "getStarted": "开始使用",
-      "done": "完成"
+      "done": "完成",
+      "oneKeySectionLabel": "设置 · 一把密钥即可开始",
+      "welcomeTitle": "欢迎使用 NarraNexus",
+      "advancedSetup": "高级设置 — OAuth、自定义端点、按槽位配置模型"
     },
     "settings": {
       "title": "设置",

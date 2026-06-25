@@ -59,7 +59,10 @@
       "subtitle": "Укажите API-ключи, чтобы NarraNexus мог подключаться к языковым моделям.",
       "skipForNow": "Пропустить",
       "getStarted": "Начать",
-      "done": "Готово"
+      "done": "Готово",
+      "oneKeySectionLabel": "Настройка · Один ключ для старта",
+      "welcomeTitle": "Добро пожаловать в NarraNexus",
+      "advancedSetup": "Расширенная настройка — OAuth, пользовательские эндпоинты, модели по слотам"
     },
     "settings": {
       "title": "Настройки",

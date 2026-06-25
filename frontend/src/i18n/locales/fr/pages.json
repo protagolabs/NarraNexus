@@ -59,7 +59,10 @@
       "subtitle": "Configurez vos clés API pour que NarraNexus puisse se connecter aux modèles de langage.",
       "skipForNow": "Ignorer pour l'instant",
       "getStarted": "Commencer",
-      "done": "Terminé"
+      "done": "Terminé",
+      "oneKeySectionLabel": "Configuration · Démarrez avec une seule clé",
+      "welcomeTitle": "Bienvenue sur NarraNexus",
+      "advancedSetup": "Configuration avancée — OAuth, points de terminaison personnalisés, modèles par emplacement"
     },
     "settings": {
       "title": "Paramètres",
