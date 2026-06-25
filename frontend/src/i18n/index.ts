@@ -4,26 +4,18 @@
  * Frontend UI chrome only — agent replies come back in the user's language
  * from the LLM, so they're not translated here.
  *
- * Languages match the narra.nexus homepage set. Adding/removing one is two
- * steps: drop a `locales/<code>.json` (same key shape as `en.json`, the
- * base/fallback) and add an entry to SUPPORTED_LANGUAGES. The language is
- * auto-detected from a prior choice (localStorage) then the browser, falling
- * back to English; the LanguageToggle persists changes and applies dir/lang.
+ * Languages match the narra.nexus homepage set. Adding/removing one: drop the
+ * 10 `locales/<lang>/*.json` fragments and add an entry to SUPPORTED_LANGUAGES.
+ *
+ * Locale files are AUTO-LOADED + deep-merged per language via import.meta.glob,
+ * from both `locales/<lang>.json` (core) and `locales/<lang>/<area>.json`
+ * (per-area fragments). So growing the translations during the sweep is just
+ * dropping a new `locales/<lang>/<area>.json` — no edits to this file, and
+ * different areas live in different files (parallel-edit safe).
  */
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
-
-import en from './locales/en.json';
-import zh from './locales/zh.json';
-import ja from './locales/ja.json';
-import ko from './locales/ko.json';
-import es from './locales/es.json';
-import fr from './locales/fr.json';
-import de from './locales/de.json';
-import ru from './locales/ru.json';
-import pt from './locales/pt.json';
-import ar from './locales/ar.json';
 
 /**
  * Languages offered in the UI (narra.nexus homepage set). `flag` is an emoji
@@ -50,25 +42,49 @@ export const RTL_LANGUAGES: readonly LanguageCode[] = ['ar'];
 /** localStorage key the detector caches the chosen language under. */
 export const LANG_STORAGE_KEY = 'nx_lang';
 
+type Dict = Record<string, unknown>;
+
+function isObject(v: unknown): v is Dict {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** Recursively merge `src` into `target` (later fragments win on leaf conflict). */
+function deepMerge(target: Dict, src: Dict): Dict {
+  for (const [k, v] of Object.entries(src)) {
+    if (isObject(v) && isObject(target[k])) {
+      target[k] = deepMerge(target[k] as Dict, v);
+    } else {
+      target[k] = v;
+    }
+  }
+  return target;
+}
+
+// Eager-load every locale fragment at build time. All language codes are
+// two letters, so the path's first segment after /locales/ is the language.
+const fragments = import.meta.glob<Dict>(['./locales/*.json', './locales/*/*.json'], {
+  eager: true,
+  import: 'default',
+});
+
+const resources: Record<string, { translation: Dict }> = {};
+for (const [path, frag] of Object.entries(fragments)) {
+  const m = path.match(/\.\/locales\/([a-z]{2})(?:\/[^/]+)?\.json$/);
+  if (!m) continue;
+  const lang = m[1];
+  (resources[lang] ??= { translation: {} }).translation = deepMerge(
+    resources[lang].translation,
+    frag as Dict,
+  );
+}
+
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    resources: {
-      en: { translation: en },
-      zh: { translation: zh },
-      ja: { translation: ja },
-      ko: { translation: ko },
-      es: { translation: es },
-      fr: { translation: fr },
-      de: { translation: de },
-      ru: { translation: ru },
-      pt: { translation: pt },
-      ar: { translation: ar },
-    },
+    resources,
     fallbackLng: 'en',
-    // English is the base. Anything the detector resolves to (e.g. "zh-CN",
-    // "pt-BR") is collapsed to its base ("zh", "pt").
+    // Detector may resolve to "zh-CN", "pt-BR", etc. — collapse to the base.
     supportedLngs: SUPPORTED_LANGUAGES.map((l) => l.code),
     nonExplicitSupportedLngs: true,
     load: 'languageOnly',
@@ -82,8 +98,7 @@ i18n
 
 /**
  * Keep <html lang> and dir in sync with the active language. RTL languages
- * (Arabic) flip the whole document to right-to-left. Runs on init + every
- * change.
+ * (Arabic) flip the whole document to right-to-left. Runs on init + change.
  */
 function applyDocumentLang(lng: string) {
   const base = (lng || 'en').split('-')[0] as LanguageCode;

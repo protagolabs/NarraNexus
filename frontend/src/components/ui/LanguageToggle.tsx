@@ -5,7 +5,7 @@
  * language needs no change here.
  */
 import { useState } from 'react';
-import { Languages, Check } from 'lucide-react';
+import { Globe, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from './Button';
@@ -37,7 +37,7 @@ export function LanguageToggle() {
           aria-label={`Language: ${current.label}`}
           className="relative gap-1"
         >
-          <Languages className="h-4 w-4" />
+          <Globe className="h-4 w-4" />
           <span className="text-[9px] font-mono uppercase tracking-wider">{current.code}</span>
         </Button>
       </PopoverTrigger>
