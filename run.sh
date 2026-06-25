@@ -39,7 +39,7 @@ status() {
     "8100:DB Proxy" "8000:Backend API" "5173:Frontend"
     "7801:MCP Awareness" "7802:MCP SocialNetwork" "7803:MCP Job" "7804:MCP Chat"
     "7806:MCP Skill" "7807:MCP CommonTools" "7808:MCP BasicInfo" "7820:MCP MessageBus"
-    "7830:Lark Trigger" "7831:Slack Trigger" "7832:Telegram Trigger")
+    "7830:Lark Trigger" "7831:Slack Trigger" "7832:Telegram Trigger" "7834:Discord Trigger")
   for entry in "${services[@]}"; do
     local port="${entry%%:*}"
     local name="${entry#*:}"
@@ -58,7 +58,7 @@ stop_all() {
   # Kill tmux session if running
   tmux kill-session -t nexus-dev 2>/dev/null || true
   # Kill processes on known ports
-  for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
+  for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
     lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
   done
   # Kill known process patterns
@@ -73,6 +73,7 @@ stop_all() {
   pkill -f "run_telegram_trigger" 2>/dev/null || true
   pkill -f "run_wechat_trigger" 2>/dev/null || true
   pkill -f "run_narramessenger_trigger" 2>/dev/null || true
+  pkill -f "run_discord_trigger" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
 
@@ -378,6 +379,9 @@ run_container_mode() {
   "$SCRIPT_DIR/.venv/bin/python3" src/xyz_agent_context/module/job_module/job_trigger.py &
   # 5. Message bus trigger
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.message_bus.message_bus_trigger &
+  # 5b. Discord channel trigger (Gateway receive → AgentRuntime). dev-local.sh
+  #     already launches this; run.sh must match it (binding rule #7).
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.discord_module.run_discord_trigger &
 
   # 6. IM channel triggers (inbound long-poll). message_bus_trigger
   #    deliberately defers IM channels to these dedicated processes, so

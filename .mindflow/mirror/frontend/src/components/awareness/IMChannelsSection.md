@@ -6,13 +6,19 @@ last_verified: 2026-06-24
 
 ## 2026-06-24 — WeChat added to `IM_CHANNELS`
 
-The tab now lists **five** channels: Lark, Slack, Telegram,
-NarraMessenger, WeChat. WeChat was added as one more `IM_CHANNELS`
+The tab now lists **six** channels: Lark, Slack, Telegram, WeChat,
+NarraMessenger, Discord. WeChat was added as one more `IM_CHANNELS`
 entry (`key: 'wechat'`, `label: 'WeChat'`, `Icon: QrCode`,
 `Component: WeChatConfig`, `fetchConnected` → `api.getWeChatCredential`)
 — again no structural change to this component. The `QrCode` icon hints
 at the QR-scan bind flow that makes WeChat unlike the token-paste bot
-channels (see `WeChatConfig.md`).
+channels (see `WeChatConfig.md`). Discord landed in parallel on `dev`
+(see `DiscordConfig.md`).
+
+> 2026-06-24: the section now defaults to **expanded** (`sectionOpen` initial
+> = `true`) — opening Channels should show the channel list straight away, not
+> a collapsed one-liner. The three-level disclosure still applies (the user can
+> collapse it; each channel still opens inline); only the initial state changed.
 
 ## 2026-06-22 — NarraMessenger added to `IM_CHANNELS`
 
@@ -24,7 +30,11 @@ NarraMessenger was added exactly as the extension point promises — one
 ## Why it exists
 
 Single grouping component inside the Awareness panel for **all** IM
-channel bindings (Lark, Slack, Telegram, NarraMessenger). Replaces
+channel bindings (Lark, Slack, Telegram, NarraMessenger, Discord). Adding a
+channel is one entry in the ``IM_CHANNELS`` array (key / label / Icon /
+Component / fetchConnected) — NarraMessenger (``MessageCircle`` icon,
+``api.getNarramessengerCredential``) and Discord (``Bot`` icon,
+``api.getDiscordCredential``) were each added this way. Replaces
 having one top-level Lark card and one top-level Slack card with a
 collapsible "IM Channels" section that scales to N channels without
 visually overwhelming the panel.

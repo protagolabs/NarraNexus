@@ -939,12 +939,50 @@ _register(
 )
 
 
+# --- 27e. channel_discord_credentials --------------------------------------
+# Discord per-agent bot binding (single Bot Token from the Developer Portal).
+# Like Telegram, Discord has no workspace/team concept at the credential
+# level — one bot token drives a single Gateway connection that serves every
+# guild the bot has joined, so ``bot_user_id`` alone is the identity for the
+# uniqueness check. Token is base64-encoded text (matching the lark/slack/
+# telegram convention: trivially reversible, NOT encryption — production
+# deployments should swap in real KMS-backed crypto).
+_register(
+    TableDef(
+        name="channel_discord_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bot_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            # Discord bot identity (from the Gateway READY event / users/@me).
+            # Snowflake ids are uint64 stored as string.
+            Column("bot_user_id", "TEXT", "VARCHAR(64)"),
+            Column("bot_username", "TEXT", "VARCHAR(128)"),
+            # Owner — the agent owner's numeric Discord user id, supplied at
+            # bind time. Drives the is_owner_interacting trust signal
+            # (sender_id == owner_user_id). Discord usernames are not stable
+            # identifiers, so we key trust on the numeric id only.
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_discord_cred_agent_id", ["agent_id"], unique=True),
+            # Same Discord bot can be bound to AT MOST one agent. Two agents
+            # racing on a single bot token would fight over the one Gateway
+            # session Discord issues per token and flip-flop the trust signal.
+            Index("idx_discord_cred_bot_identity", ["bot_user_id"], unique=True),
+        ],
+    )
+)
+
+
 # Note: there is intentionally NO `arena_credentials` table. Arena is an external
 # service — Arena owns the identity, and the agent's api_key lives only in its
 # workspace (skills/arena/). Idempotency ("does this user already have an Arena
 # agent") keys on the `agents` table via agent_metadata.provisioned_source.
-
-
 # 28. user_quotas (system-default free-tier token quota per user)
 _register(
     TableDef(

@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
-import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, MessageCircle, QrCode, Link as LinkIcon } from 'lucide-react';
+import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, MessageCircle, QrCode, Bot, Link as LinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -21,6 +21,7 @@ import { SlackConfig } from './SlackConfig';
 import { TelegramConfig } from './TelegramConfig';
 import { WeChatConfig } from './WeChatConfig';
 import { NarramessengerConfig } from './NarramessengerConfig';
+import { DiscordConfig } from './DiscordConfig';
 
 /**
  * Props every IM-channel config component must accept. The parent passes
@@ -112,11 +113,27 @@ const IM_CHANNELS: ChannelEntry[] = [
       }
     },
   },
+  {
+    key: 'discord',
+    label: 'Discord',
+    Icon: Bot,
+    Component: DiscordConfig,
+    fetchConnected: async (agentId) => {
+      try {
+        const res = await api.getDiscordCredential(agentId);
+        return Boolean(res.success && res.data && res.data.enabled);
+      } catch {
+        return false;
+      }
+    },
+  },
 ];
 
 export function IMChannelsSection() {
   const { agentId } = useConfigStore();
-  const [sectionOpen, setSectionOpen] = useState(false);
+  // Expanded by default: opening Channels should show the channel list, not a
+  // collapsed one-liner the user has to click to reveal.
+  const [sectionOpen, setSectionOpen] = useState(true);
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
   const [connectedMap, setConnectedMap] = useState<Record<string, boolean>>({});
 

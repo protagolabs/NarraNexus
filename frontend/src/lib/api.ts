@@ -74,6 +74,9 @@ import type {
   WeChatCredentialResponse,
   WeChatQrStartResponse,
   WeChatQrPollResponse,
+  DiscordCredentialResponse,
+  DiscordBindResponse,
+  DiscordTestResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1208,6 +1211,40 @@ class ApiClient {
 
   async unbindNarramessenger(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/narramessenger/unbind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // Discord Integration API
+  async getDiscordCredential(agentId: string): Promise<DiscordCredentialResponse> {
+    return this.request<DiscordCredentialResponse>(`/api/discord/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindDiscordBot(
+    agentId: string,
+    botToken: string,
+    ownerUserId: string = '',
+  ): Promise<DiscordBindResponse> {
+    return this.request<DiscordBindResponse>('/api/discord/bind', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: agentId,
+        bot_token: botToken,
+        owner_user_id: ownerUserId,
+      }),
+    });
+  }
+
+  async testDiscordConnection(agentId: string): Promise<DiscordTestResponse> {
+    return this.request<DiscordTestResponse>('/api/discord/test', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async unbindDiscordBot(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/discord/unbind', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });

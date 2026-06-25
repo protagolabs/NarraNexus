@@ -336,6 +336,7 @@ from backend.routes.slack import router as slack_router
 from backend.routes.telegram import router as telegram_router
 from backend.routes.wechat import router as wechat_router
 from backend.routes.narramessenger import router as narramessenger_router
+from backend.routes.discord import router as discord_router
 from backend.routes.quota import router as quota_router
 from backend.routes.admin_quota import router as admin_quota_router
 from backend.routes.notifications import router as notifications_router
@@ -369,6 +370,7 @@ app.include_router(telegram_router, prefix="/api/telegram", tags=["Telegram"])
 app.include_router(wechat_router, prefix="/api/wechat", tags=["WeChat"])
 app.include_router(narramessenger_router, prefix="/api/narramessenger", tags=["NarraMessenger"])
 app.include_router(arena_router, tags=["Arena"])
+app.include_router(discord_router, prefix="/api/discord", tags=["Discord"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
 app.include_router(admin_migration_router, tags=["AdminMigration"])

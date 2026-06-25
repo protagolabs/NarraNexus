@@ -44,6 +44,7 @@ from xyz_agent_context.module.slack_module.slack_module import SlackModule
 from xyz_agent_context.module.telegram_module.telegram_module import TelegramModule
 from xyz_agent_context.module.wechat_module.wechat_module import WeChatModule
 from xyz_agent_context.module.narramessenger_module.narramessenger_module import NarramessengerModule
+from xyz_agent_context.module.discord_module.discord_module import DiscordModule
 from xyz_agent_context.module.common_tools_module.common_tools_module import CommonToolsModule
 from xyz_agent_context.module.general_memory_module.general_memory_module import GeneralMemoryModule
 
@@ -61,6 +62,7 @@ MODULE_MAP = {
     "TelegramModule": TelegramModule,
     "WeChatModule": WeChatModule,
     "NarramessengerModule": NarramessengerModule,
+    "DiscordModule": DiscordModule,
     "CommonToolsModule": CommonToolsModule,
     "GeneralMemoryModule": GeneralMemoryModule,
 }
@@ -127,7 +129,9 @@ __all__ = [
     "LarkModule",
     "SlackModule",
     "TelegramModule",
+    "WeChatModule",
     "NarramessengerModule",
+    "DiscordModule",
     "CommonToolsModule",
 
     # ===== Module mapping =====
