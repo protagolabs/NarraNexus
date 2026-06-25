@@ -334,6 +334,8 @@ from backend.routes.dashboard import router as dashboard_router
 from backend.routes.lark import router as lark_router
 from backend.routes.slack import router as slack_router
 from backend.routes.telegram import router as telegram_router
+from backend.routes.narramessenger import router as narramessenger_router
+from backend.routes.discord import router as discord_router
 from backend.routes.quota import router as quota_router
 from backend.routes.admin_quota import router as admin_quota_router
 from backend.routes.notifications import router as notifications_router
@@ -346,6 +348,7 @@ from backend.routes.artifacts_public import router as artifacts_public_router
 from backend.routes.teams import router as teams_router
 from backend.routes.bundle import router as bundle_router
 from backend.routes.arena import router as arena_router
+from backend.routes.me import router as me_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -357,12 +360,15 @@ app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
 app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
+app.include_router(me_router, prefix="/api/me", tags=["Me"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
 app.include_router(slack_router, prefix="/api/slack", tags=["Slack"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["Telegram"])
+app.include_router(narramessenger_router, prefix="/api/narramessenger", tags=["NarraMessenger"])
 app.include_router(arena_router, tags=["Arena"])
+app.include_router(discord_router, prefix="/api/discord", tags=["Discord"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
 app.include_router(admin_migration_router, tags=["AdminMigration"])

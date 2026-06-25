@@ -333,42 +333,72 @@ async def test_provider(provider_id: str, request: Request):
 
 @router.post("/sync-defaults")
 async def sync_default_models(request: Request):
-    """Backfill the latest default model list from `model_catalog` into every
-    one of this user's providers whose (source, protocol) pair has defaults.
+    """Refresh this user's provider model lists.
 
-    Idempotent — providers already in sync return zero added entries.
-    Existing user-curated entries are preserved; only missing defaults are
-    appended at the end.
+    For auto-discovered aggregators (netmind / openrouter / yunwu) this runs the
+    same probe logic as the cloud daily job ([[model_sync]]): fetch the catalog,
+    probe new (and previously-failed) models with the user's own key, then
+    OVERWRITE each provider's model list with what actually answers on its
+    protocol. Dedup means only new/failed models are probed, so a click is
+    usually instant (the shipped ledger already covers the known models).
+
+    Out-of-scope sources (claude_oauth / codex_oauth) keep the catalog defaults;
+    `source="user"` (hand-picked custom providers) is left untouched.
     """
+    from xyz_agent_context.agent_framework import model_sync
+
     uid = _get_user_id(request)
     service = await _get_service()
     config = await service.get_user_config(uid)
 
-    updates: list[dict] = []
+    # Group this user's provider rows by source so we probe each backend once.
+    by_source: dict[str, list] = {}
     for prov_id, prov in config.providers.items():
-        # Only sync preset providers (netmind, yunwu, openrouter, claude_oauth, ...).
-        # `source="user"` means a custom provider where the user picked the model
-        # list themselves — auto-injecting "official" suggestion lists there
-        # would dump OpenAI/Anthropic-only models into proxies that may not
-        # support them.
-        if prov.source.value == "user":
-            continue
-        defaults = list(get_default_models(prov.source.value, prov.protocol.value))
-        if not defaults:
-            continue  # no canonical default list registered for this combo
+        by_source.setdefault(prov.source.value, []).append((prov_id, prov))
+
+    updates: list[dict] = []
+
+    async def _apply(prov_id, prov, new_models: list[str]):
         existing = list(prov.models or [])
-        missing = [m for m in defaults if m not in existing]
-        if not missing:
-            continue
-        new_models = existing + missing
+        if set(new_models) == set(existing):
+            return
         await service.update_models(uid, prov_id, new_models)
         updates.append({
             "provider_id": prov_id,
             "name": prov.name,
             "source": prov.source.value,
             "protocol": prov.protocol.value,
-            "added": missing,
+            "added": [m for m in new_models if m not in existing],
+            "removed": [m for m in existing if m not in new_models],
         })
+
+    for source, rows in by_source.items():
+        if source == "user":
+            continue  # hand-picked custom provider — never auto-touch
+
+        if source in model_sync.SUPPORTED_SOURCES and source != "system_pool":
+            # Probe with the user's own key (same key works for both protocols
+            # on these aggregators). OVERWRITE each row from the result.
+            anykey = next((p.api_key for _, p in rows if p.api_key), "")
+            keys = {"openai": anykey, "anthropic": anykey}
+            yunwu_key = anykey if source == "yunwu" else None
+            try:
+                res = await model_sync.sync_source(source, keys=keys, yunwu_key=yunwu_key)
+            except Exception as e:  # noqa: BLE001 — catalog/probe failure shouldn't 500 the button
+                logger.warning(f"sync-defaults: {source} probe failed: {e}")
+                continue
+            for prov_id, prov in rows:
+                await _apply(prov_id, prov, list(res.lists.get(prov.protocol.value, [])))
+        else:
+            # Out-of-scope source: append any new catalog defaults (legacy behavior).
+            for prov_id, prov in rows:
+                defaults = list(get_default_models(source, prov.protocol.value))
+                if not defaults:
+                    continue
+                existing = list(prov.models or [])
+                missing = [m for m in defaults if m not in existing]
+                if missing:
+                    await _apply(prov_id, prov, existing + missing)
 
     return {
         "success": True,

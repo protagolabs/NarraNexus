@@ -25,7 +25,7 @@ const CHIP_ORDER: ChipDef[] = [
   { health: 'warning',         label: 'blocked',  dotCls: 'bg-[var(--color-yellow-500)]',  textCls: 'text-[var(--color-yellow-500)]' },
   { health: 'paused',          label: 'paused',   dotCls: 'bg-[var(--color-yellow-500)]',  textCls: 'text-[var(--color-yellow-500)]' },
   { health: 'healthy_running', label: 'running',  dotCls: 'bg-[var(--color-green-500)]',   textCls: 'text-[var(--color-green-500)]' },
-  { health: 'healthy_idle',    label: 'idle',     dotCls: 'bg-sky-500',                    textCls: 'text-sky-600 dark:text-sky-400' },
+  { health: 'healthy_idle',    label: 'idle',     dotCls: 'bg-[var(--color-silicon)]',     textCls: 'text-[var(--text-primary)]' },
   { health: 'idle_long',       label: 'quiet',    dotCls: 'bg-gray-400',                   textCls: 'text-gray-500' },
 ];
 

@@ -1,8 +1,14 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-06-17
+last_verified: 2026-06-22
 stub: false
 ---
+
+## 2026-06-22 — narramessenger_router 注册
+
+新增 `from backend.routes.narramessenger import router as narramessenger_router`
+和 `app.include_router(...)`，挂载路径 `/api/narramessenger`（`bind` / `unbind` /
+`credential`）。与 lark/slack/telegram channel 的 router 同 pattern。
 
 ## 2026-06-17 — executor idle-cull reaper 接入 lifespan
 

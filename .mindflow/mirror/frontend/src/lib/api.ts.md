@@ -1,14 +1,41 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-23
+last_verified: 2026-06-24
 stub: false
 ---
+
+## 2026-06-24 — team group chat: getTeamChat / sendTeamChat + setProviderSlot
+
+Team group-chat client surface (a team = a group chat over the message bus):
+
+- `getTeamChat(teamId, since?)` → `GET /api/teams/{id}/chat/messages` (optional
+  `?since=` cursor) returns `TeamChatHistoryResponse` ([[teams]]) — the history
+  plus a `thinking` array of member agent_ids the trigger is currently
+  processing (drives the "…" indicators). Polled by the team chat view.
+- `sendTeamChat(teamId, content, mentions)` → `POST /api/teams/{id}/chat/messages`
+  posts a user message; `mentions` carries agent_ids and/or the literal `"@all"`
+  (backend maps it to @everyone). The mention list is what drives delivery — who
+  the bus routes the message to / wakes up.
+
+Also `setProviderSlot(slot, {provider_id, model, thinking?, reasoning_effort?})`
+→ `PUT /api/providers/slots/{slot}` — the same endpoint Settings › Providers
+uses, surfaced inline (e.g. the composer) so the agent's model can be switched
+without leaving chat. Identity from the auth header as usual.
+
 ## 2026-06-10 — api.onboard
 
 `onboard(apiKey, providerType?)` → POST /api/providers/onboard. providerType
 is only sent when the user manually overrode the sk-ant- prefix detection;
 otherwise null lets the backend decide.
 
+
+## 2026-06-23 — getMyNarratives / getMyNetwork (owner-scoped)
+
+Added `getMyNarratives(includeDefault = false)` → `GET /api/me/narratives`,
+`getMyNetwork()` → `GET /api/me/network`, and `getMyWorldview()` →
+`GET /api/me/worldview` (owner-level, cross-agent). Power the three "You"
+workspace tabs — [[NarraMemoryTimeline]] / [[NexusNetworkGraph]] /
+[[WorldviewLenses]]; types in [[you]].
 
 ## 2026-06-11 — netmindLogin (NetMind token exchange)
 

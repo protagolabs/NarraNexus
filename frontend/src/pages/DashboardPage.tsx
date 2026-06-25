@@ -89,7 +89,9 @@ export function DashboardPage() {
 
   return (
     <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between gap-3">
+      {/* pr-10 reserves the top-right corner for MainLayout's close (X) so the
+          agents count never sits under it. */}
+      <div className="flex items-center justify-between gap-3 pr-10">
         <h1
           className="text-2xl font-bold tracking-tight"
           style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}

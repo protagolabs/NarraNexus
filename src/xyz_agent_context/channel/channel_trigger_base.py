@@ -27,9 +27,11 @@ PUSH mode (Phase 6) intentionally stubbed: ``handle_webhook`` and
 ``verify_webhook`` raise NotImplementedError. This file does NOT route
 HTTP requests.
 
-Lark today is NOT a subclass — Phase 2 owns that refactor. Phase 1 ships
-the base + a mock-channel integration test that proves the abstraction
-works end-to-end.
+Concrete subclasses today: ``LarkTrigger``, ``SlackTrigger``,
+``TelegramTrigger``, ``DiscordTrigger`` — each implements the six
+abstract methods (connect / parse_event / is_echo / resolve_sender_name /
+create_context_builder / load_active_credentials) and inherits everything
+below.
 """
 from __future__ import annotations
 

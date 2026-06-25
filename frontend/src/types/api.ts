@@ -844,6 +844,35 @@ export interface TelegramCredentialResponse extends ApiResponse {
   data: TelegramCredentialData | null;
 }
 
+export interface NarramessengerCredentialData {
+  agent_id: string;
+  backend_base_url: string;
+  matrix_homeserver_url: string;
+  matrix_user_id: string;
+  nexus_principal_id: string;
+  nexus_profile_id: string;
+  bind_room_id: string;
+  owner_matrix_user_id: string;
+  owner_name: string;
+  connection_mode: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface NarramessengerCredentialResponse extends ApiResponse {
+  data: NarramessengerCredentialData | null;
+}
+
+export interface NarramessengerBindResponse extends ApiResponse {
+  data?: {
+    matrix_user_id: string;
+    principal_id: string;
+    room_id: string;
+    connection_mode: string;
+  };
+}
+
 export interface TelegramBindResponse extends ApiResponse {
   data?: {
     bot_user_id: string;
@@ -858,5 +887,41 @@ export interface TelegramTestResponse extends ApiResponse {
     bot_user_id: string;
     bot_username: string;
     first_name?: string;
+  };
+}
+
+// Discord Integration types
+//
+// Note: bot_token is NEVER returned by the API. The backend returns only
+// this sanitised view, which is everything the UI needs to render binding
+// state.
+export interface DiscordCredentialData {
+  agent_id: string;
+  bot_user_id: string;
+  bot_username: string;
+  owner_user_id: string;
+  owner_name: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface DiscordCredentialResponse extends ApiResponse {
+  data: DiscordCredentialData | null;
+}
+
+export interface DiscordBindResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
+    owner_user_id: string;
+    owner_name: string;
+  };
+}
+
+export interface DiscordTestResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
   };
 }

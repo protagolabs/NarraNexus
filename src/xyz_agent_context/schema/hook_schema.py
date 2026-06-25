@@ -83,6 +83,8 @@ class WorkingSource(str, Enum):
     LARK = "lark"  # Triggered by Lark/Feishu message (LarkTrigger)
     SLACK = "slack"  # Triggered by Slack message (SlackTrigger)
     TELEGRAM = "telegram"  # Triggered by Telegram message (TelegramTrigger)
+    NARRAMESSENGER = "narramessenger"  # Triggered by NarraMessenger message (NarramessengerTrigger)
+    DISCORD = "discord"  # Triggered by Discord message (DiscordTrigger)
     MANYFOLD = "manyfold"  # Triggered by Manyfold platform via OpenAI-compat endpoint
 
     @classmethod
@@ -123,6 +125,8 @@ class WorkingSource(str, Enum):
             WorkingSource.LARK,
             WorkingSource.SLACK,
             WorkingSource.TELEGRAM,
+            WorkingSource.NARRAMESSENGER,
+            WorkingSource.DISCORD,
             WorkingSource.MANYFOLD,
         )
 

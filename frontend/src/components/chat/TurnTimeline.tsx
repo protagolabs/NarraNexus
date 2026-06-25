@@ -261,18 +261,15 @@ const ReplyBlock = memo(function ReplyBlock({
   fallbackKind: FallbackKind;
 }) {
   // Tier: ANSWER (peak). Reply is the agent's authoritative, user-facing
-  // speech — the one block the user should land on first. Strongest
-  // treatment in the timeline: a thick *solid* accent left rule, a faint
-  // accent fill, an accent label, and a body one notch larger than the
-  // default. The size bump comes from the `markdown-reply` variant class
-  // (index.css) — styling the container can't enlarge Markdown content
-  // because `.markdown-content` sets an explicit font-size.
+  // speech — the one block the user should land on first.
   // NM tier: ANSWER (peak). Reply is the agent's authoritative reply —
   // the user should land on it first. Rendered as a paper-warm bubble
-  // with a Silicon-colored bracket-edge top-left and slightly larger
-  // body (markdown-reply variant). No accent-fill or thick left rule —
-  // those broke the species-color discipline (Axiom #1 says accent
-  // can't double as "this is a reply").
+  // with a Silicon-colored bracket-edge top-left. Body uses the
+  // `markdown-reply` variant, sized to match the chat bubble body
+  // (0.95rem) — it used to be bumped to 1.05rem but that read larger
+  // than the bubbles. No accent-fill or thick left rule — those broke
+  // the species-color discipline (Axiom #1 says accent can't double as
+  // "this is a reply").
   return (
     <div
       className={cn(
@@ -332,7 +329,7 @@ const ReplyBlock = memo(function ReplyBlock({
       </div>
       <div className="leading-relaxed">
         {isStreaming ? (
-          <div className="whitespace-pre-wrap text-[1.05rem]">{content}</div>
+          <div className="whitespace-pre-wrap text-[0.95rem]">{content}</div>
         ) : (
           <Markdown content={content} className="markdown-reply" />
         )}

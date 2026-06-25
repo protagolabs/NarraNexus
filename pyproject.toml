@@ -39,6 +39,7 @@ dependencies = [
     "pyjwt>=2.10.1",
     "lark-oapi>=1.4.0,<2.0.0",
     "slack-sdk>=3.27.0",
+    "discord.py>=2.4.0",
     "aiohttp>=3.9.0",
     "ddgs>=9.0.0",
     "websockets>=15.0.1",

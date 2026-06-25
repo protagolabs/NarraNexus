@@ -8,10 +8,10 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { Activity, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Button } from '@/components/ui';
-import { usePreloadStore, useConfigStore } from '@/stores';
+import { usePreloadStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { CostSummary } from '@/types/api';
@@ -93,7 +93,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
   );
 }
 
-export function CostPopover() {
+export function CostPopover({ compact = false }: { compact?: boolean } = {}) {
   const [view, setView] = useState<CostView>('agent');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [allSummary, setAllSummary] = useState<CostSummary | null>(null);
@@ -101,6 +101,9 @@ export function CostPopover() {
 
   const { agentId } = useConfigStore();
   const { costSummary, costLoading, refreshCost } = usePreloadStore();
+  // The current agent's live state drives the icon: streaming/thinking → pulse,
+  // otherwise a calm idle glow.
+  const working = useChatStore((s) => s.isStreaming);
 
   const activeSummary = view === 'agent' ? costSummary : allSummary;
   const activeLoading = view === 'agent' ? costLoading : allLoading;
@@ -139,20 +142,27 @@ export function CostPopover() {
     }
   };
 
-  const totalTokens = activeSummary
-    ? activeSummary.total_input_tokens + activeSummary.total_output_tokens
-    : 0;
-
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" title="Token Usage">
-          <Activity className="w-5 h-5" />
-          {totalTokens > 0 && (
-            <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 flex items-center justify-center text-[9px] font-medium bg-[var(--color-red-500)] text-white rounded-full allow-circle">
-              {formatTokens(totalTokens)}
-            </span>
-          )}
+        <Button variant="ghost" size="icon" className={cn('relative', compact && 'h-7 w-7')} title="Token usage — click for details">
+          {/* The activity glyph IS the agent's heartbeat, drawn as an ECG: a
+              bright pulse sweeps the waveform while it streams/thinks, and the
+              line just glows softly when idle. No running token count here —
+              that figure read as an anxiety-inducing meter; the numbers live
+              inside the popover, on click. */}
+          <svg
+            className={cn(compact ? 'w-4 h-4' : 'w-5 h-5', working ? 'nm-activity-working' : 'nm-activity-idle')}
+            viewBox="0 0 24 24"
+            fill="none"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path className="nm-ecg-base" d="M2 12 L6 12 L9 3 L15 21 L18 12 L22 12" />
+            <path className="nm-ecg-pulse" pathLength={100} d="M2 12 L6 12 L9 3 L15 21 L18 12 L22 12" />
+          </svg>
         </Button>
       </PopoverTrigger>
       <PopoverContent

@@ -1,15 +1,31 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-06-17
+last_verified: 2026-06-20
 stub: false
 ---
 
-## 2026-06-17 — chat 顶部新增安全提醒横幅
+## 2026-06-20 — design-ref pass: binding-dot header, JourneyBand empty state, Connected footer
 
-在 Header 与消息滚动区之间插入一条**常驻、不可关闭**的细横幅,提醒用户不要
-在聊天里粘贴钱包地址、私钥、助记词、密码、账号凭据等敏感信息(这些会落进
-trajectory 日志并发给 LLM provider)。属 2026-06-17 安全加固的一部分,纯展示、
-无状态。
+Three changes aligning with the Narra Agent App design ref:
+
+- **Header**: the lone `StatusDot` is replaced by [[identity|BindingDot]]
+  (carbon·silicon motif) before the `[ Interaction <agent> ]` label; it
+  `pulse`s while streaming, keeping the live cue the StatusDot carried.
+- **Empty state**: with an agent selected, the generic "Start a conversation"
+  bracket is replaced by [[OnboardingJourney]] (binding-dot eyebrow,
+  memory→network→team stations, suggested-prompt chips). With NO agent it still
+  shows the plain `BracketEmptyState` ("Select an agent"). Note the brand-new
+  unnamed-agent path is unchanged — `showBootstrapGreeting` (BOOTSTRAP_GREETING
+  "I just woke up" bubble) takes precedence over `showEmptyState`, so the two
+  never collide.
+- **Composer footer**: briefly carried Enter/Shift+Enter/Drop hints + a
+  readiness indicator, but both were **removed** (clawcreek-style minimal
+  composer). The send button now uses the `CornerDownLeft` (↵) glyph and a
+  `title="Send (Enter)"` so the button itself signals "Enter sends" — no
+  separate hint row. (StatusDot/Kbd imports dropped with it.)
+
+Suggested-prompt chips call `composerRef.current.setText(...)` (see
+[[Composer]]) — fill, don't send.
 
 ## 2026-06-11 (v1.8.1) — clickable Processing chip + header truncation
 
@@ -265,5 +281,3 @@ The `shouldAutoScrollRef` is the gating mechanism for scroll behavior. User scro
 `BOOTSTRAP_GREETING` must be kept in sync with the Python backend constant. It's a frontend-only rendering shortcut — the greeting is never actually stored as a chat message until the user replies.
 
 **Artifact preview placement**: the `ArtifactToolCallCards` render is gated by `hasArtifactTools`, which checks `item.role === 'assistant'`, `agentId` being truthy, and at least one qualifying tool call. This prevents the component from mounting on user messages or when `agentId` is not yet set. The `allArtifacts` dependency means the cards re-render when the store updates (e.g., after `ensureArtifactLoaded` upserts the fetched artifact), replacing the placeholder with the real card automatically.
-
-**Per-agent bootstrap greeting (2026-06-16).** The instant first-run greeting bubble now uses `currentAgent?.bootstrap_greeting || BOOTSTRAP_GREETING` (the per-agent override set by scenario provisioners like Arena, surfaced on `AgentInfo`). It MUST match the DB-persisted greeting (chat_module reads the same metadata) or the instant bubble and the persisted one would both render (dup).
