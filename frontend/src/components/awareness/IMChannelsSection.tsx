@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
-import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, MessageCircle, Bot, Link as LinkIcon } from 'lucide-react';
+import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, MessageCircle, QrCode, Bot, Link as LinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -19,6 +19,7 @@ import { api } from '@/lib/api';
 import { LarkConfig } from './LarkConfig';
 import { SlackConfig } from './SlackConfig';
 import { TelegramConfig } from './TelegramConfig';
+import { WeChatConfig } from './WeChatConfig';
 import { NarramessengerConfig } from './NarramessengerConfig';
 import { DiscordConfig } from './DiscordConfig';
 
@@ -78,6 +79,20 @@ const IM_CHANNELS: ChannelEntry[] = [
     fetchConnected: async (agentId) => {
       try {
         const res = await api.getTelegramCredential(agentId);
+        return Boolean(res.success && res.data && res.data.enabled);
+      } catch {
+        return false;
+      }
+    },
+  },
+  {
+    key: 'wechat',
+    label: 'WeChat',
+    Icon: QrCode,
+    Component: WeChatConfig,
+    fetchConnected: async (agentId) => {
+      try {
+        const res = await api.getWeChatCredential(agentId);
         return Boolean(res.success && res.data && res.data.enabled);
       } catch {
         return false;

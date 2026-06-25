@@ -4,6 +4,17 @@ stub: false
 last_verified: 2026-06-24
 ---
 
+## 2026-06-24 — WeChat added to `IM_CHANNELS`
+
+The tab now lists **six** channels: Lark, Slack, Telegram, WeChat,
+NarraMessenger, Discord. WeChat was added as one more `IM_CHANNELS`
+entry (`key: 'wechat'`, `label: 'WeChat'`, `Icon: QrCode`,
+`Component: WeChatConfig`, `fetchConnected` → `api.getWeChatCredential`)
+— again no structural change to this component. The `QrCode` icon hints
+at the QR-scan bind flow that makes WeChat unlike the token-paste bot
+channels (see `WeChatConfig.md`). Discord landed in parallel on `dev`
+(see `DiscordConfig.md`).
+
 > 2026-06-24: the section now defaults to **expanded** (`sectionOpen` initial
 > = `true`) — opening Channels should show the channel list straight away, not
 > a collapsed one-liner. The three-level disclosure still applies (the user can
