@@ -358,6 +358,7 @@ class ChannelTriggerBase(ABC):
         raw_bytes: bytes,
         original_name: str,
         mime_hint: str,
+        im_room_id: Optional[str] = None,
     ) -> Attachment:
         """Sniff MIME, store on disk, run Whisper STT for audio/*,
         return a fully-populated Attachment Pydantic model.
@@ -368,16 +369,25 @@ class ChannelTriggerBase(ABC):
                     Never-raise contract — transcript stays ``None`` on
                     failure / provider unavailable / non-audio MIME.
 
-        Owner resolution: ``user_id`` is the agent OWNER (per
-        ``agents.created_by``), not the IM sender. This matches the
-        existing ``_build_and_run_agent`` fallback so attachment writes
-        and Read-tool lookups target the same workspace path.
+        Two scopes (identity-tenant):
+          - **Workspace** (where the file is written) = the SUBJECT, when
+            ``im_room_id`` is given: ``external_subject_id(channel, im_room_id)``.
+            That is the agent's own cwd for an external IM turn, so the agent finds
+            the file and it does NOT pollute the owner's workspace. ``im_room_id``
+            None → owner workspace (unchanged fallback).
+          - **Transcription provider** = always the OWNER (``agents.created_by``):
+            the external subject has no provider config; billing/quota is the owner's.
         """
-        user_id = await self._resolve_agent_owner(agent_id) or agent_id
+        owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
+        if im_room_id:
+            from xyz_agent_context.channel.external_identity import external_subject_id
+            ws_user_id = external_subject_id(self.channel_name, im_room_id)
+        else:
+            ws_user_id = owner_user_id
         mime_type = self._sniff_mime(raw_bytes, mime_hint, original_name)
         file_id, on_disk = store_uploaded_attachment(
             agent_id,
-            user_id,
+            ws_user_id,
             raw_bytes=raw_bytes,
             original_name=original_name,
             mime_type=mime_type,
@@ -393,12 +403,14 @@ class ChannelTriggerBase(ABC):
                 )
 
                 svc = TranscriptionService.instance()
-                if await svc.is_available(user_id):
+                # Provider/billing resolves on the OWNER (the external subject has
+                # no provider config); the file is read by absolute path.
+                if await svc.is_available(owner_user_id):
                     transcript = await svc.transcribe(
                         file_path=str(on_disk),
                         file_id=file_id,
                         agent_id=agent_id,
-                        user_id=user_id,
+                        user_id=owner_user_id,
                     )
                     if transcript:
                         logger.info(

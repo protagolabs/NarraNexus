@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-06-24
 ---
 
+> 2026-06-25(identity-tenant attachment fix):`_persist_attachment` 加 `im_room_id`
+> 参数。给了它就把文件存进 **SUBJECT** 的 workspace(`external_subject_id(channel,
+> im_room_id)` = 该外部 turn 的 agent cwd)而非 owner —— 否则外部用户的附件会落进
+> owner workspace(租户串味)且 subject-scoped 的 agent 找不到。**转写仍用 owner**
+> (provider/billing)。channel 子类(lark/slack/telegram)都传
+> `im_room_id=message.chat_id`。见 [[external_identity.py]]。
+
 ## 2026-06-24 — IM identity-tenant: external subject scope
 
 `_build_and_run_agent` no longer runs the turn as the agent owner. It now derives a
