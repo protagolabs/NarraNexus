@@ -1,8 +1,32 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-06-20
+last_verified: 2026-06-25
 stub: false
 ---
+
+## 2026-06-25 — two chat tabs: Conversation | Inner Thoughts
+
+A `chatTab` state (`'conversation' | 'inner'`) with a tab bar under the header.
+The agent runtime already tags output distinctly, so this is pure frontend
+routing — no backend change.
+
+- **Conversation**: the original design, unchanged — full reply bubble + the
+  inline "reasoning & tools" disclosure + the live streaming `TurnTimeline`
+  (+ "starting up" indicator). It just stops rendering the items that belong to
+  Inner Thoughts.
+- **Inner Thoughts**: everything that is NOT an owner↔agent direct chat turn:
+    - `messageType:'activity'` → compact centered line ("Background activity (discord)").
+    - any turn whose `workingSource` is **not** `chat`/`manyfold` (discord /
+      slack / telegram / lark / wechat / message_bus / job / a2a …) → full
+      readable bubble. Catches the agent's cross-channel narrations
+      (`owner_notify_content` "I replied to a Discord user / notified you")
+      which the backend surfaces as real replies (message_type stays `chat`),
+      so an activity-only filter would miss them.
+  No live stream here (post-hoc feed); streaming stays in Conversation.
+
+The `chat`/`manyfold` user-facing set mirrors `_USER_FACING_SOURCES` in
+`backend/routes/agents_chat_history.py`. Routing: `if (chatTab === 'inner' ?
+!isInner : isInner) return null;`. `MessageBubble` is unchanged.
 
 ## 2026-06-20 — design-ref pass: binding-dot header, JourneyBand empty state, Connected footer
 
