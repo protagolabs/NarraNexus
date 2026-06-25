@@ -67,9 +67,9 @@ stays uniform across IM channels:
   ``register_wechat_mcp_tools`` → ``ChannelModuleBase.create_mcp_server``.
 - **Calls**: ``WeChatCredentialManager`` (``get`` / ``unbind``),
   ``wechat_sdk_client.send_text_once``.
-- **Exposed on**: MCP port 7834 (``WECHAT_MCP_PORT``). Channel-port
-  range: Lark=7830, Slack=7831, Telegram=7832, Discord=7833,
-  WeChat=7834.
+- **Exposed on**: MCP port 7835 (``WECHAT_MCP_PORT``). Channel-port
+  range: Lark=7830, Slack=7831, Telegram=7832, NarraMessenger=7833,
+  Discord=7834, WeChat=7835.
 - **Consumed by**: the trigger's ``extract_output`` scrapes the
   ``wechat_send`` call's ``text`` arg out of the turn for the inbox
   record — so this tool's argument shape is part of the inbox contract,

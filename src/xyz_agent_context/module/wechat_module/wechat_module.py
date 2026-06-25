@@ -31,7 +31,9 @@ from ._wechat_credential_manager import WeChatCredential, WeChatCredentialManage
 from ._wechat_mcp_tools import register_wechat_mcp_tools
 from .wechat_sdk_client import send_text_once
 
-WECHAT_MCP_PORT = 7834
+# MCP port. 7833=NarraMessenger, 7834=Discord (moved there on dev to clear a
+# NarraMessenger clash), so WeChat takes 7835.
+WECHAT_MCP_PORT = 7835
 
 
 def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:

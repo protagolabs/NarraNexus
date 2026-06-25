@@ -35,7 +35,7 @@ login QR — there is no bot token to paste, and inbound delivery is
   the runtime needs (sender, owner trust signal, conversation
   threading) so WeChat DMs flow through the standard pipeline.
 - ``_wechat_mcp_tools`` — the agent-facing WeChat tools (send message,
-  etc.), served on **MCP port 7834**. Private impl behind the MCP
+  etc.), served on **MCP port 7835**. Private impl behind the MCP
   server.
 - ``wechat_trigger`` — ``WeChatTrigger`` (subclass of the channel
   trigger base): long-polls the gateway per bound credential, dedups

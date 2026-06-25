@@ -71,8 +71,9 @@ Telegram:
   three trust blocks renders. The dict it returns is what
   ``get_instructions`` reads back under ``ctx_data_key`` =
   ``"wechat_info"``.
-- **MCP port 7834, ``priority=7``.** Continues the channel-port range
-  (Lark=7830, Slack=7831, Telegram=7832, Discord=7833, WeChat=7834).
+- **MCP port 7835, ``priority=7``.** Continues the channel-port range
+  (Lark=7830, Slack=7831, Telegram=7832, NarraMessenger=7833, Discord=7834,
+  WeChat=7835).
   ``priority=7`` matches Telegram's slot ordering; reordering changes
   prompt section order — keep stable.
 
