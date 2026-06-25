@@ -28,7 +28,8 @@
       "preferToggle": "자체 제공자가 구성되어 있어도 무료 등급 할당량 사용",
       "preferOn": "현재: 시스템 제공자를 통해 라우팅 중 — 무료 등급 사용량이 적용됩니다. 무료 등급이 소진되면 자체 제공자로 대체됩니다.",
       "preferOff": "현재: 구성된 경우 자체 제공자를 사용합니다. 무료 등급은 제공자가 설정되어 있지 않을 때만 적용됩니다.",
-      "exhaustedNote": "무료 등급이 소진되었습니다. 아래에서 자체 제공자를 추가하거나, 위의 토글을 해제하여 기존 제공자를 통해 라우팅하세요."
+      "exhaustedNote": "무료 등급이 소진되었습니다. 아래에서 자체 제공자를 추가하거나, 위의 토글을 해제하여 기존 제공자를 통해 라우팅하세요.",
+      "exhaustedLockHint": "무료 한도가 소진된 동안 잠깁니다 — 한도가 보충되면 자동으로 다시 활성화됩니다."
     },
     "modal": {
       "title": "설정",
@@ -163,7 +164,23 @@
       "readyTitle": "시작할 준비가 되었습니다",
       "readyIntro": "키가 입력되었고, 바로 채팅을 시작할 수 있도록 모델 슬롯을 설정했습니다:",
       "readyNote": "다른 모델을 원하시나요? 아래 구성 섹션에서 원하는 슬롯을 변경하세요 — 변경 사항은 항상 이 기본값보다 우선합니다.",
-      "gotIt": "확인"
+      "gotIt": "확인",
+      "authReady": "✓ 인증 완료",
+      "authMissing": "✗ 인증 없음",
+      "managedByStaff": "· 클라우드에서 운영진이 관리",
+      "saveFrameworkFailed": "프레임워크 저장에 실패했습니다",
+      "verifyingCodex": "Codex CLI 확인 중…",
+      "codexBinaryUnavailable": "Codex 바이너리를 사용할 수 없습니다: {{reason}}",
+      "defaultRecommendedNamed": "기본값 · {{model}} (권장)",
+      "codexNoProvider": "Codex CLI는 Responses API를 지원하는 OpenAI 제공자가 필요합니다. Codex CLI로 로그인(codex login)하거나 1단계에서 사용자 지정 OpenAI 키를 추가하세요. 애그리게이터 제공자(NetMind / Yunwu / OpenRouter)는 Codex에서 지원되지 않습니다.",
+      "claudeLoginTitle": "Claude Code 로그인",
+      "codexLoginTitle": "Codex CLI 로그인",
+      "codexOauthDesc": "Codex CLI를 통한 OAuth 로그인(ChatGPT로 로그인). API 키가 필요 없습니다. 사용량은 ChatGPT Plus / Pro 구독으로 처리됩니다.",
+      "codexTerminalHint": "터미널에서 \"codex login\" / \"codex logout\"을 실행한 다음 이 페이지를 새로 고치세요.",
+      "codexInstallHint": "먼저 Codex CLI를 설치하세요(아래 에이전트 프레임워크 드롭다운에서 \"Codex CLI\"를 선택하면 자동 설치됩니다). 그런 다음 터미널에서 \"codex login\"을 실행하세요.",
+      "codexLoginToAdd": "위에서 로그인하여 Codex CLI를 제공자로 추가하세요.",
+      "customDisabledTitle": "사용자 지정 제공자 추가는 일시적으로 사용할 수 없습니다",
+      "customDisabledDesc": "사용자 지정(맞춤 Base URL) 제공자 설정은 보안 강화를 위해 일시 중단되었으며 곧 복원됩니다. 이미 구성된 제공자는 계속 정상적으로 사용할 수 있습니다."
     }
   },
   "system": {

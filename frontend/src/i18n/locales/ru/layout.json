@@ -75,7 +75,9 @@
     "teamRowMenu": {
       "options": "Параметры группового чата",
       "rename": "Переименовать",
-      "delete": "Удалить"
+      "delete": "Удалить",
+      "addAgent": "Добавить агента",
+      "addingAgent": "Добавление…"
     },
     "topBar": {
       "crumbDashboard": "Панель",

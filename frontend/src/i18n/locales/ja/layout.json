@@ -72,7 +72,9 @@
     "teamRowMenu": {
       "options": "グループチャットのオプション",
       "rename": "名前を変更",
-      "delete": "削除"
+      "delete": "削除",
+      "addAgent": "エージェントを追加",
+      "addingAgent": "追加中…"
     },
     "topBar": {
       "crumbDashboard": "ダッシュボード",

@@ -28,7 +28,8 @@
       "preferToggle": "Utiliser le quota gratuit même lorsque j'ai configuré mon propre fournisseur",
       "preferOn": "Actuellement : routage via le fournisseur du système — l'usage du quota gratuit s'applique. Bascule vers votre propre fournisseur si le quota gratuit est épuisé.",
       "preferOff": "Actuellement : utilisation de votre propre fournisseur lorsqu'il est configuré ; le quota gratuit ne s'applique que si aucun fournisseur n'est défini.",
-      "exhaustedNote": "Quota gratuit consommé. Ajoutez votre propre fournisseur ci-dessous, ou décochez l'option ci-dessus pour passer par votre fournisseur existant."
+      "exhaustedNote": "Quota gratuit consommé. Ajoutez votre propre fournisseur ci-dessous, ou décochez l'option ci-dessus pour passer par votre fournisseur existant.",
+      "exhaustedLockHint": "Verrouillé tant que le niveau gratuit est épuisé — se réactive automatiquement dès que votre quota est rechargé."
     },
     "modal": {
       "title": "Paramètres",
@@ -163,7 +164,23 @@
       "readyTitle": "Vous êtes prêt à démarrer",
       "readyIntro": "Votre clé est enregistrée, et nous avons configuré vos emplacements de modèles pour que vous puissiez commencer à discuter immédiatement :",
       "readyNote": "Vous voulez des modèles différents ? Modifiez n'importe quel emplacement dans la section de configuration ci-dessous — vos modifications l'emportent toujours sur ces valeurs par défaut.",
-      "gotIt": "Compris"
+      "gotIt": "Compris",
+      "authReady": "✓ authentification prête",
+      "authMissing": "✗ authentification manquante",
+      "managedByStaff": "· géré par le personnel dans le cloud",
+      "saveFrameworkFailed": "Échec de l'enregistrement du framework",
+      "verifyingCodex": "Vérification de Codex CLI…",
+      "codexBinaryUnavailable": "Binaire Codex indisponible : {{reason}}",
+      "defaultRecommendedNamed": "Par défaut · {{model}} (recommandé)",
+      "codexNoProvider": "Codex CLI nécessite un fournisseur OpenAI prenant en charge l'API Responses : connectez-vous avec Codex CLI (codex login) ou ajoutez une clé OpenAI personnalisée à l'étape 1. Les fournisseurs agrégateurs (NetMind / Yunwu / OpenRouter) ne sont pas pris en charge par Codex.",
+      "claudeLoginTitle": "Connexion Claude Code",
+      "codexLoginTitle": "Connexion Codex CLI",
+      "codexOauthDesc": "Connexion OAuth via Codex CLI (Se connecter avec ChatGPT). Aucune clé API requise. L'utilisation est couverte par votre abonnement ChatGPT Plus / Pro.",
+      "codexTerminalHint": "Exécutez « codex login » / « codex logout » dans votre terminal, puis actualisez cette page.",
+      "codexInstallHint": "Installez d'abord Codex CLI (installation automatique lorsque vous choisissez « Codex CLI » dans le menu déroulant du framework d'agent ci-dessous), puis exécutez « codex login » dans votre terminal.",
+      "codexLoginToAdd": "Connectez-vous ci-dessus pour ajouter Codex CLI comme fournisseur.",
+      "customDisabledTitle": "L'ajout de fournisseurs personnalisés est temporairement indisponible",
+      "customDisabledDesc": "La configuration des fournisseurs personnalisés (URL de base personnalisée) est suspendue pour un renforcement de la sécurité et sera bientôt rétablie. Vos fournisseurs déjà configurés restent pleinement utilisables."
     }
   },
   "system": {

@@ -59,7 +59,10 @@
       "subtitle": "Richte deine API-Schlüssel ein, damit NarraNexus eine Verbindung zu Sprachmodellen herstellen kann.",
       "skipForNow": "Vorerst überspringen",
       "getStarted": "Loslegen",
-      "done": "Fertig"
+      "done": "Fertig",
+      "oneKeySectionLabel": "Einrichtung · Mit einem Schlüssel starten",
+      "welcomeTitle": "Willkommen bei NarraNexus",
+      "advancedSetup": "Erweiterte Einrichtung — OAuth, benutzerdefinierte Endpunkte, Modelle pro Slot"
     },
     "settings": {
       "title": "Einstellungen",

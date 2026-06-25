@@ -73,7 +73,9 @@
     "teamRowMenu": {
       "options": "Gruppenchat-Optionen",
       "rename": "Umbenennen",
-      "delete": "Löschen"
+      "delete": "Löschen",
+      "addAgent": "Agent hinzufügen",
+      "addingAgent": "Wird hinzugefügt…"
     },
     "topBar": {
       "crumbDashboard": "Dashboard",

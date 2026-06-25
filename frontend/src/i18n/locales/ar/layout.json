@@ -77,7 +77,9 @@
     "teamRowMenu": {
       "options": "خيارات المحادثة الجماعية",
       "rename": "إعادة تسمية",
-      "delete": "حذف"
+      "delete": "حذف",
+      "addAgent": "إضافة وكيل",
+      "addingAgent": "جارٍ الإضافة…"
     },
     "topBar": {
       "crumbDashboard": "لوحة التحكم",

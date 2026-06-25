@@ -28,7 +28,8 @@
       "preferToggle": "Usar la cuota gratuita incluso cuando tenga mi propio proveedor configurado",
       "preferOn": "Actualmente: enrutando a través del proveedor del sistema — se aplica el uso gratuito. Recurre a tu propio proveedor si se agota la cuota gratuita.",
       "preferOff": "Actualmente: usando tu propio proveedor cuando está configurado; la cuota gratuita solo se aplica cuando no tienes ningún proveedor configurado.",
-      "exhaustedNote": "Cuota gratuita consumida. Añade tu propio proveedor a continuación, o desmarca la opción de arriba para enrutar a través de tu proveedor existente."
+      "exhaustedNote": "Cuota gratuita consumida. Añade tu propio proveedor a continuación, o desmarca la opción de arriba para enrutar a través de tu proveedor existente.",
+      "exhaustedLockHint": "Bloqueado mientras el nivel gratuito esté agotado; se reactiva automáticamente cuando se reponga tu cuota."
     },
     "modal": {
       "title": "Configuración",
@@ -163,7 +164,23 @@
       "readyTitle": "Todo listo para empezar",
       "readyIntro": "Tu clave está introducida y hemos configurado tus ranuras de modelo para que puedas empezar a chatear de inmediato:",
       "readyNote": "¿Quieres modelos diferentes? Cambia cualquier ranura en la sección de configuración de abajo — tus ediciones siempre prevalecen sobre estos valores predeterminados.",
-      "gotIt": "Entendido"
+      "gotIt": "Entendido",
+      "authReady": "✓ autenticación lista",
+      "authMissing": "✗ falta autenticación",
+      "managedByStaff": "· gestionado por el personal en la nube",
+      "saveFrameworkFailed": "No se pudo guardar el framework",
+      "verifyingCodex": "Verificando Codex CLI…",
+      "codexBinaryUnavailable": "Binario de Codex no disponible: {{reason}}",
+      "defaultRecommendedNamed": "Predeterminado · {{model}} (recomendado)",
+      "codexNoProvider": "Codex CLI necesita un proveedor de OpenAI compatible con la Responses API: inicia sesión con Codex CLI (codex login) o añade una clave personalizada de OpenAI en el Paso 1. Los proveedores agregadores (NetMind / Yunwu / OpenRouter) no son compatibles con Codex.",
+      "claudeLoginTitle": "Inicio de sesión de Claude Code",
+      "codexLoginTitle": "Inicio de sesión de Codex CLI",
+      "codexOauthDesc": "Inicio de sesión OAuth mediante Codex CLI (Iniciar sesión con ChatGPT). No se necesita clave de API. El uso se cubre con tu suscripción a ChatGPT Plus / Pro.",
+      "codexTerminalHint": "Ejecuta \"codex login\" / \"codex logout\" en tu terminal y luego actualiza esta página.",
+      "codexInstallHint": "Primero instala Codex CLI (se instala automáticamente al elegir \"Codex CLI\" en el menú de framework de agente más abajo) y luego ejecuta \"codex login\" en tu terminal.",
+      "codexLoginToAdd": "Inicia sesión arriba para añadir Codex CLI como proveedor.",
+      "customDisabledTitle": "Añadir proveedores personalizados no está disponible temporalmente",
+      "customDisabledDesc": "La configuración de proveedores personalizados (URL base personalizada) está pausada por refuerzos de seguridad y se restablecerá pronto. Tus proveedores ya configurados siguen siendo totalmente utilizables."
     }
   },
   "system": {

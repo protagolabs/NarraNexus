@@ -73,7 +73,9 @@
     "teamRowMenu": {
       "options": "Opciones del chat grupal",
       "rename": "Renombrar",
-      "delete": "Eliminar"
+      "delete": "Eliminar",
+      "addAgent": "Añadir agente",
+      "addingAgent": "Añadiendo…"
     },
     "topBar": {
       "crumbDashboard": "Panel",

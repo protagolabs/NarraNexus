@@ -59,7 +59,10 @@
       "subtitle": "Configura tus claves de API para que NarraNexus pueda conectarse a los modelos de lenguaje.",
       "skipForNow": "Omitir por ahora",
       "getStarted": "Comenzar",
-      "done": "Listo"
+      "done": "Listo",
+      "oneKeySectionLabel": "Configuración · Empieza con una sola clave",
+      "welcomeTitle": "Te damos la bienvenida a NarraNexus",
+      "advancedSetup": "Configuración avanzada: OAuth, endpoints personalizados, modelos por ranura"
     },
     "settings": {
       "title": "Ajustes",

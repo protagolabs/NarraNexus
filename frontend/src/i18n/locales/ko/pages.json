@@ -59,7 +59,10 @@
       "subtitle": "NarraNexus가 언어 모델에 연결할 수 있도록 API 키를 설정하세요.",
       "skipForNow": "나중에 하기",
       "getStarted": "시작하기",
-      "done": "완료"
+      "done": "완료",
+      "oneKeySectionLabel": "설정 · 키 하나로 시작",
+      "welcomeTitle": "NarraNexus에 오신 것을 환영합니다",
+      "advancedSetup": "고급 설정 — OAuth, 사용자 지정 엔드포인트, 슬롯별 모델"
     },
     "settings": {
       "title": "설정",

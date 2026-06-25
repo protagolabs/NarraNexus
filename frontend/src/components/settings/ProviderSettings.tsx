@@ -973,7 +973,7 @@ export function ProviderSettings() {
                   }`}
                   title={agentFrameworkProbe.detail}
                 >
-                  {agentFrameworkProbe.ok ? '✓ auth ready' : '✗ auth missing'}
+                  {agentFrameworkProbe.ok ? t('settings.provider.authReady') : t('settings.provider.authMissing')}
                 </span>
               )}
             </label>
@@ -985,7 +985,7 @@ export function ProviderSettings() {
                   ? `${selectedFramework.label} — ${selectedFramework.desc}`
                   : agentFramework}
                 <span className="ml-2 text-xs text-[var(--text-tertiary)]">
-                  · managed by staff in cloud
+                  {t('settings.provider.managedByStaff')}
                 </span>
               </div>
             ) : (
@@ -1006,7 +1006,7 @@ export function ProviderSettings() {
                     }
                   } catch (err: unknown) {
                     setAgentFrameworkError(
-                      err instanceof Error ? err.message : 'Failed to save framework'
+                      err instanceof Error ? err.message : t('settings.provider.saveFrameworkFailed')
                     )
                   } finally {
                     setAgentFrameworkSaving(false)
@@ -1021,7 +1021,7 @@ export function ProviderSettings() {
             )}
             {agentFrameworkSaving && isCodexFramework(agentFramework) && (
               <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">
-                {'Verifying Codex CLI…'}
+                {t('settings.provider.verifyingCodex')}
               </div>
             )}
             {agentFrameworkError && (
@@ -1031,7 +1031,7 @@ export function ProviderSettings() {
             )}
             {agentFrameworkInstall && agentFrameworkInstall.action === 'install_failed' && (
               <div className="text-xs text-[var(--color-error)] mt-1">
-                Codex binary unavailable: {agentFrameworkInstall.reason}
+                {t('settings.provider.codexBinaryUnavailable', { reason: agentFrameworkInstall.reason })}
               </div>
             )}
             {agentFrameworkProbe !== null && !agentFrameworkProbe.ok &&
@@ -1089,7 +1089,7 @@ export function ProviderSettings() {
                     <>
                       <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
                         className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                        <option value="default">Default · {recHelperLabel} (recommended)</option>
+                        <option value="default">{t('settings.provider.defaultRecommendedNamed', { model: recHelperLabel })}</option>
                         {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
                       </select>
                       {cfg?.model && cfg.model !== 'default' && (
@@ -1157,10 +1157,8 @@ export function ProviderSettings() {
         ) : (
           <p className="text-sm text-[var(--color-error)]">
             {slot.key === 'agent' && isCodexFramework(agentFramework)
-              ? 'Codex CLI needs an OpenAI provider that speaks the Responses API: ' +
-                'sign in with Codex CLI (codex login) or add a Custom OpenAI key in Step 1. ' +
-                'Aggregator providers (NetMind / Yunwu / OpenRouter) are not supported by Codex.'
-              : `No ${effectiveProtocols.join(' / ')} protocol provider configured. Add one in Step 1 above.`}
+              ? t('settings.provider.codexNoProvider')
+              : t('settings.provider.noProtocolProvider', { protocol: effectiveProtocols.join(' / ') })}
           </p>
         )}
       </div>
@@ -1254,7 +1252,7 @@ export function ProviderSettings() {
             */}
           <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
             <div className="flex items-center gap-2 mb-1">
-              <h4 className="text-sm font-medium text-[var(--text-primary)]">Claude Code Login</h4>
+              <h4 className="text-sm font-medium text-[var(--text-primary)]">{t('settings.provider.claudeLoginTitle')}</h4>
             </div>
             <p className="text-sm text-[var(--text-tertiary)] mb-3">{t('settings.provider.claudeOauthDesc')}</p>
 
@@ -1377,15 +1375,14 @@ export function ProviderSettings() {
             */}
           <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
             <div className="flex items-center gap-2 mb-1">
-              <h4 className="text-sm font-medium text-[var(--text-primary)]">Codex CLI Login</h4>
+              <h4 className="text-sm font-medium text-[var(--text-primary)]">{t('settings.provider.codexLoginTitle')}</h4>
             </div>
             <p className="text-sm text-[var(--text-tertiary)] mb-3">
-              OAuth login via Codex CLI (Sign in with ChatGPT). No API key needed.
-              Usage covered by your ChatGPT Plus / Pro subscription.
+              {t('settings.provider.codexOauthDesc')}
             </p>
 
             {!codexStatus && (
-              <p className="text-sm text-[var(--text-tertiary)]">Checking status...</p>
+              <p className="text-sm text-[var(--text-tertiary)]">{t('settings.provider.checkingStatus')}</p>
             )}
 
             {codexStatus && (
@@ -1399,12 +1396,12 @@ export function ProviderSettings() {
                     )} />
                     <span className="text-sm text-[var(--text-secondary)]">
                       {codexStatus.logged_in
-                        ? <>Logged in{codexStatus.email ? <> as <span className="font-mono">{codexStatus.email}</span></> : null}</>
-                        : codexStatus.cli_installed ? 'Not logged in' : 'CLI not installed'}
+                        ? <>{t('settings.provider.loggedIn')}{codexStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{codexStatus.email}</span></> : null}</>
+                        : codexStatus.cli_installed ? t('settings.provider.notLoggedIn') : t('settings.provider.cliNotInstalled')}
                     </span>
                     {codexStatus.logged_in && codexStatus.expires_at && (
                       <span className="text-xs text-[var(--text-tertiary)]">
-                        {'·'} expires {formatExpiresAt(codexStatus.expires_at)}
+                        {t('settings.provider.expires', { date: formatExpiresAt(codexStatus.expires_at) })}
                       </span>
                     )}
                   </div>
@@ -1414,8 +1411,8 @@ export function ProviderSettings() {
                     * shell out via Tauri yet (unlike claude). */}
                   <p className="text-sm text-[var(--text-tertiary)]">
                     {codexStatus.cli_installed
-                      ? 'Run "codex login" / "codex logout" in your terminal, then refresh this page.'
-                      : 'Install Codex CLI first (auto-installs when you pick "Codex CLI" in the Agent Framework dropdown below), then run "codex login" in your terminal.'}
+                      ? t('settings.provider.codexTerminalHint')
+                      : t('settings.provider.codexInstallHint')}
                   </p>
                 </div>
 
@@ -1424,16 +1421,16 @@ export function ProviderSettings() {
                   {hasCodex ? (
                     <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
                       <span>{'✓'}</span>
-                      <span>Added as a NarraNexus provider {'—'} assignable in Step 2 below.</span>
+                      <span>{t('settings.provider.addedAsProvider')}</span>
                     </div>
                   ) : codexStatus.logged_in ? (
                     <button onClick={handleAddCodexOAuth}
                       className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
-                      Add as Provider
+                      {t('settings.provider.addAsProvider')}
                     </button>
                   ) : (
                     <p className="text-sm text-[var(--text-tertiary)]">
-                      Log in above to add Codex CLI as a provider.
+                      {t('settings.provider.codexLoginToAdd')}
                     </p>
                   )}
                 </div>
@@ -1522,12 +1519,10 @@ export function ProviderSettings() {
           ) : (
             <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)]">
               <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">
-                Adding custom providers is temporarily unavailable
+                {t('settings.provider.customDisabledTitle')}
               </h4>
               <p className="text-sm text-[var(--text-tertiary)]">
-                Custom (custom base URL) provider setup is paused for security
-                hardening and will be restored soon. Your already-configured
-                providers remain fully usable.
+                {t('settings.provider.customDisabledDesc')}
               </p>
             </div>
           )}

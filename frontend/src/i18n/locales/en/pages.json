@@ -59,7 +59,10 @@
       "subtitle": "Set up your API keys so NarraNexus can connect to language models.",
       "skipForNow": "Skip for now",
       "getStarted": "Get Started",
-      "done": "Done"
+      "done": "Done",
+      "oneKeySectionLabel": "Setup · One Key to Start",
+      "welcomeTitle": "Welcome to NarraNexus",
+      "advancedSetup": "Advanced setup — OAuth, custom endpoints, per-slot models"
     },
     "settings": {
       "title": "Settings",

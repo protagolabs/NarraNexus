@@ -59,7 +59,10 @@
       "subtitle": "أعدّ مفاتيح API لكي يتمكن NarraNexus من الاتصال بنماذج اللغة.",
       "skipForNow": "تخطٍ الآن",
       "getStarted": "ابدأ الآن",
-      "done": "تم"
+      "done": "تم",
+      "oneKeySectionLabel": "الإعداد · ابدأ بمفتاح واحد",
+      "welcomeTitle": "مرحبًا بك في NarraNexus",
+      "advancedSetup": "الإعداد المتقدّم — OAuth ونقاط نهاية مخصّصة ونماذج لكل خانة"
     },
     "settings": {
       "title": "الإعدادات",

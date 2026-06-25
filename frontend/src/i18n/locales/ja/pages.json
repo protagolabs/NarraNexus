@@ -59,7 +59,10 @@
       "subtitle": "NarraNexus が言語モデルに接続できるよう、API キーを設定します。",
       "skipForNow": "今はスキップ",
       "getStarted": "始める",
-      "done": "完了"
+      "done": "完了",
+      "oneKeySectionLabel": "セットアップ · ワンキーで開始",
+      "welcomeTitle": "NarraNexus へようこそ",
+      "advancedSetup": "詳細設定 — OAuth、カスタムエンドポイント、スロットごとのモデル"
     },
     "settings": {
       "title": "設定",

@@ -28,7 +28,8 @@
       "preferToggle": "独自のプロバイダーを設定していても無料枠を優先的に使用する",
       "preferOn": "現在：システムプロバイダー経由でルーティング—無料枠が適用されます。無料枠を使い切ると独自のプロバイダーにフォールバックします。",
       "preferOff": "現在：設定済みの場合は独自のプロバイダーを使用。無料枠はプロバイダー未設定時のみ適用されます。",
-      "exhaustedNote": "無料枠を使い切りました。下記で独自のプロバイダーを追加するか、上のトグルをオフにして既存のプロバイダー経由でルーティングしてください。"
+      "exhaustedNote": "無料枠を使い切りました。下記で独自のプロバイダーを追加するか、上のトグルをオフにして既存のプロバイダー経由でルーティングしてください。",
+      "exhaustedLockHint": "無料枠を使い切っている間はロックされます — 枠が補充されると自動的に再有効化されます。"
     },
     "modal": {
       "title": "設定",
@@ -163,7 +164,23 @@
       "readyTitle": "準備完了です",
       "readyIntro": "キーが登録され、すぐにチャットを始められるようモデルスロットを設定しました：",
       "readyNote": "別のモデルを使いたいですか？下の設定セクションで任意のスロットを変更してください—あなたの編集は常にこれらのデフォルトより優先されます。",
-      "gotIt": "了解"
+      "gotIt": "了解",
+      "authReady": "✓ 認証完了",
+      "authMissing": "✗ 認証がありません",
+      "managedByStaff": "· クラウドではスタッフが管理",
+      "saveFrameworkFailed": "フレームワークの保存に失敗しました",
+      "verifyingCodex": "Codex CLI を確認中…",
+      "codexBinaryUnavailable": "Codex バイナリを利用できません：{{reason}}",
+      "defaultRecommendedNamed": "デフォルト · {{model}}（推奨）",
+      "codexNoProvider": "Codex CLI には Responses API に対応した OpenAI プロバイダーが必要です。Codex CLI でサインイン（codex login）するか、ステップ 1 でカスタム OpenAI キーを追加してください。アグリゲーター系プロバイダー（NetMind / Yunwu / OpenRouter）は Codex ではサポートされていません。",
+      "claudeLoginTitle": "Claude Code ログイン",
+      "codexLoginTitle": "Codex CLI ログイン",
+      "codexOauthDesc": "Codex CLI による OAuth ログイン（ChatGPT でサインイン）。API キーは不要です。使用量は ChatGPT Plus / Pro のサブスクリプションでカバーされます。",
+      "codexTerminalHint": "ターミナルで \"codex login\" / \"codex logout\" を実行してから、このページを更新してください。",
+      "codexInstallHint": "まず Codex CLI をインストールしてください（下のエージェントフレームワークのドロップダウンで \"Codex CLI\" を選ぶと自動インストールされます）。その後、ターミナルで \"codex login\" を実行します。",
+      "codexLoginToAdd": "上でログインして、Codex CLI をプロバイダーとして追加してください。",
+      "customDisabledTitle": "カスタムプロバイダーの追加は一時的に利用できません",
+      "customDisabledDesc": "カスタム（独自の Base URL）プロバイダーの設定はセキュリティ強化のため一時停止中で、まもなく再開されます。すでに設定済みのプロバイダーは引き続き完全に利用できます。"
     }
   },
   "system": {
