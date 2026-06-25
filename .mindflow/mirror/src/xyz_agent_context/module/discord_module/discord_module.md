@@ -31,7 +31,7 @@ shared mechanism. Sibling of ``slack_module.py`` / ``telegram_module.py``.
   aren't stable identifiers; ``build_extra_data`` compares the inbound
   ``channel_tag.sender_id`` against ``cred.owner_user_id`` (resolved at
   bind from the user-supplied numeric id). No display-name trust ever.
-- **MCP port 7833** — next free in the channel range (Lark 7830 / Slack
+- **MCP port 7834** — next free in the channel range (Lark 7830 / Slack
   7831 / Telegram 7832). Auto-discovered by
   ``module_runner.discover_channel_modules`` via the ``mcp_port`` class
   attr; no manual port-map edit needed.

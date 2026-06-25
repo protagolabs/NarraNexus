@@ -42,7 +42,7 @@ from ._discord_mcp_tools import register_discord_mcp_tools
 from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
 
 
-DISCORD_MCP_PORT = 7833
+DISCORD_MCP_PORT = 7834
 
 
 # ───────────────────────────────────────────────────────────────────────────

@@ -29,5 +29,5 @@ the cloud systemd units, and the Tauri sidecar. Mirror of
 ## Gotchas
 
 - Runs with no MCP port of its own — the Gateway WebSocket is outbound.
-  (DiscordModule's MCP server on 7833 is a separate process launched by
+  (DiscordModule's MCP server on 7834 is a separate process launched by
   ``module_runner``.) The trigger and the MCP server are distinct.

@@ -59,7 +59,7 @@ use std::process::Command;
 ///   7830   — MCP LarkModule (+ LarkTrigger SDK subscriber)
 ///   7831   — MCP SlackModule
 ///   7832   — MCP TelegramModule
-///   7833   — MCP DiscordModule
+///   7834   — MCP DiscordModule
 ///   47831  — LarkTrigger health endpoint (_health_server.py)
 ///
 /// History (2026-05-27): the list used to be only `[8000, 8100, 7801,
@@ -75,7 +75,7 @@ use std::process::Command;
 pub const REQUIRED_PORTS: &[u16] = &[
     8000, 8100,                                       // backend + sqlite proxy
     7801, 7802, 7803, 7804, 7806, 7807, 7808, 7820, // MCP modules
-    7830, 7831, 7832, 7833,                          // channel MCP modules
+    7830, 7831, 7832, 7834,                          // channel MCP modules
     47831,                                            // LarkTrigger health endpoint
 ];
 
