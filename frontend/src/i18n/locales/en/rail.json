@@ -1,0 +1,26 @@
+{
+  "rail": {
+    "awareness": "Awareness",
+    "workspace": "Workspace",
+    "channels": "Channels",
+    "jobs": "Jobs",
+    "inbox": "Inbox",
+    "memory": "Memory",
+    "social": "Social Network",
+    "socialShort": "Network",
+    "skills": "Skills",
+    "mcp": "MCP Servers",
+    "mcpShort": "MCP",
+    "category": {
+      "config": "Config",
+      "activity": "Activity",
+      "narra": "Narra",
+      "nexus": "Nexus",
+      "skills": "Skills"
+    },
+    "brand": {
+      "narra": "Narra",
+      "nexus": "Nexus"
+    }
+  }
+}

@@ -1,5 +1,11 @@
 {
   "chat": {
+    "interaction": "Interaction",
+    "composer": {
+      "selectAgentFirst": "Sélectionnez d'abord un agent…",
+      "dropFile": "Déposez le fichier pour le joindre…",
+      "placeholder": "Saisissez un message ou / pour les compétences…"
+    },
     "audio": {
       "stopRecording": "Arrêter l'enregistrement",
       "recordVoice": "Enregistrer un message vocal",

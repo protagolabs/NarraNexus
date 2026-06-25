@@ -1,5 +1,11 @@
 {
   "chat": {
+    "interaction": "التفاعل",
+    "composer": {
+      "selectAgentFirst": "اختر وكيلاً أولاً…",
+      "dropFile": "أفلت الملف لإرفاقه…",
+      "placeholder": "اكتب رسالة أو / للمهارات…"
+    },
     "audio": {
       "stopRecording": "إيقاف التسجيل",
       "recordVoice": "تسجيل رسالة صوتية",

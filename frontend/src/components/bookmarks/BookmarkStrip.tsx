@@ -46,6 +46,7 @@ export interface BookmarkStripProps {
 }
 
 export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps) {
+  const { t } = useTranslation();
   const agentState = useBookmarkStore((s) => s.agents[agentId]);
 
   return (
@@ -76,7 +77,7 @@ export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps
                       : 'var(--color-carbon)',
                 }}
               >
-                {category.title}
+                {category.titleKey ? t(category.titleKey) : category.title}
               </span>
             </div>
           )}
@@ -226,14 +227,17 @@ interface AtomicTabProps {
 }
 
 function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
+  const { t } = useTranslation();
   const Icon = tab.icon;
+  const label = t(tab.labelKey);
+  const stripLabel = tab.stripLabelKey ? t(tab.stripLabelKey) : tab.stripLabel;
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            aria-label={tab.label}
+            aria-label={label}
             aria-expanded={active}
             data-help-id={`bookmarks.${tab.id}`}
             onClick={() => onOpen(tab.id)}
@@ -296,11 +300,11 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
                   : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
               )}
             >
-              {tab.stripLabel ?? tab.label}
+              {stripLabel ?? label}
             </span>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="left">{tab.label}</TooltipContent>
+        <TooltipContent side="left">{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

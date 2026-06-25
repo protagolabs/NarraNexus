@@ -1,5 +1,11 @@
 {
   "chat": {
+    "interaction": "インタラクション",
+    "composer": {
+      "selectAgentFirst": "まずエージェントを選択してください…",
+      "dropFile": "ファイルをドロップして添付…",
+      "placeholder": "メッセージを入力、または / でスキルを呼び出し…"
+    },
     "audio": {
       "stopRecording": "録音を停止",
       "recordVoice": "音声メッセージを録音",

@@ -806,7 +806,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           <BracketSectionLabel
             trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px] truncate max-w-[180px]">{agentId}</span> : undefined}
           >
-            Interaction
+            {t('chat.interaction')}
           </BracketSectionLabel>
         </div>
 
@@ -1203,10 +1203,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             disabled={!agentId}
             placeholder={
               !agentId
-                ? 'Select an agent first…'
+                ? t('chat.composer.selectAgentFirst')
                 : isDragging
-                  ? 'Drop file to attach…'
-                  : 'Type a message or / for skills…'
+                  ? t('chat.composer.dropFile')
+                  : t('chat.composer.placeholder')
             }
             onSubmit={stableSubmit}
             onEmptyChange={setComposerEmpty}

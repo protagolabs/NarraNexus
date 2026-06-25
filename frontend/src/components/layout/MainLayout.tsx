@@ -40,7 +40,7 @@ import {
   BookmarkStrip,
   BookmarkDrawer,
   BookmarkPanelHost,
-  tabLabel,
+  tabLabelKey,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
@@ -327,7 +327,7 @@ export function ChatView() {
             pinned
             onPinnedChange={handlePinnedChange}
             onClose={handleDrawerClose}
-            title={tabLabel(drawerTab)}
+            title={tr(tabLabelKey(drawerTab))}
           >
             <BookmarkPanelHost tab={drawerTab} agentId={agentId} />
           </BookmarkDrawer>
@@ -357,7 +357,7 @@ export function ChatView() {
           pinned={false}
           onPinnedChange={handlePinnedChange}
           onClose={handleDrawerClose}
-          title={drawerTab ? tabLabel(drawerTab) : ''}
+          title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
         >
           {drawerTab && <BookmarkPanelHost tab={drawerTab} agentId={agentId} />}
         </BookmarkDrawer>

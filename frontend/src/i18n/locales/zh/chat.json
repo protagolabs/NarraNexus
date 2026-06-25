@@ -1,5 +1,11 @@
 {
   "chat": {
+    "interaction": "交互",
+    "composer": {
+      "selectAgentFirst": "请先选择一个智能体…",
+      "dropFile": "拖放文件以添加附件…",
+      "placeholder": "输入消息，或输入 / 使用技能…"
+    },
     "audio": {
       "stopRecording": "停止录音",
       "recordVoice": "录制语音消息",

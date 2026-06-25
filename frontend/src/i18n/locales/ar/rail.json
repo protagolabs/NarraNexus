@@ -1,0 +1,26 @@
+{
+  "rail": {
+    "awareness": "الإدراك",
+    "workspace": "مساحة العمل",
+    "channels": "القنوات",
+    "jobs": "المهام",
+    "inbox": "صندوق الوارد",
+    "memory": "الذاكرة",
+    "social": "الشبكة الاجتماعية",
+    "socialShort": "الشبكة",
+    "skills": "المهارات",
+    "mcp": "خوادم MCP",
+    "mcpShort": "MCP",
+    "category": {
+      "config": "الإعدادات",
+      "activity": "النشاط",
+      "narra": "Narra",
+      "nexus": "Nexus",
+      "skills": "المهارات"
+    },
+    "brand": {
+      "narra": "Narra",
+      "nexus": "Nexus"
+    }
+  }
+}

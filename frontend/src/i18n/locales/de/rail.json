@@ -1,0 +1,26 @@
+{
+  "rail": {
+    "awareness": "Wahrnehmung",
+    "workspace": "Arbeitsbereich",
+    "channels": "Kanäle",
+    "jobs": "Aufgaben",
+    "inbox": "Posteingang",
+    "memory": "Speicher",
+    "social": "Soziales Netzwerk",
+    "socialShort": "Netzwerk",
+    "skills": "Fähigkeiten",
+    "mcp": "MCP-Server",
+    "mcpShort": "MCP",
+    "category": {
+      "config": "Konfiguration",
+      "activity": "Aktivität",
+      "narra": "Narra",
+      "nexus": "Nexus",
+      "skills": "Fähigkeiten"
+    },
+    "brand": {
+      "narra": "Narra",
+      "nexus": "Nexus"
+    }
+  }
+}

@@ -69,7 +69,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     const panelCmds: Cmd[] = agentId
       ? ALL_TABS.map((tab) => ({
           id: `panel:${tab.id}`,
-          label: tab.label,
+          label: t(tab.labelKey),
           hint: t('layout.commandPalette.hintPanel'),
           kind: 'page',
           icon: tab.icon,

@@ -1,5 +1,11 @@
 {
   "chat": {
+    "interaction": "상호작용",
+    "composer": {
+      "selectAgentFirst": "먼저 에이전트를 선택하세요…",
+      "dropFile": "파일을 드롭하여 첨부…",
+      "placeholder": "메시지를 입력하거나 / 로 스킬 사용…"
+    },
     "audio": {
       "stopRecording": "녹음 중지",
       "recordVoice": "음성 메시지 녹음",
