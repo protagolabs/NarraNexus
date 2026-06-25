@@ -37,8 +37,7 @@ from xyz_agent_context.utils.timezone import (
 # Prompts
 from xyz_agent_context.module.basic_info_module.prompts import (
     BASIC_INFO_MODULE_INSTRUCTIONS,
-    DEPLOYMENT_CONTEXT_CLOUD,
-    DEPLOYMENT_CONTEXT_LOCAL,
+    select_deployment_context,
 )
 from xyz_agent_context.utils.deployment_mode import get_deployment_mode
 
@@ -142,10 +141,10 @@ class BasicInfoModule(XYZBaseModule):
         # (SkillModule prompts, _tool_policy_guard) keys off this.
         mode = get_deployment_mode()
         ctx_data.deployment_mode = mode
-        ctx_data.deployment_context = (
-            DEPLOYMENT_CONTEXT_CLOUD if mode == "cloud"
-            else DEPLOYMENT_CONTEXT_LOCAL
-        )
+        # An external IM subject (ext:…) gets the strict EXTERNAL_IM block,
+        # overriding cloud/local — it is not the machine owner (see
+        # select_deployment_context).
+        ctx_data.deployment_context = select_deployment_context(mode, self.user_id)
 
         # 2. Get Agent information from database
         try:
@@ -163,6 +162,32 @@ class BasicInfoModule(XYZBaseModule):
                 # Creator's HUMAN name (NetMind nickname / local display name).
                 # user_id stays an opaque key; this is what the LLM reads.
                 ctx_data.creator_name = await user_repo.get_display_name(agent.created_by)
+
+                # 2.5 (B-4): for an external IM subject on a LOCAL deployment, tell
+                # the agent where the owner's READ-ONLY shared workspace is — the
+                # local sandbox mounts it there read-only, so the agent can use
+                # reference knowledge the owner placed in it. Re-renders the
+                # deployment_context (set above without the path) now that the owner
+                # id is known.
+                if mode != "cloud" and agent.created_by:
+                    from xyz_agent_context.channel.external_identity import (
+                        is_external_subject,
+                    )
+                    if is_external_subject(self.user_id):
+                        from xyz_agent_context.utils.workspace_paths import (
+                            agent_workspace_path,
+                        )
+                        from xyz_agent_context.settings import settings
+                        owner_ws = str(
+                            agent_workspace_path(
+                                self.agent_id,
+                                agent.created_by,
+                                base=settings.base_working_path,
+                            )
+                        )
+                        ctx_data.deployment_context = select_deployment_context(
+                            mode, self.user_id, owner_shared_path=owner_ws
+                        )
 
                 # 3. Who is the CURRENT SENDER, and are they the Creator?
                 # agent_runtime overrides self.user_id to the owner (created_by),

@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-05-31
+last_verified: 2026-06-24
 stub: false
 ---
+
+## 2026-06-24/25 — scope user_id is IDENTITY-DERIVED (IM identity-tenant)
+
+The unconditional `user_id → agents.created_by` override at run() entry is now
+decided by the module-level helper `_resolve_scope_user_id(passed, created_by)` —
+keyed on the IDENTITY itself, NOT a per-caller flag (an earlier `scope_to_owner`
+param was removed 2026-06-25 in favor of auto-detection):
+- **external subject** (`is_external_subject(passed)` → `ext:{channel}:{room}`, see
+  [[external_identity.py]]) → kept verbatim → each external IM conversation is its
+  own isolated tenant (narrative / workspace / executor container key on user_id).
+  Because it keys on the id, it propagates AUTOMATICALLY to derived work: a job a
+  external user creates stores `user_id=ext:…`, so when job_trigger later runs it,
+  scope stays external WITHOUT any trigger threading a flag.
+- **any other user_id** → collapses to the agent owner (web/job/message-bus share
+  one space) — historical behavior, byte-for-byte unchanged (a real user_id never
+  starts with `ext:`).
+
+Billing is unaffected: LLM provider config resolves off `agent_id`
+(→ `agents.created_by`) at line ~327, never off this scope user_id — an external
+subject's turn still bills the agent owner. `is_external_subject` is lazily imported
+inside the helper to avoid the channel/__init__ → trigger → runtime load cycle.
 
 ## 2026-05-20 — Step 4.6: synchronous turn persistence before background
 
@@ -107,7 +128,12 @@ intentional (no back-compat per ironclad rule #2).
 
 ## 设计决策
 
-**`user_id` 被替换为 agent owner**：`run()` 入口立即把 `user_id` 覆盖为 `agents.created_by`。原始 `user_id` 代表触发者（可能是 Matrix 消息发送者、job target 等），但 narrative/context 要基于 owner 的工作空间来查找，否则不同 trigger 来源会落到不同的 narrative 空间里。这个替换是静默的，只在 log 里可见。
+**`user_id` 的 scope 解析（2026-06-25 起身份派生）**：`run()` 入口经
+`_resolve_scope_user_id(passed, created_by)` 决定 scope user_id,**按身份判别、无 flag**:
+`is_external_subject(passed)`(`ext:` 前缀)→ 保留 external subject(每个外部会话独立租户,
+且 job 等衍生工作自动继承);否则覆盖为 `agents.created_by`(owner/web/job 共享 owner 空间,
+历史行为零回归)。计费不受影响(provider 按 agent_id 解析)。详见顶部 note 与
+[[external_identity.py]]。
 
 **Steps 5-6 推到后台**：用户的 WebSocket 连接在 Step 4 完成后就可以关闭（final_output 已经 yield 出去了）。Steps 5-6（hook 执行、callback 触发）是后处理，用 `asyncio.create_task()` 推到后台运行，不阻塞响应。`asyncio.create_task` 自动复制当前 contextvars，所以后台任务里 `[BG]` 日志行依然带着原 turn 的 `run_id` / `event_id`，可被同一个 grep 拉出来。后台 task 不再需要驱动日志 sink cleanup（M4/T15）。
 

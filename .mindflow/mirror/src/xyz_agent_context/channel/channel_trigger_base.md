@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-05-21
+last_verified: 2026-06-24
 ---
+
+## 2026-06-24 — IM identity-tenant: external subject scope
+
+`_build_and_run_agent` no longer runs the turn as the agent owner. It now derives a
+room-based external subject (`external_subject_id(channel, message.chat_id)`, see
+[[external_identity.py]]) and calls the runtime with `user_id=subject_id`. The
+`ext:` subject carries its own scope — `AgentRuntime._resolve_scope_user_id`
+auto-detects it (no flag), so narrative / workspace / executor container all isolate
+per external conversation (DM room → per-person, group room → per-group), and a job
+the external user creates stays external too. It also
+idempotently provisions a persistent `users` row for the subject
+(`ensure_external_user`, best-effort). Billing still resolves off the agent owner
+(agent_id-based, in AgentRuntime), so the owner pays. EVERY IM turn is treated as
+external — owner-via-IM is not distinguished in this version. The owner is still
+resolved (`_resolve_agent_owner`) but only to stamp the subject's metadata. See
+[[agent_runtime.py]] `_resolve_scope_user_id` for the scope decision.
 
 ## Why it exists
 

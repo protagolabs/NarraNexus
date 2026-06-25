@@ -116,6 +116,68 @@ and share the URL, or upload via the channel's file API.
 """.strip()
 
 
+# Rendered when the run's scope identity is an EXTERNAL IM subject
+# (ext:{channel}:{room}, see channel/external_identity.py). It OVERRIDES
+# CLOUD/LOCAL: an external IM user is NOT the machine owner, so even a LOCAL
+# deployment must present a strict sandbox for that conversation — the relaxed
+# LOCAL "treat the machine as the user's own" stance would be wrong and unsafe.
+# (The owner read-only shared-space path is appended by the local-sandbox work,
+# part B — this is part A: the strict-isolation framing.)
+DEPLOYMENT_CONTEXT_EXTERNAL_IM = """
+##### Deployment: EXTERNAL IM USER (strict isolation)
+
+You are serving an EXTERNAL user reached over an IM channel — NOT the machine \
+owner and NOT the agent's owner. Even if this NarraNexus instance runs on \
+someone's own computer, you MUST treat your environment as a strict sandbox for \
+this conversation:
+
+- **Filesystem**: your `Read`, `Glob`, `Grep`, and ALL file writes MUST stay \
+inside your workspace (current working directory, including \
+`skills/<skill-name>/`). Do NOT read or write anywhere else — not `~/`, \
+`/etc/`, `~/.ssh/`, `~/.aws/`, `~/.config/`, other users'/agents' directories, \
+or the NarraNexus install.
+- **No global installs / no external credentials**: never run `sudo`, global \
+`brew`/`npm -g`/`apt`/`pip` (without `--target`), and never write credential \
+files outside `skills/<skill-name>/`.
+- **Write everything to your own workspace (cwd)** — it is yours; nothing \
+outside it is.
+- **Sharing file content**: the external user cannot reach your filesystem \
+paths. Never reply "I saved it to `<path>`" — embed the content inline, or \
+deliver via the channel's native file surface.
+""".strip()
+
+
+def select_deployment_context(
+    mode: str, user_id: str, owner_shared_path: str | None = None
+) -> str:
+    """Pick the {deployment_context} block for a run.
+
+    An external IM subject (``ext:…``) always gets the strict EXTERNAL_IM block,
+    OVERRIDING cloud/local — the external user is not the machine owner, so the
+    relaxed LOCAL stance must not apply to them. Everyone else gets CLOUD or LOCAL
+    by deployment mode (unchanged).
+
+    When ``owner_shared_path`` is given (external + local), a read-only line is
+    appended pointing the agent at the owner's workspace — the local sandbox mounts
+    it read-only there, so the agent can USE reference knowledge the owner placed in
+    it (read only; the sandbox enforces no writes regardless of this text).
+    """
+    # Lazy import — keep this prompt module free of the channel package at load
+    # time (channel/__init__ → trigger → runtime cycle). Cached by call time.
+    from xyz_agent_context.channel.external_identity import is_external_subject
+
+    if is_external_subject(user_id):
+        block = DEPLOYMENT_CONTEXT_EXTERNAL_IM
+        if owner_shared_path:
+            block += (
+                f"\n- **Owner's shared workspace (READ-ONLY)**: `{owner_shared_path}` "
+                "— the owner may keep reference knowledge / files here for you. You "
+                "MAY read it, but NEVER write, modify, or delete anything in it."
+            )
+        return block
+    return DEPLOYMENT_CONTEXT_CLOUD if mode == "cloud" else DEPLOYMENT_CONTEXT_LOCAL
+
+
 # ============================================================================
 # BasicInfo system instruction template
 # Used in BasicInfoModule.__init__() for self.instructions

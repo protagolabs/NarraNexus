@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/basic_info_module.py
-last_verified: 2026-06-12
+last_verified: 2026-06-25
 ---
+
+## 2026-06-25 — deployment_context via select_deployment_context (IM identity-tenant)
+
+`hook_data_gathering` now sets `ctx_data.deployment_context =
+select_deployment_context(mode, self.user_id)` instead of the inline cloud/local
+ternary. For an external IM subject (`self.user_id` = `ext:…`) this returns the
+strict EXTERNAL block, overriding cloud/local. **B-4 (2026-06-25)**: after the owner
+id is fetched, for an external subject on a LOCAL deployment it RE-renders
+deployment_context with `owner_shared_path = agent_workspace_path(agent_id,
+created_by)` — surfacing the owner's read-only workspace so the agent can use
+reference knowledge there. See [[prompts.py]].
 
 ## 2026-06-12 — hook_data_gathering resolves identity by human name + real sender
 

@@ -1113,12 +1113,26 @@ class ChannelTriggerBase(ABC):
         )
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
 
-        # Resolve the AGENT'S OWNER (NarraNexus user_id), NOT the IM
-        # sender. ProviderResolver maps the owner's user_id to API keys;
-        # using the IM sender_id silently routes through the system
-        # default provider. This bug has been fixed in Lark — preserve
-        # the fix here for free.
+        # Identity-tenant model: this external IM conversation runs as its OWN
+        # persistent tenant. The scope user_id is a room-derived external subject
+        # (DM room → per-person, group room → per-group), so narrative / workspace /
+        # executor container all isolate per subject. Billing still resolves off the
+        # agent owner (agent_id-based, see AgentRuntime), so the owner pays.
+        from xyz_agent_context.channel.external_identity import (
+            ensure_external_user,
+            external_subject_id,
+        )
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
+        subject_id = external_subject_id(self.channel_name, message.chat_id)
+        # Persist the external identity (idempotent, best-effort — never blocks).
+        await ensure_external_user(
+            self._db,
+            subject_id=subject_id,
+            channel=self.channel_name,
+            room_id=message.chat_id,
+            display_name=sender_name,
+            owner_user_id=owner_user_id,
+        )
 
         extra_data: dict[str, Any] = {
             "channel_tag": channel_tag.to_dict(),
@@ -1137,9 +1151,12 @@ class ChannelTriggerBase(ABC):
                 a.model_dump(mode="json") for a in attachments
             ]
 
+        # The external subject id (ext:…) carries its own scope — the runtime keeps
+        # it automatically (AgentRuntime._resolve_scope_user_id), so derived work
+        # (a job this external user creates) stays external too. No flag needed.
         result = await get_agent_runtime_client().run_and_collect(
             agent_id=agent_id,
-            user_id=owner_user_id,
+            user_id=subject_id,
             input_content=tagged_prompt,
             working_source=self.working_source,
             trigger_extra_data=extra_data,

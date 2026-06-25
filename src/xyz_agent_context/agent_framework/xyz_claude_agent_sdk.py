@@ -7,11 +7,12 @@
 
 
 import asyncio
+import shutil
 from contextlib import suppress
 
 from loguru import logger
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 
 from xyz_agent_context.utils.logging import timed
 
@@ -130,9 +131,45 @@ async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float
 
 
 class ClaudeAgentSDK:
-    def __init__(self, working_path: str = "./"):
+    def __init__(self, working_path: str = "./", sandbox_layout: Optional[Any] = None):
         self.working_path = working_path
-    
+        # When `sandbox_layout` is set (external IM turn, local, claude framework),
+        # wrap the claude CLI in an OS sandbox (bwrap / sandbox-exec) so a
+        # prompt-injected Bash can't read the owner's files or write outside the
+        # visitor workspace. Owner/web/job turns pass None → unchanged.
+        self._sandbox_layout = sandbox_layout
+        self._cli_path: Optional[str] = None
+        self._sandbox_cleanup: Optional[Any] = None
+        if sandbox_layout is not None:
+            from xyz_agent_context.agent_framework.local_sandbox import (
+                detect_local_sandbox,
+                prepare_sandbox_wrapper,
+            )
+            backend = detect_local_sandbox()
+            real_cli = shutil.which("claude")
+            if backend is None:
+                # Decision 1: warn-open — run with data isolation only (own
+                # workspace scope) + a loud warning. No code-exec sandbox.
+                logger.warning(
+                    "[ClaudeAgentSDK] external IM turn but no local sandbox tool "
+                    "(bubblewrap / sandbox-exec) found — running WARN-OPEN: data is "
+                    "isolated by workspace, but the visitor's Bash is NOT sandboxed. "
+                    "Install 'bubblewrap' (Linux) to enable code-exec isolation."
+                )
+            elif not real_cli:
+                logger.warning(
+                    "[ClaudeAgentSDK] claude CLI not on PATH; cannot sandbox; warn-open"
+                )
+            else:
+                self._cli_path, self._sandbox_cleanup = prepare_sandbox_wrapper(
+                    sandbox_layout, backend, real_cli
+                )
+                logger.info(
+                    f"[ClaudeAgentSDK] external turn sandboxed via {backend} "
+                    f"(cwd={sandbox_layout.external_ws})"
+                )
+
+
     # TODO: Input is not ideal; should use a pydantic model for validation. Store it in src/xyz_agent_context/agent_framework/schema.py.
     @timed("llm.claude.agent_loop", slow_threshold_ms=15000)
     async def agent_loop(
@@ -427,6 +464,12 @@ class ClaudeAgentSDK:
         # Neutral reasoning params (slot-configured); absent keys keep CLI
         # defaults — identical to today's behavior when unconfigured.
         options_kwargs.update(reasoning_options)
+        # Sandbox wiring (external IM turn): run the claude CLI through the
+        # bwrap/sandbox-exec wrapper, and redirect HOME so its ~/.claude state
+        # lands in the sandbox (never the owner's real home).
+        if self._cli_path:
+            options_kwargs["cli_path"] = self._cli_path
+            cli_env["HOME"] = self._sandbox_layout.sandbox_home
         options = ClaudeAgentOptions(**options_kwargs)
 
 
@@ -647,6 +690,10 @@ class ClaudeAgentSDK:
                 logger.exception("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
             raise
         finally:
+            # Remove the per-turn sandbox wrapper/profile temp dir, if any.
+            if self._sandbox_cleanup is not None:
+                with suppress(Exception):
+                    self._sandbox_cleanup()
             # Make sure any still-pending message_task is cancelled and
             # drained before we tear the client down — otherwise asyncio
             # will log "Task exception was never retrieved" if it raises.

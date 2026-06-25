@@ -1,9 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/context.py
-last_verified: 2026-05-29
+last_verified: 2026-06-25
 stub: false
 ---
 
+> 2026-06-25：新增 `agent_owner_id` 字段（identity-tenant）。external IM turn 的
+> `user_id` 是 external subject(`ext:…`),而 `agent_owner_id` 仍是 `agents.created_by`
+> ——用于计费落 owner + 本地沙盒把 owner workspace 只读挂载。run() 里 fetch agent 后设置。
+>
 > 2026-05-29：删除 `evermemos_task` 字段（EverMemOS 整体移除）。
 
 # context.py — AgentRuntime 执行流水线的共享状态容器

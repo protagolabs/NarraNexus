@@ -71,6 +71,10 @@ class RunContext:
     input_content: str
     working_source: Any  # WorkingSource enum or string
     pass_mcp_urls: Dict[str, str] = field(default_factory=dict)
+    # The agent owner (agents.created_by). Set in run(). For an external IM turn
+    # user_id is the external subject (ext:…) while this stays the owner — used to
+    # mount the owner's workspace read-only in the sandbox (billing also uses owner).
+    agent_owner_id: Optional[str] = None
     job_instance_id: Optional[str] = None  # Instance ID when executing a Job
     forced_narrative_id: Optional[str] = None  # Forced Narrative ID (used for Job triggers)
     trigger_extra_data: Dict[str, Any] = field(default_factory=dict)  # Trigger 层传入的附加数据（如 channel_tag）

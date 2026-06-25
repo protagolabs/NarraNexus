@@ -770,10 +770,32 @@ async def step_3_agent_loop(
         # the first connection races the cold start, fails, and the run drops
         # into the fallback path instead of actually running the agent.
         await wait_until_ready(executor_url)
+    driver_kwargs: dict[str, Any] = {"working_path": agent_working_path}
+    # Local sandbox (IM identity-tenant, B): an external IM turn running LOCALLY
+    # (no executor container) and on the claude framework wraps its CLI in
+    # bwrap/sandbox-exec. Cloud uses the Docker executor container instead — and
+    # CRUCIALLY, INSIDE that container executor_service unsets AGENT_EXECUTOR_URL
+    # (so executor_url is None there too); the deployment_mode == cloud check is
+    # what stops us from nesting a redundant bwrap inside the Docker container. So
+    # this is gated to: local deployment + no executor + claude + external subject.
+    from xyz_agent_context.utils.deployment_mode import get_deployment_mode
+    if (
+        executor_url is None
+        and get_deployment_mode() != "cloud"
+        and framework_name in ("claude_code", "claude")
+    ):
+        from xyz_agent_context.channel.external_identity import is_external_subject
+        if is_external_subject(ctx.user_id):
+            from xyz_agent_context.agent_framework.local_sandbox import (
+                build_sandbox_layout,
+            )
+            driver_kwargs["sandbox_layout"] = build_sandbox_layout(
+                ctx.agent_id, ctx.user_id, ctx.agent_owner_id, base=working_path
+            )
     driver = get_agent_loop_driver(
         framework=framework_name,
         executor_url=executor_url,
-        working_path=agent_working_path,
+        **driver_kwargs,
     )
     # Clear the "waking up" overlay the instant the (now-awake) executor
     # emits its first event — the COMPLETED that pairs the RUNNING above.

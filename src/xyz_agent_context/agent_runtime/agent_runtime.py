@@ -67,6 +67,39 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps import (
 )
 
 
+def _resolve_scope_user_id(
+    passed_user_id: str,
+    agent_created_by: Optional[str],
+) -> str:
+    """Decide the scope user_id (narrative / workspace / memory partition) for a run.
+
+    The decision is driven by the IDENTITY itself, not by a per-caller flag:
+    - An EXTERNAL SUBJECT (``ext:{channel}:{room}``, see external_identity.py) is
+      kept verbatim → each external IM conversation is its own isolated tenant.
+      This is identity-derived, so it propagates automatically to DERIVED work: a
+      job/callback created by an external user carries the external subject as its
+      stored user_id, so when job_trigger later runs it, this function keeps the
+      external scope WITHOUT any trigger needing to thread a flag.
+    - Any other user_id (real platform user via web/job/message-bus) collapses to
+      the agent owner, so those all share ONE narrative/workspace space — the
+      historical behavior, unchanged.
+
+    The ``ext:`` prefix is the contract (a real user_id never starts with it), so
+    non-external paths are byte-for-byte unchanged. Billing is unaffected either
+    way: LLM provider config resolves off agent_id (the owner) downstream.
+    """
+    # Lazy import: keep agent_runtime's module-load free of the channel package
+    # (channel/__init__ pulls the trigger, which imports the runtime — a cycle at
+    # load time). By call time everything is loaded, so this is a cached no-op.
+    from xyz_agent_context.channel.external_identity import is_external_subject
+
+    if is_external_subject(passed_user_id):
+        return passed_user_id
+    if agent_created_by:
+        return agent_created_by
+    return passed_user_id
+
+
 class AgentRuntime:
     """
     Agent execution flow orchestrator
@@ -222,15 +255,22 @@ class AgentRuntime:
             # Ensure database client is initialized (lazy-load AsyncDatabaseClient)
             db_client = await self._ensure_database_client()
 
-            # Override user_id with agent's creator — all triggers share a single workspace
-            # so that Lark conversations, Job triggers, etc. see the same narratives/jobs.
+            # Resolve the scope user_id (narrative / workspace / memory partition).
+            # Owner-facing turns (web chat, jobs, message-bus, IM channels not opted
+            # into per-subject scope) collapse to the agent owner so they share one
+            # space — the historical behavior (scope_to_owner=True, the default).
+            # External IM turns pass scope_to_owner=False with an external subject id
+            # as user_id, kept verbatim so each external conversation is its own
+            # isolated tenant. Billing is unaffected either way — LLM provider config
+            # resolves off agent_id (the owner), never this value.
             from xyz_agent_context.repository.agent_repository import AgentRepository
             _agent = await AgentRepository(db_client).get_agent(agent_id)
-            if _agent and _agent.created_by:
-                original_user_id = user_id
-                user_id = _agent.created_by
-                if original_user_id != user_id:
-                    logger.info(f"user_id overridden: {original_user_id} -> {user_id} (agent creator)")
+            original_user_id = user_id
+            user_id = _resolve_scope_user_id(
+                user_id, _agent.created_by if _agent else None
+            )
+            if original_user_id != user_id:
+                logger.info(f"user_id scoped: {original_user_id} -> {user_id}")
 
             # Save current running agent_id and user_id (used for callbacks)
             self._current_agent_id = agent_id
@@ -275,6 +315,9 @@ class AgentRuntime:
                 trigger_extra_data=trigger_extra_data or {},
                 cancellation=cancellation,
             )
+            # Owner id (used to bill the owner and to mount the owner's workspace
+            # read-only when an external IM turn runs in the local sandbox).
+            ctx.agent_owner_id = _agent.created_by if _agent else None
 
             # =============================================================================
             # Step 0: Initialization

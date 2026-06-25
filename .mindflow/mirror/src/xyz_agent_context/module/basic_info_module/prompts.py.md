@@ -1,7 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-06-16
+last_verified: 2026-06-25
 ---
+
+## 2026-06-25 — EXTERNAL_IM deployment_context variant (IM identity-tenant)
+
+Added a third `{deployment_context}` variant `DEPLOYMENT_CONTEXT_EXTERNAL_IM` +
+`select_deployment_context(mode, user_id)`. When the run's scope identity is an
+external IM subject (`is_external_subject(user_id)` → `ext:…`, see
+[[external_identity.py]]), the strict EXTERNAL block is chosen, **OVERRIDING
+CLOUD/LOCAL** — an external IM user is NOT the machine owner, so the relaxed LOCAL
+"treat the machine as the user's own" stance must not apply to them (it would let a
+visitor read/write the owner's whole disk). `select_deployment_context` lazy-imports
+`is_external_subject` (channel/__init__ → trigger → runtime cycle avoidance). This is
+part A (strict framing). **B-4 (2026-06-25)**: `select_deployment_context` now takes
+an optional `owner_shared_path`; for an external subject it appends a READ-ONLY line
+pointing the agent at the owner's workspace (where the local sandbox mounts it ro), so
+the agent can USE reference knowledge the owner left there. The path is rendered by
+[[basic_info_module.py]] after the owner id is known (external + local only).
 
 ## 2026-06-16 — re-surface machine IDs (account vs user_id), fixing register_artifact
 

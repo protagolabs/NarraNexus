@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-06-11
+last_verified: 2026-06-25
 stub: false
 ---
+
+## 2026-06-25 — optional local sandbox (IM identity-tenant, B)
+
+`ClaudeAgentSDK.__init__` gained `sandbox_layout=None`. When set (external IM turn,
+local, claude framework — gated in step_3), it builds an OS-sandbox wrapper via
+[[local_sandbox.py]] (`detect_local_sandbox` + `prepare_sandbox_wrapper`) and:
+(1) sets `ClaudeAgentOptions.cli_path = wrapper` so the SDK spawns the wrapper, which
+re-execs the real claude under sandbox-exec/bwrap; (2) sets `cli_env["HOME"]` to the
+sandbox home so `~/.claude` lands in the sandbox; (3) cleans up the temp wrapper in
+the agent_loop `finally`. No sandbox tool → WARN-OPEN (loud log, run unsandboxed;
+data still isolated by workspace scope). `sandbox_layout=None` (owner/web/job) →
+byte-for-byte unchanged.
 
 ## 2026-06-11 — thinking 走 --effort,绝不发 --max-thinking-tokens 正数
 

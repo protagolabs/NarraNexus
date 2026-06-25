@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-06-18
+last_verified: 2026-06-25
 stub: false
 ---
+## 2026-06-25 — local sandbox layout for external IM turns (identity-tenant B)
+
+Before building the driver, step_3 now (only when `executor_url is None`,
+`get_deployment_mode() != "cloud"`, framework ∈ {claude_code, claude}, and
+`is_external_subject(ctx.user_id)`) computes a
+`SandboxLayout` via `build_sandbox_layout(agent_id, user_id, ctx.agent_owner_id, base)`
+and passes it as `sandbox_layout` to `get_agent_loop_driver` (→ ClaudeAgentSDK, see
+[[local_sandbox.py]] / [[xyz_claude_agent_sdk.py]]). Gated to claude+local+external so
+the executor (cloud) and codex paths are untouched. Owner ws is mounted read-only;
+visitor ws is the rw cwd. The `deployment_mode != "cloud"` check is LOAD-BEARING:
+INSIDE the cloud executor Docker container, executor_service unsets
+AGENT_EXECUTOR_URL (so executor_url is None there too) — without the mode check we'd
+nest a redundant bwrap inside Docker (which also often fails on user-ns perms). Cloud
+= Docker only; local = bwrap only; never both.
+
 ## 2026-06-18 — 冷启动 executor 先等就绪再驱动
 
 冷启动分支（`ensured.cold_started`）发完 `executor.warming` UX 事件后,**先
