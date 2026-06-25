@@ -35,7 +35,8 @@ export function LanguageToggle() {
           size="icon"
           title={`Language: ${current.label}`}
           aria-label={`Language: ${current.label}`}
-          className="relative gap-1"
+          // Match ThemeToggle: muted by default, ORANGE on hover, no bg highlight.
+          className="relative gap-1 text-[var(--text-secondary)] transition-colors hover:bg-transparent! hover:text-[var(--color-carbon)]"
         >
           <Globe className="h-4 w-4" />
           <span className="text-[9px] font-mono uppercase tracking-wider">{current.code}</span>

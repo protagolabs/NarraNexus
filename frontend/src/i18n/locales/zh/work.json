@@ -142,30 +142,30 @@
     }
   },
   "artifacts": {
-    "refresh": "刷新产物",
-    "zoom": "放大产物",
-    "zoomFullscreen": "放大产物（全屏打开）",
+    "refresh": "刷新作品",
+    "zoom": "放大作品",
+    "zoomFullscreen": "放大作品（全屏打开）",
     "collapse": "折叠面板",
-    "collapseAria": "折叠产物面板",
-    "selectArtifact": "选择一个产物",
+    "collapseAria": "折叠作品面板",
+    "selectArtifact": "选择一个作品",
     "minimized": "已最小化：",
     "restore": "恢复“{{title}}”",
     "openBadge": "打开 {{title}}（{{kind}}）",
-    "unsupportedKind": "不支持的产物类型：{{kind}}",
+    "unsupportedKind": "不支持的作品类型：{{kind}}",
     "loadingRenderer": "正在加载渲染器…",
     "sliver": {
-      "expandTitle": "点击展开 · {{count}} 个产物",
-      "expandTitle_other": "点击展开 · {{count}} 个产物",
-      "emptyTitle": "智能体创建产物后将在此处显示",
-      "expandAria": "展开产物面板（{{count}} 项）",
-      "expandAria_other": "展开产物面板（{{count}} 项）",
-      "emptyAria": "产物面板（空）",
-      "label": "产物（{{count}}）",
-      "labelEmpty": "产物"
+      "expandTitle": "点击展开 · {{count}} 个作品",
+      "expandTitle_other": "点击展开 · {{count}} 个作品",
+      "emptyTitle": "智能体创建作品后将在此处显示",
+      "expandAria": "展开作品面板（{{count}} 项）",
+      "expandAria_other": "展开作品面板（{{count}} 项）",
+      "emptyAria": "作品面板（空）",
+      "label": "作品（{{count}}）",
+      "labelEmpty": "作品"
     },
     "emptyState": {
-      "title": "暂无产物",
-      "hint": "智能体创建产物后将在此处显示。"
+      "title": "暂无作品",
+      "hint": "智能体创建作品后将在此处显示。"
     },
     "download": {
       "title": "下载 / 导出",
@@ -176,7 +176,7 @@
       "preparing": "正在准备下载…"
     },
     "heal": {
-      "title": "恢复产物：{{title}}",
+      "title": "恢复作品：{{title}}",
       "dismiss": "忽略",
       "registering": "正在注册…",
       "registerSelected": "注册所选项"
@@ -189,9 +189,9 @@
       "open": "打开 →"
     },
     "tabStrip": {
-      "noArtifacts": "暂无产物",
+      "noArtifacts": "暂无作品",
       "deleteFailed": "删除失败：{{error}}",
-      "deleteTitle": "删除产物",
+      "deleteTitle": "删除作品",
       "deletePrompt": "移除该标签页：",
       "deleteNote": "仅移除注册条目。你的工作区文件将保留在原处 — 如需释放磁盘空间，请在配置面板的工作区部分进行清理。",
       "cancel": "取消",
@@ -202,10 +202,10 @@
       "minimizeTitle": "最小化（不会删除；可从上方栏恢复）",
       "minimizeAria": "最小化标签页",
       "deleteTabTitle": "删除标签页（工作区文件保留在原处）",
-      "deleteAria": "删除产物标签页"
+      "deleteAria": "删除作品标签页"
     },
     "zoomModal": {
-      "aria": "已放大的产物：{{title}}",
+      "aria": "已放大的作品：{{title}}",
       "zoomOut": "缩小（Ctrl/Cmd -）",
       "zoomOutAria": "缩小",
       "reset": "重置为 100%（Ctrl/Cmd 0）",
