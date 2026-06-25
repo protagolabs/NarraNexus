@@ -35,6 +35,7 @@ from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.channel.external_identity import external_subject_id
 from xyz_agent_context.schema.attachment_schema import Attachment, AttachmentCategory
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import (
@@ -144,6 +145,7 @@ class _FakeAttachmentTrigger(ChannelTriggerBase):
                 raw_bytes=raw_bytes,
                 original_name=ref["original_name"],
                 mime_hint=ref.get("mime_hint", ""),
+                im_room_id=message.chat_id,
             )
             out.append(att)
             await self._audit(
@@ -293,8 +295,11 @@ async def test_attachment_persisted_to_disk_and_forwarded_to_agent(
     file_id = att["file_id"]
     assert file_id.startswith("att_")
 
-    # Bytes land on disk at the owner's workspace.
-    expected_dir = isolated_workspace / "agent_a_user_owner" / "user_upload_files"
+    # Bytes land on disk at the SUBJECT's workspace (identity-tenant: the external
+    # IM turn is subject-scoped, so the file lands in the agent's own cwd, NOT the
+    # owner's), under the nested {user_id}/{agent_id} layout.
+    subject = external_subject_id("fake", "C1")
+    expected_dir = isolated_workspace / subject / "agent_a" / "user_upload_files"
     assert expected_dir.exists(), f"workspace path {expected_dir} not created"
     pdfs = list(expected_dir.rglob("att_*.pdf"))
     assert len(pdfs) == 1
@@ -547,7 +552,8 @@ async def test_caption_less_file_upload_still_processed(
         f"caption-less file must still surface attachments; got {extra=}"
     )
     assert attachments[0]["original_name"] == "report.pdf"
-    # File is on disk.
-    workspace = isolated_workspace / "agent_a_user_owner" / "user_upload_files"
+    # File is on disk at the subject's (nested) workspace.
+    subject = external_subject_id("fake", "C1")
+    workspace = isolated_workspace / subject / "agent_a" / "user_upload_files"
     pdfs = list(workspace.rglob("att_*.pdf"))
     assert len(pdfs) == 1

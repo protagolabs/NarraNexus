@@ -740,6 +740,7 @@ class LarkTrigger(ChannelTriggerBase):
                     raw_bytes=raw_bytes,
                     original_name=original_name,
                     mime_hint=mime_hint,
+                    im_room_id=message.chat_id,
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning(
