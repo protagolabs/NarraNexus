@@ -43,11 +43,15 @@ generic IM-channel framing has to accommodate.
   is fired as ``void runPollLoop(...)`` — fire-and-forget but
   self-guarding, with try/catch around each gateway call so a thrown
   poll doesn't become an unhandled rejection.
-- **QR rendered as ``<img src={qr_url}>`` with a link fallback.** If
-  the gateway's ``qr_url`` is a direct image it renders inline; if the
-  ``<img>`` ``onError`` fires (URL isn't a direct image), it falls
-  back to an "Open login QR" ``<a>`` the user can click. Robust to the
-  gateway returning either form.
+- **QR generated client-side from ``qr_url`` (``<QRCodeSVG>``), not
+  ``<img src>``.** Verified live: the gateway's ``qr_url`` is a WeChat
+  short URL (``https://liteapp.weixin.qq.com/q/<code>?qrcode=...&bot_type=3``),
+  NOT an image — an ``<img src={qr_url}>`` just 404s. We encode that URL
+  into a QR with ``qrcode.react`` (``QRCodeSVG value={qr_url}``, white
+  quiet-zone padding) so it renders inline in the panel and the phone
+  scans it directly. A secondary "Can't scan? open the QR page" ``<a>``
+  to ``qr_url`` stays as a fallback — that liteapp page renders its own
+  QR (``X-Frame-Options: SAMEORIGIN`` so it can't be iframed inline).
 - **"Owner pending" note in the bound state.** The owner's wxid is
   opaque until the first inbound DM (the gateway never reveals it at
   bind time), so when ``credential.owner_wx_id`` is empty the card

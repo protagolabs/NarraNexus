@@ -31,6 +31,7 @@ import {
   ExternalLink,
   XCircle,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 
 import { Card, CardHeader, CardTitle, CardContent, Button, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -49,8 +50,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
 
   // QR-scan flow state.
   const [connecting, setConnecting] = useState(false);   // start request in flight
-  const [qrUrl, setQrUrl] = useState('');                // scannable WeChat URL
-  const [qrImgFailed, setQrImgFailed] = useState(false); // <img> couldn't render qrUrl
+  const [qrUrl, setQrUrl] = useState('');                // scannable WeChat URL (encoded into a QR inline)
   const [polling, setPolling] = useState(false);         // poll loop is active
 
   const mountedRef = useRef(true);
@@ -83,7 +83,6 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     if (mountedRef.current) {
       setPolling(false);
       setQrUrl('');
-      setQrImgFailed(false);
     }
   }, []);
 
@@ -141,7 +140,6 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     if (!agentId) return;
     setConnecting(true);
     setError('');
-    setQrImgFailed(false);
     try {
       const res = await api.startWeChatQrcode(agentId);
       if (!mountedRef.current) return;
@@ -247,28 +245,25 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               scan this code. Keep this panel open until it confirms.
             </p>
             <div className="flex flex-col items-center gap-2 border border-[var(--border-default)] rounded p-4">
-              {qrUrl && !qrImgFailed ? (
-                <img
-                  src={qrUrl}
-                  alt="WeChat login QR code"
-                  className="w-44 h-44 object-contain bg-white p-1"
-                  onError={() => setQrImgFailed(true)}
-                />
-              ) : (
-                // Gateway returned a URL that isn't a direct image — surface it
-                // as a link the user can open to render the QR.
-                <a
-                  href={qrUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-[var(--accent-primary)] hover:underline inline-flex items-center gap-1"
-                >
-                  Open login QR <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+              {qrUrl && (
+                // The gateway's qr_url is a WeChat short URL, not an image — we
+                // encode it into a QR inline (white quiet-zone padding so phone
+                // cameras lock on). The liteapp page below is a fallback.
+                <div className="bg-white p-3 rounded">
+                  <QRCodeSVG value={qrUrl} size={176} level="M" />
+                </div>
               )}
               <span className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" /> Waiting for scan…
               </span>
+              <a
+                href={qrUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-[var(--text-secondary)] hover:text-[var(--accent-primary)] hover:underline inline-flex items-center gap-1"
+              >
+                Can't scan? open the QR page <ExternalLink className="w-3 h-3" />
+              </a>
             </div>
             <Button
               onClick={stopPolling}
