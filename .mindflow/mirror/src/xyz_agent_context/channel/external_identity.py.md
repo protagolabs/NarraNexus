@@ -1,15 +1,20 @@
 ---
 code_file: src/xyz_agent_context/channel/external_identity.py
-last_verified: 2026-06-24
+last_verified: 2026-06-25
 stub: false
 ---
+
+> 2026-06-25:格式从 `ext:{channel}:{hash}` 改成 **`ext_{channel}_{hash}`(docker-safe,
+> 只含 `[a-z0-9_]`)**。原因:cloud broker 直接拿 user_id 当**容器名组件 + workspace
+> volume-subpath**;冒号在 docker 容器名里非法、在路径/挂载里脆。下划线分隔规避这些。
+> `is_external_subject` 也改判 `startswith("ext_")`。
 
 # external_identity.py — external IM 会话的 scope 身份
 
 ## 为什么存在
 
 身份分离版要把"每个 external IM 用户/群"当成真·per-user 租户跑全套 runtime。
-这个模块定义那个身份:`external_subject_id(channel, room_id) -> "ext:{channel}:{room_id}"`。
+这个模块定义那个身份:`external_subject_id(channel, room_id) -> "ext_{channel}_{room_hash}"`。
 它被 trigger 用来当 `user_id` 传给 runtime(配合 `scope_to_owner=False`,见
 [[agent_runtime.py]] 的 `_resolve_scope_user_id`),于是 narrative / workspace /
 executor 容器全部按这个 subject 隔离;计费仍落 owner(按 agent_id 解析,不看 subject)。

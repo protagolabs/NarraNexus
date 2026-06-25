@@ -49,7 +49,7 @@ def broker_url() -> Optional[str]:
 
 
 async def ensure_executor(
-    user_id: str, *, timeout: float = 120.0
+    user_id: str, *, owner_user_id: Optional[str] = None, timeout: float = 120.0
 ) -> Optional[ExecutorEnsureResult]:
     """Ensure this user's executor via the broker; return url + cold-start.
 
@@ -57,13 +57,22 @@ async def ensure_executor(
     Raises on broker/transport error — in cloud we must NOT silently fall
     back to an in-process spawn (that would defeat isolation); the run
     fails loudly instead.
+
+    ``owner_user_id`` is set ONLY for an external IM subject turn (scope user_id is
+    an ``ext_…`` subject, distinct from the agent owner). When present, the broker
+    additionally mounts the OWNER's workspace READ-ONLY into the container so the
+    agent can read knowledge the owner shared. For a normal owner-scoped turn it
+    stays None → the broker mounts only the one workspace (unchanged).
     """
     base = broker_url()
     if not base:
         return None
     endpoint = f"{base.rstrip('/')}/executors"
+    body: dict[str, str] = {"user_id": user_id}
+    if owner_user_id:
+        body["owner_user_id"] = owner_user_id
     async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(endpoint, json={"user_id": user_id})
+        resp = await client.post(endpoint, json=body)
         resp.raise_for_status()
         data = resp.json()
     executor_url = data.get("executor_url")
