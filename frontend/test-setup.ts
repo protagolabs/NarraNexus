@@ -13,6 +13,9 @@
  * NM primitive component tests in components/nm/__tests__/.
  */
 import '@testing-library/jest-dom/vitest';
+// Initialize i18next so components using `useTranslation()` resolve real
+// strings (English fallback) instead of returning raw keys in tests.
+import './src/i18n';
 
 
 // Node 22 ships an experimental built-in `localStorage` (gated by

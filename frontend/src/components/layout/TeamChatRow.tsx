@@ -12,6 +12,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { GroupAvatar } from '@/components/nm';
 import { TeamRowMenu } from './TeamRowMenu';
 import { cn } from '@/lib/utils';
@@ -42,6 +43,7 @@ export function TeamChatRow({
   onAddAgent,
   addingAgent,
 }: TeamChatRowProps) {
+  const { t } = useTranslation();
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(teamName);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -63,7 +65,7 @@ export function TeamChatRow({
   return (
     <div
       onClick={() => { if (!renaming) onOpen(teamId); }}
-      title={`${teamName} — group chat`}
+      title={t('layout.teamChatRow.groupChatTitle', { name: teamName })}
       className={cn(
         'group/gc w-full text-left px-3 py-1.5 cursor-pointer rounded-[var(--radius-lg)] transition-colors duration-150',
         !active && 'hover:bg-[var(--nm-paper-warm)]',
@@ -122,7 +124,7 @@ export function TeamChatRow({
                 className="ml-auto pl-2 text-[10px] shrink-0"
                 style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
               >
-                {agentCount} agent{agentCount === 1 ? '' : 's'}
+                {t('layout.teamChatRow.agentCount', { count: agentCount })}
               </span>
             </div>
           )}

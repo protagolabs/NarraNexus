@@ -12,6 +12,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Bot, Users2 } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -24,6 +25,7 @@ export interface CreateMenuProps {
 }
 
 export function CreateMenu({ onCreateAgent, onCreateTeam, disabled }: CreateMenuProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   const handleItem = (handler: () => void) => (e: React.MouseEvent) => {
@@ -40,8 +42,8 @@ export function CreateMenu({ onCreateAgent, onCreateTeam, disabled }: CreateMenu
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         disabled={disabled}
         className="w-7 h-7"
-        title="Create"
-        aria-label="Create agent or team"
+        title={t('layout.createMenu.create')}
+        aria-label={t('layout.createMenu.createAgentOrTeam')}
       >
         <Plus className={cn('w-3.5 h-3.5', disabled && 'animate-pulse')} />
       </Button>
@@ -62,12 +64,12 @@ export function CreateMenu({ onCreateAgent, onCreateTeam, disabled }: CreateMenu
           >
             <MenuItem
               icon={<Bot className="w-3 h-3" />}
-              label="Create Agent"
+              label={t('layout.createMenu.createAgent')}
               onClick={handleItem(onCreateAgent)}
             />
             <MenuItem
               icon={<Users2 className="w-3 h-3" />}
-              label="Create Team"
+              label={t('layout.createMenu.createTeam')}
               onClick={handleItem(onCreateTeam)}
             />
           </div>

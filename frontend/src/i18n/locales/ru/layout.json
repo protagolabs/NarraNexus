@@ -1,0 +1,119 @@
+{
+  "layout": {
+    "chatView": {
+      "tabChat": "Чат",
+      "tabArtifacts": "Артефакты",
+      "tabArtifactsCount": "Артефакты ({{count}})"
+    },
+    "subPage": {
+      "closeTitle": "Закрыть (вернуться к чату)",
+      "closeAriaLabel": "Закрыть и вернуться к чату"
+    },
+    "sidebar": {
+      "openWorkspace": "Открыть ваше рабочее пространство",
+      "logoutConfirmTitle": "Выйти",
+      "logoutConfirmMessage": "Вы уверены, что хотите выйти?",
+      "logoutConfirmAction": "Выйти",
+      "clearHistoryConfirmTitle": "Очистить историю",
+      "clearHistoryConfirmMessage": "Очистить всю историю разговоров?",
+      "clearHistoryConfirmAction": "Очистить",
+      "currentMode": "Текущий: {{mode}}",
+      "switchTo": "Переключить на {{mode}}"
+    },
+    "agentList": {
+      "deleteAgentTitle": "Удалить агента",
+      "deleteAgentMessage": "Удалить агента «{{name}}»? Это безвозвратно удалит все связанные данные (нарративы, события, экземпляры, задачи и т. д.).",
+      "deleteAction": "Удалить",
+      "deleteFailedTitle": "Не удалось удалить",
+      "deleteAgentFailedMessage": "Не удалось удалить агента: {{error}}",
+      "deleteAgentError": "Ошибка при удалении агента. Попробуйте ещё раз.",
+      "deleteTeamTitle": "Удалить команду",
+      "deleteTeamMessage": "Удалить команду «{{name}}»? Участники будут отвязаны; сами агенты НЕ удаляются.",
+      "createAgentOrTeam": "Создать агента или команду",
+      "createAgent": "Создать агента",
+      "createTeam": "Создать команду",
+      "manageAgents": "Управление агентами",
+      "manageAgentsTitle": "Управление агентами (пакетно · добавить / изменить / удалить)",
+      "teamGroupChatTitle": "{{name}} — групповой чат",
+      "teamGroupChatAria": "Групповой чат {{name}}",
+      "refreshAgents": "Обновить агентов",
+      "emptyLabel": "Агентов пока нет",
+      "emptyHint": "Создайте своего первого агента, чтобы начать разговор.",
+      "noAgentsShort": "Агентов пока нет."
+    },
+    "agentRow": {
+      "saveTitle": "Сохранить (Enter)",
+      "cancelTitle": "Отмена (Esc)",
+      "publicBy": "Публичный · от {{name}}"
+    },
+    "agentRowMenu": {
+      "options": "Параметры агента",
+      "rename": "Переименовать",
+      "setPrivate": "Сделать приватным",
+      "setPublic": "Сделать публичным",
+      "delete": "Удалить"
+    },
+    "agentsHeaderMenu": {
+      "menu": "Меню агентов",
+      "import": "Импорт",
+      "export": "Экспорт",
+      "manageTeams": "Управление командами"
+    },
+    "createMenu": {
+      "create": "Создать",
+      "createAgentOrTeam": "Создать агента или команду",
+      "createAgent": "Создать агента",
+      "createTeam": "Создать команду"
+    },
+    "teamChatRow": {
+      "groupChatTitle": "{{name}} — групповой чат",
+      "agentCount_one": "{{count}} агент",
+      "agentCount_few": "{{count}} агента",
+      "agentCount_many": "{{count}} агентов",
+      "agentCount_other": "{{count}} агентов"
+    },
+    "teamRowMenu": {
+      "options": "Параметры группового чата",
+      "rename": "Переименовать",
+      "delete": "Удалить"
+    },
+    "topBar": {
+      "crumbDashboard": "Панель",
+      "crumbSettings": "Настройки",
+      "crumbSystem": "Система",
+      "crumbManageAgents": "Управление агентами",
+      "crumbTeam": "Команда",
+      "crumbBundle": "Пакет",
+      "crumbChat": "Чат",
+      "contextApp": "приложение",
+      "contextChat": "чат",
+      "runtimeTitle": "Среда: {{mode}}",
+      "runtimeLocal": "Локально",
+      "runtimeCloud": "Облако",
+      "runtimeUnknown": "Неизвестно",
+      "openMenu": "Открыть меню",
+      "commandPaletteTitle": "Палитра команд (⌘K)",
+      "search": "поиск"
+    },
+    "commandPalette": {
+      "hintAgent": "Агент",
+      "hintPage": "Страница",
+      "hintPanel": "Панель",
+      "pageChat": "Чат",
+      "pageDashboard": "Панель",
+      "pageSettings": "Настройки",
+      "pageSystem": "Система",
+      "placeholder": "Перейти к агенту или странице…",
+      "noMatches": "Нет совпадений"
+    },
+    "resizableDivider": {
+      "ariaLabel": "Изменить размер панелей",
+      "title": "Перетащите, чтобы изменить размер чата / артефактов"
+    }
+  },
+  "sidebar": {
+    "cloud": "Облако",
+    "localMode": "Локальный режим",
+    "cloudMode": "Облачный режим"
+  }
+}

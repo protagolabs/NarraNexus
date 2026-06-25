@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { HelpCircle } from 'lucide-react';
 import { HelpOverlay } from './HelpOverlay';
 import type { HelpPage } from './helpContent';
@@ -33,6 +34,7 @@ function isTypingTarget(t: EventTarget | null): boolean {
 const GUIDE_SEEN_KEY = 'help_guide_seen_v1';
 
 export function HelpButton({ pages }: HelpButtonProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   // First visit → auto-open once the layout has settled (anchors need
@@ -69,8 +71,8 @@ export function HelpButton({ pages }: HelpButtonProps) {
     <>
       <button
         type="button"
-        aria-label="Explain this page"
-        title="Explain this page (?)"
+        aria-label={t('help.button.explain')}
+        title={t('help.button.explainTitle')}
         onClick={() => setOpen((v) => !v)}
         className="fixed bottom-4 right-4 z-[150] flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-all duration-150 hover:scale-110"
         style={{

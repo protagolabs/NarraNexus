@@ -13,6 +13,7 @@
  * once a cross-agent unread rollup exists.
  */
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { BindingDot } from '@/components/nm';
@@ -20,18 +21,19 @@ import { useConfigStore, useUIStore } from '@/stores';
 import { useRuntimeStore } from '@/stores/runtimeStore';
 import { CommandPalette } from './CommandPalette';
 
-/** Map a route to a human breadcrumb label (agent name handled separately). */
-function pageLabel(pathname: string): string | null {
-  if (pathname.startsWith('/app/dashboard')) return 'Dashboard';
-  if (pathname.startsWith('/app/settings')) return 'Settings';
-  if (pathname.startsWith('/app/system')) return 'System';
-  if (pathname.startsWith('/app/manage-agents')) return 'Manage agents';
-  if (pathname.startsWith('/app/teams')) return 'Team';
-  if (pathname.startsWith('/app/bundle')) return 'Bundle';
+/** Map a route to a breadcrumb i18n key (agent name handled separately). */
+function pageLabelKey(pathname: string): string | null {
+  if (pathname.startsWith('/app/dashboard')) return 'layout.topBar.crumbDashboard';
+  if (pathname.startsWith('/app/settings')) return 'layout.topBar.crumbSettings';
+  if (pathname.startsWith('/app/system')) return 'layout.topBar.crumbSystem';
+  if (pathname.startsWith('/app/manage-agents')) return 'layout.topBar.crumbManageAgents';
+  if (pathname.startsWith('/app/teams')) return 'layout.topBar.crumbTeam';
+  if (pathname.startsWith('/app/bundle')) return 'layout.topBar.crumbBundle';
   return null; // chat
 }
 
 export function TopBar() {
+  const { t } = useTranslation();
   const location = useLocation();
   const agents = useConfigStore((s) => s.agents);
   const agentId = useConfigStore((s) => s.agentId);
@@ -51,11 +53,12 @@ export function TopBar() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const page = pageLabel(location.pathname);
+  const pageKey = pageLabelKey(location.pathname);
+  const page = pageKey ? t(pageKey) : null;
   const agentName = agents.find((a) => a.agent_id === agentId)?.name || (agentId ? agentId : null);
   // On chat → show the agent; on a sub-page → show the page name.
-  const crumb = page ?? agentName ?? 'Chat';
-  const crumbContext = page ? 'app' : 'chat';
+  const crumb = page ?? agentName ?? t('layout.topBar.crumbChat');
+  const crumbContext = page ? t('layout.topBar.contextApp') : t('layout.topBar.contextChat');
 
   const connLabel = mode === 'local' ? 'LOCAL' : mode ? 'CLOUD' : '—';
 
@@ -70,7 +73,7 @@ export function TopBar() {
           <button
             type="button"
             onClick={toggleMobileNav}
-            aria-label="Open menu"
+            aria-label={t('layout.topBar.openMenu')}
             className="-ml-1 flex h-7 w-7 items-center justify-center rounded-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--color-carbon)] md:hidden"
           >
             <Menu className="h-4 w-4" />
@@ -85,7 +88,14 @@ export function TopBar() {
         {/* right — connection status + ⌘K */}
         <div className="flex shrink-0 items-center gap-3.5">
           <span
-            title={`Runtime: ${connLabel === 'LOCAL' ? 'Local' : connLabel === 'CLOUD' ? 'Cloud' : 'Unknown'}`}
+            title={t('layout.topBar.runtimeTitle', {
+              mode:
+                connLabel === 'LOCAL'
+                  ? t('layout.topBar.runtimeLocal')
+                  : connLabel === 'CLOUD'
+                    ? t('layout.topBar.runtimeCloud')
+                    : t('layout.topBar.runtimeUnknown'),
+            })}
             className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono)] text-[10px] tracking-[0.12em] text-[var(--text-tertiary)]"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" />
@@ -94,11 +104,11 @@ export function TopBar() {
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
-            title="Command palette (⌘K)"
+            title={t('layout.topBar.commandPaletteTitle')}
             className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--nm-hairline)] px-2 py-1 font-[family-name:var(--font-mono)] text-[10px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--color-carbon)] hover:border-[var(--color-carbon)]"
           >
             <span className="text-[11px] leading-none">⌘</span>K
-            <span className="ml-0.5 text-[var(--nm-ink30)]">search</span>
+            <span className="ml-0.5 text-[var(--nm-ink30)]">{t('layout.topBar.search')}</span>
           </button>
         </div>
       </div>

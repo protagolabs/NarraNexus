@@ -1,0 +1,318 @@
+{
+  "jobs": {
+    "title": "Jobs",
+    "refresh": "Refresh",
+    "untitled": "Untitled",
+    "untitledJob": "Untitled Job",
+    "noDependencies": "No jobs with dependencies",
+    "failedGroup": "{{count}} failed job",
+    "failedGroup_other": "{{count}} failed jobs",
+    "status": {
+      "pending": "Pending",
+      "active": "Active",
+      "running": "Running",
+      "paused": "Paused",
+      "pausedNoQuota": "No quota",
+      "cooling": "Retrying",
+      "blocked": "Blocked",
+      "blockedFailed": "Dep failed",
+      "completed": "Completed",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "metrics": {
+      "active": "Active",
+      "success": "Success",
+      "failed": "Failed",
+      "rate": "Rate"
+    },
+    "view": {
+      "list": "List",
+      "graph": "Graph",
+      "timeline": "Timeline"
+    },
+    "filter": {
+      "all": "All"
+    },
+    "empty": {
+      "list": {
+        "title": "No jobs found",
+        "hint": "Create a job to get started"
+      },
+      "graph": {
+        "title": "No dependency relationships",
+        "hint": "Jobs with dependencies will be visualized here"
+      },
+      "timeline": {
+        "title": "No jobs to display",
+        "hint": "Create jobs to see the timeline"
+      }
+    },
+    "cancel": {
+      "title": "Cancel job",
+      "message": "Are you sure you want to cancel this job? This action cannot be undone.",
+      "confirm": "Cancel job",
+      "keepRunning": "Keep running",
+      "failedTitle": "Cancel failed",
+      "failedMessage": "Failed to cancel job",
+      "failedRetry": "Failed to cancel job. Please try again."
+    },
+    "pause": {
+      "failedTitle": "Pause failed",
+      "failedMessage": "Failed to pause job",
+      "failedRetry": "Failed to pause job. Please try again."
+    },
+    "resume": {
+      "failedTitle": "Resume failed",
+      "failedMessage": "Failed to resume job",
+      "failedRetry": "Failed to resume job. Please try again."
+    },
+    "detail": {
+      "clickNode": "Click a node to view details",
+      "id": "ID:",
+      "taskKey": "Task Key:",
+      "description": "Description:",
+      "dependsOn": "Depends on:",
+      "started": "Started:",
+      "completed": "Completed:",
+      "output": "Output:"
+    },
+    "expanded": {
+      "clickToCopy": "Click to copy",
+      "ids": "IDs",
+      "jobId": "Job ID",
+      "instance": "Instance",
+      "configuration": "Configuration",
+      "type": "Type:",
+      "trigger": "Trigger:",
+      "cron": "Cron:",
+      "interval": "Interval:",
+      "runAt": "Run at:",
+      "endCondition": "End condition:",
+      "maxIter": "Max iter:",
+      "payload": "Payload",
+      "showLess": "Show less",
+      "showMore": "Show more",
+      "timing": "Timing",
+      "created": "Created:",
+      "updated": "Updated:",
+      "lastRun": "Last run:",
+      "nextRun": "Next run:",
+      "dependencies": "Dependencies",
+      "processLog": "Process Log ({{count}} entries)",
+      "targetUser": "Target User (Execution Identity)",
+      "linkedNarrative": "Linked Narrative",
+      "error": "Error"
+    },
+    "action": {
+      "pause": "Pause",
+      "pausing": "Pausing...",
+      "resume": "Resume",
+      "resuming": "Resuming...",
+      "cancelJob": "Cancel Job",
+      "cancelling": "Cancelling..."
+    },
+    "template": {
+      "selectTemplate": "Select Template",
+      "tasksCount": "{{count}} tasks",
+      "variablesCount": "{{count}} variables",
+      "configuration": "Configuration",
+      "selectOption": "Select...",
+      "enterField": "Enter {{field}}",
+      "dependencyPreview": "Dependency Preview",
+      "back": "Back",
+      "creating": "Creating...",
+      "createJobs": "Create Jobs"
+    },
+    "timeline": {
+      "noJobs": "No jobs to display",
+      "waiting": "Waiting...",
+      "noTimeData": "No time data"
+    },
+    "distribution": {
+      "title": "Status Distribution",
+      "total": "{{count}} total",
+      "legend": {
+        "completed": "{{count}} completed",
+        "running": "{{count}} running",
+        "active": "{{count}} active",
+        "paused": "{{count}} paused",
+        "failed": "{{count}} failed"
+      }
+    }
+  },
+  "artifacts": {
+    "refresh": "Refresh artifacts",
+    "zoom": "Zoom artifact",
+    "zoomFullscreen": "Zoom artifact (open fullscreen)",
+    "collapse": "Collapse panel",
+    "collapseAria": "Collapse artifacts panel",
+    "selectArtifact": "Select an artifact",
+    "minimized": "Minimized:",
+    "restore": "Restore \"{{title}}\"",
+    "openBadge": "Open {{title}} ({{kind}})",
+    "unsupportedKind": "Unsupported artifact kind: {{kind}}",
+    "loadingRenderer": "Loading renderer…",
+    "sliver": {
+      "expandTitle": "Click to expand · {{count}} artifact",
+      "expandTitle_other": "Click to expand · {{count}} artifacts",
+      "emptyTitle": "Artifacts will appear here once the agent creates one",
+      "expandAria": "Expand artifacts panel ({{count}} item)",
+      "expandAria_other": "Expand artifacts panel ({{count}} items)",
+      "emptyAria": "Artifacts panel (empty)",
+      "label": "Artifacts ({{count}})",
+      "labelEmpty": "Artifacts"
+    },
+    "emptyState": {
+      "title": "No artifacts yet",
+      "hint": "They'll appear here as the agent creates them."
+    },
+    "download": {
+      "title": "Download / Export",
+      "chartLoading": "Chart is still loading. Please try again in a moment.",
+      "exportPng": "Export as PNG",
+      "exportJpeg": "Export as JPEG",
+      "original": "Download original (.{{ext}})",
+      "preparing": "Preparing download…"
+    },
+    "heal": {
+      "title": "Recover artifact: {{title}}",
+      "dismiss": "Dismiss",
+      "registering": "Registering…",
+      "registerSelected": "Register selected"
+    },
+    "preview": {
+      "chart": "[chart preview — open tab to view]",
+      "html": "[HTML app — open tab to view]",
+      "pdf": "[PDF document — open tab to view]",
+      "unavailable": "Preview unavailable: {{error}}",
+      "open": "Open →"
+    },
+    "tabStrip": {
+      "noArtifacts": "No artifacts yet",
+      "deleteFailed": "Delete failed: {{error}}",
+      "deleteTitle": "Delete artifact",
+      "deletePrompt": "Remove the tab for",
+      "deleteNote": "Only the registry entry is removed. Your workspace files stay where you wrote them — clean them up in the workspace section of the config panel if you want to free disk space.",
+      "cancel": "Cancel",
+      "deleting": "Deleting…",
+      "deleteTab": "Delete tab",
+      "tabTitle": "Click to select · Double-click to zoom",
+      "zoomTitle": "Zoom (open fullscreen)",
+      "minimizeTitle": "Minimize (does not delete; restore from the bar above)",
+      "minimizeAria": "Minimize tab",
+      "deleteTabTitle": "Delete tab (workspace files stay where they are)",
+      "deleteAria": "Delete artifact tab"
+    },
+    "zoomModal": {
+      "aria": "Zoomed artifact: {{title}}",
+      "zoomOut": "Zoom out (Ctrl/Cmd -)",
+      "zoomOutAria": "Zoom out",
+      "reset": "Reset to 100% (Ctrl/Cmd 0)",
+      "resetAria": "Reset zoom to 100 percent",
+      "zoomIn": "Zoom in (Ctrl/Cmd +)",
+      "zoomInAria": "Zoom in",
+      "close": "Close (Esc)",
+      "closeAria": "Close zoom"
+    }
+  },
+  "skills": {
+    "title": "Skill & MCP",
+    "refresh": "Refresh",
+    "actionBar": {
+      "github": "GitHub",
+      "zip": "Zip",
+      "showDisabled": "Show disabled"
+    },
+    "error": {
+      "title": "Error",
+      "loadFailed": "Failed to load skills",
+      "retry": "Retry"
+    },
+    "empty": {
+      "title": "No skills installed",
+      "hint": "Install skills from GitHub or upload a zip file"
+    },
+    "remove": {
+      "title": "Remove skill",
+      "message": "Are you sure you want to remove \"{{name}}\"? This action cannot be undone.",
+      "confirm": "Remove"
+    },
+    "card": {
+      "needsConfig": "Needs config: {{vars}}",
+      "studying": "Studying...",
+      "studyResult": "Study Result",
+      "study": "Study",
+      "restudy": "Re-study",
+      "configure": "Configure",
+      "env": "Env",
+      "enable": "Enable",
+      "disable": "Disable",
+      "remove": "Remove"
+    },
+    "install": {
+      "fromGithub": "Install from GitHub",
+      "fromZip": "Install from Zip",
+      "githubUrl": "GitHub URL",
+      "branch": "Branch (optional)",
+      "skillPackage": "Skill Package (.zip)",
+      "clickOrDrag": "Click or drag to upload",
+      "zipOnly": ".zip files only",
+      "trustWarning": "Only install skills from sources you trust. A skill can contain docs, prompts, and scripts the agent may read or use.",
+      "cancel": "Cancel",
+      "installing": "Installing...",
+      "install": "Install",
+      "errorUrlRequired": "GitHub URL is required",
+      "errorOnlyGithub": "Only GitHub repositories are supported",
+      "errorSelectZip": "Please select a zip file",
+      "errorZipExt": "Please select a .zip file"
+    },
+    "env": {
+      "title": "Configure: {{name}}",
+      "noneRequired": "No environment variables required for this skill.",
+      "instructions": "Enter the required environment variables. Leave blank to keep existing value.",
+      "placeholderConfigured": "••••••• (configured)",
+      "placeholderEnter": "Enter value...",
+      "cancel": "Cancel",
+      "saving": "Saving...",
+      "save": "Save",
+      "errorLoad": "Failed to load config",
+      "errorSave": "Failed to save"
+    },
+    "mcp": {
+      "servers": "MCP Servers",
+      "addMcp": "Add MCP",
+      "refreshValidate": "Refresh & Validate All",
+      "noServers": "No MCP servers configured",
+      "addFirst": "Add your first MCP",
+      "validating": "Validating...",
+      "connected": "Connected",
+      "failed": "Failed",
+      "failedWithError": "Failed: {{error}}",
+      "unknown": "Unknown",
+      "failedTooltip": "Failed: {{error}}\n\n(click to re-validate)",
+      "statusTooltip": "{{status}} — click to re-validate",
+      "disabled": "Disabled",
+      "disable": "Disable",
+      "enable": "Enable",
+      "delete": "Delete",
+      "namePlaceholder": "MCP Name",
+      "urlPlaceholder": "SSE URL (e.g., https://your-host/sse)",
+      "add": "Add",
+      "cancel": "Cancel",
+      "deleteTitle": "Delete MCP",
+      "deleteMessage": "Delete this MCP?",
+      "errorLoad": "Failed to load MCPs",
+      "errorAdd": "Failed to add MCP",
+      "errorDelete": "Failed to delete MCP",
+      "errorUpdate": "Failed to update MCP",
+      "hint": {
+        "endpoint": "Must be a remote SSE endpoint over http(s) — usually ending in /sse.",
+        "reachable": "The server must be able to reach the URL (public host or one this machine can connect to).",
+        "noStdio": "Local stdio / npx MCPs are not supported here — only URL-based SSE servers.",
+        "apiKey": "If it needs an API key, put it in the URL or headers your MCP expects; we connect anonymously.",
+        "validation": "After adding, the status dot validates the connection — Failed means the URL was unreachable or not a valid SSE endpoint."
+      }
+    }
+  }
+}

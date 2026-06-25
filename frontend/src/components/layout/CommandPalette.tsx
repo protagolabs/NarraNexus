@@ -10,6 +10,7 @@
  * to confirm or undo.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { LayoutDashboard, SlidersHorizontal, Server, MessagesSquare, CornerDownLeft } from 'lucide-react';
 import { useConfigStore, useUIStore } from '@/stores';
@@ -34,6 +35,7 @@ interface Cmd {
 }
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const agents = useConfigStore((s) => s.agents);
   const setAgentId = useConfigStore((s) => s.setAgentId);
@@ -47,7 +49,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     const agentCmds: Cmd[] = agents.map((a) => ({
       id: `agent:${a.agent_id}`,
       label: a.name || a.agent_id,
-      hint: 'Agent',
+      hint: t('layout.commandPalette.hintAgent'),
       kind: 'agent',
       avatar: (a.name || a.agent_id).slice(0, 2),
       run: () => {
@@ -55,29 +57,30 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         navigate('/app/chat');
       },
     }));
+    const pageHint = t('layout.commandPalette.hintPage');
     const pageCmds: Cmd[] = [
-      { id: 'page:chat', label: 'Chat', hint: 'Page', kind: 'page', icon: MessagesSquare, run: () => navigate('/app/chat') },
-      { id: 'page:dashboard', label: 'Dashboard', hint: 'Page', kind: 'page', icon: LayoutDashboard, run: () => navigate('/app/dashboard') },
-      { id: 'page:settings', label: 'Settings', hint: 'Page', kind: 'page', icon: SlidersHorizontal, run: () => navigate('/app/settings') },
-      { id: 'page:system', label: 'System', hint: 'Page', kind: 'page', icon: Server, run: () => navigate('/app/system') },
+      { id: 'page:chat', label: t('layout.commandPalette.pageChat'), hint: pageHint, kind: 'page', icon: MessagesSquare, run: () => navigate('/app/chat') },
+      { id: 'page:dashboard', label: t('layout.commandPalette.pageDashboard'), hint: pageHint, kind: 'page', icon: LayoutDashboard, run: () => navigate('/app/dashboard') },
+      { id: 'page:settings', label: t('layout.commandPalette.pageSettings'), hint: pageHint, kind: 'page', icon: SlidersHorizontal, run: () => navigate('/app/settings') },
+      { id: 'page:system', label: t('layout.commandPalette.pageSystem'), hint: pageHint, kind: 'page', icon: Server, run: () => navigate('/app/system') },
     ];
     // Context panels (awareness/jobs/…) — only meaningful with an agent
     // selected. This is the mobile entry point now that the right strip hides.
     const panelCmds: Cmd[] = agentId
-      ? ALL_TABS.map((t) => ({
-          id: `panel:${t.id}`,
-          label: t.label,
-          hint: 'Panel',
+      ? ALL_TABS.map((tab) => ({
+          id: `panel:${tab.id}`,
+          label: tab.label,
+          hint: t('layout.commandPalette.hintPanel'),
           kind: 'page',
-          icon: t.icon,
+          icon: tab.icon,
           run: () => {
             navigate('/app/chat');
-            requestPanel(t.id);
+            requestPanel(tab.id);
           },
         }))
       : [];
     return [...agentCmds, ...pageCmds, ...panelCmds];
-  }, [agents, navigate, setAgentId, agentId, requestPanel]);
+  }, [agents, navigate, setAgentId, agentId, requestPanel, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -146,7 +149,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Jump to an agent or page…"
+              placeholder={t('layout.commandPalette.placeholder')}
               className="nx-cmdk-input flex-1 bg-transparent text-sm text-[var(--nm-ink)] placeholder:text-[var(--nm-ink30)] outline-none"
             />
           </div>
@@ -155,7 +158,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         {/* results */}
         <div className="max-h-[44vh] overflow-y-auto px-1.5 pb-1.5">
           {filtered.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-[var(--text-tertiary)]">No matches</div>
+            <div className="px-4 py-6 text-center text-sm text-[var(--text-tertiary)]">{t('layout.commandPalette.noMatches')}</div>
           ) : (
             filtered.map((c, i) => (
               <button

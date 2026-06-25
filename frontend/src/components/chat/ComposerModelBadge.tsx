@@ -11,6 +11,7 @@
  * back to a "set model" link into Settings.
  */
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -32,6 +33,7 @@ function prettify(model: string): string {
 }
 
 export function ComposerModelBadge() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [cfg, setCfg] = useState<SlotCfg | null>(null);
   const [models, setModels] = useState<string[]>([]);
@@ -82,10 +84,10 @@ export function ComposerModelBadge() {
       <button
         type="button"
         onClick={() => navigate('/app/settings')}
-        title="Configure the model in Settings › Providers"
+        title={t('chat.model.configureInSettings')}
         className="inline-flex items-center gap-1 lowercase text-[11px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--color-carbon)]"
       >
-        <span className="max-w-[160px] truncate">set model</span>
+        <span className="max-w-[160px] truncate">{t('chat.model.setModel')}</span>
         <ChevronDown className="h-3 w-3 shrink-0" />
       </button>
     );
@@ -120,7 +122,7 @@ export function ComposerModelBadge() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title="Model — click to switch"
+        title={t('chat.model.switchTooltip')}
         className={cn(
           'inline-flex items-center gap-1 lowercase text-[11px] font-[family-name:var(--font-mono)] transition-colors',
           open ? 'text-[var(--color-carbon)]' : 'text-[var(--text-tertiary)] hover:text-[var(--color-carbon)]',
@@ -133,7 +135,7 @@ export function ComposerModelBadge() {
       {open && cfg && (
         <div className="absolute bottom-full right-0 z-50 mb-1.5 max-h-[44vh] w-[220px] overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--nm-hairline)] bg-[var(--nm-card)] py-1 shadow-[var(--nm-elev-3)]">
           {models.length === 0 ? (
-            <div className="px-3 py-2 text-[11px] text-[var(--text-tertiary)]">No models — add some in Settings</div>
+            <div className="px-3 py-2 text-[11px] text-[var(--text-tertiary)]">{t('chat.model.noModels')}</div>
           ) : (
             models.map((m) => {
               const active = m === cfg.model;
@@ -161,7 +163,7 @@ export function ComposerModelBadge() {
               onClick={() => navigate('/app/settings')}
               className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.12em] text-[var(--text-tertiary)] transition-colors hover:text-[var(--color-carbon)]"
             >
-              More in settings →
+              {t('chat.model.moreInSettings')}
             </button>
           </div>
         </div>

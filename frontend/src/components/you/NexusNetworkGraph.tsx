@@ -13,6 +13,7 @@
  * GET /api/me/network. Owner-scoped: never reads the selected agentId.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores/configStore';
 import type { MyNetworkEntity } from '@/types';
@@ -41,9 +42,10 @@ const R_DIRECT = 112;
 const R_KNOWN = 168;
 
 export function NexusNetworkGraph({ search = '' }: { search?: string }) {
+  const { t } = useTranslation();
   const displayName = useConfigStore((s) => s.displayName);
   const userId = useConfigStore((s) => s.userId);
-  const youName = (displayName || userId || 'You').trim();
+  const youName = (displayName || userId || t('you.network.youDefault')).trim();
 
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [selected, setSelected] = useState<string | null>(null);
@@ -56,7 +58,7 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
       .then((res) => {
         if (!alive) return;
         if (res.success) setState({ phase: 'ready', items: res.entities });
-        else setState({ phase: 'error', message: res.error || 'Failed to load' });
+        else setState({ phase: 'error', message: res.error || t('you.common.failedToLoad') });
       })
       .catch((e: unknown) => {
         if (alive) setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) });
@@ -64,6 +66,8 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
     return () => {
       alive = false;
     };
+    // Load once on mount; `t` is referentially stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const graph = useMemo(() => {
@@ -103,7 +107,7 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
     return (
       <Center>
         <span className="text-[12px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)] animate-pulse">
-          Loading your network…
+          {t('you.network.loading')}
         </span>
       </Center>
     );
@@ -111,7 +115,7 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
   if (state.phase === 'error') {
     return (
       <Center>
-        <BracketEmptyState label="Couldn’t load your network" hint={state.message} />
+        <BracketEmptyState label={t('you.network.errorLabel')} hint={state.message} />
       </Center>
     );
   }
@@ -119,11 +123,11 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
     return (
       <Center>
         <BracketEmptyState
-          label={q ? 'No matches' : 'No connections yet'}
+          label={q ? t('you.network.noMatches') : t('you.network.emptyLabel')}
           hint={
             q
-              ? `Nothing in your network matches “${search.trim()}”.`
-              : 'As your agents meet people and other agents, everyone they come to know shows up here.'
+              ? t('you.network.noMatchesHint', { query: search.trim() })
+              : t('you.network.emptyHint')
           }
         />
       </Center>
@@ -137,9 +141,9 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
       {/* legend */}
       <div className="flex items-center gap-4 mb-1 shrink-0 px-1">
         {[
-          ['people', 'var(--color-carbon)'],
-          ['agents', 'var(--color-silicon)'],
-          ['groups', '#8E5CB8'],
+          [t('you.network.legendPeople'), 'var(--color-carbon)'],
+          [t('you.network.legendAgents'), 'var(--color-silicon)'],
+          [t('you.network.legendGroups'), '#8E5CB8'],
         ].map(([label, color]) => (
           <span
             key={label}
@@ -150,7 +154,7 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
           </span>
         ))}
         <span className="ml-auto text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] text-[var(--text-tertiary)]">
-          size · ring = how many agents know them
+          {t('you.network.legendHint')}
         </span>
       </div>
 
@@ -179,7 +183,7 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
             fontFamily="var(--font-mono)"
             fill="var(--text-tertiary)"
           >
-            direct
+            {t('you.network.ringDirect')}
           </text>
           <text
             x={CX - R_KNOWN}
@@ -189,7 +193,7 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
             fontFamily="var(--font-mono)"
             fill="var(--text-tertiary)"
           >
-            known of
+            {t('you.network.ringKnownOf')}
           </text>
 
           {/* Rotating layer — the entities slowly orbit you; the rings,
@@ -221,7 +225,7 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
                 className="nx-node"
                 tabIndex={0}
                 role="button"
-                aria-label={`${e.name}, known by ${e.known_by.length} agent(s)`}
+                aria-label={t('you.network.nodeAria', { name: e.name, count: e.known_by.length })}
                 onClick={() => setSelected(on ? null : e.key)}
                 onKeyDown={(ev) => {
                   if (ev.key === 'Enter' || ev.key === ' ') {
@@ -264,7 +268,7 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
           <circle cx={CX} cy={CY} r={26} fill="none" stroke="var(--color-carbon)" strokeWidth={2} />
           <circle cx={CX} cy={CY} r={22} fill="var(--color-carbon)" />
           <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="central" fontSize={13} fill="#fff">
-            you
+            {t('you.network.youCenter')}
           </text>
           <text
             x={CX}
@@ -302,14 +306,14 @@ export function NexusNetworkGraph({ search = '' }: { search?: string }) {
           )}
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] text-[var(--text-tertiary)]">
             <span className="inline-flex items-center gap-1">
-              known by
+              {t('you.network.knownBy')}
               <span className="text-[var(--text-secondary)] normal-case tracking-normal">
                 {selectedItem.known_by.join(', ')}
               </span>
             </span>
-            {selectedItem.interactions > 0 && <span>{selectedItem.interactions} interactions</span>}
+            {selectedItem.interactions > 0 && <span>{t('you.network.interactions', { count: selectedItem.interactions })}</span>}
             {selectedItem.last_interaction_time && (
-              <span>seen {fmtDay.format(new Date(selectedItem.last_interaction_time))}</span>
+              <span>{t('you.network.seen', { date: fmtDay.format(new Date(selectedItem.last_interaction_time)) })}</span>
             )}
           </div>
         </div>

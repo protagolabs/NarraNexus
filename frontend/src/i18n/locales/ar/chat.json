@@ -1,0 +1,87 @@
+{
+  "chat": {
+    "audio": {
+      "stopRecording": "إيقاف التسجيل",
+      "recordVoice": "تسجيل رسالة صوتية",
+      "micDenied": "تم رفض الوصول إلى الميكروفون. فعّل إذن الميكروفون في إعدادات المتصفح ثم حاول مرة أخرى.",
+      "micDeniedRetry": "تم رفض الوصول إلى الميكروفون — انقر لإعادة المحاولة بعد تفعيل الإذن",
+      "noMic": "لم يتم اكتشاف أي ميكروفون.",
+      "recordingFailed": "فشل التسجيل: {{error}}"
+    },
+    "model": {
+      "configureInSettings": "اضبط النموذج في الإعدادات › المزوّدون",
+      "setModel": "تعيين النموذج",
+      "switchTooltip": "النموذج — انقر للتبديل",
+      "noModels": "لا توجد نماذج — أضف بعضها في الإعدادات",
+      "moreInSettings": "المزيد في الإعدادات →"
+    },
+    "voice": {
+      "label": "صوت",
+      "unavailableShort": "النسخ غير متاح",
+      "unavailableLong": "النسخ غير متاح. أضف مفتاح API الخاص بـ OpenAI في الإعدادات → المزوّدون لتفعيل نسخ الصوت."
+    },
+    "message": {
+      "loadingDetails": "جارٍ تحميل التفاصيل...",
+      "hideReasoning": "إخفاء الاستدلال والأدوات",
+      "viewReasoning": "عرض الاستدلال والأدوات",
+      "copyMarkdown": "نسخ Markdown",
+      "downloadMd": "تنزيل كملف ‎.md"
+    },
+    "timeline": {
+      "thinking": "التفكير",
+      "toolLabel": "[ أداة ]",
+      "outputLabel": "[ مُخرَج ]",
+      "reply": "رد",
+      "nativeOutput": "مُخرَج أصلي",
+      "helperFallback": "↻ احتياطي helper_llm",
+      "helperFallbackTip": "لم يرسل الوكيل ردًا صريحًا؛ كتب هذه الرسالة نموذج LLM الاحتياطي اعتمادًا على استدلاله.",
+      "recoveredAfterError": "⚠ تمت الاستعادة بعد خطأ",
+      "recoveredAfterErrorTip": "فشلت إحدى خطوات هذه الجولة؛ كُتب الرد اعتمادًا على العمل المنجز وما نعرفه عن الخطأ."
+    },
+    "onboarding": {
+      "eyebrow": "محادثة جديدة",
+      "heading": "صفحة جديدة.",
+      "framing": "لا شيء هنا بعد — وهذا هو المقصود. كلما عملت أنت و{{name}} معًا أكثر، تذكّر وربط ومضى قُدُمًا أكثر.",
+      "defaultAgentName": "وكيلك",
+      "narraBrand": "Narra · الذاكرة",
+      "narraCaption": "يتذكّر",
+      "nexusBrand": "Nexus · الشبكة",
+      "nexusCaption": "يربط",
+      "teamBrand": "فريقك",
+      "teamCaption": "يُنجز",
+      "tryAsking": "جرّب أن تسأل",
+      "prompt1": "لخّص لي أهم تحديثات هذا الأسبوع",
+      "prompt2": "اربط قناة وراقبها بحثًا عن أي أمر عاجل",
+      "prompt3": "أعدّ ملخصًا لصباح الإثنين لما يهم"
+    },
+    "team": {
+      "notFound": "لم يتم العثور على الفريق.",
+      "memberCount_zero": "{{count}} عضو",
+      "memberCount_one": "عضو واحد",
+      "memberCount_two": "عضوان",
+      "memberCount_few": "{{count}} أعضاء",
+      "memberCount_many": "{{count}} عضوًا",
+      "memberCount_other": "{{count}} عضو",
+      "teamSettings": "إعدادات الفريق",
+      "empty": "لا توجد رسائل بعد.",
+      "emptyHint": "@أشِر إلى زميل لبدء المحادثة — ثم يتناوبون فيما بينهم من هناك.",
+      "noAgents": "لا يوجد وكلاء في هذا الفريق بعد.",
+      "placeholder": "راسل الفريق — @أشِر لمخاطبة أحدهم…",
+      "send": "إرسال (Enter)",
+      "all": "@all",
+      "notifyEveryone": "إشعار الجميع",
+      "typing": "{{name}} يكتب الآن",
+      "youTitle": "أنت · {{name}}"
+    },
+    "execution": {
+      "showSteps": "عرض خطوات التنفيذ",
+      "processing": "جارٍ المعالجة",
+      "heading": "التنفيذ",
+      "waiting": "في انتظار الخطوة الأولى…",
+      "statusCompleted": "مكتمل",
+      "statusRunning": "قيد التشغيل",
+      "statusFailed": "فشل",
+      "statusPending": "قيد الانتظار"
+    }
+  }
+}

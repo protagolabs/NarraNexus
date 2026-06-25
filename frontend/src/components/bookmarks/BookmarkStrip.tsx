@@ -17,6 +17,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Tooltip,
@@ -110,6 +111,7 @@ export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps
  * portal so it escapes the strip's `overflow-x-hidden` / 64px width.
  */
 function AgentRailHeader({ agentId }: { agentId: string }) {
+  const { t } = useTranslation();
   const agents = useConfigStore((s) => s.agents);
   const setAgentId = useConfigStore((s) => s.setAgentId);
   const setActiveAgent = useChatStore((s) => s.setActiveAgent);
@@ -138,12 +140,12 @@ function AgentRailHeader({ agentId }: { agentId: string }) {
           <button
             type="button"
             data-help-id="bookmarks.agent"
-            aria-label={`Current agent: ${agentName}. Switch agent`}
-            title="Switch agent"
+            aria-label={t('bookmarks.strip.currentAgentAria', { name: agentName })}
+            title={t('bookmarks.strip.switchAgent')}
             className="group/agent w-full px-1 pt-2 pb-1.5 text-center cursor-pointer outline-none"
           >
             <span className="block mb-1 text-[7.5px] font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.13em] leading-none text-[var(--text-tertiary)]">
-              agent
+              {t('bookmarks.strip.agentEyebrow')}
             </span>
             <span className="flex items-center justify-center gap-0.5 px-0.5">
               <span className="truncate text-[12px] font-semibold leading-tight text-[var(--text-primary)]">
@@ -163,7 +165,7 @@ function AgentRailHeader({ agentId }: { agentId: string }) {
           className="w-auto min-w-[160px] max-w-[240px] p-1"
         >
           <div className="px-2 pt-1 pb-1.5 text-[8px] font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
-            Switch agent
+            {t('bookmarks.strip.switchAgent')}
           </div>
           <div className="flex flex-col">
             {agents.map((a) => {

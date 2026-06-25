@@ -1,0 +1,117 @@
+{
+  "layout": {
+    "chatView": {
+      "tabChat": "Chat",
+      "tabArtifacts": "Artefakte",
+      "tabArtifactsCount": "Artefakte ({{count}})"
+    },
+    "subPage": {
+      "closeTitle": "Schließen (zurück zum Chat)",
+      "closeAriaLabel": "Schließen und zum Chat zurückkehren"
+    },
+    "sidebar": {
+      "openWorkspace": "Deinen Arbeitsbereich öffnen",
+      "logoutConfirmTitle": "Abmelden",
+      "logoutConfirmMessage": "Möchtest du dich wirklich abmelden?",
+      "logoutConfirmAction": "Abmelden",
+      "clearHistoryConfirmTitle": "Verlauf löschen",
+      "clearHistoryConfirmMessage": "Den gesamten Gesprächsverlauf löschen?",
+      "clearHistoryConfirmAction": "Löschen",
+      "currentMode": "Aktuell: {{mode}}",
+      "switchTo": "Wechseln zu {{mode}}"
+    },
+    "agentList": {
+      "deleteAgentTitle": "Agent löschen",
+      "deleteAgentMessage": "Agent „{{name}}“ löschen? Dadurch werden alle zugehörigen Daten (Narrative, Ereignisse, Instanzen, Jobs usw.) dauerhaft entfernt.",
+      "deleteAction": "Löschen",
+      "deleteFailedTitle": "Löschen fehlgeschlagen",
+      "deleteAgentFailedMessage": "Agent konnte nicht gelöscht werden: {{error}}",
+      "deleteAgentError": "Fehler beim Löschen des Agents. Bitte versuche es erneut.",
+      "deleteTeamTitle": "Team löschen",
+      "deleteTeamMessage": "Team „{{name}}“ löschen? Mitglieder werden entkoppelt; die Agents selbst werden NICHT gelöscht.",
+      "createAgentOrTeam": "Agent oder Team erstellen",
+      "createAgent": "Agent erstellen",
+      "createTeam": "Team erstellen",
+      "manageAgents": "Agents verwalten",
+      "manageAgentsTitle": "Agents verwalten (Stapel · hinzufügen / bearbeiten / löschen)",
+      "teamGroupChatTitle": "{{name}} — Gruppenchat",
+      "teamGroupChatAria": "{{name}} Gruppenchat",
+      "refreshAgents": "Agents aktualisieren",
+      "emptyLabel": "Noch keine Agents",
+      "emptyHint": "Erstelle deinen ersten Agent, um ein Gespräch zu beginnen.",
+      "noAgentsShort": "Noch keine Agents."
+    },
+    "agentRow": {
+      "saveTitle": "Speichern (Enter)",
+      "cancelTitle": "Abbrechen (Esc)",
+      "publicBy": "Öffentlich · von {{name}}"
+    },
+    "agentRowMenu": {
+      "options": "Agent-Optionen",
+      "rename": "Umbenennen",
+      "setPrivate": "Auf privat setzen",
+      "setPublic": "Auf öffentlich setzen",
+      "delete": "Löschen"
+    },
+    "agentsHeaderMenu": {
+      "menu": "Agents-Menü",
+      "import": "Importieren",
+      "export": "Exportieren",
+      "manageTeams": "Teams verwalten"
+    },
+    "createMenu": {
+      "create": "Erstellen",
+      "createAgentOrTeam": "Agent oder Team erstellen",
+      "createAgent": "Agent erstellen",
+      "createTeam": "Team erstellen"
+    },
+    "teamChatRow": {
+      "groupChatTitle": "{{name}} — Gruppenchat",
+      "agentCount_one": "{{count}} Agent",
+      "agentCount_other": "{{count}} Agents"
+    },
+    "teamRowMenu": {
+      "options": "Gruppenchat-Optionen",
+      "rename": "Umbenennen",
+      "delete": "Löschen"
+    },
+    "topBar": {
+      "crumbDashboard": "Dashboard",
+      "crumbSettings": "Einstellungen",
+      "crumbSystem": "System",
+      "crumbManageAgents": "Agents verwalten",
+      "crumbTeam": "Team",
+      "crumbBundle": "Bundle",
+      "crumbChat": "Chat",
+      "contextApp": "App",
+      "contextChat": "Chat",
+      "runtimeTitle": "Laufzeit: {{mode}}",
+      "runtimeLocal": "Lokal",
+      "runtimeCloud": "Cloud",
+      "runtimeUnknown": "Unbekannt",
+      "openMenu": "Menü öffnen",
+      "commandPaletteTitle": "Befehlspalette (⌘K)",
+      "search": "suchen"
+    },
+    "commandPalette": {
+      "hintAgent": "Agent",
+      "hintPage": "Seite",
+      "hintPanel": "Panel",
+      "pageChat": "Chat",
+      "pageDashboard": "Dashboard",
+      "pageSettings": "Einstellungen",
+      "pageSystem": "System",
+      "placeholder": "Zu einem Agent oder einer Seite springen…",
+      "noMatches": "Keine Treffer"
+    },
+    "resizableDivider": {
+      "ariaLabel": "Panels anpassen",
+      "title": "Ziehen, um Chat / Artefakte anzupassen"
+    }
+  },
+  "sidebar": {
+    "cloud": "Cloud",
+    "localMode": "Lokaler Modus",
+    "cloudMode": "Cloud-Modus"
+  }
+}

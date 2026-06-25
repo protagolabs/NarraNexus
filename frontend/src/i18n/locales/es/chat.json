@@ -1,0 +1,83 @@
+{
+  "chat": {
+    "audio": {
+      "stopRecording": "Detener grabación",
+      "recordVoice": "Grabar mensaje de voz",
+      "micDenied": "Acceso al micrófono denegado. Habilita el permiso del micrófono en la configuración de tu navegador y vuelve a intentarlo.",
+      "micDeniedRetry": "Acceso al micrófono denegado — haz clic para reintentar tras habilitar el permiso",
+      "noMic": "No se detectó ningún micrófono.",
+      "recordingFailed": "Error al grabar: {{error}}"
+    },
+    "model": {
+      "configureInSettings": "Configura el modelo en Ajustes › Proveedores",
+      "setModel": "definir modelo",
+      "switchTooltip": "Modelo — haz clic para cambiar",
+      "noModels": "Sin modelos — añade alguno en Ajustes",
+      "moreInSettings": "Más en ajustes →"
+    },
+    "voice": {
+      "label": "voz",
+      "unavailableShort": "transcripción no disponible",
+      "unavailableLong": "Transcripción no disponible. Añade una clave de API de OpenAI en Ajustes → Proveedores para habilitar la transcripción de voz."
+    },
+    "message": {
+      "loadingDetails": "Cargando detalles...",
+      "hideReasoning": "Ocultar razonamiento y herramientas",
+      "viewReasoning": "Ver razonamiento y herramientas",
+      "copyMarkdown": "Copiar Markdown",
+      "downloadMd": "Descargar como .md"
+    },
+    "timeline": {
+      "thinking": "Pensando",
+      "toolLabel": "[ herramienta ]",
+      "outputLabel": "[ salida ]",
+      "reply": "Respuesta",
+      "nativeOutput": "Salida nativa",
+      "helperFallback": "↻ respaldo de helper_llm",
+      "helperFallbackTip": "El agente no envió una respuesta explícita; este mensaje lo escribió el LLM de respaldo a partir de su razonamiento.",
+      "recoveredAfterError": "⚠ recuperado tras un error",
+      "recoveredAfterErrorTip": "Un paso de este turno falló; la respuesta se escribió a partir del trabajo completado y lo que sabemos del error."
+    },
+    "onboarding": {
+      "eyebrow": "Nueva conversación",
+      "heading": "Una página en blanco.",
+      "framing": "Aún no hay nada aquí — y ese es el punto. Cuanto más trabajen tú y {{name}} juntos, más recordará, conectará y llevará adelante.",
+      "defaultAgentName": "tu agente",
+      "narraBrand": "Narra · Memoria",
+      "narraCaption": "recuerda",
+      "nexusBrand": "Nexus · Red",
+      "nexusCaption": "conecta",
+      "teamBrand": "Tu equipo",
+      "teamCaption": "entrega",
+      "tryAsking": "Prueba a preguntar",
+      "prompt1": "Resume para mí las actualizaciones más importantes de esta semana",
+      "prompt2": "Conecta un canal y vigílalo por si surge algo urgente",
+      "prompt3": "Configura un resumen del lunes por la mañana con lo importante"
+    },
+    "team": {
+      "notFound": "Equipo no encontrado.",
+      "memberCount_one": "{{count}} miembro",
+      "memberCount_other": "{{count}} miembros",
+      "teamSettings": "Ajustes del equipo",
+      "empty": "Aún no hay mensajes.",
+      "emptyHint": "@menciona a un compañero para iniciar la conversación — a partir de ahí se pasan el relevo entre ellos.",
+      "noAgents": "Aún no hay agentes en este equipo.",
+      "placeholder": "Escribe al equipo — @menciona para dirigirte a alguien…",
+      "send": "Enviar (Intro)",
+      "all": "@all",
+      "notifyEveryone": "Notificar a todos",
+      "typing": "{{name}} está escribiendo",
+      "youTitle": "Tú · {{name}}"
+    },
+    "execution": {
+      "showSteps": "Mostrar pasos de ejecución",
+      "processing": "Procesando",
+      "heading": "Ejecución",
+      "waiting": "Esperando el primer paso…",
+      "statusCompleted": "completado",
+      "statusRunning": "en ejecución",
+      "statusFailed": "fallido",
+      "statusPending": "pendiente"
+    }
+  }
+}

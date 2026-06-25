@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation, Trans } from 'react-i18next';
 import {
   Bot,
   Link,
@@ -33,6 +34,7 @@ import type { DiscordCredentialData } from '@/types';
 import type { ChannelConfigProps } from './IMChannelsSection';
 
 export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
+  const { t } = useTranslation();
   const { agentId } = useConfigStore();
 
   const [credential, setCredential] = useState<DiscordCredentialData | null>(null);
@@ -60,15 +62,15 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       if (res.success) {
         setCredential(res.data || null);
       } else {
-        setError(res.error || 'Failed to load Discord credential');
+        setError(res.error || t('awareness.discord.errLoad'));
       }
     } catch (e: unknown) {
       if (!mountedRef.current) return;
-      setError(e instanceof Error ? e.message : 'Failed to fetch Discord credential');
+      setError(e instanceof Error ? e.message : t('awareness.discord.errFetch'));
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, t]);
 
   useEffect(() => {
     setError('');
@@ -88,7 +90,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const handleBind = async () => {
     if (!agentId || !botToken) return;
     if (ownerUserId.trim() && !/^\d+$/.test(ownerUserId.trim())) {
-      setError('Owner user ID must be numeric (Discord → Settings → Advanced → Developer Mode, then right-click your name → Copy User ID).');
+      setError(t('awareness.discord.errOwnerIdNumeric'));
       return;
     }
     setActionLoading(true);
@@ -101,10 +103,10 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         await fetchCredential();
         onBindStateChange?.();
       } else {
-        setError(res.error || 'Bind failed');
+        setError(res.error || t('awareness.discord.errBind'));
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Bind failed');
+      setError(e instanceof Error ? e.message : t('awareness.discord.errBind'));
     } finally {
       if (mountedRef.current) setActionLoading(false);
     }
@@ -117,7 +119,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     try {
       const res = await api.testDiscordConnection(agentId);
       if (!res.success) {
-        setError(res.error || 'Discord test failed');
+        setError(res.error || t('awareness.discord.errTest'));
       } else {
         await fetchCredential();
         onBindStateChange?.();
@@ -129,7 +131,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         }
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Test failed');
+      setError(e instanceof Error ? e.message : t('awareness.discord.errTestGeneric'));
     } finally {
       if (mountedRef.current) setTestLoading(false);
     }
@@ -138,9 +140,9 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const handleUnbind = async () => {
     if (!agentId) return;
     const ok = await confirm({
-      title: 'Unbind Discord bot?',
-      message: 'The agent will stop receiving Discord messages and lose all Discord tools until you bind again.',
-      confirmText: 'Unbind',
+      title: t('awareness.discord.unbindConfirmTitle'),
+      message: t('awareness.discord.unbindConfirmMessage'),
+      confirmText: t('awareness.common.unbind'),
       danger: true,
     });
     if (!ok) return;
@@ -152,10 +154,10 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         await fetchCredential();
         onBindStateChange?.();
       } else {
-        setError(res.error || 'Unbind failed');
+        setError(res.error || t('awareness.discord.errUnbind'));
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Unbind failed');
+      setError(e instanceof Error ? e.message : t('awareness.discord.errUnbind'));
     } finally {
       if (mountedRef.current) setUnbindLoading(false);
     }
@@ -173,7 +175,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           onClick={() => fetchCredential()}
           disabled={loading}
           className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          title="Refresh"
+          title={t('awareness.common.refresh')}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -190,8 +192,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         {!credential && (
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-secondary)]">
-              Bind a Discord bot to chat with your agent in servers and DMs.
-              You'll need a Bot Token from the Discord Developer Portal.
+              {t('awareness.discord.intro')}
             </p>
 
             <div className="border border-[var(--border-default)] rounded">
@@ -202,49 +203,63 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               >
                 <span className="flex items-center gap-2 text-[var(--text-primary)] font-medium">
                   {setupOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                  How do I get a Bot Token?
+                  {t('awareness.discord.setupQuestion')}
                 </span>
-                <span className="text-[var(--text-secondary)]">~3 min</span>
+                <span className="text-[var(--text-secondary)]">{t('awareness.common.threeMin')}</span>
               </button>
               {setupOpen && (
                 <div className="px-3 pb-3 pt-1 space-y-2 text-xs text-[var(--text-secondary)]">
                   <ol className="list-decimal list-inside space-y-1.5 leading-relaxed">
                     <li>
-                      Open the{' '}
-                      <a
-                        href="https://discord.com/developers/applications"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[var(--accent-primary)] hover:underline inline-flex items-center gap-0.5"
-                      >
-                        Developer Portal
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                      , click <strong>New Application</strong>, then open the <strong>Bot</strong> tab.
+                      <Trans i18nKey="awareness.discord.step1">
+                        Open the{' '}
+                        <a
+                          href="https://discord.com/developers/applications"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[var(--accent-primary)] hover:underline inline-flex items-center gap-0.5"
+                        >
+                          Developer Portal
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        , click <strong>New Application</strong>, then open the <strong>Bot</strong> tab.
+                      </Trans>
                     </li>
                     <li>
-                      <strong className="text-[var(--color-yellow-500)]">REQUIRED:</strong> on the Bot page, under
-                      {' '}<strong>Privileged Gateway Intents</strong>, turn ON <strong>Message Content Intent</strong>.
-                      Without it the bot receives messages with an empty body and can't read what people say.
+                      <Trans i18nKey="awareness.discord.step2">
+                        <strong className="text-[var(--color-yellow-500)]">REQUIRED:</strong> on the Bot page, under
+                        {' '}<strong>Privileged Gateway Intents</strong>, turn ON <strong>Message Content Intent</strong>.
+                        Without it the bot receives messages with an empty body and can't read what people say.
+                      </Trans>
                     </li>
                     <li>
-                      Click <strong>Reset Token</strong> → <strong>Copy</strong>. Paste it below. Keep it secret.
+                      <Trans i18nKey="awareness.discord.step3">
+                        Click <strong>Reset Token</strong> → <strong>Copy</strong>. Paste it below. Keep it secret.
+                      </Trans>
                     </li>
                     <li>
-                      Open <strong>OAuth2 → URL Generator</strong>, tick scope <code className="bg-[var(--bg-tertiary)] px-1">bot</code> and
-                      permissions <em>View Channels</em>, <em>Send Messages</em>, <em>Read Message History</em>; open the
-                      generated URL and invite the bot to your server.
+                      <Trans i18nKey="awareness.discord.step4">
+                        Open <strong>OAuth2 → URL Generator</strong>, tick scope <code className="bg-[var(--bg-tertiary)] px-1">bot</code> and
+                        permissions <em>View Channels</em>, <em>Send Messages</em>, <em>Read Message History</em>; open the
+                        generated URL and invite the bot to your server.
+                      </Trans>
                     </li>
                     <li>
-                      Optional: paste <strong>your</strong> numeric Discord user ID below so the agent recognises
-                      owner-vs-stranger. Enable Discord → Settings → Advanced → <strong>Developer Mode</strong>, then
-                      right-click your name → <strong>Copy User ID</strong>.
+                      <Trans i18nKey="awareness.discord.step5">
+                        Optional: paste <strong>your</strong> numeric Discord user ID below so the agent recognises
+                        owner-vs-stranger. Enable Discord → Settings → Advanced → <strong>Developer Mode</strong>, then
+                        right-click your name → <strong>Copy User ID</strong>.
+                      </Trans>
                     </li>
                   </ol>
                   <div className="text-[var(--text-secondary)] pt-1 border-t border-[var(--border-default)] mt-2">
-                    <strong>Bot sees blank messages?</strong> Message Content Intent is off — re-enable it on the Bot page.
+                    <Trans i18nKey="awareness.discord.troubleBlank">
+                      <strong>Bot sees blank messages?</strong> Message Content Intent is off — re-enable it on the Bot page.
+                    </Trans>
                     <br />
-                    <strong>No replies in a server?</strong> @-mention the bot; it stays silent in channels until addressed.
+                    <Trans i18nKey="awareness.discord.troubleNoReply">
+                      <strong>No replies in a server?</strong> @-mention the bot; it stays silent in channels until addressed.
+                    </Trans>
                   </div>
                 </div>
               )}
@@ -252,27 +267,27 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
 
             <div className="space-y-2">
               <label className="block">
-                <span className="sr-only">Bot Token</span>
+                <span className="sr-only">{t('awareness.discord.botToken')}</span>
                 <Input
                   type="password"
-                  placeholder="Bot Token"
+                  placeholder={t('awareness.discord.botToken')}
                   value={botToken}
                   onChange={(e) => setBotToken(e.target.value)}
                   className="text-sm"
                   autoComplete="off"
-                  aria-label="Bot Token"
+                  aria-label={t('awareness.discord.botToken')}
                 />
               </label>
               <label className="block">
-                <span className="sr-only">Your Discord user ID (optional)</span>
+                <span className="sr-only">{t('awareness.discord.ownerIdLabel')}</span>
                 <Input
                   type="text"
-                  placeholder="Your Discord user ID (optional, enables owner trust signal)"
+                  placeholder={t('awareness.discord.ownerIdPlaceholder')}
                   value={ownerUserId}
                   onChange={(e) => setOwnerUserId(e.target.value)}
                   className="text-sm"
                   autoComplete="off"
-                  aria-label="Owner Discord user ID"
+                  aria-label={t('awareness.discord.ownerIdAria')}
                 />
               </label>
             </div>
@@ -283,7 +298,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               size="sm"
             >
               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Link className="w-4 h-4 mr-2" />}
-              Bind Bot
+              {t('awareness.common.bindBot')}
             </Button>
           </div>
         )}
@@ -301,18 +316,17 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 </span>
               </div>
               <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
-                <CheckCircle className="w-3 h-3" aria-hidden="true" /> Connected
+                <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.common.connected')}
               </span>
             </div>
             {credential.owner_user_id ? (
               <div className="text-xs text-[var(--text-secondary)]">
-                Owner: <span className="text-[var(--text-primary)]">{credential.owner_name || credential.owner_user_id}</span>{' '}
+                {t('awareness.common.owner')}: <span className="text-[var(--text-primary)]">{credential.owner_name || credential.owner_user_id}</span>{' '}
                 <span className="text-[var(--text-secondary)]">({credential.owner_user_id})</span>
               </div>
             ) : (
               <div className="text-xs text-[var(--color-yellow-500)]" role="note">
-                ⚠ No owner registered — agent has no trust signal for Discord senders.
-                Re-bind with your numeric user ID to enable.
+                {t('awareness.discord.noOwner')}
               </div>
             )}
             <div className="flex gap-2">
@@ -328,7 +342,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 ) : testPassed ? (
                   <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-green-500)]" />
                 ) : null}
-                {testPassed ? 'Connected' : 'Test'}
+                {testPassed ? t('awareness.common.connected') : t('awareness.common.test')}
               </Button>
               <Button
                 onClick={handleUnbind}
@@ -342,7 +356,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 ) : (
                   <Unlink className="w-4 h-4 mr-2" />
                 )}
-                Unbind
+                {t('awareness.common.unbind')}
               </Button>
             </div>
           </div>

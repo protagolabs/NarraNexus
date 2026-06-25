@@ -29,6 +29,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { Sidebar } from './Sidebar';
@@ -79,6 +80,7 @@ export function ChatView() {
   // Bookmark drawer: which atomic tab is open (null = closed) and whether
   // the drawer is pinned into a static column (persisted — pinning is a
   // deliberate workspace choice). One tab = one panel (Owner IA).
+  const { t: tr } = useTranslation();
   const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(null);
   const [drawerPinned, setDrawerPinned] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -239,7 +241,11 @@ export function ChatView() {
                       : 'text-[var(--text-tertiary)] border-transparent',
                   )}
                 >
-                  {t === 'chat' ? 'Chat' : `Artifacts${artifactsLength > 0 ? ` (${artifactsLength})` : ''}`}
+                  {t === 'chat'
+                    ? tr('layout.chatView.tabChat')
+                    : artifactsLength > 0
+                      ? tr('layout.chatView.tabArtifactsCount', { count: artifactsLength })
+                      : tr('layout.chatView.tabArtifacts')}
                 </button>
               ))}
             </div>
@@ -380,6 +386,7 @@ export function TeamChatView({ teamId }: { teamId: string }) {
 }
 
 export function MainLayout() {
+  const { t } = useTranslation();
   const { agentId, userId } = useConfigStore();
   const { preloadAll } = usePreloadStore();
   const location = useLocation();
@@ -446,8 +453,8 @@ export function MainLayout() {
           <button
             type="button"
             onClick={() => navigate('/app/chat')}
-            title="Close (back to chat)"
-            aria-label="Close and return to chat"
+            title={t('layout.subPage.closeTitle')}
+            aria-label={t('layout.subPage.closeAriaLabel')}
             className="absolute top-4 right-4 z-30 flex h-6 w-6 items-center justify-center rounded-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
           >
             <X className="h-3.5 w-3.5" />

@@ -1,0 +1,83 @@
+{
+  "chat": {
+    "audio": {
+      "stopRecording": "Arrêter l'enregistrement",
+      "recordVoice": "Enregistrer un message vocal",
+      "micDenied": "Accès au microphone refusé. Activez l'autorisation du micro dans les paramètres de votre navigateur, puis réessayez.",
+      "micDeniedRetry": "Accès au microphone refusé — cliquez pour réessayer après avoir activé l'autorisation",
+      "noMic": "Aucun microphone détecté.",
+      "recordingFailed": "Échec de l'enregistrement : {{error}}"
+    },
+    "model": {
+      "configureInSettings": "Configurez le modèle dans Paramètres › Fournisseurs",
+      "setModel": "définir le modèle",
+      "switchTooltip": "Modèle — cliquez pour changer",
+      "noModels": "Aucun modèle — ajoutez-en dans Paramètres",
+      "moreInSettings": "Plus dans les paramètres →"
+    },
+    "voice": {
+      "label": "voix",
+      "unavailableShort": "transcription indisponible",
+      "unavailableLong": "Transcription indisponible. Ajoutez une clé d'API OpenAI dans Paramètres → Fournisseurs pour activer la transcription vocale."
+    },
+    "message": {
+      "loadingDetails": "Chargement des détails...",
+      "hideReasoning": "Masquer le raisonnement et les outils",
+      "viewReasoning": "Voir le raisonnement et les outils",
+      "copyMarkdown": "Copier le Markdown",
+      "downloadMd": "Télécharger en .md"
+    },
+    "timeline": {
+      "thinking": "Réflexion",
+      "toolLabel": "[ outil ]",
+      "outputLabel": "[ sortie ]",
+      "reply": "Réponse",
+      "nativeOutput": "Sortie native",
+      "helperFallback": "↻ repli helper_llm",
+      "helperFallbackTip": "L'agent n'a pas envoyé de réponse explicite ; ce message a été rédigé par le LLM de repli à partir de son raisonnement.",
+      "recoveredAfterError": "⚠ rétabli après une erreur",
+      "recoveredAfterErrorTip": "Une étape de ce tour a échoué ; la réponse a été rédigée à partir du travail accompli et de ce que nous savons de l'erreur."
+    },
+    "onboarding": {
+      "eyebrow": "Nouvelle conversation",
+      "heading": "Une page vierge.",
+      "framing": "Rien ici pour l'instant — et c'est tout l'intérêt. Plus vous travaillez avec {{name}}, plus il mémorise, connecte et fait avancer les choses.",
+      "defaultAgentName": "votre agent",
+      "narraBrand": "Narra · Mémoire",
+      "narraCaption": "il se souvient",
+      "nexusBrand": "Nexus · Réseau",
+      "nexusCaption": "il connecte",
+      "teamBrand": "Votre équipe",
+      "teamCaption": "il livre",
+      "tryAsking": "Essayez de demander",
+      "prompt1": "Résume-moi les actualités les plus importantes de cette semaine",
+      "prompt2": "Connecte un canal et surveille-le pour toute urgence",
+      "prompt3": "Configure un récapitulatif du lundi matin sur l'essentiel"
+    },
+    "team": {
+      "notFound": "Équipe introuvable.",
+      "memberCount_one": "{{count}} membre",
+      "memberCount_other": "{{count}} membres",
+      "teamSettings": "Paramètres de l'équipe",
+      "empty": "Aucun message pour l'instant.",
+      "emptyHint": "@mentionnez un coéquipier pour démarrer la conversation — ils se relaient ensuite entre eux.",
+      "noAgents": "Aucun agent dans cette équipe pour l'instant.",
+      "placeholder": "Écrire à l'équipe — @mentionnez pour vous adresser à quelqu'un…",
+      "send": "Envoyer (Entrée)",
+      "all": "@all",
+      "notifyEveryone": "Notifier tout le monde",
+      "typing": "{{name}} est en train d'écrire",
+      "youTitle": "Vous · {{name}}"
+    },
+    "execution": {
+      "showSteps": "Afficher les étapes d'exécution",
+      "processing": "Traitement",
+      "heading": "Exécution",
+      "waiting": "En attente de la première étape…",
+      "statusCompleted": "terminé",
+      "statusRunning": "en cours",
+      "statusFailed": "échoué",
+      "statusPending": "en attente"
+    }
+  }
+}

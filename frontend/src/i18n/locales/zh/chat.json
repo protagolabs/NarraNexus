@@ -1,0 +1,83 @@
+{
+  "chat": {
+    "audio": {
+      "stopRecording": "停止录音",
+      "recordVoice": "录制语音消息",
+      "micDenied": "麦克风访问被拒绝。请在浏览器设置中启用麦克风权限后重试。",
+      "micDeniedRetry": "麦克风访问被拒绝 — 启用权限后点击重试",
+      "noMic": "未检测到麦克风。",
+      "recordingFailed": "录音失败：{{error}}"
+    },
+    "model": {
+      "configureInSettings": "在「设置 › 提供方」中配置模型",
+      "setModel": "设置模型",
+      "switchTooltip": "模型 — 点击切换",
+      "noModels": "暂无模型 — 请在设置中添加",
+      "moreInSettings": "更多设置 →"
+    },
+    "voice": {
+      "label": "语音",
+      "unavailableShort": "转录不可用",
+      "unavailableLong": "转录不可用。请在「设置 → 提供方」中添加 OpenAI API 密钥以启用语音转录。"
+    },
+    "message": {
+      "loadingDetails": "正在加载详情…",
+      "hideReasoning": "隐藏推理与工具",
+      "viewReasoning": "查看推理与工具",
+      "copyMarkdown": "复制 Markdown",
+      "downloadMd": "下载为 .md"
+    },
+    "timeline": {
+      "thinking": "思考",
+      "toolLabel": "[ 工具 ]",
+      "outputLabel": "[ 输出 ]",
+      "reply": "回复",
+      "nativeOutput": "原生输出",
+      "helperFallback": "↻ helper_llm 兜底",
+      "helperFallbackTip": "智能体没有显式发送回复；这条消息由兜底 LLM 根据其推理生成。",
+      "recoveredAfterError": "⚠ 出错后已恢复",
+      "recoveredAfterErrorTip": "本轮中的某个步骤失败；回复是根据已完成的工作以及已知错误信息生成的。"
+    },
+    "onboarding": {
+      "eyebrow": "新对话",
+      "heading": "崭新的一页。",
+      "framing": "这里还空无一物 — 而这正是重点。你和 {{name}} 协作越多，它就越能记住、连接并延续这一切。",
+      "defaultAgentName": "你的智能体",
+      "narraBrand": "Narra · 记忆",
+      "narraCaption": "它会记住",
+      "nexusBrand": "Nexus · 网络",
+      "nexusCaption": "它会连接",
+      "teamBrand": "你的团队",
+      "teamCaption": "它会交付",
+      "tryAsking": "试试这样问",
+      "prompt1": "为我总结本周最重要的动态",
+      "prompt2": "连接一个频道并留意任何紧急情况",
+      "prompt3": "设置一份周一早晨的重点摘要"
+    },
+    "team": {
+      "notFound": "未找到团队。",
+      "memberCount_one": "{{count}} 名成员",
+      "memberCount_other": "{{count}} 名成员",
+      "teamSettings": "团队设置",
+      "empty": "还没有消息。",
+      "emptyHint": "@提及一位队友开始对话 — 之后他们会彼此交接。",
+      "noAgents": "这个团队还没有智能体。",
+      "placeholder": "向团队发消息 — @提及以指定某人…",
+      "send": "发送（回车）",
+      "all": "@all",
+      "notifyEveryone": "通知所有人",
+      "typing": "{{name}} 正在输入",
+      "youTitle": "你 · {{name}}"
+    },
+    "execution": {
+      "showSteps": "显示执行步骤",
+      "processing": "处理中",
+      "heading": "执行",
+      "waiting": "正在等待第一步…",
+      "statusCompleted": "已完成",
+      "statusRunning": "运行中",
+      "statusFailed": "失败",
+      "statusPending": "待处理"
+    }
+  }
+}

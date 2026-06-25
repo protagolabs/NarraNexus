@@ -38,6 +38,7 @@
  * single turn (clears on next user submit).
  */
 import { memo, useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Brain, Wrench, MessageSquare, ChevronDown, ChevronRight } from 'lucide-react';
 import type { TurnEvent } from '@/types';
 import { Markdown } from '@/components/ui';
@@ -69,6 +70,7 @@ const ThinkingBlock = memo(function ThinkingBlock({
   content: string;
   isStreaming: boolean;
 }) {
+  const { t } = useTranslation();
   // Tier: PROCESS. Thinking is the agent's internal monologue — not
   // something the user must read. It recedes: a *dashed* left rule
   // (dashed = process; solid = content-the-user-reads) and the dimmest
@@ -103,7 +105,7 @@ const ThinkingBlock = memo(function ThinkingBlock({
         style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}
       >
         <Brain className="w-3 h-3" />
-        <span>Thinking</span>
+        <span>{t('chat.timeline.thinking')}</span>
       </div>
       <div className="text-sm leading-relaxed">
         {isStreaming ? (
@@ -125,6 +127,7 @@ const ToolCallBlock = memo(function ToolCallBlock({
   toolInput: Record<string, unknown>;
   isStreaming: boolean;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   // Display the tool name without the long MCP namespace prefix —
@@ -173,7 +176,7 @@ const ToolCallBlock = memo(function ToolCallBlock({
             className="text-[10px] uppercase tracking-[0.12em] shrink-0"
             style={{ color: 'var(--nm-ink30)' }}
           >
-            [ tool ]
+            {t('chat.timeline.toolLabel')}
           </span>
           <span className="font-semibold" style={{ color: 'var(--nm-ink)' }}>
             {friendlyName}
@@ -206,6 +209,7 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
   output: string;
   isStreaming: boolean;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   return (
     <div
@@ -221,7 +225,7 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
       >
         {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         <span style={{ color: 'var(--nm-ink30)' }} className="uppercase tracking-[0.12em]">
-          [ output ]
+          {t('chat.timeline.outputLabel')}
         </span>
         <span>{toolName.split('__').pop()}</span>
       </button>
@@ -260,6 +264,7 @@ const ReplyBlock = memo(function ReplyBlock({
   isStreaming: boolean;
   fallbackKind: FallbackKind;
 }) {
+  const { t } = useTranslation();
   // Tier: ANSWER (peak). Reply is the agent's authoritative, user-facing
   // speech — the one block the user should land on first.
   // NM tier: ANSWER (peak). Reply is the agent's authoritative reply —
@@ -301,7 +306,7 @@ const ReplyBlock = memo(function ReplyBlock({
         style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-silicon)' }}
       >
         <MessageSquare className="w-3 h-3" />
-        <span>Reply</span>
+        <span>{t('chat.timeline.reply')}</span>
         {fallbackKind === 'no_reply' && (
           // Soft / informational: the agent finished thinking but didn't
           // call the reply tool; helper_llm wrote what it should have.
@@ -309,9 +314,9 @@ const ReplyBlock = memo(function ReplyBlock({
           <span
             className="ml-auto"
             style={{ color: 'var(--color-silicon)' }}
-            title="The agent didn't explicitly send a reply; this message was written by the fallback LLM from its reasoning."
+            title={t('chat.timeline.helperFallbackTip')}
           >
-            ↻ helper_llm fallback
+            {t('chat.timeline.helperFallback')}
           </span>
         )}
         {fallbackKind === 'after_error' && (
@@ -321,9 +326,9 @@ const ReplyBlock = memo(function ReplyBlock({
           <span
             className="ml-auto"
             style={{ color: 'var(--color-warning)' }}
-            title="A step in this turn failed; the reply was written from the completed work plus what we know about the error."
+            title={t('chat.timeline.recoveredAfterErrorTip')}
           >
-            ⚠ recovered after error
+            {t('chat.timeline.recoveredAfterError')}
           </span>
         )}
       </div>
@@ -345,6 +350,7 @@ const NativeOutputBlock = memo(function NativeOutputBlock({
   content: string;
   isStreaming: boolean;
 }) {
+  const { t } = useTranslation();
   // Tier: ANSWER (secondary). native_output IS speech aimed at the user
   // — the model just didn't route it through send_message_to_user_-
   // directly. So it belongs in the same tier as Reply, one notch below:
@@ -390,7 +396,7 @@ const NativeOutputBlock = memo(function NativeOutputBlock({
         style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink70)' }}
       >
         <MessageSquare className="w-3 h-3" />
-        <span>Native output</span>
+        <span>{t('chat.timeline.nativeOutput')}</span>
       </div>
       <div className="text-[0.95rem] leading-relaxed whitespace-pre-wrap">{content}</div>
     </div>

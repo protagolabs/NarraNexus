@@ -1,0 +1,318 @@
+{
+  "jobs": {
+    "title": "任务",
+    "refresh": "刷新",
+    "untitled": "未命名",
+    "untitledJob": "未命名任务",
+    "noDependencies": "没有带依赖关系的任务",
+    "failedGroup": "{{count}} 个失败任务",
+    "failedGroup_other": "{{count}} 个失败任务",
+    "status": {
+      "pending": "等待中",
+      "active": "进行中",
+      "running": "运行中",
+      "paused": "已暂停",
+      "pausedNoQuota": "额度不足",
+      "cooling": "重试中",
+      "blocked": "已阻塞",
+      "blockedFailed": "依赖失败",
+      "completed": "已完成",
+      "failed": "已失败",
+      "cancelled": "已取消"
+    },
+    "metrics": {
+      "active": "进行中",
+      "success": "成功",
+      "failed": "失败",
+      "rate": "成功率"
+    },
+    "view": {
+      "list": "列表",
+      "graph": "图谱",
+      "timeline": "时间线"
+    },
+    "filter": {
+      "all": "全部"
+    },
+    "empty": {
+      "list": {
+        "title": "未找到任务",
+        "hint": "创建一个任务以开始"
+      },
+      "graph": {
+        "title": "没有依赖关系",
+        "hint": "带依赖关系的任务将在此处可视化展示"
+      },
+      "timeline": {
+        "title": "没有可显示的任务",
+        "hint": "创建任务以查看时间线"
+      }
+    },
+    "cancel": {
+      "title": "取消任务",
+      "message": "确定要取消此任务吗？此操作无法撤销。",
+      "confirm": "取消任务",
+      "keepRunning": "继续运行",
+      "failedTitle": "取消失败",
+      "failedMessage": "取消任务失败",
+      "failedRetry": "取消任务失败，请重试。"
+    },
+    "pause": {
+      "failedTitle": "暂停失败",
+      "failedMessage": "暂停任务失败",
+      "failedRetry": "暂停任务失败，请重试。"
+    },
+    "resume": {
+      "failedTitle": "恢复失败",
+      "failedMessage": "恢复任务失败",
+      "failedRetry": "恢复任务失败，请重试。"
+    },
+    "detail": {
+      "clickNode": "点击节点查看详情",
+      "id": "ID：",
+      "taskKey": "任务键：",
+      "description": "描述：",
+      "dependsOn": "依赖于：",
+      "started": "开始时间：",
+      "completed": "完成时间：",
+      "output": "输出："
+    },
+    "expanded": {
+      "clickToCopy": "点击复制",
+      "ids": "ID",
+      "jobId": "任务 ID",
+      "instance": "实例",
+      "configuration": "配置",
+      "type": "类型：",
+      "trigger": "触发器：",
+      "cron": "Cron：",
+      "interval": "间隔：",
+      "runAt": "运行于：",
+      "endCondition": "结束条件：",
+      "maxIter": "最大迭代：",
+      "payload": "负载",
+      "showLess": "收起",
+      "showMore": "展开",
+      "timing": "时间",
+      "created": "创建于：",
+      "updated": "更新于：",
+      "lastRun": "上次运行：",
+      "nextRun": "下次运行：",
+      "dependencies": "依赖项",
+      "processLog": "处理日志（{{count}} 条）",
+      "targetUser": "目标用户（执行身份）",
+      "linkedNarrative": "关联叙事",
+      "error": "错误"
+    },
+    "action": {
+      "pause": "暂停",
+      "pausing": "正在暂停…",
+      "resume": "恢复",
+      "resuming": "正在恢复…",
+      "cancelJob": "取消任务",
+      "cancelling": "正在取消…"
+    },
+    "template": {
+      "selectTemplate": "选择模板",
+      "tasksCount": "{{count}} 个任务",
+      "variablesCount": "{{count}} 个变量",
+      "configuration": "配置",
+      "selectOption": "请选择…",
+      "enterField": "请输入{{field}}",
+      "dependencyPreview": "依赖预览",
+      "back": "返回",
+      "creating": "正在创建…",
+      "createJobs": "创建任务"
+    },
+    "timeline": {
+      "noJobs": "没有可显示的任务",
+      "waiting": "等待中…",
+      "noTimeData": "无时间数据"
+    },
+    "distribution": {
+      "title": "状态分布",
+      "total": "共 {{count}} 个",
+      "legend": {
+        "completed": "{{count}} 个已完成",
+        "running": "{{count}} 个运行中",
+        "active": "{{count}} 个进行中",
+        "paused": "{{count}} 个已暂停",
+        "failed": "{{count}} 个已失败"
+      }
+    }
+  },
+  "artifacts": {
+    "refresh": "刷新产物",
+    "zoom": "放大产物",
+    "zoomFullscreen": "放大产物（全屏打开）",
+    "collapse": "折叠面板",
+    "collapseAria": "折叠产物面板",
+    "selectArtifact": "选择一个产物",
+    "minimized": "已最小化：",
+    "restore": "恢复“{{title}}”",
+    "openBadge": "打开 {{title}}（{{kind}}）",
+    "unsupportedKind": "不支持的产物类型：{{kind}}",
+    "loadingRenderer": "正在加载渲染器…",
+    "sliver": {
+      "expandTitle": "点击展开 · {{count}} 个产物",
+      "expandTitle_other": "点击展开 · {{count}} 个产物",
+      "emptyTitle": "智能体创建产物后将在此处显示",
+      "expandAria": "展开产物面板（{{count}} 项）",
+      "expandAria_other": "展开产物面板（{{count}} 项）",
+      "emptyAria": "产物面板（空）",
+      "label": "产物（{{count}}）",
+      "labelEmpty": "产物"
+    },
+    "emptyState": {
+      "title": "暂无产物",
+      "hint": "智能体创建产物后将在此处显示。"
+    },
+    "download": {
+      "title": "下载 / 导出",
+      "chartLoading": "图表仍在加载中，请稍后重试。",
+      "exportPng": "导出为 PNG",
+      "exportJpeg": "导出为 JPEG",
+      "original": "下载原文件（.{{ext}}）",
+      "preparing": "正在准备下载…"
+    },
+    "heal": {
+      "title": "恢复产物：{{title}}",
+      "dismiss": "忽略",
+      "registering": "正在注册…",
+      "registerSelected": "注册所选项"
+    },
+    "preview": {
+      "chart": "[图表预览 — 打开标签页查看]",
+      "html": "[HTML 应用 — 打开标签页查看]",
+      "pdf": "[PDF 文档 — 打开标签页查看]",
+      "unavailable": "预览不可用：{{error}}",
+      "open": "打开 →"
+    },
+    "tabStrip": {
+      "noArtifacts": "暂无产物",
+      "deleteFailed": "删除失败：{{error}}",
+      "deleteTitle": "删除产物",
+      "deletePrompt": "移除该标签页：",
+      "deleteNote": "仅移除注册条目。你的工作区文件将保留在原处 — 如需释放磁盘空间，请在配置面板的工作区部分进行清理。",
+      "cancel": "取消",
+      "deleting": "正在删除…",
+      "deleteTab": "删除标签页",
+      "tabTitle": "点击选择 · 双击放大",
+      "zoomTitle": "放大（全屏打开）",
+      "minimizeTitle": "最小化（不会删除；可从上方栏恢复）",
+      "minimizeAria": "最小化标签页",
+      "deleteTabTitle": "删除标签页（工作区文件保留在原处）",
+      "deleteAria": "删除产物标签页"
+    },
+    "zoomModal": {
+      "aria": "已放大的产物：{{title}}",
+      "zoomOut": "缩小（Ctrl/Cmd -）",
+      "zoomOutAria": "缩小",
+      "reset": "重置为 100%（Ctrl/Cmd 0）",
+      "resetAria": "将缩放重置为 100%",
+      "zoomIn": "放大（Ctrl/Cmd +）",
+      "zoomInAria": "放大",
+      "close": "关闭（Esc）",
+      "closeAria": "关闭放大"
+    }
+  },
+  "skills": {
+    "title": "技能与 MCP",
+    "refresh": "刷新",
+    "actionBar": {
+      "github": "GitHub",
+      "zip": "Zip",
+      "showDisabled": "显示已禁用"
+    },
+    "error": {
+      "title": "错误",
+      "loadFailed": "加载技能失败",
+      "retry": "重试"
+    },
+    "empty": {
+      "title": "未安装任何技能",
+      "hint": "从 GitHub 安装技能或上传 zip 文件"
+    },
+    "remove": {
+      "title": "移除技能",
+      "message": "确定要移除“{{name}}”吗？此操作无法撤销。",
+      "confirm": "移除"
+    },
+    "card": {
+      "needsConfig": "需要配置：{{vars}}",
+      "studying": "学习中…",
+      "studyResult": "学习结果",
+      "study": "学习",
+      "restudy": "重新学习",
+      "configure": "配置",
+      "env": "环境变量",
+      "enable": "启用",
+      "disable": "禁用",
+      "remove": "移除"
+    },
+    "install": {
+      "fromGithub": "从 GitHub 安装",
+      "fromZip": "从 Zip 安装",
+      "githubUrl": "GitHub 链接",
+      "branch": "分支（可选）",
+      "skillPackage": "技能包（.zip）",
+      "clickOrDrag": "点击或拖拽以上传",
+      "zipOnly": "仅限 .zip 文件",
+      "trustWarning": "仅安装你信任来源的技能。技能可能包含智能体会读取或使用的文档、提示词和脚本。",
+      "cancel": "取消",
+      "installing": "正在安装…",
+      "install": "安装",
+      "errorUrlRequired": "GitHub 链接为必填项",
+      "errorOnlyGithub": "仅支持 GitHub 仓库",
+      "errorSelectZip": "请选择一个 zip 文件",
+      "errorZipExt": "请选择一个 .zip 文件"
+    },
+    "env": {
+      "title": "配置：{{name}}",
+      "noneRequired": "此技能不需要环境变量。",
+      "instructions": "请输入所需的环境变量。留空则保留现有值。",
+      "placeholderConfigured": "••••••• (已配置)",
+      "placeholderEnter": "请输入值…",
+      "cancel": "取消",
+      "saving": "正在保存…",
+      "save": "保存",
+      "errorLoad": "加载配置失败",
+      "errorSave": "保存失败"
+    },
+    "mcp": {
+      "servers": "MCP 服务器",
+      "addMcp": "添加 MCP",
+      "refreshValidate": "刷新并全部校验",
+      "noServers": "未配置任何 MCP 服务器",
+      "addFirst": "添加你的第一个 MCP",
+      "validating": "正在校验…",
+      "connected": "已连接",
+      "failed": "失败",
+      "failedWithError": "失败：{{error}}",
+      "unknown": "未知",
+      "failedTooltip": "失败：{{error}}\n\n（点击重新校验）",
+      "statusTooltip": "{{status}} — 点击重新校验",
+      "disabled": "已禁用",
+      "disable": "禁用",
+      "enable": "启用",
+      "delete": "删除",
+      "namePlaceholder": "MCP 名称",
+      "urlPlaceholder": "SSE 链接（例如 https://your-host/sse）",
+      "add": "添加",
+      "cancel": "取消",
+      "deleteTitle": "删除 MCP",
+      "deleteMessage": "删除此 MCP？",
+      "errorLoad": "加载 MCP 失败",
+      "errorAdd": "添加 MCP 失败",
+      "errorDelete": "删除 MCP 失败",
+      "errorUpdate": "更新 MCP 失败",
+      "hint": {
+        "endpoint": "必须是基于 http(s) 的远程 SSE 端点 — 通常以 /sse 结尾。",
+        "reachable": "服务器必须能够访问该链接（公网主机或本机可连接的主机）。",
+        "noStdio": "此处不支持本地 stdio / npx MCP — 仅支持基于 URL 的 SSE 服务器。",
+        "apiKey": "如果需要 API 密钥，请按 MCP 的要求放入链接或请求头中；我们以匿名方式连接。",
+        "validation": "添加后，状态指示点会校验连接 — “失败”表示该链接无法访问或不是有效的 SSE 端点。"
+      }
+    }
+  }
+}
