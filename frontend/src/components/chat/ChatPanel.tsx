@@ -230,6 +230,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  // Chat tabs: "Conversation" is the owner↔agent direct chat (original design);
+  // "Inner Thoughts" holds the agent's background activity + cross-channel
+  // narrations (turns whose working_source isn't chat/manyfold) so they aren't
+  // shown as if the agent were speaking to the owner.
+  const [chatTab, setChatTab] = useState<'conversation' | 'inner'>('conversation');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -814,6 +819,28 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         </div>
       </div>
 
+      {/* Chat tabs — Conversation (owner↔agent direct chat) vs Inner Thoughts
+          (the agent's background activity + cross-channel narrations). */}
+      <div
+        className="px-5 max-md:px-3 flex items-center gap-1 border-b"
+        style={{ borderColor: 'var(--nm-hairline)' }}
+      >
+        {(['conversation', 'inner'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setChatTab(t)}
+            className={cn(
+              'px-3 py-2 text-[11px] font-mono uppercase tracking-[0.12em] transition-colors border-b-2 -mb-px',
+              chatTab === t
+                ? 'border-[var(--accent-primary)] text-[var(--text-primary)]'
+                : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
+            )}
+          >
+            {t === 'conversation' ? 'Conversation' : 'Inner Thoughts'}
+          </button>
+        ))}
+      </div>
+
       {/* Security reminder banner — persistent, non-dismissible. Warns
           users not to paste sensitive personal data into chat (it would be
           stored in trajectories + sent to the LLM provider). Added as part
@@ -905,8 +932,26 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
         {/* Unified timeline */}
         {timeline.map((item) => {
-          // Activity record → small centered text
-          if (item.messageType === 'activity') {
+          // What belongs in Inner Thoughts vs Conversation:
+          //   - activity records ("Background activity (discord)") — the
+          //     lightweight "a background turn happened" markers — are the ONLY
+          //     thing routed to Inner Thoughts.
+          //   - everything the agent actually *says* is owner-facing and stays
+          //     in Conversation. This includes its "I replied to a Discord user
+          //     / notified you" narrations: the agent chose to address the owner
+          //     via send_message_to_user_directly, so the channel that triggered
+          //     the turn (discord / slack / lark / job / …) is irrelevant — it
+          //     is still a real message to the owner and must show in the direct
+          //     conversation, not be hidden away as an "inner thought".
+          // Session items (the owner's live in-app turn) are conversation too.
+          const isActivity = item.messageType === 'activity';
+          const isInner = isActivity;
+
+          // Route by tab: each tab renders only its own items.
+          if (chatTab === 'inner' ? !isInner : isInner) return null;
+
+          // Activity record → small centered text (Inner Thoughts only).
+          if (isActivity) {
             return (
               <div key={item.id} className="flex justify-center py-1">
                 <span className="text-[10px] text-[var(--text-tertiary)] italic">
@@ -919,7 +964,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             );
           }
 
-          // Normal message → bubble + optional artifact preview cards
+          // Full message bubble (Conversation: owner↔agent chat; Inner Thoughts:
+          // the agent's cross-channel narrations, readable, with their own
+          // inline reasoning/tool disclosure).
           const isNewSession = item.source === 'session';
           const hasArtifactTools =
             item.role === 'assistant' &&
@@ -969,7 +1016,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             turn doesn't visually detach from the rest of the
             conversation (it would otherwise be the only assistant
             output with no left-side avatar). */}
-        {isStreaming && currentEvents.length > 0 && (
+        {chatTab === 'conversation' && isStreaming && currentEvents.length > 0 && (
           <div className="flex gap-3 animate-fade-in">
             <RingAvatar
               species="silicon"
@@ -1012,7 +1059,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             comes in, the indicator is replaced by TurnTimeline. Same
             avatar shell as the streaming branch so the layout doesn't
             jump when the first event arrives. */}
-        {isStreaming && currentEvents.length === 0 && (() => {
+        {chatTab === 'conversation' && isStreaming && currentEvents.length === 0 && (() => {
           const getInitStatus = () => {
             if (currentSteps.length === 0) return 'Starting up...';
             const latestStep = currentSteps[currentSteps.length - 1];
