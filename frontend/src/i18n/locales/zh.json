@@ -1,0 +1,27 @@
+{
+  "language": {
+    "name": "语言"
+  },
+  "sidebar": {
+    "chats": "对话",
+    "teams": "团队",
+    "agents": "智能体",
+    "local": "本地",
+    "dashboard": "仪表盘",
+    "settings": "设置",
+    "system": "系统",
+    "clearHistory": "清空历史",
+    "logout": "退出登录",
+    "poweredBy": "由 NetMind.AI 提供支持",
+    "online": "在线",
+    "you": "你"
+  },
+  "chat": {
+    "conversation": "对话",
+    "innerThoughts": "内心活动",
+    "interaction": "交互",
+    "composerPlaceholder": "输入消息，或输入 / 调用技能…",
+    "selectAgent": "选择一个智能体",
+    "selectAgentHint": "从侧边栏选择一个智能体，开始交互。"
+  }
+}

@@ -18,8 +18,9 @@ import {
   RotateCcw,
   LayoutDashboard,
 } from 'lucide-react';
-import { Button, ThemeToggle, ScrollArea, useConfirm } from '@/components/ui';
+import { Button, ThemeToggle, LanguageToggle, ScrollArea, useConfirm } from '@/components/ui';
 import { RingAvatar, StatusDot } from '@/components/nm';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
 import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore, useUIStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -66,6 +67,7 @@ export function Sidebar() {
   const clearPreload = usePreloadStore((s) => s.clearAll);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { isDark } = useTheme();
+  const { t } = useTranslation();
 
   /**
    * Wipe all session + cached data before leaving the current mode.
@@ -237,7 +239,7 @@ export function Sidebar() {
               </div>
               <div className="flex items-center gap-1.5 text-[10px] leading-none text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-[family-name:var(--font-mono)]">
                 <StatusDot status="success" size={6} />
-                <span>Online</span>
+                <span>{t('sidebar.online')}</span>
               </div>
             </div>
             {/* Affordance: this row opens your "You" workspace — a chevron that
@@ -343,7 +345,7 @@ export function Sidebar() {
               )}
             >
               <LayoutDashboard className="w-4 h-4" />
-              Dashboard
+              {t('sidebar.dashboard')}
             </Button>
             <Button
               variant="ghost"
@@ -357,7 +359,7 @@ export function Sidebar() {
               )}
             >
               <Sliders className="w-4 h-4" />
-              Settings
+              {t('sidebar.settings')}
             </Button>
             {features.showSystemPage && (
               <Button
@@ -372,7 +374,7 @@ export function Sidebar() {
                 )}
               >
                 <Server className="w-4 h-4" />
-                System
+                {t('sidebar.system')}
               </Button>
             )}
           </>
@@ -449,7 +451,7 @@ export function Sidebar() {
               className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
               <Trash2 className="w-4 h-4" />
-              Clear History
+              {t('sidebar.clearHistory')}
             </Button>
             <Button
               variant="ghost"
@@ -458,12 +460,13 @@ export function Sidebar() {
               className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
               <LogOut className="w-4 h-4" />
-              Logout
+              {t('sidebar.logout')}
             </Button>
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--rule)]">
               <ThemeToggle />
+              <LanguageToggle />
               <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
-                Powered by NetMind.AI
+                {t('sidebar.poweredBy')}
               </span>
               <span className="text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider">v{__APP_VERSION__}</span>
             </div>

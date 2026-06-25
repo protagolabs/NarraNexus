@@ -13,6 +13,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
@@ -281,6 +282,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const currentToolCalls = useDeferredValue(_rtToolCalls);
   const currentEvents = useDeferredValue(_rtEvents);
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
+  const { t } = useTranslation();
 
   // Read artifact list at component scope so it can be safely passed into
   // ArtifactToolCallCards without calling a hook inside a .map() callback.
@@ -825,18 +827,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         className="px-5 max-md:px-3 flex items-center gap-1 border-b"
         style={{ borderColor: 'var(--nm-hairline)' }}
       >
-        {(['conversation', 'inner'] as const).map((t) => (
+        {(['conversation', 'inner'] as const).map((tab) => (
           <button
-            key={t}
-            onClick={() => setChatTab(t)}
+            key={tab}
+            onClick={() => setChatTab(tab)}
             className={cn(
               'px-3 py-2 text-[11px] font-mono uppercase tracking-[0.12em] transition-colors border-b-2 -mb-px',
-              chatTab === t
+              chatTab === tab
                 ? 'border-[var(--accent-primary)] text-[var(--text-primary)]'
                 : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
             )}
           >
-            {t === 'conversation' ? 'Conversation' : 'Inner Thoughts'}
+            {tab === 'conversation' ? t('chat.conversation') : t('chat.innerThoughts')}
           </button>
         ))}
       </div>
