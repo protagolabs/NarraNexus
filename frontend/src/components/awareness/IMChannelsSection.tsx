@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, MessageCircle, QrCode, Bot, Link as LinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui';
@@ -130,6 +131,7 @@ const IM_CHANNELS: ChannelEntry[] = [
 ];
 
 export function IMChannelsSection() {
+  const { t } = useTranslation();
   const { agentId } = useConfigStore();
   // Expanded by default: opening Channels should show the channel list, not a
   // collapsed one-liner the user has to click to reveal.
@@ -210,14 +212,14 @@ export function IMChannelsSection() {
           ) : (
             <ChevronRight className="w-4 h-4 text-[var(--text-secondary)]" />
           )}
-          <span className="text-sm font-medium text-[var(--text-primary)]">IM Channels</span>
+          <span className="text-sm font-medium text-[var(--text-primary)]">{t('awareness.channels.title')}</span>
           <span className="text-xs text-[var(--text-secondary)]">
-            {connectedCount}/{totalCount} connected
+            {t('awareness.channels.connectedCount', { connected: connectedCount, total: totalCount })}
           </span>
         </span>
         {!sectionOpen && (
           <span className="text-xs text-[var(--accent-primary)] opacity-70 group-hover:opacity-100">
-            Manage
+            {t('awareness.channels.manage')}
           </span>
         )}
       </button>
@@ -244,10 +246,10 @@ export function IMChannelsSection() {
                     <Icon className="w-4 h-4 text-[var(--text-secondary)]" />
                     {ch.label}
                     {isConnected ? (
-                      <span className="ml-2 text-xs text-[var(--color-green-500)]">✓ connected</span>
+                      <span className="ml-2 text-xs text-[var(--color-green-500)]">{t('awareness.channels.connectedBadge')}</span>
                     ) : (
                       <span className="ml-2 text-xs text-[var(--text-secondary)] inline-flex items-center gap-1">
-                        <LinkIcon className="w-3 h-3" /> not bound
+                        <LinkIcon className="w-3 h-3" /> {t('awareness.channels.notBound')}
                       </span>
                     )}
                   </span>
@@ -273,7 +275,7 @@ export function IMChannelsSection() {
               onClick={() => refreshConnected()}
               className="text-xs"
             >
-              Refresh status
+              {t('awareness.channels.refreshStatus')}
             </Button>
           </div>
         </div>

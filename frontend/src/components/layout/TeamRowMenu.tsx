@@ -9,6 +9,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MoreVertical, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +28,7 @@ export interface TeamRowMenuProps {
 }
 
 export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpenChange }: TeamRowMenuProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // Notify the parent from the event handler (NOT inside a setState updater —
   // that runs during render and triggers a cross-component setState warning).
@@ -44,7 +46,7 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpe
   return (
     <div className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
       <button
-        aria-label="Group chat options"
+        aria-label={t('layout.teamRowMenu.options')}
         onClick={(e) => { e.stopPropagation(); setOpenAndNotify(!open); }}
         className={cn(
           'p-1 rounded-[var(--radius-xs)] transition-colors',
@@ -77,12 +79,12 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpe
             />
             <MenuItem
               icon={<Pencil className="w-3 h-3" />}
-              label="Rename"
+              label={t('layout.teamRowMenu.rename')}
               onClick={handleItem(onRename)}
             />
             <MenuItem
               icon={<Trash2 className="w-3 h-3" />}
-              label="Delete"
+              label={t('layout.teamRowMenu.delete')}
               danger
               onClick={handleItem(onDelete)}
             />

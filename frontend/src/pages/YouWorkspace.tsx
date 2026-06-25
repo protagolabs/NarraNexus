@@ -20,6 +20,7 @@
  * (Memory first). NO fabricated data is shown in the product.
  */
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import { useConfigStore } from '@/stores/configStore';
 import { RingAvatar } from '@/components/nm';
@@ -32,21 +33,22 @@ type YouTab = 'memory' | 'network' | 'world';
 
 interface TabDef {
   id: YouTab;
-  label: string;
+  labelKey: string;
 }
 
 // Each tab now owns its own data view + empty state (NarraMemoryTimeline,
 // NexusNetworkGraph, WorldviewLenses).
 const TABS: TabDef[] = [
-  { id: 'memory', label: 'Narra Memory' },
-  { id: 'network', label: 'Nexus Network' },
-  { id: 'world', label: 'Worldview' },
+  { id: 'memory', labelKey: 'pages.you.tabMemory' },
+  { id: 'network', labelKey: 'pages.you.tabNetwork' },
+  { id: 'world', labelKey: 'pages.you.tabWorld' },
 ];
 
 export function YouWorkspace() {
+  const { t } = useTranslation();
   const userId = useConfigStore((s) => s.userId);
   const displayName = useConfigStore((s) => s.displayName);
-  const name = (displayName || userId || 'You').trim();
+  const name = (displayName || userId || t('pages.you.you')).trim();
 
   const [tab, setTab] = useState<YouTab>('memory');
 
@@ -90,10 +92,10 @@ export function YouWorkspace() {
           <RingAvatar species="carbon" label={name || '?'} size="md" />
           <div className="flex-1 min-w-0">
             <h1 className="text-[18px] font-medium leading-tight text-[var(--text-primary)]">
-              You{name ? ` · ${name}` : ''}
+              {t('pages.you.you')}{name ? ` · ${name}` : ''}
             </h1>
             <p className="mt-0.5 text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
-              your world, across all your agents
+              {t('pages.you.subtitle')}
             </p>
           </div>
           <BindingDots />
@@ -103,17 +105,17 @@ export function YouWorkspace() {
         <div
           className="flex items-center gap-6 mt-6 border-b border-[var(--rule)] shrink-0"
           role="tablist"
-          aria-label="You workspace views"
+          aria-label={t('pages.you.viewsAriaLabel')}
         >
-          {TABS.map((t) => {
-            const on = t.id === tab;
+          {TABS.map((tabDef) => {
+            const on = tabDef.id === tab;
             return (
               <button
-                key={t.id}
+                key={tabDef.id}
                 type="button"
                 role="tab"
                 aria-selected={on}
-                onClick={() => switchTab(t.id)}
+                onClick={() => switchTab(tabDef.id)}
                 className={cn(
                   'relative -mb-px py-2 text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] transition-colors',
                   on
@@ -121,7 +123,7 @@ export function YouWorkspace() {
                     : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
                 )}
               >
-                {t.label}
+                {t(tabDef.labelKey)}
                 {on && (
                   <span
                     className="absolute inset-x-0 -bottom-px h-0.5"
@@ -139,8 +141,8 @@ export function YouWorkspace() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search…"
-              aria-label="Search your data"
+              placeholder={t('pages.you.searchPlaceholder')}
+              aria-label={t('pages.you.searchAriaLabel')}
               spellCheck={false}
               className="w-28 sm:w-40 bg-transparent text-[12px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
             />
@@ -171,16 +173,16 @@ export function YouWorkspace() {
               aria-hidden
             />
             <span className="text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
-              Notes — my own thoughts
+              {t('pages.you.notesLabel')}
             </span>
             <span className="ml-auto text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] text-[var(--text-tertiary)]">
-              saved on this device
+              {t('pages.you.savedOnDevice')}
             </span>
           </div>
           <textarea
             value={notes}
             onChange={(e) => onNotesChange(e.target.value)}
-            placeholder="Jot anything — ideas, reminders, things to tell your agents later…"
+            placeholder={t('pages.you.notesPlaceholder')}
             spellCheck={false}
             className={cn(
               'w-full min-h-[72px] resize-y rounded-[var(--radius-md)] p-3',

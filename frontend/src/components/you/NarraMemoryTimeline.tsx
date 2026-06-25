@@ -15,6 +15,7 @@
  * This is owner-scoped: it never reads the selected agentId.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import type { MyNarrative } from '@/types';
 import { BracketEmptyState } from '@/components/nm';
@@ -34,6 +35,7 @@ function ts(value: string | null): number | null {
 }
 
 export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
+  const { t } = useTranslation();
   const q = search.trim().toLowerCase();
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [selected, setSelected] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
       .then((res) => {
         if (!alive) return;
         if (res.success) setState({ phase: 'ready', items: res.narratives });
-        else setState({ phase: 'error', message: res.error || 'Failed to load' });
+        else setState({ phase: 'error', message: res.error || t('you.common.failedToLoad') });
       })
       .catch((e: unknown) => {
         if (alive) setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) });
@@ -53,6 +55,8 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
     return () => {
       alive = false;
     };
+    // Load once on mount; `t` is referentially stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Time range + lane layout, derived once per data set. A search query filters
@@ -101,7 +105,7 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
     return (
       <Center>
         <span className="text-[12px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)] animate-pulse">
-          Loading your storylines…
+          {t('you.memory.loading')}
         </span>
       </Center>
     );
@@ -109,7 +113,7 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
   if (state.phase === 'error') {
     return (
       <Center>
-        <BracketEmptyState label="Couldn’t load your memory" hint={state.message} />
+        <BracketEmptyState label={t('you.memory.errorLabel')} hint={state.message} />
       </Center>
     );
   }
@@ -117,11 +121,11 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
     return (
       <Center>
         <BracketEmptyState
-          label={q ? 'No matches' : 'No storylines yet'}
+          label={q ? t('you.memory.noMatches') : t('you.memory.emptyLabel')}
           hint={
             q
-              ? `No storyline matches “${search.trim()}”.`
-              : 'As your agents have real conversations, each topic becomes a storyline on this timeline.'
+              ? t('you.memory.noMatchesHint', { query: search.trim() })
+              : t('you.memory.emptyHint')
           }
         />
       </Center>
@@ -139,10 +143,12 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
       {/* Header */}
       <div className="flex items-center gap-2 mb-4 shrink-0">
         <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">
-          [ {layout.lanes.length} {layout.lanes.length === 1 ? 'storyline' : 'storylines'} ]
+          {layout.lanes.length === 1
+            ? t('you.memory.storylineCount', { count: layout.lanes.length })
+            : t('you.memory.storylineCountPlural', { count: layout.lanes.length })}
         </span>
         <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
-          · by topic, across all your agents
+          {t('you.memory.byTopic')}
         </span>
       </div>
 
@@ -216,7 +222,7 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
           </span>
         ))}
         <span className="absolute top-1 right-0 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] text-[var(--color-carbon)]">
-          now
+          {t('you.memory.now')}
         </span>
       </div>
 
@@ -225,7 +231,7 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
         <div className="mt-3 shrink-0 rounded-[var(--radius-md)] border border-[var(--nm-hairline)] bg-[var(--bg-primary)] p-3">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[13px] font-medium text-[var(--text-primary)] truncate">
-              {selectedItem.name || selectedItem.topic_hint || 'Untitled storyline'}
+              {selectedItem.name || selectedItem.topic_hint || t('you.memory.untitledStoryline')}
             </span>
             <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] text-[var(--text-tertiary)] shrink-0">
               <span className="w-1.5 h-1.5 rounded-full allow-circle" style={{ background: 'var(--color-silicon)' }} aria-hidden />
@@ -239,9 +245,9 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
             <p className="text-[12px] leading-relaxed text-[var(--text-secondary)]">{selectedItem.summary}</p>
           )}
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] text-[var(--text-tertiary)]">
-            <span>started {selectedItem.created_at ? fmtDay.format(new Date(selectedItem.created_at)) : '—'}</span>
-            <span>last active {selectedItem.updated_at ? fmtDay.format(new Date(selectedItem.updated_at)) : '—'}</span>
-            {selectedItem.round_counter > 0 && <span>{selectedItem.round_counter} rounds</span>}
+            <span>{t('you.memory.started', { date: selectedItem.created_at ? fmtDay.format(new Date(selectedItem.created_at)) : '—' })}</span>
+            <span>{t('you.memory.lastActive', { date: selectedItem.updated_at ? fmtDay.format(new Date(selectedItem.updated_at)) : '—' })}</span>
+            {selectedItem.round_counter > 0 && <span>{t('you.memory.rounds', { count: selectedItem.round_counter })}</span>}
             {selectedItem.topic_keywords.length > 0 && (
               <span className="normal-case tracking-normal">{selectedItem.topic_keywords.slice(0, 5).join(' · ')}</span>
             )}

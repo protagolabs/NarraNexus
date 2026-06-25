@@ -1,0 +1,117 @@
+{
+  "layout": {
+    "chatView": {
+      "tabChat": "Chat",
+      "tabArtifacts": "Artefacts",
+      "tabArtifactsCount": "Artefacts ({{count}})"
+    },
+    "subPage": {
+      "closeTitle": "Fermer (retour au chat)",
+      "closeAriaLabel": "Fermer et revenir au chat"
+    },
+    "sidebar": {
+      "openWorkspace": "Ouvrir votre espace de travail",
+      "logoutConfirmTitle": "Se déconnecter",
+      "logoutConfirmMessage": "Voulez-vous vraiment vous déconnecter ?",
+      "logoutConfirmAction": "Se déconnecter",
+      "clearHistoryConfirmTitle": "Effacer l'historique",
+      "clearHistoryConfirmMessage": "Effacer tout l'historique des conversations ?",
+      "clearHistoryConfirmAction": "Effacer",
+      "currentMode": "Actuel : {{mode}}",
+      "switchTo": "Passer en {{mode}}"
+    },
+    "agentList": {
+      "deleteAgentTitle": "Supprimer l'agent",
+      "deleteAgentMessage": "Supprimer l'agent « {{name}} » ? Cela supprimera définitivement toutes les données associées (récits, événements, instances, tâches, etc.).",
+      "deleteAction": "Supprimer",
+      "deleteFailedTitle": "Échec de la suppression",
+      "deleteAgentFailedMessage": "Échec de la suppression de l'agent : {{error}}",
+      "deleteAgentError": "Erreur lors de la suppression de l'agent. Veuillez réessayer.",
+      "deleteTeamTitle": "Supprimer l'équipe",
+      "deleteTeamMessage": "Supprimer l'équipe « {{name}} » ? Les membres sont dissociés ; les agents eux-mêmes ne sont PAS supprimés.",
+      "createAgentOrTeam": "Créer un agent ou une équipe",
+      "createAgent": "Créer un agent",
+      "createTeam": "Créer une équipe",
+      "manageAgents": "Gérer les agents",
+      "manageAgentsTitle": "Gérer les agents (par lot · ajouter / modifier / supprimer)",
+      "teamGroupChatTitle": "{{name}} — discussion de groupe",
+      "teamGroupChatAria": "Discussion de groupe {{name}}",
+      "refreshAgents": "Actualiser les agents",
+      "emptyLabel": "Aucun agent pour l'instant",
+      "emptyHint": "Créez votre premier agent pour démarrer une conversation.",
+      "noAgentsShort": "Aucun agent pour l'instant."
+    },
+    "agentRow": {
+      "saveTitle": "Enregistrer (Entrée)",
+      "cancelTitle": "Annuler (Échap)",
+      "publicBy": "Public · par {{name}}"
+    },
+    "agentRowMenu": {
+      "options": "Options de l'agent",
+      "rename": "Renommer",
+      "setPrivate": "Rendre privé",
+      "setPublic": "Rendre public",
+      "delete": "Supprimer"
+    },
+    "agentsHeaderMenu": {
+      "menu": "Menu des agents",
+      "import": "Importer",
+      "export": "Exporter",
+      "manageTeams": "Gérer les équipes"
+    },
+    "createMenu": {
+      "create": "Créer",
+      "createAgentOrTeam": "Créer un agent ou une équipe",
+      "createAgent": "Créer un agent",
+      "createTeam": "Créer une équipe"
+    },
+    "teamChatRow": {
+      "groupChatTitle": "{{name}} — discussion de groupe",
+      "agentCount_one": "{{count}} agent",
+      "agentCount_other": "{{count}} agents"
+    },
+    "teamRowMenu": {
+      "options": "Options de la discussion de groupe",
+      "rename": "Renommer",
+      "delete": "Supprimer"
+    },
+    "topBar": {
+      "crumbDashboard": "Tableau de bord",
+      "crumbSettings": "Paramètres",
+      "crumbSystem": "Système",
+      "crumbManageAgents": "Gérer les agents",
+      "crumbTeam": "Équipe",
+      "crumbBundle": "Lot",
+      "crumbChat": "Chat",
+      "contextApp": "app",
+      "contextChat": "chat",
+      "runtimeTitle": "Environnement : {{mode}}",
+      "runtimeLocal": "Local",
+      "runtimeCloud": "Cloud",
+      "runtimeUnknown": "Inconnu",
+      "openMenu": "Ouvrir le menu",
+      "commandPaletteTitle": "Palette de commandes (⌘K)",
+      "search": "rechercher"
+    },
+    "commandPalette": {
+      "hintAgent": "Agent",
+      "hintPage": "Page",
+      "hintPanel": "Panneau",
+      "pageChat": "Chat",
+      "pageDashboard": "Tableau de bord",
+      "pageSettings": "Paramètres",
+      "pageSystem": "Système",
+      "placeholder": "Aller à un agent ou une page…",
+      "noMatches": "Aucun résultat"
+    },
+    "resizableDivider": {
+      "ariaLabel": "Redimensionner les panneaux",
+      "title": "Glisser pour redimensionner chat / artefacts"
+    }
+  },
+  "sidebar": {
+    "cloud": "Cloud",
+    "localMode": "Mode local",
+    "cloudMode": "Mode cloud"
+  }
+}

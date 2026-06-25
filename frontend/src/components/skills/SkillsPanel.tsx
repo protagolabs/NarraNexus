@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Puzzle,
   RefreshCw,
@@ -57,6 +58,7 @@ function EnvConfigDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({});
   const [requiresEnv, setRequiresEnv] = useState<string[]>([]);
@@ -71,13 +73,13 @@ function EnvConfigDialog({
         setRequiresEnv(res.requires_env);
         setEnvStatus(res.env_configured);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load config');
+        setError(err instanceof Error ? err.message : t('skills.env.errorLoad'));
       } finally {
         setLoading(false);
       }
     };
     fetchConfig();
-  }, [skill.name, agentId, userId]);
+  }, [skill.name, agentId, userId, t]);
 
   const handleSave = async () => {
     // Only send non-empty values
@@ -101,7 +103,7 @@ function EnvConfigDialog({
         onClose();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(err instanceof Error ? err.message : t('skills.env.errorSave'));
     } finally {
       setSaving(false);
     }
@@ -116,7 +118,7 @@ function EnvConfigDialog({
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">
             <KeyRound className="w-5 h-5" />
-            Configure: {skill.name}
+            {t('skills.env.title', { name: skill.name })}
           </h3>
           <button
             onClick={onClose}
@@ -132,12 +134,12 @@ function EnvConfigDialog({
           </div>
         ) : requiresEnv.length === 0 ? (
           <p className="text-sm text-[var(--text-tertiary)] py-4">
-            No environment variables required for this skill.
+            {t('skills.env.noneRequired')}
           </p>
         ) : (
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-tertiary)]">
-              Enter the required environment variables. Leave blank to keep existing value.
+              {t('skills.env.instructions')}
             </p>
             {requiresEnv.map((varName) => (
               <div key={varName}>
@@ -155,7 +157,7 @@ function EnvConfigDialog({
                   onChange={(e) =>
                     setEnvValues((prev) => ({ ...prev, [varName]: e.target.value }))
                   }
-                  placeholder={envStatus[varName] ? '••••••• (configured)' : 'Enter value...'}
+                  placeholder={envStatus[varName] ? t('skills.env.placeholderConfigured') : t('skills.env.placeholderEnter')}
                   className="w-full px-4 py-2.5 rounded-xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors font-mono"
                 />
               </div>
@@ -172,7 +174,7 @@ function EnvConfigDialog({
 
         <div className="flex gap-3 pt-4 mt-4 border-t border-[var(--border-subtle)]">
           <Button variant="ghost" onClick={onClose} disabled={saving} className="flex-1">
-            Cancel
+            {t('skills.env.cancel')}
           </Button>
           <Button
             variant="default"
@@ -183,10 +185,10 @@ function EnvConfigDialog({
             {saving ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Saving...
+                {t('skills.env.saving')}
               </>
             ) : (
-              'Save'
+              t('skills.env.save')
             )}
           </Button>
         </div>
@@ -206,6 +208,7 @@ interface SkillsPanelProps {
 }
 
 export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}) {
+  const { t } = useTranslation();
   const { agentId, userId } = useConfigStore();
   const [installMode, setInstallMode] = useState<InstallMode>(null);
   const [configuringSkill, setConfiguringSkill] = useState<SkillInfo | null>(null);
@@ -247,9 +250,9 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
 
   const handleRemove = async (skill: SkillInfo) => {
     const ok = await confirm({
-      title: 'Remove skill',
-      message: `Are you sure you want to remove "${skill.name}"? This action cannot be undone.`,
-      confirmText: 'Remove',
+      title: t('skills.remove.title'),
+      message: t('skills.remove.message', { name: skill.name }),
+      confirmText: t('skills.remove.confirm'),
       danger: true,
     });
     if (!ok) return;
@@ -272,7 +275,7 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
         {!embedded && (
         <CardTitle>
           <Puzzle />
-          Skill &amp; MCP
+          {t('skills.title')}
           <span className="ml-1 text-[var(--text-tertiary)] tabular-nums normal-case tracking-normal">
             · {skills.length}
           </span>
@@ -283,7 +286,7 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
           size="icon"
           onClick={() => refetch()}
           disabled={isLoading}
-          title="Refresh"
+          title={t('skills.refresh')}
         >
           <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
         </Button>
@@ -294,11 +297,11 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
         <div className="flex gap-1">
           <Button variant="ghost" size="sm" onClick={() => setInstallMode('github')}>
             <Github className="w-3 h-3 mr-1.5" />
-            GitHub
+            {t('skills.actionBar.github')}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setInstallMode('zip')}>
             <FileArchive className="w-3 h-3 mr-1.5" />
-            Zip
+            {t('skills.actionBar.zip')}
           </Button>
         </div>
 
@@ -308,7 +311,7 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
             checked={showDisabled}
             onChange={(e) => setShowDisabled(e.target.checked)}
           />
-          Show disabled
+          {t('skills.actionBar.showDisabled')}
         </label>
       </div>
 
@@ -321,13 +324,13 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
               <div className="flex items-center justify-center px-8 py-10">
                 <div className="text-center">
                   <AlertCircle className="w-8 h-8 text-[var(--color-red-500)] mx-auto mb-4 opacity-60" />
-                  <p className="text-[var(--color-red-500)] text-sm mb-1.5">Error</p>
+                  <p className="text-[var(--color-red-500)] text-sm mb-1.5">{t('skills.error.title')}</p>
                   <p className="text-[var(--text-tertiary)] text-xs max-w-[260px]">
-                    {error instanceof Error ? error.message : 'Failed to load skills'}
+                    {error instanceof Error ? error.message : t('skills.error.loadFailed')}
                   </p>
                   <Button variant="ghost" size="sm" onClick={() => refetch()} className="mt-4">
                     <RefreshCw className="w-3 h-3 mr-1.5" />
-                    Retry
+                    {t('skills.error.retry')}
                   </Button>
                 </div>
               </div>
@@ -340,10 +343,10 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
                 <div className="text-center">
                   <Puzzle className="w-8 h-8 text-[var(--text-tertiary)] opacity-40 mx-auto mb-4" />
                   <p className="text-[var(--text-primary)] text-sm mb-1.5">
-                    No skills installed
+                    {t('skills.empty.title')}
                   </p>
                   <p className="text-[var(--text-tertiary)] text-xs max-w-[260px]">
-                    Install skills from GitHub or upload a zip file
+                    {t('skills.empty.hint')}
                   </p>
                 </div>
               </div>

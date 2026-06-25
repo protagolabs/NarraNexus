@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   RefreshCw,
@@ -93,6 +94,7 @@ function CategoryHeader({
 }
 
 export function AgentList({ collapsed }: AgentListProps) {
+  const { t } = useTranslation();
   const [loadingAgents, setLoadingAgents] = useState(false);
   const { createAgent, creating: creatingAgent } = useCreateAgent();
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
@@ -282,9 +284,9 @@ export function AgentList({ collapsed }: AgentListProps) {
   const handleDeleteAgent = async (agent: typeof rawAgents[0], e: React.MouseEvent) => {
     e.stopPropagation();
     const ok = await confirm({
-      title: 'Delete agent',
-      message: `Delete agent "${agent.name || agent.agent_id}"? This will permanently remove all related data (narratives, events, instances, jobs, etc.).`,
-      confirmText: 'Delete',
+      title: t('layout.agentList.deleteAgentTitle'),
+      message: t('layout.agentList.deleteAgentMessage', { name: agent.name || agent.agent_id }),
+      confirmText: t('layout.agentList.deleteAction'),
       danger: true,
     });
     if (!ok) return;
@@ -307,16 +309,16 @@ export function AgentList({ collapsed }: AgentListProps) {
       } else {
         console.error('Failed to delete agent:', res.error);
         await alert({
-          title: 'Delete failed',
-          message: `Failed to delete agent: ${res.error}`,
+          title: t('layout.agentList.deleteFailedTitle'),
+          message: t('layout.agentList.deleteAgentFailedMessage', { error: res.error }),
           danger: true,
         });
       }
     } catch (err) {
       console.error('Error deleting agent:', err);
       await alert({
-        title: 'Delete failed',
-        message: 'Error deleting agent. Please try again.',
+        title: t('layout.agentList.deleteFailedTitle'),
+        message: t('layout.agentList.deleteAgentError'),
         danger: true,
       });
     } finally {
@@ -332,11 +334,11 @@ export function AgentList({ collapsed }: AgentListProps) {
   const handleManageTeams = () => setOpenMgmt(true);
 
   const handleDeleteTeam = async (teamId: string) => {
-    const t = teams.find((x) => x.team.team_id === teamId);
+    const team = teams.find((x) => x.team.team_id === teamId);
     const ok = await confirm({
-      title: 'Delete team',
-      message: `Delete team "${t?.team.name ?? teamId}"? Members are unlinked; the agents themselves are NOT deleted.`,
-      confirmText: 'Delete',
+      title: t('layout.agentList.deleteTeamTitle'),
+      message: t('layout.agentList.deleteTeamMessage', { name: team?.team.name ?? teamId }),
+      confirmText: t('layout.agentList.deleteAction'),
       danger: true,
     });
     if (!ok) return;
@@ -348,7 +350,7 @@ export function AgentList({ collapsed }: AgentListProps) {
       }
     } catch (err) {
       await alert({
-        title: 'Delete failed',
+        title: t('layout.agentList.deleteFailedTitle'),
         message: err instanceof Error ? err.message : String(err),
         danger: true,
       });
@@ -379,8 +381,8 @@ export function AgentList({ collapsed }: AgentListProps) {
                 'hover:bg-[var(--bg-elevated)]',
                 creatingAgent && 'opacity-50 cursor-not-allowed',
               )}
-              title="Create agent or team"
-              aria-label="Create agent or team"
+              title={t('layout.agentList.createAgentOrTeam')}
+              aria-label={t('layout.agentList.createAgentOrTeam')}
             >
               <Plus className={cn('w-4 h-4', creatingAgent && 'animate-pulse')} />
             </button>
@@ -388,12 +390,12 @@ export function AgentList({ collapsed }: AgentListProps) {
           <PopoverContent side="right" align="start" sideOffset={8} className="w-auto min-w-[150px] p-1">
             <CollapsedCreateItem
               icon={<Bot className="w-3.5 h-3.5" />}
-              label="Create Agent"
+              label={t('layout.agentList.createAgent')}
               onClick={() => { setCollapsedCreateOpen(false); handleCreateAgent(); }}
             />
             <CollapsedCreateItem
               icon={<Users2 className="w-3.5 h-3.5" />}
-              label="Create Team"
+              label={t('layout.agentList.createTeam')}
               onClick={() => { setCollapsedCreateOpen(false); setOpenMgmt(true); }}
             />
           </PopoverContent>
@@ -403,8 +405,8 @@ export function AgentList({ collapsed }: AgentListProps) {
         <button
           onClick={() => navigate('/app/manage-agents')}
           className="w-8 h-8 rounded-full flex items-center justify-center border border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] transition-colors"
-          title="Manage agents (batch · add / edit / delete)"
-          aria-label="Manage agents"
+          title={t('layout.agentList.manageAgentsTitle')}
+          aria-label={t('layout.agentList.manageAgents')}
         >
           <ListChecks className="w-3.5 h-3.5" />
         </button>
@@ -413,25 +415,25 @@ export function AgentList({ collapsed }: AgentListProps) {
         {teams.length > 0 && (
           <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
         )}
-        {teams.map((t) => {
-          const initials = t.team.name
+        {teams.map((team) => {
+          const initials = team.team.name
             .split(/\s+/)
             .filter(Boolean)
             .map((w) => w[0])
             .join('')
             .slice(0, 2)
             .toUpperCase();
-          const active = activeTeamChatId === t.team.team_id;
+          const active = activeTeamChatId === team.team.team_id;
           return (
             <button
-              key={t.team.team_id}
-              onClick={() => navigate(`/app/teams/${t.team.team_id}/chat`)}
+              key={team.team.team_id}
+              onClick={() => navigate(`/app/teams/${team.team.team_id}/chat`)}
               className={cn(
                 'p-0.5 rounded-full transition-colors duration-150',
                 active ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]',
               )}
-              title={`${t.team.name} — group chat`}
-              aria-label={`${t.team.name} group chat`}
+              title={t('layout.agentList.teamGroupChatTitle', { name: team.team.name })}
+              aria-label={t('layout.agentList.teamGroupChatAria', { name: team.team.name })}
               aria-current={active ? 'true' : undefined}
             >
               <GroupAvatar size="sm" members={[{ species: 'carbon' }, { species: 'silicon' }]} label={initials} />
@@ -499,7 +501,7 @@ export function AgentList({ collapsed }: AgentListProps) {
             <BracketSectionLabel
               trailing={<span className="text-[10px] opacity-60">{teams.length + rawAgents.length}</span>}
             >
-              Chats
+              {t('sidebar.chats')}
             </BracketSectionLabel>
           </span>
           <div className="flex items-center gap-1 shrink-0">
@@ -516,8 +518,8 @@ export function AgentList({ collapsed }: AgentListProps) {
                 size="icon"
                 onClick={() => navigate('/app/manage-agents')}
                 className="w-7 h-7"
-                title="Manage agents (batch · add / edit / delete)"
-                aria-label="Manage agents"
+                title={t('layout.agentList.manageAgentsTitle')}
+                aria-label={t('layout.agentList.manageAgents')}
               >
                 <ListChecks className="w-3.5 h-3.5" />
               </Button>
@@ -528,7 +530,7 @@ export function AgentList({ collapsed }: AgentListProps) {
               onClick={fetchAgents}
               disabled={loadingAgents}
               className="w-7 h-7"
-              title="Refresh Agents"
+              title={t('layout.agentList.refreshAgents')}
             >
               <RefreshCw className={cn('w-3 h-3', loadingAgents && 'animate-spin')} />
             </Button>
@@ -546,8 +548,8 @@ export function AgentList({ collapsed }: AgentListProps) {
       <div className="px-1 pb-3">
         {rawAgents.length === 0 && teams.length === 0 ? (
           <BracketEmptyState
-            label="No agents yet"
-            hint="Create your first agent to start a conversation."
+            label={t('layout.agentList.emptyLabel')}
+            hint={t('layout.agentList.emptyHint')}
             cta={
               <Button
                 variant="outline"
@@ -557,7 +559,7 @@ export function AgentList({ collapsed }: AgentListProps) {
                 className="gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
-                Create Agent
+                {t('layout.agentList.createAgent')}
               </Button>
             }
           />
@@ -567,7 +569,7 @@ export function AgentList({ collapsed }: AgentListProps) {
             {teams.length > 0 && (
               <div>
                 <CategoryHeader
-                  label="Teams"
+                  label={t('sidebar.teams')}
                   count={teams.length}
                   collapsed={teamsCollapsed}
                   onToggle={() => setCatCollapsed('teams', !teamsCollapsed)}
@@ -596,7 +598,7 @@ export function AgentList({ collapsed }: AgentListProps) {
             {/* AGENTS — every agent once, flat (no per-team duplication). */}
             <div>
               <CategoryHeader
-                label="Agents"
+                label={t('sidebar.agents')}
                 count={rawAgents.length}
                 collapsed={agentsCollapsed}
                 onToggle={() => setCatCollapsed('agents', !agentsCollapsed)}
@@ -604,7 +606,7 @@ export function AgentList({ collapsed }: AgentListProps) {
               {!agentsCollapsed && (
                 rawAgents.length === 0 ? (
                   <div className="px-3 py-2 text-xs" style={{ color: 'var(--nm-ink50)' }}>
-                    No agents yet.
+                    {t('layout.agentList.noAgentsShort')}
                   </div>
                 ) : (
                   <AgentGroupSection

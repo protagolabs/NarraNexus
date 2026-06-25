@@ -1,0 +1,89 @@
+{
+  "chat": {
+    "interaction": "Interaction",
+    "composer": {
+      "selectAgentFirst": "Select an agent first…",
+      "dropFile": "Drop file to attach…",
+      "placeholder": "Type a message or / for skills…"
+    },
+    "audio": {
+      "stopRecording": "Stop recording",
+      "recordVoice": "Record voice message",
+      "micDenied": "Microphone access denied. Enable mic permission in your browser settings, then try again.",
+      "micDeniedRetry": "Microphone access denied — click to retry after enabling permission",
+      "noMic": "No microphone detected.",
+      "recordingFailed": "Recording failed: {{error}}"
+    },
+    "model": {
+      "configureInSettings": "Configure the model in Settings › Providers",
+      "setModel": "set model",
+      "switchTooltip": "Model — click to switch",
+      "noModels": "No models — add some in Settings",
+      "moreInSettings": "More in settings →"
+    },
+    "voice": {
+      "label": "voice",
+      "unavailableShort": "transcription unavailable",
+      "unavailableLong": "Transcription unavailable. Add an OpenAI API key under Settings → Providers to enable voice transcription."
+    },
+    "message": {
+      "loadingDetails": "Loading details...",
+      "hideReasoning": "Hide reasoning & tools",
+      "viewReasoning": "View reasoning & tools",
+      "copyMarkdown": "Copy Markdown",
+      "downloadMd": "Download as .md"
+    },
+    "timeline": {
+      "thinking": "Thinking",
+      "toolLabel": "[ tool ]",
+      "outputLabel": "[ output ]",
+      "reply": "Reply",
+      "nativeOutput": "Native output",
+      "helperFallback": "↻ helper_llm fallback",
+      "helperFallbackTip": "The agent didn't explicitly send a reply; this message was written by the fallback LLM from its reasoning.",
+      "recoveredAfterError": "⚠ recovered after error",
+      "recoveredAfterErrorTip": "A step in this turn failed; the reply was written from the completed work plus what we know about the error."
+    },
+    "onboarding": {
+      "eyebrow": "New conversation",
+      "heading": "A fresh page.",
+      "framing": "Nothing here yet — and that's the point. The more you and {{name}} work together, the more it remembers, connects, and carries forward.",
+      "defaultAgentName": "your agent",
+      "narraBrand": "Narra · Memory",
+      "narraCaption": "it remembers",
+      "nexusBrand": "Nexus · Network",
+      "nexusCaption": "it connects",
+      "teamBrand": "Your Team",
+      "teamCaption": "it delivers",
+      "tryAsking": "Try asking",
+      "prompt1": "Summarise this week's most important updates for me",
+      "prompt2": "Connect a channel and watch it for anything urgent",
+      "prompt3": "Set up a Monday-morning digest of what matters"
+    },
+    "team": {
+      "notFound": "Team not found.",
+      "memberCount_one": "{{count}} member",
+      "memberCount_other": "{{count}} members",
+      "teamSettings": "Team settings",
+      "empty": "No messages yet.",
+      "emptyHint": "@mention a teammate to start the conversation — they hand off to each other from there.",
+      "noAgents": "No agents in this team yet.",
+      "placeholder": "Message the team — @mention to address someone…",
+      "send": "Send (Enter)",
+      "all": "@all",
+      "notifyEveryone": "Notify everyone",
+      "typing": "{{name}} is typing",
+      "youTitle": "You · {{name}}"
+    },
+    "execution": {
+      "showSteps": "Show execution steps",
+      "processing": "Processing",
+      "heading": "Execution",
+      "waiting": "Waiting for the first step…",
+      "statusCompleted": "completed",
+      "statusRunning": "running",
+      "statusFailed": "failed",
+      "statusPending": "pending"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "language": {
+    "name": "Language"
+  },
+  "sidebar": {
+    "chats": "Chats",
+    "teams": "Teams",
+    "agents": "Agents",
+    "local": "Local",
+    "dashboard": "Dashboard",
+    "settings": "Settings",
+    "system": "System",
+    "clearHistory": "Clear History",
+    "logout": "Logout",
+    "poweredBy": "NetMind AI Research",
+    "online": "Online",
+    "you": "You"
+  },
+  "chat": {
+    "conversation": "Conversation",
+    "innerThoughts": "Inner Thoughts",
+    "interaction": "Interaction",
+    "composerPlaceholder": "Type a message or / for skills...",
+    "selectAgent": "Select an agent",
+    "selectAgentHint": "Choose an agent from the sidebar to begin your interaction."
+  }
+}

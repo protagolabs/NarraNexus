@@ -14,6 +14,7 @@
 
 import { Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
 import { useState, useCallback, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Attachment, ChatMessage, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
 import { cn, formatTime } from '@/lib/utils';
@@ -34,6 +35,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName }: MessageBubbleProps) {
+  const { t } = useTranslation();
   const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
   const userId = useConfigStore((s) => s.userId);
@@ -299,10 +301,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 )}
                 <span className="font-medium">
                   {eventLogLoading
-                    ? 'Loading details...'
+                    ? t('chat.message.loadingDetails')
                     : showDetails
-                      ? 'Hide reasoning & tools'
-                      : 'View reasoning & tools'}
+                      ? t('chat.message.hideReasoning')
+                      : t('chat.message.viewReasoning')}
                 </span>
               </button>
               {showDetails && inlineEvents.length > 0 && (
@@ -429,7 +431,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               <button
                 onClick={handleCopy}
                 className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
-                title="Copy Markdown"
+                title={t('chat.message.copyMarkdown')}
               >
                 {copied ? (
                   <Check className="w-3 h-3 text-[var(--color-success)]" />
@@ -440,7 +442,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               <button
                 onClick={handleDownload}
                 className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
-                title="Download as .md"
+                title={t('chat.message.downloadMd')}
               >
                 <Download className="w-3 h-3" />
               </button>

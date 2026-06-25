@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation, Trans } from 'react-i18next';
 import {
   MessageSquare,
   Link,
@@ -41,6 +42,7 @@ import type { WeChatCredentialData } from '@/types';
 import type { ChannelConfigProps } from './IMChannelsSection';
 
 export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
+  const { t } = useTranslation();
   const { agentId } = useConfigStore();
 
   const [credential, setCredential] = useState<WeChatCredentialData | null>(null);
@@ -68,15 +70,15 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       if (res.success) {
         setCredential(res.data || null);
       } else {
-        setError(res.error || 'Failed to load WeChat credential');
+        setError(res.error || t('awareness.wechat.errLoad'));
       }
     } catch (e: unknown) {
       if (!mountedRef.current) return;
-      setError(e instanceof Error ? e.message : 'Failed to fetch WeChat credential');
+      setError(e instanceof Error ? e.message : t('awareness.wechat.errFetch'));
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, t]);
 
   const stopPolling = useCallback(() => {
     pollingActiveRef.current = false;
@@ -114,13 +116,13 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           res = await api.pollWeChatQrcode(agentId, qrcode, baseUrl);
         } catch (e: unknown) {
           if (!pollingActiveRef.current) return;
-          setError(e instanceof Error ? e.message : 'QR status poll failed');
+          setError(e instanceof Error ? e.message : t('awareness.wechat.errPoll'));
           stopPolling();
           return;
         }
         if (!pollingActiveRef.current) return;
         if (!res.success) {
-          setError(res.error || 'QR status poll failed');
+          setError(res.error || t('awareness.wechat.errPoll'));
           stopPolling();
           return;
         }
@@ -133,7 +135,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         // status === "wait" — long-poll expired with no scan; re-poll.
       }
     },
-    [agentId, fetchCredential, onBindStateChange, stopPolling],
+    [agentId, fetchCredential, onBindStateChange, stopPolling, t],
   );
 
   const handleConnect = async () => {
@@ -144,7 +146,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       const res = await api.startWeChatQrcode(agentId);
       if (!mountedRef.current) return;
       if (!res.success || !res.data?.qrcode || !res.data?.qr_url) {
-        setError(res.error || 'Could not get a WeChat login QR');
+        setError(res.error || t('awareness.wechat.errNoQr'));
         return;
       }
       setQrUrl(res.data.qr_url);
@@ -154,7 +156,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       void runPollLoop(res.data.qrcode, res.data.base_url || '');
     } catch (e: unknown) {
       if (mountedRef.current) {
-        setError(e instanceof Error ? e.message : 'Could not start WeChat bind');
+        setError(e instanceof Error ? e.message : t('awareness.wechat.errStart'));
       }
     } finally {
       if (mountedRef.current) setConnecting(false);
@@ -164,9 +166,9 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const handleUnbind = async () => {
     if (!agentId) return;
     const ok = await confirm({
-      title: 'Disconnect WeChat?',
-      message: 'The agent will stop receiving WeChat messages and lose all WeChat tools until you scan in again.',
-      confirmText: 'Disconnect',
+      title: t('awareness.wechat.disconnectConfirmTitle'),
+      message: t('awareness.wechat.disconnectConfirmMessage'),
+      confirmText: t('awareness.wechat.disconnect'),
       danger: true,
     });
     if (!ok) return;
@@ -178,10 +180,10 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         await fetchCredential();
         onBindStateChange?.();
       } else {
-        setError(res.error || 'Disconnect failed');
+        setError(res.error || t('awareness.wechat.errDisconnect'));
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Disconnect failed');
+      setError(e instanceof Error ? e.message : t('awareness.wechat.errDisconnect'));
     } finally {
       if (mountedRef.current) setUnbindLoading(false);
     }
@@ -199,7 +201,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           onClick={() => fetchCredential()}
           disabled={loading}
           className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          title="Refresh"
+          title={t('awareness.common.refresh')}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -216,14 +218,10 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         {!credential && !polling && (
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-secondary)]">
-              Connect your personal WeChat so the agent can chat with you in
-              WeChat DMs. You'll scan a login QR with the WeChat app on your
-              phone — no password or token needed.
+              {t('awareness.wechat.intro')}
             </p>
             <div className="text-xs text-[var(--color-yellow-500)]" role="note">
-              ⚠ This signs the agent in as a personal WeChat account via a
-              third-party gateway. Use an account you control; personal-account
-              automation is outside WeChat's official Bot terms.
+              {t('awareness.wechat.warning')}
             </div>
             <Button
               onClick={handleConnect}
@@ -232,7 +230,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               size="sm"
             >
               {connecting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Link className="w-4 h-4 mr-2" />}
-              Connect WeChat
+              {t('awareness.wechat.connect')}
             </Button>
           </div>
         )}
@@ -241,8 +239,10 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         {!credential && polling && (
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-secondary)]">
-              Open WeChat on your phone → <strong>Discover → Scan</strong>, and
-              scan this code. Keep this panel open until it confirms.
+              <Trans i18nKey="awareness.wechat.scanInstruction">
+                Open WeChat on your phone → <strong>Discover → Scan</strong>, and
+                scan this code. Keep this panel open until it confirms.
+              </Trans>
             </p>
             <div className="flex flex-col items-center gap-2 border border-[var(--border-default)] rounded p-4">
               {qrUrl && (
@@ -254,7 +254,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 </div>
               )}
               <span className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Waiting for scan…
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('awareness.wechat.waitingForScan')}
               </span>
               <a
                 href={qrUrl}
@@ -262,7 +262,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 rel="noopener noreferrer"
                 className="text-xs text-[var(--text-secondary)] hover:text-[var(--accent-primary)] hover:underline inline-flex items-center gap-1"
               >
-                Can't scan? open the QR page <ExternalLink className="w-3 h-3" />
+                {t('awareness.wechat.cantScan')} <ExternalLink className="w-3 h-3" />
               </a>
             </div>
             <Button
@@ -272,7 +272,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               className="w-full"
             >
               <XCircle className="w-4 h-4 mr-2" />
-              Cancel
+              {t('awareness.common.cancel')}
             </Button>
           </div>
         )}
@@ -283,24 +283,22 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             <div className="flex items-center justify-between">
               <div className="text-sm">
                 <span className="text-[var(--text-primary)] font-medium">
-                  {credential.owner_name || credential.bot_wx_id || 'WeChat account'}
+                  {credential.owner_name || credential.bot_wx_id || t('awareness.wechat.accountFallback')}
                 </span>
               </div>
               <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
-                <CheckCircle className="w-3 h-3" aria-hidden="true" /> Connected
+                <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.common.connected')}
               </span>
             </div>
             {credential.owner_wx_id ? (
               <div className="text-xs text-[var(--text-secondary)]">
-                Owner: <span className="text-[var(--text-primary)]">{credential.owner_name || credential.owner_wx_id}</span>
+                {t('awareness.common.owner')}: <span className="text-[var(--text-primary)]">{credential.owner_name || credential.owner_wx_id}</span>
               </div>
             ) : (
               <div className="text-xs text-[var(--color-yellow-500)]" role="note">
-                ⏳ Owner registration pending — send any message to this account
-                from your own WeChat once to activate the owner trust signal.
+                {t('awareness.wechat.ownerPending')}
                 <div className="mt-1 text-[var(--text-secondary)]">
-                  (The gateway only reveals your wxid on a real DM, so the
-                  signal activates on first contact, not at scan time.)
+                  {t('awareness.wechat.ownerPendingNote')}
                 </div>
               </div>
             )}
@@ -317,7 +315,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 ) : (
                   <Unlink className="w-4 h-4 mr-2" />
                 )}
-                Disconnect
+                {t('awareness.wechat.disconnect')}
               </Button>
             </div>
           </div>

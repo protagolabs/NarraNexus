@@ -1,0 +1,134 @@
+{
+  "dashboard": {
+    "common": {
+      "loading": "読み込み中…",
+      "failed": "失敗"
+    },
+    "summary": {
+      "agent": "エージェント",
+      "agents": "エージェント",
+      "needsAttention": "要対応",
+      "chip": {
+        "error": "エラー",
+        "ack": "確認済み",
+        "blocked": "ブロック",
+        "paused": "一時停止",
+        "running": "実行中",
+        "idle": "アイドル",
+        "quiet": "静止"
+      },
+      "tooltip": {
+        "healthy_running": "エージェントは稼働中 — エラーも警告もなし",
+        "healthy_idle": "エージェントはアイドルだが最近まで稼働していた",
+        "idle_long": "エージェントは72時間以上アイドル状態",
+        "warning": "依存関係によりブロックされたジョブが少なくとも1つあります",
+        "paused": "ユーザーにより一時停止されたジョブが少なくとも1つあります",
+        "error": "失敗したジョブまたは最近のエラーイベントがあります",
+        "acknowledged": "ユーザーがエラーを確認済み — 根本的な問題は未解決"
+      }
+    },
+    "card": {
+      "idle": "アイドル",
+      "active": "アクティブ",
+      "less": "▴ 折りたたむ",
+      "details": "▾ 詳細",
+      "stale": "{{count}} 件の滞留",
+      "staleTitle": "{{count}} 件のゾンビインスタンス: {{modules}}",
+      "ackDotTitle": "エラーを確認済み — 根本的な問題は未解決",
+      "ackDotAria": "エラー確認済み",
+      "healthTooltip": {
+        "healthy_running": "正常 · 実行中",
+        "healthy_idle": "正常 · アイドル（最近稼働）",
+        "idle_long": "静止 · アイドル > 72時間",
+        "warning": "警告 · ジョブがブロック",
+        "paused": "一時停止 · ユーザーがジョブを停止",
+        "error": "エラー · ジョブ失敗またはエラーイベント",
+        "acknowledged": "エラー確認済み · 根本的な問題は未解決"
+      }
+    },
+    "statusBadge": {
+      "idle": "アイドル",
+      "chat": "チャット",
+      "job": "ジョブ",
+      "bus": "バス",
+      "a2a": "A2A",
+      "callback": "コールバック",
+      "skill": "スキル",
+      "lark": "Lark",
+      "matrix": "Matrix"
+    },
+    "queue": {
+      "label": "キュー",
+      "jobs": "ジョブ",
+      "totalInQueue": "キューに {{count}} 件のジョブ"
+    },
+    "jobState": {
+      "running": "実行中",
+      "active": "アクティブ",
+      "pending": "待機中",
+      "blocked": "ブロック",
+      "paused": "一時停止",
+      "failed": "失敗"
+    },
+    "jobStateLabel": {
+      "running": "実行中",
+      "active": "アクティブ",
+      "pending": "待機中",
+      "blocked": "ブロック",
+      "paused": "一時停止",
+      "failed": "失敗",
+      "retrying": "再試行中",
+      "noQuota": "クォータなし",
+      "depFailed": "依存失敗"
+    },
+    "metrics": {
+      "ok": "成功",
+      "okHint": "本日完了した実行",
+      "errors": "エラー",
+      "errorsHint": "本日のエラー数",
+      "avg": "平均",
+      "avgHint": "本日の平均実行時間",
+      "cost": "コスト",
+      "costHint": "本日のトークン消費",
+      "trend": {
+        "up": "昨日より遅い",
+        "down": "昨日より速い",
+        "flat": "昨日と同じ"
+      }
+    },
+    "jobs": {
+      "title": "ジョブ（{{count}}）",
+      "running": "{{count}} 件実行中",
+      "step": "ステップ {{current}}/{{total}}",
+      "next": "次回 {{time}}",
+      "action": {
+        "retry": "再試行",
+        "pause": "一時停止",
+        "resume": "再開",
+        "failed": "{{label}}に失敗"
+      },
+      "detail": {
+        "manual": "（手動）",
+        "nextRun": "次回実行",
+        "iterations": "反復回数",
+        "trigger": "トリガー",
+        "lastError": "最新エラー"
+      }
+    },
+    "sessions": {
+      "sessionWith": "セッション相手",
+      "count": "{{count}} 件のセッション",
+      "on": "{{channels}} 経由",
+      "sessionId": "session_id",
+      "started": "開始",
+      "latestMessage": "最新メッセージ"
+    },
+    "recent": {
+      "title": "最近（{{count}}）"
+    },
+    "sparkline": {
+      "unavailable": "{{hours}}時間 · —",
+      "barTitle": "{{hoursAgo}}時間前 · {{count}} 件のイベント"
+    }
+  }
+}

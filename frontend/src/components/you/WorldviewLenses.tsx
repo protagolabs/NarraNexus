@@ -15,6 +15,7 @@
  * the selected agentId.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { MyWorldviewLens } from '@/types';
@@ -27,6 +28,7 @@ type LoadState =
   | { phase: 'ready'; items: MyWorldviewLens[] };
 
 export function WorldviewLenses({ search = '' }: { search?: string }) {
+  const { t } = useTranslation();
   const q = search.trim().toLowerCase();
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -38,7 +40,7 @@ export function WorldviewLenses({ search = '' }: { search?: string }) {
       .then((res) => {
         if (!alive) return;
         if (res.success) setState({ phase: 'ready', items: res.lenses });
-        else setState({ phase: 'error', message: res.error || 'Failed to load' });
+        else setState({ phase: 'error', message: res.error || t('you.common.failedToLoad') });
       })
       .catch((e: unknown) => {
         if (alive) setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) });
@@ -46,6 +48,8 @@ export function WorldviewLenses({ search = '' }: { search?: string }) {
     return () => {
       alive = false;
     };
+    // Load once on mount; `t` is referentially stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const lenses = useMemo(() => {
@@ -71,7 +75,7 @@ export function WorldviewLenses({ search = '' }: { search?: string }) {
     return (
       <Center>
         <span className="text-[12px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)] animate-pulse">
-          Composing your worldview…
+          {t('you.worldview.loading')}
         </span>
       </Center>
     );
@@ -79,7 +83,7 @@ export function WorldviewLenses({ search = '' }: { search?: string }) {
   if (state.phase === 'error') {
     return (
       <Center>
-        <BracketEmptyState label="Couldn’t load your worldview" hint={state.message} />
+        <BracketEmptyState label={t('you.worldview.errorLabel')} hint={state.message} />
       </Center>
     );
   }
@@ -87,11 +91,11 @@ export function WorldviewLenses({ search = '' }: { search?: string }) {
     return (
       <Center>
         <BracketEmptyState
-          label={q ? 'No matches' : 'No worldview yet'}
+          label={q ? t('you.worldview.noMatches') : t('you.worldview.emptyLabel')}
           hint={
             q
-              ? `No lens matches “${search.trim()}”.`
-              : 'Once your agents have talked with you, each one forms a view of who you are — they appear here.'
+              ? t('you.worldview.noMatchesHint', { query: search.trim() })
+              : t('you.worldview.emptyHint')
           }
         />
       </Center>
@@ -105,12 +109,13 @@ export function WorldviewLenses({ search = '' }: { search?: string }) {
         <div className="flex items-center gap-2 mb-1.5">
           <BindingDots />
           <span className="text-[13px] font-medium text-[var(--text-primary)]">
-            You, through your agents’ eyes
+            {t('you.worldview.summaryTitle')}
           </span>
         </div>
         <p className="text-[12.5px] leading-relaxed text-[var(--text-secondary)]">
-          {lenses.length} {lenses.length === 1 ? 'agent has' : 'agents have'} each formed their own
-          view of who you are — and hold their own picture of the world. Expand a lens to read both.
+          {lenses.length === 1
+            ? t('you.worldview.summaryBody', { count: lenses.length })
+            : t('you.worldview.summaryBodyPlural', { count: lenses.length })}
         </p>
         <div className="mt-2.5 flex flex-wrap gap-1.5">
           {lenses.map((l) => (
@@ -164,14 +169,14 @@ export function WorldviewLenses({ search = '' }: { search?: string }) {
               {open && (
                 <div className="px-3 pb-3 pl-[2.1rem]">
                   <div className="mb-1 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.13em] text-[var(--color-carbon)]">
-                    sees you as
+                    {t('you.worldview.seesYouAs')}
                   </div>
                   <p className="text-[12.5px] leading-relaxed text-[var(--text-primary)] mb-2.5">{l.sees_you}</p>
 
                   {l.worldview.length > 0 && (
                     <>
                       <div className="mb-1 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.13em] text-[var(--color-silicon)]">
-                        its worldview
+                        {t('you.worldview.itsWorldview')}
                       </div>
                       <ul className="space-y-1">
                         {l.worldview.map((w, i) => (

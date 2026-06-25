@@ -17,6 +17,7 @@
  * generic fresh-start surface for any selected agent.
  */
 import { BookMarked, Share2, Sparkles } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { BindingDot } from '@/components/nm';
 
 interface OnboardingJourneyProps {
@@ -28,25 +29,26 @@ interface OnboardingJourneyProps {
 
 interface Station {
   icon: typeof BookMarked;
-  brand: string;
-  caption: string;
+  brandKey: string;
+  captionKey: string;
   color: string;
 }
 
 const STATIONS: Station[] = [
-  { icon: BookMarked, brand: 'Narra · Memory', caption: 'it remembers', color: 'var(--color-carbon)' },
-  { icon: Share2, brand: 'Nexus · Network', caption: 'it connects', color: 'var(--color-silicon)' },
-  { icon: Sparkles, brand: 'Your Team', caption: 'it delivers', color: 'var(--nm-ink)' },
+  { icon: BookMarked, brandKey: 'chat.onboarding.narraBrand', captionKey: 'chat.onboarding.narraCaption', color: 'var(--color-carbon)' },
+  { icon: Share2, brandKey: 'chat.onboarding.nexusBrand', captionKey: 'chat.onboarding.nexusCaption', color: 'var(--color-silicon)' },
+  { icon: Sparkles, brandKey: 'chat.onboarding.teamBrand', captionKey: 'chat.onboarding.teamCaption', color: 'var(--nm-ink)' },
 ];
 
-const SUGGESTED_PROMPTS: { dot: string; text: string }[] = [
-  { dot: 'var(--color-carbon)', text: "Summarise this week's most important updates for me" },
-  { dot: 'var(--color-silicon)', text: 'Connect a channel and watch it for anything urgent' },
-  { dot: 'var(--nm-ink)', text: 'Set up a Monday-morning digest of what matters' },
+const SUGGESTED_PROMPTS: { dot: string; textKey: string }[] = [
+  { dot: 'var(--color-carbon)', textKey: 'chat.onboarding.prompt1' },
+  { dot: 'var(--color-silicon)', textKey: 'chat.onboarding.prompt2' },
+  { dot: 'var(--nm-ink)', textKey: 'chat.onboarding.prompt3' },
 ];
 
 export function OnboardingJourney({ agentName, onPrompt }: OnboardingJourneyProps) {
-  const name = agentName?.trim() || 'your agent';
+  const { t } = useTranslation();
+  const name = agentName?.trim() || t('chat.onboarding.defaultAgentName');
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto py-10 px-6 animate-fade-in">
@@ -58,7 +60,7 @@ export function OnboardingJourney({ agentName, onPrompt }: OnboardingJourneyProp
             className="font-mono uppercase"
             style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--nm-ink50)' }}
           >
-            New conversation
+            {t('chat.onboarding.eyebrow')}
           </span>
         </div>
 
@@ -66,11 +68,10 @@ export function OnboardingJourney({ agentName, onPrompt }: OnboardingJourneyProp
           className="font-display"
           style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.1, margin: '0 0 14px', color: 'var(--nm-ink)' }}
         >
-          A fresh page.
+          {t('chat.onboarding.heading')}
         </h1>
         <p style={{ fontSize: 15, lineHeight: 1.65, color: 'var(--nm-ink70)', maxWidth: '30rem', margin: '0 0 40px' }}>
-          Nothing here yet — and that's the point. The more you and {name} work
-          together, the more it remembers, connects, and carries forward.
+          {t('chat.onboarding.framing', { name })}
         </p>
 
         {/* JourneyBand: memory → network → team */}
@@ -88,7 +89,7 @@ export function OnboardingJourney({ agentName, onPrompt }: OnboardingJourneyProp
             {STATIONS.map((s) => {
               const Icon = s.icon;
               return (
-                <div key={s.brand} className="flex flex-col items-center gap-2.5" style={{ width: '33%' }}>
+                <div key={s.brandKey} className="flex flex-col items-center gap-2.5" style={{ width: '33%' }}>
                   <span
                     className="inline-flex items-center justify-center"
                     style={{ width: 48, height: 48, borderRadius: 9999, background: 'var(--nm-card)', border: `2px solid ${s.color}`, color: s.color }}
@@ -100,9 +101,9 @@ export function OnboardingJourney({ agentName, onPrompt }: OnboardingJourneyProp
                       className="font-mono uppercase"
                       style={{ fontSize: 10, letterSpacing: '0.1em', color: s.color, fontWeight: 500 }}
                     >
-                      {s.brand}
+                      {t(s.brandKey)}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--nm-ink50)', marginTop: 3 }}>{s.caption}</div>
+                    <div style={{ fontSize: 12, color: 'var(--nm-ink50)', marginTop: 3 }}>{t(s.captionKey)}</div>
                   </div>
                 </div>
               );
@@ -116,21 +117,24 @@ export function OnboardingJourney({ agentName, onPrompt }: OnboardingJourneyProp
             className="font-mono uppercase"
             style={{ fontSize: 10, letterSpacing: '0.16em', color: 'var(--nm-ink30)', marginBottom: 14 }}
           >
-            Try asking
+            {t('chat.onboarding.tryAsking')}
           </div>
           <div className="mx-auto flex flex-col gap-2" style={{ maxWidth: 420 }}>
-            {SUGGESTED_PROMPTS.map((p) => (
-              <button
-                key={p.text}
-                type="button"
-                onClick={() => onPrompt(p.text)}
-                className="hover-lift flex items-center gap-2.5 text-left"
-                style={{ padding: '12px 14px', border: '1px solid var(--nm-hairline)', borderRadius: 'var(--radius-lg)', background: 'var(--nm-card)' }}
-              >
-                <span style={{ width: 6, height: 6, borderRadius: 9999, background: p.dot, flexShrink: 0 }} />
-                <span style={{ fontSize: 14, color: 'var(--nm-ink)' }}>{p.text}</span>
-              </button>
-            ))}
+            {SUGGESTED_PROMPTS.map((p) => {
+              const promptText = t(p.textKey);
+              return (
+                <button
+                  key={p.textKey}
+                  type="button"
+                  onClick={() => onPrompt(promptText)}
+                  className="hover-lift flex items-center gap-2.5 text-left"
+                  style={{ padding: '12px 14px', border: '1px solid var(--nm-hairline)', borderRadius: 'var(--radius-lg)', background: 'var(--nm-card)' }}
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: 9999, background: p.dot, flexShrink: 0 }} />
+                  <span style={{ fontSize: 14, color: 'var(--nm-ink)' }}>{promptText}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

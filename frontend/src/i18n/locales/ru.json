@@ -1,0 +1,27 @@
+{
+  "language": {
+    "name": "Язык"
+  },
+  "sidebar": {
+    "chats": "Чаты",
+    "teams": "Команды",
+    "agents": "Агенты",
+    "local": "Локально",
+    "dashboard": "Панель",
+    "settings": "Настройки",
+    "system": "Система",
+    "clearHistory": "Очистить историю",
+    "logout": "Выйти",
+    "poweredBy": "NetMind AI Research",
+    "online": "В сети",
+    "you": "Вы"
+  },
+  "chat": {
+    "conversation": "Беседа",
+    "innerThoughts": "Внутренние мысли",
+    "interaction": "Взаимодействие",
+    "composerPlaceholder": "Введите сообщение или / для навыков…",
+    "selectAgent": "Выберите агента",
+    "selectAgentHint": "Выберите агента на боковой панели, чтобы начать."
+  }
+}

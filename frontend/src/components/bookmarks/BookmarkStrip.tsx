@@ -17,6 +17,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Tooltip,
@@ -45,6 +46,7 @@ export interface BookmarkStripProps {
 }
 
 export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps) {
+  const { t } = useTranslation();
   const agentState = useBookmarkStore((s) => s.agents[agentId]);
 
   return (
@@ -75,7 +77,7 @@ export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps
                       : 'var(--color-carbon)',
                 }}
               >
-                {category.title}
+                {category.titleKey ? t(category.titleKey) : category.title}
               </span>
             </div>
           )}
@@ -110,6 +112,7 @@ export function BookmarkStrip({ agentId, activeTab, onOpen }: BookmarkStripProps
  * portal so it escapes the strip's `overflow-x-hidden` / 64px width.
  */
 function AgentRailHeader({ agentId }: { agentId: string }) {
+  const { t } = useTranslation();
   const agents = useConfigStore((s) => s.agents);
   const setAgentId = useConfigStore((s) => s.setAgentId);
   const setActiveAgent = useChatStore((s) => s.setActiveAgent);
@@ -138,12 +141,12 @@ function AgentRailHeader({ agentId }: { agentId: string }) {
           <button
             type="button"
             data-help-id="bookmarks.agent"
-            aria-label={`Current agent: ${agentName}. Switch agent`}
-            title="Switch agent"
+            aria-label={t('bookmarks.strip.currentAgentAria', { name: agentName })}
+            title={t('bookmarks.strip.switchAgent')}
             className="group/agent w-full px-1 pt-2 pb-1.5 text-center cursor-pointer outline-none"
           >
             <span className="block mb-1 text-[7.5px] font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.13em] leading-none text-[var(--text-tertiary)]">
-              agent
+              {t('bookmarks.strip.agentEyebrow')}
             </span>
             <span className="flex items-center justify-center gap-0.5 px-0.5">
               <span className="truncate text-[12px] font-semibold leading-tight text-[var(--text-primary)]">
@@ -163,7 +166,7 @@ function AgentRailHeader({ agentId }: { agentId: string }) {
           className="w-auto min-w-[160px] max-w-[240px] p-1"
         >
           <div className="px-2 pt-1 pb-1.5 text-[8px] font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
-            Switch agent
+            {t('bookmarks.strip.switchAgent')}
           </div>
           <div className="flex flex-col">
             {agents.map((a) => {
@@ -224,14 +227,17 @@ interface AtomicTabProps {
 }
 
 function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
+  const { t } = useTranslation();
   const Icon = tab.icon;
+  const label = t(tab.labelKey);
+  const stripLabel = tab.stripLabelKey ? t(tab.stripLabelKey) : tab.stripLabel;
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            aria-label={tab.label}
+            aria-label={label}
             aria-expanded={active}
             data-help-id={`bookmarks.${tab.id}`}
             onClick={() => onOpen(tab.id)}
@@ -294,11 +300,11 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
                   : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
               )}
             >
-              {tab.stripLabel ?? tab.label}
+              {stripLabel ?? label}
             </span>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="left">{tab.label}</TooltipContent>
+        <TooltipContent side="left">{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

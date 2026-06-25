@@ -1,0 +1,26 @@
+{
+  "rail": {
+    "awareness": "认知",
+    "workspace": "工作区",
+    "channels": "通道",
+    "jobs": "任务",
+    "inbox": "收件箱",
+    "memory": "记忆",
+    "social": "社交网络",
+    "socialShort": "网络",
+    "skills": "技能",
+    "mcp": "MCP 服务",
+    "mcpShort": "MCP",
+    "category": {
+      "config": "配置",
+      "activity": "活动",
+      "narra": "Narra",
+      "nexus": "Nexus",
+      "skills": "技能"
+    },
+    "brand": {
+      "narra": "Narra",
+      "nexus": "Nexus"
+    }
+  }
+}

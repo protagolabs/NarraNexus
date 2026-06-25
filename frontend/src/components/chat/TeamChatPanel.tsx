@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { CornerDownLeft, Settings2, Users2 } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
@@ -35,6 +36,7 @@ type MentionOption = { kind: 'all' } | { kind: 'agent'; agent: AgentInfo };
 const POLL_MS = 3000;
 
 export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const teams = useTeamsStore((s) => s.teams);
   const agents = useConfigStore((s) => s.agents);
@@ -190,7 +192,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   if (!team) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-[var(--text-tertiary)]">
-        Team not found.
+        {t('chat.team.notFound')}
       </div>
     );
   }
@@ -211,7 +213,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             {team.team.name}
           </div>
           <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-tertiary)]">
-            {members.length} member{members.length === 1 ? '' : 's'}
+            {t('chat.team.memberCount', { count: members.length })}
           </div>
         </div>
 
@@ -219,7 +221,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             (silicon). The user is a participant in this room, so their avatar
             belongs in the bar alongside the agents. */}
         <div className="flex items-center gap-1.5 ml-2 overflow-x-auto">
-          <span title={`You · ${userLabel}`} className="shrink-0">
+          <span title={t('chat.team.youTitle', { name: userLabel })} className="shrink-0">
             <RingAvatar species="carbon" label={(userLabel || '?').slice(0, 2)} size="sm" />
           </span>
           {members.length > 0 && (
@@ -237,7 +239,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             </button>
           ))}
           {members.length === 0 && (
-            <span className="text-xs text-[var(--text-tertiary)]">No agents in this team yet.</span>
+            <span className="text-xs text-[var(--text-tertiary)]">{t('chat.team.noAgents')}</span>
           )}
         </div>
 
@@ -245,8 +247,8 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         <button
           type="button"
           onClick={() => navigate(`/app/teams/${teamId}`)}
-          title="Team settings"
-          aria-label="Team settings"
+          title={t('chat.team.teamSettings')}
+          aria-label={t('chat.team.teamSettings')}
           className="ml-auto shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
         >
           <Settings2 className="w-3.5 h-3.5" />
@@ -258,10 +260,9 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         {messages.length === 0 && thinking.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-[var(--text-tertiary)]">
             <Users2 className="w-6 h-6 opacity-40" />
-            <div className="text-sm">No messages yet.</div>
+            <div className="text-sm">{t('chat.team.empty')}</div>
             <div className="text-xs max-w-[260px]">
-              @mention a teammate to start the conversation — they hand off to each
-              other from there.
+              {t('chat.team.emptyHint')}
             </div>
           </div>
         ) : (
@@ -369,7 +370,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                         border: '1px solid var(--color-silicon-hair)',
                         borderLeft: '3px solid var(--color-silicon)',
                       }}
-                      aria-label={`${name} is typing`}
+                      aria-label={t('chat.team.typing', { name })}
                     >
                       {[0, 1, 2].map((i) => (
                         <span
@@ -414,8 +415,8 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                         <Users2 className="w-4 h-4" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-sm text-[var(--nm-ink)]">@all</span>
-                        <span className="block text-[10px] text-[var(--text-tertiary)]">Notify everyone</span>
+                        <span className="block text-sm text-[var(--nm-ink)]">{t('chat.team.all')}</span>
+                        <span className="block text-[10px] text-[var(--text-tertiary)]">{t('chat.team.notifyEveryone')}</span>
                       </span>
                     </>
                   ) : (
@@ -463,7 +464,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
               }
             }}
             rows={1}
-            placeholder="Message the team — @mention to address someone…"
+            placeholder={t('chat.team.placeholder')}
             className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
           />
           <Button
@@ -471,7 +472,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             size="icon"
             onClick={handleSend}
             disabled={!text.trim() || sending}
-            title="Send (Enter)"
+            title={t('chat.team.send')}
             className={cn(
               'absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-[var(--radius-lg)] border transition-colors',
               text.trim()

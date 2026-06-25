@@ -1,0 +1,121 @@
+{
+  "layout": {
+    "chatView": {
+      "tabChat": "محادثة",
+      "tabArtifacts": "المخرجات",
+      "tabArtifactsCount": "المخرجات ({{count}})"
+    },
+    "subPage": {
+      "closeTitle": "إغلاق (العودة إلى المحادثة)",
+      "closeAriaLabel": "إغلاق والعودة إلى المحادثة"
+    },
+    "sidebar": {
+      "openWorkspace": "افتح مساحة عملك",
+      "logoutConfirmTitle": "تسجيل الخروج",
+      "logoutConfirmMessage": "هل أنت متأكد أنك تريد تسجيل الخروج؟",
+      "logoutConfirmAction": "تسجيل الخروج",
+      "clearHistoryConfirmTitle": "مسح السجل",
+      "clearHistoryConfirmMessage": "مسح كل سجل المحادثات؟",
+      "clearHistoryConfirmAction": "مسح",
+      "currentMode": "الحالي: {{mode}}",
+      "switchTo": "التبديل إلى {{mode}}"
+    },
+    "agentList": {
+      "deleteAgentTitle": "حذف الوكيل",
+      "deleteAgentMessage": "حذف الوكيل «{{name}}»؟ سيؤدي ذلك إلى إزالة جميع البيانات المرتبطة نهائيًا (السرديات والأحداث والمثيلات والمهام وغيرها).",
+      "deleteAction": "حذف",
+      "deleteFailedTitle": "فشل الحذف",
+      "deleteAgentFailedMessage": "فشل حذف الوكيل: {{error}}",
+      "deleteAgentError": "حدث خطأ أثناء حذف الوكيل. يرجى المحاولة مرة أخرى.",
+      "deleteTeamTitle": "حذف الفريق",
+      "deleteTeamMessage": "حذف الفريق «{{name}}»؟ سيتم إلغاء ربط الأعضاء؛ أما الوكلاء أنفسهم فلن يُحذفوا.",
+      "createAgentOrTeam": "إنشاء وكيل أو فريق",
+      "createAgent": "إنشاء وكيل",
+      "createTeam": "إنشاء فريق",
+      "manageAgents": "إدارة الوكلاء",
+      "manageAgentsTitle": "إدارة الوكلاء (دفعة · إضافة / تعديل / حذف)",
+      "teamGroupChatTitle": "{{name}} — محادثة جماعية",
+      "teamGroupChatAria": "محادثة جماعية {{name}}",
+      "refreshAgents": "تحديث الوكلاء",
+      "emptyLabel": "لا يوجد وكلاء بعد",
+      "emptyHint": "أنشئ أول وكيل لك لبدء محادثة.",
+      "noAgentsShort": "لا يوجد وكلاء بعد."
+    },
+    "agentRow": {
+      "saveTitle": "حفظ (Enter)",
+      "cancelTitle": "إلغاء (Esc)",
+      "publicBy": "عام · بواسطة {{name}}"
+    },
+    "agentRowMenu": {
+      "options": "خيارات الوكيل",
+      "rename": "إعادة تسمية",
+      "setPrivate": "تعيين كخاص",
+      "setPublic": "تعيين كعام",
+      "delete": "حذف"
+    },
+    "agentsHeaderMenu": {
+      "menu": "قائمة الوكلاء",
+      "import": "استيراد",
+      "export": "تصدير",
+      "manageTeams": "إدارة الفرق"
+    },
+    "createMenu": {
+      "create": "إنشاء",
+      "createAgentOrTeam": "إنشاء وكيل أو فريق",
+      "createAgent": "إنشاء وكيل",
+      "createTeam": "إنشاء فريق"
+    },
+    "teamChatRow": {
+      "groupChatTitle": "{{name}} — محادثة جماعية",
+      "agentCount_zero": "لا يوجد وكلاء",
+      "agentCount_one": "وكيل واحد",
+      "agentCount_two": "وكيلان",
+      "agentCount_few": "{{count}} وكلاء",
+      "agentCount_many": "{{count}} وكيلًا",
+      "agentCount_other": "{{count}} وكيل"
+    },
+    "teamRowMenu": {
+      "options": "خيارات المحادثة الجماعية",
+      "rename": "إعادة تسمية",
+      "delete": "حذف"
+    },
+    "topBar": {
+      "crumbDashboard": "لوحة التحكم",
+      "crumbSettings": "الإعدادات",
+      "crumbSystem": "النظام",
+      "crumbManageAgents": "إدارة الوكلاء",
+      "crumbTeam": "الفريق",
+      "crumbBundle": "الحزمة",
+      "crumbChat": "محادثة",
+      "contextApp": "التطبيق",
+      "contextChat": "المحادثة",
+      "runtimeTitle": "بيئة التشغيل: {{mode}}",
+      "runtimeLocal": "محلي",
+      "runtimeCloud": "سحابي",
+      "runtimeUnknown": "غير معروف",
+      "openMenu": "فتح القائمة",
+      "commandPaletteTitle": "لوحة الأوامر (⌘K)",
+      "search": "بحث"
+    },
+    "commandPalette": {
+      "hintAgent": "وكيل",
+      "hintPage": "صفحة",
+      "hintPanel": "لوحة",
+      "pageChat": "محادثة",
+      "pageDashboard": "لوحة التحكم",
+      "pageSettings": "الإعدادات",
+      "pageSystem": "النظام",
+      "placeholder": "الانتقال إلى وكيل أو صفحة…",
+      "noMatches": "لا توجد نتائج"
+    },
+    "resizableDivider": {
+      "ariaLabel": "تغيير حجم اللوحات",
+      "title": "اسحب لتغيير حجم المحادثة / المخرجات"
+    }
+  },
+  "sidebar": {
+    "cloud": "سحابي",
+    "localMode": "الوضع المحلي",
+    "cloudMode": "الوضع السحابي"
+  }
+}

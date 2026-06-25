@@ -10,6 +10,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, Check, X, Globe } from 'lucide-react';
 import type { AgentInfo } from '@/types';
 import { RingAvatar } from '@/components/nm';
@@ -284,6 +285,7 @@ function AgentRow({
   onTogglePublic,
   deletingAgentId,
 }: AgentRowProps) {
+  const { t } = useTranslation();
   const isSelected = activeAgentId === agent.agent_id;
   const completed = completedAgentIds.includes(agent.agent_id);
   // Compact single-line rows: no chat preview (it conflated group-chat content
@@ -366,14 +368,14 @@ function AgentRow({
                 onClick={(e) => onSaveEdit(agent.agent_id, e)}
                 disabled={savingName}
                 className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
-                title="Save (Enter)"
+                title={t('layout.agentRow.saveTitle')}
               >
                 <Check className={cn('w-3.5 h-3.5', savingName && 'animate-pulse')} style={{ color: 'var(--color-success)' }} />
               </button>
               <button
                 onClick={onCancelEdit}
                 className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
-                title="Cancel (Esc)"
+                title={t('layout.agentRow.cancelTitle')}
               >
                 <X className="w-3.5 h-3.5" style={{ color: 'var(--color-error)' }} />
               </button>
@@ -388,7 +390,7 @@ function AgentRow({
                 {displayName}
               </span>
               {agent.is_public && !isOwner && (
-                <span title={`Public · by ${agent.created_by}`} className="shrink-0">
+                <span title={t('layout.agentRow.publicBy', { name: agent.created_by })} className="shrink-0">
                   <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
                 </span>
               )}

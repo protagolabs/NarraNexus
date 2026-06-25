@@ -18,8 +18,9 @@ import {
   RotateCcw,
   LayoutDashboard,
 } from 'lucide-react';
-import { Button, ThemeToggle, ScrollArea, useConfirm } from '@/components/ui';
+import { Button, ThemeToggle, LanguageToggle, ScrollArea, useConfirm } from '@/components/ui';
 import { RingAvatar, StatusDot } from '@/components/nm';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
 import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore, useUIStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -66,6 +67,7 @@ export function Sidebar() {
   const clearPreload = usePreloadStore((s) => s.clearAll);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { isDark } = useTheme();
+  const { t } = useTranslation();
 
   /**
    * Wipe all session + cached data before leaving the current mode.
@@ -130,9 +132,9 @@ export function Sidebar() {
 
   const handleLogout = async () => {
     const ok = await confirm({
-      title: 'Log out',
-      message: 'Are you sure you want to logout?',
-      confirmText: 'Log out',
+      title: t('layout.sidebar.logoutConfirmTitle'),
+      message: t('layout.sidebar.logoutConfirmMessage'),
+      confirmText: t('layout.sidebar.logoutConfirmAction'),
       danger: true,
     });
     if (!ok) return;
@@ -142,9 +144,9 @@ export function Sidebar() {
 
   const handleClearHistory = async () => {
     const ok = await confirm({
-      title: 'Clear history',
-      message: 'Clear all conversation history?',
-      confirmText: 'Clear',
+      title: t('layout.sidebar.clearHistoryConfirmTitle'),
+      message: t('layout.sidebar.clearHistoryConfirmMessage'),
+      confirmText: t('layout.sidebar.clearHistoryConfirmAction'),
       danger: true,
     });
     if (!ok) return;
@@ -220,7 +222,7 @@ export function Sidebar() {
         <button
           type="button"
           onClick={() => navigate('/app/you')}
-          aria-label="Open your workspace"
+          aria-label={t('layout.sidebar.openWorkspace')}
           aria-current={location.pathname === '/app/you' ? 'page' : undefined}
           className={cn(
             'group w-full px-4 py-3 border-b border-[var(--rule)] text-left transition-colors',
@@ -237,7 +239,7 @@ export function Sidebar() {
               </div>
               <div className="flex items-center gap-1.5 text-[10px] leading-none text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-[family-name:var(--font-mono)]">
                 <StatusDot status="success" size={6} />
-                <span>Online</span>
+                <span>{t('sidebar.online')}</span>
               </div>
             </div>
             {/* Affordance: this row opens your "You" workspace — a chevron that
@@ -250,7 +252,7 @@ export function Sidebar() {
                   : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
               )}
             >
-              You
+              {t('sidebar.you')}
             </span>
             <ChevronRight
               className={cn(
@@ -269,7 +271,7 @@ export function Sidebar() {
         <button
           type="button"
           onClick={() => navigate('/app/you')}
-          aria-label="Open your workspace"
+          aria-label={t('layout.sidebar.openWorkspace')}
           aria-current={location.pathname === '/app/you' ? 'page' : undefined}
           className={cn(
             'w-full px-4 py-3 border-b border-[var(--rule)] flex justify-center transition-colors',
@@ -306,7 +308,7 @@ export function Sidebar() {
                 ) : (
                   <Cloud className="w-4 h-4" />
                 )}
-                {mode === 'local' ? 'Local' : 'Cloud'}
+                {mode === 'local' ? t('sidebar.local') : t('sidebar.cloud')}
               </Button>
               {showModePopup && (
                 <div className="absolute bottom-full left-0 mb-1 w-full p-3 rounded-lg border shadow-lg z-50"
@@ -315,7 +317,9 @@ export function Sidebar() {
                     borderColor: 'var(--border-default)',
                   }}>
                   <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-                    Current: {mode === 'local' ? 'Local Mode' : 'Cloud Mode'}
+                    {t('layout.sidebar.currentMode', {
+                      mode: mode === 'local' ? t('sidebar.localMode') : t('sidebar.cloudMode'),
+                    })}
                   </p>
                   <Button
                     variant="outline"
@@ -324,7 +328,9 @@ export function Sidebar() {
                     onClick={handleSwitchMode}
                   >
                     <RotateCcw className="w-3 h-3 mr-1" />
-                    Switch to {mode === 'local' ? 'Cloud' : 'Local'}
+                    {t('layout.sidebar.switchTo', {
+                      mode: mode === 'local' ? t('sidebar.cloud') : t('sidebar.local'),
+                    })}
                   </Button>
                 </div>
               )}
@@ -343,7 +349,7 @@ export function Sidebar() {
               )}
             >
               <LayoutDashboard className="w-4 h-4" />
-              Dashboard
+              {t('sidebar.dashboard')}
             </Button>
             <Button
               variant="ghost"
@@ -357,7 +363,7 @@ export function Sidebar() {
               )}
             >
               <Sliders className="w-4 h-4" />
-              Settings
+              {t('sidebar.settings')}
             </Button>
             {features.showSystemPage && (
               <Button
@@ -372,7 +378,7 @@ export function Sidebar() {
                 )}
               >
                 <Server className="w-4 h-4" />
-                System
+                {t('sidebar.system')}
               </Button>
             )}
           </>
@@ -382,7 +388,7 @@ export function Sidebar() {
               variant="ghost"
               size="icon"
               onClick={() => setShowModePopup(!showModePopup)}
-              title={mode === 'local' ? 'Local Mode' : 'Cloud Mode'}
+              title={mode === 'local' ? t('sidebar.localMode') : t('sidebar.cloudMode')}
               className={NAV_ITEM}
             >
               {mode === 'local' ? (
@@ -397,7 +403,7 @@ export function Sidebar() {
               onClick={() => navigate('/app/dashboard')}
               onMouseEnter={prefetchDashboard}
               onFocus={prefetchDashboard}
-              title="Dashboard"
+              title={t('sidebar.dashboard')}
               className={cn(
                 NAV_ITEM,
                 location.pathname === '/app/dashboard' &&
@@ -410,7 +416,7 @@ export function Sidebar() {
               variant="ghost"
               size="icon"
               onClick={() => navigate('/app/settings')}
-              title="Settings"
+              title={t('sidebar.settings')}
               className={cn(
                 NAV_ITEM,
                 location.pathname === '/app/settings' &&
@@ -424,7 +430,7 @@ export function Sidebar() {
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate('/app/system')}
-                title="System"
+                title={t('sidebar.system')}
                 className={cn(
                   NAV_ITEM,
                   location.pathname === '/app/system' &&
@@ -449,7 +455,7 @@ export function Sidebar() {
               className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
               <Trash2 className="w-4 h-4" />
-              Clear History
+              {t('sidebar.clearHistory')}
             </Button>
             <Button
               variant="ghost"
@@ -458,12 +464,13 @@ export function Sidebar() {
               className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
               <LogOut className="w-4 h-4" />
-              Logout
+              {t('sidebar.logout')}
             </Button>
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--rule)]">
               <ThemeToggle />
+              <LanguageToggle />
               <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
-                Powered by NetMind.AI
+                {t('sidebar.poweredBy')}
               </span>
               <span className="text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider">v{__APP_VERSION__}</span>
             </div>
@@ -474,7 +481,7 @@ export function Sidebar() {
               variant="ghost"
               size="icon"
               onClick={handleClearHistory}
-              title="Clear History"
+              title={t('sidebar.clearHistory')}
               className={NAV_ITEM_DANGER}
             >
               <Trash2 className="w-4 h-4" />
@@ -483,7 +490,7 @@ export function Sidebar() {
               variant="ghost"
               size="icon"
               onClick={handleLogout}
-              title="Logout"
+              title={t('sidebar.logout')}
               className={NAV_ITEM_DANGER}
             >
               <LogOut className="w-4 h-4" />

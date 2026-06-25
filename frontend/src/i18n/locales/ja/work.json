@@ -1,0 +1,318 @@
+{
+  "jobs": {
+    "title": "ジョブ",
+    "refresh": "更新",
+    "untitled": "無題",
+    "untitledJob": "無題のジョブ",
+    "noDependencies": "依存関係のあるジョブはありません",
+    "failedGroup": "失敗したジョブ {{count}} 件",
+    "failedGroup_other": "失敗したジョブ {{count}} 件",
+    "status": {
+      "pending": "保留中",
+      "active": "実行中",
+      "running": "稼働中",
+      "paused": "一時停止中",
+      "pausedNoQuota": "クォータなし",
+      "cooling": "再試行中",
+      "blocked": "ブロック中",
+      "blockedFailed": "依存が失敗",
+      "completed": "完了",
+      "failed": "失敗",
+      "cancelled": "キャンセル済み"
+    },
+    "metrics": {
+      "active": "実行中",
+      "success": "成功",
+      "failed": "失敗",
+      "rate": "成功率"
+    },
+    "view": {
+      "list": "リスト",
+      "graph": "グラフ",
+      "timeline": "タイムライン"
+    },
+    "filter": {
+      "all": "すべて"
+    },
+    "empty": {
+      "list": {
+        "title": "ジョブが見つかりません",
+        "hint": "ジョブを作成して始めましょう"
+      },
+      "graph": {
+        "title": "依存関係がありません",
+        "hint": "依存関係のあるジョブがここに可視化されます"
+      },
+      "timeline": {
+        "title": "表示するジョブがありません",
+        "hint": "ジョブを作成するとタイムラインが表示されます"
+      }
+    },
+    "cancel": {
+      "title": "ジョブをキャンセル",
+      "message": "このジョブをキャンセルしてもよろしいですか？この操作は元に戻せません。",
+      "confirm": "ジョブをキャンセル",
+      "keepRunning": "続行する",
+      "failedTitle": "キャンセルに失敗",
+      "failedMessage": "ジョブのキャンセルに失敗しました",
+      "failedRetry": "ジョブのキャンセルに失敗しました。もう一度お試しください。"
+    },
+    "pause": {
+      "failedTitle": "一時停止に失敗",
+      "failedMessage": "ジョブの一時停止に失敗しました",
+      "failedRetry": "ジョブの一時停止に失敗しました。もう一度お試しください。"
+    },
+    "resume": {
+      "failedTitle": "再開に失敗",
+      "failedMessage": "ジョブの再開に失敗しました",
+      "failedRetry": "ジョブの再開に失敗しました。もう一度お試しください。"
+    },
+    "detail": {
+      "clickNode": "ノードをクリックして詳細を表示",
+      "id": "ID:",
+      "taskKey": "タスクキー:",
+      "description": "説明:",
+      "dependsOn": "依存先:",
+      "started": "開始:",
+      "completed": "完了:",
+      "output": "出力:"
+    },
+    "expanded": {
+      "clickToCopy": "クリックしてコピー",
+      "ids": "ID",
+      "jobId": "ジョブ ID",
+      "instance": "インスタンス",
+      "configuration": "設定",
+      "type": "種類:",
+      "trigger": "トリガー:",
+      "cron": "Cron:",
+      "interval": "間隔:",
+      "runAt": "実行日時:",
+      "endCondition": "終了条件:",
+      "maxIter": "最大反復:",
+      "payload": "ペイロード",
+      "showLess": "折りたたむ",
+      "showMore": "もっと見る",
+      "timing": "タイミング",
+      "created": "作成:",
+      "updated": "更新:",
+      "lastRun": "前回実行:",
+      "nextRun": "次回実行:",
+      "dependencies": "依存関係",
+      "processLog": "処理ログ（{{count}} 件）",
+      "targetUser": "対象ユーザー（実行 ID）",
+      "linkedNarrative": "リンクされたナラティブ",
+      "error": "エラー"
+    },
+    "action": {
+      "pause": "一時停止",
+      "pausing": "一時停止中...",
+      "resume": "再開",
+      "resuming": "再開中...",
+      "cancelJob": "ジョブをキャンセル",
+      "cancelling": "キャンセル中..."
+    },
+    "template": {
+      "selectTemplate": "テンプレートを選択",
+      "tasksCount": "タスク {{count}} 件",
+      "variablesCount": "変数 {{count}} 個",
+      "configuration": "設定",
+      "selectOption": "選択...",
+      "enterField": "{{field}} を入力",
+      "dependencyPreview": "依存関係のプレビュー",
+      "back": "戻る",
+      "creating": "作成中...",
+      "createJobs": "ジョブを作成"
+    },
+    "timeline": {
+      "noJobs": "表示するジョブがありません",
+      "waiting": "待機中...",
+      "noTimeData": "時間データなし"
+    },
+    "distribution": {
+      "title": "ステータス分布",
+      "total": "合計 {{count}} 件",
+      "legend": {
+        "completed": "完了 {{count}} 件",
+        "running": "稼働中 {{count}} 件",
+        "active": "実行中 {{count}} 件",
+        "paused": "一時停止 {{count}} 件",
+        "failed": "失敗 {{count}} 件"
+      }
+    }
+  },
+  "artifacts": {
+    "refresh": "アーティファクトを更新",
+    "zoom": "アーティファクトを拡大",
+    "zoomFullscreen": "アーティファクトを拡大（全画面で開く）",
+    "collapse": "パネルを折りたたむ",
+    "collapseAria": "アーティファクトパネルを折りたたむ",
+    "selectArtifact": "アーティファクトを選択",
+    "minimized": "最小化中:",
+    "restore": "「{{title}}」を復元",
+    "openBadge": "{{title}}（{{kind}}）を開く",
+    "unsupportedKind": "サポートされていないアーティファクト種類: {{kind}}",
+    "loadingRenderer": "レンダラーを読み込み中…",
+    "sliver": {
+      "expandTitle": "クリックして展開 · アーティファクト {{count}} 件",
+      "expandTitle_other": "クリックして展開 · アーティファクト {{count}} 件",
+      "emptyTitle": "エージェントが作成するとアーティファクトがここに表示されます",
+      "expandAria": "アーティファクトパネルを展開（{{count}} 項目）",
+      "expandAria_other": "アーティファクトパネルを展開（{{count}} 項目）",
+      "emptyAria": "アーティファクトパネル（空）",
+      "label": "アーティファクト（{{count}}）",
+      "labelEmpty": "アーティファクト"
+    },
+    "emptyState": {
+      "title": "まだアーティファクトがありません",
+      "hint": "エージェントが作成するとここに表示されます。"
+    },
+    "download": {
+      "title": "ダウンロード / エクスポート",
+      "chartLoading": "チャートを読み込み中です。少し待ってからもう一度お試しください。",
+      "exportPng": "PNG としてエクスポート",
+      "exportJpeg": "JPEG としてエクスポート",
+      "original": "元データをダウンロード（.{{ext}}）",
+      "preparing": "ダウンロードを準備中…"
+    },
+    "heal": {
+      "title": "アーティファクトを復元: {{title}}",
+      "dismiss": "閉じる",
+      "registering": "登録中…",
+      "registerSelected": "選択項目を登録"
+    },
+    "preview": {
+      "chart": "[チャートプレビュー — タブを開いて表示]",
+      "html": "[HTML アプリ — タブを開いて表示]",
+      "pdf": "[PDF ドキュメント — タブを開いて表示]",
+      "unavailable": "プレビューを利用できません: {{error}}",
+      "open": "開く →"
+    },
+    "tabStrip": {
+      "noArtifacts": "まだアーティファクトがありません",
+      "deleteFailed": "削除に失敗しました: {{error}}",
+      "deleteTitle": "アーティファクトを削除",
+      "deletePrompt": "次のタブを削除しますか",
+      "deleteNote": "削除されるのはレジストリのエントリのみです。ワークスペースのファイルは書き込んだ場所に残ります。ディスク容量を解放したい場合は、設定パネルのワークスペースセクションで整理してください。",
+      "cancel": "キャンセル",
+      "deleting": "削除中…",
+      "deleteTab": "タブを削除",
+      "tabTitle": "クリックで選択 · ダブルクリックで拡大",
+      "zoomTitle": "拡大（全画面で開く）",
+      "minimizeTitle": "最小化（削除されません。上のバーから復元できます）",
+      "minimizeAria": "タブを最小化",
+      "deleteTabTitle": "タブを削除（ワークスペースのファイルはそのまま残ります）",
+      "deleteAria": "アーティファクトタブを削除"
+    },
+    "zoomModal": {
+      "aria": "拡大したアーティファクト: {{title}}",
+      "zoomOut": "縮小（Ctrl/Cmd -）",
+      "zoomOutAria": "縮小",
+      "reset": "100% にリセット（Ctrl/Cmd 0）",
+      "resetAria": "ズームを 100 パーセントにリセット",
+      "zoomIn": "拡大（Ctrl/Cmd +）",
+      "zoomInAria": "拡大",
+      "close": "閉じる（Esc）",
+      "closeAria": "ズームを閉じる"
+    }
+  },
+  "skills": {
+    "title": "スキル & MCP",
+    "refresh": "更新",
+    "actionBar": {
+      "github": "GitHub",
+      "zip": "Zip",
+      "showDisabled": "無効を表示"
+    },
+    "error": {
+      "title": "エラー",
+      "loadFailed": "スキルの読み込みに失敗しました",
+      "retry": "再試行"
+    },
+    "empty": {
+      "title": "インストール済みのスキルがありません",
+      "hint": "GitHub からインストールするか、zip ファイルをアップロードしてください"
+    },
+    "remove": {
+      "title": "スキルを削除",
+      "message": "「{{name}}」を削除してもよろしいですか？この操作は元に戻せません。",
+      "confirm": "削除"
+    },
+    "card": {
+      "needsConfig": "設定が必要: {{vars}}",
+      "studying": "学習中...",
+      "studyResult": "学習結果",
+      "study": "学習",
+      "restudy": "再学習",
+      "configure": "設定",
+      "env": "環境変数",
+      "enable": "有効化",
+      "disable": "無効化",
+      "remove": "削除"
+    },
+    "install": {
+      "fromGithub": "GitHub からインストール",
+      "fromZip": "Zip からインストール",
+      "githubUrl": "GitHub URL",
+      "branch": "ブランチ（任意）",
+      "skillPackage": "スキルパッケージ（.zip）",
+      "clickOrDrag": "クリックまたはドラッグしてアップロード",
+      "zipOnly": ".zip ファイルのみ",
+      "trustWarning": "信頼できるソースからのスキルのみインストールしてください。スキルには、エージェントが読み取りまたは使用する可能性のあるドキュメント、プロンプト、スクリプトが含まれる場合があります。",
+      "cancel": "キャンセル",
+      "installing": "インストール中...",
+      "install": "インストール",
+      "errorUrlRequired": "GitHub URL は必須です",
+      "errorOnlyGithub": "GitHub リポジトリのみサポートされています",
+      "errorSelectZip": "zip ファイルを選択してください",
+      "errorZipExt": ".zip ファイルを選択してください"
+    },
+    "env": {
+      "title": "設定: {{name}}",
+      "noneRequired": "このスキルに必要な環境変数はありません。",
+      "instructions": "必要な環境変数を入力してください。空欄のままにすると既存の値が保持されます。",
+      "placeholderConfigured": "••••••• （設定済み）",
+      "placeholderEnter": "値を入力...",
+      "cancel": "キャンセル",
+      "saving": "保存中...",
+      "save": "保存",
+      "errorLoad": "設定の読み込みに失敗しました",
+      "errorSave": "保存に失敗しました"
+    },
+    "mcp": {
+      "servers": "MCP サーバー",
+      "addMcp": "MCP を追加",
+      "refreshValidate": "すべて更新して検証",
+      "noServers": "設定された MCP サーバーがありません",
+      "addFirst": "最初の MCP を追加",
+      "validating": "検証中...",
+      "connected": "接続済み",
+      "failed": "失敗",
+      "failedWithError": "失敗: {{error}}",
+      "unknown": "不明",
+      "failedTooltip": "失敗: {{error}}\n\n（クリックして再検証）",
+      "statusTooltip": "{{status}} — クリックして再検証",
+      "disabled": "無効",
+      "disable": "無効化",
+      "enable": "有効化",
+      "delete": "削除",
+      "namePlaceholder": "MCP 名",
+      "urlPlaceholder": "SSE URL（例: https://your-host/sse）",
+      "add": "追加",
+      "cancel": "キャンセル",
+      "deleteTitle": "MCP を削除",
+      "deleteMessage": "この MCP を削除しますか？",
+      "errorLoad": "MCP の読み込みに失敗しました",
+      "errorAdd": "MCP の追加に失敗しました",
+      "errorDelete": "MCP の削除に失敗しました",
+      "errorUpdate": "MCP の更新に失敗しました",
+      "hint": {
+        "endpoint": "http(s) 経由のリモート SSE エンドポイントである必要があります — 通常は /sse で終わります。",
+        "reachable": "サーバーがその URL に到達できる必要があります（公開ホスト、またはこのマシンが接続できるホスト）。",
+        "noStdio": "ローカルの stdio / npx MCP はここではサポートされていません — URL ベースの SSE サーバーのみです。",
+        "apiKey": "API キーが必要な場合は、MCP が想定する URL またはヘッダーに含めてください。接続は匿名で行われます。",
+        "validation": "追加後、ステータスドットが接続を検証します — 「失敗」は URL に到達できなかったか、有効な SSE エンドポイントでなかったことを意味します。"
+      }
+    }
+  }
+}

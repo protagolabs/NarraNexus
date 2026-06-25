@@ -32,6 +32,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Mic, Square, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -117,6 +118,7 @@ export function AudioRecorder({
   onUnavailable,
   onPreflight,
 }: AudioRecorderProps) {
+  const { t } = useTranslation();
   const [state, setState] = useState<RecorderState>(() =>
     typeof MediaRecorder === 'undefined' ? 'unsupported' : 'idle',
   );
@@ -210,18 +212,20 @@ export function AudioRecorder({
       const err = e instanceof Error ? e.name : 'unknown';
       if (err === 'NotAllowedError' || err === 'SecurityError') {
         setState('denied');
-        onError?.(
-          'Microphone access denied. Enable mic permission in your browser settings, then try again.',
-        );
+        onError?.(t('chat.audio.micDenied'));
       } else if (err === 'NotFoundError' || err === 'OverconstrainedError') {
         setState('idle');
-        onError?.('No microphone detected.');
+        onError?.(t('chat.audio.noMic'));
       } else {
         setState('idle');
-        onError?.(`Recording failed: ${e instanceof Error ? e.message : String(e)}`);
+        onError?.(
+          t('chat.audio.recordingFailed', {
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
       }
     }
-  }, [state, cleanupStream, onRecorded, onError, available, onUnavailable, onPreflight]);
+  }, [state, cleanupStream, onRecorded, onError, available, onUnavailable, onPreflight, t]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
@@ -243,7 +247,7 @@ export function AudioRecorder({
         variant="danger"
         onClick={stopRecording}
         className="shrink-0 h-8 px-2.5 gap-1.5 font-[family-name:var(--font-mono)] text-xs uppercase tracking-[0.1em]"
-        title="Stop recording"
+        title={t('chat.audio.stopRecording')}
       >
         <span className="relative inline-flex w-2.5 h-2.5">
           <span className="absolute inset-0 rounded-full bg-white opacity-75 animate-ping" />
@@ -271,7 +275,7 @@ export function AudioRecorder({
           'shrink-0 h-8 w-8',
           'text-[color:var(--color-error)]',
         )}
-        title="Microphone access denied — click to retry after enabling permission"
+        title={t('chat.audio.micDeniedRetry')}
       >
         <AlertCircle className="w-4 h-4" />
       </Button>
@@ -285,7 +289,7 @@ export function AudioRecorder({
       onClick={startRecording}
       disabled={disabled || state === 'requesting'}
       className="shrink-0 h-8 w-8 text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]"
-      title="Record voice message"
+      title={t('chat.audio.recordVoice')}
     >
       <Mic className="w-4 h-4" />
     </Button>

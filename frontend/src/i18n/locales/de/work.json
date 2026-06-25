@@ -1,0 +1,318 @@
+{
+  "jobs": {
+    "title": "Jobs",
+    "refresh": "Aktualisieren",
+    "untitled": "Ohne Titel",
+    "untitledJob": "Job ohne Titel",
+    "noDependencies": "Keine Jobs mit Abhängigkeiten",
+    "failedGroup": "{{count}} fehlgeschlagener Job",
+    "failedGroup_other": "{{count}} fehlgeschlagene Jobs",
+    "status": {
+      "pending": "Ausstehend",
+      "active": "Aktiv",
+      "running": "Läuft",
+      "paused": "Pausiert",
+      "pausedNoQuota": "Kein Kontingent",
+      "cooling": "Wiederholung",
+      "blocked": "Blockiert",
+      "blockedFailed": "Abh. fehlgeschlagen",
+      "completed": "Abgeschlossen",
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Abgebrochen"
+    },
+    "metrics": {
+      "active": "Aktiv",
+      "success": "Erfolg",
+      "failed": "Fehlgeschlagen",
+      "rate": "Rate"
+    },
+    "view": {
+      "list": "Liste",
+      "graph": "Graph",
+      "timeline": "Zeitachse"
+    },
+    "filter": {
+      "all": "Alle"
+    },
+    "empty": {
+      "list": {
+        "title": "Keine Jobs gefunden",
+        "hint": "Erstellen Sie einen Job, um zu beginnen"
+      },
+      "graph": {
+        "title": "Keine Abhängigkeitsbeziehungen",
+        "hint": "Jobs mit Abhängigkeiten werden hier visualisiert"
+      },
+      "timeline": {
+        "title": "Keine Jobs zum Anzeigen",
+        "hint": "Erstellen Sie Jobs, um die Zeitachse zu sehen"
+      }
+    },
+    "cancel": {
+      "title": "Job abbrechen",
+      "message": "Sind Sie sicher, dass Sie diesen Job abbrechen möchten? Diese Aktion kann nicht rückgängig gemacht werden.",
+      "confirm": "Job abbrechen",
+      "keepRunning": "Weiterlaufen lassen",
+      "failedTitle": "Abbruch fehlgeschlagen",
+      "failedMessage": "Job konnte nicht abgebrochen werden",
+      "failedRetry": "Job konnte nicht abgebrochen werden. Bitte erneut versuchen."
+    },
+    "pause": {
+      "failedTitle": "Pausieren fehlgeschlagen",
+      "failedMessage": "Job konnte nicht pausiert werden",
+      "failedRetry": "Job konnte nicht pausiert werden. Bitte erneut versuchen."
+    },
+    "resume": {
+      "failedTitle": "Fortsetzen fehlgeschlagen",
+      "failedMessage": "Job konnte nicht fortgesetzt werden",
+      "failedRetry": "Job konnte nicht fortgesetzt werden. Bitte erneut versuchen."
+    },
+    "detail": {
+      "clickNode": "Klicken Sie auf einen Knoten, um Details anzuzeigen",
+      "id": "ID:",
+      "taskKey": "Task-Schlüssel:",
+      "description": "Beschreibung:",
+      "dependsOn": "Hängt ab von:",
+      "started": "Gestartet:",
+      "completed": "Abgeschlossen:",
+      "output": "Ausgabe:"
+    },
+    "expanded": {
+      "clickToCopy": "Zum Kopieren klicken",
+      "ids": "IDs",
+      "jobId": "Job-ID",
+      "instance": "Instanz",
+      "configuration": "Konfiguration",
+      "type": "Typ:",
+      "trigger": "Auslöser:",
+      "cron": "Cron:",
+      "interval": "Intervall:",
+      "runAt": "Ausführen um:",
+      "endCondition": "Endbedingung:",
+      "maxIter": "Max. Iter.:",
+      "payload": "Payload",
+      "showLess": "Weniger anzeigen",
+      "showMore": "Mehr anzeigen",
+      "timing": "Zeitplanung",
+      "created": "Erstellt:",
+      "updated": "Aktualisiert:",
+      "lastRun": "Letzte Ausführung:",
+      "nextRun": "Nächste Ausführung:",
+      "dependencies": "Abhängigkeiten",
+      "processLog": "Prozessprotokoll ({{count}} Einträge)",
+      "targetUser": "Zielbenutzer (Ausführungsidentität)",
+      "linkedNarrative": "Verknüpftes Narrativ",
+      "error": "Fehler"
+    },
+    "action": {
+      "pause": "Pausieren",
+      "pausing": "Wird pausiert...",
+      "resume": "Fortsetzen",
+      "resuming": "Wird fortgesetzt...",
+      "cancelJob": "Job abbrechen",
+      "cancelling": "Wird abgebrochen..."
+    },
+    "template": {
+      "selectTemplate": "Vorlage auswählen",
+      "tasksCount": "{{count}} Aufgaben",
+      "variablesCount": "{{count}} Variablen",
+      "configuration": "Konfiguration",
+      "selectOption": "Auswählen...",
+      "enterField": "{{field}} eingeben",
+      "dependencyPreview": "Abhängigkeitsvorschau",
+      "back": "Zurück",
+      "creating": "Wird erstellt...",
+      "createJobs": "Jobs erstellen"
+    },
+    "timeline": {
+      "noJobs": "Keine Jobs zum Anzeigen",
+      "waiting": "Wartet...",
+      "noTimeData": "Keine Zeitdaten"
+    },
+    "distribution": {
+      "title": "Statusverteilung",
+      "total": "{{count}} insgesamt",
+      "legend": {
+        "completed": "{{count}} abgeschlossen",
+        "running": "{{count}} laufend",
+        "active": "{{count}} aktiv",
+        "paused": "{{count}} pausiert",
+        "failed": "{{count}} fehlgeschlagen"
+      }
+    }
+  },
+  "artifacts": {
+    "refresh": "Artefakte aktualisieren",
+    "zoom": "Artefakt zoomen",
+    "zoomFullscreen": "Artefakt zoomen (Vollbild öffnen)",
+    "collapse": "Panel einklappen",
+    "collapseAria": "Artefakte-Panel einklappen",
+    "selectArtifact": "Ein Artefakt auswählen",
+    "minimized": "Minimiert:",
+    "restore": "\"{{title}}\" wiederherstellen",
+    "openBadge": "{{title}} öffnen ({{kind}})",
+    "unsupportedKind": "Nicht unterstützte Artefaktart: {{kind}}",
+    "loadingRenderer": "Renderer wird geladen…",
+    "sliver": {
+      "expandTitle": "Zum Erweitern klicken · {{count}} Artefakt",
+      "expandTitle_other": "Zum Erweitern klicken · {{count}} Artefakte",
+      "emptyTitle": "Artefakte erscheinen hier, sobald der Agent eines erstellt",
+      "expandAria": "Artefakte-Panel erweitern ({{count}} Element)",
+      "expandAria_other": "Artefakte-Panel erweitern ({{count}} Elemente)",
+      "emptyAria": "Artefakte-Panel (leer)",
+      "label": "Artefakte ({{count}})",
+      "labelEmpty": "Artefakte"
+    },
+    "emptyState": {
+      "title": "Noch keine Artefakte",
+      "hint": "Sie erscheinen hier, sobald der Agent sie erstellt."
+    },
+    "download": {
+      "title": "Herunterladen / Exportieren",
+      "chartLoading": "Diagramm wird noch geladen. Bitte versuchen Sie es gleich erneut.",
+      "exportPng": "Als PNG exportieren",
+      "exportJpeg": "Als JPEG exportieren",
+      "original": "Original herunterladen (.{{ext}})",
+      "preparing": "Download wird vorbereitet…"
+    },
+    "heal": {
+      "title": "Artefakt wiederherstellen: {{title}}",
+      "dismiss": "Verwerfen",
+      "registering": "Wird registriert…",
+      "registerSelected": "Ausgewählte registrieren"
+    },
+    "preview": {
+      "chart": "[Diagrammvorschau — Tab zum Anzeigen öffnen]",
+      "html": "[HTML-App — Tab zum Anzeigen öffnen]",
+      "pdf": "[PDF-Dokument — Tab zum Anzeigen öffnen]",
+      "unavailable": "Vorschau nicht verfügbar: {{error}}",
+      "open": "Öffnen →"
+    },
+    "tabStrip": {
+      "noArtifacts": "Noch keine Artefakte",
+      "deleteFailed": "Löschen fehlgeschlagen: {{error}}",
+      "deleteTitle": "Artefakt löschen",
+      "deletePrompt": "Tab entfernen für",
+      "deleteNote": "Nur der Registrierungseintrag wird entfernt. Ihre Workspace-Dateien bleiben dort, wo Sie sie geschrieben haben — bereinigen Sie sie im Workspace-Bereich des Konfigurationspanels, wenn Sie Speicherplatz freigeben möchten.",
+      "cancel": "Abbrechen",
+      "deleting": "Wird gelöscht…",
+      "deleteTab": "Tab löschen",
+      "tabTitle": "Klicken zum Auswählen · Doppelklick zum Zoomen",
+      "zoomTitle": "Zoomen (Vollbild öffnen)",
+      "minimizeTitle": "Minimieren (löscht nicht; aus der Leiste oben wiederherstellen)",
+      "minimizeAria": "Tab minimieren",
+      "deleteTabTitle": "Tab löschen (Workspace-Dateien bleiben erhalten)",
+      "deleteAria": "Artefakt-Tab löschen"
+    },
+    "zoomModal": {
+      "aria": "Gezoomtes Artefakt: {{title}}",
+      "zoomOut": "Verkleinern (Ctrl/Cmd -)",
+      "zoomOutAria": "Verkleinern",
+      "reset": "Auf 100 % zurücksetzen (Ctrl/Cmd 0)",
+      "resetAria": "Zoom auf 100 Prozent zurücksetzen",
+      "zoomIn": "Vergrößern (Ctrl/Cmd +)",
+      "zoomInAria": "Vergrößern",
+      "close": "Schließen (Esc)",
+      "closeAria": "Zoom schließen"
+    }
+  },
+  "skills": {
+    "title": "Skill & MCP",
+    "refresh": "Aktualisieren",
+    "actionBar": {
+      "github": "GitHub",
+      "zip": "Zip",
+      "showDisabled": "Deaktivierte anzeigen"
+    },
+    "error": {
+      "title": "Fehler",
+      "loadFailed": "Skills konnten nicht geladen werden",
+      "retry": "Erneut versuchen"
+    },
+    "empty": {
+      "title": "Keine Skills installiert",
+      "hint": "Installieren Sie Skills von GitHub oder laden Sie eine Zip-Datei hoch"
+    },
+    "remove": {
+      "title": "Skill entfernen",
+      "message": "Sind Sie sicher, dass Sie \"{{name}}\" entfernen möchten? Diese Aktion kann nicht rückgängig gemacht werden.",
+      "confirm": "Entfernen"
+    },
+    "card": {
+      "needsConfig": "Konfiguration erforderlich: {{vars}}",
+      "studying": "Wird studiert...",
+      "studyResult": "Studienergebnis",
+      "study": "Studieren",
+      "restudy": "Erneut studieren",
+      "configure": "Konfigurieren",
+      "env": "Env",
+      "enable": "Aktivieren",
+      "disable": "Deaktivieren",
+      "remove": "Entfernen"
+    },
+    "install": {
+      "fromGithub": "Von GitHub installieren",
+      "fromZip": "Aus Zip installieren",
+      "githubUrl": "GitHub-URL",
+      "branch": "Branch (optional)",
+      "skillPackage": "Skill-Paket (.zip)",
+      "clickOrDrag": "Klicken oder ziehen zum Hochladen",
+      "zipOnly": "Nur .zip-Dateien",
+      "trustWarning": "Installieren Sie nur Skills aus Quellen, denen Sie vertrauen. Ein Skill kann Dokumente, Prompts und Skripte enthalten, die der Agent lesen oder verwenden kann.",
+      "cancel": "Abbrechen",
+      "installing": "Wird installiert...",
+      "install": "Installieren",
+      "errorUrlRequired": "GitHub-URL ist erforderlich",
+      "errorOnlyGithub": "Nur GitHub-Repositorys werden unterstützt",
+      "errorSelectZip": "Bitte wählen Sie eine Zip-Datei aus",
+      "errorZipExt": "Bitte wählen Sie eine .zip-Datei aus"
+    },
+    "env": {
+      "title": "Konfigurieren: {{name}}",
+      "noneRequired": "Für diesen Skill sind keine Umgebungsvariablen erforderlich.",
+      "instructions": "Geben Sie die erforderlichen Umgebungsvariablen ein. Leer lassen, um den vorhandenen Wert beizubehalten.",
+      "placeholderConfigured": "••••••• (konfiguriert)",
+      "placeholderEnter": "Wert eingeben...",
+      "cancel": "Abbrechen",
+      "saving": "Wird gespeichert...",
+      "save": "Speichern",
+      "errorLoad": "Konfiguration konnte nicht geladen werden",
+      "errorSave": "Speichern fehlgeschlagen"
+    },
+    "mcp": {
+      "servers": "MCP-Server",
+      "addMcp": "MCP hinzufügen",
+      "refreshValidate": "Alle aktualisieren & validieren",
+      "noServers": "Keine MCP-Server konfiguriert",
+      "addFirst": "Fügen Sie Ihr erstes MCP hinzu",
+      "validating": "Wird validiert...",
+      "connected": "Verbunden",
+      "failed": "Fehlgeschlagen",
+      "failedWithError": "Fehlgeschlagen: {{error}}",
+      "unknown": "Unbekannt",
+      "failedTooltip": "Fehlgeschlagen: {{error}}\n\n(zum erneuten Validieren klicken)",
+      "statusTooltip": "{{status}} — zum erneuten Validieren klicken",
+      "disabled": "Deaktiviert",
+      "disable": "Deaktivieren",
+      "enable": "Aktivieren",
+      "delete": "Löschen",
+      "namePlaceholder": "MCP-Name",
+      "urlPlaceholder": "SSE-URL (z. B. https://your-host/sse)",
+      "add": "Hinzufügen",
+      "cancel": "Abbrechen",
+      "deleteTitle": "MCP löschen",
+      "deleteMessage": "Dieses MCP löschen?",
+      "errorLoad": "MCPs konnten nicht geladen werden",
+      "errorAdd": "MCP konnte nicht hinzugefügt werden",
+      "errorDelete": "MCP konnte nicht gelöscht werden",
+      "errorUpdate": "MCP konnte nicht aktualisiert werden",
+      "hint": {
+        "endpoint": "Muss ein entfernter SSE-Endpunkt über http(s) sein — endet üblicherweise auf /sse.",
+        "reachable": "Der Server muss die URL erreichen können (öffentlicher Host oder einer, mit dem sich dieser Rechner verbinden kann).",
+        "noStdio": "Lokale stdio- / npx-MCPs werden hier nicht unterstützt — nur URL-basierte SSE-Server.",
+        "apiKey": "Wenn ein API-Schlüssel benötigt wird, geben Sie ihn in die URL oder die von Ihrem MCP erwarteten Header ein; wir verbinden uns anonym.",
+        "validation": "Nach dem Hinzufügen validiert der Statuspunkt die Verbindung — Fehlgeschlagen bedeutet, dass die URL nicht erreichbar oder kein gültiger SSE-Endpunkt war."
+      }
+    }
+  }
+}
