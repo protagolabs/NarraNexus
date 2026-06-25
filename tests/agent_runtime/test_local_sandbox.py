@@ -9,6 +9,7 @@ deny-default allowlist; Linux bwrap uses a proper bind-only allowlist. All paths
 be canonical (realpath) or Seatbelt's subpath match silently no-ops.
 """
 import os
+import shutil
 import subprocess
 import sys
 
@@ -53,22 +54,17 @@ def test_macos_profile_uses_canonical_paths(tmp_path):
     assert os.path.realpath(lay.external_ws) in p
 
 
-def test_macos_profile_owner_is_read_only(tmp_path):
-    lay = _layout(str(tmp_path))
-    p = macos_sandbox_profile(lay)
-    owner = os.path.realpath(lay.owner_ws)
-    assert f'(allow file-read* (subpath "{owner}"))' in p
-    assert f'(deny file-write* (subpath "{owner}"))' in p
-
-
-def test_macos_profile_isolates_sibling_subjects(tmp_path):
+def test_macos_profile_confines_writes_to_own_ws(tmp_path):
+    # Write-deny on base (covers owner + other subjects), re-allow only own ws.
+    # NOTE: it's a WRITE deny, not read — denying base reads breaks claude's cwd
+    # walk-up (EPERM). So no `(deny file-read* base)`.
     lay = _layout(str(tmp_path))
     p = macos_sandbox_profile(lay)
     base = os.path.realpath(lay.base_dir)
     ext = os.path.realpath(lay.external_ws)
-    # base denied (hides sibling subjects), this run's external ws re-allowed rw.
-    assert f'(deny file-read* (subpath "{base}"))' in p
-    assert f'(allow file* (subpath "{ext}"))' in p
+    assert f'(deny file-write* (subpath "{base}"))' in p
+    assert f'(allow file-write* (subpath "{ext}"))' in p
+    assert "(deny file-read* (subpath" not in p  # would EPERM the CLI
 
 
 def test_macos_profile_blocks_home_secrets(tmp_path):
@@ -152,9 +148,8 @@ def test_prepare_wrapper_macos_structure(tmp_path):
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec is macOS-only")
 def test_prepare_wrapper_macos_enforces(tmp_path):
-    """End-to-end: the generated wrapper actually sandboxes the (fake) CLI."""
+    """End-to-end: the generated wrapper confines writes + hides secrets (fake CLI)."""
     lay = _layout(str(tmp_path))
-    # A fake "claude" that probes the filesystem and prints outcomes.
     fake = str(tmp_path / "fakecli.sh")
     secret = str(tmp_path / "secret")
     os.makedirs(secret, exist_ok=True)
@@ -171,9 +166,31 @@ def test_prepare_wrapper_macos_enforces(tmp_path):
         lay, "sandbox-exec", fake, extra_blocked=[secret]
     )
     try:
-        out = subprocess.run([wrapper], capture_output=True, text=True).stdout
+        out = subprocess.run([wrapper], cwd=lay.external_ws, capture_output=True, text=True).stdout
     finally:
         cleanup()
     assert "EXT_WRITE_OK" in out
     assert "OWNER_WRITE_BLOCKED" in out
     assert "SECRET_BLOCKED" in out
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec is macOS-only")
+def test_prepare_wrapper_real_claude_runs_with_cwd(tmp_path):
+    """Regression for the EPERM bug: the REAL claude CLI must start under the
+    sandbox WITH cwd set to the workspace (under base) — a read-deny on base would
+    break its cwd walk-up. Skipped if claude isn't installed."""
+    claude = shutil.which("claude")
+    if not claude:
+        pytest.skip("claude CLI not installed")
+    lay = _layout(str(tmp_path))
+    os.makedirs(lay.sandbox_home, exist_ok=True)
+    wrapper, cleanup = prepare_sandbox_wrapper(lay, "sandbox-exec", claude)
+    try:
+        r = subprocess.run(
+            [wrapper, "--version"], cwd=lay.external_ws,
+            env={**os.environ, "HOME": lay.sandbox_home},
+            capture_output=True, text=True, timeout=30,
+        )
+    finally:
+        cleanup()
+    assert r.returncode == 0, f"claude failed under sandbox: {r.stderr!r}"

@@ -42,11 +42,18 @@ agent-loop CLI 起进程处接。
   deprecated。blocklist 下 node/网络/mach 全正常,只限文件系统。
 - **Linux `bwrap` = bind-only allowlist**(只 bind 该给的,更强、对 node 稳)。
 
-**macOS profile 结构(实测有效)**:`(allow default)` → `(deny file-read* base)`(藏同级
-sibling subjects)→ `(allow file* ext)`(本 turn workspace 重新放开 rw)→
-`(allow file-read* owner)(deny file-write* owner)`(owner 只读)→ `(deny file* ~/.ssh ...)`。
-**re-allow-after-deny 的顺序实测生效**(SBPL 最后匹配胜)。实测结果:EXT 可写、OWNER 只读、
-**SIBLING 读被拦**(跨 subject 隔离)、SSH 被拦、node 跑、网络通。
+**macOS profile 结构(2026-06-25 实测修正)**:`(allow default)` →
+`(deny file-write* base)` → `(allow file-write* ext)` → `(deny file* ~/.ssh …)`。
+即:**写限制**(只能写自己 ws,owner + 其它 subject 都在 base 下、写被拦)+ **密钥隐藏**。
+
+⚠️ **关键教训(EPERM bug)**:**不能 `(deny file-read* base)`**。claude CLI 启动时会从 cwd
+**向上 stat/遍历祖先目录**(项目/配置发现),cwd = `base/{subject}/{agent}` 在 base 下,
+read-deny base → 遍历到 base 时 EPERM → CLI exit 1 → 整轮空输出。`--version` 不设 cwd 时不触发,
+所以最初漏过(`test_prepare_wrapper_real_claude_runs_with_cwd` 现在专门设 cwd 跑真 claude 兜住)。
+→ 改成 **deny WRITE(不 deny read)**:遍历(read/stat)放行,CLI 正常;写仍被限。
+**代价:macOS blocklist 不提供跨 subject / owner 的 READ 隔离**(allow default 可读)——
+强 read 隔离用 Linux bwrap(bind-only allowlist,只挂该挂的)或 Docker executor。
+实测(cwd=ext):`claude --version` rc=0、SIBLING/OWNER 写被拦、SSH 读被拦、EXT 可写。
 
 **路径必须 canonical**:`_canon = os.path.realpath`。macOS `/tmp`→`/private/tmp`,Seatbelt
 按 canonical 匹配 `(subpath ...)`,非 canonical 会**静默失效**(deny 变 no-op)。

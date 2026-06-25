@@ -83,16 +83,21 @@ def macos_sandbox_profile(
     lines: List[str] = [
         "(version 1)",
         "(allow default)",
-        # Hide sibling subjects: deny reads under the workspaces base, then re-allow
-        # this run's own dirs (last match wins in SBPL).
-        f'(deny file-read* (subpath "{base}"))',
-        f'(allow file* (subpath "{ext}"))',
+        # WRITE confinement: the visitor may write ONLY its own workspace — never the
+        # owner's or any other subject's workspace (all live under `base`), nor
+        # elsewhere if we extend this. The owner workspace is covered too (it's under
+        # base), so no separate owner rule is needed.
+        #
+        # IMPORTANT — we deny WRITES, not reads, on base. Denying *reads* on base
+        # breaks the claude CLI: it stat/traverses the cwd's ancestor dirs up through
+        # `base` on startup (project/config discovery), and a read-deny there raises
+        # EPERM and the CLI exits 1. So on the macOS blocklist, cross-subject/owner
+        # *read* isolation is NOT provided — use Linux bwrap (bind-only allowlist) or
+        # the Docker executor for that. Writes + secrets ARE confined here.
+        f'(deny file-write* (subpath "{base}"))',
+        f'(allow file-write* (subpath "{ext}"))',
     ]
-    if layout.owner_ws:
-        owner = _canon(layout.owner_ws)
-        lines.append(f'(allow file-read* (subpath "{owner}"))')
-        lines.append(f'(deny file-write* (subpath "{owner}"))')
-    # Hide owner-home credential/key dirs.
+    # Secrets: hide credential / key dirs entirely (read AND write).
     for sub in _SENSITIVE_HOME_SUBDIRS:
         lines.append(f'(deny file* (subpath "{_canon(os.path.join(home, sub))}"))')
     # Caller-supplied extra blocks (e.g. NarraNexus install / DB).
