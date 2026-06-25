@@ -128,6 +128,7 @@ __all__ = [
     "SlackModule",
     "TelegramModule",
     "NarramessengerModule",
+    "DiscordModule",
     "CommonToolsModule",
 
     # ===== Module mapping =====
