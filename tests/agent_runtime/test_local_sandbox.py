@@ -118,15 +118,15 @@ def test_bwrap_inner_command_after_separator(tmp_path):
 
 def test_build_sandbox_layout(tmp_path):
     base = str(tmp_path / "ws")
-    lay = build_sandbox_layout("agent_x", "ext:slack:room1", "owner1", base, home_dir="/home/o")
-    assert lay.external_ws.endswith("/agent_x") and "ext:slack:room1" in lay.external_ws
+    lay = build_sandbox_layout("agent_x", "ext_slack_room1", "owner1", base, home_dir="/home/o")
+    assert lay.external_ws.endswith("/agent_x") and "ext_slack_room1" in lay.external_ws
     assert lay.owner_ws.endswith("/agent_x") and "owner1" in lay.owner_ws
     assert lay.sandbox_home == os.path.join(lay.external_ws, ".home")
     assert lay.home_dir == "/home/o"
 
 
 def test_build_sandbox_layout_no_owner(tmp_path):
-    lay = build_sandbox_layout("agent_x", "ext:slack:room1", None, str(tmp_path))
+    lay = build_sandbox_layout("agent_x", "ext_slack_room1", None, str(tmp_path))
     assert lay.owner_ws is None
 
 

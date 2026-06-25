@@ -13,8 +13,13 @@ the agent owner (resolved off agent_id).
 Identity is ROOM-DERIVED:
 - a DM room (1:1) → a per-person scope (the DM room is unique to that person);
 - a group room → a per-group (community) scope, shared by its members.
-The room_id is the discriminator, so a single rule covers both. The "ext:" prefix
+The room_id is the discriminator, so a single rule covers both. The "ext_" prefix
 lets the executor/broker recognise external subjects (and skip real-user checks).
+
+The id is DOCKER-SAFE: only `[a-z0-9_]` (prefix + channel + hex hash, all separated
+by "_") — no colons or path-hostile characters. The cloud broker uses it directly
+as a container-name component and a workspace volume-subpath, so it must avoid `:`
+(forbidden in docker names) and any char that's fragile in mount specs / paths.
 """
 from __future__ import annotations
 
@@ -40,7 +45,8 @@ def external_subject_id(channel: str, room_id: str) -> str:
         room_id: IM-side room/chat/group id (the DM-vs-group discriminator).
 
     Returns:
-        A stable id of the form ``ext:{channel}:{room_hash}`` (<= 64 chars).
+        A stable id of the form ``ext_{channel}_{room_hash}`` (<= 64 chars,
+        docker-safe: ``[a-z0-9_]`` only).
 
     Raises:
         ValueError: if channel or room_id is empty — an empty component would
@@ -52,12 +58,12 @@ def external_subject_id(channel: str, room_id: str) -> str:
             f"(got channel={channel!r}, room_id={room_id!r})"
         )
     room_hash = hashlib.sha256(room_id.encode("utf-8")).hexdigest()[:_ROOM_HASH_LEN]
-    return f"{_EXTERNAL_PREFIX}:{channel}:{room_hash}"
+    return f"{_EXTERNAL_PREFIX}_{channel}_{room_hash}"
 
 
 def is_external_subject(user_id: str) -> bool:
     """True if user_id is an external IM subject (vs a real platform user)."""
-    return bool(user_id) and user_id.startswith(f"{_EXTERNAL_PREFIX}:")
+    return bool(user_id) and user_id.startswith(f"{_EXTERNAL_PREFIX}_")
 
 
 # user_type marker for auto-provisioned external IM identities.

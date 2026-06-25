@@ -28,14 +28,14 @@ def test_real_user_local_gets_local():
 def test_external_subject_overrides_local():
     # The crucial interaction: external on a local box is STILL strict.
     assert (
-        select_deployment_context("local", "ext:slack:room1")
+        select_deployment_context("local", "ext_slack_room1")
         == DEPLOYMENT_CONTEXT_EXTERNAL_IM
     )
 
 
 def test_external_subject_on_cloud_is_external():
     assert (
-        select_deployment_context("cloud", "ext:narramessenger:abc123")
+        select_deployment_context("cloud", "ext_narramessenger_abc123")
         == DEPLOYMENT_CONTEXT_EXTERNAL_IM
     )
 
@@ -49,7 +49,7 @@ def test_external_block_is_strict():
 def test_external_owner_shared_path_appended():
     # B-4: the owner's read-only workspace path is surfaced to an external subject.
     out = select_deployment_context(
-        "local", "ext:slack:room1", owner_shared_path="/ws/owner1/agent_x"
+        "local", "ext_slack_room1", owner_shared_path="/ws/owner1/agent_x"
     )
     assert "/ws/owner1/agent_x" in out
     assert "READ-ONLY" in out

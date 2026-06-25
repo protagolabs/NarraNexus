@@ -752,7 +752,12 @@ async def step_3_agent_loop(
         ensure_executor,
         wait_until_ready,
     )
-    ensured = await ensure_executor(ctx.user_id)
+    # For an external IM subject (ext_… scope), tell the broker the OWNER so it
+    # mounts the owner's workspace READ-ONLY into the container (shared knowledge).
+    # Normal owner-scoped turns pass None → broker mounts only the one workspace.
+    from xyz_agent_context.channel.external_identity import is_external_subject
+    _owner_for_share = ctx.agent_owner_id if is_external_subject(ctx.user_id) else None
+    ensured = await ensure_executor(ctx.user_id, owner_user_id=_owner_for_share)
     executor_url = ensured.url if ensured else None
     if ensured is not None and ensured.cold_started:
         # The user's executor was asleep and is being woken — emit a

@@ -7,7 +7,7 @@ scope identity for external IM conversations.
 
 Room-derived: a DM room (1:1) yields a per-person scope; a group room yields a
 per-group (community) scope. The room_id IS the discriminator, so one rule covers
-both. The "ext:" prefix lets the executor/broker recognise external subjects.
+both. The "ext_" prefix lets the executor/broker recognise external subjects.
 """
 import json
 
@@ -22,9 +22,11 @@ from xyz_agent_context.channel.external_identity import (
 
 def test_basic_shape():
     sid = external_subject_id("slack", "room1")
-    assert sid.startswith("ext:slack:")
-    # room is hashed to 16 hex chars
-    suffix = sid.rsplit(":", 1)[1]
+    assert sid.startswith("ext_slack_")
+    # docker-safe: only [a-z0-9_]
+    assert all(c.isalnum() or c == "_" for c in sid)
+    # room is hashed to 16 hex chars (the last "_"-separated segment)
+    suffix = sid.rsplit("_", 1)[1]
     assert len(suffix) == 16
     assert all(c in "0123456789abcdef" for c in suffix)
 
@@ -49,7 +51,7 @@ def test_distinct_per_channel():
 
 
 def test_is_recognisable_as_external():
-    assert external_subject_id("slack", "room1").startswith("ext:")
+    assert external_subject_id("slack", "room1").startswith("ext_")
 
 
 def test_rejects_empty():
@@ -90,4 +92,4 @@ async def test_ensure_external_user_is_idempotent(db_client):
 @pytest.mark.asyncio
 async def test_ensure_external_user_noop_without_db():
     # Best-effort: must not raise when db is unavailable.
-    await ensure_external_user(None, subject_id="ext:slack:x", channel="slack", room_id="x")
+    await ensure_external_user(None, subject_id="ext_slack_x", channel="slack", room_id="x")
