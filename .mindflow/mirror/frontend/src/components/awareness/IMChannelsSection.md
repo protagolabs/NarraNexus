@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/awareness/IMChannelsSection.tsx
 stub: false
-last_verified: 2026-06-22
+last_verified: 2026-06-24
 ---
+
+> 2026-06-24: the section now defaults to **expanded** (`sectionOpen` initial
+> = `true`) — opening Channels should show the channel list straight away, not
+> a collapsed one-liner. The three-level disclosure still applies (the user can
+> collapse it; each channel still opens inline); only the initial state changed.
 
 ## 2026-06-22 — NarraMessenger added to `IM_CHANNELS`
 
@@ -14,7 +19,11 @@ NarraMessenger was added exactly as the extension point promises — one
 ## Why it exists
 
 Single grouping component inside the Awareness panel for **all** IM
-channel bindings (Lark, Slack, Telegram, NarraMessenger). Replaces
+channel bindings (Lark, Slack, Telegram, NarraMessenger, Discord). Adding a
+channel is one entry in the ``IM_CHANNELS`` array (key / label / Icon /
+Component / fetchConnected) — NarraMessenger (``MessageCircle`` icon,
+``api.getNarramessengerCredential``) and Discord (``Bot`` icon,
+``api.getDiscordCredential``) were each added this way. Replaces
 having one top-level Lark card and one top-level Slack card with a
 collapsible "IM Channels" section that scales to N channels without
 visually overwhelming the panel.
