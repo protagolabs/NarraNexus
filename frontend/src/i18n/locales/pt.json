@@ -1,0 +1,27 @@
+{
+  "language": {
+    "name": "Idioma"
+  },
+  "sidebar": {
+    "chats": "Conversas",
+    "teams": "Equipes",
+    "agents": "Agentes",
+    "local": "Local",
+    "dashboard": "Painel",
+    "settings": "Configurações",
+    "system": "Sistema",
+    "clearHistory": "Limpar histórico",
+    "logout": "Sair",
+    "poweredBy": "Desenvolvido por NetMind.AI",
+    "online": "Online",
+    "you": "Você"
+  },
+  "chat": {
+    "conversation": "Conversa",
+    "innerThoughts": "Pensamentos internos",
+    "interaction": "Interação",
+    "composerPlaceholder": "Digite uma mensagem ou / para habilidades…",
+    "selectAgent": "Selecione um agente",
+    "selectAgentHint": "Escolha um agente na barra lateral para começar."
+  }
+}

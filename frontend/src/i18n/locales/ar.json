@@ -1,0 +1,27 @@
+{
+  "language": {
+    "name": "اللغة"
+  },
+  "sidebar": {
+    "chats": "المحادثات",
+    "teams": "الفِرق",
+    "agents": "الوكلاء",
+    "local": "محلي",
+    "dashboard": "لوحة التحكم",
+    "settings": "الإعدادات",
+    "system": "النظام",
+    "clearHistory": "مسح السجل",
+    "logout": "تسجيل الخروج",
+    "poweredBy": "مُشغَّل بواسطة NetMind.AI",
+    "online": "متصل",
+    "you": "أنت"
+  },
+  "chat": {
+    "conversation": "محادثة",
+    "innerThoughts": "أفكار داخلية",
+    "interaction": "تفاعل",
+    "composerPlaceholder": "اكتب رسالة أو / للمهارات…",
+    "selectAgent": "اختر وكيلاً",
+    "selectAgentHint": "اختر وكيلاً من الشريط الجانبي لبدء التفاعل."
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "language": {
+    "name": "Langue"
+  },
+  "sidebar": {
+    "chats": "Discussions",
+    "teams": "Équipes",
+    "agents": "Agents",
+    "local": "Local",
+    "dashboard": "Tableau de bord",
+    "settings": "Paramètres",
+    "system": "Système",
+    "clearHistory": "Effacer l'historique",
+    "logout": "Déconnexion",
+    "poweredBy": "Propulsé par NetMind.AI",
+    "online": "En ligne",
+    "you": "Vous"
+  },
+  "chat": {
+    "conversation": "Conversation",
+    "innerThoughts": "Pensées internes",
+    "interaction": "Interaction",
+    "composerPlaceholder": "Tapez un message ou / pour les compétences…",
+    "selectAgent": "Sélectionner un agent",
+    "selectAgentHint": "Choisissez un agent dans la barre latérale pour commencer."
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "language": {
+    "name": "言語"
+  },
+  "sidebar": {
+    "chats": "チャット",
+    "teams": "チーム",
+    "agents": "エージェント",
+    "local": "ローカル",
+    "dashboard": "ダッシュボード",
+    "settings": "設定",
+    "system": "システム",
+    "clearHistory": "履歴を消去",
+    "logout": "ログアウト",
+    "poweredBy": "Powered by NetMind.AI",
+    "online": "オンライン",
+    "you": "あなた"
+  },
+  "chat": {
+    "conversation": "会話",
+    "innerThoughts": "内なる思考",
+    "interaction": "インタラクション",
+    "composerPlaceholder": "メッセージを入力、または / でスキル…",
+    "selectAgent": "エージェントを選択",
+    "selectAgentHint": "サイドバーからエージェントを選んで対話を始めましょう。"
+  }
+}

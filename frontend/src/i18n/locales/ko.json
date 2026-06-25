@@ -1,0 +1,27 @@
+{
+  "language": {
+    "name": "언어"
+  },
+  "sidebar": {
+    "chats": "채팅",
+    "teams": "팀",
+    "agents": "에이전트",
+    "local": "로컬",
+    "dashboard": "대시보드",
+    "settings": "설정",
+    "system": "시스템",
+    "clearHistory": "기록 지우기",
+    "logout": "로그아웃",
+    "poweredBy": "Powered by NetMind.AI",
+    "online": "온라인",
+    "you": "나"
+  },
+  "chat": {
+    "conversation": "대화",
+    "innerThoughts": "내면의 생각",
+    "interaction": "상호작용",
+    "composerPlaceholder": "메시지를 입력하거나 /로 스킬 호출…",
+    "selectAgent": "에이전트 선택",
+    "selectAgentHint": "사이드바에서 에이전트를 선택해 대화를 시작하세요."
+  }
+}
