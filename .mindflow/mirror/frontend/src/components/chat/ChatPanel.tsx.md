@@ -14,19 +14,22 @@ routing — no backend change.
   inline "reasoning & tools" disclosure + the live streaming `TurnTimeline`
   (+ "starting up" indicator). It just stops rendering the items that belong to
   Inner Thoughts.
-- **Inner Thoughts**: everything that is NOT an owner↔agent direct chat turn:
-    - `messageType:'activity'` → compact centered line ("Background activity (discord)").
-    - any turn whose `workingSource` is **not** `chat`/`manyfold` (discord /
-      slack / telegram / lark / wechat / message_bus / job / a2a …) → full
-      readable bubble. Catches the agent's cross-channel narrations
-      (`owner_notify_content` "I replied to a Discord user / notified you")
-      which the backend surfaces as real replies (message_type stays `chat`),
-      so an activity-only filter would miss them.
-  No live stream here (post-hoc feed); streaming stays in Conversation.
+- **Inner Thoughts**: **only** the lightweight background-activity markers —
+  `messageType:'activity'` → compact centered line ("Background activity
+  (discord)"). Nothing else. No live stream here (post-hoc feed); streaming
+  stays in Conversation.
 
-The `chat`/`manyfold` user-facing set mirrors `_USER_FACING_SOURCES` in
-`backend/routes/agents_chat_history.py`. Routing: `if (chatTab === 'inner' ?
-!isInner : isInner) return null;`. `MessageBubble` is unchanged.
+> **2026-06-25 correction.** An earlier version *also* routed any turn whose
+> `workingSource` wasn't `chat`/`manyfold` (discord / slack / lark / job / …)
+> into Inner Thoughts, on the theory that cross-channel narrations
+> (`owner_notify_content`, "I replied to a Discord user / notified you") were
+> "the agent's own activity". That was wrong: those narrations are emitted via
+> `send_message_to_user_directly` — the agent **deliberately addressed the
+> owner**, so they are owner-facing messages and must show in Conversation no
+> matter which channel triggered the turn. Routing now keys on `isActivity`
+> alone; `workingSource` does not move a message out of the direct
+> conversation. `MessageBubble` is unchanged. Routing: `if (chatTab === 'inner'
+> ? !isInner : isInner) return null;`.
 
 ## 2026-06-20 — design-ref pass: binding-dot header, JourneyBand empty state, Connected footer
 

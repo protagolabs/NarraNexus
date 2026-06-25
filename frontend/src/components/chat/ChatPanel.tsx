@@ -933,19 +933,19 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         {/* Unified timeline */}
         {timeline.map((item) => {
           // What belongs in Inner Thoughts vs Conversation:
-          //   - activity records ("Background activity (discord)") — always inner.
-          //   - any turn NOT initiated by the owner typing in-app, i.e. a
-          //     non-user-facing working_source (discord / slack / telegram /
-          //     lark / wechat / message_bus / job / a2a …). These include the
-          //     agent's "I replied to a Discord user / notified you" narrations
-          //     (owner_notify_content) — cross-channel activity that shouldn't
-          //     sit in the owner's direct conversation. Mirrors the backend's
-          //     _USER_FACING_SOURCES = ('chat','manyfold'). Session items (the
-          //     owner's live in-app turn) have no workingSource → conversation.
+          //   - activity records ("Background activity (discord)") — the
+          //     lightweight "a background turn happened" markers — are the ONLY
+          //     thing routed to Inner Thoughts.
+          //   - everything the agent actually *says* is owner-facing and stays
+          //     in Conversation. This includes its "I replied to a Discord user
+          //     / notified you" narrations: the agent chose to address the owner
+          //     via send_message_to_user_directly, so the channel that triggered
+          //     the turn (discord / slack / lark / job / …) is irrelevant — it
+          //     is still a real message to the owner and must show in the direct
+          //     conversation, not be hidden away as an "inner thought".
+          // Session items (the owner's live in-app turn) are conversation too.
           const isActivity = item.messageType === 'activity';
-          const src = item.workingSource;
-          const isNonChatSource = !!src && src !== 'chat' && src !== 'manyfold';
-          const isInner = isActivity || isNonChatSource;
+          const isInner = isActivity;
 
           // Route by tab: each tab renders only its own items.
           if (chatTab === 'inner' ? !isInner : isInner) return null;
