@@ -4,14 +4,13 @@
  * Frontend UI chrome only — agent replies come back in the user's language
  * from the LLM, so they're not translated here.
  *
- * Languages match the narra.nexus homepage set. Adding/removing one: drop the
- * 10 `locales/<lang>/*.json` fragments and add an entry to SUPPORTED_LANGUAGES.
+ * Languages match the narra.nexus homepage set. Adding/removing one: drop a
+ * `locales/<lang>.json` file and add an entry to SUPPORTED_LANGUAGES.
  *
- * Locale files are AUTO-LOADED + deep-merged per language via import.meta.glob,
- * from both `locales/<lang>.json` (core) and `locales/<lang>/<area>.json`
- * (per-area fragments). So growing the translations during the sweep is just
- * dropping a new `locales/<lang>/<area>.json` — no edits to this file, and
- * different areas live in different files (parallel-edit safe).
+ * Locale files are AUTO-LOADED per language via import.meta.glob — one
+ * `locales/<lang>.json` per language (consolidated from the old per-area
+ * fragments). English is the source of truth; the other languages are derived
+ * assets and all UI strings for a language live in its single JSON file.
  */
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
@@ -60,16 +59,16 @@ function deepMerge(target: Dict, src: Dict): Dict {
   return target;
 }
 
-// Eager-load every locale fragment at build time. All language codes are
-// two letters, so the path's first segment after /locales/ is the language.
-const fragments = import.meta.glob<Dict>(['./locales/*.json', './locales/*/*.json'], {
+// Eager-load every locale file at build time — one `<lang>.json` per language.
+// All language codes are two letters; the filename stem is the language.
+const fragments = import.meta.glob<Dict>('./locales/*.json', {
   eager: true,
   import: 'default',
 });
 
 const resources: Record<string, { translation: Dict }> = {};
 for (const [path, frag] of Object.entries(fragments)) {
-  const m = path.match(/\.\/locales\/([a-z]{2})(?:\/[^/]+)?\.json$/);
+  const m = path.match(/\.\/locales\/([a-z]{2})\.json$/);
   if (!m) continue;
   const lang = m[1];
   (resources[lang] ??= { translation: {} }).translation = deepMerge(

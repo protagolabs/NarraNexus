@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/i18n/index.ts
-last_verified: 2026-06-25
+last_verified: 2026-06-26
 stub: false
 ---
 
@@ -13,12 +13,13 @@ routed through `t()`.
 
 Key design decisions:
 
-- **Glob-loaded resources.** Locales are assembled with
-  `import.meta.glob(['./locales/*.json','./locales/*/*.json'], {eager:true})`
-  + a small `deepMerge`. Adding/extending a language is therefore just
-  dropping a `locales/<lang>/<area>.json` fragment — no edit here. This is
-  what let the migration fan out across many agents writing disjoint area
-  files with zero merge conflicts. **Gotcha:** Vite's glob set is captured at
+- **Glob-loaded resources.** Each language is a single `locales/<lang>.json`,
+  assembled with `import.meta.glob('./locales/*.json', {eager:true})` + a
+  small `deepMerge` (now a no-op per language, kept as a defensive seam).
+  English is the source of truth; the other 9 languages are derived assets,
+  **consolidated 2026-06-26 from the old per-area
+  `locales/<lang>/<area>.json` fragments (90 files → 10)**. Adding/extending a
+  language edits that one file. **Gotcha:** Vite's glob set is captured at
   dev-server start; adding a *new* locale file while the server runs needs a
   **fresh** restart (not just HMR) or the new keys render as raw keys.
 - **`SUPPORTED_LANGUAGES`** is the homepage's 10-language set (en/zh/ja/ko/
