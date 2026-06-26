@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/wechat.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-06-25
 ---
 
 ## Why it exists
@@ -51,10 +51,15 @@ paste), bind is a two-step QR flow instead of a single ``POST /bind``.
   edge against SQL/path injection. Belt-and-braces over the
   parameterised ORM. ``qrcode`` is bounded (≤4096) and ``base_url``
   bounded (≤256) for the same reason.
-- **Per-account ``base_url`` plumbed through poll.** The gateway may
-  issue an account-specific base URL at QR time; ``QrPollRequest``
-  carries it back and ``bind`` persists ``status["baseurl"] or
-  body.base_url`` so subsequent gateway calls hit the right host.
+- **Per-account ``base_url`` comes ONLY from the gateway, never the
+  client (SSRF guard).** ``QrPollRequest`` has **no** ``base_url`` field.
+  ``/qrcode/start`` never hands a base URL to the frontend, so a client
+  could only ever *inject* one — and the backend fetches it server-side,
+  which would be a server-side request forgery vector (internal hosts /
+  cloud metadata). The poll uses the fixed iLink default host; a genuine
+  per-account host is read from the gateway's own confirm response
+  (``status["baseurl"]``) and persisted by ``bind``. Don't reintroduce a
+  caller-supplied host.
 - **``{"success": bool, ...}`` envelopes, not HTTP error codes.**
   Consistent with the rest of the REST surface (``api.ts`` expects
   this). Auth/gateway failures still come back ``200 OK`` with

@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_sdk_client.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-06-25
 ---
 
 ## Why it exists
@@ -42,11 +42,21 @@ without standing up a DB / module.
   **load-bearing gotcha** of the whole gateway. ``raise_for_status()``
   only catches transport-level errors; the gateway routinely returns
   HTTP 200 with ``ret != 0`` in the JSON body to mean "session expired /
-  bad token / stale context". ``get_updates`` raises ``RuntimeError`` on
-  ``ret != 0`` so the trigger loop can back off, reconnect, and
-  ultimately mark the credential unhealthy instead of spinning on a dead
-  session that never advances the cursor. ``send_message`` treats it as
-  a failed send.
+  bad token / stale context". Both call sites raise ``WeChatSDKError``
+  (a ``RuntimeError`` subclass carrying ``ret`` + ``source``) — **not** a
+  bare ``RuntimeError`` — so the trigger can branch on the kind of
+  failure without string-parsing. ``get_updates`` raises
+  ``WeChatSDKError(source="updates")``: the trigger classifies that as a
+  **permanent auth failure** so the base class disables the credential
+  rather than reconnecting against a dead session every 120s forever (the
+  zombie-reconnect incident class — CLAUDE.md lesson #1). ``send_message``
+  raises ``WeChatSDKError(source="send")`` internally and treats it as a
+  failed send (per-message, never disables the account).
+- **A failed chunk aborts the rest of the send.** ``send_message`` posts
+  each chunk in order; if a chunk fails both attempts it sets ``ok=False``
+  **and breaks** — it does NOT keep posting later chunks. Continuing past
+  a gap would deliver a truncated / out-of-order reply under an
+  already-False result. The boolean still reports overall failure.
 - **Parse JSON regardless of Content-Type.** The gateway returns
   ``Content-Type: application/octet-stream`` even though the body is
   JSON. ``resp.json()`` parses it anyway (httpx doesn't gate on the
@@ -109,6 +119,11 @@ without standing up a DB / module.
   caching; it isn't. Leave ``random.randint`` in ``ilink_headers``.
 - ``send_message`` swallows the underlying exception on its final
   failed attempt and just returns False — the **reason** for the send
-  failure (e.g. which ``ret``) is not surfaced to the caller. If send
-  diagnostics get important, thread the ``ret`` out rather than relying
-  on the boolean.
+  failure (e.g. which ``ret``) is not surfaced to the caller. The
+  ``WeChatSDKError`` it raises internally carries ``ret``, but it's
+  caught and collapsed to the boolean; if send diagnostics get
+  important, thread the ``ret`` out rather than relying on the boolean.
+- **Only ``get_updates`` errors mean "disable the account".** A
+  ``WeChatSDKError(source="send")`` must never reach
+  ``is_permanent_auth_failure`` as a disable signal — it's per-message.
+  Keep the ``source`` tag correct on any new gateway call you add.

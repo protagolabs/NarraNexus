@@ -109,11 +109,11 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // re-invoke immediately on "wait" — the server call IS the pacing. We never
   // tight-loop the client.
   const runPollLoop = useCallback(
-    async (qrcode: string, baseUrl: string) => {
+    async (qrcode: string) => {
       while (pollingActiveRef.current) {
         let res;
         try {
-          res = await api.pollWeChatQrcode(agentId, qrcode, baseUrl);
+          res = await api.pollWeChatQrcode(agentId, qrcode);
         } catch (e: unknown) {
           if (!pollingActiveRef.current) return;
           setError(e instanceof Error ? e.message : t('awareness.wechat.errPoll'));
@@ -153,7 +153,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       setPolling(true);
       pollingActiveRef.current = true;
       // Fire-and-forget the loop; it self-guards on pollingActiveRef.
-      void runPollLoop(res.data.qrcode, res.data.base_url || '');
+      void runPollLoop(res.data.qrcode);
     } catch (e: unknown) {
       if (mountedRef.current) {
         setError(e instanceof Error ? e.message : t('awareness.wechat.errStart'));

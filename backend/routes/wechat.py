@@ -47,8 +47,11 @@ class QrStartRequest(AgentRequest):
 
 class QrPollRequest(AgentRequest):
     qrcode: str = Field(min_length=1, max_length=4096)
-    # Per-account base URL when the gateway issued one at QR time (else default).
-    base_url: str = Field(default="", max_length=256)
+    # NOTE: no client-supplied base_url. /qrcode/start never hands one out, so a
+    # client could only ever inject one — and the backend fetches it server-side
+    # (SSRF: internal hosts / cloud metadata). The host is the fixed iLink
+    # default; a genuine per-account baseurl is read from the gateway's own
+    # confirm response below, never from the caller.
 
 
 async def _get_db():
@@ -110,7 +113,7 @@ async def wechat_qrcode_poll(request: Request, body: QrPollRequest) -> dict[str,
         return {"success": False, "error": auth_err}
 
     try:
-        status = await poll_qrcode_status(body.qrcode, body.base_url)
+        status = await poll_qrcode_status(body.qrcode)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[wechat:{body.agent_id}] get_qrcode_status failed: {e}")
         return {"success": False, "error": f"status poll failed: {e}"}
@@ -120,7 +123,8 @@ async def wechat_qrcode_poll(request: Request, body: QrPollRequest) -> dict[str,
         return {"success": True, "data": {"status": status.get("status", "wait")}}
 
     bot_token = status.get("bot_token", "")
-    base_url = status.get("baseurl", "") or body.base_url
+    # Only the gateway's own confirm response can set a per-account host.
+    base_url = status.get("baseurl", "")
     if not bot_token:
         return {"success": False, "error": "gateway confirmed but returned no bot_token"}
 

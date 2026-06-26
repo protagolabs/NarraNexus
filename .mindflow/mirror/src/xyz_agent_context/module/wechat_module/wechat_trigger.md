@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_trigger.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-06-25
 ---
 
 ## Why it exists
@@ -32,10 +32,22 @@ mirrors ``telegram_trigger.py``.
 - **``connect`` raises on app-level failure (``ret != 0``).** A response
   can be HTTP 200 but carry ``ret != 0`` in its JSON body = an
   application-level failure (expired session / bad token). The SDK's
-  ``get_updates`` raises ``RuntimeError`` on that condition; ``connect``
-  lets it propagate so the base class marks the credential unhealthy
-  and runs its reconnect/backoff. There is intentionally **no manual
-  retry here** — the base owns recovery, same as Telegram.
+  ``get_updates`` raises ``WeChatSDKError(source="updates")`` on that
+  condition; ``connect`` lets it propagate (its ``finally`` only closes
+  the client, it doesn't swallow) so the base class runs recovery. There
+  is intentionally **no manual retry here** — the base owns recovery,
+  same as Telegram.
+- **``is_permanent_auth_failure`` stops the zombie-reconnect.** Overrides
+  the base hook to return True for ``WeChatSDKError(source="updates")`` —
+  a dead/expired iLink session that reconnecting can never recover. On
+  True the base calls ``disable_credential`` (flips the row's
+  ``enabled=0`` via ``set_enabled``) and the loop exits cleanly. Without
+  this override the base default (False) would reconnect every 120s
+  forever against the dead session — exactly the lark-trigger zombie
+  incident (CLAUDE.md lesson #1). ``disable_credential`` and
+  ``set_enabled`` always existed but were unreachable until this hook was
+  wired. Transient network errors are NOT ``WeChatSDKError`` so they keep
+  retrying; a ``source="send"`` error never reaches the connect loop.
 - **Idle wake-up sleep 0.5s.** When a batch comes back empty, sleep
   ``POLL_IDLE_SLEEP_SECONDS`` so ``self.running`` is re-checked
   promptly and ``stop()`` returns quickly when the account is quiet.
@@ -95,6 +107,13 @@ binding claims ownership. The practical guard is that binding is an
 owner-driven QR scan in their own panel, so in normal flow the owner
 is the one who then sends the first DM. The CAS in ``claim_owner``
 makes the claim idempotent and race-safe (only the first writer wins).
+
+**Known residual risk (not yet addressed):** if anyone DMs the freshly
+bound account *before* the owner does, they claim owner and the module
+then surfaces owner-private context to them. The QR-bind flow makes this
+unlikely in practice, but it is a real impersonation window — tracked in
+``reference/self_notebook/todo/wechat-owner-claim-confirmation.md`` for a
+future confirm-token gate. Deliberately left as-is for now.
 
 ## Upstream / downstream
 

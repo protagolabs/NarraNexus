@@ -27,12 +27,31 @@ No NarraNexus deps — httpx only — so it is unit-testable in isolation.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
 import random
 from typing import Any, Optional
 
 import httpx
+
+
+class WeChatSDKError(RuntimeError):
+    """An iLink app-level failure — HTTP 200 but ``ret != 0`` in the JSON body.
+
+    Carries the numeric ``ret`` and the call ``source`` (``"updates"`` |
+    ``"send"``) so the trigger can branch without parsing strings: a
+    ``getupdates`` ``ret != 0`` means the session is expired / the token is bad
+    (a PERMANENT auth failure that must disable the credential), whereas a
+    ``sendmessage`` ``ret != 0`` is a per-message failure (stale context_token)
+    that must NOT take the whole account down. Subclasses ``RuntimeError`` so
+    existing ``str(exc)`` / message-based callers keep working.
+    """
+
+    def __init__(self, ret: int, source: str, message: str = ""):
+        super().__init__(message or f"iLink {source} ret={ret}")
+        self.ret = ret
+        self.source = source
 
 # Default iLink host; a bind may return a per-account base_url that overrides it.
 ILINK_HOST = os.environ.get("WECHAT_ILINK_HOST", "https://ilinkai.weixin.qq.com")
@@ -148,9 +167,11 @@ class WeChatSDKClient:
         """Long-poll one batch. Returns the raw payload
         ``{ret, get_updates_buf (next cursor), msgs: [...]}``.
 
-        Raises ``RuntimeError`` on an app-level failure (``ret != 0`` — session
-        expired / bad token) so the trigger loop backs off + reconnects instead
-        of spinning on a dead session and never advancing the cursor.
+        Raises ``WeChatSDKError(source="updates")`` on an app-level failure
+        (``ret != 0`` — session expired / bad token). The trigger classifies
+        that as a permanent auth failure (``is_permanent_auth_failure``) and the
+        base class disables the credential instead of reconnecting against a
+        dead session forever.
         """
         client = self._ensure_client()
         resp = await client.post(
@@ -165,7 +186,7 @@ class WeChatSDKClient:
         data = resp.json()
         ret = data.get("ret", 0)
         if ret != 0:
-            raise RuntimeError(f"iLink getupdates ret={ret}")
+            raise WeChatSDKError(ret, "updates")
         return data
 
     async def send_message(self, to_user_id: str, context_token: str, text: str) -> bool:
@@ -174,7 +195,9 @@ class WeChatSDKClient:
         One retry per chunk: the inbound was already consumed (cursor advanced),
         so a transient send failure would otherwise read as "read, no reply".
         ``ret != 0`` on HTTP 200 = app-level send failure (stale context_token /
-        session expiry) → treated as a failed send.
+        session expiry) → treated as a failed send. A chunk that fails both
+        attempts aborts the whole send: continuing would deliver a truncated /
+        out-of-order reply while still returning ``ok=False``.
         """
         client = self._ensure_client()
         ok = True
@@ -200,14 +223,17 @@ class WeChatSDKClient:
                     resp.raise_for_status()
                     ret = (resp.json() or {}).get("ret", 0)
                     if ret != 0:
-                        raise RuntimeError(f"iLink sendmessage ret={ret}")
+                        raise WeChatSDKError(ret, "send")
                     break
                 except Exception:
                     if attempt == 0:
-                        import asyncio
                         await asyncio.sleep(1.0)
                         continue
                     ok = False
+            if not ok:
+                # Don't send later chunks past a failed one — that would deliver
+                # a gap (truncated / out-of-order) under an already-False result.
+                break
         return ok
 
 

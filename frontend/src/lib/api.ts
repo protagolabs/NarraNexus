@@ -1183,11 +1183,12 @@ class ApiClient {
   async pollWeChatQrcode(
     agentId: string,
     qrcode: string,
-    baseUrl: string = '',
   ): Promise<WeChatQrPollResponse> {
+    // No base_url: the gateway host is fixed server-side (a client-supplied
+    // host would be an SSRF vector). The backend ignores any extra field.
     return this.request<WeChatQrPollResponse>('/api/wechat/qrcode/poll', {
       method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, qrcode, base_url: baseUrl }),
+      body: JSON.stringify({ agent_id: agentId, qrcode }),
     });
   }
 

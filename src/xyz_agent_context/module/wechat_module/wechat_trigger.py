@@ -44,7 +44,7 @@ from xyz_agent_context.schema.parsed_message import (
 
 from ._wechat_credential_manager import WeChatCredential, WeChatCredentialManager
 from .wechat_context_builder import WeChatContextBuilder
-from .wechat_sdk_client import WeChatSDKClient, extract_text
+from .wechat_sdk_client import WeChatSDKClient, WeChatSDKError, extract_text
 
 
 class WeChatTrigger(ChannelTriggerBase):
@@ -90,6 +90,17 @@ class WeChatTrigger(ChannelTriggerBase):
 
     def _subscriber_key(self, credential: WeChatCredential) -> str:  # type: ignore[override]
         return credential.agent_id
+
+    def is_permanent_auth_failure(self, exc: BaseException) -> bool:  # type: ignore[override]
+        # A getupdates ``ret != 0`` means the iLink session is expired / the
+        # token is bad — reconnecting can never recover it. Treat it as terminal
+        # so the base class disables the credential and the loop exits, instead
+        # of reconnecting against a dead session every 120s forever (the
+        # zombie-reconnect incident class — CLAUDE.md lesson #1). A send-side
+        # ``ret != 0`` is per-message (stale context_token) and never reaches
+        # the connect loop; transient network errors are not WeChatSDKError and
+        # so keep retrying under the default backoff.
+        return isinstance(exc, WeChatSDKError) and exc.source == "updates"
 
     async def disable_credential(self, credential: WeChatCredential) -> None:  # type: ignore[override]
         if not self._db:
