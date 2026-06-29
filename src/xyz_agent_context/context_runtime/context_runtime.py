@@ -35,7 +35,74 @@ from xyz_agent_context.context_runtime.prompts import (
     RECENT_ACTIONS_HEADER,
     BOOTSTRAP_INJECTION_PROMPT,
     USER_TEMPORAL_CONTEXT,
+    EXTERNAL_SESSION_POLICY_NOTICE,
+    EXTERNAL_SESSION_DISABLED_MCP_HEADER,
+    EXTERNAL_SESSION_DISABLED_BUILTIN_HEADER,
+    EXTERNAL_SESSION_SKIPPED_MODULES_HEADER,
+    EXTERNAL_SESSION_MCP_TOOL_HINTS,
 )
+
+
+def _render_external_session_policy_notice(policy: Any) -> str:
+    """Render the External Session restricted-mode notice for a RuntimePolicy.
+
+    The notice tells the LLM up-front which tools are unavailable so it
+    doesn't waste a turn calling them and then hallucinating a result.
+    See EXTERNAL_SESSION_POLICY_NOTICE in prompts.py for the rationale
+    and the empty-section-drop behaviour.
+
+    ``policy`` is duck-typed (`mcp_denylist`, `extra_disallowed_tools`,
+    `skipped_modules` frozensets) so this helper avoids a hard import of
+    `RuntimePolicy` (which would create a top-level dep from
+    context_runtime → agent_runtime).
+    """
+    # MCP-tool denylist → human-readable per-tool bullets.
+    mcp_section = ""
+    mcp_denied = sorted(getattr(policy, "mcp_denylist", set()) or [])
+    if mcp_denied:
+        lines: List[str] = []
+        for mod_name in mcp_denied:
+            hints = EXTERNAL_SESSION_MCP_TOOL_HINTS.get(mod_name)
+            if hints:
+                lines.extend(f"- {h}" for h in hints)
+            else:
+                # Unknown module — surface a defensive generic so the
+                # notice never lies about coverage.
+                lines.append(
+                    f"- (all MCP tools exposed by `{mod_name}`)"
+                )
+        mcp_section = EXTERNAL_SESSION_DISABLED_MCP_HEADER.format(
+            tool_lines="\n".join(lines)
+        )
+
+    # SDK built-in denylist → render verbatim (these are CLI tool names).
+    builtin_section = ""
+    builtin_denied = sorted(
+        getattr(policy, "extra_disallowed_tools", set()) or []
+    )
+    if builtin_denied:
+        lines = [f"- `{name}`" for name in builtin_denied]
+        builtin_section = EXTERNAL_SESSION_DISABLED_BUILTIN_HEADER.format(
+            tool_lines="\n".join(lines)
+        )
+
+    # skipped_modules → render only when present. Most modules in this
+    # set are unreachable (never loaded), so the agent normally would
+    # not see references to them — but external-checklist-style
+    # instructions sometimes still mention them, so listing helps.
+    skipped_section = ""
+    skipped = sorted(getattr(policy, "skipped_modules", set()) or [])
+    if skipped:
+        lines = [f"- `{name}`" for name in skipped]
+        skipped_section = EXTERNAL_SESSION_SKIPPED_MODULES_HEADER.format(
+            module_lines="\n".join(lines)
+        )
+
+    return EXTERNAL_SESSION_POLICY_NOTICE.format(
+        disabled_mcp_tools_section=mcp_section,
+        disabled_builtin_tools_section=builtin_section,
+        skipped_modules_section=skipped_section,
+    )
 
 
 class ContextRuntime:
@@ -87,6 +154,7 @@ class ContextRuntime:
         working_source: Union[WorkingSource, str] = WorkingSource.CHAT,
         created_job_ids: Optional[List[str]] = None,
         trigger_extra_data: Optional[Dict[str, Any]] = None,
+        policy: Optional[Any] = None,  # v0.4: RuntimePolicy when External
     ) -> ContextRuntimeOutput:
         logger.info("    ┌─ ContextRuntime.run() started")
         logger.info(f"    │ Narratives: {len(narrative_list)}, Instances: {len(active_instances)}")
@@ -145,6 +213,11 @@ class ContextRuntime:
                 logger.debug(f"    │   Built instructions for {inst.module_class} ({inst.instance_id})")
 
         logger.info(f"    │ ✅ Built {len(module_instructions_list)} Module instructions (deduped from {len(active_instances)} instances)")
+
+        # Stash the policy on ctx_data so build_complete_system_prompt
+        # (and any future consumer) can find it without another arg.
+        if policy is not None:
+            ctx_data.extra_data["runtime_policy"] = policy
 
         # Step 4: Build the complete System Prompt (Narrative + Modules)
         logger.info("    │ Step 1-4: Building Complete System Prompt")
@@ -334,6 +407,29 @@ class ContextRuntime:
                 logger.debug(f"        Added User Temporal Context: {len(temporal_block)} chars")
         except Exception as e:
             logger.warning(f"        Failed to build User Temporal Context: {e}")
+
+        # ========================================================================
+        # Part 0.5: External Session restricted-mode notice (v0.4)
+        # When the run is driven by ExternalAgentRuntime, render the disabled
+        # tools / suppressed modules / built-in denylist BEFORE the agent
+        # reads any Module Instructions that may still reference those tools
+        # (e.g. AwarenessModule's prompt mentions `__mcp__update_awareness()`
+        # even when its MCP server is suppressed by `mcp_denylist`). Without
+        # this block the agent typically tries the suppressed tool, fails,
+        # then hallucinates a result or apologises. With it, the agent knows
+        # the restrictions up-front.
+        # ========================================================================
+        policy = (ctx_data.extra_data or {}).get("runtime_policy")
+        if policy is not None:
+            try:
+                notice = _render_external_session_policy_notice(policy)
+                prompt_parts.append(notice)
+                logger.debug(
+                    f"        Added External Session policy notice: "
+                    f"{len(notice)} chars"
+                )
+            except Exception as e:
+                logger.warning(f"        Failed to render policy notice: {e}")
 
         # ========================================================================
         # Part 1: Narrative Info (main Narrative)

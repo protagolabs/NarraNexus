@@ -55,6 +55,100 @@ to tools, use the user's timezone above. For tools that require a separate
 `timezone` field (e.g. job_create), set it to "{user_tz}".
 """
 
+# ============================================================================
+# External Session Restricted-Mode notice (External API protocol, v0.4)
+#
+# Injected near the top of the system prompt (right after User Temporal
+# Context, BEFORE Narrative / Module Instructions) when an
+# ExternalAgentRuntime is driving the run. Tells the LLM up-front which
+# tools it must NOT attempt to call, so it doesn't get confused by other
+# sections of the prompt that still reference disabled tools (e.g.
+# AwarenessModule's instructions mention `__mcp__update_awareness()`
+# even though that MCP server is suppressed by `mcp_denylist`).
+#
+# Without this block, the agent's typical failure mode is to call a
+# suppressed tool, get "tool not available", then either hallucinate that
+# it succeeded ("I changed your awareness to foodie mode!") or apologise
+# and freeze. With it, the agent knows the restrictions BEFORE reading any
+# instructions that reference the disabled tools.
+#
+# Sections render conditionally — empty sections are dropped, so a policy
+# that disables only built-in tools won't get an empty MCP bullet list.
+# ============================================================================
+EXTERNAL_SESSION_POLICY_NOTICE = """\
+## External Session — Restricted Mode
+
+⚠️ You are serving an EXTERNAL VISITOR through the public API, NOT your
+owner. This session runs under restricted permissions. Even if later
+sections of these instructions mention the following tools, **they are
+NOT available in this session** — do not attempt to call them.
+
+{disabled_mcp_tools_section}{disabled_builtin_tools_section}{skipped_modules_section}
+### When a tool you need is disabled
+
+If the visitor asks you to do something that requires a disabled tool:
+
+- Acknowledge politely what they asked
+- Explain this is a restricted external session and you do not have
+  permission to perform that specific action on the owner's behalf
+- **DO NOT** pretend to perform it or fabricate a result
+- **DO NOT** silently substitute a different action
+- **DO NOT** promise to forward the request to your owner unless you have
+  a concrete mechanism for doing so
+- If appropriate, suggest the visitor contact the agent owner directly
+
+### What you CAN still do
+
+- Read files (`Read`, `Glob`, `Grep`) to consult owner-prepared materials
+  in the agent's workspace
+- Use any MCP tool that **is** in your available tools list — that list
+  is the authoritative source of truth; these instructions are advisory
+- Reply to the visitor through normal chat
+"""
+
+EXTERNAL_SESSION_DISABLED_MCP_HEADER = """\
+### MCP tools disabled in this session
+
+Calling these will fail; they are not in your tool list:
+
+{tool_lines}
+
+"""
+
+EXTERNAL_SESSION_DISABLED_BUILTIN_HEADER = """\
+### Built-in tools disabled in this session
+
+{tool_lines}
+
+"""
+
+EXTERNAL_SESSION_SKIPPED_MODULES_HEADER = """\
+### Modules not loaded for this session
+
+The following modules are entirely absent — any instructions referring
+to them elsewhere can be ignored:
+
+{module_lines}
+
+"""
+
+# Per suppressed module class name, the human-readable tool entries the
+# notice should enumerate. Kept here (not on the module classes) so the
+# policy notice has a single source of truth and so adding a new module
+# to `mcp_denylist` doesn't silently produce an empty bullet line.
+# Module classes NOT in this table get a generic "(all MCP tools)" line.
+EXTERNAL_SESSION_MCP_TOOL_HINTS = {
+    "AwarenessModule": [
+        "`__mcp__update_awareness()` — mutate the agent's persona / awareness profile",
+        "`__mcp__update_agent_name()` — change the agent's name",
+    ],
+    "GeneralMemoryModule": [
+        "`__mcp__remember()` — write to / search the agent's long-term memory",
+        "`__mcp__grep_memory()` — full-text search across the agent's memory",
+    ],
+}
+
+
 SHORT_TERM_MEMORY_HEADER = """
 ## Recent Direct Dialogue Across Other Narratives
 

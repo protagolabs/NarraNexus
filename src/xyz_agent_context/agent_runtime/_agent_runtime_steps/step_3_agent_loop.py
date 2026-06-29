@@ -756,6 +756,9 @@ async def step_3_agent_loop(
     )
 
     # ------------- 3.2: Run ContextRuntime -------------
+    # v0.4: forward ctx.policy so ContextRuntime can render the External
+    # Session restricted-mode notice at the top of the system prompt.
+    # `None` on the main runtime → notice is skipped, behaviour unchanged.
     context = await context_runtime.run(
         ctx.narrative_list,
         ctx.active_instances,
@@ -763,6 +766,7 @@ async def step_3_agent_loop(
         working_source=ctx.working_source,
         created_job_ids=ctx.created_job_ids,
         trigger_extra_data=ctx.trigger_extra_data,
+        policy=ctx.policy,
     )
     substeps.append(
         f"[3.2] ✓ Context build complete: {len(context.messages)} messages, "

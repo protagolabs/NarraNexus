@@ -1,8 +1,48 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-06-12
+last_verified: 2026-06-29
 stub: false
 ---
+
+## 2026-06-29 — External Session policy notice (v0.4 — Part 0.5)
+
+`ContextRuntime.run()` now accepts an optional `policy` kwarg, and
+`build_complete_system_prompt` renders a new **Part 0.5: External
+Session Restricted-Mode notice** right after Part 0 (Temporal Context)
+and before Part 1 (Narrative Info) — but ONLY when `policy is not None`.
+
+Why this layer (and why so high up): some modules whose **MCP server**
+is suppressed by `policy.mcp_denylist` still load and their
+`get_instructions()` still ride into the system prompt — instructions
+that may still reference the now-disabled tool by name (e.g.
+[[awareness_module.py]] prompt says "use `__mcp__update_awareness()`"
+even when `AwarenessModule` is in `mcp_denylist`). Before this notice
+the agent's typical failure mode was to call the suppressed tool,
+discover it doesn't exist, then hallucinate "I changed your awareness"
+or apologise and freeze. The notice lists each disabled tool by its
+LLM-facing name BEFORE the agent reads any module instructions, so it
+knows the restrictions up-front.
+
+Threading: policy hops from `ExternalAgentRuntime` →
+`step_3_agent_loop.py:759` (passes `policy=ctx.policy`) →
+`ContextRuntime.run(policy=...)` → stashed on
+`ctx_data.extra_data["runtime_policy"]` → read by
+`build_complete_system_prompt` via the same `extra_data` field. The
+`policy` param is typed `Optional[Any]` (duck-typed) so the file
+avoids a hard import of `RuntimePolicy` from `agent_runtime/` —
+prevents a circular import.
+
+Rendering lives in module-level `_render_external_session_policy_notice`
+(below the class). Pulls human-readable tool descriptions from
+`EXTERNAL_SESSION_MCP_TOOL_HINTS` in [[prompts.py]] (single source of
+truth for mapping module class → user-facing tool names). Unknown
+modules in `mcp_denylist` get a defensive generic "(all MCP tools
+exposed by `X`)" line so the notice never silently understates
+coverage when a new module joins the denylist without a hint entry.
+
+Contract pinned by `tests/runtime/test_external_session_policy_notice.py`
+(4 cases). Main runtime (`policy=None`) is unchanged — notice is
+skipped entirely; existing v0.5 / workspace / cascade tests stay green.
 
 ## 2026-06-12 — User Identity Context block REMOVED (治本: moved into basic_info)
 

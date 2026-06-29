@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-06-15
+last_verified: 2026-06-29
 stub: false
 ---
+
+## 2026-06-29 — Forward `ctx.policy` to ContextRuntime.run()
+
+step_3 now passes `policy=ctx.policy` into `context_runtime.run(...)`.
+This lets [[context_runtime.py]] render the External Session
+restricted-mode notice (Part 0.5 of the system prompt) on external
+runs. Main runtime path is unchanged (ctx.policy is None →
+ContextRuntime skips the notice). See [[context_runtime.py]]
+2026-06-29 entry for why the notice has to be plumbed through here
+rather than rendered later: it must precede all module instructions,
+some of which (Awareness, GeneralMemory) still mention tools that
+`policy.mcp_denylist` has suppressed.
 
 ## 2026-06-15 — External-visitor workspace bootstrap (`_setup_agent_workspace`)
 

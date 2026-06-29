@@ -1,8 +1,36 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-06-12
+last_verified: 2026-06-29
 stub: false
 ---
+
+## 2026-06-29 — External Session policy notice constants
+
+Five new constants for the External Session restricted-mode notice
+([[context_runtime.py]] Part 0.5):
+
+- `EXTERNAL_SESSION_POLICY_NOTICE` — top-level template with three
+  `{disabled_*_section}` placeholders. Empty sections drop out
+  cleanly via the renderer.
+- `EXTERNAL_SESSION_DISABLED_MCP_HEADER` — sub-block header used when
+  `policy.mcp_denylist` is non-empty.
+- `EXTERNAL_SESSION_DISABLED_BUILTIN_HEADER` — sub-block header for
+  `policy.extra_disallowed_tools` (Write/Edit/Bash/NotebookEdit).
+- `EXTERNAL_SESSION_SKIPPED_MODULES_HEADER` — sub-block for
+  `policy.skipped_modules`.
+- `EXTERNAL_SESSION_MCP_TOOL_HINTS` (dict) — single source of truth
+  mapping suppressed module class name → list of LLM-facing tool
+  description strings. Lives here (not on the module classes) so the
+  policy notice has one place to audit, and a denylist entry without
+  a matching hints row gets a defensive generic line ("(all MCP
+  tools exposed by `X`)") from the renderer rather than silently
+  rendering nothing.
+
+The constants are referenced by
+`_render_external_session_policy_notice` in
+[[context_runtime.py]]. New modules added to `mcp_denylist` should
+add a matching `EXTERNAL_SESSION_MCP_TOOL_HINTS[<module>]` entry —
+otherwise the notice falls back to a generic line.
 
 ## 2026-06-12 — USER_IDENTITY_CONTEXT constant REMOVED
 
