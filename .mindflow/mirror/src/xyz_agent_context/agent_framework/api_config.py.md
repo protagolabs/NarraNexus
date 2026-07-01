@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-06-17
+last_verified: 2026-07-01
 stub: false
 ---
+
+## 2026-07-01 — `to_cli_env` 不再用裸别名毒化 CLI 的 model 解析（Claude OAuth 静默降级修复）
+
+现象：Agent 槽位配了 Claude Code（OAuth）却"配了也不 work"——main loop 得到
+`no_reply`，静默回退 helper LLM。根因在 `to_cli_env()`：它无条件把
+`ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL`
+全 pin 到 `self.model`。而 Claude OAuth 路径的 model 是**裸 CLI 家族别名**
+（`opus`/`sonnet`/`haiku`，见 model_catalog）。这些别名**只能**当 `--model`
+参数用，由 CLI 自己解析成真实 id；一旦塞进 `ANTHROPIC_DEFAULT_OPUS_MODEL`，
+就把别名解析改成 `opus → 字面量 "opus"`（自引用），API 返回 `invalid_request`
+"模型 opus 不存在/无权访问"。
+
+修复：新增模块级常量 `_CLAUDE_CLI_FAMILY_ALIASES = {"opus","sonnet","haiku"}`。
+`to_cli_env` 的 override 分支加 `and self.model not in _CLAUDE_CLI_FAMILY_ALIASES`
+——只有**完整 model id**（自定义/代理 provider，如 `minimax/minimax-m2.5`）才
+pin（内部 WebFetch/子 agent 调用需要钉在代理唯一提供的那个模型）；裸别名落进
+else 分支被**置空**（置空而非省略，既让 CLI 原生解析别名，又防止父进程 env 跨
+租户泄漏）。该常量同时被 `xyz_claude_agent_sdk.py` 的 `_is_claude_native` 判定
+复用（消除原先 ad-hoc 的 `("opus","sonnet","haiku")` 重复）。
+
+验证：A/B 实测 override=`opus` → 报模型错、override=空 → 正常返回；单测
+`test_to_cli_env_model_alias.py` 覆盖别名置空 / 完整id pin / 空 model 三态。
+
+注意：此 bug 与 Settings 页那个 `auth missing` 红叉是**两回事**——后者是
+`ClaudeOAuthDriver.probe()` 只看凭证文件不看 macOS Keychain 的显示层误报，
+auth 本身正常（本修复无关，probe 误报仍待单独修）。
 
 ## 2026-06-17 — 新增 `snapshot_user_config()`(Executor seam 用)
 
@@ -211,6 +237,7 @@ Claim: these additions do NOT alter existing behaviour of `set_user_config`,
 
 - `dimensions` 字段故意不传给 API：传了会在切换 embedding model 时造成 `SchemaNotReadyException`（不同模型原生维度不同，带 dimensions 参数调 API 会 400）。这个决策在注释里有解释，但容易被后续开发者"修复"回去。
 - `auth_type="oauth"` 的 `ClaudeConfig` 的 `api_key` 是空字符串，`_holder.reload()` 里有 `json_claude if (json_claude.api_key or json_claude.auth_type == "oauth")` 的特判，新增判断逻辑时要同样处理 oauth 情况。
+- `to_cli_env()` 的 `ANTHROPIC_DEFAULT_*_MODEL` override **绝不能**喂裸 CLI 家族别名（`opus`/`sonnet`/`haiku`）——那会毒化 CLI 自己的别名→id 解析（`opus → "opus" → invalid_request`）。只有完整 model id 才 pin；别名一律置空让 CLI 原生解析。用 `_CLAUDE_CLI_FAMILY_ALIASES` 判定，别把它改回无条件 pin。
 - `reload_llm_config()` 只重置全局 `_holder`，不影响已运行 task 的 ContextVar 值——hot-reload 对当前正在执行的 agent turn 无效，只对下一次 turn 生效。
 
 ## 新人易踩的坑

@@ -38,6 +38,15 @@ from xyz_agent_context.schema.provider_schema import (
 )
 
 
+# Claude Code CLI family aliases. These are valid ONLY as the `--model`
+# argument — the CLI resolves them into concrete model ids itself. They must
+# NEVER be fed into ANTHROPIC_DEFAULT_*_MODEL: setting
+# ANTHROPIC_DEFAULT_OPUS_MODEL="opus" makes the CLI resolve the "opus" alias to
+# the literal string "opus", which the API rejects with invalid_request. The
+# Claude OAuth path uses these aliases as the slot model (see model_catalog).
+_CLAUDE_CLI_FAMILY_ALIASES = frozenset({"opus", "sonnet", "haiku"})
+
+
 # =============================================================================
 # Configuration Dataclasses (public interface, unchanged)
 # =============================================================================
@@ -107,14 +116,24 @@ class ClaudeConfig:
         # to official Anthropic model names, hit the provider's endpoint
         # with an unknown model, and either fail or drift off-provider.
         # Docs: https://code.claude.com/docs/en/model-config
-        if self.model:
+        #
+        # This is correct ONLY for a full model id (custom / proxy providers).
+        # A bare CLI family alias (opus/sonnet/haiku — the native Claude OAuth
+        # path) must NOT pin these: feeding the alias back into
+        # ANTHROPIC_DEFAULT_OPUS_MODEL poisons the CLI's own alias→id resolution
+        # (opus → literal "opus" → invalid_request), which silently drops the
+        # main loop to the helper LLM. For a bare alias we blank the overrides
+        # and let the CLI resolve the alias natively.
+        if self.model and self.model not in _CLAUDE_CLI_FAMILY_ALIASES:
             env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = self.model
             env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = self.model
             env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = self.model
             env["CLAUDE_CODE_SUBAGENT_MODEL"] = self.model
         else:
-            # No explicit model → blank these so a stale inherited value
-            # from os.environ can't steer CLI behavior for this run.
+            # No model, OR a bare CLI alias → blank these. Blanking (not
+            # omitting) still stops a stale inherited value from os.environ
+            # steering this run (tenant isolation), while letting the CLI
+            # resolve any alias itself.
             env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = ""
             env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = ""
             env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = ""

@@ -18,11 +18,11 @@ from xyz_agent_context.utils.logging import timed
 # Handle both relative import (when used as module) and absolute import (when run as script)
 try:
     from .output_transfer import output_transfer
-    from .api_config import claude_config
+    from .api_config import claude_config, _CLAUDE_CLI_FAMILY_ALIASES
     from ._tool_policy_guard import build_tool_policy_guard
 except ImportError:
     from output_transfer import output_transfer
-    from api_config import claude_config
+    from api_config import claude_config, _CLAUDE_CLI_FAMILY_ALIASES
     from _tool_policy_guard import build_tool_policy_guard
 
 def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str, Any]:
@@ -306,7 +306,7 @@ class ClaudeAgentSDK:
         _is_claude_native = (
             claude_config.auth_type == "oauth"
             or _model.startswith("claude-")
-            or _model in ("opus", "sonnet", "haiku")
+            or _model in _CLAUDE_CLI_FAMILY_ALIASES
         )
         # Framework-neutral reasoning params -> Claude dialect. Per rule #15
         # we pass whatever the user configured even on non-Claude proxies
