@@ -1,12 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/run_narramessenger_trigger.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-07-02
 ---
+
+## 2026-07-02 (Commit 7) — MatrixTrigger only
+
+The entry point now launches only [[matrix_trigger.py]] (`MatrixTrigger`).
+The legacy Gateway/polling `NarramessengerTrigger` was deleted in the
+same commit. Pre-existing `connection_mode='gateway'` credential rows
+still load through `list_active()`; without a `matrix_access_token` they
+raise on `connect()` and get disabled by the base's watcher, prompting
+the owner to re-run the bind flow. No dual-launch, no
+mode-dispatch — the process runs a single trigger.
 
 ## Why it exists
 
-Standalone process entry point for `NarramessengerTrigger`, mirroring
+Standalone process entry point for `MatrixTrigger`, mirroring
 `run_telegram_trigger.py`. Runs as its own process (one of the long-running
 trigger services), gets a DB client, ensures tables via `auto_migrate`, starts
 the trigger, and idles until interrupted.

@@ -5,7 +5,7 @@
               on the message plane with a real Matrix client (matrix-nio)
               talking to matrix.netmind.chat directly.
 
-Scope of THIS FILE (Phase 1, Commits 3 + 4b + 5 + 6):
+Scope of THIS FILE (Phase 1, Commits 3 + 4b + 5 + 6 + 7):
   ✓  Class + ChannelTriggerBase wiring, all abstract methods present
   ✓  ``connect()`` implements the sync loop with the strict cursor-save
      ordering (see :meth:`connect` docstring)
@@ -112,30 +112,20 @@ class _AuthorizeVerdict:
 class MatrixTrigger(ChannelTriggerBase):
     """NarraMessenger channel trigger — Matrix client transport.
 
-    Runs in the same process as the legacy ``NarramessengerTrigger``
-    (polling). Both subclass :class:`ChannelTriggerBase`; each filters
-    the credentials table to its own ``connection_mode`` value so they
-    never fight over the same agent.
-
-    The name ``narramessenger_matrix`` is deliberately distinct from
-    ``narramessenger`` so the base's dedup store, audit log, and future
-    per-channel stats can differentiate the transports — dedup keys use
-    Matrix ``event_id`` here vs NarraMessenger ``invocation_id`` on the
-    legacy trigger, and the two ID spaces must not collide in one bucket.
+    Sole NarraMessenger trigger as of Commit 7 (2026-07-02); the legacy
+    Gateway/polling trigger was deleted in the same commit. NarraMessenger
+    hosts a Matrix homeserver at ``matrix.netmind.chat`` and its setup
+    guide explicitly designates Direct Matrix as the default bind path.
     """
 
     # ── ChannelTriggerBase contract ───────────────────────────────────────
-    # Distinct channel_name so dedup/audit tables partition cleanly, but
-    # working_source stays NARRAMESSENGER — everything downstream of
-    # parse_event (context builder, reply routing, agent module) treats
-    # matrix and polling as the same product surface.
-    channel_name = "narramessenger_matrix"
+    channel_name = "narramessenger"
     brand_display = "NarraMessenger"
     working_source = WorkingSource.NARRAMESSENGER
 
     # ── Worker pool ──────────────────────────────────────────────────────
-    # Mirrors NarramessengerTrigger's tuning. Kept identical on purpose:
-    # migration should not change concurrency characteristics.
+    # Concurrency tuning inherited from the pre-Matrix era; migration
+    # kept identical characteristics so throughput per agent is unchanged.
     MIN_WORKERS = 3
     WORKERS_PER_SUBSCRIBER = 2
     MAX_WORKERS = 50
@@ -242,8 +232,7 @@ class MatrixTrigger(ChannelTriggerBase):
         await super().start(db)
         logger.info(
             f"MatrixTrigger started: {len(self._workers)} workers, "
-            f"watching channel_narramessenger_credentials "
-            f"(connection_mode='matrix') for active rows"
+            f"watching channel_narramessenger_credentials for active rows"
         )
 
     async def stop(self) -> None:
@@ -284,24 +273,25 @@ class MatrixTrigger(ChannelTriggerBase):
     async def load_active_credentials(
         self,
     ) -> list[NarramessengerCredential]:
-        """Return only credentials on the matrix transport.
+        """Return every enabled NarraMessenger credential.
 
-        Filtering here is what keeps this trigger and the legacy
-        NarramessengerTrigger from cross-driving the same agent. Uses
-        the composite ``(connection_mode, enabled)`` index added by
-        the 2026-07-02 schema migration.
+        No mode filter after Commit 7 — Matrix is the only transport,
+        and pre-existing ``connection_mode='gateway'`` rows are treated
+        as needing a fresh bind (MatrixTrigger.connect will raise on the
+        missing ``matrix_access_token`` and the base will disable the
+        credential, prompting the owner to re-run the bind flow).
         """
         if not self._db:
             return []
         mgr = NarramessengerCredentialManager(self._db)
-        return await mgr.list_active_by_mode("matrix")
+        return await mgr.list_active()
 
     def _subscriber_key(  # type: ignore[override]
         self, credential: NarramessengerCredential
     ) -> str:
-        # Distinct key namespace from the polling subscriber so both
-        # transports can key by agent_id without collision inside the
-        # base's ``_subscriber_tasks`` map.
+        # ``matrix:`` prefix retained as provenance (the base's
+        # ``_subscriber_tasks`` map only needs uniqueness per agent, and
+        # this documents which transport owns the key).
         return f"matrix:{credential.agent_id}"
 
     def is_permanent_auth_failure(  # type: ignore[override]

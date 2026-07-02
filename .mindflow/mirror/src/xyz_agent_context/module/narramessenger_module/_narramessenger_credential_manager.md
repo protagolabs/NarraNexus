@@ -4,6 +4,24 @@ stub: false
 last_verified: 2026-07-02
 ---
 
+## 2026-07-02 (Commit 7) — `list_active_by_mode` removed
+
+Direct Matrix is the only transport; there is no second trigger to
+disambiguate credential rows for. `list_active_by_mode(connection_mode)`
+is gone; MatrixTrigger's `load_active_credentials()` now calls
+`list_active()` directly. The `connection_mode` column stays in the
+schema for existing rows (see [[schema_registry.py]] `channel_narramessenger_credentials`
+block); the composite `(connection_mode, enabled)` index becomes dead
+weight but is left in place — dropping the index requires a manual
+migration and the extra bytes per row are negligible.
+
+Pre-Matrix rows without a `matrix_access_token` load through
+`list_active()`, then MatrixTrigger.connect raises `ValueError` on the
+missing token → base flips `enabled=False` → owner must re-bind. This
+is by design: silently upgrading a Gateway row would need a Matrix
+access token we don't have, and asking the owner to re-bind is the
+honest recovery path.
+
 ## Why it exists
 
 CRUD for `channel_narramessenger_credentials` (one row per agent). Dataclass

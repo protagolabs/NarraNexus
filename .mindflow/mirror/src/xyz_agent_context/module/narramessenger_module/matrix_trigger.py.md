@@ -4,6 +4,30 @@ stub: false
 last_verified: 2026-07-02
 ---
 
+## 2026-07-02 (Commit 7) — polling deleted; sole NarraMessenger trigger
+
+`channel_name` reverts from `narramessenger_matrix` to `narramessenger`;
+the `_matrix` suffix only existed to partition dedup / audit while the
+polling `NarramessengerTrigger` coexisted. That trigger was deleted in
+Commit 7, so the disambiguating suffix becomes clutter.
+
+Practical consequence: any dedup rows written under
+`channel_name='narramessenger_matrix'` become orphaned in
+`channel_seen_messages`. Event-id uniqueness makes cross-partition
+collisions impossible, so the orphans are just dead rows — cheap to
+sweep via retention TTL, no data migration required.
+
+`load_active_credentials()` no longer filters by `connection_mode`; it
+calls the manager's `list_active()` and returns every enabled row.
+Legacy Gateway rows without a `matrix_access_token` reach `connect()`,
+raise `ValueError`, and get disabled by the base's watcher — the owner
+is expected to re-run the bind flow to end up on Matrix.
+
+The `_subscriber_key` still returns `matrix:<agent_id>`; provenance
+documentation only, since no other trigger competes for the base's
+subscriber map. Any consistent per-credential key works after
+Commit 7 — no need to change it and lose the historical breadcrumb.
+
 ## 2026-07-02 (Commit 6) — auto-join invited rooms
 
 The sync loop now walks `resp.rooms.invite` at the top of every batch

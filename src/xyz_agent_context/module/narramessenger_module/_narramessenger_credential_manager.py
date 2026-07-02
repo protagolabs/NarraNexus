@@ -1,27 +1,30 @@
 """
 @file_name: _narramessenger_credential_manager.py
-@date: 2026-06-17
+@date: 2026-07-02
 @description: CRUD for the ``channel_narramessenger_credentials`` table.
 
-One row per agent. Two transports coexist during the 2026-07-02 Matrix
-migration (see [[schema_registry.py]] narramessenger_credentials block):
+One row per agent. Direct Matrix is the only transport as of Commit 7
+(2026-07-02); the legacy Gateway/polling trigger was deleted in the same
+commit. Fields:
 
-  connection_mode == 'gateway' (legacy)
-    - Secret: ``bearer_token`` (base64-encoded in DB).
-    - ``matrix_access_token`` empty. Old ``NarramessengerTrigger`` polling
-      loop consumes these rows.
-
-  connection_mode == 'matrix' (new, after 2026-07-02 bind)
-    - Message-plane secret: ``matrix_access_token`` (base64-encoded in DB).
-    - ``bearer_token`` is still populated because the control plane
-      (fetch_setup_guide / report_profile / runtime-ready via
-      _narramessenger_client) still talks to api.netmind.chat with the NM
-      bearer.
-    - ``matrix_since_token`` is the /sync cursor; written on every sync
-      tick via the dedicated ``update_since_token()`` helper — avoids
-      round-tripping the full row every few seconds.
-    - ``matrix_device_id`` pins the same server-side device on reconnect
-      so restarts don't spawn a fresh device on every boot.
+  - Message-plane secret: ``matrix_access_token`` (base64-encoded in DB),
+    used ONLY for Matrix HTTP API calls. Matrix rejects the Narra bearer
+    with ``M_UNKNOWN_TOKEN`` — do not mix.
+  - Control-plane secret: ``bearer_token`` (base64-encoded), used for
+    ``/bind-agent/runtime-ready`` and the authorize-event gate. Retained
+    for legacy Gateway callers (``/api/agent-gateway/*``) that don't need
+    a Matrix client.
+  - ``matrix_since_token``: the /sync cursor; written on every sync tick
+    via the dedicated ``update_since_token()`` helper — avoids round-
+    tripping the full row every few seconds.
+  - ``matrix_device_id``: pins the same server-side device on reconnect
+    so restarts don't spawn a fresh device on every boot.
+  - ``connection_mode``: kept in the schema for existing rows but no
+    longer filtered on; the ``NarramessengerTrigger`` (polling) that
+    consumed ``connection_mode='gateway'`` rows was deleted in Commit 7.
+    Old rows without a ``matrix_access_token`` drop out on first sync
+    (MatrixTrigger.connect raises → base disables the credential →
+    owner re-runs the bind flow).
 
 Mirrors ``telegram_module/_telegram_credential_manager.py`` shape (dataclass +
 manager). Unlike Telegram there is no ``getMe``-style validation API here, so
@@ -176,24 +179,18 @@ class NarramessengerCredentialManager:
         return cred.to_public_dict() if cred else None
 
     async def list_active(self) -> list[NarramessengerCredential]:
-        """All enabled rows — consumed by the trigger's credential watcher."""
-        rows = await self._db.get(self.TABLE, {"enabled": 1})
-        return [self._row_to_cred(r) for r in rows]
+        """All enabled rows — consumed by :class:`MatrixTrigger`'s
+        credential watcher.
 
-    async def list_active_by_mode(
-        self, connection_mode: str
-    ) -> list[NarramessengerCredential]:
-        """All enabled rows of a given transport (``gateway`` or ``matrix``).
-
-        ``NarramessengerTrigger`` (legacy polling) filters to ``gateway`` so
-        it never picks up a Matrix-migrated row. ``MatrixTrigger`` filters
-        to ``matrix`` so it never touches an un-migrated legacy row. The
-        two triggers can therefore co-run in the same process during
-        migration without cross-driving each other.
+        Since Commit 7 (2026-07-02), Matrix is the only NarraMessenger
+        transport, so no ``connection_mode`` filter here. Pre-Matrix
+        ``gateway`` rows still exist in the DB but load without a
+        ``matrix_access_token`` — MatrixTrigger.connect raises on the
+        missing token and the base flips ``enabled=False``, so those
+        rows drop out on the first pass and the owner has to re-run the
+        bind flow to end up on Matrix.
         """
-        rows = await self._db.get(
-            self.TABLE, {"enabled": 1, "connection_mode": connection_mode}
-        )
+        rows = await self._db.get(self.TABLE, {"enabled": 1})
         return [self._row_to_cred(r) for r in rows]
 
     async def set_enabled(self, agent_id: str, enabled: bool) -> bool:
