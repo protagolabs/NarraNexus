@@ -274,22 +274,28 @@ async def test_deny_when_credential_missing_bearer(trigger, fake_session):
 
 
 @pytest.mark.asyncio
-async def test_process_message_denied_no_notice_stops(trigger):
-    """Deny + no notice → no super() call, no silent enqueue, no send."""
+async def test_process_message_dm_denied_no_notice_stops(trigger):
+    """DM classified, then authorize deny + no notice → no super(),
+    no send. Locks that the gate still fires on the addressed path
+    (dm / group_mention), the ONLY path we ask Narra to gate."""
     trigger._clients[trigger._subscriber_key(_cred())] = SimpleNamespace()
     trigger._authorize_event = AsyncMock(return_value=_AuthorizeVerdict(allow=False))
     trigger._send_matrix_notice = AsyncMock()
     trigger._enqueue_silent = AsyncMock()
     trigger._classify = AsyncMock(return_value="dm")
     await trigger._process_message(_cred(), _msg())
+    # Classify runs first — target is used to decide whether to gate.
+    trigger._classify.assert_awaited_once()
+    # DM is a gated path → authorize was called → deny → send/silent both skipped.
+    trigger._authorize_event.assert_awaited_once()
     trigger._send_matrix_notice.assert_not_awaited()
     trigger._enqueue_silent.assert_not_awaited()
-    trigger._classify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_process_message_denied_with_notice_forwards(trigger):
-    """Deny + notice → m.notice sent, but classify/silent/full all skipped."""
+async def test_process_message_group_mention_denied_with_notice_forwards(trigger):
+    """group_mention classified, authorize deny + notice → m.notice sent,
+    no silent enqueue (silent path never fires for group_mention regardless)."""
     trigger._clients[trigger._subscriber_key(_cred())] = SimpleNamespace()
     trigger._authorize_event = AsyncMock(
         return_value=_AuthorizeVerdict(
@@ -298,28 +304,78 @@ async def test_process_message_denied_with_notice_forwards(trigger):
     )
     trigger._send_matrix_notice = AsyncMock()
     trigger._enqueue_silent = AsyncMock()
-    trigger._classify = AsyncMock(return_value="dm")
+    trigger._classify = AsyncMock(return_value="group_mention")
     await trigger._process_message(_cred(), _msg())
     trigger._send_matrix_notice.assert_awaited_once()
     args = trigger._send_matrix_notice.await_args
     assert args.args[1] == ROOM
     assert args.args[2] == "Not allowed here."
     trigger._enqueue_silent.assert_not_awaited()
-    trigger._classify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_process_message_allowed_falls_through_to_classify(trigger):
-    """allow=True → classifier runs and mention flag is REUSED (not
-    re-computed) via the ``mentioned`` kwarg."""
+async def test_process_message_group_silent_bypasses_authorize(trigger):
+    """OWNER OVERRIDE (2026-07-02): group_silent path MUST NOT call
+    authorize-event when SILENT_BYPASS_AUTHORIZE=True. Narra denies
+    ``mentioned=False`` group events by policy; the owner override
+    lets memory-only writes proceed regardless. This test locks that
+    contract — if authorize gets called on the silent path, we've
+    silently regressed to Narra-strict behaviour and lost the
+    background-listening capability."""
+    trigger._clients[trigger._subscriber_key(_cred())] = SimpleNamespace()
+    trigger._authorize_event = AsyncMock(return_value=_AuthorizeVerdict(allow=False))
+    trigger._enqueue_silent = AsyncMock()
+    trigger._classify = AsyncMock(return_value="group_silent")
+    trigger.SILENT_BYPASS_AUTHORIZE = True  # default
+    await trigger._process_message(_cred(), _msg())
+    trigger._classify.assert_awaited_once()
+    # This is THE assertion — silent path DID NOT hit authorize.
+    trigger._authorize_event.assert_not_awaited()
+    trigger._enqueue_silent.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_process_message_group_silent_strict_mode_still_gates(trigger):
+    """Kill-switch check: with SILENT_BYPASS_AUTHORIZE=False, the
+    silent path MUST call authorize-event and honour deny. This is the
+    fallback we flip to if Narra escalates enforcement — it must
+    still work exactly like the pre-override behaviour."""
+    trigger._clients[trigger._subscriber_key(_cred())] = SimpleNamespace()
+    trigger._authorize_event = AsyncMock(return_value=_AuthorizeVerdict(allow=False))
+    trigger._enqueue_silent = AsyncMock()
+    trigger._classify = AsyncMock(return_value="group_silent")
+    trigger.SILENT_BYPASS_AUTHORIZE = False
+    await trigger._process_message(_cred(), _msg())
+    trigger._authorize_event.assert_awaited_once()
+    # Deny → no enqueue.
+    trigger._enqueue_silent.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_process_message_dm_allowed_falls_through_to_super(trigger):
+    """DM classified, allow=True → super()._process_message runs
+    (full agent pipeline). Also locks that the mention flag is
+    reused via the ``mentioned=`` kwarg, not re-scanned from body."""
     trigger._clients[trigger._subscriber_key(_cred())] = SimpleNamespace()
     trigger._authorize_event = AsyncMock(return_value=_AuthorizeVerdict(allow=True))
     trigger._enqueue_silent = AsyncMock()
-    trigger._classify = AsyncMock(return_value="group_silent")
-    await trigger._process_message(_cred(), _msg())
-    trigger._classify.assert_awaited_once()
-    # The classifier was called with mentioned= kwarg reused from the
-    # gate's payload — locks the "compute once" optimization.
+    trigger._classify = AsyncMock(return_value="dm")
+    # Stub super()._process_message so we can observe the delegation.
+    super_called = {"n": 0}
+
+    async def _fake_super(*args, **kwargs):
+        super_called["n"] += 1
+
+    import xyz_agent_context.channel.channel_trigger_base as base_mod
+    original = base_mod.ChannelTriggerBase._process_message
+    base_mod.ChannelTriggerBase._process_message = _fake_super
+    try:
+        await trigger._process_message(_cred(), _msg())
+    finally:
+        base_mod.ChannelTriggerBase._process_message = original
+
+    trigger._authorize_event.assert_awaited_once()
+    trigger._enqueue_silent.assert_not_awaited()
+    assert super_called["n"] == 1
     kwargs = trigger._classify.await_args.kwargs
     assert "mentioned" in kwargs
-    trigger._enqueue_silent.assert_awaited_once()

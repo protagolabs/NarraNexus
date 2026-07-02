@@ -4,6 +4,37 @@ stub: false
 last_verified: 2026-07-02
 ---
 
+## 2026-07-02 (owner override) — SILENT_BYPASS_AUTHORIZE
+
+Live E2E confirmed the diagnosis from the INFO-log hotfix: Narra's
+`authorize-event` denies group events with `mentioned=False` by
+policy (verified verbatim on `agent_62cf67080ad4` — every non-@
+group message returned `allow=False` with no notice). The owner's
+product intent is different: the agent has the right to hear a
+group it's in, it just shouldn't reply unless addressed.
+
+`_process_message` is reordered so classification happens FIRST,
+then authorize-event runs only on paths where the agent will
+actually reply / invoke tools / call the model. Specifically:
+
+- `dm` / `group_mention` → authorize-event REQUIRED (unchanged;
+  matches guide's intended domain).
+- `group_silent` → authorize-event SKIPPED when the class-level
+  constant `SILENT_BYPASS_AUTHORIZE = True`. The memory-only path
+  proceeds regardless of Narra's decision.
+
+`SILENT_BYPASS_AUTHORIZE` is a known-conflict-with-the-guide
+constant, documented in the source and kept as a class field so it
+can be flipped back to False in one line if NarraMessenger tightens
+enforcement (in which case group non-@ collapses to Slack parity —
+memory only when @-mentioned).
+
+Renegotiation with the NarraMessenger team is in flight; the design
+argument is that "listening to a room the agent has joined" is a
+Matrix-native right, not a Narra-specific exception. When we hear
+back, either the constant stays True (Narra agrees), or flips to
+False and the design falls back to guide-strict.
+
 ## 2026-07-02 (post-Commit-7 hotfix) — diagnostic INFO + auto-disable broken creds
 
 Two behavioural fixes surfaced during the first live E2E:

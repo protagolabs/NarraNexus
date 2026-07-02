@@ -182,6 +182,34 @@ class MatrixTrigger(ChannelTriggerBase):
     AUTHORIZE_EVENT_TIMEOUT_SECONDS = 10.0
     AUTHORIZE_EVENT_PATH = "/api/agent-runtime/matrix/authorize-event"
 
+    # ── Silent-path authorize bypass (owner override, 2026-07-02) ────────
+    # NarraMessenger's setup guide requires calling authorize-event
+    # BEFORE reading history, writing memory, invoking tools, calling
+    # the model, or sending a reply. In practice Narra's policy denies
+    # group events with ``mentioned=False`` outright (verified by live
+    # E2E on agent_62cf67080ad4: authorize-event returned
+    # ``allow=False`` on every non-@ group message).
+    #
+    # The owner's product intent is different: "if the agent is in the
+    # room, it has the right to hear what's said, it just shouldn't
+    # reply unless addressed." So we override Narra's decision for the
+    # silent-batch memory-write path only:
+    #
+    #   dm / group_mention  → authorize-event REQUIRED (we'll reply,
+    #                          call tools, invoke the model — those
+    #                          are exactly what the gate is for)
+    #   group_silent        → authorize-event SKIPPED (memory-only,
+    #                          no reply, no tool calls, no model
+    #                          invocation — the guide's rationale
+    #                          doesn't apply)
+    #
+    # This is a KNOWN CONFLICT with the setup guide's contract.
+    # Renegotiation with the NarraMessenger team is in flight; if
+    # they tighten enforcement or push back, flip to False and the
+    # memory path collapses to "only @-mentioned turns write memory"
+    # (Slack-parity behavior — matches Narra's stated policy).
+    SILENT_BYPASS_AUTHORIZE = True
+
     def __init__(self, max_workers: int = 3):
         super().__init__(
             base_workers=max_workers,
@@ -1028,15 +1056,44 @@ class MatrixTrigger(ChannelTriggerBase):
             )
             return
 
-        # Compute mention flag once — authorize-event needs it as a
-        # payload hint, classify reuses it via the ``mentioned`` kwarg
-        # so we don't re-scan the body.
+        # Classify FIRST (2026-07-02): the silent-memory path bypasses
+        # authorize-event per the owner override (see
+        # ``SILENT_BYPASS_AUTHORIZE``). Computing target before the gate
+        # lets us split the two dispositions cleanly.
         mentioned = self._is_mentioning_us(message, credential)
+        target = await self._classify(
+            client, message, credential, mentioned=mentioned
+        )
+        logger.info(
+            f"[matrix:{credential.agent_id}] CLASSIFY target={target} "
+            f"(room={message.chat_id}, event={message.message_id}, "
+            f"mentioned={mentioned})"
+        )
 
-        # Narra authorize-event gate. Fail-closed on anything that
-        # isn't an explicit allow. Silent path is NOT exempt: it
-        # writes chat_history + observations, both of which the guide
-        # explicitly lists as gated operations.
+        # Silent path: memory-only, no reply / tool / model. Owner
+        # policy override — do not call authorize-event. See
+        # SILENT_BYPASS_AUTHORIZE docstring for the full rationale.
+        if target == "group_silent":
+            if not self.SILENT_BYPASS_AUTHORIZE:
+                # Fallback to guide-strict behaviour: authorize-event
+                # first, drop if denied. Flip this constant to False
+                # if Narra tightens enforcement.
+                verdict = await self._authorize_event(
+                    credential, message, mentioned=mentioned
+                )
+                if not verdict.allow:
+                    logger.info(
+                        f"[matrix:{credential.agent_id}] AUTHZ deny silent "
+                        f"(strict mode; room={message.chat_id})"
+                    )
+                    return
+            await self._enqueue_silent(credential, message)
+            return
+
+        # dm / group_mention → we WILL reply, invoke tools, call the
+        # model. That's exactly what authorize-event is designed to
+        # gate. Skipping here would violate the guide's contract in
+        # its unambiguously-intended domain.
         verdict = await self._authorize_event(
             credential, message, mentioned=mentioned
         )
@@ -1058,18 +1115,7 @@ class MatrixTrigger(ChannelTriggerBase):
                 )
             return
 
-        target = await self._classify(
-            client, message, credential, mentioned=mentioned
-        )
-        logger.info(
-            f"[matrix:{credential.agent_id}] CLASSIFY target={target} "
-            f"(room={message.chat_id}, event={message.message_id}, "
-            f"mentioned={mentioned})"
-        )
-        if target == "group_silent":
-            await self._enqueue_silent(credential, message)
-            return
-        # dm / group_mention → default full-agent pipeline.
+        # Full-agent pipeline.
         await super()._process_message(credential, message)
 
     async def _build_and_run_agent(  # type: ignore[override]
