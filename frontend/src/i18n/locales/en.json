@@ -643,6 +643,14 @@
       "autoRenewOn": "auto-renew on",
       "proCancelled": "Cancelled · still active this period",
       "expiresDowngrade": "Valid until {{date}}, then downgrades to Free",
+      "subscribeBtn": "Subscribe to Pro",
+      "cancelBtn": "Cancel subscription",
+      "cancelConfirm": "Cancel = turn off auto-renew. You stay on Pro until the period ends — no immediate downgrade, no prorated refund. Continue?",
+      "reactivateBtn": "Resume auto-renew",
+      "reactivateConfirm": "Resume auto-renew for your Pro subscription?",
+      "working": "Working…",
+      "awaitingPayment": "Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.",
+      "pollTimeout": "Still not active. If you completed payment, refresh in a moment.",
       "sandboxNotice": "NarraNexus sandbox service is free for now — you are not charged for sandbox usage. Billing will start later; we will notify you beforehand."
     },
     "modal": {

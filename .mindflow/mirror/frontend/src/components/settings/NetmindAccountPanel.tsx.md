@@ -35,4 +35,19 @@ stub: false
   不发空头round-trip（安全审查 H-1）。
 - `resolveState` 把非 ACTIVE 状态（EXPIRED/PAST_DUE/未来态）暂归 free 显示——
   Phase 2 待 NetMind 文档明确后再补专门 UI。
-- 余额/消耗（模块 B）不在此 phase：其数据源 user-fee-info 目前 dev 403，是 B 的门禁。
+- 余额/消耗（模块 B）不在此面板 phase：数据源 user-fee-info 目前 dev 403，是 B 的门禁。
+
+## Phase 3 新增（2026-07-02）— 订阅操作（模块 C/D）
+
+- S1 加"订阅 Pro"按钮 → `api.subscribe()` → `platform.openExternal(checkout_url)`
+  → **轮询** `/me` 直到 ACTIVE（上限 180s）。
+- S2 加"取消"（`window.confirm` 二次确认）→ `cancelSubscription` → 刷新。
+- S3 加"恢复自动续费" → `reactivateSubscription` → 刷新。
+- **C3 缓解**：外部支付无确定回流信号（尤其桌面），故 **window focus 时也刷新** +
+  轮询有界。`busy`/`polling`/`actionError` 三态反馈。
+- reactivate 语义（恢复续费 vs 重订）**待 NetMind 确认**；已知能调通（401 存在性）。
+
+**审查加固**：① `busyRef`（同步锁）—— React state 异步，双击会在 disabled 重渲染前
+二次触发 → 重复 Stripe checkout；ref 同步翻转才是真守卫（质量 HIGH）。② `pollingRef`
+—— 禁止两个 poll 循环重叠（focus-refresh + poll 竞态）。③ reactivate 加 `window.confirm`
+（涉及钱）。④ 轮询超时给 `pollTimeout` 提示，不静默消失。

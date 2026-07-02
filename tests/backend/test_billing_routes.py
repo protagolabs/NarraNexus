@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 import backend.routes.billing as billing_mod
 from xyz_agent_context.services.netmind_billing_client import (
     BillingAuthError,
+    BillingBusinessError,
     BillingUpstreamError,
 )
 
@@ -44,7 +45,7 @@ def make_client(monkeypatch):
     return _make
 
 
-def _stub_client(monkeypatch, *, plans=None, me=None, raise_exc=None):
+def _stub_client(monkeypatch, *, plans=None, me=None, action=None, raise_exc=None):
     class _Stub:
         async def get_plans(self):
             if raise_exc:
@@ -55,6 +56,21 @@ def _stub_client(monkeypatch, *, plans=None, me=None, raise_exc=None):
             if raise_exc:
                 raise raise_exc
             return me if me is not None else _ME_FREE
+
+        async def subscribe(self, token):
+            if raise_exc:
+                raise raise_exc
+            return action if action is not None else {"session_id": "cs", "checkout_url": "https://x"}
+
+        async def cancel(self, token):
+            if raise_exc:
+                raise raise_exc
+            return action if action is not None else {"status": "auto_renew_off"}
+
+        async def reactivate(self, token):
+            if raise_exc:
+                raise raise_exc
+            return action if action is not None else {"status": "auto_renew_on"}
 
     monkeypatch.setattr(billing_mod, "_client", lambda: _Stub())
 
@@ -128,3 +144,101 @@ def test_subscription_unauthenticated_local_identity_401(make_client, monkeypatc
     # No X-User-Id -> resolve_current_user_id raises 401 before token check
     r = client.get("/api/billing/subscription", headers={"X-Netmind-Token": "jwt"})
     assert r.status_code == 401
+
+
+# --- Phase 3: subscribe / cancel / reactivate ------------------------------
+
+H = {**USER, "X-Netmind-Token": "jwt"}
+
+
+def test_subscribe_ok_returns_checkout(make_client, monkeypatch):
+    url = "https://checkout.stripe.com/c/pay/cs_1"
+    _stub_client(monkeypatch, action={"session_id": "cs_1", "checkout_url": url})
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/subscribe", headers=H)
+    assert r.status_code == 200
+    assert r.json()["data"]["checkout_url"] == url
+
+
+def test_subscribe_rejects_non_stripe_checkout_url(make_client, monkeypatch):
+    # A compromised/MITM'd upstream returning an attacker URL must be rejected
+    # (openExternal would otherwise open it on the user's machine).
+    _stub_client(monkeypatch, action={"session_id": "cs", "checkout_url": "https://evil.example/x"})
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/subscribe", headers=H).status_code == 502
+
+
+def test_subscribe_rejects_non_https_checkout_url(make_client, monkeypatch):
+    _stub_client(monkeypatch, action={"checkout_url": "http://checkout.stripe.com/x"})
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/subscribe", headers=H).status_code == 502
+
+
+def test_plans_business_4xx_maps_to_502(make_client, monkeypatch):
+    # Regression: read routes must catch BillingBusinessError (shared _request
+    # raises it for any non-auth 4xx) and 502, not let it 500.
+    _stub_client(monkeypatch, raise_exc=BillingBusinessError("weird", 422))
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/plans").status_code == 502
+
+
+def test_subscription_business_4xx_maps_to_502(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingBusinessError("weird", 422))
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/subscription", headers={**USER, "X-Netmind-Token": "jwt"})
+    assert r.status_code == 502
+
+
+def test_cancel_ok(make_client, monkeypatch):
+    _stub_client(monkeypatch, action={"status": "auto_renew_off"})
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/cancel", headers=H)
+    assert r.status_code == 200
+    assert r.json()["data"]["status"] == "auto_renew_off"
+
+
+def test_reactivate_ok(make_client, monkeypatch):
+    _stub_client(monkeypatch, action={"status": "auto_renew_on"})
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/reactivate", headers=H)
+    assert r.status_code == 200
+
+
+def test_subscribe_business_error_maps_to_400(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingBusinessError("Already subscribed to Pro.", 400))
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/subscribe", headers=H)
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Already subscribed to Pro."
+
+
+def test_cancel_business_error_maps_to_400(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingBusinessError("No active Pro subscription.", 400))
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/cancel", headers=H)
+    assert r.status_code == 400
+    assert "No active Pro subscription." in r.json()["detail"]
+
+
+def test_subscribe_auth_error_maps_to_401(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingAuthError("bad"))
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/subscribe", headers=H).status_code == 401
+
+
+def test_subscribe_upstream_maps_to_502(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingUpstreamError("down"))
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/subscribe", headers=H).status_code == 502
+
+
+def test_subscribe_404_in_local_mode(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=False)
+    assert client.post("/api/billing/subscribe", headers=H).status_code == 404
+
+
+def test_subscribe_missing_netmind_token_401(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/subscribe", headers=USER).status_code == 401

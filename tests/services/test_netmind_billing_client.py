@@ -15,6 +15,7 @@ import pytest
 
 from xyz_agent_context.services.netmind_billing_client import (
     BillingAuthError,
+    BillingBusinessError,
     BillingUpstreamError,
     NetmindBillingClient,
 )
@@ -109,3 +110,76 @@ async def test_non_json_maps_to_upstream_error():
 
     with pytest.raises(BillingUpstreamError):
         await _client_with(handler).get_plans()
+
+
+# --- Phase 3: subscribe / cancel / reactivate ------------------------------
+
+@pytest.mark.asyncio
+async def test_subscribe_returns_checkout_and_posts():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"session_id": "cs_1", "checkout_url": "https://x/y"})
+
+    data = await _client_with(handler).subscribe("jwt")
+    assert data["checkout_url"] == "https://x/y"
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/v1/power-subscription/subscribe"
+
+
+@pytest.mark.asyncio
+async def test_cancel_returns_status():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "auto_renew_off"})
+
+    data = await _client_with(handler).cancel("jwt")
+    assert data["status"] == "auto_renew_off"
+
+
+@pytest.mark.asyncio
+async def test_reactivate_posts_to_reactivate_path():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"status": "auto_renew_on"})
+
+    await _client_with(handler).reactivate("jwt")
+    assert seen["path"] == "/v1/power-subscription/reactivate"
+
+
+@pytest.mark.asyncio
+async def test_business_400_maps_to_business_error_with_message():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"message": "Already subscribed to Pro."})
+
+    with pytest.raises(BillingBusinessError) as ei:
+        await _client_with(handler).subscribe("jwt")
+    assert ei.value.message == "Already subscribed to Pro."
+    assert ei.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_business_400_extracts_detail_key():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"detail": "No active Pro subscription."})
+
+    with pytest.raises(BillingBusinessError) as ei:
+        await _client_with(handler).cancel("jwt")
+    assert ei.value.message == "No active Pro subscription."
+
+
+@pytest.mark.asyncio
+async def test_business_message_scrubs_token_shaped_value():
+    # If the upstream echoes a JWT-shaped value under an allowed key, it must
+    # NOT be passed through (defense against token/PII leak into client + logs).
+    jwt = "abcdefghij0123456789.klmnopqrstuvwx.yz0123456789ABCD"
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"message": jwt})
+
+    with pytest.raises(BillingBusinessError) as ei:
+        await _client_with(handler).subscribe("jwt")
+    assert jwt not in ei.value.message
+    assert ei.value.message  # falls back to a generic string

@@ -32,10 +32,32 @@ recharge land in later phases on the same client.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Optional
 
 import httpx
 from loguru import logger
+
+# A JWT / opaque-token shape (a.b.c of url-safe chars). Used to scrub upstream
+# business-error messages so a token echoed under an allowed key never reaches
+# the client / logs.
+_TOKENISH = re.compile(r"[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+
+
+def _safe_business_message(msg: str) -> str:
+    """Return msg only if it looks like a human-readable error, else "".
+
+    Guards against a misbehaving upstream putting a token/id/PII blob under an
+    allowed key (message/detail/error): a JWT-shaped substring, or a long
+    whitespace-free string (likely an id/token, not a sentence), is dropped.
+    """
+    if not msg:
+        return ""
+    if _TOKENISH.search(msg):
+        return ""
+    if " " not in msg.strip() and len(msg) > 40:
+        return ""
+    return msg
 
 DEFAULT_BASE_URL_ENV = "BILLING_API_BASE"
 DEFAULT_TIMEOUT_ENV = "BILLING_API_TIMEOUT_SECONDS"
@@ -52,6 +74,19 @@ class BillingAuthError(Exception):
 
 class BillingUpstreamError(Exception):
     """NetMind billing API unreachable or returned an unusable response (caller -> 502)."""
+
+
+class BillingBusinessError(Exception):
+    """A non-auth 4xx business rejection from NetMind (caller -> 400).
+
+    Carries a short, user-safe message extracted from the upstream body
+    (e.g. "Already subscribed to Pro." / "No active Pro subscription.").
+    """
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
 
 
 class NetmindBillingClient:
@@ -88,6 +123,35 @@ class NetmindBillingClient:
             "GET",
             "/v1/power-subscription/me",
             login_token=login_token,
+        )
+
+    async def subscribe(self, login_token: str) -> Any:
+        """Start a Pro subscription. Returns ``{session_id, checkout_url}``.
+
+        Raises BillingBusinessError on 400 (e.g. "Already subscribed to Pro.").
+        """
+        return await self._request(
+            "POST", "/v1/power-subscription/subscribe", login_token=login_token
+        )
+
+    async def cancel(self, login_token: str) -> Any:
+        """Cancel = turn off auto-renew (stays Pro until period end).
+
+        Returns ``{status: "auto_renew_off"}``. Raises BillingBusinessError on
+        400 (e.g. "No active Pro subscription.").
+        """
+        return await self._request(
+            "POST", "/v1/power-subscription/cancel", login_token=login_token
+        )
+
+    async def reactivate(self, login_token: str) -> Any:
+        """Re-enable auto-renew on a cancelled-but-in-period subscription.
+
+        NOTE: endpoint existence confirmed on dev (401 unauth); exact semantics
+        (resume auto-renew vs re-subscribe) still pending NetMind confirmation.
+        """
+        return await self._request(
+            "POST", "/v1/power-subscription/reactivate", login_token=login_token
         )
 
     async def _request(
@@ -129,21 +193,30 @@ class NetmindBillingClient:
                 f"NetMind billing API returned {response.status_code}"
             )
         if response.status_code >= 400:
-            # 4xx that isn't an auth failure (e.g. 400 business error). Surface
-            # ONLY a short "message" field (if present) so a future route can
-            # translate it (e.g. "Already subscribed") — never dump the whole
-            # upstream body: it may echo the token or, in later phases,
-            # payment/PII fields, and this string flows into server logs.
+            # 4xx that isn't an auth failure = a business rejection (e.g.
+            # "Already subscribed to Pro." / "No active Pro subscription.").
+            # Extract ONLY a short user-safe message — never dump the whole
+            # upstream body (it may echo the token or payment/PII fields, and
+            # this string flows into server logs). Common message keys tried in
+            # order; falls back to a generic string.
             msg = ""
             try:
                 body = response.json()
-                if isinstance(body, dict) and isinstance(body.get("message"), str):
-                    msg = body["message"][:200]
+                if isinstance(body, dict):
+                    for key in ("message", "detail", "error"):
+                        val = body.get(key)
+                        if isinstance(val, str) and val:
+                            msg = val[:200]
+                            break
+                        if isinstance(val, dict) and isinstance(val.get("message"), str):
+                            msg = val["message"][:200]
+                            break
             except ValueError:
                 pass
-            raise BillingUpstreamError(
-                f"NetMind billing API returned {response.status_code}"
-                + (f": {msg}" if msg else "")
+            raise BillingBusinessError(
+                _safe_business_message(msg)
+                or f"Billing request rejected ({response.status_code})",
+                response.status_code,
             )
 
         try:

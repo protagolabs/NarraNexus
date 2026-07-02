@@ -642,6 +642,14 @@
       "autoRenewOn": "自动续费已开启",
       "proCancelled": "已取消 · 周期内仍有效",
       "expiresDowngrade": "有效至 {{date}}，到期降级为 Free",
+      "subscribeBtn": "订阅 Pro",
+      "cancelBtn": "取消订阅",
+      "cancelConfirm": "取消 = 关闭自动续费。当前周期到期前仍是 Pro——不立即降级、不按比例退款。确定继续？",
+      "reactivateBtn": "恢复自动续费",
+      "reactivateConfirm": "恢复你的 Pro 订阅自动续费？",
+      "working": "处理中…",
+      "awaitingPayment": "等待支付完成…本面板会自动刷新。若你已完成支付，回到此标签页即可。",
+      "pollTimeout": "仍未生效。若你已完成支付，请稍后刷新。",
       "sandboxNotice": "NarraNexus 沙盒服务当前限时免费，暂不因沙盒服务扣费；后续将开始计费，届时另行告知。"
     },
     "modal": {

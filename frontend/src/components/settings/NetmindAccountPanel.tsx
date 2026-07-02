@@ -2,26 +2,34 @@
  * @file NetmindAccountPanel.tsx
  * @author NetMind.AI
  * @date 2026-07-02
- * @description NetMind account & subscription panel (Phase 1: status + sandbox notice).
+ * @description NetMind account & subscription panel.
  *
  * Cloud-web only. Reads GET /api/billing/subscription and renders one of four
  * states (S0 hidden in local mode, S1 Free, S2 Pro active, S3 cancelled but
- * still in-period). Also carries the sandbox free-tier notice (module G).
+ * still in-period), plus the sandbox free-tier notice (module G).
  *
- * Mirrors QuotaPanel: cloud-mode gate + `return null` when not applicable, no
- * layout shift. Copy is fully i18n-keyed (settings.netmind.*) — English source
- * in the inline defaults (binding rule #1), translations in the locale files.
- * Balance/consumption (module B), subscribe/cancel (C/D), recharge (E), and
- * "use this subscription" (F) land in later phases on the same panel.
+ * Phase 3 adds subscription actions (module C/D): subscribe → Stripe checkout →
+ * poll /me until ACTIVE; cancel (confirm) → auto-renew off; reactivate (resume
+ * auto-renew). Payment回流 has no deterministic desktop signal, so we also
+ * refresh on window focus + poll with a bounded window (C3 mitigation).
+ *
+ * Mirrors QuotaPanel: cloud-mode gate + `return null` when not applicable.
+ * Copy is fully i18n-keyed (settings.netmind.*) with English source defaults.
+ * Balance/consumption (module B) and recharge (E) land in later phases.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
+import { platform } from '@/lib/platform';
+import { Button } from '@/components/ui';
 import type { SubscriptionMe } from '@/types';
 import { useRuntimeStore } from '@/stores/runtimeStore';
 
 type PanelState = 'loading' | 'error' | 'free' | 'pro_active' | 'pro_cancelled';
+
+const POLL_INTERVAL_MS = 4000;
+const POLL_MAX_MS = 180000; // 3 min bound — never poll forever
 
 function resolveState(me: SubscriptionMe | null): PanelState {
   if (!me) return 'error';
@@ -29,9 +37,6 @@ function resolveState(me: SubscriptionMe | null): PanelState {
   if (!sub) return 'free'; // S1
   if (sub.status === 'ACTIVE' && sub.auto_renew) return 'pro_active'; // S2
   if (sub.status === 'ACTIVE' && !sub.auto_renew) return 'pro_cancelled'; // S3
-  // Any other status (EXPIRED / PAST_DUE / future NetMind states) — Phase 1
-  // has no dedicated UI for these; treat as free-tier display. Phase 2 should
-  // add explicit states once NetMind documents them.
   return 'free';
 }
 
@@ -43,31 +48,155 @@ function formatDate(unixSeconds: number): string {
   }
 }
 
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export function NetmindAccountPanel() {
   const { t } = useTranslation();
   const mode = useRuntimeStore((s) => s.mode);
   const isCloud = mode === 'cloud-web';
   const [me, setMe] = useState<SubscriptionMe | null>(null);
   const [state, setState] = useState<PanelState>('loading');
+  const [busy, setBusy] = useState(false); // an action is in flight
+  const [polling, setPolling] = useState(false); // awaiting payment回流
+  const [actionError, setActionError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  // Synchronous locks: React state (busy/polling) updates are async/batched, so
+  // a fast double-click can fire a handler twice before `disabled` re-renders.
+  // Refs flip synchronously and are the real guard against duplicate
+  // subscribe → duplicate Stripe checkout sessions.
+  const busyRef = useRef(false);
+  const pollingRef = useRef(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.getSubscription();
+      if (!mounted.current) return;
+      const data = r.data ?? null;
+      setMe(data);
+      setState(resolveState(data));
+    } catch {
+      if (mounted.current) setState('error');
+    }
+  }, []);
 
   useEffect(() => {
-    if (!isCloud) return; // S0 — hidden entirely in local mode
-    let cancelled = false;
-    api
-      .getSubscription()
-      .then((r) => {
-        if (cancelled) return;
-        const data = r.data ?? null;
-        setMe(data);
-        setState(resolveState(data));
-      })
-      .catch(() => {
-        if (!cancelled) setState('error');
-      });
+    mounted.current = true;
+    if (isCloud) void load();
     return () => {
-      cancelled = true;
+      mounted.current = false;
     };
-  }, [isCloud]);
+  }, [isCloud, load]);
+
+  // C3 mitigation: no deterministic signal when the user returns from the
+  // external Stripe window (esp. desktop). Refresh whenever the tab regains
+  // focus so a completed payment reflects without a manual reload.
+  useEffect(() => {
+    if (!isCloud) return;
+    const onFocus = () => void load();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [isCloud, load]);
+
+  // Poll /me until the subscription flips to ACTIVE (bounded), used after
+  // subscribe kicks off an external payment.
+  const pollUntilActive = useCallback(async () => {
+    if (pollingRef.current) return; // never run two overlapping poll loops
+    pollingRef.current = true;
+    setPolling(true);
+    const deadline = Date.now() + POLL_MAX_MS;
+    let becameActive = false;
+    try {
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        if (!mounted.current) return;
+        try {
+          const r = await api.getSubscription();
+          const data = r.data ?? null;
+          if (data?.subscription?.status === 'ACTIVE') {
+            setMe(data);
+            setState(resolveState(data));
+            becameActive = true;
+            return;
+          }
+        } catch {
+          /* transient — keep polling until the deadline */
+        }
+      }
+      // Deadline hit without seeing ACTIVE — don't vanish silently.
+      if (mounted.current && !becameActive) {
+        setActionError(
+          t('settings.netmind.pollTimeout',
+            "Still not active. If you completed payment, refresh in a moment."),
+        );
+      }
+    } finally {
+      pollingRef.current = false;
+      if (mounted.current) setPolling(false);
+    }
+  }, [t]);
+
+  const handleSubscribe = useCallback(async () => {
+    if (busyRef.current) return; // synchronous double-click guard
+    busyRef.current = true;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const r = await api.subscribe();
+      const url = r.data?.checkout_url;
+      if (!url) throw new Error('No checkout URL returned');
+      await platform.openExternal(url);
+      void pollUntilActive(); // reflect the result when payment completes
+    } catch (e) {
+      if (mounted.current) setActionError(errMessage(e));
+    } finally {
+      busyRef.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }, [pollUntilActive]);
+
+  const handleCancel = useCallback(async () => {
+    if (busyRef.current) return;
+    if (!window.confirm(t('settings.netmind.cancelConfirm',
+      'Cancel = turn off auto-renew. You stay on Pro until the period ends — no immediate downgrade, no prorated refund. Continue?'))) {
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await api.cancelSubscription();
+      await load();
+    } catch (e) {
+      if (mounted.current) setActionError(errMessage(e));
+    } finally {
+      busyRef.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }, [t, load]);
+
+  const handleReactivate = useCallback(async () => {
+    if (busyRef.current) return;
+    // reactivate re-enables auto-renew (may trigger a charge) — confirm, since
+    // its exact billing semantics are still pending NetMind confirmation.
+    if (!window.confirm(t('settings.netmind.reactivateConfirm',
+      'Resume auto-renew for your Pro subscription?'))) {
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await api.reactivateSubscription();
+      await load();
+    } catch (e) {
+      if (mounted.current) setActionError(errMessage(e));
+    } finally {
+      busyRef.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }, [t, load]);
 
   if (!isCloud) return null; // S0
 
@@ -93,50 +222,73 @@ export function NetmindAccountPanel() {
 
         {state === 'error' && (
           <p className="text-sm text-[var(--color-error)]">
-            {t(
-              'settings.netmind.error',
-              'Could not load subscription status. If your login expired, sign in again and refresh.',
-            )}
+            {t('settings.netmind.error',
+              'Could not load subscription status. If your login expired, sign in again and refresh.')}
           </p>
         )}
 
         {state === 'free' && (
-          <p className="text-sm text-[var(--text-secondary)]">
-            {t('settings.netmind.free', 'Current plan: Free (not subscribed)')}
-          </p>
+          <div className="space-y-3">
+            <p className="text-sm text-[var(--text-secondary)]">
+              {t('settings.netmind.free', 'Current plan: Free (not subscribed)')}
+            </p>
+            <Button variant="accent" size="sm" onClick={handleSubscribe} disabled={busy || polling}>
+              {busy
+                ? t('settings.netmind.working', 'Working…')
+                : t('settings.netmind.subscribeBtn', 'Subscribe to Pro')}
+            </Button>
+          </div>
         )}
 
         {state === 'pro_active' && me?.subscription && (
-          <div className="text-sm text-[var(--text-secondary)] space-y-1">
+          <div className="text-sm text-[var(--text-secondary)] space-y-2">
             <div>{t('settings.netmind.proActive', 'Current plan: Pro · active')}</div>
             <div className="text-xs text-[var(--text-tertiary)]">
               {t('settings.netmind.validUntil', 'Valid until')}{' '}
               {formatDate(me.subscription.current_period_end)} ·{' '}
               {t('settings.netmind.autoRenewOn', 'auto-renew on')}
             </div>
+            <Button variant="outline" size="sm" onClick={handleCancel} disabled={busy}>
+              {busy
+                ? t('settings.netmind.working', 'Working…')
+                : t('settings.netmind.cancelBtn', 'Cancel subscription')}
+            </Button>
           </div>
         )}
 
         {state === 'pro_cancelled' && me?.subscription && (
-          <div className="text-sm text-[var(--text-secondary)] space-y-1">
+          <div className="text-sm text-[var(--text-secondary)] space-y-2">
             <div className="text-[var(--color-warning)]">
               {t('settings.netmind.proCancelled', 'Cancelled · still active this period')}
             </div>
             <div className="text-xs text-[var(--text-tertiary)]">
-              {t('settings.netmind.expiresDowngrade', 'Valid until {{date}}, then downgrades to Free', {
-                date: formatDate(me.subscription.current_period_end),
-              })}
+              {t('settings.netmind.expiresDowngrade',
+                'Valid until {{date}}, then downgrades to Free',
+                { date: formatDate(me.subscription.current_period_end) })}
             </div>
+            <Button variant="accent" size="sm" onClick={handleReactivate} disabled={busy}>
+              {busy
+                ? t('settings.netmind.working', 'Working…')
+                : t('settings.netmind.reactivateBtn', 'Resume auto-renew')}
+            </Button>
           </div>
+        )}
+
+        {polling && (
+          <p className="mt-2 text-xs text-[var(--text-tertiary)]">
+            {t('settings.netmind.awaitingPayment',
+              'Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.')}
+          </p>
+        )}
+        {actionError && (
+          <p className="mt-2 text-xs text-[var(--color-error)]">{actionError}</p>
         )}
       </div>
 
       {/* Module G — sandbox free-tier notice (platform-side copy) */}
       <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 text-xs text-[var(--text-tertiary)] leading-relaxed">
-        {t(
-          'settings.netmind.sandboxNotice',
-          'NarraNexus sandbox service is free for now — you are not charged for sandbox usage. Billing will start later; we will notify you beforehand.',
-        )}
+        {t('settings.netmind.sandboxNotice',
+          'NarraNexus sandbox service is free for now — you are not charged for sandbox usage. Billing will start later; we will notify you beforehand.')}
       </div>
     </div>
   );

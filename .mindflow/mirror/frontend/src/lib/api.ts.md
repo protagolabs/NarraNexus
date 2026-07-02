@@ -4,6 +4,12 @@ last_verified: 2026-07-02
 stub: false
 ---
 
+## 2026-07-02 (Phase 3) — 订阅写操作
+
+`subscribe()` / `cancelSubscription()` / `reactivateSubscription()`——共用私有
+`billingWrite()`（POST + `X-Netmind-Token`，空 token 早退）。subscribe 返
+checkout_url，面板 openExternal + 轮询 `/me`。
+
 ## 2026-07-02 — NetMind billing 方法 + billing 401 不触发全局登出
 
 新增 `getPlans()` / `getSubscription()`（[[billing]] 代理）+ 私有

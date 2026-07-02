@@ -6,6 +6,20 @@ stub: false
 
 # billing.py — NetMind 计费/订阅代理路由（`/api/billing`）
 
+## Phase 3 新增（2026-07-02）
+
+`POST /subscribe` `/cancel` `/reactivate`——共用 `_write_action` harness（cloud
+门禁 + 本地身份 + netmind token + 统一错误映射）。错误三分：`BillingBusinessError`
+→**400**（透传 user-safe message，如"Already subscribed"）、`BillingAuthError`
+→401、`BillingUpstreamError`→502。subscribe 返 Stripe checkout_url，前端引导支付
+后轮询 `/me`。
+
+**审查加固**：① `_validate_checkout_url` —— subscribe 返回的 checkout_url 必须
+https + host 属 `*.stripe.com`，否则 502（防被 MITM/被黑的上游喂 openExternal 恶意
+URL，安全 HIGH）；② `/plans` `/subscription` 读路由**也** catch
+`BillingBusinessError`→502（共享 `_request` 对任何非鉴权 4xx 抛它，读路由不 catch
+会 500——Phase 3 引入的回归，已修）；③ `action: Literal[...]` 而非 str。
+
 ## 为什么存在
 
 D-1 决策：计费 API 走**后端代理**（避 CORS、统一持凭证、未来 key 落库），不让

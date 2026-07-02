@@ -1013,3 +1013,19 @@ export interface SubscriptionMeResponse extends ApiResponse {
 export interface PlanListResponse extends ApiResponse {
   data?: PlanList;
 }
+
+// POST /api/billing/subscribe -> Stripe checkout to redirect the user to.
+export interface SubscribeCheckout {
+  session_id: string;
+  checkout_url: string;
+}
+
+export interface SubscribeResponse extends ApiResponse {
+  data?: SubscribeCheckout;
+}
+
+// POST /api/billing/cancel | /reactivate -> small status envelope
+// (cancel: { status: "auto_renew_off" }; reactivate shape TBD).
+export interface BillingActionResponse extends ApiResponse {
+  data?: Record<string, unknown>;
+}

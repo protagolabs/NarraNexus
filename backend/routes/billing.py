@@ -21,6 +21,9 @@ subscribe/cancel, and recharge land in later phases on the same proxy.
 
 from __future__ import annotations
 
+from typing import Literal
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
@@ -29,6 +32,7 @@ from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 from xyz_agent_context.services.netmind_billing_client import (
     BillingAuthError,
+    BillingBusinessError,
     BillingUpstreamError,
     NetmindBillingClient,
 )
@@ -75,7 +79,11 @@ async def get_plans(request: Request):
     _require_cloud()
     try:
         data = await _client().get_plans()
-    except BillingUpstreamError as exc:
+    except (BillingUpstreamError, BillingBusinessError) as exc:
+        # A business 4xx on a read endpoint is an upstream contract violation,
+        # not a user-actionable error -> 502 (not 500). Catching
+        # BillingBusinessError here is required since _request() raises it for
+        # ALL non-auth 4xx, including on this read path.
         logger.error(f"[billing] get_plans upstream failure: {exc}")
         raise HTTPException(status_code=502, detail="Billing service unavailable")
     return {"success": True, "data": data}
@@ -97,7 +105,74 @@ async def get_subscription(request: Request):
     except BillingAuthError:
         # Bad / expired loginToken -> 401 so the frontend re-auths with NetMind.
         raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
-    except BillingUpstreamError as exc:
+    except (BillingUpstreamError, BillingBusinessError) as exc:
+        # Business 4xx on a read endpoint = upstream contract violation -> 502.
         logger.error(f"[billing] get_subscription upstream failure: {exc}")
         raise HTTPException(status_code=502, detail="Billing service unavailable")
     return {"success": True, "data": data}
+
+
+def _validate_checkout_url(url: object) -> None:
+    """Reject a checkout_url the upstream returned unless it is https on the
+    Stripe payment domain. Defends against a compromised/MITM'd billing
+    upstream handing the frontend an attacker URL that openExternal would then
+    open on the user's machine (Tauri shell-open). Backend-side so a modified
+    frontend can't bypass it.
+    """
+    host = ""
+    scheme = ""
+    if isinstance(url, str):
+        parsed = urlparse(url)
+        scheme = parsed.scheme
+        host = (parsed.hostname or "").lower()
+    ok = scheme == "https" and (host == "stripe.com" or host.endswith(".stripe.com"))
+    if not ok:
+        logger.error(f"[billing] subscribe returned non-allowlisted checkout host: {host!r}")
+        raise HTTPException(
+            status_code=502, detail="Billing service returned an invalid checkout URL"
+        )
+
+
+async def _write_action(request: Request, action: Literal["subscribe", "cancel", "reactivate"]):
+    """Shared harness for the subscription write routes (subscribe / cancel /
+    reactivate): cloud gate + local identity + NetMind token, then dispatch to
+    the client method, mapping the three error kinds consistently.
+
+    BillingBusinessError -> 400 (surface the user-safe message, e.g. "Already
+    subscribed"); BillingAuthError -> 401; BillingUpstreamError -> 502.
+    """
+    _require_cloud()
+    await resolve_current_user_id(request)
+    token = _require_netmind_token(request)
+    method = getattr(_client(), action)
+    try:
+        data = await method(token)
+    except BillingAuthError:
+        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+    except BillingBusinessError as exc:
+        # e.g. "Already subscribed to Pro." / "No active Pro subscription."
+        raise HTTPException(status_code=400, detail=exc.message)
+    except BillingUpstreamError as exc:
+        logger.error(f"[billing] {action} upstream failure: {exc}")
+        raise HTTPException(status_code=502, detail="Billing service unavailable")
+    return {"success": True, "data": data}
+
+
+@router.post("/subscribe")
+async def subscribe(request: Request):
+    """Start a Pro subscription — returns Stripe {session_id, checkout_url}."""
+    result = await _write_action(request, "subscribe")
+    _validate_checkout_url((result.get("data") or {}).get("checkout_url"))
+    return result
+
+
+@router.post("/cancel")
+async def cancel(request: Request):
+    """Cancel = turn off auto-renew; stays Pro until period end."""
+    return await _write_action(request, "cancel")
+
+
+@router.post("/reactivate")
+async def reactivate(request: Request):
+    """Re-enable auto-renew on a cancelled-but-in-period subscription."""
+    return await _write_action(request, "reactivate")

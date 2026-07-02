@@ -3,11 +3,12 @@
  * @description Renders the four panel states (S1/S2/S3) and confirms S0 (local
  * mode) renders nothing. api + i18n + runtimeStore are mocked — no network.
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { NetmindAccountPanel } from '../NetmindAccountPanel';
 
 // i18n: return the inline default string (2nd arg) so assertions read real copy.
+// Interpolation ({{date}}) is ignored — tests don't assert on interpolated copy.
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (_k: string, d?: string) => d ?? _k }),
 }));
@@ -18,13 +19,30 @@ vi.mock('@/stores/runtimeStore', () => ({
 }));
 
 const mockGetSubscription = vi.fn();
+const mockSubscribe = vi.fn();
+const mockCancel = vi.fn();
+const mockReactivate = vi.fn();
 vi.mock('@/lib/api', () => ({
-  api: { getSubscription: (...a: unknown[]) => mockGetSubscription(...a) },
+  api: {
+    getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
+    subscribe: (...a: unknown[]) => mockSubscribe(...a),
+    cancelSubscription: (...a: unknown[]) => mockCancel(...a),
+    reactivateSubscription: (...a: unknown[]) => mockReactivate(...a),
+  },
+}));
+
+const mockOpenExternal = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/lib/platform', () => ({
+  platform: { openExternal: (...a: unknown[]) => mockOpenExternal(...a) },
 }));
 
 beforeEach(() => {
   mockMode = 'cloud-web';
   mockGetSubscription.mockReset();
+  mockSubscribe.mockReset();
+  mockCancel.mockReset();
+  mockReactivate.mockReset();
+  mockOpenExternal.mockClear();
 });
 
 test('S0: local mode renders nothing', () => {
@@ -73,4 +91,54 @@ test('sandbox notice always shown in cloud mode', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
   render(<NetmindAccountPanel />);
   expect(await screen.findByText(/sandbox service is free for now/)).toBeTruthy();
+});
+
+// --- Phase 3 actions --------------------------------------------------------
+
+test('S1: subscribe button → api.subscribe + openExternal(checkout_url)', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockSubscribe.mockResolvedValue({ success: true, data: { checkout_url: 'https://pay/x' } });
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Subscribe to Pro/ });
+  fireEvent.click(btn);
+  await waitFor(() => expect(mockSubscribe).toHaveBeenCalled());
+  await waitFor(() => expect(mockOpenExternal).toHaveBeenCalledWith('https://pay/x'));
+});
+
+test('S2: cancel button → confirm true → api.cancelSubscription', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  mockGetSubscription.mockResolvedValue({
+    success: true,
+    data: { subscription: { status: 'ACTIVE', auto_renew: true, current_period_end: 1790000000 } },
+  });
+  mockCancel.mockResolvedValue({ success: true, data: { status: 'auto_renew_off' } });
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Cancel subscription/ });
+  fireEvent.click(btn);
+  await waitFor(() => expect(mockCancel).toHaveBeenCalled());
+});
+
+test('S2: cancel confirm dismissed → no api call', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(false);
+  mockGetSubscription.mockResolvedValue({
+    success: true,
+    data: { subscription: { status: 'ACTIVE', auto_renew: true, current_period_end: 1790000000 } },
+  });
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Cancel subscription/ });
+  fireEvent.click(btn);
+  expect(mockCancel).not.toHaveBeenCalled();
+});
+
+test('S3: resume button → confirm true → api.reactivateSubscription', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  mockGetSubscription.mockResolvedValue({
+    success: true,
+    data: { subscription: { status: 'ACTIVE', auto_renew: false, current_period_end: 1790000000 } },
+  });
+  mockReactivate.mockResolvedValue({ success: true, data: { status: 'auto_renew_on' } });
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Resume auto-renew/ });
+  fireEvent.click(btn);
+  await waitFor(() => expect(mockReactivate).toHaveBeenCalled());
 });

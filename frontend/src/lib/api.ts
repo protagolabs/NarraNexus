@@ -79,6 +79,8 @@ import type {
   DiscordTestResponse,
   PlanListResponse,
   SubscriptionMeResponse,
+  SubscribeResponse,
+  BillingActionResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1301,6 +1303,30 @@ class ApiClient {
     return this.request<SubscriptionMeResponse>('/api/billing/subscription', {
       headers: { 'X-Netmind-Token': token },
     });
+  }
+
+  private billingWrite<T>(endpoint: string): Promise<T> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  // Start a Pro subscription — returns Stripe checkout_url to redirect to.
+  async subscribe(): Promise<SubscribeResponse> {
+    return this.billingWrite<SubscribeResponse>('/api/billing/subscribe');
+  }
+
+  // Cancel = turn off auto-renew (stays Pro until period end).
+  async cancelSubscription(): Promise<BillingActionResponse> {
+    return this.billingWrite<BillingActionResponse>('/api/billing/cancel');
+  }
+
+  // Re-enable auto-renew on a cancelled-but-in-period subscription.
+  async reactivateSubscription(): Promise<BillingActionResponse> {
+    return this.billingWrite<BillingActionResponse>('/api/billing/reactivate');
   }
 
   // =========================================================================
