@@ -902,11 +902,25 @@ _register(
 
 
 # --- 27d. channel_narramessenger_credentials -------------------------------
-# NarraMessenger (formerly NexusMatrix) per-agent binding. v1 transport is
-# Gateway Polling + /chat/send — pure bearer-token HTTP, no Matrix client, so
-# the only secret is the runtime bearer token (base64-encoded, NOT encryption;
-# same placeholder convention as lark/slack/telegram). matrix_user_id is the
-# bot identity; one Matrix bot binds to AT MOST one agent.
+# NarraMessenger per-agent binding. Two transports coexist during the
+# 2026-07-02 migration:
+#
+#   connection_mode = 'gateway' (legacy) — Gateway Polling + /chat/send;
+#     only secret is the bearer token (`bearer_token_encoded`).
+#   connection_mode = 'matrix'  (new)    — Direct Matrix client via matrix-nio
+#     against matrix.netmind.chat. Secret is `matrix_access_token_encoded`;
+#     `bearer_token_encoded` is still populated because the bind / control
+#     plane (fetch_setup_guide, report_profile, runtime-ready) still talks
+#     to api.netmind.chat with the NM bearer.
+#
+# matrix_since_token is the /sync cursor. It is persisted on every sync
+# tick so a NarraNexus restart doesn't force a fresh initial sync of every
+# joined room (which for busy owners can be MB of state). matrix_device_id
+# pins the same server-side device on reconnect — otherwise every restart
+# spawns a new device entry for the same account.
+#
+# matrix_user_id is the bot identity; one identity binds to AT MOST one
+# agent (invariant unchanged from gateway era).
 _register(
     TableDef(
         name="channel_narramessenger_credentials",
@@ -926,6 +940,20 @@ _register(
             Column("owner_name", "TEXT", "VARCHAR(255)"),
             Column("connection_mode", "TEXT", "VARCHAR(16)", nullable=False, default="'gateway'"),
             Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            # ── Matrix transport columns (added 2026-07-02 for MatrixTrigger) ─
+            # matrix_access_token_encoded — base64-encoded Matrix access
+            # token (syt_...), identical convention to bearer_token_encoded.
+            # NULL/empty on legacy 'gateway' rows.
+            Column("matrix_access_token_encoded", "TEXT", "VARCHAR(512)"),
+            # matrix_device_id — the device the token is bound to. First
+            # sync auto-registers a device if empty; we persist it back so
+            # subsequent syncs re-use it.
+            Column("matrix_device_id", "TEXT", "VARCHAR(64)"),
+            # matrix_since_token — opaque /sync cursor. High-frequency
+            # write on every sync tick; use `update_since_token()` for the
+            # single-column touch, don't round-trip the whole row.
+            Column("matrix_since_token", "TEXT", "VARCHAR(256)"),
+            # ─────────────────────────────────────────────────────────────
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -934,6 +962,9 @@ _register(
             # Same Matrix bot identity binds to AT MOST one agent — two agents
             # polling the same bearer would split invocations arbitrarily.
             Index("idx_nm_cred_matrix_user", ["matrix_user_id"], unique=True),
+            # MatrixTrigger's credential watcher filters by connection_mode;
+            # indexed so N > 1000 agents don't scan the whole table each tick.
+            Index("idx_nm_cred_conn_mode_enabled", ["connection_mode", "enabled"]),
         ],
     )
 )
