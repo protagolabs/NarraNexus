@@ -4,6 +4,25 @@ stub: false
 last_verified: 2026-07-02
 ---
 
+## 2026-07-02 (Commit 6) — auto-join invited rooms
+
+The sync loop now walks `resp.rooms.invite` at the top of every batch
+and calls `client.join(room_id)` for each invitee. Matches the setup
+guide's OpenClaw config which sets `autoJoin: "always"`: the owner (or
+any legitimate inviter) expects the agent to appear in the room without
+a second confirmation step.
+
+Failure handling: `client.join` errors are logged at WARNING and swallowed.
+Rationale — the invite persists in `resp.rooms.invite` until the join
+succeeds, so the next sync tick automatically retries. Propagating would
+break the outer sync loop over a transient network blip and force a full
+reconnect via the base's backoff path, which is a bigger hammer than
+the failure warrants.
+
+No dedicated audit event: auto-join is expected behaviour, not an
+anomaly. If join throughput ever becomes ops-visible (e.g. mass
+invites causing rate-limit trouble), promote to an audit line then.
+
 ## 2026-07-02 (Commit 5) — Narra authorize-event gate
 
 Every Matrix event must clear

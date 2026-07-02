@@ -5,7 +5,7 @@
               on the message plane with a real Matrix client (matrix-nio)
               talking to matrix.netmind.chat directly.
 
-Scope of THIS FILE (Phase 1, Commits 3 + 4b):
+Scope of THIS FILE (Phase 1, Commits 3 + 4b + 5 + 6):
   ✓  Class + ChannelTriggerBase wiring, all abstract methods present
   ✓  ``connect()`` implements the sync loop with the strict cursor-save
      ordering (see :meth:`connect` docstring)
@@ -30,6 +30,10 @@ Scope of THIS FILE (Phase 1, Commits 3 + 4b):
      accidental agent-thinking spill into the room
   ✓  (4b) Silent-not-reply fix: agent that skips the reply tool sends
      nothing
+  ✓  (5)  Narra ``authorize-event`` gate before every event; deny +
+     notice forwards ``m.notice`` back to the room, else silent drop
+  ✓  (6)  Auto-join invited rooms during the sync loop
+     (``autoJoin: always`` per NarraMessenger's OpenClaw config)
 
 Deferred to Phase 3:
   ✗  Multimodal: ``m.image`` / ``m.file`` / ``m.audio`` / ``m.video``
@@ -1189,9 +1193,36 @@ class MatrixTrigger(ChannelTriggerBase):
                 )
                 is_first_sync = False
 
-                # Yield each interesting event. joined rooms is the
-                # primary source; invited / left rooms are Phase-4+
-                # concerns (auto-accept invite, react to owner-boot).
+                # Auto-join invited rooms FIRST. The guide's OpenClaw
+                # config sets ``autoJoin: "always"``: when the owner
+                # invites the agent to a new group, the invite arrives
+                # via ``resp.rooms.invite`` and we accept it here so the
+                # next sync includes that room in ``resp.rooms.join``.
+                # Without this, the owner has to invite twice (or the
+                # agent never appears in the room at all). We do NOT
+                # audit-log accepts individually — auto-join is expected
+                # behaviour, not an anomaly worth per-room storage.
+                invite_rooms = getattr(
+                    getattr(resp, "rooms", None), "invite", None
+                ) or {}
+                for room_id in list(invite_rooms.keys()):
+                    try:
+                        await client.join(room_id)
+                        logger.info(
+                            f"[matrix:{agent_id}] auto-joined invited room "
+                            f"{room_id}"
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        # Join failures are non-fatal: the invite stays
+                        # in resp.rooms.invite for the next sync tick,
+                        # which will retry naturally. Log for visibility
+                        # but do NOT propagate.
+                        logger.warning(
+                            f"[matrix:{agent_id}] auto-join failed for "
+                            f"{room_id}: {type(e).__name__}: {e}"
+                        )
+
+                # Yield each interesting event from joined rooms.
                 for room_id, room_info in resp.rooms.join.items():
                     # Consume state-block member events FIRST so the
                     # member count + display name caches are populated
