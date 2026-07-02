@@ -130,8 +130,13 @@ _BEHAVIOUR = """\
 ### Behaviour
 
 1. In **direct messages**, every message is for you — reply normally.
-2. In **group rooms** you are only invoked when @-mentioned; reply to the point
-   and don't repeat the whole conversation back.
+2. In **group rooms** you SEE every message (silently ingested into your
+   conversation memory even when you weren't summoned), but you only
+   REPLY when directly @-mentioned. When you are @-mentioned, you may
+   reference earlier group discussion you observed — it's in your
+   chat history under this room, marked with the sender's name and
+   `silent=true` in the metadata. Reply to the point and don't repeat
+   the whole conversation back.
 3. Non-text content (images, files, audio) arrives as short placeholders like
    `[Image]` / `[File: report.pdf]` — acknowledge them as such; you cannot open
    them.

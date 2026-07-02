@@ -4,6 +4,28 @@ stub: false
 last_verified: 2026-07-02
 ---
 
+## 2026-07-02 — `_BEHAVIOUR` group-visibility line rewritten
+
+The old rule 2 read "In group rooms you are only invoked when
+@-mentioned" and stopped there. That was accurate under Narra-strict
+policy (group non-@ events were denied and never reached memory), but
+after the `SILENT_BYPASS_AUTHORIZE` override (see
+[[matrix_trigger.py]] owner override note), the agent's chat_history
+DOES contain silent-ingested group messages — the LLM was hallucinating
+"I can't see non-@ messages" because the prompt told it so.
+
+Rewritten rule 2 now says explicitly: "You SEE every message (silently
+ingested into your conversation memory even when you weren't summoned),
+but you only REPLY when directly @-mentioned." It also names the
+`silent=true` metadata marker so the LLM can distinguish
+silently-ingested rows from directly-addressed turns when the
+distinction matters.
+
+Verified live: after this change, `agent_62cf67080ad4` on a group
+non-@ ingest (already in chat_history as `silent=True`) correctly
+answers "yes, I saw that message" when @-mentioned about it. The
+memory infrastructure was fine; only the prompt lied.
+
 ## Why it exists
 
 The agent-facing surface of the NarraMessenger channel (`ChannelModuleBase`).
