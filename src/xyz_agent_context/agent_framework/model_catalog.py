@@ -243,6 +243,18 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     Returns:
         List of model ID strings
     """
+    # Auto-discovered sources: the probe ledger ([[model_probe_ledger]]) is
+    # authoritative once populated (overwrite semantics — only models that
+    # actually answer on this protocol are listed). Fall back to the hardcoded
+    # list when the ledger has no entry yet (fresh checkout before first sync,
+    # or a source we haven't probed).
+    from xyz_agent_context.agent_framework.model_probe_ledger import ledger_models
+
+    if source in ("netmind", "system_pool", "openrouter", "yunwu"):
+        synced = ledger_models(source, protocol)
+        if synced:
+            return synced
+
     # Check exact (source, protocol) match first
     defaults = _DEFAULT_MODELS.get((source, protocol))
     if defaults is not None:

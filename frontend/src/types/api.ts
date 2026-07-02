@@ -844,6 +844,35 @@ export interface TelegramCredentialResponse extends ApiResponse {
   data: TelegramCredentialData | null;
 }
 
+export interface NarramessengerCredentialData {
+  agent_id: string;
+  backend_base_url: string;
+  matrix_homeserver_url: string;
+  matrix_user_id: string;
+  nexus_principal_id: string;
+  nexus_profile_id: string;
+  bind_room_id: string;
+  owner_matrix_user_id: string;
+  owner_name: string;
+  connection_mode: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface NarramessengerCredentialResponse extends ApiResponse {
+  data: NarramessengerCredentialData | null;
+}
+
+export interface NarramessengerBindResponse extends ApiResponse {
+  data?: {
+    matrix_user_id: string;
+    principal_id: string;
+    room_id: string;
+    connection_mode: string;
+  };
+}
+
 export interface TelegramBindResponse extends ApiResponse {
   data?: {
     bot_user_id: string;
@@ -853,10 +882,87 @@ export interface TelegramBindResponse extends ApiResponse {
   };
 }
 
+// WeChat (iLink) Integration types
+//
+// Personal WeChat binds via a QR-scan flow, not a token paste. The bot_token
+// is NEVER returned by the API — only this sanitised view (mirrors the
+// backend's WeChatCredential.to_public_dict). The owner_wx_id / bot_wx_id are
+// opaque until the first inbound DM claims ownership, so they may be empty
+// right after binding.
+export interface WeChatCredentialData {
+  agent_id: string;
+  base_url: string;
+  bot_wx_id: string;
+  owner_wx_id: string;
+  owner_user_id: string;
+  owner_name: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface WeChatCredentialResponse extends ApiResponse {
+  data: WeChatCredentialData | null;
+}
+
+// /qrcode/start → the login QR. `qr_url` is a WeChat URL the user scans;
+// `qrcode` is the opaque handle passed back to /qrcode/poll. `base_url` is
+// the per-account gateway URL when the gateway issued one at QR time.
+export interface WeChatQrStartResponse extends ApiResponse {
+  data?: {
+    qrcode: string;
+    qr_url: string;
+    base_url?: string;
+  };
+}
+
+// /qrcode/poll → scan status. `wait` = keep polling; `confirmed` = bound.
+export interface WeChatQrPollResponse extends ApiResponse {
+  data?: {
+    status: 'wait' | 'confirmed';
+  };
+}
+
 export interface TelegramTestResponse extends ApiResponse {
   data?: {
     bot_user_id: string;
     bot_username: string;
     first_name?: string;
+  };
+}
+
+// Discord Integration types
+//
+// Note: bot_token is NEVER returned by the API. The backend returns only
+// this sanitised view, which is everything the UI needs to render binding
+// state.
+export interface DiscordCredentialData {
+  agent_id: string;
+  bot_user_id: string;
+  bot_username: string;
+  owner_user_id: string;
+  owner_name: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface DiscordCredentialResponse extends ApiResponse {
+  data: DiscordCredentialData | null;
+}
+
+export interface DiscordBindResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
+    owner_user_id: string;
+    owner_name: string;
+  };
+}
+
+export interface DiscordTestResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
   };
 }

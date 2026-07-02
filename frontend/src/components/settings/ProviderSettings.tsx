@@ -23,6 +23,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
@@ -250,13 +251,15 @@ const MODEL_SUGGESTION_GROUPS: ModelSuggestionGroup[] = [
 // =============================================================================
 
 function ModelBubbleInput({
-  models, onChange, placeholder = 'model name', suggestions
+  models, onChange, placeholder, suggestions
 }: {
   models: string[]
   onChange: (m: string[]) => void
   placeholder?: string
   suggestions?: ModelSuggestionGroup[]
 }) {
+  const { t } = useTranslation()
+  const resolvedPlaceholder = placeholder ?? t('settings.provider.modelNamePlaceholder')
   const [input, setInput] = useState('')
   const hasPending = input.trim().length > 0
   const addModel = () => {
@@ -276,7 +279,7 @@ function ModelBubbleInput({
             <button
               onClick={() => onChange(models.filter((x) => x !== m))}
               className="text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors"
-              aria-label={`Remove ${m}`}
+              aria-label={t('settings.provider.removeModel', { model: m })}
             >
               ×
           </button>
@@ -288,7 +291,7 @@ function ModelBubbleInput({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel() } }}
-            placeholder={placeholder}
+            placeholder={resolvedPlaceholder}
             style={{ width: Math.max(100, (input.length + 1) * 8) }}
             className={cn(
               'px-2 py-1 text-[12px] font-[family-name:var(--font-mono)] border bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none',
@@ -306,7 +309,7 @@ function ModelBubbleInput({
                 ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] border-[var(--text-primary)] hover:opacity-90 animate-pulse'
                 : 'border-[var(--rule)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
             )}
-            aria-label="Add model"
+            aria-label={t('settings.provider.addModel')}
           >
             +
           </button>
@@ -314,7 +317,7 @@ function ModelBubbleInput({
       </div>
       {hasPending && (
         <p className="text-xs text-[var(--color-warning)]">
-          Press Enter or click + to add &ldquo;{input.trim()}&rdquo; — otherwise it will be discarded.
+          {t('settings.provider.pendingHint', { model: input.trim() })}
         </p>
       )}
       {suggestions && suggestions.length > 0 && (
@@ -335,6 +338,7 @@ function ModelSuggestionChips({
   selected: string[]
   onPick: (m: string) => void
 }) {
+  const { t } = useTranslation()
   const visibleGroups = groups
     .map((g) => ({ ...g, models: g.models.filter((m) => !selected.includes(m)) }))
     .filter((g) => g.models.length > 0)
@@ -342,7 +346,7 @@ function ModelSuggestionChips({
   return (
     <div className="pt-2 border-t border-[var(--border-subtle)] space-y-2">
       <p className="text-xs text-[var(--text-tertiary)]">
-        Suggestions &mdash; click to add. You can still type custom model names above.
+        {t('settings.provider.suggestionsHint')}
       </p>
       {visibleGroups.map((g) => (
         <div key={g.label} className="space-y-1">
@@ -356,7 +360,7 @@ function ModelSuggestionChips({
                 type="button"
                 onClick={() => onPick(m)}
                 className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full border border-dashed border-[var(--border-default)] bg-[var(--bg-tertiary)]/50 text-[var(--text-tertiary)] opacity-70 hover:opacity-100 hover:bg-[var(--accent-primary)]/10 hover:text-[var(--accent-primary)] hover:border-[var(--accent-primary)]/50 transition-all whitespace-nowrap"
-                title={`Add ${m}`}
+                title={t('settings.provider.addModelTitle', { model: m })}
               >
                 <span className="text-[var(--text-tertiary)]">+</span>
                 {m}
@@ -436,6 +440,7 @@ function SectionHeader({ step, title, subtitle }: { step: number; title: string;
 const CUSTOM_PROVIDER_ENABLED = false
 
 export function ProviderSettings() {
+  const { t } = useTranslation()
   const userId = useConfigStore((s) => s.userId)
 
   /** Build a provider API URL. Identity travels in headers (X-User-Id in
@@ -623,10 +628,10 @@ export function ProviderSettings() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }).then((r) => r.json())
-      if (!res.success) { setError(res.detail || 'Failed'); return false }
+      if (!res.success) { setError(res.detail || t('settings.provider.failed')); return false }
       await refreshConfig()
       return true
-    } catch { setError('Network error'); return false }
+    } catch { setError(t('settings.provider.networkError')); return false }
   }
 
   const handleAddClaudeOAuth = async () => {
@@ -667,7 +672,7 @@ export function ProviderSettings() {
   }
 
   const handleAddProtocol = async () => {
-    if (!showForm || !formKey.trim()) { setError('Enter API key'); return }
+    if (!showForm || !formKey.trim()) { setError(t('settings.provider.enterApiKeyShort')); return }
     setFormAdding(true)
     const ok = await addProvider({
       card_type: showForm,
@@ -702,21 +707,21 @@ export function ProviderSettings() {
     try {
       const resp = await api.syncProviderDefaults()
       if (!resp.success) {
-        setSyncResult({ kind: 'err', text: 'Sync failed.' })
+        setSyncResult({ kind: 'err', text: t('settings.provider.syncFailed') })
         return
       }
       if (resp.providers_updated === 0) {
-        setSyncResult({ kind: 'ok', text: 'All providers already have the latest models — nothing to add.' })
+        setSyncResult({ kind: 'ok', text: t('settings.provider.syncNothing') })
         return
       }
       const lines = resp.updates.map(u => `${u.name}: +${u.added.length} (${u.added.join(', ')})`)
       setSyncResult({
         kind: 'ok',
-        text: `Updated ${resp.providers_updated} provider(s), added ${resp.total_models_added} model(s).\n${lines.join('\n')}`,
+        text: `${t('settings.provider.syncUpdated', { providers: resp.providers_updated, models: resp.total_models_added })}\n${lines.join('\n')}`,
       })
       await refreshConfig()
     } catch (e) {
-      setSyncResult({ kind: 'err', text: `Sync failed: ${e instanceof Error ? e.message : String(e)}` })
+      setSyncResult({ kind: 'err', text: t('settings.provider.syncFailedError', { error: e instanceof Error ? e.message : String(e) }) })
     } finally {
       setSyncing(false)
     }
@@ -746,10 +751,10 @@ export function ProviderSettings() {
         await refreshConfig()
         closeEditModels()
       } else {
-        setEditError(res.detail || 'Failed to update models')
+        setEditError(res.detail || t('settings.provider.updateModelsFailed'))
       }
     } catch {
-      setEditError('Network error')
+      setEditError(t('settings.provider.networkError'))
     }
     setEditSaving(false)
   }
@@ -760,7 +765,7 @@ export function ProviderSettings() {
       const res = await authFetch(providerUrl(`/${id}/test`), { method: 'POST' }).then((r) => r.json())
       setTestResults((p) => ({ ...p, [id]: { ok: res.success, msg: res.message } }))
     } catch {
-      setTestResults((p) => ({ ...p, [id]: { ok: false, msg: 'Network error' } }))
+      setTestResults((p) => ({ ...p, [id]: { ok: false, msg: t('settings.provider.networkError') } }))
     }
     setTesting(null)
   }
@@ -817,13 +822,13 @@ export function ProviderSettings() {
           }),
         }).then((r) => r.json())
         if (!res.success) {
-          setError(`Failed to set ${slot}: ${res.detail || 'Unknown error'}`)
+          setError(t('settings.provider.failedToSetSlot', { slot, detail: res.detail || t('settings.provider.unknownError') }))
           break
         }
       }
       await refreshConfig()
     } catch {
-      setError('Network error applying changes')
+      setError(t('settings.provider.applyNetworkError'))
     }
     setApplying(false)
   }
@@ -947,10 +952,10 @@ export function ProviderSettings() {
             <span className="text-[var(--text-tertiary)] font-normal ml-2">{slotDesc}</span>
           </span>
           <div className="flex items-center gap-2">
-            {isChanged && <span className="text-xs text-[var(--accent-primary)]">modified</span>}
+            {isChanged && <span className="text-xs text-[var(--accent-primary)]">{t('settings.provider.modified')}</span>}
             {ready
               ? <span className="text-[var(--color-success)] text-base">{'\u2713'}</span>
-              : <span className="text-sm text-[var(--color-error)]">Needed</span>}
+              : <span className="text-sm text-[var(--color-error)]">{t('settings.provider.needed')}</span>}
           </div>
         </div>
 
@@ -958,7 +963,7 @@ export function ProviderSettings() {
         {slot.key === 'agent' && (
           <div className="mb-3">
             <label className="block text-sm text-[var(--text-tertiary)] mb-1">
-              Agent Framework
+              {t('settings.provider.agentFramework')}
               {agentFrameworkProbe !== null && (
                 <span
                   className={`ml-2 text-xs ${
@@ -1042,7 +1047,7 @@ export function ProviderSettings() {
           <div className="grid grid-cols-2 gap-3">
             {/* Provider dropdown */}
             <div>
-              <label className="block text-sm text-[var(--text-tertiary)] mb-1">Provider</label>
+              <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.providerLabel')}</label>
               <select value={cfg?.provider_id || ''}
                 onChange={(e) => {
                   const pid = e.target.value
@@ -1058,18 +1063,18 @@ export function ProviderSettings() {
                   }
                 }}
                 className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                <option value="">Select provider...</option>
+                <option value="">{t('settings.provider.selectProvider')}</option>
                 {matching.map((p) => <option key={p.provider_id} value={p.provider_id}>{p.name}</option>)}
               </select>
             </div>
 
             {/* Model dropdown */}
             <div>
-              <label className="block text-sm text-[var(--text-tertiary)] mb-1">Model</label>
+              <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.modelLabel')}</label>
               {(() => {
                 if (!curProv) return (
                   <select disabled className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] outline-none">
-                    <option>Select provider first...</option>
+                    <option>{t('settings.provider.selectProviderFirst')}</option>
                   </select>
                 )
 
@@ -1088,7 +1093,7 @@ export function ProviderSettings() {
                         {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
                       </select>
                       {cfg?.model && cfg.model !== 'default' && (
-                        <p className="text-xs text-[var(--color-warning)] mt-1">All auxiliary tasks will use this model. May affect speed/cost.</p>
+                        <p className="text-xs text-[var(--color-warning)] mt-1">{t('settings.provider.auxModelWarning')}</p>
                       )}
                     </>
                   )
@@ -1099,7 +1104,7 @@ export function ProviderSettings() {
                   return (
                     <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
                       className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                      <option value="">Select model...</option>
+                      <option value="">{t('settings.provider.selectModel')}</option>
                       {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
                     </select>
                   )
@@ -1107,7 +1112,7 @@ export function ProviderSettings() {
 
                 return (
                   <input type="text" value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                    placeholder="Enter model name"
+                    placeholder={t('settings.provider.enterModelName')}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 )
               })()}
@@ -1119,31 +1124,31 @@ export function ProviderSettings() {
             {slot.key === 'agent' && (
               <>
                 <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">Thinking</label>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.thinking')}</label>
                   <select
                     value={cfg?.thinking || ''}
                     disabled={!cfg?.provider_id}
                     onChange={(e) => handleLocalReasoningChange(slot.key, 'thinking', e.target.value)}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:bg-[var(--bg-tertiary)]"
                   >
-                    <option value="">Auto (framework default)</option>
-                    <option value="on">On</option>
-                    <option value="off">Off</option>
+                    <option value="">{t('settings.provider.autoDefault')}</option>
+                    <option value="on">{t('settings.provider.on')}</option>
+                    <option value="off">{t('settings.provider.off')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">Reasoning Effort</label>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.reasoningEffort')}</label>
                   <select
                     value={cfg?.reasoning_effort || ''}
                     disabled={!cfg?.provider_id}
                     onChange={(e) => handleLocalReasoningChange(slot.key, 'reasoning_effort', e.target.value)}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:bg-[var(--bg-tertiary)]"
                   >
-                    <option value="">Auto (framework default)</option>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="max">Max</option>
+                    <option value="">{t('settings.provider.autoDefault')}</option>
+                    <option value="low">{t('settings.provider.low')}</option>
+                    <option value="medium">{t('settings.provider.medium')}</option>
+                    <option value="high">{t('settings.provider.high')}</option>
+                    <option value="max">{t('settings.provider.max')}</option>
                   </select>
                 </div>
               </>
@@ -1176,8 +1181,8 @@ export function ProviderSettings() {
       <div>
         <SectionHeader
           step={1}
-          title="Add Providers"
-          subtitle="Add API keys for your LLM providers. Each preset creates both Anthropic and OpenAI protocol endpoints automatically."
+          title={t('settings.provider.section1Title')}
+          subtitle={t('settings.provider.section1Subtitle')}
         />
 
         <div className="space-y-4 ml-[34px]">
@@ -1198,17 +1203,20 @@ export function ProviderSettings() {
             up the additions. Quick Add would re-create + lose those bonds.
           */}
           <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">Update Available Models</h4>
-            <p className="text-sm text-[var(--text-tertiary)] mb-3">
-              Pull the latest default model list into your existing preset providers (NetMind, Claude Code, Yunwu, OpenRouter). Existing entries are kept; only missing models are appended.
+            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1.5">{t('settings.provider.updateModelsTitle')}</h4>
+            <p className="text-sm text-[var(--text-tertiary)]">
+              {t('settings.provider.updateModelsDesc')}
             </p>
-            <div className="flex items-center gap-3">
+            {/* Gap lives on this row, not the <p>/<h4> above: index.css resets
+                `p`/`h*` margins (unlayered), which kills any mb-* utility on
+                them — so the spacing must sit on a div. */}
+            <div className="flex items-center gap-3 mt-5">
               <button
                 onClick={handleSyncDefaults}
                 disabled={syncing || !userId}
                 className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors"
               >
-                {syncing ? 'Syncing...' : 'Update available models'}
+                {syncing ? t('settings.provider.syncing') : t('settings.provider.updateModelsBtn')}
               </button>
               {syncResult && (
                 <span
@@ -1248,10 +1256,10 @@ export function ProviderSettings() {
             <div className="flex items-center gap-2 mb-1">
               <h4 className="text-sm font-medium text-[var(--text-primary)]">Claude Code Login</h4>
             </div>
-            <p className="text-sm text-[var(--text-tertiary)] mb-3">OAuth login via Claude Code CLI. No API key needed.</p>
+            <p className="text-sm text-[var(--text-tertiary)] mb-3">{t('settings.provider.claudeOauthDesc')}</p>
 
             {!claudeStatus && (
-              <p className="text-sm text-[var(--text-tertiary)]">Checking status...</p>
+              <p className="text-sm text-[var(--text-tertiary)]">{t('settings.provider.checkingStatus')}</p>
             )}
 
             {claudeStatus && (
@@ -1265,12 +1273,12 @@ export function ProviderSettings() {
                     )} />
                     <span className="text-sm text-[var(--text-secondary)]">
                       {claudeStatus.logged_in
-                        ? <>Logged in{claudeStatus.email ? <> as <span className="font-mono">{claudeStatus.email}</span></> : null}</>
-                        : claudeStatus.cli_installed ? 'Not logged in' : 'CLI not installed'}
+                        ? <>{t('settings.provider.loggedIn')}{claudeStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{claudeStatus.email}</span></> : null}</>
+                        : claudeStatus.cli_installed ? t('settings.provider.notLoggedIn') : t('settings.provider.cliNotInstalled')}
                     </span>
                     {claudeStatus.logged_in && claudeStatus.expires_at && (
                       <span className="text-xs text-[var(--text-tertiary)]">
-                        \u00b7 expires {formatExpiresAt(claudeStatus.expires_at)}
+                        {t('settings.provider.expires', { date: formatExpiresAt(claudeStatus.expires_at) })}
                       </span>
                     )}
                   </div>
@@ -1286,14 +1294,14 @@ export function ProviderSettings() {
                             className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 transition-colors">
                             {claudeLoggingIn
                               ? (claudeLoginRemaining !== null
-                                  ? `Re-logging in... ${formatCountdown(claudeLoginRemaining)} left (check browser)`
-                                  : 'Re-logging in... (check your browser)')
-                              : 'Re-login / Switch account'}
+                                  ? t('settings.provider.reLoggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
+                                  : t('settings.provider.reLoggingIn'))
+                              : t('settings.provider.reLogin')}
                           </button>
                           <button onClick={handleClaudeLogout}
                             disabled={claudeLoggingIn || claudeLoggingOut}
                             className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-error)]/30 text-[var(--color-error)] hover:bg-[var(--color-error)]/5 disabled:opacity-50 transition-colors">
-                            {claudeLoggingOut ? 'Logging out...' : 'Logout'}
+                            {claudeLoggingOut ? t('settings.provider.loggingOut') : t('settings.provider.logout')}
                           </button>
                         </>
                       ) : (
@@ -1302,9 +1310,9 @@ export function ProviderSettings() {
                           className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50">
                           {claudeLoggingIn
                             ? (claudeLoginRemaining !== null
-                                ? `Logging in... ${formatCountdown(claudeLoginRemaining)} left (check browser)`
-                                : 'Logging in... (check your browser)')
-                            : 'Login with Claude Code'}
+                                ? t('settings.provider.loggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
+                                : t('settings.provider.loggingIn'))
+                            : t('settings.provider.loginWithClaude')}
                         </button>
                       )}
                     </div>
@@ -1314,13 +1322,13 @@ export function ProviderSettings() {
                   {!isTauri() && (
                     <p className="text-sm text-[var(--text-tertiary)]">
                       {claudeStatus.cli_installed
-                        ? 'Run "claude auth login" / "claude auth logout" in your terminal, then refresh this page.'
-                        : 'Install Claude Code CLI first, then run "claude auth login" in your terminal.'}
+                        ? t('settings.provider.webModeInstalled')
+                        : t('settings.provider.webModeNotInstalled')}
                     </p>
                   )}
                   {!claudeStatus.cli_installed && isTauri() && (
                     <p className="text-sm text-[var(--text-tertiary)]">
-                      Claude Code CLI not found in bundle. Please rebuild the app.
+                      {t('settings.provider.cliNotInBundle')}
                     </p>
                   )}
                 </div>
@@ -1330,16 +1338,16 @@ export function ProviderSettings() {
                   {hasClaude ? (
                     <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
                       <span>{'\u2713'}</span>
-                      <span>Added as a NarraNexus provider \u2014 assignable in Step 2 below.</span>
+                      <span>{t('settings.provider.addedAsProvider')}</span>
                     </div>
                   ) : claudeStatus.logged_in ? (
                     <button onClick={handleAddClaudeOAuth}
                       className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
-                      Add as Provider
+                      {t('settings.provider.addAsProvider')}
                     </button>
                   ) : (
                     <p className="text-sm text-[var(--text-tertiary)]">
-                      Log in above to add Claude Code as a provider.
+                      {t('settings.provider.loginToAdd')}
                     </p>
                   )}
                 </div>
@@ -1446,11 +1454,11 @@ export function ProviderSettings() {
           <div className="flex gap-2">
             <button onClick={() => openForm('anthropic')}
               className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-              + Custom Anthropic
+              {t('settings.provider.customAnthropic')}
             </button>
             <button onClick={() => openForm('openai')}
               className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-              + Custom OpenAI
+              {t('settings.provider.customOpenai')}
             </button>
           </div>
 
@@ -1459,45 +1467,45 @@ export function ProviderSettings() {
             <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-medium text-[var(--text-primary)]">
-                  Custom {showForm === 'anthropic' ? 'Anthropic' : 'OpenAI'} Provider
+                  {showForm === 'anthropic' ? t('settings.provider.customAnthropicProvider') : t('settings.provider.customOpenaiProvider')}
                 </h4>
-                <button onClick={() => setShowForm(null)} className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Cancel</button>
+                <button onClick={() => setShowForm(null)} className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">{t('settings.provider.cancel')}</button>
               </div>
               <p className="text-sm text-[var(--text-tertiary)]">
-                {showForm === 'anthropic' ? 'Anthropic API or any compatible endpoint.' : 'OpenAI API or any compatible endpoint.'}
+                {showForm === 'anthropic' ? t('settings.provider.anthropicEndpointHint') : t('settings.provider.openaiEndpointHint')}
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">Provider Name</label>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.providerNameLabel')}</label>
                   <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
-                    placeholder={showForm === 'anthropic' ? 'e.g., Anthropic' : 'e.g., OpenAI'}
+                    placeholder={showForm === 'anthropic' ? t('settings.provider.providerNameEgAnthropic') : t('settings.provider.providerNameEgOpenai')}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 </div>
                 {showForm === 'anthropic' ? (
                   <div>
-                    <label className="block text-sm text-[var(--text-tertiary)] mb-1">Auth Type</label>
+                    <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.authType')}</label>
                     <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
                       className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
-                      <option value="api_key">API Key</option>
-                      <option value="bearer_token">Bearer Token</option>
+                      <option value="api_key">{t('settings.provider.authApiKey')}</option>
+                      <option value="bearer_token">{t('settings.provider.authBearerToken')}</option>
                     </select>
                   </div>
                 ) : <div />}
               </div>
               <div>
-                <label className="block text-sm text-[var(--text-tertiary)] mb-1">Base URL</label>
+                <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.baseUrl')}</label>
                 <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
-                  placeholder="Base URL"
+                  placeholder={t('settings.provider.baseUrl')}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
               </div>
               <div>
-                <label className="block text-sm text-[var(--text-tertiary)] mb-1">API Key</label>
+                <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.apiKeyLabel')}</label>
                 <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
-                  placeholder="Your API key"
+                  placeholder={t('settings.provider.yourApiKey')}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
               </div>
               <div>
-                <label className="block text-sm text-[var(--text-tertiary)] mb-1">Available Models</label>
+                <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.availableModels')}</label>
                 <ModelBubbleInput
                   models={formModels}
                   onChange={setFormModels}
@@ -1506,7 +1514,7 @@ export function ProviderSettings() {
               </div>
               <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
                 className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
-                {formAdding ? 'Adding...' : 'Add Provider'}
+                {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
               </button>
             </div>
           )}
@@ -1530,7 +1538,7 @@ export function ProviderSettings() {
           {hasProviders && (
             <div className="space-y-2">
               <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-wider font-medium">
-                Configured Providers
+                {t('settings.provider.configuredProviders')}
               </span>
               {providerList.map((prov) => (
                 <div key={prov.provider_id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
@@ -1539,20 +1547,20 @@ export function ProviderSettings() {
                       <span className="text-sm font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
                       <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase">{prov.protocol}</span>
                     </div>
-                    <span className="text-sm text-[var(--text-tertiary)]">{prov.api_key_masked} · {prov.models.length} model(s)</span>
+                    <span className="text-sm text-[var(--text-tertiary)]">{prov.api_key_masked} · {t('settings.provider.modelsCount', { count: prov.models.length })}</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
                       className="px-3 py-1.5 text-sm text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded-lg disabled:opacity-40 transition-colors">
-                      {testing === prov.provider_id ? '...' : 'Test'}
+                      {testing === prov.provider_id ? '...' : t('settings.provider.test')}
                     </button>
                     <button onClick={() => openEditModels(prov)}
                       className="px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
-                      Edit
+                      {t('settings.provider.edit')}
                     </button>
                     <button onClick={() => handleDelete(prov.provider_id)}
                       className="px-3 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded-lg transition-colors">
-                      Delete
+                      {t('settings.provider.delete')}
                     </button>
                     {testResults[prov.provider_id] && (
                       <span className={cn('text-sm', testResults[prov.provider_id].ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
@@ -1574,8 +1582,8 @@ export function ProviderSettings() {
         <div>
           <SectionHeader
             step={2}
-            title="Model Assignment"
-            subtitle="Assign a provider and model to each functional slot. All three must be configured for the agent to work."
+            title={t('settings.provider.section2Title')}
+            subtitle={t('settings.provider.section2Subtitle')}
           />
 
           <div className="space-y-3 ml-[34px]">
@@ -1594,14 +1602,14 @@ export function ProviderSettings() {
                     'disabled:opacity-40'
                   )}
                 >
-                  {applying ? 'Applying...' : 'Apply Changes'}
+                  {applying ? t('settings.provider.applying') : t('settings.provider.applyChanges')}
                 </button>
                 <button
                   onClick={handleDiscard}
                   disabled={applying}
                   className="px-6 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
                 >
-                  Discard
+                  {t('settings.provider.discard')}
                 </button>
               </div>
             )}
@@ -1610,7 +1618,7 @@ export function ProviderSettings() {
             {allSlotsReady && !hasPendingChanges && (
               <div className="flex items-center gap-2 p-3 rounded-xl bg-[var(--color-success)]/10 border border-[var(--color-success)]/20">
                 <span className="text-[var(--color-success)] text-base">{'\u2713'}</span>
-                <span className="text-sm text-[var(--color-success)]">All model slots configured — agent is ready.</span>
+                <span className="text-sm text-[var(--color-success)]">{t('settings.provider.allSlotsReady')}</span>
               </div>
             )}
           </div>
@@ -1627,13 +1635,12 @@ export function ProviderSettings() {
           <Dialog
             isOpen={!!prov}
             onClose={editSaving ? () => { /* block close while saving */ } : closeEditModels}
-            title={`Edit models — ${prov.name}`}
+            title={t('settings.provider.editModelsTitle', { name: prov.name })}
             size="2xl"
           >
             <DialogContent>
               <p className="text-sm text-[var(--text-tertiary)] mb-3">
-                Add or remove the models this provider can serve. The provider&rsquo;s
-                key and URL stay the same.
+                {t('settings.provider.editModelsHint')}
               </p>
               <ModelBubbleInput
                 models={editModels}
@@ -1650,14 +1657,14 @@ export function ProviderSettings() {
                 disabled={editSaving}
                 className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
               >
-                Cancel
+                {t('settings.provider.cancel')}
               </button>
               <button
                 onClick={saveEditModels}
                 disabled={editSaving}
                 className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors"
               >
-                {editSaving ? 'Saving...' : 'Save'}
+                {editSaving ? t('settings.provider.saving') : t('settings.provider.save')}
               </button>
             </DialogFooter>
           </Dialog>

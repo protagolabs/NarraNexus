@@ -115,14 +115,14 @@ class LocalMessageBus(MessageBusService):
         ph = self._db.placeholder
         if since:
             rows = await self._db.execute(
-                f'SELECT * FROM "bus_messages" WHERE "channel_id" = {ph} '
-                f'AND "created_at" > {ph} ORDER BY "created_at" ASC LIMIT {int(limit)}',
+                f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+                f"AND created_at > {ph} ORDER BY created_at ASC LIMIT {int(limit)}",
                 (channel_id, since),
             )
         else:
             rows = await self._db.execute(
-                f'SELECT * FROM "bus_messages" WHERE "channel_id" = {ph} '
-                f'ORDER BY "created_at" ASC LIMIT {int(limit)}',
+                f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+                f"ORDER BY created_at ASC LIMIT {int(limit)}",
                 (channel_id,),
             )
         return [self._row_to_message(row) for row in rows]
@@ -395,7 +395,20 @@ class LocalMessageBus(MessageBusService):
         channel_id: str,
         up_to_timestamp: str,
     ) -> None:
-        """Acknowledge messages up to a timestamp as processed."""
+        """Acknowledge messages up to a timestamp as processed.
+
+        The cursor and ``bus_messages.created_at`` are both TEXT and compared
+        lexicographically in ``get_pending_messages``. ``up_to_timestamp`` may
+        arrive as a string OR as an auto-parsed ``datetime`` (db_backend_sqlite
+        converts ``*_at`` columns on read). A ``datetime`` serialised via
+        ``str()`` becomes ``"YYYY-MM-DD HH:MM:SS"`` (space, no 'T') while
+        ``created_at`` is ``_now_iso()`` ``"YYYY-MM-DDTHH:MM:SS+00:00"`` ('T').
+        Since 'T' (0x54) > ' ' (0x20), a space-format cursor makes EVERY newer
+        message look unprocessed → the agent is re-triggered forever (capped
+        only by the rate limiter). Canonicalise to ISO-8601 so both sides match.
+        """
+        if hasattr(up_to_timestamp, "isoformat"):
+            up_to_timestamp = up_to_timestamp.isoformat()
         await self._db.update(
             "bus_channel_members",
             {"agent_id": agent_id, "channel_id": channel_id},
@@ -453,7 +466,7 @@ class LocalMessageBus(MessageBusService):
         """Get all members of a channel."""
         ph = self._db.placeholder
         rows = await self._db.execute(
-            f'SELECT * FROM "bus_channel_members" WHERE "channel_id" = {ph}',
+            f"SELECT * FROM bus_channel_members WHERE channel_id = {ph}",
             (channel_id,),
         )
         return [BusChannelMember(

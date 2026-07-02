@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ChevronDown, ChevronRight, SkipForward } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
@@ -25,6 +26,7 @@ import { api } from '@/lib/api';
 
 export function SetupPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { isDark } = useTheme();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [providerCount, setProviderCount] = useState(0);
@@ -132,7 +134,7 @@ export function SetupPage() {
         ) : (
           <Button variant="ghost" onClick={() => finishSetup('setup_skipped')}>
             <SkipForward className="w-4 h-4 mr-1" />
-            Skip for now
+            {t('pages.setup.skipForNow')}
           </Button>
         )}
       </div>

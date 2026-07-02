@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
@@ -112,6 +113,7 @@ function formatBytes(n: number): string {
 }
 
 function UpdatesSection() {
+  const { t } = useTranslation();
   const state = useUpdaterStore((s) => s.state);
 
   const onCheck = async () => {
@@ -130,8 +132,8 @@ function UpdatesSection() {
   return (
     <section>
       <SectionHeader
-        label="App updates"
-        hint="Check for and install the latest NarraNexus desktop build. Updates are signed, downloaded in the background, and apply on restart."
+        label={t('pages.settings.updates.label')}
+        hint={t('pages.settings.updates.hint')}
       />
       <div className="space-y-3">
         {/* Primary action row */}
@@ -139,7 +141,7 @@ function UpdatesSection() {
           {state.kind === 'ready' ? (
             <Button onClick={() => restartForUpdate()} className="gap-2">
               <Download className="w-4 h-4" />
-              Restart to apply {state.version}
+              {t('pages.settings.updates.restartToApply', { version: state.version })}
             </Button>
           ) : (
             <Button
@@ -150,14 +152,14 @@ function UpdatesSection() {
             >
               <RefreshCw className={`w-4 h-4 ${inFlight ? 'animate-spin' : ''}`} />
               {state.kind === 'checking'
-                ? 'Checking…'
+                ? t('pages.settings.updates.checking')
                 : state.kind === 'available'
-                  ? `Update ${state.version} found…`
+                  ? t('pages.settings.updates.updateFound', { version: state.version })
                   : state.kind === 'downloading'
-                    ? 'Downloading…'
+                    ? t('pages.settings.updates.downloading')
                     : state.kind === 'installing'
-                      ? `Installing ${state.version}…`
-                      : 'Check for updates'}
+                      ? t('pages.settings.updates.installing', { version: state.version })
+                      : t('pages.settings.updates.checkForUpdates')}
             </Button>
           )}
         </div>
@@ -167,7 +169,7 @@ function UpdatesSection() {
           <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--nm-ink70)' }}>
             <CheckCircle2 className="w-4 h-4 text-[var(--accent-primary)]" />
             <span>
-              You're on <b>{state.current}</b> — that's the latest version.
+              {t('pages.settings.updates.upToDatePrefix')} <b>{state.current}</b> {t('pages.settings.updates.upToDateSuffix')}
             </span>
           </div>
         )}
@@ -176,10 +178,14 @@ function UpdatesSection() {
           <div className="space-y-1.5 max-w-md">
             <div className="text-xs" style={{ color: 'var(--nm-ink70)' }}>
               {state.total != null
-                ? `${formatBytes(state.downloaded)} of ${formatBytes(state.total)}${
-                    state.percent != null ? ` (${state.percent}%)` : ''
-                  }`
-                : `${formatBytes(state.downloaded)} downloaded`}
+                ? t('pages.settings.updates.downloadProgress', {
+                    downloaded: formatBytes(state.downloaded),
+                    total: formatBytes(state.total),
+                    percent: state.percent != null ? ` (${state.percent}%)` : '',
+                  })
+                : t('pages.settings.updates.downloadedBytes', {
+                    downloaded: formatBytes(state.downloaded),
+                  })}
             </div>
             <div
               className="w-full h-1.5 rounded-full overflow-hidden"
@@ -203,7 +209,7 @@ function UpdatesSection() {
         {state.kind === 'installing' && (
           <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--nm-ink70)' }}>
             <RefreshCw className="w-4 h-4 animate-spin" />
-            <span>Installing {state.version} — almost done…</span>
+            <span>{t('pages.settings.updates.installingDetail', { version: state.version })}</span>
           </div>
         )}
 
@@ -211,7 +217,7 @@ function UpdatesSection() {
           <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--nm-ink70)' }}>
             <CheckCircle2 className="w-4 h-4 text-[var(--accent-primary)]" />
             <span>
-              <b>{state.version}</b> downloaded — restart to finish.
+              <b>{state.version}</b> {t('pages.settings.updates.readyDetail')}
             </span>
           </div>
         )}
@@ -220,7 +226,7 @@ function UpdatesSection() {
           <div className="flex items-start gap-2 text-sm" style={{ color: 'var(--color-red-500)' }}>
             <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
             <div>
-              <div>Update {state.stage} failed.</div>
+              <div>{t('pages.settings.updates.failed', { stage: state.stage })}</div>
               <div className="text-xs opacity-80 mt-1 break-words">{state.error}</div>
             </div>
           </div>

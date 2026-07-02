@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/services/arena_provisioning_service.py
-last_verified: 2026-06-18
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — owner-email binding step
+
+`provision()` gained a `user_token` param (the user's NetMind JWT, forwarded by
+the frontend on Arena landing) and now binds the agent's owner email via Arena's
+platform-only endpoint — no email-verification round-trip. Per the Arena × Narra
+Nexus integration doc, the recommended call site is "immediately after creating
+the agent."
+
+- **Cold path:** right after `register()`, call
+  `onboarder.bind_owner(creds, user_token)` (best-effort, never raises) and stamp
+  the status into `agent_metadata.arena_owner_bind` at `add_agent` time. No token
+  → `no_token`. The result is also returned as `owner_bind`.
+- **Warm path:** if the existing agent's `arena_owner_bind` is not a terminal
+  success (`bound` / `already_bound`) **and** a token is now present, retry once
+  via `_bind_owner_warm`: the api_key is never in the DB, so it's read back from
+  the workspace `skills/arena/credentials.json`, the bind is attempted, and the
+  new status is persisted via `update_agent`. Already-bound agents short-circuit
+  on the metadata check **before** any network call, so the steady-state warm
+  path stays a single DB read.
+- Owner email is optional (see `ARENA_BOOTSTRAP_MD`), so a missing token or any
+  bind failure (401/429/transport) never aborts provisioning. The NetMind JWT is
+  forwarded to Arena and never persisted on our side.
 
 ## 2026-06-18 — per-env Arena base + confidentiality persona
 
