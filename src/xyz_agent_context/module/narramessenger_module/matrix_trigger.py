@@ -5,23 +5,31 @@
               on the message plane with a real Matrix client (matrix-nio)
               talking to matrix.netmind.chat directly.
 
-Scope of THIS FILE (Phase 1 skeleton, Commit 3):
+Scope of THIS FILE (Phase 1, Commits 3 + 4b):
   ✓  Class + ChannelTriggerBase wiring, all abstract methods present
   ✓  ``connect()`` implements the sync loop with the strict cursor-save
      ordering (see :meth:`connect` docstring)
-  ✓  ``parse_event()`` handles ``m.room.message`` (text) minimally so
-     the base pipeline can dispatch text messages end-to-end
+  ✓  ``parse_event()`` handles ``m.room.message`` (text)
   ✓  ``is_echo()`` filters our own agent's messages back out of the
      sync stream
   ✓  Auto-persist ``device_id`` on first sync (matrix-nio populates
      ``client.device_id`` after the server ack)
-
-Deferred to Commit 4:
-  ✗  DM / group mention routing (only "@ me" or 1:1 replies)
-  ✗  ``extract_output()``: real reply sending via
-     ``AsyncClient.room_send``
-  ✗  Silent-not-reply fix ((stayed silent) removal)
-  ✗  ``NarramessengerContextBuilder`` adapting to matrix event shape
+  ✓  (4b) Room member count + display name caches populated by
+     ``m.room.member`` state events flowing through the sync loop
+  ✓  (4b) DM / group_mention / group_silent classification, with
+     mention detection covering MSC3952 intentional mentions, raw
+     MXID inline, and ``@displayname`` inline
+  ✓  (4b) Silent-batch buffer + debounce (5s idle OR 20 msgs) → hands
+     off to :meth:`ChannelTriggerBase._build_and_run_agent_silent_batch`
+     from Commit 4a; drained on reconnect burst AND on ``stop()``
+  ✓  (4b) Reply sending via ``client.room_send`` with M_LIMIT_EXCEEDED
+     retry-after honoring and permanent-auth-failure short-circuit;
+     transient failures logged to ``EVENT_TRANSPORT_SEND_FAILED`` audit
+  ✓  (4b) ``extract_output()`` reads
+     ``send_message_to_user_directly`` tool call args — no more
+     accidental agent-thinking spill into the room
+  ✓  (4b) Silent-not-reply fix: agent that skips the reply tool sends
+     nothing
 
 Deferred to Phase 3:
   ✗  Multimodal: ``m.image`` / ``m.file`` / ``m.audio`` / ``m.video``
@@ -30,6 +38,9 @@ Deferred to Phase 3:
 Deferred to Phase 4:
   ✗  Progressive update via ``m.replace``
   ✗  Typing indicator via ``PUT /rooms/{room}/typing/{user}``
+  ✗  ``NarramessengerContextBuilder`` adapting to matrix event shape
+     (currently shared with the polling trigger — good enough for
+     text-only Phase 1)
 
 Design ref: [[Work/Narranexus/2026-07-02 NarraMessenger Matrix Adapter spec]]
 """
@@ -37,7 +48,7 @@ Design ref: [[Work/Narranexus/2026-07-02 NarraMessenger Matrix Adapter spec]]
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, List, Literal, Optional
 
 from loguru import logger
 
@@ -48,10 +59,16 @@ from loguru import logger
 from nio import (
     AsyncClient,
     AsyncClientConfig,
-    RoomMessageText,
     LocalProtocolError,
+    RoomMemberEvent,
+    RoomMessageText,
+    RoomSendError,
+    RoomSendResponse,
 )
 
+from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_TRANSPORT_SEND_FAILED,
+)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
     ChannelHistoryConfig,
@@ -65,6 +82,9 @@ from ._narramessenger_credential_manager import (
     NarramessengerCredentialManager,
 )
 from .narramessenger_context_builder import NarramessengerContextBuilder
+
+
+_ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
 
 
 class MatrixTrigger(ChannelTriggerBase):
@@ -118,6 +138,26 @@ class MatrixTrigger(ChannelTriggerBase):
     # first connect from hanging on a quiet server.
     FIRST_SYNC_TIMEOUT_MS = 5000
 
+    # ── Silent-batch buffering ───────────────────────────────────────────
+    # Group non-@ messages accumulate in a per-(agent, room) buffer and
+    # flush on N seconds idle OR N messages, whichever comes first. Values
+    # kept modest so the memory-write side (chat_history, observations,
+    # entity descriptions) is never more than N seconds behind reality.
+    SILENT_DEBOUNCE_SECONDS = 5.0
+    SILENT_FLUSH_BURST_SIZE = 20
+
+    # ── Reply sender retry policy ────────────────────────────────────────
+    # room_send failures come in three shapes: (a) M_LIMIT_EXCEEDED
+    # (transient, server tells us retry_after_ms), (b) auth failure
+    # (M_UNKNOWN_TOKEN etc — permanent, the base's watcher already flips
+    # enabled=False on next sync tick when it sees the same code), (c)
+    # network / server 5xx (retriable with exponential backoff). We cap
+    # at 3 attempts total so a legitimately down homeserver doesn't hold
+    # a worker for minutes; the missed reply lands in audit and the owner
+    # can see it after the fact.
+    SEND_MAX_ATTEMPTS = 3
+    SEND_INITIAL_BACKOFF_MS = 500
+
     def __init__(self, max_workers: int = 3):
         super().__init__(
             base_workers=max_workers,
@@ -134,6 +174,32 @@ class MatrixTrigger(ChannelTriggerBase):
         # Kept per-credential so stop() can close each connection cleanly.
         self._clients: dict[str, AsyncClient] = {}
 
+        # ── Caches populated by sync-response state / timeline walks ─────
+        # room_id -> current joined member count. Used to classify DM
+        # (==2) vs group (>2). Populated lazily on first sight; kept
+        # accurate by watching ``m.room.member`` events for join/leave.
+        self._room_member_count: dict[str, int] = {}
+        # (room_id, mxid) -> current displayname. Populated the same way,
+        # since displayname lives on the ``m.room.member`` event content.
+        # Used for @-mention detection AND per-message attribution when
+        # writing chat_history from silent batches.
+        self._display_name_cache: dict[tuple[str, str], str] = {}
+
+        # ── Silent-batch buffer ──────────────────────────────────────────
+        # Keyed by (agent_id, room_id) so a single-process trigger managing
+        # multiple agents keeps their group-silent streams isolated. Each
+        # buffer entry is a ParsedMessage kept in arrival order.
+        self._silent_buffer: dict[tuple[str, str], list[ParsedMessage]] = {}
+        # Corresponding credential per buffer key — we need it at flush
+        # time (which fires on a timer, not in the enqueuing coroutine).
+        self._silent_creds: dict[tuple[str, str], NarramessengerCredential] = {}
+        # Pending debounce timer per buffer key. Cancelled and replaced on
+        # every new enqueue so 5s idle == "no new msg in 5s".
+        self._silent_flush_tasks: dict[tuple[str, str], asyncio.Task] = {}
+        # Per-key lock — flush is async and buffer mutation must not race
+        # a concurrent enqueue that arrives while we're draining.
+        self._silent_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
     # ────────────────────────────────────────────────────────────────────
     # Lifecycle
     # ────────────────────────────────────────────────────────────────────
@@ -147,6 +213,26 @@ class MatrixTrigger(ChannelTriggerBase):
         )
 
     async def stop(self) -> None:
+        # Drain any pending silent buffers BEFORE closing clients — the
+        # flush path uses the runtime client (which is in-process today
+        # and doesn't need the matrix client), but we still want the
+        # memory writes to land before we tear down. If drain takes too
+        # long the outer stop timeout will surface it.
+        try:
+            await asyncio.wait_for(
+                self._drain_all_silent_buffers(), timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "MatrixTrigger.stop: silent buffer drain timed out; "
+                "some group-silent messages may not be persisted"
+            )
+        # Cancel any leftover debounce timers regardless of drain state.
+        for key, task in list(self._silent_flush_tasks.items()):
+            if not task.done():
+                task.cancel()
+        self._silent_flush_tasks.clear()
+
         for key, client in list(self._clients.items()):
             try:
                 await asyncio.wait_for(client.close(), timeout=3.0)
@@ -249,15 +335,498 @@ class MatrixTrigger(ChannelTriggerBase):
     async def resolve_sender_name(  # type: ignore[override]
         self, sender_id: str, credential: NarramessengerCredential
     ) -> str:
-        """Fallback name resolution.
+        """Room-state-backed display name lookup with MXID fallback.
 
-        Matrix events don't inline the sender's display name; a real
-        implementation would look at the room's most recent
-        ``m.room.member`` state event for this sender_id. For the
-        skeleton we return the raw Matrix user_id, and Commit 4 will
-        wire in a room-state-backed lookup.
+        Walks the per-room display name cache first (populated by member
+        state events flowing through the sync loop). If the cache misses
+        we return the MXID unchanged — better than blocking a worker on
+        an ad-hoc ``room_get_state_event`` call, and the next member
+        event in the sync stream will backfill the cache anyway.
         """
+        # No room context in this signature; the cache is per-(room, mxid),
+        # so scan for any room where we've seen this mxid. In practice each
+        # sender has one canonical display name across all rooms of a
+        # homeserver anyway.
+        for (_room, mxid), name in self._display_name_cache.items():
+            if mxid == sender_id and name:
+                return name
         return sender_id
+
+    # ────────────────────────────────────────────────────────────────────
+    # Room-state consumption (populates member count + display name caches)
+    # ────────────────────────────────────────────────────────────────────
+
+    def _apply_member_event(self, room_id: str, event: RoomMemberEvent) -> None:
+        """Update caches from a single ``m.room.member`` state event.
+
+        Called from the sync loop for both timeline events (live changes)
+        and state events (initial snapshot on first sync). Idempotent —
+        replaying the same event twice sets the cache to the same value.
+
+        Membership transitions:
+          - ``join``  → +1 member if we hadn't counted them; refresh name
+          - ``leave`` → -1 member (never negative); drop the name entry
+          - ``ban`` / ``knock`` / ``invite`` → member-count changes only
+            when transitioning INTO join/OUT of join, so we skip these
+            for the count and just handle name refresh.
+        """
+        mxid = event.state_key or event.sender or ""
+        membership = event.membership or ""
+        prev_membership = event.prev_membership or ""
+        content = event.content if isinstance(event.content, dict) else {}
+        name = content.get("displayname") or ""
+
+        # Display name: update on any join / knock-with-name, drop on leave.
+        if membership == "join" and name:
+            self._display_name_cache[(room_id, mxid)] = name
+        elif membership == "leave":
+            self._display_name_cache.pop((room_id, mxid), None)
+
+        # Member count deltas — only transitions INTO/OUT of "join" matter.
+        was_joined = prev_membership == "join"
+        is_joined = membership == "join"
+        if not was_joined and is_joined:
+            self._room_member_count[room_id] = (
+                self._room_member_count.get(room_id, 0) + 1
+            )
+        elif was_joined and not is_joined:
+            self._room_member_count[room_id] = max(
+                0, self._room_member_count.get(room_id, 1) - 1
+            )
+
+    async def _get_member_count(
+        self, client: AsyncClient, room_id: str
+    ) -> int:
+        """Return current joined-member count for ``room_id``.
+
+        Cache-first. On miss, one authenticated GET to
+        ``/_matrix/client/v3/rooms/{room}/joined_members`` populates the
+        cache. Returns 0 on failure — callers must treat 0 as "unknown,
+        default to group_silent" so we NEVER accidentally auto-reply to a
+        room whose shape we can't verify.
+        """
+        cached = self._room_member_count.get(room_id)
+        if cached is not None:
+            return cached
+        try:
+            resp = await client.joined_members(room_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"[matrix] joined_members({room_id}) raised: "
+                f"{type(e).__name__}: {e}"
+            )
+            return 0
+        # nio returns JoinedMembersResponse (success) or JoinedMembersError
+        # (failure). Success has .members (list of RoomMember dataclasses).
+        members = getattr(resp, "members", None)
+        if not isinstance(members, list):
+            logger.warning(
+                f"[matrix] joined_members({room_id}) returned no members "
+                f"(status={getattr(resp, 'status_code', 'unknown')})"
+            )
+            return 0
+        count = len(members)
+        self._room_member_count[room_id] = count
+        # Backfill display names from the roster too so the first message
+        # in a fresh room doesn't miss @-mention detection.
+        for m in members:
+            mxid = getattr(m, "user_id", None)
+            name = getattr(m, "display_name", None)
+            if mxid and name:
+                self._display_name_cache[(room_id, mxid)] = name
+        return count
+
+    # ────────────────────────────────────────────────────────────────────
+    # Classification (DM / group_mention / group_silent)
+    # ────────────────────────────────────────────────────────────────────
+
+    async def _classify(
+        self,
+        client: AsyncClient,
+        message: ParsedMessage,
+        credential: NarramessengerCredential,
+    ) -> _ClassifyTarget:
+        """Route a message to the right handler.
+
+        - Member count 2 → DM (1:1 owner-agent room, or any 2-person room)
+        - Member count >2 AND agent explicitly mentioned → group_mention
+        - Member count >2 AND agent NOT mentioned → group_silent
+        - Member count 0 (unknown) → group_silent (safe default: don't
+          auto-reply to a room we can't verify the shape of; the
+          silent-batch path still writes memory)
+
+        Mention detection covers three surfaces:
+        1. MSC3952 ``m.mentions.user_ids`` — the modern intentional-
+           mention protocol. Preferred when present.
+        2. Raw MXID inline in body — some clients still do this.
+        3. ``@displayname`` inline — most human-typed mentions.
+        """
+        count = await self._get_member_count(client, message.chat_id)
+        if count == 2:
+            return "dm"
+
+        body = (message.content or "").strip()
+        my_id = credential.matrix_user_id or ""
+
+        # (1) Intentional Mentions on the raw event.
+        raw = message.raw or {}
+        nio_event = raw.get("_nio_event")
+        if nio_event is not None:
+            source = getattr(nio_event, "source", None)
+            if isinstance(source, dict):
+                mentions = (
+                    source.get("content", {}).get("m.mentions", {})
+                    if isinstance(source.get("content"), dict)
+                    else {}
+                )
+                user_ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
+                if isinstance(user_ids, list) and my_id and my_id in user_ids:
+                    return "group_mention"
+
+        # (2) Raw MXID in body.
+        if my_id and my_id in body:
+            return "group_mention"
+
+        # (3) ``@displayname`` in body — walk the cache for our own name.
+        my_names = {
+            name
+            for (room, mxid), name in self._display_name_cache.items()
+            if mxid == my_id and name
+        }
+        for name in my_names:
+            if f"@{name}" in body or (name and name in body.split()):
+                return "group_mention"
+
+        return "group_silent"
+
+    # ────────────────────────────────────────────────────────────────────
+    # Silent-batch buffer + debounce
+    # ────────────────────────────────────────────────────────────────────
+
+    async def _enqueue_silent(
+        self,
+        credential: NarramessengerCredential,
+        message: ParsedMessage,
+    ) -> None:
+        """Append to the per-(agent, room) silent buffer + (re)start debounce.
+
+        Two exit triggers race: burst-cap (immediate flush when the
+        buffer hits SILENT_FLUSH_BURST_SIZE) and idle (SILENT_DEBOUNCE_
+        SECONDS after the LAST enqueue — every new enqueue cancels and
+        replaces the pending flush timer).
+        """
+        key = (credential.agent_id, message.chat_id)
+        lock = self._silent_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            buf = self._silent_buffer.setdefault(key, [])
+            buf.append(message)
+            self._silent_creds[key] = credential
+            size = len(buf)
+        # Cancel any pending debounce; a new one starts below, or the
+        # burst-cap path flushes immediately.
+        existing = self._silent_flush_tasks.pop(key, None)
+        if existing is not None and not existing.done():
+            existing.cancel()
+        if size >= self.SILENT_FLUSH_BURST_SIZE:
+            await self._flush_silent(key)
+        else:
+            self._silent_flush_tasks[key] = asyncio.create_task(
+                self._debounce_flush(key)
+            )
+
+    async def _debounce_flush(self, key: tuple[str, str]) -> None:
+        """Sleep-then-flush task. Cancelled by every new enqueue."""
+        try:
+            await asyncio.sleep(self.SILENT_DEBOUNCE_SECONDS)
+        except asyncio.CancelledError:
+            return
+        await self._flush_silent(key)
+
+    async def _flush_silent(self, key: tuple[str, str]) -> None:
+        """Drain the buffer for ``key`` and hand it off to the 4a silent-
+        batch runtime call. Errors are swallowed — a dropped batch is
+        recoverable via reconnect + since_token replay, but a raised
+        exception here would break the debounce timer for the room."""
+        lock = self._silent_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            msgs = self._silent_buffer.pop(key, [])
+            cred = self._silent_creds.pop(key, None)
+        self._silent_flush_tasks.pop(key, None)
+        if not msgs or cred is None:
+            return
+        # Pre-resolve display names once for the whole batch.
+        sender_names: dict[str, str] = {}
+        for m in msgs:
+            sid = m.sender_id or ""
+            if not sid or sid in sender_names:
+                continue
+            # (room, mxid) lookup; fall back to MXID.
+            name = self._display_name_cache.get((m.chat_id, sid))
+            sender_names[sid] = name or sid
+        try:
+            await self._build_and_run_agent_silent_batch(
+                credential=cred,
+                messages=msgs,
+                sender_name_by_id=sender_names,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception(
+                f"[matrix:{cred.agent_id}] silent flush raised "
+                f"(batch of {len(msgs)}): {e}"
+            )
+
+    async def _drain_all_silent_buffers(self) -> None:
+        """Flush every pending silent buffer. Called from stop() so we
+        don't lose in-flight memory writes on shutdown, and after
+        reconnect burst so backfill lands immediately."""
+        keys = list(self._silent_buffer.keys())
+        for key in keys:
+            task = self._silent_flush_tasks.pop(key, None)
+            if task is not None and not task.done():
+                task.cancel()
+            await self._flush_silent(key)
+
+    # ────────────────────────────────────────────────────────────────────
+    # Reply sender + failure notification
+    # ────────────────────────────────────────────────────────────────────
+
+    async def _send_matrix_reply(
+        self,
+        credential: NarramessengerCredential,
+        room_id: str,
+        content: str,
+    ) -> bool:
+        """Send ``content`` back into ``room_id`` as ``m.room.message``.
+
+        Retry policy:
+          - M_LIMIT_EXCEEDED → obey ``retry_after_ms``, then retry.
+          - M_UNKNOWN_TOKEN / M_MISSING_TOKEN / M_FORBIDDEN → audit +
+            give up (the base's watcher will disable the credential on
+            the next sync tick when it sees the same code).
+          - Anything else (network, 5xx, unknown status) → exponential
+            backoff, cap SEND_MAX_ATTEMPTS.
+
+        Returns True iff the reply was accepted by the homeserver.
+        A False return does NOT re-raise — the sync loop must not stall
+        on a single failed reply; the audit event carries the diagnostic.
+        """
+        key = self._subscriber_key(credential)
+        client = self._clients.get(key)
+        if client is None:
+            logger.warning(
+                f"[matrix:{credential.agent_id}] cannot send reply: "
+                f"no active client (sync loop torn down?)"
+            )
+            await self._audit(
+                EVENT_TRANSPORT_SEND_FAILED,
+                agent_id=credential.agent_id,
+                app_id=getattr(credential, "app_id", ""),
+                chat_id=room_id,
+                details={
+                    "error_code": "no_active_client",
+                    "attempts": 0,
+                    "body_preview": (content or "")[:120],
+                },
+            )
+            return False
+
+        backoff_ms = self.SEND_INITIAL_BACKOFF_MS
+        last_code: str = ""
+        last_error: str = ""
+
+        for attempt in range(1, self.SEND_MAX_ATTEMPTS + 1):
+            try:
+                resp = await client.room_send(
+                    room_id=room_id,
+                    message_type="m.room.message",
+                    content={"msgtype": "m.text", "body": content},
+                )
+            except Exception as e:  # noqa: BLE001
+                last_code = "transport_exception"
+                last_error = f"{type(e).__name__}: {e}"
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] room_send raised on "
+                    f"attempt {attempt}/{self.SEND_MAX_ATTEMPTS}: {last_error}"
+                )
+                if attempt < self.SEND_MAX_ATTEMPTS:
+                    await asyncio.sleep(backoff_ms / 1000)
+                    backoff_ms *= 2
+                continue
+
+            if isinstance(resp, RoomSendResponse):
+                return True
+
+            if isinstance(resp, RoomSendError):
+                last_code = str(getattr(resp, "status_code", "") or "unknown")
+                last_error = str(
+                    getattr(resp, "message", "") or last_code
+                )
+                if last_code == "M_LIMIT_EXCEEDED":
+                    retry_ms = int(getattr(resp, "retry_after_ms", 1000) or 1000)
+                    logger.info(
+                        f"[matrix:{credential.agent_id}] rate-limited; "
+                        f"sleeping {retry_ms}ms before retry "
+                        f"(attempt {attempt}/{self.SEND_MAX_ATTEMPTS})"
+                    )
+                    await asyncio.sleep(retry_ms / 1000)
+                    continue
+                if last_code in (
+                    "M_UNKNOWN_TOKEN",
+                    "M_MISSING_TOKEN",
+                    "M_FORBIDDEN",
+                ):
+                    logger.error(
+                        f"[matrix:{credential.agent_id}] permanent send "
+                        f"failure {last_code}; leaving credential for "
+                        f"the sync loop to disable"
+                    )
+                    break
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] room_send returned "
+                    f"{last_code} on attempt {attempt}/"
+                    f"{self.SEND_MAX_ATTEMPTS}: {last_error}"
+                )
+                if attempt < self.SEND_MAX_ATTEMPTS:
+                    await asyncio.sleep(backoff_ms / 1000)
+                    backoff_ms *= 2
+                continue
+
+            # Neither success nor structured error — nio returned something
+            # unexpected. Log and treat as transient.
+            last_code = "unknown_response"
+            last_error = f"{type(resp).__name__}"
+            logger.warning(
+                f"[matrix:{credential.agent_id}] room_send returned "
+                f"unexpected {last_error} on attempt {attempt}"
+            )
+            if attempt < self.SEND_MAX_ATTEMPTS:
+                await asyncio.sleep(backoff_ms / 1000)
+                backoff_ms *= 2
+
+        await self._audit(
+            EVENT_TRANSPORT_SEND_FAILED,
+            agent_id=credential.agent_id,
+            app_id=getattr(credential, "app_id", ""),
+            chat_id=room_id,
+            details={
+                "error_code": last_code,
+                "error_message": last_error[:400],
+                "attempts": self.SEND_MAX_ATTEMPTS,
+                "body_preview": (content or "")[:120],
+            },
+        )
+        return False
+
+    # ────────────────────────────────────────────────────────────────────
+    # Overrides: classify → route silent vs full-agent; then send reply
+    # ────────────────────────────────────────────────────────────────────
+
+    async def _process_message(  # type: ignore[override]
+        self,
+        credential: NarramessengerCredential,
+        message: ParsedMessage,
+    ) -> None:
+        """Fork by classification before running the base pipeline.
+
+        - ``dm`` / ``group_mention``: base's full-agent path via ``super()``.
+          Reply sending is layered on by :meth:`_build_and_run_agent`
+          below.
+        - ``group_silent``: buffer for debounce; the flush eventually
+          calls :meth:`ChannelTriggerBase._build_and_run_agent_silent_batch`
+          (from Commit 4a) which runs a memory-only turn — no agent
+          reply — and writes N chat_history rows.
+
+        Echo filtering happens IN the classifier's client lookup / in
+        super(); duplicating it here would risk drift. The base already
+        also handles unbound-credential and empty-content guards, so
+        neither path re-implements them.
+        """
+        key = self._subscriber_key(credential)
+        client = self._clients.get(key)
+        if client is None:
+            # No active client → sync loop torn down while events were
+            # in flight. Drop the message; the base's _subscribe_loop
+            # will replay from since_token on reconnect.
+            logger.debug(
+                f"[matrix:{credential.agent_id}] dropping event: "
+                f"no active client"
+            )
+            return
+
+        # Echo filter FIRST — silent path should also drop our own
+        # agent's replies before they hit the buffer.
+        if await self.is_echo(message, credential):
+            return
+
+        target = await self._classify(client, message, credential)
+        if target == "group_silent":
+            await self._enqueue_silent(credential, message)
+            return
+        # dm / group_mention → default full-agent pipeline.
+        await super()._process_message(credential, message)
+
+    async def _build_and_run_agent(  # type: ignore[override]
+        self,
+        credential: NarramessengerCredential,
+        message: ParsedMessage,
+        sender_name: str,
+        *,
+        attachments: Optional[list] = None,
+    ) -> str:
+        """Run the base pipeline, then post the reply back to Matrix.
+
+        Base returns the reply text (from ``extract_output``, overridden
+        below to read ``send_message_to_user_directly``). Anything non-
+        empty is sent via ``client.room_send``; empty means silent-not-
+        reply (the agent chose not to speak) and we send NOTHING —
+        posting an empty message or a placeholder would confuse humans
+        in the room.
+        """
+        text = await super()._build_and_run_agent(
+            credential, message, sender_name, attachments=attachments
+        )
+        if not text or not text.strip():
+            logger.info(
+                f"[matrix:{credential.agent_id}] agent chose silent "
+                f"reply (room={message.chat_id}); nothing sent"
+            )
+            return text
+        await self._send_matrix_reply(credential, message.chat_id, text)
+        return text
+
+    def extract_output(  # type: ignore[override]
+        self, result: Any, message: ParsedMessage, credential: Any
+    ) -> str:
+        """Extract the reply text from the agent's ``send_message_to_user_directly``
+        tool call, matching Lark / Slack / Telegram's discipline.
+
+        The generic ``send_message_to_user_directly`` (registered by
+        ChatModule) is what the agent calls to speak to the user; its
+        ``content`` argument IS the reply. Returning "" here means "the
+        agent did not speak this turn" — silent-not-reply — which
+        prevents the base from posting the agent's internal thinking
+        (``result.output_text``) into the room by mistake.
+
+        Falls back to a scan through ``raw_items`` looking for a
+        ProgressMessage or tool call whose tool_name matches; that's
+        how the base ships raw agent-loop responses.
+        """
+        raw_items = getattr(result, "raw_items", None) or []
+        for item in raw_items:
+            # ProgressMessage-style objects: have .details dict with
+            # tool_name + arguments.
+            details = getattr(item, "details", None)
+            if isinstance(details, dict):
+                tool_name = details.get("tool_name") or ""
+                if "send_message_to_user_directly" in str(tool_name):
+                    args = details.get("arguments") or {}
+                    if isinstance(args, dict):
+                        content = args.get("content")
+                        if isinstance(content, str) and content.strip():
+                            return content
+        # No explicit reply tool call → stay silent. Do NOT fall back to
+        # result.output_text (agent's thinking is not for the room).
+        return ""
 
     # ────────────────────────────────────────────────────────────────────
     # Sync loop — the piece that replaces polling
@@ -357,10 +926,30 @@ class MatrixTrigger(ChannelTriggerBase):
                 is_first_sync = False
 
                 # Yield each interesting event. joined rooms is the
-                # primary source; invited / left rooms are Commit 4
+                # primary source; invited / left rooms are Phase-4+
                 # concerns (auto-accept invite, react to owner-boot).
                 for room_id, room_info in resp.rooms.join.items():
+                    # Consume state-block member events FIRST so the
+                    # member count + display name caches are populated
+                    # BEFORE any message from the same batch gets
+                    # classified. On first sync this is the whole room
+                    # roster; on incremental sync it's changes only.
+                    state_events = getattr(
+                        getattr(room_info, "state", None), "events", []
+                    ) or []
+                    for event in state_events:
+                        if isinstance(event, RoomMemberEvent):
+                            self._apply_member_event(room_id, event)
+
+                    # Now walk the timeline. Member events here are LIVE
+                    # membership changes (join/leave during this batch);
+                    # apply them BEFORE the message events that follow,
+                    # so classification sees the right room shape even
+                    # when someone joined and immediately spoke.
                     for event in room_info.timeline.events:
+                        if isinstance(event, RoomMemberEvent):
+                            self._apply_member_event(room_id, event)
+                            continue
                         raw = self._wrap_event(
                             event=event,
                             room_id=room_id,
@@ -374,6 +963,16 @@ class MatrixTrigger(ChannelTriggerBase):
                 # the base loop. Only NOW is it safe to advance the
                 # cursor; a crash between here and the next sync loses
                 # nothing (we replay next_batch's precursor next time).
+                #
+                # Reconnect / burst flush: cold-sync backlog and post-
+                # disconnect catchup should NOT wait 5s for a debounce
+                # timer to fire — the backlog is already stale, get it
+                # into memory now. Steady-state ticks with 0 silent
+                # events skip this (drain is a no-op when buffers are
+                # empty).
+                if self._silent_buffer:
+                    await self._drain_all_silent_buffers()
+
                 cursor = resp.next_batch
                 if mgr is not None and cursor:
                     try:
@@ -495,6 +1094,20 @@ class MatrixTrigger(ChannelTriggerBase):
         if not body.strip():
             return None
 
+        # Room shape from the cache populated by _apply_member_event
+        # during the sync loop. 0 (unknown) treated as GROUP so we don't
+        # accidentally auto-reply to a room we can't verify — the
+        # authoritative check happens again in _process_message via
+        # _classify, which does an async fallback lookup on cache miss.
+        member_count = self._room_member_count.get(room_id, 0)
+        chat_type = ChatType.PRIVATE if member_count == 2 else ChatType.GROUP
+
+        # Display name from the cache (populated by state events); fall
+        # back to MXID until the roster arrives.
+        sender_name = self._display_name_cache.get(
+            (room_id, sender_id), sender_id
+        )
+
         return ParsedMessage(
             # event_id is the natural dedup key across Matrix — same
             # event replayed after a since_token rewind hashes to the
@@ -502,13 +1115,9 @@ class MatrixTrigger(ChannelTriggerBase):
             message_id=event_id,
             chat_id=room_id,
             sender_id=sender_id,
-            sender_name=sender_id,  # display-name lookup deferred to Commit 4
+            sender_name=sender_name,
             content=body,
-            # Skeleton assumes PRIVATE (DM) — Commit 4 flips to GROUP
-            # when the room has ≥3 members and only responds when
-            # mentioned. Assuming DM for now keeps a smoke test simple
-            # (owner ↔ agent 1:1) without triggering group filters.
-            chat_type=ChatType.PRIVATE,
+            chat_type=chat_type,
             timestamp_ms=int(raw.get("server_ts") or 0),
             raw=raw,
         )

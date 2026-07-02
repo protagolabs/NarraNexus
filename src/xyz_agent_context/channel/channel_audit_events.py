@@ -35,6 +35,14 @@ EVENT_SUBSCRIBER_STOPPED = "subscriber_stopped"
 EVENT_TRANSPORT_CONNECTED = "transport_connected"
 EVENT_TRANSPORT_DISCONNECTED = "transport_disconnected"
 EVENT_TRANSPORT_BACKOFF = "transport_backoff"
+# Reply-side transport failure (added 2026-07-02 for MatrixTrigger, but
+# generic — any channel whose reply path can fail out-of-band after the
+# agent finished should emit this). Distinct from ``inbox_write_failed``:
+# that one is about our own DB row; this one is about the platform
+# refusing / dropping our outbound message. Details typically carry
+# ``error_code`` (M_LIMIT_EXCEEDED / M_UNKNOWN_TOKEN / network / …),
+# ``attempts``, and the truncated reply body for post-mortem.
+EVENT_TRANSPORT_SEND_FAILED = "transport_send_failed"
 
 # ─── Worker pool ──────────────────────────────────────────────────────────
 EVENT_WORKER_ERROR = "worker_error"
