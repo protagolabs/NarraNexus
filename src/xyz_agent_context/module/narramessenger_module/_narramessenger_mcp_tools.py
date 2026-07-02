@@ -1,6 +1,6 @@
 """
 @file_name: _narramessenger_mcp_tools.py
-@date: 2026-06-17
+@date: 2026-07-02
 @description: NarraMessenger MCP tools — the agent-facing reply/send/bind surface.
 
 Tools exposed:
@@ -15,6 +15,12 @@ Tools exposed:
     from a pasted bind link (drives the Gateway bind + writes the credential).
   - narra_status(agent_id)                     — sanitised binding status + live
     ``/status`` check.
+  - narra_room_members(agent_id, room_id)      — live roster fetch via
+    ``GET /_matrix/client/v3/rooms/{room_id}/joined_members``. Kept as a
+    tool (not baked into prompt) so the agent only pays for the roster
+    when it actually needs to know "who's in this room" — the vast
+    majority of turns don't. Added 2026-07-02 alongside the Direct
+    Matrix migration.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+import aiohttp
 from loguru import logger
 
 from xyz_agent_context.module.base import XYZBaseModule
@@ -144,7 +151,82 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
         public["live_check"] = live
         return {"success": True, "data": public}
 
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def narra_room_members(agent_id: str, room_id: str) -> dict:
+        """List the joined members of a NarraMessenger room.
+
+        Live GET to the Matrix homeserver's
+        ``/_matrix/client/v3/rooms/{room_id}/joined_members`` endpoint,
+        using the Matrix access token stored on the credential (NOT the
+        Narra bearer — Matrix rejects the Narra bearer with
+        ``M_UNKNOWN_TOKEN``).
+
+        Use this when you need to know WHO is in a group room — e.g. to
+        @-mention someone specific, to answer "who's in this room?", or
+        to plan a message to a particular subset of members. This is
+        NOT auto-injected into every turn's prompt (would cost too many
+        tokens on large groups); the agent calls it on demand.
+
+        Returns:
+            {"ok": true, "members": [
+                {"user_id": "@alice:h", "display_name": "Alice",
+                 "avatar_url": "mxc://..."},
+                ...
+            ]}
+            or {"ok": false, "error": <code>}.
+        """
+        if not room_id:
+            return {"ok": False, "error": "room_id is required"}
+
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"ok": False, "error": "no_credential",
+                    "hint": "no NarraMessenger binding for this agent"}
+        if not cred.matrix_access_token or not cred.matrix_homeserver_url:
+            return {"ok": False, "error": "no_matrix_credentials",
+                    "hint": "credential is not on the Matrix transport"}
+
+        url = (
+            f"{cred.matrix_homeserver_url.rstrip('/')}"
+            f"/_matrix/client/v3/rooms/{room_id}/joined_members"
+        )
+        headers = {"Authorization": f"Bearer {cred.matrix_access_token}"}
+        timeout = aiohttp.ClientTimeout(total=10.0)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status < 200 or resp.status >= 300:
+                        # Matrix errors surface with a JSON body carrying
+                        # `errcode`; propagate for observability.
+                        try:
+                            body = await resp.json()
+                        except Exception:  # noqa: BLE001
+                            body = {}
+                        return {
+                            "ok": False,
+                            "error": body.get("errcode") or f"http_{resp.status}",
+                            "message": body.get("error") or "",
+                        }
+                    data = await resp.json()
+        except (aiohttp.ClientError, TimeoutError) as e:
+            return {"ok": False, "error": "transport_error",
+                    "message": f"{type(e).__name__}: {e}"}
+
+        # Matrix returns {"joined": {mxid: {display_name, avatar_url}}}
+        joined = data.get("joined") or {}
+        members = [
+            {
+                "user_id": mxid,
+                "display_name": info.get("display_name") or mxid,
+                "avatar_url": info.get("avatar_url") or "",
+            }
+            for mxid, info in joined.items()
+        ]
+        return {"ok": True, "members": members, "count": len(members)}
+
     logger.info(
         "NarraMessenger MCP tools registered: "
-        "narra_reply, narra_send, narra_bind, narra_status"
+        "narra_reply, narra_send, narra_bind, narra_status, "
+        "narra_room_members"
     )

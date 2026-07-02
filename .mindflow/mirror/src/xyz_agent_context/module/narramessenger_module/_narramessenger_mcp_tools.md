@@ -1,8 +1,36 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_mcp_tools.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-07-02
 ---
+
+## 2026-07-02 — `narra_room_members` tool added
+
+New MCP tool: `narra_room_members(agent_id, room_id)`. Live GET to
+`{homeserver}/_matrix/client/v3/rooms/{room_id}/joined_members` using
+the credential's **Matrix access token** (NOT the Narra bearer —
+Matrix rejects the Narra bearer with `M_UNKNOWN_TOKEN`).
+
+Why a tool, not prompt injection. The `ChannelContextBuilderBase`
+protocol lets each channel populate a `room_members_section` that
+would be auto-injected into every turn's prompt. Every existing
+channel (Lark/Slack/Telegram/Discord/NarraMessenger) returns `[]`
+from `get_room_members()` — the group-member roster is not
+prompt-injected on any channel. Reason: for group channels of any
+non-trivial size (10+ members), pasting the full roster on every
+turn is a large recurring token cost for context the agent rarely
+needs. Keeping it as a tool means the agent pays for the roster
+only in the specific turns that need "who's here" awareness (@ a
+specific person, "who's in this room?", route a message to a
+subset).
+
+Response shape: `{"ok": True, "members": [{user_id, display_name,
+avatar_url}, ...], "count": N}` on success, `{"ok": False, "error":
+<errcode>, "message": <details>}` on failure. Failures surface the
+Matrix errcode (`M_UNKNOWN_TOKEN`, `M_FORBIDDEN`, ...) verbatim so
+the agent can distinguish "wrong token" from "wrong room" from "not
+in the room".
+
 
 ## Why it exists
 

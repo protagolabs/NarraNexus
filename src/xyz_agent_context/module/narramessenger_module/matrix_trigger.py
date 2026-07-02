@@ -580,8 +580,18 @@ class MatrixTrigger(ChannelTriggerBase):
         if existing is not None and not existing.done():
             existing.cancel()
         if size >= self.SILENT_FLUSH_BURST_SIZE:
+            logger.info(
+                f"[matrix:{credential.agent_id}] SILENT enqueue+burst-flush "
+                f"(room={message.chat_id}, buf_size={size}, "
+                f"burst_cap={self.SILENT_FLUSH_BURST_SIZE})"
+            )
             await self._flush_silent(key)
         else:
+            logger.info(
+                f"[matrix:{credential.agent_id}] SILENT enqueue "
+                f"(room={message.chat_id}, event={message.message_id}, "
+                f"buf_size={size}, debounce={self.SILENT_DEBOUNCE_SECONDS}s)"
+            )
             self._silent_flush_tasks[key] = asyncio.create_task(
                 self._debounce_flush(key)
             )
@@ -591,7 +601,14 @@ class MatrixTrigger(ChannelTriggerBase):
         try:
             await asyncio.sleep(self.SILENT_DEBOUNCE_SECONDS)
         except asyncio.CancelledError:
+            logger.info(
+                f"[matrix:silent-debounce cancelled for key={key}]"
+            )
             return
+        logger.info(
+            f"[matrix:silent-debounce fired for key={key}] "
+            f"→ flushing after {self.SILENT_DEBOUNCE_SECONDS}s idle"
+        )
         await self._flush_silent(key)
 
     async def _flush_silent(self, key: tuple[str, str]) -> None:
@@ -605,7 +622,15 @@ class MatrixTrigger(ChannelTriggerBase):
             cred = self._silent_creds.pop(key, None)
         self._silent_flush_tasks.pop(key, None)
         if not msgs or cred is None:
+            logger.info(
+                f"[matrix:silent-flush noop for key={key}] "
+                f"(msgs={len(msgs)}, cred={'set' if cred else 'None'})"
+            )
             return
+        logger.info(
+            f"[matrix:{cred.agent_id}] SILENT flush → batch of {len(msgs)} "
+            f"(room={key[1]})"
+        )
         # Pre-resolve display names once for the whole batch.
         sender_names: dict[str, str] = {}
         for m in msgs:
@@ -621,6 +646,10 @@ class MatrixTrigger(ChannelTriggerBase):
                 messages=msgs,
                 sender_name_by_id=sender_names,
             )
+            logger.info(
+                f"[matrix:{cred.agent_id}] SILENT flush OK "
+                f"(batch={len(msgs)}, room={key[1]})"
+            )
         except Exception as e:  # noqa: BLE001
             logger.exception(
                 f"[matrix:{cred.agent_id}] silent flush raised "
@@ -632,6 +661,11 @@ class MatrixTrigger(ChannelTriggerBase):
         don't lose in-flight memory writes on shutdown, and after
         reconnect burst so backfill lands immediately."""
         keys = list(self._silent_buffer.keys())
+        if keys:
+            logger.info(
+                f"[matrix:silent-drain] draining {len(keys)} buffer(s): "
+                f"{[str(k) for k in keys]}"
+            )
         for key in keys:
             task = self._silent_flush_tasks.pop(key, None)
             if task is not None and not task.done():
@@ -977,16 +1011,21 @@ class MatrixTrigger(ChannelTriggerBase):
         if client is None:
             # No active client → sync loop torn down while events were
             # in flight. Drop the message; the base's _subscribe_loop
-            # will replay from since_token on reconnect.
-            logger.debug(
-                f"[matrix:{credential.agent_id}] dropping event: "
-                f"no active client"
+            # will replay from since_token on reconnect. INFO level so
+            # a missing agent run for an event has a paper trail.
+            logger.info(
+                f"[matrix:{credential.agent_id}] DROP: no active client "
+                f"(room={message.chat_id}, event={message.message_id})"
             )
             return
 
         # Echo filter FIRST — silent path should also drop our own
         # agent's replies before they hit the buffer.
         if await self.is_echo(message, credential):
+            logger.info(
+                f"[matrix:{credential.agent_id}] DROP: echo of own message "
+                f"(room={message.chat_id}, event={message.message_id})"
+            )
             return
 
         # Compute mention flag once — authorize-event needs it as a
@@ -1003,19 +1042,29 @@ class MatrixTrigger(ChannelTriggerBase):
         )
         if not verdict.allow:
             if verdict.notice_send and verdict.notice_text:
+                logger.info(
+                    f"[matrix:{credential.agent_id}] AUTHZ deny + notice "
+                    f"(room={message.chat_id}, event={message.message_id}, "
+                    f"notice={verdict.notice_text[:80]!r})"
+                )
                 await self._send_matrix_notice(
                     credential, message.chat_id, verdict.notice_text
                 )
             else:
-                logger.debug(
-                    f"[matrix:{credential.agent_id}] event denied silently "
-                    f"by authorize-event (room={message.chat_id}, "
-                    f"event={message.message_id})"
+                logger.info(
+                    f"[matrix:{credential.agent_id}] AUTHZ deny silent "
+                    f"(room={message.chat_id}, event={message.message_id}, "
+                    f"mentioned={mentioned})"
                 )
             return
 
         target = await self._classify(
             client, message, credential, mentioned=mentioned
+        )
+        logger.info(
+            f"[matrix:{credential.agent_id}] CLASSIFY target={target} "
+            f"(room={message.chat_id}, event={message.message_id}, "
+            f"mentioned={mentioned})"
         )
         if target == "group_silent":
             await self._enqueue_silent(credential, message)
@@ -1123,9 +1172,32 @@ class MatrixTrigger(ChannelTriggerBase):
 
         if not homeserver or not user_id or not access_token:
             # Guard against a mode='matrix' row that never had
-            # update_matrix_credentials() run on it. Raising here lets
-            # the base disable the credential; the row is broken and
-            # the owner needs to rebind.
+            # update_matrix_credentials() run on it (e.g. a stale
+            # pre-Matrix bind that was migrated to `connection_mode='matrix'`
+            # without a real access token). Explicitly disable the
+            # credential BEFORE raising — the base's `_subscribe_loop`
+            # backoff loop otherwise treats ValueError as transient and
+            # retries every 120s forever, generating an ERROR + stack
+            # trace on every retry. Disabling flips ``enabled=False`` so
+            # the credential watcher stops re-spawning the subscriber
+            # against this row until the owner re-binds.
+            logger.warning(
+                f"MatrixTrigger[{agent_id}] disabling credential — "
+                f"missing matrix creds (homeserver={bool(homeserver)}, "
+                f"user_id={bool(user_id)}, "
+                f"access_token={bool(access_token)}). Re-run the bind "
+                f"flow to restore the credential."
+            )
+            try:
+                await self.disable_credential(credential)
+            except Exception as e:  # noqa: BLE001
+                # A DB write failure here is non-fatal — the ValueError
+                # below still surfaces and the retry loop is bounded by
+                # the base's exponential backoff.
+                logger.warning(
+                    f"MatrixTrigger[{agent_id}] disable_credential failed "
+                    f"(non-fatal): {type(e).__name__}: {e}"
+                )
             raise ValueError(
                 f"MatrixTrigger[{agent_id}] cannot connect: missing "
                 f"matrix credentials (homeserver={bool(homeserver)}, "

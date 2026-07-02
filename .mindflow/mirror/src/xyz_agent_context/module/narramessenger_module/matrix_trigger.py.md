@@ -4,6 +4,31 @@ stub: false
 last_verified: 2026-07-02
 ---
 
+## 2026-07-02 (post-Commit-7 hotfix) — diagnostic INFO + auto-disable broken creds
+
+Two behavioural fixes surfaced during the first live E2E:
+
+1. **Silent-path diagnostic logs promoted to INFO.** The
+   `_process_message` decision points — client-missing drop, echo
+   drop, authorize-event deny (with or without notice), classifier
+   result — now log at INFO, and the silent-buffer lifecycle
+   (`_enqueue_silent`, `_debounce_flush` fire/cancel, `_flush_silent`
+   entry/exit, `_drain_all_silent_buffers`) is fully traced. Rationale:
+   the first live test showed 0 `silent=True` runs on group non-@
+   messages, and every silent-path failure mode was invisible at
+   INFO. Now the log tells us exactly which branch a missing turn
+   fell through.
+2. **Broken credentials auto-disable on connect.** When
+   `MatrixTrigger.connect` sees a `connection_mode='matrix'` row with
+   an empty `matrix_access_token`, it now calls `disable_credential`
+   BEFORE raising `ValueError`. Without this, the base's
+   `_subscribe_loop` treated the ValueError as transient and retried
+   every 120s forever, generating an ERROR + full stack trace on
+   every retry. Pre-existing rows (pre-Matrix binds that never got a
+   Matrix token) now flip `enabled=False` on first sight and the
+   owner sees a single WARN telling them to re-bind, not a
+   permanently noisy log stream.
+
 ## 2026-07-02 (Commit 7) — polling deleted; sole NarraMessenger trigger
 
 `channel_name` reverts from `narramessenger_matrix` to `narramessenger`;
