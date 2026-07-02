@@ -229,3 +229,130 @@ async def test_no_notification_when_agent_has_no_owner(db_client, monkeypatch):
 
     rows = await db_client.get("inbox_table", {})
     assert rows == []
+
+
+# ── PR #45 review follow-ups ────────────────────────────────────────────
+#
+# 1. Cooldown must only be armed AFTER a successful inbox write — arming it
+#    up-front means a transient inbox-write failure (DB blip, etc.) silently
+#    swallows the notification AND blocks the next 30 minutes of real
+#    attempts for the same category.
+# 2. The raw exception string must never be echoed verbatim into the owner's
+#    inbox — provider error bodies can echo the API key back (e.g. OpenAI's
+#    "Incorrect API key provided: sk-..."), so it must be truncated and any
+#    secret-looking substrings must be masked before writing.
+
+
+@pytest.mark.asyncio
+async def test_cooldown_not_armed_when_inbox_write_fails(db_client, monkeypatch):
+    """A failed write must NOT arm the cooldown — otherwise one transient
+    inbox-write error silently suppresses the real notification for the
+    next 30 minutes."""
+    _patch_db_factory(monkeypatch, db_client)
+    await _seed_agent(db_client)
+
+    bus = LocalMessageBus(backend=db_client._backend)
+    trigger = MessageBusTrigger(bus=bus)
+
+    from xyz_agent_context.repository.inbox_repository import InboxRepository
+
+    original_create = InboxRepository.create_message
+    calls = {"n": 0}
+
+    async def _flaky_create_message(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient db error")
+        return await original_create(self, *args, **kwargs)
+
+    monkeypatch.setattr(InboxRepository, "create_message", _flaky_create_message)
+
+    msg1 = BusMessage(message_id="m9", channel_id="ch1", from_agent="peer", content="hi")
+    await trigger._notify_permanent_failure(
+        agent_id="agent_a",
+        channel_id="ch1",
+        trigger_message=msg1,
+        error="OpenAI API key invalid (401 Unauthorized)",
+    )
+    # First attempt's write raised → nothing persisted.
+    rows = await db_client.get("inbox_table", {"user_id": "user_x"})
+    assert rows == []
+
+    msg2 = BusMessage(message_id="m10", channel_id="ch1", from_agent="peer", content="hi")
+    await trigger._notify_permanent_failure(
+        agent_id="agent_a",
+        channel_id="ch1",
+        trigger_message=msg2,
+        error="OpenAI API key invalid (401 Unauthorized)",
+    )
+    # Second attempt (same category) must NOT be suppressed by a cooldown
+    # that should never have been armed by the failed first attempt.
+    rows = await db_client.get("inbox_table", {"user_id": "user_x"})
+    assert len(rows) == 1, (
+        "cooldown must only arm after a successful write; a failed first "
+        "attempt must not block the retry"
+    )
+    assert calls["n"] == 2
+
+
+def test_redact_error_masks_openai_style_secret_key():
+    raw = (
+        "Incorrect API key provided: sk-abcDEF1234567890ghijK. You can "
+        "find your API key at https://platform.openai.com/account/api-keys."
+    )
+    redacted = MessageBusTrigger._redact_error_for_owner(raw)
+    assert "sk-abcDEF1234567890ghijK" not in redacted
+
+
+def test_redact_error_masks_key_equals_value_pattern():
+    raw = "auth rejected, api_key=abcdef0123456789 is invalid"
+    redacted = MessageBusTrigger._redact_error_for_owner(raw)
+    assert "abcdef0123456789" not in redacted
+
+
+def test_redact_error_masks_bearer_token():
+    raw = "request failed: Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.secretpayload"
+    redacted = MessageBusTrigger._redact_error_for_owner(raw)
+    assert "eyJhbGciOiJIUzI1NiJ9.secretpayload" not in redacted
+
+
+def test_redact_error_truncates_long_messages():
+    raw = "x" * 2000
+    redacted = MessageBusTrigger._redact_error_for_owner(raw)
+    assert len(redacted) < 600, "must be truncated, not echoed verbatim"
+
+
+def test_redact_error_leaves_short_benign_messages_untouched():
+    raw = "agent workspace disk full"
+    assert MessageBusTrigger._redact_error_for_owner(raw) == raw
+
+
+@pytest.mark.asyncio
+async def test_notify_permanent_failure_never_leaks_raw_secret_into_inbox(
+    db_client, monkeypatch
+):
+    """End-to-end: an error string containing a live-looking API key must
+    not appear verbatim in the inbox row content."""
+    _patch_db_factory(monkeypatch, db_client)
+    await _seed_agent(db_client)
+
+    bus = LocalMessageBus(backend=db_client._backend)
+    trigger = MessageBusTrigger(bus=bus)
+    secret = "sk-liveLookingSecretValue1234567890"
+    monkeypatch.setattr(
+        trigger,
+        "_invoke_runtime",
+        _boom(f"Incorrect API key provided: {secret}"),
+    )
+
+    msg = BusMessage(message_id="m11", channel_id="ch1", from_agent="peer", content="hi")
+    for _ in range(3):
+        await trigger._handle_channel_batch(
+            "agent_a", "ch1", [msg], msg, channel_owner="peer"
+        )
+
+    rows = await db_client.get("inbox_table", {"user_id": "user_x"})
+    assert len(rows) == 1
+    assert secret not in rows[0]["content"]
+    # Still classified + hinted as a provider/credential issue.
+    assert "provider" in rows[0]["content"].lower()

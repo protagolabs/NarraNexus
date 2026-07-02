@@ -4,6 +4,26 @@ last_verified: 2026-07-02
 stub: false
 ---
 
+## 2026-07-02 (PR #45 review follow-up) — cooldown arms after write, error is redacted
+
+Two fixes from automated PR review on the failure-notification change below:
+
+1. **Cooldown timing**: `_failure_notify_cooldown[cooldown_key] = now` moved
+   from *before* the `try` block to *after* `InboxRepository.create_message`
+   succeeds. Previously, arming the cooldown up-front meant a transient
+   inbox-write failure (DB blip, etc.) silently suppressed the real
+   notification for the next `FAILURE_NOTIFY_COOLDOWN_SECONDS` — the owner
+   would get NOTHING for 30 minutes even though nothing was ever written.
+2. **Secret redaction**: new `_redact_error_for_owner` (static method) masks
+   `sk-...`-style keys, `key=value`/`token=value` pairs, and `Bearer ...`
+   headers, then truncates to `MAX_NOTIFIED_ERROR_LEN` (500 chars), before
+   the error is embedded in the inbox `content`. Provider SDKs routinely
+   echo the credential back in the error body (OpenAI: "Incorrect API key
+   provided: sk-..."), so `str(exception)` was never safe to show verbatim
+   to the owner. `_classify_error` still runs on the RAW (unredacted) error
+   — it only pattern-matches keywords for the hint/cooldown category, never
+   displays the string, so there's nothing to redact there.
+
 ## 2026-07-02 — permanent-failure notification (fixes NetMindAI-Open/NarraNexus#52)
 
 `_handle_channel_batch`'s `except` block now checks the failure count right

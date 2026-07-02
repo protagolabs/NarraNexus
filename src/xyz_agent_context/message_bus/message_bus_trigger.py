@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import defaultdict
 from typing import Dict, List
@@ -94,6 +95,29 @@ _CREDENTIAL_ERROR_MARKERS = (
     "invalid_api_key",
     "invalid api key",
     "provider",
+)
+
+# Max length of the (already-redacted) error string embedded in an owner
+# inbox notification. Provider error bodies can be arbitrarily long (stack
+# traces, full HTTP response bodies); we only need enough for the owner to
+# recognise the failure, not a full dump.
+MAX_NOTIFIED_ERROR_LEN = 500
+
+# Patterns for masking secret-looking substrings out of a provider error
+# message before it is echoed into the owner's inbox. Provider SDKs
+# frequently echo the credential back in the error body (e.g. OpenAI's
+# "Incorrect API key provided: sk-..."), so `str(exception)` is not safe to
+# show verbatim. Deliberately coarse pattern matching, not a full secret
+# scanner — this only touches what is DISPLAYED, never the classification
+# in `_classify_error` (which runs on the raw error) or delivery behavior.
+_SECRET_KEY_PATTERN = re.compile(r"\bsk-[A-Za-z0-9_-]{6,}")
+_SECRET_KEYVALUE_PATTERN = re.compile(
+    r"\b((?:api[_-]?key|apikey|token|secret|password)\s*[:=]\s*)"
+    r"([^\s,;\"']{4,})",
+    re.IGNORECASE,
+)
+_SECRET_BEARER_PATTERN = re.compile(
+    r"\bBearer\s+[A-Za-z0-9._-]{8,}", re.IGNORECASE
 )
 
 
@@ -469,11 +493,38 @@ class MessageBusTrigger:
         """Coarse category used for (a) the cooldown de-dup key and (b) the
         hint text shown to the owner. Deliberately a substring match, not a
         parsed exception type — `record_failure` only ever gets a `str(e)`,
-        the original exception is already gone by the time this runs."""
+        the original exception is already gone by the time this runs.
+
+        Runs on the RAW error (before `_redact_error_for_owner` masks
+        anything) — classification only reads for keyword markers like
+        "api_key" / "401", it never displays the raw string, so there is
+        nothing to redact here.
+        """
         lowered = (error or "").lower()
         if any(marker in lowered for marker in _CREDENTIAL_ERROR_MARKERS):
             return "provider_credential"
         return "generic"
+
+    @staticmethod
+    def _redact_error_for_owner(error: str) -> str:
+        """Mask secret-looking substrings and cap the length before an
+        error string is echoed into the owner-facing inbox notification.
+
+        Provider SDKs routinely echo the offending credential back in the
+        error body (OpenAI: "Incorrect API key provided: sk-..."), so
+        `str(exception)` must never be written verbatim to a place the
+        owner (and anyone with inbox access) can read. This is a coarse
+        pattern mask, not a full secret scanner — good enough for the
+        common `sk-...` / `key=...` / `Bearer ...` shapes, not a security
+        boundary for arbitrary provider error formats.
+        """
+        text = error or ""
+        text = _SECRET_BEARER_PATTERN.sub("Bearer ***", text)
+        text = _SECRET_KEY_PATTERN.sub("sk-***", text)
+        text = _SECRET_KEYVALUE_PATTERN.sub(lambda m: f"{m.group(1)}***", text)
+        if len(text) > MAX_NOTIFIED_ERROR_LEN:
+            text = text[:MAX_NOTIFIED_ERROR_LEN] + "... [truncated]"
+        return text
 
     async def _notify_permanent_failure(
         self,
@@ -495,6 +546,11 @@ class MessageBusTrigger:
         `_rate_counters` — a process restart resets it, which is an accepted
         tradeoff here too) so a burst of messages failing for one root cause
         writes at most one inbox row per `FAILURE_NOTIFY_COOLDOWN_SECONDS`.
+
+        The cooldown is armed ONLY after a successful inbox write (see the
+        end of the `try` block) — arming it up-front would let one transient
+        write failure (DB blip, etc.) silently suppress the real
+        notification for the rest of the cooldown window.
         """
         category = self._classify_error(error)
         cooldown_key = f"{agent_id}:{category}"
@@ -505,7 +561,6 @@ class MessageBusTrigger:
             and now - last_notified < FAILURE_NOTIFY_COOLDOWN_SECONDS
         ):
             return
-        self._failure_notify_cooldown[cooldown_key] = now
 
         try:
             owner_user_id = await self._get_agent_owner(agent_id)
@@ -539,11 +594,12 @@ class MessageBusTrigger:
                     "retry the message."
                 )
 
+            safe_error = self._redact_error_for_owner(error)
             content = (
                 f"Your agent could not process a message on channel "
                 f"{channel_id} after {POISON_FAILURE_THRESHOLD} attempts "
                 f"and has stopped retrying it automatically.\n\n"
-                f"Error: {error}\n\n{hint}"
+                f"Error: {safe_error}\n\n{hint}"
             )
 
             db = await get_db_client()
@@ -555,6 +611,8 @@ class MessageBusTrigger:
                 message_type=InboxMessageType.SYSTEM_NOTICE,
                 source=MessageSource(type="message_bus_failure", id=channel_id),
             )
+            # Arm the cooldown only now that the write actually succeeded.
+            self._failure_notify_cooldown[cooldown_key] = now
             logger.warning(
                 f"MessageBusTrigger: notified owner {owner_user_id} of "
                 f"permanent failure for agent {agent_id} in channel "
