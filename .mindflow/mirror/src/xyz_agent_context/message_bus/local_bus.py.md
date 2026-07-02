@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-06-24
+last_verified: 2026-07-02
 stub: false
 ---
+
+## 2026-07-02 — poison threshold now has a detection + recovery path (no code change here)
+
+This file's own behavior is unchanged, but the `failure_count < 3` filter in
+`get_pending_messages()` (see Design decisions below) now has two consumers
+that didn't exist before: `MessageBusTrigger._notify_permanent_failure`
+(`message_bus_trigger.py`) writes an inbox notice once a message's
+`bus_message_failures.retry_count` reaches 3, and
+`backend/routes/agents_bus_failures.py` lists/clears those rows so the
+message is picked back up on the next poll. Neither talks to
+`LocalMessageBus` directly for the recovery path — the retry route deletes
+the `bus_message_failures` row via a fresh `AsyncDatabaseClient`, not this
+class — see that file's mirror md for why.
 
 ## 2026-06-24 — raw SQL must use BARE identifiers, not double quotes (MySQL gotcha)
 
