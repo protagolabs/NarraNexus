@@ -631,9 +631,23 @@
       "preferOff": "当前：已配置时使用你自己的服务商；仅当未设置服务商时才使用免费额度。",
       "exhaustedNote": "免费额度已用尽。请在下方添加你自己的服务商，或取消上方开关以通过现有服务商路由。"
     },
+    "netmind": {
+      "title": "NetMind 账户与订阅",
+      "planPro": "Pro",
+      "loading": "加载中…",
+      "error": "无法加载订阅状态。若登录已失效，请重新登录后刷新。",
+      "free": "当前套餐：Free（未订阅）",
+      "proActive": "当前套餐：Pro · 生效中",
+      "validUntil": "有效至",
+      "autoRenewOn": "自动续费已开启",
+      "proCancelled": "已取消 · 周期内仍有效",
+      "expiresDowngrade": "有效至 {{date}}，到期降级为 Free",
+      "sandboxNotice": "NarraNexus 沙盒服务当前限时免费，暂不因沙盒服务扣费；后续将开始计费，届时另行告知。"
+    },
     "modal": {
       "title": "设置",
       "navProviders": "LLM 服务商",
+      "navBilling": "账户与订阅",
       "navPrivacy": "隐私",
       "slotAgentName": "Agent",
       "slotAgentDesc": "你的 AI Agent 的“大脑”。该模型处理所有用户对话、做出决策并执行任务。这里使用更强的模型意味着更聪明、更细腻的回复。",

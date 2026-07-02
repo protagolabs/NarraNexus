@@ -296,6 +296,12 @@ QUOTA_BYPASS_PREFIXES = (
     # provider) gets a 402 from the resolver instead of an actionable
     # `{available: false, reason: "free_tier_opted_out"}` response.
     "/api/transcription",
+    # `/api/billing/*` proxies the user's NetMind subscription/balance. A
+    # quota-exhausted user is EXACTLY who needs to reach the "upgrade to Pro"
+    # panel — a 402 from the resolver before the route runs would dead-end
+    # them. Billing calls carry no NarraNexus LLM cost (they proxy NetMind),
+    # so bypass the quota gate.
+    "/api/billing",
 )
 
 

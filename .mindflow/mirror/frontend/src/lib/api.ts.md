@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-24
+last_verified: 2026-07-02
 stub: false
 ---
+
+## 2026-07-02 — NetMind billing 方法 + billing 401 不触发全局登出
+
+新增 `getPlans()` / `getSubscription()`（[[billing]] 代理）+ 私有
+`getNetmindToken()`（从 localStorage `narra-nexus-config` 读 netmindToken，经
+`X-Netmind-Token` 头带上）。两个关键决策：① `getSubscription()` 空 token 直接
+throw（不发空头 round-trip，安全审查 H-1）；② `request()` 的 401 自动登出处理
+**跳过 `/api/billing/`**（`isBillingEndpoint`）——billing 401 是 NetMind token
+失效，不是 NarraNexus 会话失效，绝不能把有效会话登出（code review HIGH）。
 
 ## 2026-06-24 — team group chat: getTeamChat / sendTeamChat + setProviderSlot
 

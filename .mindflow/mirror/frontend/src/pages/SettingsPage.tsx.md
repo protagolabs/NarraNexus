@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-06-11
+last_verified: 2026-07-02
 stub: false
 ---
+## 2026-07-02 — 新增「Account & Subscription」导航项（Phase 1）
+
+`NAV_ITEMS` 加 `account`（CreditCard 图标，位于 providers 与 bundle 之间），
+`active==='account'` 渲染 [[NetmindAccountPanel]]（NetMind 订阅状态 + 沙盒声明）。
+注意：这是**真正被挂载**的设置页（route `/app/settings`）——`SettingsModal` 是
+死代码（无任何引用），billing 面板务必加在这里而非那里。
+
 ## 2026-06-11 — master–detail：左侧导航 + 右侧内容(取代折叠堆叠)
 
 页面从"竖直折叠堆叠"改成 **master–detail**:左侧 `NAV_ITEMS` 导航

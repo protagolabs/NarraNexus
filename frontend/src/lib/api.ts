@@ -77,6 +77,8 @@ import type {
   DiscordCredentialResponse,
   DiscordBindResponse,
   DiscordTestResponse,
+  PlanListResponse,
+  SubscriptionMeResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -157,7 +159,12 @@ class ApiClient {
         const isAuthEndpoint =
           endpoint.startsWith('/api/auth/login') ||
           endpoint.startsWith('/api/auth/register');
-        if (!isAuthEndpoint) {
+        // Billing routes authenticate the NetMind loginToken (X-Netmind-Token),
+        // NOT the NarraNexus session JWT. A 401 here means the NetMind token is
+        // missing/expired — it must NOT log the user out of their valid
+        // NarraNexus session. The panel handles this failure locally.
+        const isBillingEndpoint = endpoint.startsWith('/api/billing/');
+        if (!isAuthEndpoint && !isBillingEndpoint) {
           window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
         }
       }
@@ -1260,6 +1267,39 @@ class ApiClient {
     return this.request<QuotaMeResponse>('/api/quota/me/preference', {
       method: 'PATCH',
       body: JSON.stringify({ prefer_system_override: preferSystemOverride }),
+    });
+  }
+
+  // =========================================================================
+  // NetMind billing / subscription (Phase 1)
+  // The user's NetMind loginToken lives in configStore.netmindToken and is
+  // forwarded per-request via X-Netmind-Token (backend never stores it).
+  // =========================================================================
+
+  private getNetmindToken(): string {
+    try {
+      const raw = localStorage.getItem('narra-nexus-config');
+      if (raw) return JSON.parse(raw)?.state?.netmindToken || '';
+    } catch {
+      /* localStorage unavailable — fall through to empty */
+    }
+    return '';
+  }
+
+  async getPlans(): Promise<PlanListResponse> {
+    return this.request<PlanListResponse>('/api/billing/plans');
+  }
+
+  async getSubscription(): Promise<SubscriptionMeResponse> {
+    const token = this.getNetmindToken();
+    if (!token) {
+      // Fail fast client-side: no NetMind loginToken means the account isn't
+      // linked (or the session predates the ?token= bootstrap). Don't send an
+      // empty header round-trip; let the panel show its error/link state.
+      throw new Error('NetMind account not linked (no loginToken)');
+    }
+    return this.request<SubscriptionMeResponse>('/api/billing/subscription', {
+      headers: { 'X-Netmind-Token': token },
     });
   }
 

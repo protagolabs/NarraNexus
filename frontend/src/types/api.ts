@@ -966,3 +966,50 @@ export interface DiscordTestResponse extends ApiResponse {
     bot_username: string;
   };
 }
+
+// =============================================================================
+// NetMind billing / subscription (Phase 1: account status panel)
+// Field shapes verified against dev 2026-07-02 live probe — do NOT hardcode
+// rpm/period values (dev drifts: Free rpm=60, Pro period="2day").
+// =============================================================================
+
+export interface SubscriptionPlanPrice {
+  period: string; // e.g. "month" / "2day" (env-dependent)
+  currency: string;
+  stripe_price_id: string;
+}
+
+export interface SubscriptionPlan {
+  plan_id: string; // "free" | "pro"
+  name: string;
+  quota_limits: { rpm: number };
+  features: { support: boolean; member_price: boolean };
+  monthly_grant_usd: number;
+  prices: SubscriptionPlanPrice[];
+}
+
+export interface SubscriptionStatus {
+  subscription_id: string;
+  status: string; // e.g. "ACTIVE"
+  current_period_start: number; // Unix seconds
+  current_period_end: number; // Unix seconds
+  auto_renew: boolean;
+}
+
+// GET /api/billing/subscription -> data. Plan fields are flat at top level;
+// `subscription` is null when the user is on Free.
+export interface SubscriptionMe extends SubscriptionPlan {
+  subscription: SubscriptionStatus | null;
+}
+
+export interface PlanList {
+  plans: SubscriptionPlan[];
+}
+
+export interface SubscriptionMeResponse extends ApiResponse {
+  data?: SubscriptionMe;
+}
+
+export interface PlanListResponse extends ApiResponse {
+  data?: PlanList;
+}

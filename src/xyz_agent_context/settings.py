@@ -157,6 +157,16 @@ class Settings(BaseSettings):
     # the agent's own HTTP calls target the same environment automatically.
     arena_api_base: str = "https://api.arena42.ai"
 
+    # ===== NetMind Billing / Subscription =====
+    # Base URL of NetMind's billing+subscription API (余额 / 套餐 / 订阅 / 充值).
+    # Externalized per deployment the same way as arena_api_base: prod keeps the
+    # default (billing.api.netmind.ai); the dev stack sets
+    # BILLING_API_BASE=https://billing.api.protago-dev.com in its ops .env.
+    # The NarraNexus backend proxies the user's NetMind loginToken to this host
+    # (see backend/routes/billing.py) — we never store the token, only forward.
+    billing_api_base: str = "https://billing.api.netmind.ai"
+    billing_api_timeout_seconds: float = 10.0
+
     # ===== Speed Optimization =====
     # When True, skip the LLM instance decision call in Step 2 and always load
     # all capability modules directly.  This saves ~2.5-3s per turn since the

@@ -11,11 +11,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive, CreditCard } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
 import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
 import { QuotaPanel } from '@/components/settings/QuotaPanel';
+import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
@@ -342,6 +343,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'providers', label: 'LLM Providers', icon: Cpu },
+  { id: 'account', label: 'Account & Subscription', icon: CreditCard },
   { id: 'bundle', label: 'Bundle', icon: Package },
   { id: 'artifacts', label: 'Artifacts', icon: FolderArchive },
   { id: 'agents', label: 'Manage agents', icon: Users },
@@ -394,6 +396,7 @@ export default function SettingsPage() {
         <ScrollArea className="flex-1" viewportClassName="p-6">
           <div className="max-w-3xl">
             {active === 'providers' && <ProvidersSection />}
+            {active === 'account' && <NetmindAccountPanel />}
             {active === 'bundle' && <BundleContent />}
             {active === 'artifacts' && <ArtifactsContent />}
             {active === 'agents' && <ManageAgentsContent />}

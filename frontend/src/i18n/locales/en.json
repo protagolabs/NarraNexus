@@ -632,9 +632,23 @@
       "preferOff": "Currently: using your own provider when configured; free tier only applies when you have no provider set.",
       "exhaustedNote": "Free tier consumed. Add your own provider below, or uncheck the toggle above to route through your existing provider."
     },
+    "netmind": {
+      "title": "NetMind Account & Subscription",
+      "planPro": "Pro",
+      "loading": "Loading…",
+      "error": "Could not load subscription status. If your login expired, sign in again and refresh.",
+      "free": "Current plan: Free (not subscribed)",
+      "proActive": "Current plan: Pro · active",
+      "validUntil": "Valid until",
+      "autoRenewOn": "auto-renew on",
+      "proCancelled": "Cancelled · still active this period",
+      "expiresDowngrade": "Valid until {{date}}, then downgrades to Free",
+      "sandboxNotice": "NarraNexus sandbox service is free for now — you are not charged for sandbox usage. Billing will start later; we will notify you beforehand."
+    },
     "modal": {
       "title": "Settings",
       "navProviders": "LLM Providers",
+      "navBilling": "Account & Subscription",
       "navPrivacy": "Privacy",
       "slotAgentName": "Agent",
       "slotAgentDesc": "The \"brain\" of your AI agent. This model handles all conversations with users, makes decisions, and executes tasks. A more capable model here means smarter, more nuanced responses.",
