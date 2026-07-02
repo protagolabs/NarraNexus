@@ -323,6 +323,19 @@ class NarramessengerTrigger(ChannelTriggerBase):
             "first message anywhere wins" — it is "first sender in the
             room the owner themselves created wins."
 
+            The claim is attempted BEFORE ``super()._process_message``
+            (which owns the ``is_echo`` filter), so ``_should_claim_owner``
+            independently excludes ``message.sender_id ==
+            credential.matrix_user_id`` — i.e. the agent's own identity.
+            Without this, a platform that ever echoes the agent's own
+            outbound ``/chat/send`` back into the bind room as an
+            invocation would let the agent permanently claim itself as its
+            own owner (the claim is idempotent — it never fires again once
+            set). We deliberately duplicate the self-sender check here
+            rather than reordering to run after ``is_echo``: the claim
+            gate must be safe standing alone, since ``is_echo`` is base-
+            class behaviour this subclass doesn't control the timing of.
+
         Idempotent: only fires while ``owner_matrix_user_id`` is still
         empty. Once claimed it is persisted and never re-evaluated.
         """
@@ -335,12 +348,20 @@ class NarramessengerTrigger(ChannelTriggerBase):
     ) -> bool:
         """The claim gate — see ``_process_message`` docstring for the
         security model. Split out as a pure function so it can be tested
-        without exercising the full agent pipeline."""
+        without exercising the full agent pipeline.
+
+        ``message.sender_id != credential.matrix_user_id`` guards against
+        the agent claiming itself as owner from an echoed message (see
+        ``_process_message`` docstring) — this check is independent of,
+        and can't rely on, the base class's ``is_echo`` filter, since the
+        claim is attempted before that filter runs.
+        """
         return bool(
             not credential.owner_matrix_user_id
             and credential.bind_room_id
             and message.chat_id == credential.bind_room_id
             and message.sender_id
+            and message.sender_id != credential.matrix_user_id
         )
 
     async def _maybe_claim_owner(

@@ -42,6 +42,14 @@ abstract surface and the gateway poll loop.
   username lock (NarraMessenger's bind flow has no username to lock onto).
   Gate logic lives in `_should_claim_owner` (pure, easily testable); the
   write + in-memory mutation lives in `_maybe_claim_owner`.
+- **Claim gate excludes the agent's own identity independently of `is_echo`**
+  (2026-07-02, PR review follow-up). `_maybe_claim_owner` runs BEFORE
+  `super()._process_message` — i.e. before the base class's `is_echo` filter
+  ever executes — so `_should_claim_owner` also checks `message.sender_id !=
+  credential.matrix_user_id` itself. Without this, a platform that ever
+  echoes the agent's own `/chat/send` output back into the bind room as an
+  invocation would let the agent permanently claim itself as its own owner
+  (the claim never re-fires once `owner_matrix_user_id` is set).
 - **`load_conversation_history=False`.** History rides INLINE in each
   invocation (`context` / `group_context.history_messages`); the context
   builder reads it from `ParsedMessage.raw`, so the base's per-room history

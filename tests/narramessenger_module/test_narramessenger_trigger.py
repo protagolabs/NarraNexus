@@ -169,6 +169,67 @@ async def test_claim_owner_is_noop_without_bind_room_id(db_client):
     assert cred.owner_matrix_user_id == ""
 
 
+# ── SECURITY: agent self-echo must never be claimed as owner ────────────
+
+
+@pytest.mark.asyncio
+async def test_claim_owner_ignores_agents_own_echoed_message(db_client):
+    """If the platform ever echoes the agent's OWN outbound message back
+    into the bind room (sender_id == credential.matrix_user_id), that must
+    NEVER be claimed as owner — otherwise the agent could permanently lock
+    itself in as its own owner. ``_maybe_claim_owner`` runs BEFORE the base
+    class's ``is_echo`` filter (see ``_process_message`` override), so the
+    self-sender exclusion has to live in the claim gate itself, not rely on
+    the base pipeline having already filtered echoes out."""
+    mgr = NarramessengerCredentialManager(db_client)
+    cred = _cred_bound()  # matrix_user_id = "@agent-e7726996:matrix.netmind.chat"
+    await mgr.upsert(cred)
+
+    trigger = NarramessengerTrigger()
+    trigger._db = db_client
+
+    echoed_own_message = _dm(
+        room_id=cred.bind_room_id,
+        sender_id=cred.matrix_user_id,  # the agent's own identity
+        sender_name="Agent",
+    )
+
+    await trigger._maybe_claim_owner(cred, echoed_own_message)
+
+    assert cred.owner_matrix_user_id == ""
+    after = await mgr.get("agent_a")
+    assert after.owner_matrix_user_id == ""
+
+
+@pytest.mark.asyncio
+async def test_process_message_real_pipeline_never_claims_agent_echo(db_client):
+    """Exercises the REAL ``_process_message`` call order (not just
+    ``_maybe_claim_owner`` in isolation): register the credential as an
+    active subscriber so the base pipeline reaches its own ``is_echo``
+    filter, then feed it a message from the agent's own matrix_user_id in
+    the bind room. Both the owner-claim gate AND the base echo filter must
+    independently refuse to treat the agent as its own owner."""
+    mgr = NarramessengerCredentialManager(db_client)
+    cred = _cred_bound()
+    await mgr.upsert(cred)
+
+    trigger = NarramessengerTrigger()
+    trigger._db = db_client
+    trigger._subscriber_creds[cred.agent_id] = cred
+
+    echoed_own_message = _dm(
+        room_id=cred.bind_room_id,
+        sender_id=cred.matrix_user_id,
+        sender_name="Agent",
+    )
+
+    await trigger._process_message(cred, echoed_own_message)
+
+    assert cred.owner_matrix_user_id == ""
+    after = await mgr.get("agent_a")
+    assert after.owner_matrix_user_id == ""
+
+
 # ── End-to-end: claim → build_extra_data (X2/X3 regression) ─────────────
 
 
