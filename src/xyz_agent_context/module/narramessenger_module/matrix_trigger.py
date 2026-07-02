@@ -48,8 +48,10 @@ Design ref: [[Work/Narranexus/2026-07-02 NarraMessenger Matrix Adapter spec]]
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any, AsyncIterator, List, Literal, Optional
 
+import aiohttp
 from loguru import logger
 
 # matrix-nio is added as a hard dep in ``pyproject.toml`` (2026-07-02).
@@ -85,6 +87,22 @@ from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
 _ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
+
+
+@dataclass(frozen=True)
+class _AuthorizeVerdict:
+    """Result of the Narra ``authorize-event`` gate for one Matrix event.
+
+    - ``allow=True`` → proceed with normal handling (silent OR full).
+    - ``allow=False`` + ``notice_send=True`` → send ``notice_text`` back
+      as an ``m.notice`` (server-suggested denial message) then stop.
+    - ``allow=False`` + ``notice_send=False`` → drop silently. This is
+      the fail-closed default for HTTP errors, timeouts, invalid JSON,
+      and any ``allow != true`` response without a notice payload.
+    """
+    allow: bool
+    notice_send: bool = False
+    notice_text: Optional[str] = None
 
 
 class MatrixTrigger(ChannelTriggerBase):
@@ -157,6 +175,18 @@ class MatrixTrigger(ChannelTriggerBase):
     # can see it after the fact.
     SEND_MAX_ATTEMPTS = 3
     SEND_INITIAL_BACKOFF_MS = 500
+
+    # ── Narra authorize-event gate ───────────────────────────────────────
+    # Every Matrix event must clear ``POST /api/agent-runtime/matrix/
+    # authorize-event`` before we read history, write memory, invoke
+    # tools, call the model, or send a Matrix reply. Fail-closed on
+    # ANY non-2xx / invalid-JSON / timeout / ``allow != true`` — those
+    # all count as "do not process". 401 during a pending bind is
+    # expected fail-closed behaviour, NOT a signal to disable the
+    # credential (the base's is_permanent_auth_failure only fires on
+    # Matrix auth codes, not Narra ones).
+    AUTHORIZE_EVENT_TIMEOUT_SECONDS = 10.0
+    AUTHORIZE_EVENT_PATH = "/api/agent-runtime/matrix/authorize-event"
 
     def __init__(self, max_workers: int = 3):
         super().__init__(
@@ -440,31 +470,29 @@ class MatrixTrigger(ChannelTriggerBase):
     # Classification (DM / group_mention / group_silent)
     # ────────────────────────────────────────────────────────────────────
 
-    async def _classify(
+    def _is_mentioning_us(
         self,
-        client: AsyncClient,
         message: ParsedMessage,
         credential: NarramessengerCredential,
-    ) -> _ClassifyTarget:
-        """Route a message to the right handler.
+    ) -> bool:
+        """True if the message @-mentions our agent.
 
-        - Member count 2 → DM (1:1 owner-agent room, or any 2-person room)
-        - Member count >2 AND agent explicitly mentioned → group_mention
-        - Member count >2 AND agent NOT mentioned → group_silent
-        - Member count 0 (unknown) → group_silent (safe default: don't
-          auto-reply to a room we can't verify the shape of; the
-          silent-batch path still writes memory)
+        Split out from ``_classify`` in Commit 5 so the Narra
+        authorize-event gate can compute the ``mentioned`` payload flag
+        BEFORE classification runs. (Authorize-event must fire before we
+        do any of "read history / write memory / call tool / call model
+        / send reply" — see [[matrix_trigger.py]] Commit 5 note.)
 
-        Mention detection covers three surfaces:
-        1. MSC3952 ``m.mentions.user_ids`` — the modern intentional-
-           mention protocol. Preferred when present.
-        2. Raw MXID inline in body — some clients still do this.
-        3. ``@displayname`` inline — most human-typed mentions.
+        Mention detection covers three surfaces different clients emit:
+
+        1. MSC3952 intentional mentions — the modern protocol,
+           ``m.mentions.user_ids`` on the raw event content.
+        2. Raw MXID inline in body — some clients still do this
+           (``hey @agent-abc:h can you...``).
+        3. ``@displayname`` inline — most human-typed mentions
+           (``hey @Agent Bot ...``); requires the display name cache
+           to have been populated by prior member state events.
         """
-        count = await self._get_member_count(client, message.chat_id)
-        if count == 2:
-            return "dm"
-
         body = (message.content or "").strip()
         my_id = credential.matrix_user_id or ""
 
@@ -481,23 +509,53 @@ class MatrixTrigger(ChannelTriggerBase):
                 )
                 user_ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
                 if isinstance(user_ids, list) and my_id and my_id in user_ids:
-                    return "group_mention"
+                    return True
 
         # (2) Raw MXID in body.
         if my_id and my_id in body:
-            return "group_mention"
+            return True
 
         # (3) ``@displayname`` in body — walk the cache for our own name.
         my_names = {
             name
-            for (room, mxid), name in self._display_name_cache.items()
+            for (_room, mxid), name in self._display_name_cache.items()
             if mxid == my_id and name
         }
         for name in my_names:
             if f"@{name}" in body or (name and name in body.split()):
-                return "group_mention"
+                return True
 
-        return "group_silent"
+        return False
+
+    async def _classify(
+        self,
+        client: AsyncClient,
+        message: ParsedMessage,
+        credential: NarramessengerCredential,
+        *,
+        mentioned: Optional[bool] = None,
+    ) -> _ClassifyTarget:
+        """Route a message to the right handler.
+
+        - Member count 2 → DM (1:1 owner-agent room, or any 2-person room)
+        - Member count >2 AND agent explicitly mentioned → group_mention
+        - Member count >2 AND agent NOT mentioned → group_silent
+        - Member count 0 (unknown) → group_silent (safe default: don't
+          auto-reply to a room we can't verify the shape of; the
+          silent-batch path still writes memory)
+
+        Args:
+            mentioned: If already computed by the caller (e.g. the
+                authorize-event gate already needed it for its payload),
+                reuse rather than re-scanning the body. If None, we
+                compute via :meth:`_is_mentioning_us`.
+        """
+        count = await self._get_member_count(client, message.chat_id)
+        if count == 2:
+            return "dm"
+        if mentioned is None:
+            mentioned = self._is_mentioning_us(message, credential)
+        return "group_mention" if mentioned else "group_silent"
 
     # ────────────────────────────────────────────────────────────────────
     # Silent-batch buffer + debounce
@@ -585,6 +643,180 @@ class MatrixTrigger(ChannelTriggerBase):
             if task is not None and not task.done():
                 task.cancel()
             await self._flush_silent(key)
+
+    # ────────────────────────────────────────────────────────────────────
+    # Narra authorize-event gate + m.notice sender
+    # ────────────────────────────────────────────────────────────────────
+
+    def _room_member_mxids(self, room_id: str) -> list[str]:
+        """Return the joined-member MXIDs we've seen for ``room_id``.
+
+        Narra explicitly says it does NOT trust caller-supplied
+        membership as authority (see setup-guide.md `Direct Group
+        Context` section) — the server re-verifies. So this is a hint,
+        not a source of truth. Empty list is fine; the server will
+        still authorize based on its own view of the room.
+        """
+        return [
+            mxid
+            for (rid, mxid) in self._display_name_cache.keys()
+            if rid == room_id
+        ]
+
+    async def _authorize_event(
+        self,
+        credential: NarramessengerCredential,
+        message: ParsedMessage,
+        *,
+        mentioned: bool,
+    ) -> _AuthorizeVerdict:
+        """Call Narra's ``authorize-event`` gate for one Matrix event.
+
+        Contract (from NarraMessenger setup guide, ``Matrix Authorize
+        Event`` section):
+
+            POST {backend}/api/agent-runtime/matrix/authorize-event
+            Authorization: Bearer <Narra agent secret token>
+            {
+                roomId, senderMatrixUserId,
+                memberMatrixUserIds, mentioned
+            }
+
+        Response shape:
+            {"allow": bool, "notice": {"send": bool, "text": str}}
+
+        Fail-closed rules (all → allow=False):
+        - non-2xx status (401 during pending bind is EXPECTED here —
+          not a permanent auth failure, just wait for owner to
+          complete runtime-ready)
+        - transport error / timeout
+        - non-JSON body
+        - allow field missing or not exactly ``True``
+
+        Narra intentionally fails closed on unknown roomId, suspended
+        bind, guide contract mismatch. We honour that unconditionally.
+        """
+        base_url = getattr(credential, "backend_base_url", "") or ""
+        bearer = getattr(credential, "bearer_token", "") or ""
+        if not base_url or not bearer:
+            # Missing bind bearer means the credential row is not fully
+            # provisioned yet; fail-closed with no notice.
+            logger.warning(
+                f"[matrix:{credential.agent_id}] authorize-event skipped: "
+                f"missing backend_base_url or bearer_token; treating as deny"
+            )
+            return _AuthorizeVerdict(allow=False)
+
+        url = f"{base_url.rstrip('/')}{self.AUTHORIZE_EVENT_PATH}"
+        members = self._room_member_mxids(message.chat_id)
+        # Guarantee at least sender + our agent are present, even if
+        # cache is empty (fresh room, first event).
+        if credential.matrix_user_id and credential.matrix_user_id not in members:
+            members = members + [credential.matrix_user_id]
+        if message.sender_id and message.sender_id not in members:
+            members = members + [message.sender_id]
+
+        payload = {
+            "roomId": message.chat_id,
+            "senderMatrixUserId": message.sender_id,
+            "memberMatrixUserIds": members,
+            "mentioned": bool(mentioned),
+        }
+        headers = {
+            "Authorization": f"Bearer {bearer}",
+            "Content-Type": "application/json",
+        }
+        timeout = aiohttp.ClientTimeout(
+            total=self.AUTHORIZE_EVENT_TIMEOUT_SECONDS
+        )
+
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload, headers=headers) as resp:
+                    status = resp.status
+                    if status < 200 or status >= 300:
+                        # 401 during pending bind is expected; log at
+                        # info so it doesn't spam ERROR during the
+                        # bind-in-progress window.
+                        level = "info" if status == 401 else "warning"
+                        getattr(logger, level)(
+                            f"[matrix:{credential.agent_id}] authorize-event "
+                            f"non-2xx status={status} room={message.chat_id} "
+                            f"→ fail-closed deny"
+                        )
+                        return _AuthorizeVerdict(allow=False)
+                    try:
+                        data = await resp.json()
+                    except (aiohttp.ContentTypeError, ValueError) as e:
+                        logger.warning(
+                            f"[matrix:{credential.agent_id}] authorize-event "
+                            f"invalid JSON: {type(e).__name__}: {e} "
+                            f"→ fail-closed deny"
+                        )
+                        return _AuthorizeVerdict(allow=False)
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            logger.warning(
+                f"[matrix:{credential.agent_id}] authorize-event transport "
+                f"error: {type(e).__name__}: {e} → fail-closed deny"
+            )
+            return _AuthorizeVerdict(allow=False)
+
+        allow = data.get("allow") is True
+        notice = data.get("notice") if isinstance(data, dict) else None
+        notice_send = False
+        notice_text: Optional[str] = None
+        if isinstance(notice, dict):
+            notice_send = notice.get("send") is True
+            raw_text = notice.get("text")
+            if isinstance(raw_text, str) and raw_text.strip():
+                notice_text = raw_text
+        return _AuthorizeVerdict(
+            allow=allow,
+            notice_send=notice_send if not allow else False,
+            notice_text=notice_text if not allow else None,
+        )
+
+    async def _send_matrix_notice(
+        self,
+        credential: NarramessengerCredential,
+        room_id: str,
+        text: str,
+    ) -> None:
+        """Send Narra's server-suggested denial notice as ``m.notice``.
+
+        Per guide: this is the ONLY allowed side effect for a denied
+        event. Do NOT read history, write memory, invoke tools, call
+        the model, or send anything other than exactly this text as
+        ``m.notice``. If the send itself fails, we log — Narra told
+        us to deliver this text and we tried; audit it in the standard
+        transport_send_failed path so ops can see it, but do NOT
+        retry the underlying event handling.
+        """
+        key = self._subscriber_key(credential)
+        client = self._clients.get(key)
+        if client is None:
+            logger.warning(
+                f"[matrix:{credential.agent_id}] cannot send authorize "
+                f"notice: no active client for room={room_id}"
+            )
+            return
+        try:
+            resp = await client.room_send(
+                room_id=room_id,
+                message_type="m.room.message",
+                content={"msgtype": "m.notice", "body": text},
+            )
+            if not isinstance(resp, RoomSendResponse):
+                code = str(getattr(resp, "status_code", "unknown") or "unknown")
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] authorize-event "
+                    f"notice send failed: {code} (room={room_id})"
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"[matrix:{credential.agent_id}] authorize-event notice "
+                f"send raised: {type(e).__name__}: {e} (room={room_id})"
+            )
 
     # ────────────────────────────────────────────────────────────────────
     # Reply sender + failure notification
@@ -726,17 +958,22 @@ class MatrixTrigger(ChannelTriggerBase):
         credential: NarramessengerCredential,
         message: ParsedMessage,
     ) -> None:
-        """Fork by classification before running the base pipeline.
+        """Gate → classify → route.
 
-        - ``dm`` / ``group_mention``: base's full-agent path via ``super()``.
-          Reply sending is layered on by :meth:`_build_and_run_agent`
-          below.
-        - ``group_silent``: buffer for debounce; the flush eventually
-          calls :meth:`ChannelTriggerBase._build_and_run_agent_silent_batch`
-          (from Commit 4a) which runs a memory-only turn — no agent
-          reply — and writes N chat_history rows.
+        Pipeline (Commit 5):
 
-        Echo filtering happens IN the classifier's client lookup / in
+        1. Drop if no active client (sync torn down mid-flight).
+        2. Drop if echo (our own agent's message).
+        3. **Narra authorize-event gate**. Per NarraMessenger's Direct
+           Matrix contract, MUST call ``POST /api/agent-runtime/matrix/
+           authorize-event`` BEFORE reading history, writing memory,
+           invoking tools, calling the model, or sending a reply. Applies
+           to both silent AND full paths because silent still writes
+           memory. On deny + notice, forward the notice as ``m.notice``
+           then stop; on deny + no notice, drop silently.
+        4. Classify DM / group_mention / group_silent; route accordingly.
+
+        Echo filtering happens IN the classifier's client lookup /
         super(); duplicating it here would risk drift. The base already
         also handles unbound-credential and empty-content guards, so
         neither path re-implements them.
@@ -758,7 +995,34 @@ class MatrixTrigger(ChannelTriggerBase):
         if await self.is_echo(message, credential):
             return
 
-        target = await self._classify(client, message, credential)
+        # Compute mention flag once — authorize-event needs it as a
+        # payload hint, classify reuses it via the ``mentioned`` kwarg
+        # so we don't re-scan the body.
+        mentioned = self._is_mentioning_us(message, credential)
+
+        # Narra authorize-event gate. Fail-closed on anything that
+        # isn't an explicit allow. Silent path is NOT exempt: it
+        # writes chat_history + observations, both of which the guide
+        # explicitly lists as gated operations.
+        verdict = await self._authorize_event(
+            credential, message, mentioned=mentioned
+        )
+        if not verdict.allow:
+            if verdict.notice_send and verdict.notice_text:
+                await self._send_matrix_notice(
+                    credential, message.chat_id, verdict.notice_text
+                )
+            else:
+                logger.debug(
+                    f"[matrix:{credential.agent_id}] event denied silently "
+                    f"by authorize-event (room={message.chat_id}, "
+                    f"event={message.message_id})"
+                )
+            return
+
+        target = await self._classify(
+            client, message, credential, mentioned=mentioned
+        )
         if target == "group_silent":
             await self._enqueue_silent(credential, message)
             return

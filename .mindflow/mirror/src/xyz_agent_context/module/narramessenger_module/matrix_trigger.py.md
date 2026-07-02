@@ -4,6 +4,42 @@ stub: false
 last_verified: 2026-07-02
 ---
 
+## 2026-07-02 (Commit 5) — Narra authorize-event gate
+
+Every Matrix event must clear
+`POST {backend_base_url}/api/agent-runtime/matrix/authorize-event`
+BEFORE we read history, write memory, invoke tools, call the model,
+or send a Matrix reply. Applies to **both** silent and full paths —
+silent still writes chat_history + observations, which the guide
+explicitly lists as gated operations.
+
+Implementation (`_authorize_event` + `_send_matrix_notice`):
+
+- Uses the **Narra agent secret token** (`credential.bearer_token`), NOT
+  the Matrix access token. These are different secrets with
+  different scopes; the Matrix access token would return `401` from
+  this endpoint.
+- Fails **closed** on: non-2xx status, transport exception / timeout,
+  invalid JSON body, `allow` field missing or not exactly `True`, or
+  credentials missing `bearer_token` / `backend_base_url`. All → drop
+  the event without further processing.
+- 401 during pending bind is expected fail-closed behaviour (owner
+  has not called `runtime-ready` yet). Logged at INFO, not WARNING,
+  so it does not spam ERROR during the normal bind-in-progress
+  window. It is NOT wired into `is_permanent_auth_failure` — that
+  method only catches Matrix `M_*` codes, so a Narra 401 correctly
+  will not disable the Matrix credential.
+- On `allow != true` with `notice.send == true`, we forward exactly
+  `notice.text` back to the same room as `m.notice`. This is the only
+  side effect allowed for a denied event; no memory write, no tool
+  call, no model call, no other reply. If `notice.send != true`, we
+  drop silently.
+
+Mention detection was split out of `_classify` into
+`_is_mentioning_us` (Commit 5) so the gate can compute the
+`mentioned` payload flag BEFORE classification runs, and `_classify`
+reuses the value via a `mentioned=` kwarg — no double body scan.
+
 ## Why it exists
 
 Phase 1 replacement for the polling long-poll on the NarraMessenger
