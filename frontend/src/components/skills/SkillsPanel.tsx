@@ -223,7 +223,25 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
   const activeStudying = studyingSkillName
     ?? skills.find((s: { study_status?: string }) => s.study_status === 'studying')?.name
     ?? null;
-  useStudyStatus(activeStudying);
+  const { data: studyStatus } = useStudyStatus(activeStudying);
+
+  // Once the polled study job reaches a terminal state, clear the local
+  // "studying" flag so the spinner in SkillCard stops. Without this, a
+  // study triggered via `handleStudy` never clears `studyingSkillName` on
+  // success (only `onError` did), so the card kept spinning forever until
+  // a manual page reload reset the component state.
+  //
+  // Adjusted during render rather than in a useEffect (React's "adjusting
+  // state when a prop changes" pattern) — this avoids an extra
+  // commit-then-effect render pass, and keeps `seenStudyStatus` as the
+  // guard so the reset only fires once per status transition.
+  const [seenStudyStatus, setSeenStudyStatus] = useState<string | undefined>(undefined);
+  if (studyStatus?.study_status !== seenStudyStatus) {
+    setSeenStudyStatus(studyStatus?.study_status);
+    if (studyStatus?.study_status === 'completed' || studyStatus?.study_status === 'failed') {
+      setStudyingSkillName(null);
+    }
+  }
 
   // ── Mutations ────────────────────────────────────────────────────────────
   const installGithub = useInstallFromGithub();
