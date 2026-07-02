@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_credential_manager.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-07-02
 ---
 
 ## Why it exists
@@ -29,8 +29,10 @@ telegram credential manager.
 
 ## Upstream / downstream
 
-- **Used by**: the trigger (`list_active`), the module (`get`), the MCP tools,
-  and `scripts/seed_narramessenger_credential.py` (`upsert`).
+- **Used by**: the trigger (`list_active`, and — since 2026-07-02 —
+  `update_owner` from `NarramessengerTrigger._maybe_claim_owner`, the X2/X3
+  owner-auto-claim fix), the module (`get`), the MCP tools, and
+  `scripts/seed_narramessenger_credential.py` (`upsert`).
 - **Table**: `channel_narramessenger_credentials` (see `utils/schema_registry.py`).
 
 ## Gotchas

@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-07-02
 ---
 
 ## Why it exists
@@ -45,12 +45,24 @@ behaviour), and `build_extra_data` (trust signal + threaded ids). Mirrors
   cloud responder ("I am X's agent. X has full access to my account.").
 - **Trust signal**: `owner_matrix_user_id == channel_tag.sender_id` →
   `is_owner_interacting`. Same model as Slack/Telegram/Lark.
+- **`owner_matrix_user_id` is populated by the trigger, not this module**
+  (2026-07-02, X2/X3 fix). This module only reads it; it never writes it.
+  `do_bind` can't learn the binder's identity (see `_narramessenger_service.md`),
+  so `NarramessengerTrigger._maybe_claim_owner` claims the first sender in
+  the bind room as owner on the first inbound message and persists it via
+  `NarramessengerCredentialManager.update_owner`. Before this fix
+  `owner_matrix_user_id` was permanently empty post-bind, so
+  `is_owner_interacting` was always `False` and `_trust_block` always
+  rendered "No owner is registered" — the agent could never recognize its
+  own owner.
 
 ## Upstream / downstream
 
 - **Upstream**: `ChannelModuleBase` → `XYZBaseModule`.
 - **Registers**: sender (via base `__init__`), MessageSourceRegistry handler.
 - **Calls**: `NarramessengerClient.chat_send`, `NarramessengerCredentialManager`.
+- **Fed by**: `NarramessengerTrigger._maybe_claim_owner` (owner identity —
+  see that trigger's mirror doc for the write side of the X2/X3 fix).
 - **MCP**: port 7833, server name `narramessenger_module`.
 
 ## Gotchas

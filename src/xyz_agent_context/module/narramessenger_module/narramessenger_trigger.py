@@ -24,6 +24,10 @@ NarraMessenger-specific notes:
     same chain-of-thought-leak guard as Telegram/Slack).
   - **update_guide_required** poll payloads are acked programmatically; we do
     NOT execute the runtime self-update document.
+  - **Owner auto-claim**: ``do_bind`` never learns the binder's Matrix
+    identity (only the agent's own), so ``_process_message`` claims the
+    first sender in the bind room (``credential.bind_room_id``) as owner —
+    see ``_maybe_claim_owner`` below.
 """
 
 from __future__ import annotations
@@ -287,6 +291,78 @@ class NarramessengerTrigger(ChannelTriggerBase):
             message=message,
             credential=credential,
             agent_id=agent_id,
+        )
+
+    # ────────────────────────────────────────────────────────────────────
+    # Inbound preprocessing — owner auto-claim
+    # ────────────────────────────────────────────────────────────────────
+
+    async def _process_message(
+        self, credential: NarramessengerCredential, message: ParsedMessage
+    ) -> None:
+        """Override to auto-claim the owner identity before invoking AgentRuntime.
+
+        WHY this lives here (not in ``do_bind``):
+            Unlike Telegram, NarraMessenger's bind flow never surfaces the
+            *binder's* identity at all. ``POST /api/agent-gateway/connect``
+            (driven by ``_narramessenger_service.do_bind``) returns the
+            AGENT's own ``matrixUserId``/``principalId``/``roomId`` — there
+            is no equivalent of Telegram's ``owner_username`` lock to carry
+            forward from bind time. The one thing bind DOES capture is the
+            room the bind happened in (``bind_room_id``, from the connect
+            response's ``roomId``), so the first inbound DM in that exact
+            room is the only signal we have.
+
+        SECURITY MODEL:
+            The bind room is a 1:1 Matrix DM the platform creates for the
+            person running the bind flow — only they and the agent are
+            members. We claim ownership only when an inbound message's
+            ``chat_id`` equals ``credential.bind_room_id`` *exactly*; a
+            message from any other room (a different DM, or a group the
+            agent is later added to) never triggers a claim. This is NOT
+            "first message anywhere wins" — it is "first sender in the
+            room the owner themselves created wins."
+
+        Idempotent: only fires while ``owner_matrix_user_id`` is still
+        empty. Once claimed it is persisted and never re-evaluated.
+        """
+        await self._maybe_claim_owner(credential, message)
+        return await super()._process_message(credential, message)
+
+    @staticmethod
+    def _should_claim_owner(
+        credential: NarramessengerCredential, message: ParsedMessage
+    ) -> bool:
+        """The claim gate — see ``_process_message`` docstring for the
+        security model. Split out as a pure function so it can be tested
+        without exercising the full agent pipeline."""
+        return bool(
+            not credential.owner_matrix_user_id
+            and credential.bind_room_id
+            and message.chat_id == credential.bind_room_id
+            and message.sender_id
+        )
+
+    async def _maybe_claim_owner(
+        self, credential: NarramessengerCredential, message: ParsedMessage
+    ) -> None:
+        """Claim the sender of the first bind-room message as the owner.
+
+        Writes ``owner_matrix_user_id``/``owner_name`` to DB and mutates
+        the in-memory ``credential`` so THIS turn's ``build_extra_data``
+        (which re-fetches the credential from DB) already sees the claim —
+        same pattern as ``TelegramTrigger._maybe_resolve_owner``.
+        """
+        if not self._should_claim_owner(credential, message) or not self._db:
+            return
+        owner_name = message.sender_name or message.sender_id
+        mgr = NarramessengerCredentialManager(self._db)
+        await mgr.update_owner(credential.agent_id, message.sender_id, owner_name)
+        credential.owner_matrix_user_id = message.sender_id
+        credential.owner_name = owner_name
+        logger.info(
+            f"[narramessenger:{credential.agent_id}] auto-claimed owner "
+            f"{message.sender_id} from first bind-room message"
         )
 
     # ────────────────────────────────────────────────────────────────────

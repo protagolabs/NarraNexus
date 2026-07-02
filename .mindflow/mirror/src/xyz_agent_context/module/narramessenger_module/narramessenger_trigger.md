@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_trigger.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-07-02
 ---
 
 ## Why it exists
@@ -22,9 +22,26 @@ abstract surface and the gateway poll loop.
   so the base watcher disables the credential; transient errors propagate for
   backoff/reconnect.
 - **No authorize-event step.** Gateway invocations are already filtered +
-  authorized by the platform, so unlike a Direct-Matrix runtime we add nothing
-  to the base `_process_message` pipeline. This is why the base class needed no
-  change.
+  authorized by the platform, so unlike a Direct-Matrix runtime there's no
+  per-event permission check to add. (The base class itself needed no change;
+  see the owner auto-claim override below, which is a `_process_message`
+  override on THIS subclass, not a base-class change.)
+- **Owner auto-claim overrides `_process_message`** (2026-07-02, X2/X3 fix).
+  `do_bind` (`_narramessenger_service.py`) can only ever learn the AGENT's own
+  Matrix identity from the connect response (`matrixUserId`/`principalId`/
+  `roomId`) — never the binder's. So `owner_matrix_user_id` was permanently
+  empty after every bind, which made `NarramessengerModule.build_extra_data`
+  always compute `is_owner_interacting=False` (X2) and `_trust_block` always
+  render "No owner is registered" (X3) — the agent could never recognize its
+  own owner. The fix: the first message in the **bind room**
+  (`credential.bind_room_id`, captured from the connect response's `roomId`)
+  claims its sender as owner. The bind room is a 1:1 Matrix DM the platform
+  creates for whoever ran the bind flow, so "first sender in that exact room"
+  is equivalent to "the person who bound this agent" — same trust argument as
+  Telegram's `_maybe_resolve_owner`, just keyed on room identity instead of a
+  username lock (NarraMessenger's bind flow has no username to lock onto).
+  Gate logic lives in `_should_claim_owner` (pure, easily testable); the
+  write + in-memory mutation lives in `_maybe_claim_owner`.
 - **`load_conversation_history=False`.** History rides INLINE in each
   invocation (`context` / `group_context.history_messages`); the context
   builder reads it from `ParsedMessage.raw`, so the base's per-room history
@@ -39,8 +56,13 @@ abstract surface and the gateway poll loop.
 
 - **Upstream**: `ChannelTriggerBase`.
 - **Calls**: `NarramessengerClient.connect/poll/ack_update_guide`,
-  `NarramessengerCredentialManager.list_active`, `NarramessengerContextBuilder`.
+  `NarramessengerCredentialManager.list_active/update_owner`,
+  `NarramessengerContextBuilder`.
 - **Schemas read**: `ParsedMessage`, `ChatType`, `WorkingSource`.
+- **Feeds**: the owner claim written by `_maybe_claim_owner` is read back the
+  SAME turn by `NarramessengerModule.build_extra_data` (via
+  `get_credential` → fresh DB fetch) — see that module's mirror doc for the
+  `is_owner_interacting` / trust-block consumer side.
 
 ## Gotchas
 
@@ -51,3 +73,9 @@ abstract surface and the gateway poll loop.
 - Sender `display_name` in the payload is unreliable (often equals the
   matrix_user_id); `resolve_sender_name` deliberately returns the id rather
   than calling an API.
+- **Owner claim only fires once per agent, ever.** If a credential's
+  `bind_room_id` is empty (e.g. a row written by `scripts/seed_narramessenger_
+  credential.py` without going through `do_bind`) auto-claim silently never
+  fires — `_should_claim_owner` requires a non-empty `bind_room_id`. Seed
+  scripts / manual DB inserts that need an owner must call
+  `NarramessengerCredentialManager.update_owner` directly.
