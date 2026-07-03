@@ -82,6 +82,7 @@ import type {
   SubscribeResponse,
   BillingActionResponse,
   FeeInfoResponse,
+  RecordsResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1310,6 +1311,17 @@ class ApiClient {
     const token = this.getNetmindToken();
     if (!token) throw new Error('NetMind account not linked (no loginToken)');
     return this.request<FeeInfoResponse>('/api/billing/fee-info', {
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  // Recent financial records (consumption + recharge history). Optional
+  // direction filter: 'expense' | 'income'.
+  async getRecords(direction?: 'expense' | 'income'): Promise<RecordsResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    const qs = direction ? `?direction=${direction}` : '';
+    return this.request<RecordsResponse>(`/api/billing/records${qs}`, {
       headers: { 'X-Netmind-Token': token },
     });
   }

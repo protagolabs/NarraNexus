@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { platform } from '@/lib/platform';
 import { Button } from '@/components/ui';
-import type { FeeInfo, SubscriptionMe } from '@/types';
+import type { FeeInfo, FinanceRecord, SubscriptionMe } from '@/types';
 import { useRuntimeStore } from '@/stores/runtimeStore';
 
 type PanelState = 'loading' | 'error' | 'free' | 'pro_active' | 'pro_cancelled';
@@ -63,6 +63,7 @@ export function NetmindAccountPanel() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [fee, setFee] = useState<FeeInfo | null>(null);
   const [feeLoaded, setFeeLoaded] = useState(false);
+  const [records, setRecords] = useState<FinanceRecord[]>([]);
   const [useResult, setUseResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const mounted = useRef(true);
   // Synchronous locks: React state (busy/polling) updates are async/batched, so
@@ -77,9 +78,10 @@ export function NetmindAccountPanel() {
     // independently so a fee-info failure never blanks the subscription status
     // (and vice versa). Note: only a FETCH failure is isolated here — the
     // balance render itself must stay null-safe against a partial 200 payload.
-    const [subR, feeR] = await Promise.allSettled([
+    const [subR, feeR, recR] = await Promise.allSettled([
       api.getSubscription(),
       api.getFeeInfo(),
+      api.getRecords(),
     ]);
     if (!mounted.current) return;
     if (subR.status === 'fulfilled') {
@@ -91,6 +93,7 @@ export function NetmindAccountPanel() {
     }
     setFee(feeR.status === 'fulfilled' ? feeR.value.data ?? null : null);
     setFeeLoaded(true);
+    setRecords(recR.status === 'fulfilled' ? recR.value.data ?? [] : []);
   }, []);
 
   useEffect(() => {
@@ -380,6 +383,39 @@ export function NetmindAccountPanel() {
             {t('settings.netmind.balanceDegraded',
               'Per-period usage and the subscription-vs-balance breakdown are not available from NetMind yet.')}
           </div>
+        </div>
+      )}
+
+      {/* Module B — recent financial activity (consumption + recharge), G1 */}
+      {records.length > 0 && (
+        <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-sm">
+          <h4 className="font-medium text-[var(--text-primary)] mb-2">
+            {t('settings.netmind.activityTitle', 'Recent activity')}
+          </h4>
+          <ul className="space-y-1">
+            {records.slice(0, 10).map((r) => {
+              const income = r.direction === 'income';
+              return (
+                <li
+                  key={r.record_id}
+                  className="flex items-center justify-between text-xs text-[var(--text-secondary)]"
+                >
+                  <span className="text-[var(--text-tertiary)]">
+                    {(r.created_at || '').slice(0, 10)}
+                  </span>
+                  <span className="flex-1 px-2 truncate">{r.type || r.kind}</span>
+                  <span
+                    className={`font-mono ${income ? 'text-[var(--color-success)]' : 'text-[var(--text-primary)]'}`}
+                  >
+                    {income ? '+' : '−'}${r.amount} {r.currency}
+                  </span>
+                  <span className="ml-2 text-[var(--text-tertiary)] w-16 text-right">
+                    {r.status}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 

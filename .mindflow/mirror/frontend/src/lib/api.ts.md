@@ -197,3 +197,7 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 `useSubscription()`（POST /api/providers/use-subscription，X-Netmind-Token）。触发后端
 生成 key→建 netmind provider→绑槽（模块 F）。
+
+## 2026-07-03 (G1) — getRecords
+
+`getRecords(direction?)`（GET /api/billing/records，X-Netmind-Token）。消费/充值流水。

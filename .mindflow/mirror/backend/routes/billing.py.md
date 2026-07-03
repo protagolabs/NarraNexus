@@ -56,3 +56,8 @@ API，只加 HTTP 信封、cloud 门禁、错误映射。委托给 [[netmind_bil
 代理 `/v1/finance/user-fee-info`（余额/eligibility，模块 B）。同 _write 之外的读
 模式：cloud 门禁 + 本地身份 + netmind token；BillingAuthError→401、
 (BillingUpstreamError|BillingBusinessError)→502。
+
+## G1 增强（2026-07-03）— GET /records
+
+代理 `/v1/finance/records`（消费+充值流水，模块 B）。可选 `direction=expense|income`。
+解包 `{data, has_next}`。NetMind 上此接口后，模块 B 从「只有混算余额」升级到「有真实流水」。

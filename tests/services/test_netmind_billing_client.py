@@ -197,6 +197,27 @@ async def test_get_fee_info_403_maps_to_auth_error():
 
 
 @pytest.mark.asyncio
+async def test_get_records_sends_direction_and_returns_body():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["direction"] = request.url.params.get("direction")
+        seen["page_size"] = request.url.params.get("page_size")
+        return httpx.Response(200, json={
+            "success": True,
+            "data": [{"record_id": "r1", "direction": "expense", "amount": "0.10"}],
+            "has_next": False,
+        })
+
+    body = await _client_with(handler).get_records("jwt", direction="expense")
+    assert body["data"][0]["record_id"] == "r1"
+    assert seen["path"] == "/v1/finance/records"
+    assert seen["direction"] == "expense"
+    assert seen["page_size"] == "20"
+
+
+@pytest.mark.asyncio
 async def test_business_message_scrubs_token_shaped_value():
     # If the upstream echoes a JWT-shaped value under an allowed key, it must
     # NOT be passed through (defense against token/PII leak into client + logs).

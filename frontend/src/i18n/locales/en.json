@@ -661,6 +661,7 @@
       "deduct2": "2) Then your account balance (recharge / top-ups)",
       "deduct3": "3) When both run out, paid usage stops",
       "balanceDegraded": "Per-period usage and the subscription-vs-balance breakdown are not available from NetMind yet.",
+      "activityTitle": "Recent activity",
       "useTitle": "Use this account for NarraNexus",
       "useDesc": "Run agent conversations on your NetMind balance / subscription — no API key to paste.",
       "useSubscribeBtn": "Use this subscription",

@@ -1062,3 +1062,23 @@ export interface FeeInfo {
 export interface FeeInfoResponse extends ApiResponse {
   data?: FeeInfo;
 }
+
+// GET /api/billing/records -> financial transactions (module B activity, G1).
+// Amounts are strings. direction: "expense" (consumption) / "income".
+export interface FinanceRecord {
+  kind: string; // Payment / Recharge / Refund / Withdraw
+  record_id: string;
+  created_at: string; // ISO-8601 UTC
+  amount: string;
+  currency: string;
+  product?: string;
+  method?: string; // free_credit / stripe / card
+  status: string; // succeeded / pending / failed
+  type: string;
+  direction: string; // "expense" | "income"
+}
+
+export interface RecordsResponse extends ApiResponse {
+  data?: FinanceRecord[];
+  has_next?: boolean;
+}

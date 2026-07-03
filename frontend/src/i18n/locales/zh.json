@@ -660,6 +660,7 @@
       "deduct2": "② 再扣账户余额（充值 / 加油包）",
       "deduct3": "③ 两者用尽后停止付费消费",
       "balanceDegraded": "本周期已消耗、以及订阅额度/账户余额的拆分，NetMind 暂未提供。",
+      "activityTitle": "最近流水",
       "useTitle": "在 NarraNexus 中使用此账户",
       "useDesc": "用你的 NetMind 余额/订阅额度跑 Agent 对话——无需粘贴 API key。",
       "useSubscribeBtn": "使用此订阅",

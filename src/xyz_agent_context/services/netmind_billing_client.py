@@ -136,6 +136,25 @@ class NetmindBillingClient:
             "GET", "/v1/finance/user-fee-info", login_token=login_token
         )
 
+    async def get_records(
+        self,
+        login_token: str,
+        direction: Optional[str] = None,
+        page_size: int = 20,
+    ) -> Any:
+        """Financial records / transactions (finance domain).
+
+        Returns ``{success, data: [...], page, page_size, has_next}``. Optional
+        ``direction`` filter: ``expense`` (consumption) / ``income``
+        (recharge/refund); default returns all for the current month.
+        """
+        params: dict[str, str] = {"page_size": str(page_size)}
+        if direction:
+            params["direction"] = direction
+        return await self._request(
+            "GET", "/v1/finance/records", login_token=login_token, params=params
+        )
+
     async def subscribe(self, login_token: str) -> Any:
         """Start a Pro subscription. Returns ``{session_id, checkout_url}``.
 
@@ -171,6 +190,7 @@ class NetmindBillingClient:
         path: str,
         login_token: Optional[str] = None,
         json_body: Optional[dict] = None,
+        params: Optional[dict] = None,
     ) -> Any:
         """Issue one billing call, mapping transport/auth failures to the
         two-valued error contract. Never logs the loginToken."""
@@ -191,6 +211,7 @@ class NetmindBillingClient:
                     f"{self.base_url}{path}",
                     headers=headers,
                     json=json_body,
+                    params=params,
                 )
         except httpx.HTTPError as exc:
             raise BillingUpstreamError(

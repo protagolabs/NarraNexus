@@ -20,6 +20,7 @@ vi.mock('@/stores/runtimeStore', () => ({
 
 const mockGetSubscription = vi.fn();
 const mockGetFeeInfo = vi.fn();
+const mockGetRecords = vi.fn();
 const mockSubscribe = vi.fn();
 const mockCancel = vi.fn();
 const mockReactivate = vi.fn();
@@ -28,6 +29,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
     getFeeInfo: (...a: unknown[]) => mockGetFeeInfo(...a),
+    getRecords: (...a: unknown[]) => mockGetRecords(...a),
     subscribe: (...a: unknown[]) => mockSubscribe(...a),
     cancelSubscription: (...a: unknown[]) => mockCancel(...a),
     reactivateSubscription: (...a: unknown[]) => mockReactivate(...a),
@@ -45,6 +47,8 @@ beforeEach(() => {
   mockGetSubscription.mockReset();
   mockGetFeeInfo.mockReset();
   mockGetFeeInfo.mockRejectedValue(new Error('no fee')); // default: balance hidden unless a test opts in
+  mockGetRecords.mockReset();
+  mockGetRecords.mockRejectedValue(new Error('no records')); // default: activity hidden
   mockSubscribe.mockReset();
   mockCancel.mockReset();
   mockReactivate.mockReset();
@@ -135,6 +139,29 @@ test('S2: cancel confirm dismissed → no api call', async () => {
   const btn = await screen.findByRole('button', { name: /Cancel subscription/ });
   fireEvent.click(btn);
   expect(mockCancel).not.toHaveBeenCalled();
+});
+
+// --- Phase 2 enhancement: recent activity -----------------------------------
+
+test('activity: renders recent records when available', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockGetRecords.mockResolvedValue({
+    success: true,
+    data: [
+      { record_id: 'r1', kind: 'Recharge', type: 'Recharge', direction: 'income', amount: '10.00', currency: 'USD', status: 'succeeded', created_at: '2026-07-03T03:48:35+00:00' },
+    ],
+  });
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText(/Recent activity/)).toBeTruthy();
+  expect(screen.getByText(/\+\$10\.00 USD/)).toBeTruthy();
+});
+
+test('activity: hidden when records fetch fails', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockGetRecords.mockRejectedValue(new Error('502'));
+  render(<NetmindAccountPanel />);
+  await screen.findByText(/Free \(not subscribed\)/);
+  expect(screen.queryByText(/Recent activity/)).toBeNull();
 });
 
 // --- Phase 5: use subscription ----------------------------------------------

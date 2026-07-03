@@ -154,6 +154,32 @@ async def get_fee_info(request: Request):
     return {"success": True, "data": data}
 
 
+@router.get("/records")
+async def get_records(request: Request, direction: str | None = None):
+    """Financial records / transactions (module B — consumption + recharge
+    history). Resolves gap G1: NetMind now exposes per-record ledger, so the
+    balance panel can show real activity, not just a mixed balance snapshot.
+
+    ``direction``: expense (consumption) / income (recharge/refund); default all.
+    """
+    _require_cloud()
+    await resolve_current_user_id(request)
+    token = _require_netmind_token(request)
+    try:
+        body = await _client().get_records(token, direction=direction)
+    except BillingAuthError:
+        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+    except (BillingUpstreamError, BillingBusinessError) as exc:
+        logger.error(f"[billing] get_records upstream failure: {exc}")
+        raise HTTPException(status_code=502, detail="Billing service unavailable")
+    records = body.get("data") if isinstance(body, dict) else None
+    return {
+        "success": True,
+        "data": records if isinstance(records, list) else [],
+        "has_next": bool(body.get("has_next")) if isinstance(body, dict) else False,
+    }
+
+
 async def _write_action(request: Request, action: Literal["subscribe", "cancel", "reactivate"]):
     """Shared harness for the subscription write routes (subscribe / cancel /
     reactivate): cloud gate + local identity + NetMind token, then dispatch to

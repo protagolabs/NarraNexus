@@ -45,7 +45,7 @@ def make_client(monkeypatch):
     return _make
 
 
-def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, action=None, raise_exc=None):
+def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, records=None, action=None, raise_exc=None):
     class _Stub:
         async def get_plans(self):
             if raise_exc:
@@ -61,6 +61,11 @@ def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, action=None, rai
             if raise_exc:
                 raise raise_exc
             return fee if fee is not None else {"eligible": True, "metrics": {}}
+
+        async def get_records(self, token, direction=None):
+            if raise_exc:
+                raise raise_exc
+            return records if records is not None else {"data": [], "has_next": False}
 
         async def subscribe(self, token):
             if raise_exc:
@@ -179,6 +184,34 @@ def test_fee_info_404_in_local_mode(make_client, monkeypatch):
     client = make_client(cloud=False)
     r = client.get("/api/billing/fee-info", headers={**USER, "X-Netmind-Token": "jwt"})
     assert r.status_code == 404
+
+
+# --- Phase 2 enhancement: records (activity) -------------------------------
+
+def test_records_ok(make_client, monkeypatch):
+    _stub_client(monkeypatch, records={
+        "data": [{"record_id": "r1", "direction": "expense", "amount": "0.10"}],
+        "has_next": True,
+    })
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/records", headers={**USER, "X-Netmind-Token": "jwt"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["data"][0]["record_id"] == "r1"
+    assert body["has_next"] is True
+
+
+def test_records_auth_error_401(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingAuthError("bad"))
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/records", headers={**USER, "X-Netmind-Token": "jwt"})
+    assert r.status_code == 401
+
+
+def test_records_missing_token_401(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/records", headers=USER).status_code == 401
 
 
 # --- Phase 3: subscribe / cancel / reactivate ------------------------------
