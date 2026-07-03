@@ -109,6 +109,19 @@
       "statusRunning": "running",
       "statusFailed": "failed",
       "statusPending": "pending"
+    },
+    "inner": {
+      "viewLoop": "view what it did",
+      "loading": "Loading…",
+      "empty": "No execution steps for this turn",
+      "loadFailed": "Couldn't load the details",
+      "source": {
+        "job": "Scheduled job",
+        "collaboration": "Collaboration",
+        "im": "Message",
+        "skill": "Skill study",
+        "activity": "Background activity"
+      }
     }
   },
   "awareness": {

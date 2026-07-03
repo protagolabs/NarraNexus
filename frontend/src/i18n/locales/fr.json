@@ -109,6 +109,19 @@
       "statusRunning": "en cours",
       "statusFailed": "échoué",
       "statusPending": "en attente"
+    },
+    "inner": {
+      "viewLoop": "Voir ce qu'il a fait",
+      "loading": "Chargement…",
+      "empty": "Aucune étape d'exécution pour ce tour",
+      "loadFailed": "Impossible de charger les détails",
+      "source": {
+        "job": "Tâche planifiée",
+        "collaboration": "Collaboration",
+        "im": "Message",
+        "skill": "Apprentissage de compétence",
+        "activity": "Activité en arrière-plan"
+      }
     }
   },
   "awareness": {

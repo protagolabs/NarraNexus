@@ -30,6 +30,7 @@ import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { getChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
+import { InnerThoughtCard } from './InnerThoughtCard';
 import { TurnTimeline } from './TurnTimeline';
 import { ExecutionPopover } from './ExecutionPopover';
 import { Composer, type ComposerHandle } from './Composer';
@@ -952,18 +953,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           // Route by tab: each tab renders only its own items.
           if (chatTab === 'inner' ? !isInner : isInner) return null;
 
-          // Activity record → small centered text (Inner Thoughts only).
+          // Activity record → source-labelled, expandable card (Inner Thoughts only).
           if (isActivity) {
-            return (
-              <div key={item.id} className="flex justify-center py-1">
-                <span className="text-[10px] text-[var(--text-tertiary)] italic">
-                  {item.content}
-                  <span className="ml-2 opacity-60">
-                    {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </span>
-              </div>
-            );
+            return <InnerThoughtCard key={item.id} item={item} agentId={agentId} />;
           }
 
           // Full message bubble (Conversation: owner↔agent chat; Inner Thoughts:
