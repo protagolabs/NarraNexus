@@ -160,6 +160,14 @@ class ChannelDedupStore:
             with self._memory_lock:
                 seen_at = self._fingerprint_cache.get(fp_key)
                 if seen_at is not None and now - seen_at < self._content_window_seconds:
+                    # SLIDING window: a hit refreshes the stamp. With a fixed
+                    # window shorter than the worker timeout (30 min), the
+                    # platform's SECOND re-dispatch of a long turn would land
+                    # past the original stamp and be accepted — X1 again. As
+                    # long as re-dispatch intervals stay below the window, a
+                    # turn of any length stays covered (铁律 #14 makes long
+                    # turns first-class, so the guard must scale with them).
+                    self._fingerprint_cache[fp_key] = now
                     return {"accept": False, "layer": "content_dedup"}
                 self._fingerprint_cache[fp_key] = now
                 cutoff_ts = now - self._content_window_seconds

@@ -44,6 +44,29 @@ async def test_fingerprint_expires_after_window(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_window_slides_on_hit(monkeypatch):
+    """A re-dispatch HIT must refresh the fingerprint timestamp (sliding
+    window). With a fixed window shorter than the 30-min worker timeout, a
+    second re-dispatch at t~30 would land past the original stamp and be
+    accepted — exactly X1 again. As long as re-dispatch intervals stay
+    below the window, a turn of ANY length stays covered."""
+    store = ChannelDedupStore("testchan", repo=None, content_window_seconds=60)
+    real_time = time.time
+    base = real_time()
+    now = {"t": base}
+    monkeypatch.setattr(time, "time", lambda: now["t"])
+
+    assert (await store.classify("inv_A", 0, agent_id="ag", content_fingerprint="fp1"))["accept"] is True
+    now["t"] = base + 45  # first re-dispatch inside the window -> dropped
+    assert (await store.classify("inv_B", 0, agent_id="ag", content_fingerprint="fp1"))["accept"] is False
+    now["t"] = base + 90  # 90 > 60 past the ORIGINAL stamp, but only 45 past the refreshed one
+    hit = await store.classify("inv_C", 0, agent_id="ag", content_fingerprint="fp1")
+    assert hit["accept"] is False, "hit must slide the window, not expire from the first stamp"
+    now["t"] = base + 200  # quiet past a full window since the LAST sighting -> expires
+    assert (await store.classify("inv_D", 0, agent_id="ag", content_fingerprint="fp1"))["accept"] is True
+
+
+@pytest.mark.asyncio
 async def test_disabled_by_default_and_when_window_zero():
     store = ChannelDedupStore("testchan", repo=None)
     a = await store.classify("inv_A", 0, agent_id="ag", content_fingerprint="fp1")
