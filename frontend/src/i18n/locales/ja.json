@@ -858,6 +858,12 @@
       "roomsSub": "チャンネル",
       "read": "既読",
       "readSub": "率"
+    },
+    "busFailures": {
+      "title": "配信に失敗したメッセージ",
+      "retry": "再試行",
+      "unknownError": "不明なエラー",
+      "attempts": "{{count}} 回失敗"
     }
   },
   "help": {

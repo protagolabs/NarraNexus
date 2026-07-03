@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/inbox/AgentInboxPanel.tsx
-last_verified: 2026-06-10
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — hosts BusFailuresSection (upstream #52)
+
+The panel body now renders `<BusFailuresSection agentId>` above the room
+list — the recovery surface for messages the agent permanently gave up
+on. Self-hiding when there are no parked failures.
 
 ## 2026-06-10 — embedded mode
 

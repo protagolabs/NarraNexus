@@ -858,6 +858,12 @@
       "roomsSub": "频道",
       "read": "已读",
       "readSub": "比率"
+    },
+    "busFailures": {
+      "title": "投递失败的消息",
+      "retry": "重试",
+      "unknownError": "未知错误",
+      "attempts": "已失败 {{count}} 次"
     }
   },
   "help": {

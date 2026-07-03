@@ -859,6 +859,12 @@
       "roomsSub": "Canales",
       "read": "Leídos",
       "readSub": "Tasa"
+    },
+    "busFailures": {
+      "title": "Mensajes no entregados",
+      "retry": "Reintentar",
+      "unknownError": "Error desconocido",
+      "attempts": "{{count}} intentos fallidos"
     }
   },
   "help": {

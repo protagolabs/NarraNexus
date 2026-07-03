@@ -859,6 +859,12 @@
       "roomsSub": "Channels",
       "read": "Read",
       "readSub": "Rate"
+    },
+    "busFailures": {
+      "title": "Undelivered messages",
+      "retry": "Retry",
+      "unknownError": "Unknown error",
+      "attempts": "{{count}} failed attempts"
     }
   },
   "help": {

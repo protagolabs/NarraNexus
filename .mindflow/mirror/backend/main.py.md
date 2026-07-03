@@ -1,8 +1,12 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-06-22
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — notices router mounted at /api/notices
+
+See backend/routes/notices.py.md.
 
 ## 2026-06-22 — narramessenger_router 注册
 

@@ -296,6 +296,11 @@ QUOTA_BYPASS_PREFIXES = (
     # provider) gets a 402 from the resolver instead of an actionable
     # `{available: false, reason: "free_tier_opted_out"}` response.
     "/api/transcription",
+    # Notices are pure metadata (system notifications + mark-read) with no
+    # LLM cost. The primary notice class is "your agent's provider is
+    # broken / quota exhausted" — exactly the users the quota gate would
+    # otherwise 402 on the mark-read POST.
+    "/api/notices",
 )
 
 # HTTP methods that never spend LLM quota. Safe/read-only requests must
