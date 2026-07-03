@@ -31,6 +31,7 @@ import asyncio
 import base64
 import os
 import random
+import uuid
 from typing import Any, Optional
 
 import httpx
@@ -92,16 +93,10 @@ def extract_text(msg: dict) -> str:
     return "".join(parts)
 
 
-def sanitize_bmp(text: str) -> str:
-    """Strip astral-plane characters (non-BMP, 4-byte UTF-8) from a reply.
-
-    The iLink gateway accepts messages containing them with ``ret=0`` but
-    never delivers (confirmed on dev 2026-07-03: two 🍉-bearing replies with
-    correct context_tokens vanished; the BMP-only reply in the same session
-    delivered). Delivered-without-the-emoji beats silently-dropped. BMP
-    symbols (～ ☺ “”) are untouched.
-    """
-    return "".join(ch for ch in text if ord(ch) <= 0xFFFF)
+# NOTE (2026-07-03): a sanitize_bmp() emoji strip briefly lived here — the
+# "non-BMP chars kill delivery" theory was a coincidental correlation. The
+# real drop rule was the missing per-message client_id (see send_message);
+# with it present, astral-plane emoji deliver and render fine (probe P11).
 
 
 # ---------------------------------------------------------------------------
@@ -213,29 +208,27 @@ class WeChatSDKClient:
         out-of-order reply while still returning ``ok=False``.
         """
         client = self._ensure_client()
-        sanitized = sanitize_bmp(text)
-        if sanitized != text:
-            logger.warning(
-                f"[wechat send] stripped {len(text) - len(sanitized)} non-BMP "
-                f"char(s) from reply (gateway drops such messages silently)"
-            )
-        if not sanitized.strip():
-            logger.warning(
-                "[wechat send] reply empty after non-BMP strip — nothing to send"
-            )
-            return False
-        text = sanitized
         ok = True
         for start in range(0, len(text), MSG_CHUNK):
             chunk = text[start:start + MSG_CHUNK]
             body = {
                 "msg": {
+                    "from_user_id": "",
                     "to_user_id": to_user_id,
+                    # Server-side dedup key. MUST be unique per message: with it
+                    # missing, every send shares the same empty key, so the
+                    # first message of a login session delivers and every later
+                    # one is silently dropped as a duplicate (HTTP 200, empty
+                    # body — no error surface). 2026-07-03 incident, reproduced
+                    # across two QR sessions. Stable across the retry below on
+                    # purpose: a retry IS the same message.
+                    "client_id": uuid.uuid4().hex,
                     "message_type": 2,
                     "message_state": 2,
                     "context_token": context_token,
                     "item_list": [{"type": 1, "text_item": {"text": chunk}}],
-                }
+                },
+                "base_info": {"channel_version": CHANNEL_VERSION},
             }
             for attempt in range(2):
                 try:

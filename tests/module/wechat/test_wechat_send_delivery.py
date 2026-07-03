@@ -2,21 +2,22 @@
 @file_name: test_wechat_send_delivery.py
 @author: Bin Liang
 @date: 2026-07-03
-@description: Delivery-path hardening for wechat_send after the 2026-07-03
-              silent-drop incident.
+@description: Delivery-path contract for wechat_send after the 2026-07-03
+              silent-drop incident (root cause: missing client_id).
 
-The iLink gateway returns ``ret=0`` ("ok") even for messages it never
-delivers. Two confirmed drop classes on dev (agent_0ed73ae78099):
-  - replies containing non-BMP characters (4-byte UTF-8, e.g. 🍉) — accepted,
-    never delivered; the BMP-only reply in the same session delivered fine;
-  - sends with a fabricated context_token — also "ok".
+The iLink gateway returns HTTP 200 + empty body for every send, delivered or
+not. The real drop rule (proven by controlled probes across two QR sessions):
+``client_id`` is the server-side dedup key — without it every send shares one
+empty key, so the FIRST message of a login session delivers and every later
+one is silently swallowed as a duplicate. The early "emoji kills delivery"
+theory was a coincidence and is reverted: with client_id present, non-BMP
+emoji deliver and render fine.
 
-Hardening under test here:
-  1. ``sanitize_bmp`` strips non-BMP chars before send (delivered-without-
-     the-emoji beats silently-dropped) and ``send_message`` applies it.
-  2. The reply prompt warns the agent off emoji.
-  3. Send failures are no longer swallowed silently — ``send_message`` logs
-     per-chunk failures.
+Contract under test here:
+  1. Payload carries a per-message unique ``client_id``, ``from_user_id``
+     and ``base_info.channel_version`` (protocol shape).
+  2. Text — emoji included — passes through unmodified.
+  3. Send failures are logged, never silently swallowed.
 """
 
 import httpx
@@ -30,22 +31,12 @@ from xyz_agent_context.module.wechat_module._wechat_credential_manager import (
 )
 from xyz_agent_context.module.wechat_module.wechat_sdk_client import (
     WeChatSDKClient,
-    sanitize_bmp,
 )
 from xyz_agent_context.schema.parsed_message import (
     ChatType,
     MessageContentType,
     ParsedMessage,
 )
-
-
-def test_sanitize_bmp_strips_non_bmp_keeps_bmp():
-    # 🍉 (U+1F349) is non-BMP; ～！“” are BMP and must survive.
-    assert sanitize_bmp("是手滑了吧 🍉") == "是手滑了吧 "
-    assert sanitize_bmp("大西瓜你好！我是小冰～") == "大西瓜你好！我是小冰～"
-    assert sanitize_bmp("") == ""
-    # BMP emoji (U+263A) survives; only astral-plane chars are dropped.
-    assert sanitize_bmp("hi ☺ there 🎉") == "hi ☺ there "
 
 
 def _client_capturing(bodies: list) -> WeChatSDKClient:
@@ -61,27 +52,57 @@ def _client_capturing(bodies: list) -> WeChatSDKClient:
 
 
 @pytest.mark.asyncio
-async def test_send_message_strips_non_bmp_from_wire_payload():
+async def test_send_message_preserves_emoji_on_the_wire():
+    """Emoji (astral-plane included) must pass through untouched — with
+    client_id in the payload they deliver and render fine (P11 probe,
+    2026-07-03). The earlier non-BMP strip was a mis-fix from a
+    coincidental correlation and is reverted."""
     bodies: list = []
     c = _client_capturing(bodies)
     ok = await c.send_message("u@im.wechat", "tokctx", "手滑了吧 🍉!")
     await c.aclose()
     assert ok is True
-    assert len(bodies) == 1
-    sent_text = bodies[0]["msg"]["item_list"][0]["text_item"]["text"]
-    assert "🍉" not in sent_text
-    assert sent_text == "手滑了吧 !"
+    assert bodies[0]["msg"]["item_list"][0]["text_item"]["text"] == "手滑了吧 🍉!"
 
 
 @pytest.mark.asyncio
-async def test_send_message_all_non_bmp_returns_false_without_posting():
-    """A reply that sanitises to empty must not fire an empty-text send."""
+async def test_send_message_payload_has_client_id_and_base_info():
+    """The iLink protocol payload requires a client-unique ``client_id`` and a
+    ``base_info.channel_version`` block. Without client_id the server dedupes
+    every send onto the same (empty) key: the FIRST message of a login session
+    delivers and every later one is silently swallowed as a duplicate
+    (HTTP 200, empty body) — the 2026-07-03 one-reply-per-session incident,
+    reproduced across two QR sessions."""
     bodies: list = []
     c = _client_capturing(bodies)
-    ok = await c.send_message("u@im.wechat", "tokctx", "🍉🎉")
+    assert await c.send_message("u@im.wechat", "tok1", "first") is True
+    assert await c.send_message("u@im.wechat", "tok2", "second") is True
     await c.aclose()
-    assert ok is False
-    assert bodies == []
+    assert len(bodies) == 2
+    for body in bodies:
+        assert body["base_info"]["channel_version"], "base_info.channel_version missing"
+        assert body["msg"]["from_user_id"] == ""
+        assert body["msg"]["client_id"], "client_id missing"
+    assert bodies[0]["msg"]["client_id"] != bodies[1]["msg"]["client_id"], (
+        "client_id must be unique per message — a shared key makes the server "
+        "dedupe-drop every send after the first"
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_message_chunks_get_distinct_client_ids():
+    """Chunked long replies are distinct messages — each chunk needs its own
+    client_id or chunks 2+ vanish the same way."""
+    bodies: list = []
+    c = _client_capturing(bodies)
+    from xyz_agent_context.module.wechat_module import wechat_sdk_client as sdk
+
+    long_text = "x" * (sdk.MSG_CHUNK + 10)
+    assert await c.send_message("u@im.wechat", "tok", long_text) is True
+    await c.aclose()
+    assert len(bodies) == 2
+    ids = [b["msg"]["client_id"] for b in bodies]
+    assert len(set(ids)) == 2
 
 
 @pytest.mark.asyncio
@@ -115,7 +136,7 @@ async def test_send_message_logs_chunk_failure():
 
 
 @pytest.mark.asyncio
-async def test_reply_instruction_warns_against_emoji():
+async def test_reply_instruction_does_not_ban_emoji():
     msg = ParsedMessage(
         message_id="ctx1",
         chat_id="u@im.wechat",
@@ -132,4 +153,6 @@ async def test_reply_instruction_warns_against_emoji():
     info = await WeChatContextBuilder(
         message=msg, credential=cred, agent_id="agent_x"
     ).get_message_info()
-    assert "emoji" in info["reply_instruction"].lower()
+    # The emoji ban was removed with the mis-fix revert — the instruction
+    # must not steer the agent away from emoji anymore.
+    assert "emoji" not in info["reply_instruction"].lower()
