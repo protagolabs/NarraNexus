@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_credential_manager.py
 stub: false
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 (review fix) — dead `update_matrix_credentials` deleted
+
+PR #60 review #5. The method was never called anywhere — the real bind path
+writes creds via `upsert(...)`. Keeping a second, divergent token-write path
+risked silent drift (铁律 #8/#5), so it's deleted. `upsert` is the single
+credential write path; `update_since_token` / `update_device_id` remain the
+narrow single-column updaters.
 
 ## 2026-07-02 (Commit 7) — `list_active_by_mode` removed
 

@@ -76,6 +76,7 @@ from nio import (
     RoomMessageText,
     RoomSendError,
     RoomSendResponse,
+    SyncResponse,
 )
 
 from xyz_agent_context.channel.channel_audit_events import (
@@ -653,15 +654,17 @@ class MatrixTrigger(ChannelTriggerBase):
         if my_id and my_id in body:
             return True
 
-        # (3) ``@displayname`` in body — walk the cache for our own name.
-        my_names = {
-            name
-            for (_room, mxid), name in self._display_name_cache.items()
-            if mxid == my_id and name
-        }
-        for name in my_names:
-            if f"@{name}" in body or (name and name in body.split()):
-                return True
+        # (3) ``@displayname`` in body — ROOM-SCOPED, ``@``-prefix ONLY.
+        #     Use only THIS room's cached display name (a name from another
+        #     room must not leak in), and require the explicit ``@name`` form.
+        #     Bare-word matching ("Agent"/"Bot" as a plain word) is
+        #     intentionally NOT accepted — it false-fired group_mention on
+        #     sentences like "I called the agent" → a full agent run + group
+        #     reply. The three legitimate mention surfaces are @-prefix / raw
+        #     MXID (2) / MSC3952 (1).
+        my_name = self._display_name_cache.get((message.chat_id, my_id), "")
+        if my_name and f"@{my_name}" in body:
+            return True
 
         return False
 
@@ -736,8 +739,24 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"(room={message.chat_id}, event={message.message_id}, "
                 f"buf_size={size}, debounce={self.SILENT_DEBOUNCE_SECONDS}s)"
             )
-            self._silent_flush_tasks[key] = asyncio.create_task(
-                self._debounce_flush(key)
+            task = asyncio.create_task(self._debounce_flush(key))
+            # Fire-and-forget mine (incident lesson #2): without a done
+            # callback, an exception escaping _debounce_flush → _flush_silent
+            # is only surfaced as a GC "task exception was never retrieved"
+            # warning. Attach a logger so it's an ERROR we can act on.
+            task.add_done_callback(self._on_flush_task_done)
+            self._silent_flush_tasks[key] = task
+
+    @staticmethod
+    def _on_flush_task_done(task: "asyncio.Task") -> None:
+        """Done-callback for the debounce flush task — surface any crash."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                f"[matrix] silent-debounce flush task crashed: "
+                f"{type(exc).__name__}: {exc}"
             )
 
     async def _debounce_flush(self, key: tuple[str, str]) -> None:
@@ -1481,7 +1500,7 @@ class MatrixTrigger(ChannelTriggerBase):
         """
         if state.send_failure or not state.placeholder_event_id:
             return
-        now_ms = asyncio.get_event_loop().time() * 1000
+        now_ms = asyncio.get_running_loop().time() * 1000
         if now_ms - state.last_progress_ms < self.STREAM_PROGRESS_MIN_INTERVAL_MS:
             return
         try:
@@ -1678,10 +1697,10 @@ class MatrixTrigger(ChannelTriggerBase):
         key = self._subscriber_key(credential)
 
         if not homeserver or not user_id or not access_token:
-            # Guard against a mode='matrix' row that never had
-            # update_matrix_credentials() run on it (e.g. a stale
-            # pre-Matrix bind that was migrated to `connection_mode='matrix'`
-            # without a real access token). Explicitly disable the
+            # Guard against a mode='matrix' row whose bind never wrote real
+            # matrix creds (e.g. a stale pre-Matrix bind migrated to
+            # `connection_mode='matrix'` without an access token). Explicitly
+            # disable the
             # credential BEFORE raising — the base's `_subscribe_loop`
             # backoff loop otherwise treats ValueError as transient and
             # retries every 120s forever, generating an ERROR + stack
@@ -1718,7 +1737,15 @@ class MatrixTrigger(ChannelTriggerBase):
         # server returns.
         config = AsyncClientConfig(
             request_timeout=(self.SYNC_TIMEOUT_MS / 1000) + 10,
-            max_timeouts=0,  # 0 = never give up; base loop owns retry
+            # max_timeouts=1: on a transport error nio raises after ONE
+            # attempt instead of retrying internally forever. 0 means "retry
+            # transport errors internally, never return" — which would make
+            # client.sync() a black hole: the base's backoff/reconnect (and
+            # its per-subscriber transport_disconnected/backoff/connected
+            # audit — the L2 liveness signal) would NEVER run, so a wedged
+            # connection zombies silently (incident lesson #1/#4). With 1,
+            # the base loop owns retry and the audit trail stays honest.
+            max_timeouts=1,
         )
 
         client = AsyncClient(
@@ -1761,6 +1788,23 @@ class MatrixTrigger(ChannelTriggerBase):
                     full_state=False,
                 )
                 is_first_sync = False
+
+                # A Matrix-level failure (revoked/expired token, server
+                # error) comes back as a SyncError object, NOT an exception —
+                # nio only raises on transport errors. Without this guard the
+                # code below reads the error as a success with empty rooms and
+                # loops forever, so a revoked token would never reach
+                # is_permanent_auth_failure → disable_credential (it'd just
+                # 120s-reconnect indefinitely). Raise with the errcode in the
+                # message so the base's _subscribe_loop classifies it: an auth
+                # code (M_UNKNOWN_TOKEN / M_MISSING_TOKEN / M_FORBIDDEN) trips
+                # is_permanent_auth_failure → disable; anything else backs off.
+                if not isinstance(resp, SyncResponse):
+                    detail = (
+                        f"{getattr(resp, 'status_code', '') or ''} "
+                        f"{getattr(resp, 'message', '') or ''}"
+                    ).strip() or type(resp).__name__
+                    raise RuntimeError(f"Matrix /sync failed: {detail}")
 
                 # Auto-join invited rooms FIRST. The guide's OpenClaw
                 # config sets ``autoJoin: "always"``: when the owner

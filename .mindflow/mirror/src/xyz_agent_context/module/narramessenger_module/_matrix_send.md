@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 (review fix) — size pre-check via `stat()` before read
+
+PR #60 minor: `send_media_impl` now checks `target.stat().st_size` against
+`max_bytes` BEFORE `read_bytes()`, so an oversized file is rejected without
+being pulled fully into memory. Path-traversal confinement (`resolve_workspace_file`)
+already correct.
+
 ## 2026-07-03 — `matrix_room_edit` + `matrix_room_redact` for streaming
 
 Two new authenticated HTTP helpers alongside `matrix_room_send`:

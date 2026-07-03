@@ -346,13 +346,16 @@ async def send_media_impl(
     except MatrixSendError as e:
         return {"ok": False, "error": e.code, "message": str(e)}
 
-    data = target.read_bytes()
-    if max_bytes and len(data) > max_bytes:
+    # Size pre-check via stat() BEFORE reading — never pull an oversized
+    # file fully into memory just to reject it.
+    size = target.stat().st_size
+    if max_bytes and size > max_bytes:
         return {
             "ok": False,
             "error": "oversized",
-            "message": f"file is {len(data)} bytes > cap {max_bytes}",
+            "message": f"file is {size} bytes > cap {max_bytes}",
         }
+    data = target.read_bytes()
 
     mime_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
     msgtype = msgtype_for_mime(mime_type)

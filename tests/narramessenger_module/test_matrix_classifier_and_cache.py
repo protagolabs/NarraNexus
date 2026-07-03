@@ -210,6 +210,41 @@ async def test_classify_group_silent_when_no_mention():
 
 
 @pytest.mark.asyncio
+async def test_classify_bare_word_displayname_is_not_a_mention():
+    """Regression (#4): a display name appearing as a BARE word (no @)
+    must NOT count as a mention. "I called the Agent" with display name
+    "Agent" used to false-fire group_mention → a full agent run + reply."""
+    t = MatrixTrigger()
+    room = "!bigroom:h"
+    t._room_member_count[room] = 5
+    t._display_name_cache[(room, AGENT_ID)] = "Agent"
+    fake_client = SimpleNamespace()
+    target = await t._classify(
+        fake_client,
+        _msg(body="I already called the Agent about that", chat_id=room),
+        _cred(),
+    )
+    assert target == "group_silent"
+
+
+@pytest.mark.asyncio
+async def test_classify_displayname_from_other_room_is_ignored():
+    """Regression (#4): the display name is looked up ROOM-SCOPED. A name
+    cached for a different room must not leak in as a mention here."""
+    t = MatrixTrigger()
+    other_room, this_room = "!roomA:h", "!roomB:h"
+    t._room_member_count[this_room] = 5
+    t._display_name_cache[(other_room, AGENT_ID)] = "Agent"  # NOT this_room
+    fake_client = SimpleNamespace()
+    target = await t._classify(
+        fake_client,
+        _msg(body="@Agent are you here?", chat_id=this_room),
+        _cred(),
+    )
+    assert target == "group_silent"
+
+
+@pytest.mark.asyncio
 async def test_classify_unknown_room_defaults_to_group_silent():
     """Zero member count == cache miss == unknown shape. Default
     'group_silent' so we NEVER auto-reply to a room we can't classify;

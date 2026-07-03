@@ -227,50 +227,6 @@ class NarramessengerCredentialManager:
         logger.info(f"[narramessenger:{agent_id}] credential unbound")
         return True
 
-    async def update_matrix_credentials(
-        self,
-        agent_id: str,
-        *,
-        matrix_homeserver_url: str,
-        matrix_user_id: str,
-        matrix_access_token: str,
-        matrix_device_id: str = "",
-    ) -> bool:
-        """Write the Matrix bind-flow output to a row and flip it to matrix
-        transport mode. Called at the end of a successful bind (after we
-        parsed ``Matrix Connection Details`` out of the ``waiting_connection``
-        setup guide, or — post-2026-07-02 — hit a structured API for the same).
-
-        Idempotent: repeat bind of the same agent re-writes without error.
-        Since token starts empty on purpose — first ``sync`` will do an
-        initial sync and then ``update_since_token`` will populate.
-        """
-        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not existing:
-            logger.warning(
-                f"[narramessenger:{agent_id}] update_matrix_credentials called "
-                "on non-existent row; no-op"
-            )
-            return False
-        await self._db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {
-                "matrix_homeserver_url": matrix_homeserver_url,
-                "matrix_user_id": matrix_user_id,
-                "matrix_access_token_encoded": _encode_token(matrix_access_token),
-                "matrix_device_id": matrix_device_id,
-                "matrix_since_token": "",  # fresh — force initial sync
-                "connection_mode": "matrix",
-                "updated_at": self._now_iso(),
-            },
-        )
-        logger.info(
-            f"[narramessenger:{agent_id}] matrix credentials written "
-            f"(user_id={matrix_user_id}, mode=matrix)"
-        )
-        return True
-
     async def update_since_token(
         self, agent_id: str, since_token: str
     ) -> None:

@@ -4,6 +4,34 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 (review fixes) — sync-loop robustness + mention scoping
+
+PR #60 review round. Four correctness/robustness fixes:
+
+- **`client.sync()` now checks `isinstance(resp, SyncResponse)`.** nio returns
+  a `SyncError` object (not an exception) on a Matrix-level failure — a revoked
+  token used to be read as an empty-rooms success and 120s-reconnect forever,
+  so `is_permanent_auth_failure → disable_credential` never fired. On non-success
+  we `raise RuntimeError(f"...{status_code} {message}")`; the base classifies the
+  errcode (M_UNKNOWN_TOKEN/… → disable; else → backoff).
+- **`AsyncClientConfig.max_timeouts` 0 → 1.** `0` = nio retries transport errors
+  internally forever and never returns, so the base's backoff/reconnect (and its
+  per-subscriber transport audit — the L2 liveness signal) never ran → silent
+  zombie (incident #1/#4). `1` surfaces the error so the base owns retry.
+- **`_is_mentioning_us` surface (3) is now room-scoped + `@`-prefix only.** It
+  walked `_display_name_cache` across ALL rooms and matched the name as a BARE
+  word (`name in body.split()`), so "I called the Agent" false-fired
+  group_mention → a full agent run + group reply. Now uses only
+  `(this_room, my_id)`'s cached name and requires the explicit `@name` form;
+  raw MXID (2) and MSC3952 (1) remain the other two legitimate surfaces.
+- **Silent-debounce `create_task` got an `add_done_callback`** (`_on_flush_task_done`)
+  — a crash in `_debounce_flush → _flush_silent` was only a GC "never retrieved"
+  warning (incident #2); now logged as ERROR.
+- Minor: `_apply_progress` uses `get_running_loop().time()`.
+
+Tests: mention regressions in `test_matrix_classifier_and_cache.py` (bare-word +
+cross-room now group_silent).
+
 ## 2026-07-03 (redesign) — streaming is now "thinking + agent-driven progress"
 
 Owner feedback: the token-delta streaming (below) read as jumpy — Matrix
