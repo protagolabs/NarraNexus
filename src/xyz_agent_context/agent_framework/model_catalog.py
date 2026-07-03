@@ -90,6 +90,34 @@ _register(
     ModelMeta("haiku", "Claude Haiku (latest)"),
 )
 
+# What each CLI family alias means on a raw Anthropic-compatible API, where
+# aliases are rejected with 400 (upstream #57 → surfaced as no_reply). Model
+# strings are free text end to end — a user can type "opus" into an api_key
+# provider — so transport-level normalization is the safety net, not UI
+# validation. Kept adjacent to the alias registrations above: when a family
+# ships a new latest, update both together
+# (test_alias_targets_are_registered_catalog_models guards against typos).
+_CLI_ALIAS_TO_MODEL_ID: dict[str, str] = {
+    "opus": "claude-opus-4-8",
+    "sonnet": "claude-sonnet-4-6",
+    "haiku": "claude-haiku-4-5",
+}
+
+
+def resolve_cli_alias(model_id: str, *, auth_type: str) -> str:
+    """Return the model id a given transport should actually be sent.
+
+    The OAuth/CLI path resolves family aliases itself ("latest of family"
+    must not go stale in our code) — keep them verbatim there. Every other
+    transport (api_key, bearer_token proxies) speaks the raw Messages API,
+    which rejects aliases, so map them to the family's current full id.
+    Full ids and unknown strings pass through untouched.
+    """
+    if auth_type == "oauth":
+        return model_id
+    return _CLI_ALIAS_TO_MODEL_ID.get(model_id, model_id)
+
+
 # --- OpenAI models ---
 # Text / chat / reasoning models surfaced as in-UI suggestions.
 _register(

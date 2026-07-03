@@ -19,10 +19,12 @@ from xyz_agent_context.utils.logging import timed
 try:
     from .output_transfer import output_transfer
     from .api_config import claude_config
+    from .model_catalog import resolve_cli_alias
     from ._tool_policy_guard import build_tool_policy_guard
 except ImportError:
     from output_transfer import output_transfer
     from api_config import claude_config
+    from model_catalog import resolve_cli_alias
     from _tool_policy_guard import build_tool_policy_guard
 
 def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str, Any]:
@@ -423,7 +425,12 @@ class ClaudeAgentSDK:
             disallowed_tools=disallowed_tools,
         )
         if claude_config.model:
-            options_kwargs["model"] = claude_config.model
+            # CLI family aliases only work on the OAuth/CLI path; raw API
+            # transports 400 on them (upstream #57 → no_reply). Normalize at
+            # the transport boundary — model strings are free text upstream.
+            options_kwargs["model"] = resolve_cli_alias(
+                claude_config.model, auth_type=claude_config.auth_type
+            )
         # Neutral reasoning params (slot-configured); absent keys keep CLI
         # defaults — identical to today's behavior when unconfigured.
         options_kwargs.update(reasoning_options)

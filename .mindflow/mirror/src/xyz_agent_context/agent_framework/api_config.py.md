@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-06-17
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — `to_cli_env` normalizes CLI aliases (upstream #57)
+
+The four `ANTHROPIC_DEFAULT_*_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` env
+values now pass through `model_catalog.resolve_cli_alias` — the CLI's
+internal calls (WebFetch summarizer, subagent dispatch) would otherwise
+send a bare alias to a raw API transport and 400. OAuth path unchanged.
 
 ## 2026-06-17 — 新增 `snapshot_user_config()`(Executor seam 用)
 
