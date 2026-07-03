@@ -284,10 +284,17 @@ class MatrixTrigger(ChannelTriggerBase):
     # Min ms between edit events. Matrix rate-limits room writes; more
     # frequent edits get 429'd and would either burn our retry budget
     # (_send_matrix_reply's SEND_MAX_ATTEMPTS) or delay downstream edits.
-    STREAM_EDIT_DEBOUNCE_MS = 700
+    #
+    # 2026-07-03: bumped 700 -> 1200ms after live feedback that streaming
+    # felt "too jumpy" — Matrix's ``m.replace`` fully replaces the body
+    # on each edit, so every ship causes the client to redraw the whole
+    # message. Fewer, larger updates read as smoother than many small
+    # ones. 1200ms + 80 chars keeps the "live" feel while giving each
+    # edit enough content to feel meaningful.
+    STREAM_EDIT_DEBOUNCE_MS = 1200
     # Min additional chars since last edit before we send another. Prevents
     # a slow drip of 1-char edits when the agent generates token-by-token.
-    STREAM_EDIT_MIN_DELTA_CHARS = 30
+    STREAM_EDIT_MIN_DELTA_CHARS = 80
     # Placeholder body — invisible-ish marker showing something's happening.
     # The agent-generated text overwrites this on the first edit.
     STREAM_PLACEHOLDER_TEXT = "💭 …"
@@ -1405,7 +1412,16 @@ class MatrixTrigger(ChannelTriggerBase):
         credential: NarramessengerCredential,
         room_id: str,
     ) -> None:
-        """Dispatch one runtime event to the streaming state machine."""
+        """Dispatch one runtime event to the streaming state machine.
+
+        Tool calls in this codebase are emitted as ``ProgressMessage``
+        (``message_type=PROGRESS``) with the actual tool name and args on
+        ``details.tool_name`` / ``details.arguments``. The nominal
+        ``AgentToolCall`` type in the schema exists but is never
+        constructed — see the pattern in
+        ``run_collector.py:143-165`` which we mirror here (single source
+        of truth for "how tool calls actually arrive").
+        """
         mt = getattr(event, "message_type", None)
         if mt == MessageType.AGENT_RESPONSE:
             delta = getattr(event, "delta", "") or ""
@@ -1415,22 +1431,39 @@ class MatrixTrigger(ChannelTriggerBase):
             await self._maybe_ship_or_edit(state, credential, room_id)
             return
 
-        if mt == MessageType.TOOL_CALL:
-            tool_name = getattr(event, "tool_name", "") or ""
-            if "narra_reply" not in tool_name:
+        if mt == MessageType.PROGRESS:
+            details = getattr(event, "details", None)
+            if not isinstance(details, dict):
                 return
-            tool_input = getattr(event, "tool_input", None) or {}
-            text = tool_input.get("text") if isinstance(tool_input, dict) else None
+            tool_name = details.get("tool_name") or ""
+            if not tool_name or "narra_reply" not in tool_name:
+                return
+            arguments = details.get("arguments")
+            # arguments may be a dict (streaming path) OR a JSON string
+            # (some SDK paths serialise args mid-stream). Handle both;
+            # anything else is a shape we don't recognise → skip.
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except (json.JSONDecodeError, ValueError):
+                    return
+            if not isinstance(arguments, dict):
+                return
+            text = arguments.get("text")
             if isinstance(text, str) and text.strip():
                 # LAST-writer wins — if the agent calls narra_reply twice
                 # in one turn (rare), the second call's text is what we
                 # commit. Matches Lark's behaviour on lark_cli spam.
                 state.narra_reply_text = text
+                logger.info(
+                    f"[matrix:{credential.agent_id}] streaming captured "
+                    f"narra_reply.text (len={len(text)}, room={room_id})"
+                )
             return
 
-        # AGENT_THINKING and everything else: ignore. Thinking would leak
-        # internal reasoning; PROGRESS / ERROR / etc. aren't user-visible
-        # reply content.
+        # AGENT_THINKING (leaks internal reasoning) and everything else
+        # (ERROR, TOOL_CALL — never emitted for this codebase, but future-
+        # proof against schema drift): silently ignore.
 
     async def _maybe_ship_or_edit(
         self,

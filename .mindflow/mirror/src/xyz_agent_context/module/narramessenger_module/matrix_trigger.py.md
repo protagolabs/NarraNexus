@@ -4,6 +4,42 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 (hotfix) — streaming looked for tool calls on the wrong event type
+
+Second live-run bug in the streaming state machine: every turn ended with
+`_finalize_stream_silent` redacting the placeholder, so the user's room showed
+"message deleted" AFTER a streamed answer that got wiped out at the end. The
+agent was in fact calling `narra_reply` (verified in the log:
+`Tool call: mcp__narramessenger_module__narra_reply` at 15:54:16), but our
+handler wasn't recognising it.
+
+Root cause: `_handle_stream_event` matched on `MessageType.TOOL_CALL` and read
+`.tool_name` / `.tool_input`. In this codebase, tool calls are actually emitted
+as `ProgressMessage` (`message_type=PROGRESS`) with `details.tool_name` +
+`details.arguments`. The `AgentToolCall` schema class exists but is never
+constructed — see the pattern in `run_collector.py:143-165` which we now
+mirror. State never captured `narra_reply.text` → finalise silent → redact.
+
+Same-turn secondary regression from that bug: the "streaming felt too fast /
+jumpy" complaint. Matrix `m.replace` fully replaces the body per edit, so
+each ship causes a full client-side redraw. With debounce 700ms + 30-char
+delta, the client saw 2-3 flashes per second. Bumped defaults to
+1200ms + 80 chars — fewer, larger updates read as OpenClaw-smooth.
+
+Handler now recognises:
+- `MessageType.PROGRESS` + `details.tool_name` matches `"narra_reply"`
+- `details.arguments` as EITHER dict OR JSON-encoded string (some SDK
+  paths serialise mid-stream)
+- MCP-prefixed name (`mcp__narramessenger_module__narra_reply`) via
+  substring match, not equality — locked in a test so a future
+  refactor to strict equality regresses loudly.
+
+Also added an INFO log at capture time so a future silent-redact regression
+shows up in the log with a clean "captured narra_reply.text" line to search
+for. If the log lacks that line but the redact fired, the mismatch is
+between the event shape and the handler — same failure mode as this bug,
+easier to diagnose.
+
 ## 2026-07-03 (hotfix) — streaming crashed on a wrong ChannelTag import
 
 First live run after enabling streaming: the agent stopped responding to

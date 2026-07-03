@@ -56,11 +56,27 @@ def _delta(text: str):
     return SimpleNamespace(message_type=MessageType.AGENT_RESPONSE, delta=text)
 
 
-def _tool_call(tool_name: str, tool_input: dict):
+def _tool_call(tool_name: str, arguments: dict):
+    """Build a ProgressMessage-shaped event as the runtime actually emits.
+
+    NB the runtime never emits ``AgentToolCall`` (schema class exists but
+    isn't constructed anywhere) — tool calls arrive as
+    ``ProgressMessage`` (``message_type=PROGRESS``) with
+    ``details.tool_name`` + ``details.arguments``. This mirrors
+    ``run_collector.py``'s tool-call recognition pattern.
+    """
     return SimpleNamespace(
-        message_type=MessageType.TOOL_CALL,
-        tool_name=tool_name,
-        tool_input=tool_input,
+        message_type=MessageType.PROGRESS,
+        details={"tool_name": tool_name, "arguments": arguments},
+    )
+
+
+def _tool_call_json_args(tool_name: str, arguments_json_str: str):
+    """Variant: some SDK paths serialise ``arguments`` as a JSON string
+    mid-stream. The handler must parse both shapes."""
+    return SimpleNamespace(
+        message_type=MessageType.PROGRESS,
+        details={"tool_name": tool_name, "arguments": arguments_json_str},
     )
 
 
@@ -228,6 +244,43 @@ async def test_narra_reply_last_wins(trigger):
         _tool_call("narra_reply", {"text": "revised final"}), state, _cred(), ROOM,
     )
     assert state.narra_reply_text == "revised final"
+
+
+@pytest.mark.asyncio
+async def test_narra_reply_mcp_prefixed_tool_name(trigger):
+    """Live SDK path prefixes MCP tools as
+    ``mcp__narramessenger_module__narra_reply``. The substring match
+    on ``narra_reply`` (not exact equality) is what makes this work —
+    locks that we don't accidentally regress to strict equality."""
+    t, _ = trigger
+    state = _StreamReplyState()
+    await t._handle_stream_event(
+        _tool_call(
+            "mcp__narramessenger_module__narra_reply",
+            {"text": "prefixed path"},
+        ),
+        state, _cred(), ROOM,
+    )
+    assert state.narra_reply_text == "prefixed path"
+
+
+@pytest.mark.asyncio
+async def test_narra_reply_arguments_as_json_string(trigger):
+    """Some SDK paths serialise ``details.arguments`` as a JSON string
+    rather than a dict. The handler must parse both shapes — otherwise
+    the very first live turn (which is what triggered this test) sits
+    in silent-finalise-redact land and the user sees 'message deleted'
+    even though they DID call narra_reply."""
+    t, _ = trigger
+    state = _StreamReplyState()
+    await t._handle_stream_event(
+        _tool_call_json_args(
+            "mcp__narramessenger_module__narra_reply",
+            '{"text": "from a json-encoded arguments blob"}',
+        ),
+        state, _cred(), ROOM,
+    )
+    assert state.narra_reply_text == "from a json-encoded arguments blob"
 
 
 # ────────────────────────────────────────────────────────────────────
