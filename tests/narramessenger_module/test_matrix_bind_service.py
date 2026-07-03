@@ -45,30 +45,30 @@ CONNECTED_GUIDE_FRAGMENT = """
 > **Bind Flow Status**: `waiting_connection`
 
 ## Your Agent Identity
-- **Agent ID (Principal ID)**: 0c977c64-63a0-4f61-93ef-ecfc443d5aae
-- **Matrix User ID**: @agent-c4771571:matrix.netmind.chat
+- **Agent ID (Principal ID)**: 00000000-0000-0000-0000-000000000000
+- **Matrix User ID**: @agent-testonly:matrix.netmind.chat
 
 ## Authentication
 All requests use the header:
 ```
-Authorization: Bearer 85e4669202e49d0dd92608505fa722c4e916faf2ac2bd0540692dc56bc10d016
+Authorization: Bearer deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
 ```
 
 ## Matrix Connection Details
 | Field | Value |
 |-------|-------|
 | Homeserver URL | `https://matrix.netmind.chat` |
-| User ID | `@agent-c4771571:matrix.netmind.chat` |
-| Access Token | `syt_YWdlbnQtYzQ3NzE1NzE_gMsVEOKMkpWFTaCkNRqr_1AJol5` |
+| User ID | `@agent-testonly:matrix.netmind.chat` |
+| Access Token | `syt_FAKETESTtoken_do_not_use_00000000` |
 """
 
 
 def test_parser_extracts_all_four_credential_fields():
     out = svc._parse_setup_guide(CONNECTED_GUIDE_FRAGMENT)
-    assert out["bearer"] == "85e4669202e49d0dd92608505fa722c4e916faf2ac2bd0540692dc56bc10d016"
-    assert out["matrix_access_token"] == "syt_YWdlbnQtYzQ3NzE1NzE_gMsVEOKMkpWFTaCkNRqr_1AJol5"
+    assert out["bearer"] == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    assert out["matrix_access_token"] == "syt_FAKETESTtoken_do_not_use_00000000"
     assert out["homeserver"] == "https://matrix.netmind.chat"
-    assert out["matrix_user_id"] == "@agent-c4771571:matrix.netmind.chat"
+    assert out["matrix_user_id"] == "@agent-testonly:matrix.netmind.chat"
 
 
 def test_parser_returns_empty_when_bearer_not_yet_revealed():
@@ -167,8 +167,8 @@ async def test_do_bind_calls_runtime_ready_and_stores_matrix_creds(
         # runtime-ready succeeds
         {"ok": True, "data": {
             "status": "connected",
-            "matrixUserId": "@agent-c4771571:matrix.netmind.chat",
-            "principalId": "0c977c64-63a0-4f61-93ef-ecfc443d5aae",
+            "matrixUserId": "@agent-testonly:matrix.netmind.chat",
+            "principalId": "00000000-0000-0000-0000-000000000000",
             "roomId": "!bindroom:matrix.netmind.chat",
         }},
     ]
@@ -190,9 +190,9 @@ async def test_do_bind_calls_runtime_ready_and_stores_matrix_creds(
     assert len(fake_manager.upserts) == 1
     cred = fake_manager.upserts[0]
     assert cred.connection_mode == "matrix"
-    assert cred.bearer_token == "85e4669202e49d0dd92608505fa722c4e916faf2ac2bd0540692dc56bc10d016"
-    assert cred.matrix_access_token == "syt_YWdlbnQtYzQ3NzE1NzE_gMsVEOKMkpWFTaCkNRqr_1AJol5"
-    assert cred.matrix_user_id == "@agent-c4771571:matrix.netmind.chat"
+    assert cred.bearer_token == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    assert cred.matrix_access_token == "syt_FAKETESTtoken_do_not_use_00000000"
+    assert cred.matrix_user_id == "@agent-testonly:matrix.netmind.chat"
     assert cred.matrix_homeserver_url == "https://matrix.netmind.chat"
     assert cred.bind_room_id == "!bindroom:matrix.netmind.chat"
     assert cred.enabled is True
@@ -210,14 +210,14 @@ async def test_do_bind_rejects_when_matrix_access_token_missing(
     fragment_missing_access = """
     ## Authentication
     ```
-    Authorization: Bearer 85e4669202e49d0dd92608505fa722c4e916faf2ac2bd0540692dc56bc10d016
+    Authorization: Bearer deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
     ```
 
     ## Matrix Connection Details
     | Field | Value |
     |-------|-------|
     | Homeserver URL | `https://matrix.netmind.chat` |
-    | User ID | `@agent-c4771571:matrix.netmind.chat` |
+    | User ID | `@agent-testonly:matrix.netmind.chat` |
     """
     guide_scripts["guides"] = [fragment_missing_access]
     guide_scripts["post_responses"] = [
