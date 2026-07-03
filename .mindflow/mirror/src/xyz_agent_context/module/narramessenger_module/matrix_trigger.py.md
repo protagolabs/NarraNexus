@@ -1,8 +1,72 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 (Phase 3) — multimodal ingest (m.image / m.file / m.audio / m.video)
+
+Promoted from the "Deferred to Phase 3" stub in the file docstring to a
+working receive path. Diagnosed from a live report: a message carrying a
+picture produced no agent reaction. Root cause was **not** a parse gap —
+`_wrap_event` only recognised `RoomMessageText`, so every media event hit
+the `else` branch and was dropped with a `skipping event type=…` debug
+line **before** `parse_event` or any download could run. Three layers were
+text-only; all three now handle media, mirroring
+[[channel_trigger_base]]'s attachment contract that Lark / Slack /
+Telegram / Discord already use.
+
+Flow (one `RoomMessageMedia` — the shared base of Image/File/Audio/Video):
+
+1. **`_wrap_event`** — `isinstance(event, RoomMessageMedia)` marshals the
+   mxc URI (`event.url`), filename (`event.body`), and the `content.info`
+   block (`mimetype` / `size`) from `event.source` into a
+   `kind="m.room.message.media"` raw dict. mimetype is only a hint —
+   `_persist_attachment` re-sniffs the real MIME from bytes.
+2. **`parse_event`** — media kind → one `attachment_refs` entry
+   (`mxc_url` / `original_name` / `mime_hint` / `size_hint`) + coarse
+   `content_type` (msgtype first, MIME family fallback). `content=""`
+   (the filename is the attachment's `original_name`, NOT message text),
+   so a caption-less image still flows — the base guard passes because
+   `attachment_refs` is non-empty. The raw dict is **copied** before
+   adding refs so the base's dedup key (which still holds the original)
+   is untouched.
+3. **`fetch_attachments`** (override) — for each ref: parse
+   `mxc://{server}/{media_id}`, size pre-check vs
+   `backend_settings.max_upload_bytes`, `_download_mxc` → base
+   `_persist_attachment` (workspace store + MIME sniff + audio STT →
+   `Attachment`). Never raises; audits `EVENT_INGRESS_DROPPED_OVERSIZED`
+   / `EVENT_ATTACHMENT_FETCH_FAILED` / `EVENT_ATTACHMENT_PERSISTED`.
+   Structure is a near-copy of `DiscordTrigger.fetch_attachments`; the
+   **only** channel-specific part is the download source.
+4. **`_download_mxc`** — the single network seam (tests monkeypatch it).
+   `GET {homeserver}/_matrix/client/v1/media/download/{server}/{media_id}`
+   with `Authorization: Bearer {matrix_access_token}` (the **Matrix**
+   token, not the Narra bearer). The legacy unauthenticated
+   `/_matrix/media/r0/download` path is gone on `matrix.netmind.chat`
+   (verified 2026-06-30). Streams with a `max_bytes` cap so a lying
+   `size_hint` can't blow memory; over-cap mid-stream →
+   `MatrixMediaError("oversized")`, which the caller audits as OVERSIZED
+   (not FETCH_FAILED) via the `code` split — same idea as
+   `DiscordSDKError.code`.
+
+**Why the prompt "download location" is free (design note the owner
+called out):** we deliberately route through `_persist_attachment`
+instead of storing bytes ourselves. That helper generates the `att_`
+file_id and writes under the WS-upload path, so
+`Attachment.synthesize_marker` (ChatModule) later emits
+`[User uploaded image: … path=<abs> … — use Read tool to view]` with a
+path `resolve_attachment_path` can actually resolve. Storing to a
+self-invented path/file_id would make the marker render `<unavailable>`
+and the agent could not open the file. The test asserts this end-to-end
+(marker path == `resolve_attachment_path` == on-disk bytes).
+
+Sending images back (agent-generated) is still out of scope this version
+(§8.2 of the spec). Encrypted media (`EncryptedEvent`) is still dropped —
+rooms are plaintext by default; that remains the separate Phase 3+ item
+noted below.
+
+Tests: `tests/narramessenger_module/test_matrix_attachment_ingest.py`.
 
 ## 2026-07-02 (owner override) — SILENT_BYPASS_AUTHORIZE
 

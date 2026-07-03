@@ -35,9 +35,13 @@ Scope of THIS FILE (Phase 1, Commits 3 + 4b + 5 + 6 + 7):
   ✓  (6)  Auto-join invited rooms during the sync loop
      (``autoJoin: always`` per NarraMessenger's OpenClaw config)
 
-Deferred to Phase 3:
-  ✗  Multimodal: ``m.image`` / ``m.file`` / ``m.audio`` / ``m.video``
-  ✗  Attachment download via authenticated /media/v1/download
+  ✓  (Phase 3) Multimodal: ``m.image`` / ``m.file`` / ``m.audio`` /
+     ``m.video`` → ``_wrap_event`` marshals the mxc URI, ``parse_event``
+     populates ``attachment_refs``, ``fetch_attachments`` downloads via
+     the authenticated ``/_matrix/client/v1/media/download`` endpoint and
+     hands bytes to the base ``_persist_attachment`` (workspace store +
+     MIME sniff + audio STT). The agent reads the file via its Read tool
+     at the path the ``Attachment`` marker announces.
 
 Deferred to Phase 4:
   ✗  Progressive update via ``m.replace``
@@ -67,12 +71,16 @@ from nio import (
     AsyncClientConfig,
     LocalProtocolError,
     RoomMemberEvent,
+    RoomMessageMedia,
     RoomMessageText,
     RoomSendError,
     RoomSendResponse,
 )
 
 from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_ATTACHMENT_FETCH_FAILED,
+    EVENT_ATTACHMENT_PERSISTED,
+    EVENT_INGRESS_DROPPED_OVERSIZED,
     EVENT_TRANSPORT_SEND_FAILED,
 )
 from xyz_agent_context.channel.channel_context_builder_base import (
@@ -80,8 +88,13 @@ from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelHistoryConfig,
 )
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
+from xyz_agent_context.schema.parsed_message import (
+    ChatType,
+    MessageContentType,
+    ParsedMessage,
+)
 
 from ._narramessenger_credential_manager import (
     NarramessengerCredential,
@@ -91,6 +104,42 @@ from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
 _ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
+
+# Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
+# homeserver requires a bearer token on media fetches — the legacy
+# unauthenticated ``/_matrix/media/r0/download`` path is gone on
+# matrix.netmind.chat (verified 2026-06-30). Format-filled with
+# ``{server_name}`` + ``{media_id}`` parsed from the ``mxc://`` URI.
+_MEDIA_DOWNLOAD_PATH = "/_matrix/client/v1/media/download/{server_name}/{media_id}"
+
+
+class MatrixMediaError(Exception):
+    """Raised by ``_download_mxc`` on a failed / oversized media fetch.
+
+    ``code`` distinguishes the failure so ``fetch_attachments`` can audit
+    ``EVENT_INGRESS_DROPPED_OVERSIZED`` (platform/size cap) apart from
+    ``EVENT_ATTACHMENT_FETCH_FAILED`` (transport / HTTP error), mirroring
+    the ``DiscordSDKError`` code split.
+    """
+
+    def __init__(self, code: str, message: str = "") -> None:
+        super().__init__(message or code)
+        self.code = code
+
+
+def _parse_mxc(mxc_url: str) -> tuple[str, str]:
+    """Split ``mxc://{server_name}/{media_id}`` into its parts.
+
+    Returns ``("", "")`` for anything that isn't a well-formed mxc URI so
+    the caller can audit + skip rather than build a broken download URL.
+    """
+    if not mxc_url.startswith("mxc://"):
+        return "", ""
+    rest = mxc_url[len("mxc://"):]
+    server_name, _, media_id = rest.partition("/")
+    if not server_name or not media_id:
+        return "", ""
+    return server_name, media_id
 
 
 @dataclass(frozen=True)
@@ -1460,6 +1509,33 @@ class MatrixTrigger(ChannelTriggerBase):
                 "_agent_id": credential.agent_id,
                 "_our_user_id": credential.matrix_user_id,
             }
+        # Media events (m.image / m.file / m.audio / m.video) — all share
+        # the RoomMessageMedia base. We carry the mxc URI + the info block
+        # (mimetype / size) forward; parse_event turns them into the
+        # base's attachment_refs and fetch_attachments does the
+        # authenticated download. mimetype here is only a hint —
+        # _persist_attachment re-sniffs the real MIME from the bytes.
+        if isinstance(event, RoomMessageMedia):
+            source = getattr(event, "source", None) or {}
+            inner = source.get("content") or {}
+            info = inner.get("info") or {}
+            mxc_url = getattr(event, "url", "") or inner.get("url", "") or ""
+            return {
+                "kind": "m.room.message.media",
+                "event_id": event.event_id,
+                "room_id": room_id,
+                "sender_id": event.sender,
+                "server_ts": event.server_timestamp,
+                # body is the filename / description for media events.
+                "body": event.body or "",
+                "mxc_url": mxc_url,
+                "mimetype": info.get("mimetype", "") or "",
+                "size": int(info.get("size", 0) or 0),
+                "msgtype": inner.get("msgtype", "") or "",
+                "_nio_event": event,
+                "_agent_id": credential.agent_id,
+                "_our_user_id": credential.matrix_user_id,
+            }
         # Explicit no-op for unknown types — cheap to log at debug so a
         # future "why isn't my agent seeing X" can be traced.
         logger.debug(
@@ -1469,32 +1545,31 @@ class MatrixTrigger(ChannelTriggerBase):
         return None
 
     # ────────────────────────────────────────────────────────────────────
-    # parse_event (skeleton — text only; Commit 4 grows this)
+    # parse_event (text + media)
     # ────────────────────────────────────────────────────────────────────
 
     def parse_event(  # type: ignore[override]
         self, raw: dict
     ) -> Optional[ParsedMessage]:
-        """Text-only skeleton conversion.
+        """Convert a wrapped event dict into a ParsedMessage.
 
-        Commit 4 will add:
-          - DM vs group detection (via room member count)
-          - Mention filtering (only respond to @-mentions in groups)
-          - Media msgtype → attachment_refs population
-          - Own-message echo drop is done later via :meth:`is_echo` on
-            the ParsedMessage; here we let all text through.
+        Handles two shapes emitted by :meth:`_wrap_event`:
+          - ``m.room.message.text`` → plain text
+          - ``m.room.message.media`` → populates ``raw["attachment_refs"]``
+            so the base's ``fetch_attachments`` downloads the mxc payload
+
+        Own-message echo drop is done later via :meth:`is_echo` on the
+        ParsedMessage; here we let all senders through. Mention filtering
+        for groups lives in ``_classify`` (silent-batch vs full run).
         """
-        if raw.get("kind") != "m.room.message.text":
+        kind = raw.get("kind")
+        if kind not in ("m.room.message.text", "m.room.message.media"):
             return None
 
         event_id = raw.get("event_id") or ""
         room_id = raw.get("room_id") or ""
         sender_id = raw.get("sender_id") or ""
-        body = raw.get("body") or ""
-
         if not event_id or not room_id or not sender_id:
-            return None
-        if not body.strip():
             return None
 
         # Room shape from the cache populated by _apply_member_event
@@ -1511,16 +1586,247 @@ class MatrixTrigger(ChannelTriggerBase):
             (room_id, sender_id), sender_id
         )
 
+        # event_id is the natural dedup key across Matrix — same event
+        # replayed after a since_token rewind hashes to the same key in
+        # the base's dedup store.
+        timestamp_ms = int(raw.get("server_ts") or 0)
+
+        if kind == "m.room.message.text":
+            body = raw.get("body") or ""
+            if not body.strip():
+                return None
+            return ParsedMessage(
+                message_id=event_id,
+                chat_id=room_id,
+                sender_id=sender_id,
+                sender_name=sender_name,
+                content=body,
+                content_type=MessageContentType.TEXT,
+                chat_type=chat_type,
+                timestamp_ms=timestamp_ms,
+                raw=raw,
+            )
+
+        # ── media ──────────────────────────────────────────────────────
+        mxc_url = raw.get("mxc_url") or ""
+        if not mxc_url:
+            # A media msgtype with no mxc URI is unusable — nothing to
+            # download. Drop rather than emit a content-less turn.
+            return None
+
+        mimetype = raw.get("mimetype") or ""
+        msgtype = raw.get("msgtype") or ""
+        # Prefer the explicit msgtype, fall back to the MIME family. This
+        # is only a coarse UX hint; the agent's Read tool re-validates the
+        # actual bytes at read time.
+        if msgtype == "m.image" or mimetype.startswith("image/"):
+            content_type = MessageContentType.IMAGE
+        elif msgtype == "m.audio" or mimetype.startswith("audio/"):
+            content_type = MessageContentType.AUDIO
+        elif msgtype == "m.video" or mimetype.startswith("video/"):
+            content_type = MessageContentType.VIDEO
+        else:
+            content_type = MessageContentType.FILE
+
+        # body is the filename for media events — carry it as the
+        # attachment's original_name, NOT as message text (a bare
+        # filename is not something the agent should "read" as a caption).
+        original_name = raw.get("body") or mxc_url.rsplit("/", 1)[-1]
+        refs = [
+            {
+                "kind": "media",
+                "mxc_url": mxc_url,
+                "original_name": original_name,
+                "mime_hint": mimetype,
+                "size_hint": int(raw.get("size", 0) or 0),
+            }
+        ]
+        # Copy so we don't mutate the dict the base still holds for dedup.
+        media_raw = dict(raw)
+        media_raw["attachment_refs"] = refs
+
         return ParsedMessage(
-            # event_id is the natural dedup key across Matrix — same
-            # event replayed after a since_token rewind hashes to the
-            # same key in the base's dedup store.
             message_id=event_id,
             chat_id=room_id,
             sender_id=sender_id,
             sender_name=sender_name,
-            content=body,
+            content="",  # caption-less; the attachment marker carries it
+            content_type=content_type,
             chat_type=chat_type,
-            timestamp_ms=int(raw.get("server_ts") or 0),
-            raw=raw,
+            timestamp_ms=timestamp_ms,
+            raw=media_raw,
         )
+
+    # ────────────────────────────────────────────────────────────────────
+    # fetch_attachments — mxc download → _persist_attachment → workspace
+    # ────────────────────────────────────────────────────────────────────
+
+    async def fetch_attachments(  # type: ignore[override]
+        self, message: ParsedMessage, credential: NarramessengerCredential
+    ) -> List[Attachment]:
+        """Download the message's mxc attachments and persist them.
+
+        Structure mirrors ``DiscordTrigger.fetch_attachments``; the only
+        NarraMessenger-specific part is the download source — an
+        authenticated Matrix media endpoint instead of a CDN URL. The
+        base ``_persist_attachment`` handles MIME sniff / on-disk store /
+        audio STT and returns a fully-populated ``Attachment`` whose
+        ``synthesize_marker`` later tells the agent the on-disk path +
+        "use Read tool to view" — so we must NOT invent our own path or
+        file_id here.
+
+        Never raises (base contract): every failure is audited and
+        reduced to a partial list; the agent run continues against
+        ``message.content`` text.
+        """
+        refs = (message.raw or {}).get("attachment_refs") or []
+        if not refs:
+            return []
+
+        from backend.config import settings as backend_settings
+
+        max_bytes = backend_settings.max_upload_bytes
+
+        out: List[Attachment] = []
+        for ref in refs:
+            mxc_url = ref.get("mxc_url") or ""
+            server_name, media_id = _parse_mxc(mxc_url)
+            if not server_name or not media_id:
+                await self._audit(
+                    EVENT_ATTACHMENT_FETCH_FAILED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={"mxc_url": mxc_url, "stage": "parse", "error": "bad_mxc"},
+                )
+                continue
+
+            original_name = ref.get("original_name") or media_id
+            mime_hint = ref.get("mime_hint", "") or ""
+            size_hint = int(ref.get("size_hint", 0) or 0)
+
+            # Cheap pre-check on the advertised size so we never start a
+            # download the backend would reject anyway.
+            if size_hint and size_hint > max_bytes:
+                await self._audit(
+                    EVENT_INGRESS_DROPPED_OVERSIZED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={
+                        "mxc_url": mxc_url,
+                        "size_hint": size_hint,
+                        "max_upload_bytes": max_bytes,
+                        "reason": "backend_max_upload_bytes",
+                    },
+                )
+                continue
+
+            try:
+                raw_bytes = await self._download_mxc(
+                    credential=credential,
+                    server_name=server_name,
+                    media_id=media_id,
+                    max_bytes=max_bytes,
+                )
+            except MatrixMediaError as e:
+                event = (
+                    EVENT_INGRESS_DROPPED_OVERSIZED
+                    if e.code == "oversized"
+                    else EVENT_ATTACHMENT_FETCH_FAILED
+                )
+                await self._audit(
+                    event,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={"mxc_url": mxc_url, "stage": "download", "error": f"{e.code}:{e}"},
+                )
+                continue
+
+            try:
+                att = await self._persist_attachment(
+                    agent_id=credential.agent_id,
+                    raw_bytes=raw_bytes,
+                    original_name=original_name,
+                    mime_hint=mime_hint,
+                )
+            except Exception as e:  # noqa: BLE001
+                await self._audit(
+                    EVENT_ATTACHMENT_FETCH_FAILED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={"mxc_url": mxc_url, "stage": "persist", "error": f"{type(e).__name__}:{e}"},
+                )
+                continue
+
+            out.append(att)
+            await self._audit(
+                EVENT_ATTACHMENT_PERSISTED,
+                message_id=message.message_id,
+                agent_id=credential.agent_id,
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details={"mxc_url": mxc_url, "file_id": att.file_id, "mime": att.mime_type},
+            )
+
+        return out
+
+    async def _download_mxc(
+        self,
+        *,
+        credential: NarramessengerCredential,
+        server_name: str,
+        media_id: str,
+        max_bytes: int,
+    ) -> bytes:
+        """GET the authenticated Matrix media endpoint, capped at
+        ``max_bytes``. Raises :class:`MatrixMediaError` on HTTP error,
+        transport error, or when the stream exceeds the cap.
+
+        Split out from ``fetch_attachments`` as the single network seam —
+        tests monkeypatch this to avoid touching a homeserver.
+        """
+        homeserver = (credential.matrix_homeserver_url or "").rstrip("/")
+        token = credential.matrix_access_token or ""
+        if not homeserver or not token:
+            raise MatrixMediaError(
+                "no_credential",
+                f"missing homeserver({bool(homeserver)})/token({bool(token)})",
+            )
+
+        url = homeserver + _MEDIA_DOWNLOAD_PATH.format(
+            server_name=server_name, media_id=media_id
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+        timeout = aiohttp.ClientTimeout(total=60)
+
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status != 200:
+                        raise MatrixMediaError(
+                            "http_error", f"status {resp.status}"
+                        )
+                    chunks: List[bytes] = []
+                    total = 0
+                    async for chunk in resp.content.iter_chunked(65536):
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise MatrixMediaError(
+                                "oversized",
+                                f"stream exceeded {max_bytes} bytes",
+                            )
+                        chunks.append(chunk)
+                    return b"".join(chunks)
+        except MatrixMediaError:
+            raise
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            raise MatrixMediaError(
+                "client_error", f"{type(e).__name__}: {e}"
+            ) from e
