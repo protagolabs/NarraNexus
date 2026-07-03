@@ -4,6 +4,20 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 (hotfix) — streaming crashed on a wrong ChannelTag import
+
+First live run after enabling streaming: the agent stopped responding to
+NarraMessenger messages entirely. `_build_and_run_agent_streaming` lazy-imported
+`ChannelTag` from `channel.channel_prompts` (where it does NOT live) → `ImportError`
+on EVERY message, AFTER receive/classify, so it read as "not receiving". Fixed to
+`from xyz_agent_context.schema.channel_tag import ChannelTag` (where the base and
+Lark import it). Slipped through because the 12 streaming tests drive the state
+machine sub-methods directly and never call `_build_and_run_agent_streaming`, so
+its lazy import was never executed under test — a reminder that streaming needs a
+live smoke, not just unit coverage. Event-field assumptions (`message_type` /
+`delta` / `tool_name` / `tool_input`) were verified correct against
+`schema/runtime_message.py` at the same time.
+
 ## 2026-07-03 (Phase 4) — progressive streaming via `m.replace`
 
 New `_build_and_run_agent_streaming` path replaces the atomic single-

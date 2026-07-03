@@ -1327,7 +1327,7 @@ class MatrixTrigger(ChannelTriggerBase):
         from xyz_agent_context.agent_runtime.client import (
             get_agent_runtime_client,
         )
-        from xyz_agent_context.channel.channel_prompts import ChannelTag
+        from xyz_agent_context.schema.channel_tag import ChannelTag
 
         agent_id = getattr(credential, "agent_id", "")
         builder = self.create_context_builder(message, credential, agent_id)
