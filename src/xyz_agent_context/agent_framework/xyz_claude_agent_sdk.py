@@ -96,6 +96,36 @@ def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str
     return {"effort": effort}
 
 
+def _zero_output_error_event(cli_stderr_lines: list[str]) -> dict:
+    """Build a ``response.error`` event for a run where the Claude CLI
+    yielded zero messages.
+
+    Zero messages means the run silently produced nothing — the CLI is not
+    logged in / the OAuth session expired / it crashed / quota is exhausted.
+    Emitting this event (instead of only logging and letting the generator
+    end quietly) is what stops the downstream helper-LLM from fabricating a
+    hollow reply over a turn that never ran (the "mysterious fallback" the
+    Owner reported). Classification stays in response_processor: the raw CLI
+    stderr rides along in ``error_message`` so ``_is_auth_failure`` turns an
+    auth/login stderr into a fatal ``AUTH_EXPIRED`` (re-login prompt, no_reply
+    fallback skipped) while a non-auth crash stays a recoverable "no output"
+    error. The base sentence is kept auth-phrase-free on purpose so it can't
+    false-positive the classifier when stderr is empty.
+    """
+    stderr = "\n".join((cli_stderr_lines or [])[-30:]).strip()
+    detail = f"\n\nCLI stderr:\n{stderr}" if stderr else ""
+    return {
+        "type": "raw_response_event",
+        "data": {
+            "type": "response.error",
+            "error_type": "no_output",
+            "error_message": (
+                "The coding agent produced no output (0 messages)." + detail
+            ),
+        },
+    }
+
+
 async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float) -> bool | None:
     """#7 diagnostic: is the LLM provider endpoint reachable right now?
 
@@ -646,6 +676,11 @@ class ClaudeAgentSDK:
                 )
                 if cli_stderr_lines:
                     logger.error("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                # Surface the silent void as a real error so response_processor
+                # can classify it (auth → fatal AUTH_EXPIRED; else recoverable)
+                # instead of the pipeline treating "no messages" as "agent
+                # chose not to reply" and fabricating a hollow fallback.
+                yield _zero_output_error_event(cli_stderr_lines)
         except GeneratorExit:
             logger.warning(f"Agent loop generator was closed early (client disconnected). Messages received: {message_count}")
         except Exception as e:

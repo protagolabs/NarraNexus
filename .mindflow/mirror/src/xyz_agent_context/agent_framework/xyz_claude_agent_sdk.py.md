@@ -4,6 +4,19 @@ last_verified: 2026-07-03
 stub: false
 ---
 
+## 2026-07-03 — 0-message run emits a classifiable error (no more silent fallback)
+
+When the Claude CLI yields 0 messages (expired OAuth / not logged in / crash /
+quota) the generator used to only log and end, so the pipeline read no-messages
+as "agent chose not to reply" and the helper-LLM fabricated a hollow fallback —
+the Owner reported "mysterious fallback, no error". It now yields
+_zero_output_error_event (a response.error carrying the raw CLI stderr).
+Classification stays in response_processor._is_auth_failure: an auth/login
+stderr becomes a fatal AUTH_EXPIRED (re-login prompt, no_reply fallback skipped);
+anything else stays a recoverable no-output error. The base sentence is kept
+auth-phrase-free so an empty stderr is never misclassified as auth. Guarded by
+tests/agent_framework/test_zero_output_error_event.py.
+
 ## 2026-07-03 — main-loop model normalized via `resolve_cli_alias` (upstream #57)
 
 `options_kwargs["model"]` passes through `resolve_cli_alias(model,
