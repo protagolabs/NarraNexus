@@ -87,21 +87,30 @@ test('S3: pro cancelled but in-period (auto_renew off)', async () => {
     },
   });
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/still active this period/)).toBeTruthy();
+  expect(await screen.findByText(/downgrades to Free/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Resume auto-renew/ })).toBeTruthy();
 });
 
 test('error: fetch rejects -> error copy, no crash', async () => {
   mockGetSubscription.mockRejectedValue(new Error('401'));
   render(<NetmindAccountPanel />);
   await waitFor(() =>
-    expect(screen.getByText(/Could not load subscription status/)).toBeTruthy(),
+    expect(screen.getByText(/Could not load your NetMind.AI Power account/)).toBeTruthy(),
   );
 });
 
-test('sandbox notice always shown in cloud mode', async () => {
+test('footer: scope note + sandbox note always shown in cloud mode', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/sandbox service is free for now/)).toBeTruthy();
+  // scope: LLM-API-only clarification (not compute/GPU)
+  expect(await screen.findByText(/cover LLM API usage/)).toBeTruthy();
+  expect(screen.getByText(/sandbox itself is free for now/)).toBeTruthy();
+});
+
+test('header: branded as NetMind.AI Power', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText('NetMind.AI Power')).toBeTruthy();
 });
 
 // --- Phase 3 actions --------------------------------------------------------
@@ -170,7 +179,7 @@ test('use subscription: success → shows connected message', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
   mockUseSubscription.mockResolvedValue({ success: true, provider_ids: ['p1', 'p2'] });
   render(<NetmindAccountPanel />);
-  const btn = await screen.findByRole('button', { name: /Use this subscription/ });
+  const btn = await screen.findByRole('button', { name: /Use this account/ });
   fireEvent.click(btn);
   await waitFor(() => expect(mockUseSubscription).toHaveBeenCalled());
   expect(await screen.findByText(/Connected/)).toBeTruthy();
@@ -180,7 +189,7 @@ test('use subscription: failure → shows error, no crash', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
   mockUseSubscription.mockRejectedValue(new Error('not enabled yet'));
   render(<NetmindAccountPanel />);
-  const btn = await screen.findByRole('button', { name: /Use this subscription/ });
+  const btn = await screen.findByRole('button', { name: /Use this account/ });
   fireEvent.click(btn);
   await waitFor(() => expect(screen.getByText(/not enabled yet/)).toBeTruthy());
 });
@@ -198,9 +207,8 @@ test('balance: renders free_credit + deduction order when fee-info available', a
     },
   });
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/\$12\.50/)).toBeTruthy();
-  expect(screen.getByText(/Subscription grant is used first/)).toBeTruthy();
-  expect(screen.getByText(/not available from NetMind yet/)).toBeTruthy();
+  expect(await screen.findByText(/\$12\.50/)).toBeTruthy(); // balance hero
+  expect(screen.getByText(/How usage is charged/)).toBeTruthy(); // footer charging order
 });
 
 test('balance: partial fee payload (no metrics/checks) renders without crashing', async () => {
@@ -208,17 +216,19 @@ test('balance: partial fee payload (no metrics/checks) renders without crashing'
   // malformed-but-200: missing metrics + checks entirely
   mockGetFeeInfo.mockResolvedValue({ success: true, data: { eligible: false } });
   render(<NetmindAccountPanel />);
-  // balance title still renders (no TypeError), values fall back to —
-  expect(await screen.findByText(/NetMind account balance/)).toBeTruthy();
+  // no TypeError; header + footer always render, balance falls back to —
+  expect(await screen.findByText('NetMind.AI Power')).toBeTruthy();
   expect(screen.getByText(/How usage is charged/)).toBeTruthy();
 });
 
-test('balance: hidden when fee-info fails, subscription still shows', async () => {
+test('balance hero: hidden when fee-info fails, subscription still shows', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
   mockGetFeeInfo.mockRejectedValue(new Error('403'));
   render(<NetmindAccountPanel />);
+  // subscription status still renders
   expect(await screen.findByText(/Free \(not subscribed\)/)).toBeTruthy();
-  expect(screen.queryByText(/How usage is charged/)).toBeNull();
+  // the balance hero (Current balance label) is gated on fee → absent
+  expect(screen.queryByText(/Current balance/)).toBeNull();
 });
 
 test('S3: resume button → confirm true → api.reactivateSubscription', async () => {

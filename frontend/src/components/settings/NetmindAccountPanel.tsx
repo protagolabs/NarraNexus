@@ -237,192 +237,201 @@ export function NetmindAccountPanel() {
 
   if (!isCloud) return null; // S0
 
-  return (
-    <div className="space-y-3">
-      <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3">
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="text-sm font-medium text-[var(--text-primary)]">
-            {t('settings.netmind.title', 'NetMind Account & Subscription')}
-          </h4>
-          {(state === 'pro_active' || state === 'pro_cancelled') && (
-            <span className="text-xs text-[var(--accent-primary)]">
-              {t('settings.netmind.planPro', 'Pro')}
-            </span>
-          )}
-        </div>
+  // Plan badge (top-right): reflects the NetMind.AI Power plan state.
+  const planBadge = (() => {
+    if (state === 'pro_active') {
+      return (
+        <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--accent-primary)]/12 text-[var(--accent-primary)]">
+          {t('settings.netmind.planPro', 'Pro')}
+        </span>
+      );
+    }
+    if (state === 'pro_cancelled') {
+      return (
+        <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--color-warning)]/12 text-[var(--color-warning)]">
+          {t('settings.netmind.badgeCancelled', 'Pro · ending')}
+        </span>
+      );
+    }
+    if (state === 'free') {
+      return (
+        <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
+          {t('settings.netmind.badgeFree', 'Free')}
+        </span>
+      );
+    }
+    return null;
+  })();
 
-        {state === 'loading' && (
-          <p className="text-sm text-[var(--text-secondary)]">
-            {t('settings.netmind.loading', 'Loading…')}
-          </p>
-        )}
-
-        {state === 'error' && (
-          <p className="text-sm text-[var(--color-error)]">
-            {t('settings.netmind.error',
-              'Could not load subscription status. If your login expired, sign in again and refresh.')}
-          </p>
-        )}
-
-        {state === 'free' && (
-          <div className="space-y-3">
-            <p className="text-sm text-[var(--text-secondary)]">
-              {t('settings.netmind.free', 'Current plan: Free (not subscribed)')}
-            </p>
-            <Button variant="accent" size="sm" onClick={handleSubscribe} disabled={busy || polling}>
-              {busy
-                ? t('settings.netmind.working', 'Working…')
-                : t('settings.netmind.subscribeBtn', 'Subscribe to Pro')}
-            </Button>
-          </div>
-        )}
-
-        {state === 'pro_active' && me?.subscription && (
-          <div className="text-sm text-[var(--text-secondary)] space-y-2">
-            <div>{t('settings.netmind.proActive', 'Current plan: Pro · active')}</div>
-            <div className="text-xs text-[var(--text-tertiary)]">
-              {t('settings.netmind.validUntil', 'Valid until')}{' '}
-              {formatDate(me.subscription.current_period_end)} ·{' '}
-              {t('settings.netmind.autoRenewOn', 'auto-renew on')}
-            </div>
-            <Button variant="outline" size="sm" onClick={handleCancel} disabled={busy}>
-              {busy
-                ? t('settings.netmind.working', 'Working…')
-                : t('settings.netmind.cancelBtn', 'Cancel subscription')}
-            </Button>
-          </div>
-        )}
-
-        {state === 'pro_cancelled' && me?.subscription && (
-          <div className="text-sm text-[var(--text-secondary)] space-y-2">
-            <div className="text-[var(--color-warning)]">
-              {t('settings.netmind.proCancelled', 'Cancelled · still active this period')}
-            </div>
-            <div className="text-xs text-[var(--text-tertiary)]">
-              {t('settings.netmind.expiresDowngrade',
-                'Valid until {{date}}, then downgrades to Free',
-                { date: formatDate(me.subscription.current_period_end) })}
-            </div>
-            <Button variant="accent" size="sm" onClick={handleReactivate} disabled={busy}>
-              {busy
-                ? t('settings.netmind.working', 'Working…')
-                : t('settings.netmind.reactivateBtn', 'Resume auto-renew')}
-            </Button>
-          </div>
-        )}
-
-        {polling && (
-          <p className="mt-2 text-xs text-[var(--text-tertiary)]">
-            {t('settings.netmind.awaitingPayment',
-              'Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.')}
-          </p>
-        )}
-        {actionError && (
-          <p className="mt-2 text-xs text-[var(--color-error)]">{actionError}</p>
-        )}
-      </div>
-
-      {/* Module F — use this subscription (wire a NetMind key to the agent) */}
-      <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-sm space-y-2">
-        <h4 className="font-medium text-[var(--text-primary)]">
-          {t('settings.netmind.useTitle', 'Use this account for NarraNexus')}
-        </h4>
-        <p className="text-xs text-[var(--text-tertiary)]">
-          {t('settings.netmind.useDesc',
-            'Run agent conversations on your NetMind balance / subscription — no API key to paste.')}
-        </p>
-        <Button variant="accent" size="sm" onClick={handleUseSubscription} disabled={busy}>
-          {busy
-            ? t('settings.netmind.working', 'Working…')
-            : t('settings.netmind.useSubscribeBtn', 'Use this subscription')}
+  // Primary action + status line, driven by the current plan state.
+  const actionButton = () => {
+    if (state === 'free') {
+      return (
+        <Button variant="accent" size="sm" onClick={handleSubscribe} disabled={busy || polling}>
+          {busy ? t('settings.netmind.working', 'Working…') : t('settings.netmind.subscribeBtn', 'Subscribe to Pro')}
         </Button>
-        {useResult && (
-          <p className={`text-xs ${useResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
-            {useResult.msg}
+      );
+    }
+    if (state === 'pro_active') {
+      return (
+        <Button variant="outline" size="sm" onClick={handleCancel} disabled={busy}>
+          {busy ? t('settings.netmind.working', 'Working…') : t('settings.netmind.cancelBtn', 'Cancel subscription')}
+        </Button>
+      );
+    }
+    if (state === 'pro_cancelled') {
+      return (
+        <Button variant="accent" size="sm" onClick={handleReactivate} disabled={busy}>
+          {busy ? t('settings.netmind.working', 'Working…') : t('settings.netmind.reactivateBtn', 'Resume auto-renew')}
+        </Button>
+      );
+    }
+    return null;
+  };
+
+  const statusLine = () => {
+    if (state === 'free') return t('settings.netmind.free', 'Current plan: Free (not subscribed)');
+    if (state === 'pro_active' && me?.subscription) {
+      return `${t('settings.netmind.proActive', 'Pro · active')} · ${t('settings.netmind.validUntil', 'valid until')} ${formatDate(me.subscription.current_period_end)}`;
+    }
+    if (state === 'pro_cancelled' && me?.subscription) {
+      return t('settings.netmind.expiresDowngrade', 'Valid until {{date}}, then downgrades to Free', {
+        date: formatDate(me.subscription.current_period_end),
+      });
+    }
+    return '';
+  };
+
+  return (
+    <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
+      {/* Header — product brand + plan badge */}
+      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-[var(--border-subtle)]">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">NetMind.AI Power</h3>
+          <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
+            {t('settings.netmind.subtitle', 'Power plan & credits · used for your LLM API usage')}
           </p>
-        )}
+        </div>
+        {planBadge}
       </div>
 
-      {/* Module B — balance + deduction order (degraded view per G1) */}
-      {feeLoaded && fee && (
-        <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-sm space-y-2">
-          <h4 className="font-medium text-[var(--text-primary)]">
-            {t('settings.netmind.balanceTitle', 'NetMind account balance')}
-          </h4>
-          <div className="flex justify-between text-[var(--text-secondary)]">
-            <span>{t('settings.netmind.currentBalance', 'Current balance')}</span>
-            <span className="font-mono">${fee.metrics?.free_credit ?? '—'}</span>
-          </div>
-          <div className="flex justify-between text-[var(--text-secondary)]">
-            <span>{t('settings.netmind.monthlyGrant', 'Monthly grant')}</span>
-            <span className="font-mono">${fee.metrics?.monthly_free_credit ?? '—'}</span>
-          </div>
-          {fee.eligible === false && (
-            <div className="text-xs text-[var(--color-warning)]">
-              {t('settings.netmind.notEligible',
-                'Cannot incur paid usage right now (no balance / not eligible).')}
-            </div>
-          )}
-          {fee.checks?.has_arrears && (
-            <div className="text-xs text-[var(--color-error)]">
-              {t('settings.netmind.hasArrears', 'You have outstanding arrears.')}
+      {state === 'loading' && (
+        <p className="px-4 py-4 text-sm text-[var(--text-secondary)]">
+          {t('settings.netmind.loading', 'Loading…')}
+        </p>
+      )}
+      {state === 'error' && (
+        <p className="px-4 py-4 text-sm text-[var(--color-error)]">
+          {t('settings.netmind.error',
+            'Could not load your NetMind.AI Power account. If your login expired, sign in again and refresh.')}
+        </p>
+      )}
+
+      {state !== 'loading' && state !== 'error' && (
+        <div className="px-4 py-4 space-y-4">
+          {/* Balance hero */}
+          {feeLoaded && fee && (
+            <div>
+              <div className="text-2xl font-semibold font-mono text-[var(--text-primary)] leading-none">
+                ${fee.metrics?.free_credit ?? '—'}
+              </div>
+              <div className="mt-1 text-xs text-[var(--text-tertiary)]">
+                {t('settings.netmind.currentBalance', 'Current balance')}
+                {' · '}
+                {t('settings.netmind.monthlyGrant', 'Monthly grant')} ${fee.metrics?.monthly_free_credit ?? '—'}
+              </div>
+              {fee.eligible === false && (
+                <div className="mt-1.5 text-xs text-[var(--color-warning)]">
+                  {t('settings.netmind.notEligible',
+                    'Cannot incur paid usage right now (no balance / not eligible).')}
+                </div>
+              )}
+              {fee.checks?.has_arrears && (
+                <div className="mt-1 text-xs text-[var(--color-error)]">
+                  {t('settings.netmind.hasArrears', 'You have outstanding arrears.')}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Deduction order — hard requirement copy (module B) */}
-          <div className="mt-2 pt-2 border-t border-[var(--border-subtle)] text-xs text-[var(--text-tertiary)] space-y-0.5">
-            <div className="font-medium text-[var(--text-secondary)]">
-              {t('settings.netmind.deductTitle', 'How usage is charged')}
+          {/* Plan status + primary action */}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-[var(--text-secondary)]">{statusLine()}</p>
+            {actionButton()}
+          </div>
+          {polling && (
+            <p className="text-xs text-[var(--text-tertiary)]">
+              {t('settings.netmind.awaitingPayment',
+                'Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.')}
+            </p>
+          )}
+          {actionError && <p className="text-xs text-[var(--color-error)]">{actionError}</p>}
+
+          {/* Use this NetMind.AI Power account to power the agent */}
+          <div className="rounded-md bg-[var(--bg-sunken)] p-3 space-y-2">
+            <div className="text-sm font-medium text-[var(--text-primary)]">
+              {t('settings.netmind.useTitle', 'Power NarraNexus with this account')}
             </div>
-            <div>{t('settings.netmind.deduct1', '1) Subscription grant is used first')}</div>
-            <div>{t('settings.netmind.deduct2', '2) Then your account balance (recharge / top-ups)')}</div>
-            <div>{t('settings.netmind.deduct3', '3) When both run out, paid usage stops')}</div>
+            <p className="text-xs text-[var(--text-tertiary)]">
+              {t('settings.netmind.useDesc',
+                'Run agent conversations on your NetMind.AI Power credits — no API key to paste.')}
+            </p>
+            <Button variant="accent" size="sm" onClick={handleUseSubscription} disabled={busy}>
+              {busy ? t('settings.netmind.working', 'Working…') : t('settings.netmind.useSubscribeBtn', 'Use this account')}
+            </Button>
+            {useResult && (
+              <p className={`text-xs ${useResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
+                {useResult.msg}
+              </p>
+            )}
           </div>
 
-          <div className="text-[11px] text-[var(--text-tertiary)]">
-            {t('settings.netmind.balanceDegraded',
-              'Per-period usage and the subscription-vs-balance breakdown are not available from NetMind yet.')}
-          </div>
+          {/* Recent activity */}
+          {records.length > 0 && (
+            <div className="pt-3 border-t border-[var(--border-subtle)]">
+              <div className="text-xs font-medium text-[var(--text-secondary)] mb-1.5">
+                {t('settings.netmind.activityTitle', 'Recent activity')}
+              </div>
+              <ul className="space-y-1">
+                {records.slice(0, 8).map((r) => {
+                  const income = r.direction === 'income';
+                  return (
+                    <li
+                      key={r.record_id}
+                      className="flex items-center justify-between gap-2 text-xs text-[var(--text-secondary)]"
+                    >
+                      <span className="text-[var(--text-tertiary)] tabular-nums">
+                        {(r.created_at || '').slice(0, 10)}
+                      </span>
+                      <span className="flex-1 truncate">{r.type || r.kind}</span>
+                      <span className={`font-mono ${income ? 'text-[var(--color-success)]' : 'text-[var(--text-primary)]'}`}>
+                        {income ? '+' : '−'}${r.amount} {r.currency}
+                      </span>
+                      <span className="text-[var(--text-tertiary)] w-16 text-right">{r.status}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Module B — recent financial activity (consumption + recharge), G1 */}
-      {records.length > 0 && (
-        <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-sm">
-          <h4 className="font-medium text-[var(--text-primary)] mb-2">
-            {t('settings.netmind.activityTitle', 'Recent activity')}
-          </h4>
-          <ul className="space-y-1">
-            {records.slice(0, 10).map((r) => {
-              const income = r.direction === 'income';
-              return (
-                <li
-                  key={r.record_id}
-                  className="flex items-center justify-between text-xs text-[var(--text-secondary)]"
-                >
-                  <span className="text-[var(--text-tertiary)]">
-                    {(r.created_at || '').slice(0, 10)}
-                  </span>
-                  <span className="flex-1 px-2 truncate">{r.type || r.kind}</span>
-                  <span
-                    className={`font-mono ${income ? 'text-[var(--color-success)]' : 'text-[var(--text-primary)]'}`}
-                  >
-                    {income ? '+' : '−'}${r.amount} {r.currency}
-                  </span>
-                  <span className="ml-2 text-[var(--text-tertiary)] w-16 text-right">
-                    {r.status}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+      {/* Muted footer — charging order + scope + sandbox note */}
+      <div className="px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[11px] text-[var(--text-tertiary)] leading-relaxed space-y-1.5">
+        <div>
+          <span className="text-[var(--text-secondary)]">{t('settings.netmind.deductTitle', 'How usage is charged')}: </span>
+          {t('settings.netmind.deductOrder',
+            'subscription grant first → then account balance (recharge) → paid usage stops when both run out.')}
         </div>
-      )}
-
-      {/* Module G — sandbox free-tier notice (platform-side copy) */}
-      <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 text-xs text-[var(--text-tertiary)] leading-relaxed">
-        {t('settings.netmind.sandboxNotice',
-          'NarraNexus sandbox service is free for now — you are not charged for sandbox usage. Billing will start later; we will notify you beforehand.')}
+        <div>
+          {t('settings.netmind.scopeNote',
+            'These NetMind.AI Power credits cover LLM API usage. Compute (GPU) and other pricing are billed separately.')}
+        </div>
+        <div>
+          {t('settings.netmind.sandboxNotice',
+            'The NarraNexus sandbox itself is free for now (no sandbox-service charge); billing will start later, with notice.')}
+        </div>
       </div>
     </div>
   );
