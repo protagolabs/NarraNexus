@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-06-16
+last_verified: 2026-07-03
 stub: true
 ---
+
+## 2026-07-03 — BusFailureItem/BusFailuresResponse + NoticeItem/NoticesResponse
+
+Types for the upstream #52 recovery surface.
 
 ## 2026-05-27 — LarkErrorDetail (translator output)
 

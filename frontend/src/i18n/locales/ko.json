@@ -858,6 +858,12 @@
       "roomsSub": "채널",
       "read": "읽음",
       "readSub": "비율"
+    },
+    "busFailures": {
+      "title": "전달 실패 메시지",
+      "retry": "재시도",
+      "unknownError": "알 수 없는 오류",
+      "attempts": "{{count}}회 실패"
     }
   },
   "help": {

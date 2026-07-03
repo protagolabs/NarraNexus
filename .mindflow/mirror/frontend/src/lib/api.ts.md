@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-24
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — bus-failures + notices client methods (upstream #52)
+
+`getBusFailures` / `retryBusFailure` (per-agent recovery endpoints) and
+`getNotices` / `markNoticeRead` (user-scope inbox_table read side).
 
 ## 2026-06-24 — team group chat: getTeamChat / sendTeamChat + setProviderSlot
 

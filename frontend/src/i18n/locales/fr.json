@@ -859,6 +859,12 @@
       "roomsSub": "Canaux",
       "read": "Lus",
       "readSub": "Taux"
+    },
+    "busFailures": {
+      "title": "Messages non distribués",
+      "retry": "Réessayer",
+      "unknownError": "Erreur inconnue",
+      "attempts": "{{count}} tentatives échouées"
     }
   },
   "help": {

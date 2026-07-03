@@ -1,8 +1,13 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — /api/notices added to QUOTA_BYPASS_PREFIXES
+
+Pure-metadata notices (list + mark-read); the primary notice class is
+"provider broken/exhausted" — the very users the quota gate would 402.
 
 ## 2026-07-02 — SAFE_HTTP_METHODS 豁免（GH #61：额度耗尽锁死整个 dashboard）
 

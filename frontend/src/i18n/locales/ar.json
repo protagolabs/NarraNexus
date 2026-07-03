@@ -867,6 +867,12 @@
       "roomsSub": "القنوات",
       "read": "مقروء",
       "readSub": "المعدّل"
+    },
+    "busFailures": {
+      "title": "رسائل لم يتم تسليمها",
+      "retry": "إعادة المحاولة",
+      "unknownError": "خطأ غير معروف",
+      "attempts": "{{count}} محاولات فاشلة"
     }
   },
   "help": {
