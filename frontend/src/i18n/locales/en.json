@@ -651,6 +651,16 @@
       "working": "Working…",
       "awaitingPayment": "Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.",
       "pollTimeout": "Still not active. If you completed payment, refresh in a moment.",
+      "balanceTitle": "NetMind account balance",
+      "currentBalance": "Current balance",
+      "monthlyGrant": "Monthly grant",
+      "notEligible": "Cannot incur paid usage right now (no balance / not eligible).",
+      "hasArrears": "You have outstanding arrears.",
+      "deductTitle": "How usage is charged",
+      "deduct1": "1) Subscription grant is used first",
+      "deduct2": "2) Then your account balance (recharge / top-ups)",
+      "deduct3": "3) When both run out, paid usage stops",
+      "balanceDegraded": "Per-period usage and the subscription-vs-balance breakdown are not available from NetMind yet.",
       "sandboxNotice": "NarraNexus sandbox service is free for now — you are not charged for sandbox usage. Billing will start later; we will notify you beforehand."
     },
     "modal": {

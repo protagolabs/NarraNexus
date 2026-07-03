@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { platform } from '@/lib/platform';
 import { Button } from '@/components/ui';
-import type { SubscriptionMe } from '@/types';
+import type { FeeInfo, SubscriptionMe } from '@/types';
 import { useRuntimeStore } from '@/stores/runtimeStore';
 
 type PanelState = 'loading' | 'error' | 'free' | 'pro_active' | 'pro_cancelled';
@@ -61,6 +61,8 @@ export function NetmindAccountPanel() {
   const [busy, setBusy] = useState(false); // an action is in flight
   const [polling, setPolling] = useState(false); // awaiting payment回流
   const [actionError, setActionError] = useState<string | null>(null);
+  const [fee, setFee] = useState<FeeInfo | null>(null);
+  const [feeLoaded, setFeeLoaded] = useState(false);
   const mounted = useRef(true);
   // Synchronous locks: React state (busy/polling) updates are async/batched, so
   // a fast double-click can fire a handler twice before `disabled` re-renders.
@@ -70,15 +72,24 @@ export function NetmindAccountPanel() {
   const pollingRef = useRef(false);
 
   const load = useCallback(async () => {
-    try {
-      const r = await api.getSubscription();
-      if (!mounted.current) return;
-      const data = r.data ?? null;
+    // Fetch subscription + balance concurrently; each result is handled
+    // independently so a fee-info failure never blanks the subscription status
+    // (and vice versa). Note: only a FETCH failure is isolated here — the
+    // balance render itself must stay null-safe against a partial 200 payload.
+    const [subR, feeR] = await Promise.allSettled([
+      api.getSubscription(),
+      api.getFeeInfo(),
+    ]);
+    if (!mounted.current) return;
+    if (subR.status === 'fulfilled') {
+      const data = subR.value.data ?? null;
       setMe(data);
       setState(resolveState(data));
-    } catch {
-      if (mounted.current) setState('error');
+    } else {
+      setState('error');
     }
+    setFee(feeR.status === 'fulfilled' ? feeR.value.data ?? null : null);
+    setFeeLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -284,6 +295,49 @@ export function NetmindAccountPanel() {
           <p className="mt-2 text-xs text-[var(--color-error)]">{actionError}</p>
         )}
       </div>
+
+      {/* Module B — balance + deduction order (degraded view per G1) */}
+      {feeLoaded && fee && (
+        <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-sm space-y-2">
+          <h4 className="font-medium text-[var(--text-primary)]">
+            {t('settings.netmind.balanceTitle', 'NetMind account balance')}
+          </h4>
+          <div className="flex justify-between text-[var(--text-secondary)]">
+            <span>{t('settings.netmind.currentBalance', 'Current balance')}</span>
+            <span className="font-mono">${fee.metrics?.free_credit ?? '—'}</span>
+          </div>
+          <div className="flex justify-between text-[var(--text-secondary)]">
+            <span>{t('settings.netmind.monthlyGrant', 'Monthly grant')}</span>
+            <span className="font-mono">${fee.metrics?.monthly_free_credit ?? '—'}</span>
+          </div>
+          {fee.eligible === false && (
+            <div className="text-xs text-[var(--color-warning)]">
+              {t('settings.netmind.notEligible',
+                'Cannot incur paid usage right now (no balance / not eligible).')}
+            </div>
+          )}
+          {fee.checks?.has_arrears && (
+            <div className="text-xs text-[var(--color-error)]">
+              {t('settings.netmind.hasArrears', 'You have outstanding arrears.')}
+            </div>
+          )}
+
+          {/* Deduction order — hard requirement copy (module B) */}
+          <div className="mt-2 pt-2 border-t border-[var(--border-subtle)] text-xs text-[var(--text-tertiary)] space-y-0.5">
+            <div className="font-medium text-[var(--text-secondary)]">
+              {t('settings.netmind.deductTitle', 'How usage is charged')}
+            </div>
+            <div>{t('settings.netmind.deduct1', '1) Subscription grant is used first')}</div>
+            <div>{t('settings.netmind.deduct2', '2) Then your account balance (recharge / top-ups)')}</div>
+            <div>{t('settings.netmind.deduct3', '3) When both run out, paid usage stops')}</div>
+          </div>
+
+          <div className="text-[11px] text-[var(--text-tertiary)]">
+            {t('settings.netmind.balanceDegraded',
+              'Per-period usage and the subscription-vs-balance breakdown are not available from NetMind yet.')}
+          </div>
+        </div>
+      )}
 
       {/* Module G — sandbox free-tier notice (platform-side copy) */}
       <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 text-xs text-[var(--text-tertiary)] leading-relaxed">

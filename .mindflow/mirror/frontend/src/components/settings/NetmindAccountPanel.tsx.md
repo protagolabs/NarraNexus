@@ -51,3 +51,15 @@ stub: false
 二次触发 → 重复 Stripe checkout；ref 同步翻转才是真守卫（质量 HIGH）。② `pollingRef`
 —— 禁止两个 poll 循环重叠（focus-refresh + poll 竞态）。③ reactivate 加 `window.confirm`
 （涉及钱）。④ 轮询超时给 `pollTimeout` 提示，不静默消失。
+
+## Phase 2（2026-07-02）— 余额区（模块 B 降级版）
+
+`load()` 并行拉 `getFeeInfo()`（独立 try，fee 失败不影响订阅态显示，余额区隐藏）。
+展示 free_credit（当前余额）+ monthly_free_credit + eligible/欠费 + **扣费顺序硬文案**
+（先订阅→再余额→停）+ 降级说明。G1：无本周期消耗、无订阅/余额拆分。
+
+**Phase 2 审查加固**：`FeeInfo` 所有字段改可选（后端 verbatim 代理 NetMind、无 schema
+校验）；余额区 render 全用可选链 + 兜底（`fee.metrics?.free_credit ?? '—'`、
+`fee.eligible === false`、`fee.checks?.has_arrears`）——否则部分/畸形的 200 会在
+render 阶段崩，反而把上面订阅态也带崩（fetch 的 try 保护不到 render，质量 HIGH）。
+`load()` 改 `Promise.allSettled` 并行拉 subscription + fee，各自独立处理保持隔离。

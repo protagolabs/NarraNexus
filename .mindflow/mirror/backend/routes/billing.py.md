@@ -50,3 +50,9 @@ API，只加 HTTP 信封、cloud 门禁、错误映射。委托给 [[netmind_bil
   "升级 Pro" 面板的人，不能被 402 挡在门外（安全审查 M-1）。
 - **前端 401 特判**：billing 的 401（NetMind token 失效）**不得**触发全局
   `narranexus:auth-expired` 登出——见 [[api]] 的 `isBillingEndpoint` 跳过逻辑。
+
+## Phase 2（2026-07-02）— GET /fee-info
+
+代理 `/v1/finance/user-fee-info`（余额/eligibility，模块 B）。同 _write 之外的读
+模式：cloud 门禁 + 本地身份 + netmind token；BillingAuthError→401、
+(BillingUpstreamError|BillingBusinessError)→502。

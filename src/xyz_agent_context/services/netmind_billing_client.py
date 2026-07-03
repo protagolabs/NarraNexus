@@ -125,6 +125,17 @@ class NetmindBillingClient:
             login_token=login_token,
         )
 
+    async def get_fee_info(self, login_token: str) -> Any:
+        """User balance + eligibility (finance domain).
+
+        Returns ``{success, user_id, eligible, checks, metrics}``. Note the
+        finance service signals a rejected token with 403 (vs 401 on
+        power-subscription) — both are mapped to BillingAuthError.
+        """
+        return await self._request(
+            "GET", "/v1/finance/user-fee-info", login_token=login_token
+        )
+
     async def subscribe(self, login_token: str) -> Any:
         """Start a Pro subscription. Returns ``{session_id, checkout_url}``.
 

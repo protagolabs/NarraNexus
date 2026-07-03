@@ -1029,3 +1029,36 @@ export interface SubscribeResponse extends ApiResponse {
 export interface BillingActionResponse extends ApiResponse {
   data?: Record<string, unknown>;
 }
+
+// GET /api/billing/fee-info -> user balance + eligibility (module B).
+// Amounts are strings (USD). NOTE (G1): no per-period consumption field, and
+// `free_credit` conflates subscription grant + recharge — degraded display.
+//
+// Every field is OPTIONAL: the backend proxies NetMind's JSON verbatim (no
+// schema validation), so a partial/misshapen 200 is possible. Call sites MUST
+// use optional chaining + fallbacks — never assume a field is present, or a
+// malformed-but-200 response crashes the render.
+export interface FeeInfo {
+  user_id?: string;
+  eligible?: boolean;
+  checks?: {
+    has_arrears?: boolean;
+    card_within_limit?: boolean;
+    has_bound_card?: boolean;
+  };
+  metrics?: {
+    balance?: { usd?: string; nmt?: string; cny?: string };
+    free_credit?: string; // current balance (recharge + subscription grant + activity)
+    monthly_free_credit?: string; // monthly grant, listed separately
+    arrears?: { pending_bills_count?: number; pending_payments_count?: number };
+    card_month?: {
+      spent_usd?: string;
+      limit_usd?: string | null;
+      remaining_usd?: string | null;
+    };
+  };
+}
+
+export interface FeeInfoResponse extends ApiResponse {
+  data?: FeeInfo;
+}

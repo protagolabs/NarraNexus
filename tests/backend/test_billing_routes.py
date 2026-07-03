@@ -45,7 +45,7 @@ def make_client(monkeypatch):
     return _make
 
 
-def _stub_client(monkeypatch, *, plans=None, me=None, action=None, raise_exc=None):
+def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, action=None, raise_exc=None):
     class _Stub:
         async def get_plans(self):
             if raise_exc:
@@ -56,6 +56,11 @@ def _stub_client(monkeypatch, *, plans=None, me=None, action=None, raise_exc=Non
             if raise_exc:
                 raise raise_exc
             return me if me is not None else _ME_FREE
+
+        async def get_fee_info(self, token):
+            if raise_exc:
+                raise raise_exc
+            return fee if fee is not None else {"eligible": True, "metrics": {}}
 
         async def subscribe(self, token):
             if raise_exc:
@@ -144,6 +149,36 @@ def test_subscription_unauthenticated_local_identity_401(make_client, monkeypatc
     # No X-User-Id -> resolve_current_user_id raises 401 before token check
     r = client.get("/api/billing/subscription", headers={"X-Netmind-Token": "jwt"})
     assert r.status_code == 401
+
+
+# --- Phase 2: fee-info (balance) -------------------------------------------
+
+def test_fee_info_ok(make_client, monkeypatch):
+    _stub_client(monkeypatch, fee={"eligible": True, "metrics": {"free_credit": "5.00"}})
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/fee-info", headers={**USER, "X-Netmind-Token": "jwt"})
+    assert r.status_code == 200
+    assert r.json()["data"]["metrics"]["free_credit"] == "5.00"
+
+
+def test_fee_info_auth_error_401(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingAuthError("bad"))
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/fee-info", headers={**USER, "X-Netmind-Token": "jwt"})
+    assert r.status_code == 401
+
+
+def test_fee_info_missing_token_401(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/fee-info", headers=USER).status_code == 401
+
+
+def test_fee_info_404_in_local_mode(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=False)
+    r = client.get("/api/billing/fee-info", headers={**USER, "X-Netmind-Token": "jwt"})
+    assert r.status_code == 404
 
 
 # --- Phase 3: subscribe / cancel / reactivate ------------------------------

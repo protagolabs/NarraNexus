@@ -187,3 +187,8 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 **`provisionArena(userToken?)` (2026-06-16; body added 2026-06-23).** `POST /api/arena/provision` — identity comes from the session headers. When `userToken` (the user's NetMind JWT) is passed it goes in the body as `{user_token}` so the backend can bind the agent's owner email via Arena's platform-only endpoint (optional; omitted → bind skipped; the token is forwarded to Arena, never persisted). Idempotent server-side (one Arena agent per user). Called by `lib/arenaLanding.ts` after login when the entry source is Arena.
 
 **`createAgent()` 4th arg (2026-06-16, #43).** Optional `opts?: { teamId }` adds `team_id` to the `POST /api/auth/agents` body, so an agent created from a team's sidebar "+" is attached to that team server-side.
+
+## 2026-07-02 (Phase 2) — getFeeInfo
+
+`getFeeInfo()`（GET /api/billing/fee-info，X-Netmind-Token，空 token 早退）。余额
+数据源，模块 B。

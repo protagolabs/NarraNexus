@@ -172,6 +172,31 @@ async def test_business_400_extracts_detail_key():
 
 
 @pytest.mark.asyncio
+async def test_get_fee_info_returns_body_and_hits_finance_path():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["auth"] = request.headers.get("loginToken")
+        return httpx.Response(200, json={"eligible": True, "metrics": {"free_credit": "5.00"}})
+
+    data = await _client_with(handler).get_fee_info("jwt")
+    assert data["metrics"]["free_credit"] == "5.00"
+    assert seen["path"] == "/v1/finance/user-fee-info"
+    assert seen["auth"] == "Bearer jwt"
+
+
+@pytest.mark.asyncio
+async def test_get_fee_info_403_maps_to_auth_error():
+    # finance signals a rejected token with 403 (not 401) — must be BillingAuthError.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "Invalid API key"})
+
+    with pytest.raises(BillingAuthError):
+        await _client_with(handler).get_fee_info("jwt")
+
+
+@pytest.mark.asyncio
 async def test_business_message_scrubs_token_shaped_value():
     # If the upstream echoes a JWT-shaped value under an allowed key, it must
     # NOT be passed through (defense against token/PII leak into client + logs).

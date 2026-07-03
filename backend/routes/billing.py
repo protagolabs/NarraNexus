@@ -133,6 +133,27 @@ def _validate_checkout_url(url: object) -> None:
         )
 
 
+@router.get("/fee-info")
+async def get_fee_info(request: Request):
+    """User balance + eligibility (module B). Requires the NetMind loginToken.
+
+    Field-level note: NetMind's user-fee-info has no per-period consumption and
+    `free_credit` conflates subscription grant + recharge (gap G1) — the panel
+    shows the degraded view. The endpoint auth itself is now live (was 403).
+    """
+    _require_cloud()
+    await resolve_current_user_id(request)
+    token = _require_netmind_token(request)
+    try:
+        data = await _client().get_fee_info(token)
+    except BillingAuthError:
+        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+    except (BillingUpstreamError, BillingBusinessError) as exc:
+        logger.error(f"[billing] get_fee_info upstream failure: {exc}")
+        raise HTTPException(status_code=502, detail="Billing service unavailable")
+    return {"success": True, "data": data}
+
+
 async def _write_action(request: Request, action: Literal["subscribe", "cancel", "reactivate"]):
     """Shared harness for the subscription write routes (subscribe / cancel /
     reactivate): cloud gate + local identity + NetMind token, then dispatch to

@@ -81,6 +81,7 @@ import type {
   SubscriptionMeResponse,
   SubscribeResponse,
   BillingActionResponse,
+  FeeInfoResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1301,6 +1302,14 @@ class ApiClient {
       throw new Error('NetMind account not linked (no loginToken)');
     }
     return this.request<SubscriptionMeResponse>('/api/billing/subscription', {
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  async getFeeInfo(): Promise<FeeInfoResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<FeeInfoResponse>('/api/billing/fee-info', {
       headers: { 'X-Netmind-Token': token },
     });
   }

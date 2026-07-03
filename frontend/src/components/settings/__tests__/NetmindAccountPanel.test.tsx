@@ -19,12 +19,14 @@ vi.mock('@/stores/runtimeStore', () => ({
 }));
 
 const mockGetSubscription = vi.fn();
+const mockGetFeeInfo = vi.fn();
 const mockSubscribe = vi.fn();
 const mockCancel = vi.fn();
 const mockReactivate = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
+    getFeeInfo: (...a: unknown[]) => mockGetFeeInfo(...a),
     subscribe: (...a: unknown[]) => mockSubscribe(...a),
     cancelSubscription: (...a: unknown[]) => mockCancel(...a),
     reactivateSubscription: (...a: unknown[]) => mockReactivate(...a),
@@ -39,6 +41,8 @@ vi.mock('@/lib/platform', () => ({
 beforeEach(() => {
   mockMode = 'cloud-web';
   mockGetSubscription.mockReset();
+  mockGetFeeInfo.mockReset();
+  mockGetFeeInfo.mockRejectedValue(new Error('no fee')); // default: balance hidden unless a test opts in
   mockSubscribe.mockReset();
   mockCancel.mockReset();
   mockReactivate.mockReset();
@@ -128,6 +132,42 @@ test('S2: cancel confirm dismissed → no api call', async () => {
   const btn = await screen.findByRole('button', { name: /Cancel subscription/ });
   fireEvent.click(btn);
   expect(mockCancel).not.toHaveBeenCalled();
+});
+
+// --- Phase 2 balance ---------------------------------------------------------
+
+test('balance: renders free_credit + deduction order when fee-info available', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockGetFeeInfo.mockResolvedValue({
+    success: true,
+    data: {
+      eligible: true,
+      checks: { has_arrears: false, card_within_limit: true, has_bound_card: false },
+      metrics: { balance: { usd: '0', nmt: '0', cny: '0' }, free_credit: '12.50', monthly_free_credit: '2.00', arrears: {}, card_month: {} },
+    },
+  });
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText(/\$12\.50/)).toBeTruthy();
+  expect(screen.getByText(/Subscription grant is used first/)).toBeTruthy();
+  expect(screen.getByText(/not available from NetMind yet/)).toBeTruthy();
+});
+
+test('balance: partial fee payload (no metrics/checks) renders without crashing', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  // malformed-but-200: missing metrics + checks entirely
+  mockGetFeeInfo.mockResolvedValue({ success: true, data: { eligible: false } });
+  render(<NetmindAccountPanel />);
+  // balance title still renders (no TypeError), values fall back to —
+  expect(await screen.findByText(/NetMind account balance/)).toBeTruthy();
+  expect(screen.getByText(/How usage is charged/)).toBeTruthy();
+});
+
+test('balance: hidden when fee-info fails, subscription still shows', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockGetFeeInfo.mockRejectedValue(new Error('403'));
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText(/Free \(not subscribed\)/)).toBeTruthy();
+  expect(screen.queryByText(/How usage is charged/)).toBeNull();
 });
 
 test('S3: resume button → confirm true → api.reactivateSubscription', async () => {

@@ -650,6 +650,16 @@
       "working": "处理中…",
       "awaitingPayment": "等待支付完成…本面板会自动刷新。若你已完成支付，回到此标签页即可。",
       "pollTimeout": "仍未生效。若你已完成支付，请稍后刷新。",
+      "balanceTitle": "NetMind 账户余额",
+      "currentBalance": "当前余额",
+      "monthlyGrant": "本月赠送",
+      "notEligible": "当前无法产生付费消费（无余额 / 不可用）。",
+      "hasArrears": "你有未结清的欠费。",
+      "deductTitle": "扣费顺序",
+      "deduct1": "① 先扣订阅赠送额度",
+      "deduct2": "② 再扣账户余额（充值 / 加油包）",
+      "deduct3": "③ 两者用尽后停止付费消费",
+      "balanceDegraded": "本周期已消耗、以及订阅额度/账户余额的拆分，NetMind 暂未提供。",
       "sandboxNotice": "NarraNexus 沙盒服务当前限时免费，暂不因沙盒服务扣费；后续将开始计费，届时另行告知。"
     },
     "modal": {
