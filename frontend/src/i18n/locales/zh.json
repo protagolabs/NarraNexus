@@ -109,6 +109,19 @@
       "statusRunning": "运行中",
       "statusFailed": "失败",
       "statusPending": "待处理"
+    },
+    "inner": {
+      "viewLoop": "查看这轮做了什么",
+      "loading": "加载中…",
+      "empty": "本轮无可展开的执行记录",
+      "loadFailed": "详情加载失败",
+      "source": {
+        "job": "定时任务",
+        "collaboration": "协作",
+        "im": "消息",
+        "skill": "技能学习",
+        "activity": "后台活动"
+      }
     }
   },
   "awareness": {

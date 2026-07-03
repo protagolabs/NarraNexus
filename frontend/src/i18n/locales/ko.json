@@ -109,6 +109,19 @@
       "statusRunning": "실행 중",
       "statusFailed": "실패",
       "statusPending": "대기 중"
+    },
+    "inner": {
+      "viewLoop": "이번 턴 내용 보기",
+      "loading": "불러오는 중…",
+      "empty": "이번 턴에 펼칠 실행 기록이 없습니다",
+      "loadFailed": "세부 정보를 불러오지 못했습니다",
+      "source": {
+        "job": "예약 작업",
+        "collaboration": "협업",
+        "im": "메시지",
+        "skill": "스킬 학습",
+        "activity": "백그라운드 활동"
+      }
     }
   },
   "awareness": {

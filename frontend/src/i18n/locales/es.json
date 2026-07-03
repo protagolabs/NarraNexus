@@ -109,6 +109,19 @@
       "statusRunning": "en ejecución",
       "statusFailed": "fallido",
       "statusPending": "pendiente"
+    },
+    "inner": {
+      "viewLoop": "Ver qué hizo en este turno",
+      "loading": "Cargando…",
+      "empty": "Sin pasos de ejecución en este turno",
+      "loadFailed": "No se pudieron cargar los detalles",
+      "source": {
+        "job": "Tarea programada",
+        "collaboration": "Colaboración",
+        "im": "Mensaje",
+        "skill": "Aprendizaje de habilidad",
+        "activity": "Actividad en segundo plano"
+      }
     }
   },
   "awareness": {

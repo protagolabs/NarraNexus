@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-06-25
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — Inner Thoughts rows are InnerThoughtCard
+
+The activity branch of the timeline map (Inner Thoughts tab, ``messageType
+=== 'activity'``) previously rendered a single centred 10px italic line
+(content + time). It now renders ``<InnerThoughtCard item agentId />`` — a
+source-labelled, expandable card whose expanded region lazily loads the
+turn's agent-loop steps by event_id. ``agentId`` comes from the component's
+``useConfigStore()`` (already in scope). See InnerThoughtCard.tsx.md.
 
 ## 2026-06-25 — two chat tabs: Conversation | Inner Thoughts
 

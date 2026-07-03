@@ -113,6 +113,19 @@
       "statusRunning": "قيد التشغيل",
       "statusFailed": "فشل",
       "statusPending": "قيد الانتظار"
+    },
+    "inner": {
+      "viewLoop": "عرض ما تم في هذه الجولة",
+      "loading": "جارٍ التحميل…",
+      "empty": "لا توجد خطوات تنفيذ لهذه الجولة",
+      "loadFailed": "تعذّر تحميل التفاصيل",
+      "source": {
+        "job": "مهمة مجدولة",
+        "collaboration": "تعاون",
+        "im": "رسالة",
+        "skill": "تعلّم مهارة",
+        "activity": "نشاط في الخلفية"
+      }
     }
   },
   "awareness": {
