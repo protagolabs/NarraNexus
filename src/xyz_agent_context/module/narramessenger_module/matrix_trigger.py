@@ -127,6 +127,19 @@ class MatrixMediaError(Exception):
         self.code = code
 
 
+def _media_content_type(msgtype: str, mimetype: str) -> "MessageContentType":
+    """Coarse content_type for an attachment — msgtype first, MIME family
+    fallback. Shared by the inline-media and compound parse paths so they
+    agree. Only a UX hint; the agent's Read tool re-validates the bytes."""
+    if msgtype == "m.image" or mimetype.startswith("image/"):
+        return MessageContentType.IMAGE
+    if msgtype == "m.audio" or mimetype.startswith("audio/"):
+        return MessageContentType.AUDIO
+    if msgtype == "m.video" or mimetype.startswith("video/"):
+        return MessageContentType.VIDEO
+    return MessageContentType.FILE
+
+
 def _parse_mxc(mxc_url: str) -> tuple[str, str]:
     """Split ``mxc://{server_name}/{media_id}`` into its parts.
 
@@ -1488,12 +1501,52 @@ class MatrixTrigger(ChannelTriggerBase):
         """Marshal a matrix-nio event object into a dict for the base
         pipeline.
 
-        Skeleton: only text messages. Commit 4 grows this to handle
-        image / file / edit / reaction / redaction events explicitly.
-        Anything unrecognised is dropped here (returning ``None`` skips
-        the base's parse_event call).
+        Handles: plain text, NarraMessenger *compound* messages (the way
+        multimodal actually arrives — see below), and standard inline media
+        (m.image / m.file / …). Anything unrecognised is dropped (returning
+        ``None`` skips the base's parse_event call).
+
+        **Compound messages** — NarraMessenger does NOT send standard inline
+        m.image events for multimodal. A picture/file arrives as a plain
+        ``m.text`` event whose custom ``content["ai.netmind.hint"]`` carries
+        ``kind="compound_trigger"`` + a ``compound_preview`` with the REAL
+        user text and the media ``mxc://`` URL. (A sibling
+        ``ai.netmind.compound`` event carries the raw bytes but nio parses it
+        as RoomMessageUnknown; we ignore it — the preview has everything, and
+        NarraMessenger blocks our direct Matrix /event + /messages reads with
+        403, so the preview on the pushed /sync event is our only handle.)
+        Verified on the wire 2026-07-03 (agent_62cf67080ad4).
         """
         if isinstance(event, RoomMessageText):
+            source = getattr(event, "source", None) or {}
+            content = source.get("content") or {}
+            hint = content.get("ai.netmind.hint")
+            if isinstance(hint, dict) and hint.get("kind") == "compound_trigger":
+                preview = hint.get("compound_preview") or {}
+                mxc = preview.get("media_url", "") or ""
+                logger.info(
+                    f"[matrix:{credential.agent_id}] compound_trigger "
+                    f"(media={bool(mxc)}, mime={preview.get('mime_type', '')}, "
+                    f"room={room_id})"
+                )
+                return {
+                    "kind": "m.room.message.compound",
+                    "event_id": event.event_id,
+                    "room_id": room_id,
+                    "sender_id": event.sender,
+                    "server_ts": event.server_timestamp,
+                    # The REAL user text — NOT event.body, which is the
+                    # hidden "[internal hint] process compound …" string
+                    # (ai.netmind.visibility=hidden).
+                    "text": preview.get("text", "") or "",
+                    "mxc_url": mxc,
+                    "mimetype": preview.get("mime_type", "") or "",
+                    "file_name": preview.get("file_name", "") or "",
+                    "size": int(preview.get("size", 0) or 0),
+                    "_nio_event": event,
+                    "_agent_id": credential.agent_id,
+                    "_our_user_id": credential.matrix_user_id,
+                }
             return {
                 "kind": "m.room.message.text",
                 "event_id": event.event_id,
@@ -1555,17 +1608,27 @@ class MatrixTrigger(ChannelTriggerBase):
     ) -> Optional[ParsedMessage]:
         """Convert a wrapped event dict into a ParsedMessage.
 
-        Handles two shapes emitted by :meth:`_wrap_event`:
+        Handles three shapes emitted by :meth:`_wrap_event`:
           - ``m.room.message.text`` → plain text
-          - ``m.room.message.media`` → populates ``raw["attachment_refs"]``
-            so the base's ``fetch_attachments`` downloads the mxc payload
+          - ``m.room.message.compound`` → NarraMessenger multimodal: the
+            real user text becomes ``content`` and the preview's mxc becomes
+            an attachment_ref (the actual way pictures/files arrive)
+          - ``m.room.message.media`` → standard inline media (kept for any
+            room that DOES send real m.image events)
+
+        The latter two populate ``raw["attachment_refs"]`` so the base's
+        ``fetch_attachments`` downloads the mxc payload.
 
         Own-message echo drop is done later via :meth:`is_echo` on the
         ParsedMessage; here we let all senders through. Mention filtering
         for groups lives in ``_classify`` (silent-batch vs full run).
         """
         kind = raw.get("kind")
-        if kind not in ("m.room.message.text", "m.room.message.media"):
+        if kind not in (
+            "m.room.message.text",
+            "m.room.message.compound",
+            "m.room.message.media",
+        ):
             return None
 
         event_id = raw.get("event_id") or ""
@@ -1609,7 +1672,52 @@ class MatrixTrigger(ChannelTriggerBase):
                 raw=raw,
             )
 
-        # ── media ──────────────────────────────────────────────────────
+        # ── NarraMessenger compound (real user text + media preview) ────
+        if kind == "m.room.message.compound":
+            text = raw.get("text") or ""
+            mxc_url = raw.get("mxc_url") or ""
+            if not text.strip() and not mxc_url:
+                return None
+            if not mxc_url:
+                # Text-only compound → an ordinary text turn.
+                return ParsedMessage(
+                    message_id=event_id,
+                    chat_id=room_id,
+                    sender_id=sender_id,
+                    sender_name=sender_name,
+                    content=text,
+                    content_type=MessageContentType.TEXT,
+                    chat_type=chat_type,
+                    timestamp_ms=timestamp_ms,
+                    raw=raw,
+                )
+            mimetype = raw.get("mimetype") or ""
+            original_name = raw.get("file_name") or mxc_url.rsplit("/", 1)[-1]
+            compound_raw = dict(raw)
+            compound_raw["attachment_refs"] = [
+                {
+                    "kind": "media",
+                    "mxc_url": mxc_url,
+                    "original_name": original_name,
+                    "mime_hint": mimetype,
+                    "size_hint": int(raw.get("size", 0) or 0),
+                }
+            ]
+            return ParsedMessage(
+                message_id=event_id,
+                chat_id=room_id,
+                sender_id=sender_id,
+                sender_name=sender_name,
+                # The compound's text IS a real caption/question — keep it as
+                # content (unlike inline media, whose body is just a filename).
+                content=text,
+                content_type=_media_content_type("", mimetype),
+                chat_type=chat_type,
+                timestamp_ms=timestamp_ms,
+                raw=compound_raw,
+            )
+
+        # ── standard inline media ───────────────────────────────────────
         mxc_url = raw.get("mxc_url") or ""
         if not mxc_url:
             # A media msgtype with no mxc URI is unusable — nothing to
@@ -1618,17 +1726,7 @@ class MatrixTrigger(ChannelTriggerBase):
 
         mimetype = raw.get("mimetype") or ""
         msgtype = raw.get("msgtype") or ""
-        # Prefer the explicit msgtype, fall back to the MIME family. This
-        # is only a coarse UX hint; the agent's Read tool re-validates the
-        # actual bytes at read time.
-        if msgtype == "m.image" or mimetype.startswith("image/"):
-            content_type = MessageContentType.IMAGE
-        elif msgtype == "m.audio" or mimetype.startswith("audio/"):
-            content_type = MessageContentType.AUDIO
-        elif msgtype == "m.video" or mimetype.startswith("video/"):
-            content_type = MessageContentType.VIDEO
-        else:
-            content_type = MessageContentType.FILE
+        content_type = _media_content_type(msgtype, mimetype)
 
         # body is the filename for media events — carry it as the
         # attachment's original_name, NOT as message text (a bare

@@ -4,6 +4,36 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 (fix) — NarraMessenger "compound" multimodal, not inline m.image
+
+Live test (agent_62cf67080ad4, 2026-07-03) showed the Phase-3 inline-media
+path never fires for real NarraMessenger pictures — because NarraMessenger
+does NOT send standard `m.image` events. A picture arrives as a **compound
+message**: a plain `m.text` event whose custom
+`content["ai.netmind.hint"]` = `{kind:"compound_trigger", compound_preview:
+{text, media_url(mxc), mime_type, file_name}}`, plus a sibling
+`msgtype:"ai.netmind.compound"` event (nio → RoomMessageUnknown) carrying
+the raw bytes. Our code only read the `m.text` `body`, which is the *hidden*
+`"[internal hint] process compound $…"` string (`ai.netmind.visibility:
+hidden`) — so the agent got a cryptic reference, no image, and stayed
+silent.
+
+`_wrap_event` now detects `compound_trigger` and lifts the preview into a
+`kind="m.room.message.compound"` raw dict: the REAL user text (not the
+hidden body) + the mxc. `parse_event` turns that into a ParsedMessage whose
+`content` is the user's text and whose `attachment_refs` points at the mxc —
+so the **existing** `fetch_attachments` → `_download_mxc` →
+`_persist_attachment` pipeline downloads it unchanged. The raw
+`ai.netmind.compound` (RoomMessageUnknown) sibling is ignored — the preview
+has everything, and NarraMessenger 403s our direct `/event` + `/messages`
+reads, so the pushed /sync event's preview is our only handle.
+
+An INFO log fires on each `compound_trigger` (media present + mime) so a
+live run confirms the branch is reached. The old `m.room.message.media`
+path is kept for any room that genuinely sends inline media.
+Tests: `test_matrix_compound_ingest.py` (wire format captured verbatim from
+the live event).
+
 ## 2026-07-03 — reply unified onto Matrix (extract_output reads `narra_reply`)
 
 Sibling to the outbound-send unification (see [[_matrix_send]]). `extract_output`
