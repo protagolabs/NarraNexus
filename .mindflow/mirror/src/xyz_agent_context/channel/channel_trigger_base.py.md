@@ -4,6 +4,17 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 — CONTENT_DEDUP_WINDOW_SECONDS + _content_fingerprint (X1)
+
+New opt-in class attr (default 0) wires ChannelDedupStore's
+content-fingerprint layer; `_content_fingerprint` hashes
+(chat_id|sender_id|content) → sha256[:32]. Policy stays in the subclass
+(NarramessengerTrigger sets 20 min to cover the platform's 15-min
+re-dispatch deadline); base computes the fingerprint so every channel
+shares one identity definition. Chosen over shrinking
+PROCESS_MESSAGE_TIMEOUT below the platform deadline, which would cut slow
+LLM turns short (铁律 #14).
+
 ## 2026-07-03 — unparsed raw events now audited (`_on_unparsed`)
 
 `parse_event(raw) -> None` (stickers/images/voice on text-only channels)

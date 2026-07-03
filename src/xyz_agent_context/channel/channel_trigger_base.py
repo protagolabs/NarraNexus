@@ -36,6 +36,7 @@ below.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import time
 from abc import ABC, abstractmethod
@@ -168,6 +169,14 @@ class ChannelTriggerBase(ABC):
     # If non-zero, submit messages through ChannelDebounceMerger with this
     # window before processing. 0 disables debounce (Lark today, Phase 2).
     DEBOUNCE_WINDOW_MS: int = 0
+
+    # If non-zero, dedup ALSO fingerprints (chat, sender, content) for this
+    # many seconds — for platforms that re-dispatch the same message under a
+    # NEW message_id (NarraMessenger's 15-min invocation deadline → X1
+    # double-reply). Costs: a user re-sending the exact same text within the
+    # window is treated as the platform's re-dispatch and dropped — size the
+    # window to the platform's re-dispatch horizon, no larger.
+    CONTENT_DEDUP_WINDOW_SECONDS: int = 0
 
     # ── Construction ──────────────────────────────────────────────────────
     def __init__(self, *, base_workers: int = 3, history_config: Optional[ChannelHistoryConfig] = None):
@@ -486,6 +495,7 @@ class ChannelTriggerBase(ABC):
         self._dedup_store = ChannelDedupStore(
             channel=self.channel_name,
             repo=seen_repo,
+            content_window_seconds=self.CONTENT_DEDUP_WINDOW_SECONDS,
         )
         # First baseline = process startup. Subclasses' transport hook
         # advances it on reconnect.
@@ -819,6 +829,7 @@ class ChannelTriggerBase(ABC):
             message.message_id,
             message.timestamp_ms,
             agent_id=agent_id,
+            content_fingerprint=self._content_fingerprint(message),
         )
 
         if decision["accept"]:
@@ -1200,6 +1211,18 @@ class ChannelTriggerBase(ABC):
     # ────────────────────────────────────────────────────────────────────
     # Audit helpers
     # ────────────────────────────────────────────────────────────────────
+
+    def _content_fingerprint(self, message: ParsedMessage) -> str:
+        """Stable identity of a message independent of its platform id.
+
+        Only computed when CONTENT_DEDUP_WINDOW_SECONDS opts the channel in;
+        empty string disables the fingerprint layer for this message (e.g.
+        no content to fingerprint).
+        """
+        if self.CONTENT_DEDUP_WINDOW_SECONDS <= 0 or not message.content:
+            return ""
+        material = f"{message.chat_id}|{message.sender_id}|{message.content}"
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 
     async def _audit(self, event_type: str, **kwargs) -> None:
         if self._audit_repo is None:
