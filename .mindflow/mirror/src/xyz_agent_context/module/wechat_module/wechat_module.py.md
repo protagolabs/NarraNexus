@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_module.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — handler registers `dedicated_trigger=True`
+
+Marks wechat as owning a dedicated trigger process so MessageBusTrigger
+won't re-dispatch `wechat_*` inbox rows (the 2026-07-03 double-dispatch
+incident). See message_source_handler.py.md.
 
 ## Why it exists
 

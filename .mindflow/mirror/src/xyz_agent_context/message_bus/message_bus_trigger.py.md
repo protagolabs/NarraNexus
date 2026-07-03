@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — IM-channel skip prefixes now registry-driven (wechat double-dispatch)
+
+The hand-maintained `_IM_CHANNEL_PREFIXES = ("lark_", "telegram_", "slack_")`
+tuple silently drifted: wechat / narramessenger / discord were missing, so
+every message on those channels was re-dispatched from their ChannelInboxWriter
+history rows — a SECOND AgentRuntime run wearing the Owner-Relay peer-agent
+prompt (2026-07-03 dev incident: the second run fabricated a wechat_send
+context_token and sent "我已经在微信上回复你啦" platform DMs; ~$0.22 wasted
+per message). New module-level `im_channel_prefixes()` derives the skip set
+from `MessageSourceHandler.dedicated_trigger` registrations at call time
+(import-order safe). Guarded by tests/message_bus/test_bus_channel_inbox_skip.py
+(filesystem truth: every run_*_trigger.py must have a dedicated handler).
 
 ## 2026-07-02 (PR #45 review follow-up) — cooldown arms after write, error is redacted
 

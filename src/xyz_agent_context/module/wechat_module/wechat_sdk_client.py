@@ -34,6 +34,7 @@ import random
 from typing import Any, Optional
 
 import httpx
+from loguru import logger
 
 
 class WeChatSDKError(RuntimeError):
@@ -89,6 +90,18 @@ def extract_text(msg: dict) -> str:
         if text:
             parts.append(text)
     return "".join(parts)
+
+
+def sanitize_bmp(text: str) -> str:
+    """Strip astral-plane characters (non-BMP, 4-byte UTF-8) from a reply.
+
+    The iLink gateway accepts messages containing them with ``ret=0`` but
+    never delivers (confirmed on dev 2026-07-03: two 🍉-bearing replies with
+    correct context_tokens vanished; the BMP-only reply in the same session
+    delivered). Delivered-without-the-emoji beats silently-dropped. BMP
+    symbols (～ ☺ “”) are untouched.
+    """
+    return "".join(ch for ch in text if ord(ch) <= 0xFFFF)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +213,18 @@ class WeChatSDKClient:
         out-of-order reply while still returning ``ok=False``.
         """
         client = self._ensure_client()
+        sanitized = sanitize_bmp(text)
+        if sanitized != text:
+            logger.warning(
+                f"[wechat send] stripped {len(text) - len(sanitized)} non-BMP "
+                f"char(s) from reply (gateway drops such messages silently)"
+            )
+        if not sanitized.strip():
+            logger.warning(
+                "[wechat send] reply empty after non-BMP strip — nothing to send"
+            )
+            return False
+        text = sanitized
         ok = True
         for start in range(0, len(text), MSG_CHUNK):
             chunk = text[start:start + MSG_CHUNK]
@@ -225,7 +250,13 @@ class WeChatSDKClient:
                     if ret != 0:
                         raise WeChatSDKError(ret, "send")
                     break
-                except Exception:
+                except Exception as e:  # noqa: BLE001
+                    # Audit trail, not noise-hiding: chunk sends used to fail
+                    # with zero trace (lesson #3) — every attempt is logged.
+                    logger.warning(
+                        f"[wechat send] chunk at {start} attempt {attempt + 1}/2 "
+                        f"failed: {type(e).__name__}: {e}"
+                    )
                     if attempt == 0:
                         await asyncio.sleep(1.0)
                         continue

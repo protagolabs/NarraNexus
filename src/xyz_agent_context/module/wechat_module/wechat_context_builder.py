@@ -49,7 +49,9 @@ class WeChatContextBuilder(ChannelContextBuilderBase):
             f'call `wechat_send(to_user_id="{to_user_id}", '
             f'context_token="{context_token}", text="YOUR_REPLY")`. Send exactly '
             f"ONE message. Use plain text — WeChat has no markdown rendering, so "
-            f"asterisks / backticks show up literally."
+            f"asterisks / backticks show up literally. Do NOT use emoji: the "
+            f"gateway silently drops messages containing them (they are stripped "
+            f"before sending as a safety net)."
         )
         return {
             "agent_id": self._agent_id,

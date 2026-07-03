@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-05-22
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — handler registers `dedicated_trigger=True`
+
+MessageBusTrigger derives its do-not-redispatch channel prefixes from this
+flag (see message_source_handler.py.md, 2026-07-03).
 
 ## 2026-05-22 — surface `lark_unbind` in the prompt
 

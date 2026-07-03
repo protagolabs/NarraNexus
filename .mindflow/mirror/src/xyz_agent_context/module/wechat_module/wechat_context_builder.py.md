@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_context_builder.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — reply instruction warns against emoji
+
+The gateway silently drops messages containing astral-plane emoji (see
+wechat_sdk_client.md same date). The reply_instruction now tells the agent
+not to use emoji; sanitize_bmp in the SDK is the hard safety net.
 
 ## Why it exists
 
