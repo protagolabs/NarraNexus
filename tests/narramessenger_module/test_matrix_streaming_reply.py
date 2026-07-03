@@ -1,24 +1,22 @@
 """
 @file_name: test_matrix_streaming_reply.py
 @date: 2026-07-03
-@description: MatrixTrigger progressive-streaming state machine tests.
+@description: MatrixTrigger streaming reply — "thinking + agent-driven
+progress" model (2026-07-03 redesign).
 
-Locks the design contract for the ``m.replace``-based reply streaming
-(Plan X from the 2026-07-03 owner discussion):
-
-- The placeholder DOES NOT ship until the agent generates at least
-  ``STREAM_MIN_CHARS_BEFORE_PLACEHOLDER`` characters. Prevents an orphan
-  "..." when the agent immediately decides not to reply.
-- Edits are DEBOUNCED by both time (``STREAM_EDIT_DEBOUNCE_MS``) AND
-  character delta (``STREAM_EDIT_MIN_DELTA_CHARS``) — either alone is
-  insufficient to prevent Matrix rate limits under fast-token streams.
-- ``narra_reply.text`` OVERWRITES any streamed thinking on finalise —
-  this is why users never see the agent's raw AGENT_RESPONSE deltas as
-  the "final" version.
-- Silent-not-reply (no ``narra_reply`` tool call) REDACTS the placeholder
-  if one was sent. If no placeholder ever shipped, nothing happens.
-- Feature-flag off (``STREAMING_ENABLED=False``) falls back to the
-  atomic path exactly as pre-streaming.
+Contract:
+- A ``💭 Thinking…`` placeholder is shipped immediately at turn start
+  (tested via the sub-methods here; the send itself lives in
+  ``_build_and_run_agent_streaming``).
+- Raw ``AGENT_RESPONSE`` token deltas and ``AGENT_THINKING`` are IGNORED —
+  the room never shows the agent's streamed output/reasoning. (This is the
+  whole point of the redesign: no jitter.)
+- ``narra_progress(text)`` → ``m.replace``-edit the placeholder to that
+  status, rate-limited by ``STREAM_PROGRESS_MIN_INTERVAL_MS``.
+- ``narra_reply(text)`` → captured; on finalise it OVERWRITES the
+  placeholder (or fresh-sends if the placeholder never shipped).
+- Silent (no ``narra_reply``) → redact the placeholder.
+- ``STREAMING_ENABLED=False`` bypasses all of this → atomic path.
 """
 from __future__ import annotations
 
@@ -56,44 +54,26 @@ def _delta(text: str):
     return SimpleNamespace(message_type=MessageType.AGENT_RESPONSE, delta=text)
 
 
-def _tool_call(tool_name: str, arguments: dict):
-    """Build a ProgressMessage-shaped event as the runtime actually emits.
+def _thinking(text: str):
+    return SimpleNamespace(
+        message_type=MessageType.AGENT_THINKING, thinking_content=text
+    )
 
-    NB the runtime never emits ``AgentToolCall`` (schema class exists but
-    isn't constructed anywhere) — tool calls arrive as
-    ``ProgressMessage`` (``message_type=PROGRESS``) with
-    ``details.tool_name`` + ``details.arguments``. This mirrors
-    ``run_collector.py``'s tool-call recognition pattern.
-    """
+
+def _tool_call(tool_name: str, arguments):
+    """ProgressMessage-shaped event — how the runtime actually emits tool
+    calls (message_type=PROGRESS, details.tool_name/arguments). ``arguments``
+    may be a dict or a JSON string (both shapes occur in the live SDK)."""
     return SimpleNamespace(
         message_type=MessageType.PROGRESS,
         details={"tool_name": tool_name, "arguments": arguments},
     )
 
 
-def _tool_call_json_args(tool_name: str, arguments_json_str: str):
-    """Variant: some SDK paths serialise ``arguments`` as a JSON string
-    mid-stream. The handler must parse both shapes."""
-    return SimpleNamespace(
-        message_type=MessageType.PROGRESS,
-        details={"tool_name": tool_name, "arguments": arguments_json_str},
-    )
-
-
-def _thinking(text: str):
-    return SimpleNamespace(
-        message_type=MessageType.AGENT_THINKING,
-        thinking_content=text,
-    )
-
-
 @pytest.fixture
 def trigger(monkeypatch):
     t = MatrixTrigger()
-    # Shrink debounce so time-based logic doesn't gate away in tests.
-    t.STREAM_EDIT_DEBOUNCE_MS = 0
-    t.STREAM_EDIT_MIN_DELTA_CHARS = 5
-    t.STREAM_MIN_CHARS_BEFORE_PLACEHOLDER = 3
+    t.STREAM_PROGRESS_MIN_INTERVAL_MS = 0  # don't rate-limit in tests
 
     calls = {"send": [], "edit": [], "redact": []}
 
@@ -104,17 +84,17 @@ def trigger(monkeypatch):
     async def _fake_edit(
         *, homeserver, token, room_id, original_event_id, new_body, txn_id=None
     ):
-        calls["edit"].append({
-            "room": room_id, "orig": original_event_id, "new_body": new_body,
-        })
+        calls["edit"].append(
+            {"room": room_id, "orig": original_event_id, "new_body": new_body}
+        )
         return f"$edit{len(calls['edit'])}"
 
     async def _fake_redact(
         *, homeserver, token, room_id, event_id, reason="", txn_id=None
     ):
-        calls["redact"].append({
-            "room": room_id, "event_id": event_id, "reason": reason,
-        })
+        calls["redact"].append(
+            {"room": room_id, "event_id": event_id, "reason": reason}
+        )
         return f"$redact{len(calls['redact'])}"
 
     monkeypatch.setattr(mt_mod, "matrix_room_send", _fake_send)
@@ -123,244 +103,151 @@ def trigger(monkeypatch):
     return t, calls
 
 
-# ────────────────────────────────────────────────────────────────────
-# Placeholder gating
-# ────────────────────────────────────────────────────────────────────
-
-
+# ── raw output / thinking are ignored ───────────────────────────────────
 @pytest.mark.asyncio
-async def test_placeholder_not_sent_below_min_chars(trigger):
-    """If the agent generates fewer than MIN_CHARS_BEFORE_PLACEHOLDER
-    (default 3 in the fixture), no placeholder ships. Guards against
-    an "…" flash for turns the agent will silently drop."""
+async def test_agent_response_delta_ignored(trigger):
+    """Token deltas must NOT touch the room — no send, no edit."""
     t, calls = trigger
-    state = _StreamReplyState()
-    await t._handle_stream_event(_delta("hi"), state, _cred(), ROOM)
+    state = _StreamReplyState(placeholder_event_id="$sent1")
+    await t._handle_stream_event(_delta("Hello "), state, _cred(), ROOM)
+    await t._handle_stream_event(_delta("world"), state, _cred(), ROOM)
     assert calls["send"] == []
-    assert state.placeholder_event_id == ""
-
-
-@pytest.mark.asyncio
-async def test_placeholder_shipped_at_min_chars(trigger):
-    """At exactly MIN_CHARS_BEFORE_PLACEHOLDER, a placeholder ships
-    with the ACCUMULATED text as the body (not the static "…") — so
-    the room shows the agent's real first words immediately."""
-    t, calls = trigger
-    state = _StreamReplyState()
-    await t._handle_stream_event(_delta("Hello"), state, _cred(), ROOM)
-    assert len(calls["send"]) == 1
-    assert calls["send"][0]["body"] == "Hello"
-    assert state.placeholder_event_id == "$sent1"
-
-
-# ────────────────────────────────────────────────────────────────────
-# Edit debouncing
-# ────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_small_deltas_do_not_edit(trigger):
-    """A dribble of 1-2 char deltas below MIN_DELTA_CHARS (5 in the
-    fixture) should not fire an edit — otherwise a slow token stream
-    burns edits on every single character."""
-    t, calls = trigger
-    state = _StreamReplyState()
-    await t._handle_stream_event(_delta("Hello"), state, _cred(), ROOM)
-    # placeholder is now out; last_edited_length == 5
-    # Add a few 1-char deltas, still under the 5-char delta gate.
-    for c in "! ":
-        await t._handle_stream_event(_delta(c), state, _cred(), ROOM)
     assert calls["edit"] == []
 
 
 @pytest.mark.asyncio
-async def test_edit_fires_after_delta_and_debounce(trigger):
-    """Once enough chars have arrived past MIN_DELTA_CHARS (and
-    debounce time in the fixture is 0), the next AGENT_RESPONSE
-    triggers an edit whose body is the FULL accumulated text — not
-    just the incremental delta. Matrix edit protocol replaces, not
-    appends."""
+async def test_agent_thinking_ignored(trigger):
     t, calls = trigger
-    state = _StreamReplyState()
-    await t._handle_stream_event(_delta("Hello"), state, _cred(), ROOM)
-    # placeholder shipped. Now push enough delta to cross the gate.
-    await t._handle_stream_event(_delta(" world!"), state, _cred(), ROOM)
-    assert len(calls["edit"]) == 1
-    # The edit body is the FULL accumulated string.
-    assert calls["edit"][0]["new_body"] == "Hello world!"
-    assert calls["edit"][0]["orig"] == "$sent1"
-
-
-# ────────────────────────────────────────────────────────────────────
-# Thinking is ignored
-# ────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_agent_thinking_does_not_ship(trigger):
-    """AGENT_THINKING events must never influence the placeholder or
-    edit stream — they're internal reasoning. Streaming them would
-    leak the chain-of-thought to the user."""
-    t, calls = trigger
-    state = _StreamReplyState()
+    state = _StreamReplyState(placeholder_event_id="$sent1")
     await t._handle_stream_event(_thinking("let me think..."), state, _cred(), ROOM)
-    await t._handle_stream_event(_thinking("more thinking..."), state, _cred(), ROOM)
     assert calls["send"] == []
     assert calls["edit"] == []
-    assert state.accumulated_text == ""
 
 
-# ────────────────────────────────────────────────────────────────────
-# Tool-call capture
-# ────────────────────────────────────────────────────────────────────
+# ── narra_progress ──────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_narra_progress_edits_placeholder(trigger):
+    t, calls = trigger
+    state = _StreamReplyState(placeholder_event_id="$sent1")
+    await t._handle_stream_event(
+        _tool_call("mcp__narramessenger_module__narra_progress",
+                   {"text": "Reading the chart…"}),
+        state, _cred(), ROOM,
+    )
+    assert calls["edit"] == [
+        {"room": ROOM, "orig": "$sent1", "new_body": "Reading the chart…"}
+    ]
 
 
+@pytest.mark.asyncio
+async def test_narra_progress_noop_without_placeholder(trigger):
+    """If the placeholder never shipped, progress edits are skipped (no
+    event to edit)."""
+    t, calls = trigger
+    state = _StreamReplyState()  # no placeholder
+    await t._handle_stream_event(
+        _tool_call("narra_progress", {"text": "working…"}), state, _cred(), ROOM
+    )
+    assert calls["edit"] == []
+
+
+@pytest.mark.asyncio
+async def test_narra_progress_rate_limited(trigger):
+    """Two progress updates inside the min-interval → only the first edits."""
+    t, calls = trigger
+    t.STREAM_PROGRESS_MIN_INTERVAL_MS = 10_000_000  # effectively "once"
+    state = _StreamReplyState(placeholder_event_id="$sent1")
+    await t._handle_stream_event(
+        _tool_call("narra_progress", {"text": "step 1"}), state, _cred(), ROOM
+    )
+    await t._handle_stream_event(
+        _tool_call("narra_progress", {"text": "step 2"}), state, _cred(), ROOM
+    )
+    assert len(calls["edit"]) == 1
+    assert calls["edit"][0]["new_body"] == "step 1"
+
+
+# ── narra_reply capture ─────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_narra_reply_captured(trigger):
-    """narra_reply tool call captures its text arg into state; other
-    tool calls are ignored (they aren't user-facing text)."""
     t, _ = trigger
-    state = _StreamReplyState()
+    state = _StreamReplyState(placeholder_event_id="$sent1")
     await t._handle_stream_event(
-        _tool_call("web_search", {"query": "irrelevant"}), state, _cred(), ROOM,
+        _tool_call("web_search", {"query": "irrelevant"}), state, _cred(), ROOM
     )
     assert state.narra_reply_text == ""
     await t._handle_stream_event(
-        _tool_call("narra_reply", {"text": "Final answer."}), state, _cred(), ROOM,
+        _tool_call("narra_reply", {"text": "Final answer."}), state, _cred(), ROOM
     )
     assert state.narra_reply_text == "Final answer."
 
 
 @pytest.mark.asyncio
 async def test_narra_reply_last_wins(trigger):
-    """If the agent calls narra_reply twice in one turn (rare), the
-    second call's text is what we commit — last-writer wins."""
     t, _ = trigger
-    state = _StreamReplyState()
+    state = _StreamReplyState(placeholder_event_id="$sent1")
     await t._handle_stream_event(
-        _tool_call("narra_reply", {"text": "first draft"}), state, _cred(), ROOM,
+        _tool_call("narra_reply", {"text": "first"}), state, _cred(), ROOM
     )
     await t._handle_stream_event(
-        _tool_call("narra_reply", {"text": "revised final"}), state, _cred(), ROOM,
+        _tool_call("narra_reply", {"text": "revised final"}), state, _cred(), ROOM
     )
     assert state.narra_reply_text == "revised final"
 
 
 @pytest.mark.asyncio
-async def test_narra_reply_mcp_prefixed_tool_name(trigger):
-    """Live SDK path prefixes MCP tools as
-    ``mcp__narramessenger_module__narra_reply``. The substring match
-    on ``narra_reply`` (not exact equality) is what makes this work —
-    locks that we don't accidentally regress to strict equality."""
+async def test_narra_reply_mcp_prefixed_and_json_args(trigger):
+    """MCP-prefixed tool name (substring match) + arguments as a JSON
+    string — both must work; this exact combo was the first-live-turn bug."""
     t, _ = trigger
-    state = _StreamReplyState()
+    state = _StreamReplyState(placeholder_event_id="$sent1")
     await t._handle_stream_event(
-        _tool_call(
-            "mcp__narramessenger_module__narra_reply",
-            {"text": "prefixed path"},
-        ),
+        _tool_call("mcp__narramessenger_module__narra_reply",
+                   '{"text": "from a json blob"}'),
         state, _cred(), ROOM,
     )
-    assert state.narra_reply_text == "prefixed path"
+    assert state.narra_reply_text == "from a json blob"
 
 
-@pytest.mark.asyncio
-async def test_narra_reply_arguments_as_json_string(trigger):
-    """Some SDK paths serialise ``details.arguments`` as a JSON string
-    rather than a dict. The handler must parse both shapes — otherwise
-    the very first live turn (which is what triggered this test) sits
-    in silent-finalise-redact land and the user sees 'message deleted'
-    even though they DID call narra_reply."""
-    t, _ = trigger
-    state = _StreamReplyState()
-    await t._handle_stream_event(
-        _tool_call_json_args(
-            "mcp__narramessenger_module__narra_reply",
-            '{"text": "from a json-encoded arguments blob"}',
-        ),
-        state, _cred(), ROOM,
-    )
-    assert state.narra_reply_text == "from a json-encoded arguments blob"
-
-
-# ────────────────────────────────────────────────────────────────────
-# Finalise: with reply
-# ────────────────────────────────────────────────────────────────────
-
-
+# ── finalise: with reply ────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_finalise_with_reply_edits_placeholder(trigger):
-    """When narra_reply.text is available AND a placeholder was
-    shipped, finalise edits the placeholder with the final text —
-    OVERWRITING any streamed thinking or partial answer. This is the
-    contract that lets us stream loose text safely."""
     t, calls = trigger
-    state = _StreamReplyState(
-        placeholder_event_id="$sent1",
-        accumulated_text="hmm, thinking...",
-    )
-    await t._finalize_stream_with_reply(
-        _cred(), ROOM, state, "Clean final answer."
-    )
-    assert calls["edit"] == [{
-        "room": ROOM,
-        "orig": "$sent1",
-        "new_body": "Clean final answer.",
-    }]
+    state = _StreamReplyState(placeholder_event_id="$sent1")
+    await t._finalize_stream_with_reply(_cred(), ROOM, state, "Clean final answer.")
+    assert calls["edit"] == [
+        {"room": ROOM, "orig": "$sent1", "new_body": "Clean final answer."}
+    ]
 
 
 @pytest.mark.asyncio
-async def test_finalise_with_reply_no_placeholder_sends_fresh(
-    trigger, monkeypatch
-):
-    """If the agent replied so fast that no placeholder ever shipped
-    (streaming didn't cross MIN_CHARS_BEFORE_PLACEHOLDER), finalise
-    falls back to _send_matrix_reply — the retry-aware atomic path."""
-    t, calls = trigger
-    state = _StreamReplyState()  # no placeholder_event_id
+async def test_finalise_with_reply_no_placeholder_sends_fresh(trigger, monkeypatch):
+    """Placeholder send failed (send_failure / no id) → fall back to the
+    retry-aware _send_matrix_reply."""
+    t, _ = trigger
+    state = _StreamReplyState()  # no placeholder
     fake_send = AsyncMock(return_value=True)
     monkeypatch.setattr(t, "_send_matrix_reply", fake_send)
-    await t._finalize_stream_with_reply(
-        _cred(), ROOM, state, "Instant answer."
-    )
-    fake_send.assert_awaited_once_with(_cred_matches_room_and_text(ROOM, "Instant answer.")) if False else None
-    # Assertion simplified for clarity — verify the call happened.
+    await t._finalize_stream_with_reply(_cred(), ROOM, state, "Instant answer.")
     assert fake_send.await_count == 1
     args = fake_send.await_args
-    # _send_matrix_reply(credential, room_id, content) — check positional order.
     assert args.args[1] == ROOM
     assert args.args[2] == "Instant answer."
 
 
-def _cred_matches_room_and_text(*_a, **_kw):  # unused helper placeholder
-    return None
-
-
-# ────────────────────────────────────────────────────────────────────
-# Finalise: silent
-# ────────────────────────────────────────────────────────────────────
-
-
+# ── finalise: silent ────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_finalise_silent_redacts_placeholder(trigger):
-    """No narra_reply + placeholder was sent → redact so the room
-    doesn't retain a partial thinking snippet the agent then
-    withdrew. This is the "silent-not-reply" invariant applied to
-    the streaming path."""
     t, calls = trigger
     state = _StreamReplyState(placeholder_event_id="$sent1")
     await t._finalize_stream_silent(_cred(), ROOM, state)
-    assert calls["redact"] == [{
-        "room": ROOM,
-        "event_id": "$sent1",
-        "reason": "agent chose silent reply",
-    }]
+    assert calls["redact"] == [
+        {"room": ROOM, "event_id": "$sent1", "reason": "agent chose silent reply"}
+    ]
 
 
 @pytest.mark.asyncio
 async def test_finalise_silent_no_placeholder_is_noop(trigger):
-    """No narra_reply AND no placeholder ever shipped → nothing to
-    clean up. Purest silent case."""
     t, calls = trigger
     state = _StreamReplyState()
     await t._finalize_stream_silent(_cred(), ROOM, state)
@@ -369,24 +256,18 @@ async def test_finalise_silent_no_placeholder_is_noop(trigger):
     assert calls["send"] == []
 
 
-# ────────────────────────────────────────────────────────────────────
-# Feature flag
-# ────────────────────────────────────────────────────────────────────
-
-
+# ── feature flag ────────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_streaming_disabled_falls_back_to_atomic(trigger, monkeypatch):
-    """STREAMING_ENABLED=False must NOT reach the streaming state
-    machine at all — it hands off to _build_and_run_agent_atomic
-    unchanged. This is the kill switch for a Matrix rate-limit spike
-    or a debug session where we want the pre-streaming behaviour."""
     t, _ = trigger
     t.STREAMING_ENABLED = False
     atomic_called = AsyncMock(return_value="atomic-return")
     streaming_called = AsyncMock(return_value="streaming-return")
     monkeypatch.setattr(t, "_build_and_run_agent_atomic", atomic_called)
     monkeypatch.setattr(t, "_build_and_run_agent_streaming", streaming_called)
-    msg = SimpleNamespace(chat_id=ROOM, message_id="$evt", sender_id="@u:h", content="hi")
+    msg = SimpleNamespace(
+        chat_id=ROOM, message_id="$evt", sender_id="@u:h", content="hi"
+    )
     result = await t._build_and_run_agent(_cred(), msg, "U", attachments=None)
     assert result == "atomic-return"
     atomic_called.assert_awaited_once()

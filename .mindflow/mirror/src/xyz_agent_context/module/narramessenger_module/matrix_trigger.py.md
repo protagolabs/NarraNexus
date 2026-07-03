@@ -4,6 +4,36 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 (redesign) — streaming is now "thinking + agent-driven progress"
+
+Owner feedback: the token-delta streaming (below) read as jumpy — Matrix
+`m.replace` fully redraws the body per edit, so debounced token chunks flicker,
+and for non-Claude models the raw `AGENT_RESPONSE` output isn't clean answer
+text anyway. Replaced the whole delta-streaming machine with an intentional-only
+model:
+
+- **Ship a `💭 Thinking…` placeholder IMMEDIATELY** at turn start (one
+  `room_send`), before consuming the stream — instant feedback.
+- **`AGENT_RESPONSE` deltas + `AGENT_THINKING` are now IGNORED.** The room shows
+  only what the agent deliberately posts. No accumulation, no debounce, no char
+  gates — those constants/fields (`STREAM_MIN_CHARS_BEFORE_PLACEHOLDER`,
+  `STREAM_EDIT_DEBOUNCE_MS`, `STREAM_EDIT_MIN_DELTA_CHARS`, `accumulated_text`,
+  `last_edit_ms`, `last_edited_length`, `_maybe_ship_or_edit`) are GONE.
+- **New `narra_progress(text)` tool** (marker in [[_narramessenger_mcp_tools]]):
+  the agent optionally calls it during long work; `_apply_progress` `m.replace`-
+  edits the placeholder to that status, rate-limited by
+  `STREAM_PROGRESS_MIN_INTERVAL_MS` (900ms floor vs Matrix's ~1 msg/s budget).
+  The prompt (`narramessenger_context_builder`) tells the agent it's optional.
+- **`narra_reply(text)`** → final `m.replace` overwrites the placeholder with the
+  answer (fresh `_send_matrix_reply` if the placeholder never shipped). Silent
+  turn → redact. Finalize methods unchanged.
+
+Net: one message that shows `💭 Thinking…` → (optional agent status lines) →
+final answer, updating in place. `_StreamReplyState` shrank to
+`placeholder_event_id / narra_reply_text / last_progress_ms / send_failure`.
+Tests rewritten in `test_matrix_streaming_reply.py`. The token-delta description
+below is SUPERSEDED — kept only for history.
+
 ## 2026-07-03 (hotfix) — streaming looked for tool calls on the wrong event type
 
 Second live-run bug in the streaming state machine: every turn ended with

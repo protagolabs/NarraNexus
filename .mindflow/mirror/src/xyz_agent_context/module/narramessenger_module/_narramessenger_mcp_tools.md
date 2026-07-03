@@ -4,6 +4,16 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 — `narra_progress` marker (streaming progress)
+
+Added alongside the streaming redesign (see [[matrix_trigger.py]]). `narra_progress
+(agent_id, text)` is a marker like `narra_reply` — it just validates + returns
+`{ok}`; the trigger, watching `run_stream`, catches the tool call and
+`m.replace`-edits the "thinking" placeholder to that status. Optional, agent-driven;
+no-op on non-streaming turns (owner web chat / Jobs have no live trigger consuming
+the stream). Kept a marker (not a real send) so the trigger owns all room writes —
+same reason `narra_reply` is a marker.
+
 ## 2026-07-03 — send tools unified onto Matrix (+ media send)
 
 The agent-facing send surface was reworked so ALL outbound is Matrix-native
