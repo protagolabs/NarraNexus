@@ -37,6 +37,12 @@ from xyz_agent_context.utils.workspace_paths import agent_workspace_path
 
 _UPLOAD_PATH = "/_matrix/media/v3/upload"
 _ROOM_SEND_PATH = "/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}"
+# Edit is a separate send of ``m.room.message`` whose content carries an
+# ``m.relates_to`` block with ``rel_type="m.replace"`` pointing at the
+# original event. The txn_id must be unique per edit (Matrix's idempotency
+# key), not reused from the original send.
+_ROOM_EDIT_PATH = _ROOM_SEND_PATH
+_ROOM_REDACT_PATH = "/_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}"
 _HTTP_TIMEOUT = aiohttp.ClientTimeout(total=60)
 
 
@@ -173,6 +179,140 @@ async def matrix_room_send(
                     raise MatrixSendError(
                         err.get("errcode") or f"http_{resp.status}",
                         err.get("error") or f"room_send status {resp.status}",
+                    )
+                body = await resp.json()
+    except MatrixSendError:
+        raise
+    except (aiohttp.ClientError, TimeoutError) as e:
+        raise MatrixSendError("client_error", f"{type(e).__name__}: {e}") from e
+
+    return (body or {}).get("event_id") or ""
+
+
+async def matrix_room_edit(
+    *,
+    homeserver: str,
+    token: str,
+    room_id: str,
+    original_event_id: str,
+    new_body: str,
+    txn_id: Optional[str] = None,
+) -> str:
+    """Edit a previously-sent ``m.room.message`` via ``m.replace``.
+
+    Matrix's edit protocol: send a fresh ``m.room.message`` event whose
+    ``content`` carries the new body AND an ``m.relates_to`` block that
+    identifies the original event. Clients that support edits (Element,
+    NarraMessenger app) render the edited version and hide the delta; older
+    clients see a fallback body starting with ``* `` (the leading asterisk
+    is the historical convention).
+
+    Used by MatrixTrigger's streaming reply state machine to progressively
+    update a placeholder message as the agent generates text, then
+    overwrite with the final ``narra_reply`` text when the tool call
+    materialises.
+
+    Raises ``MatrixSendError`` on HTTP / transport error. Returns the new
+    edit event's ``event_id`` — mostly useful for diagnostics; the state
+    machine keeps referencing the ORIGINAL event_id for further edits.
+    """
+    base = (homeserver or "").rstrip("/")
+    if not base or not token:
+        raise MatrixSendError("no_credential", "missing homeserver/token")
+    if not room_id or not original_event_id:
+        raise MatrixSendError(
+            "bad_room", "room_id and original_event_id are required"
+        )
+
+    txn = txn_id or f"nx-edit-{uuid.uuid4().hex}"
+    url = base + _ROOM_EDIT_PATH.format(room_id=room_id, txn_id=txn)
+    headers = {"Authorization": f"Bearer {token}"}
+    # Content shape per MSC2676: the outer body carries the fallback ``* new``
+    # text (so pre-edit clients still see a change), ``m.new_content`` is
+    # the actual replacement, and ``m.relates_to`` pins the original.
+    content: dict = {
+        "msgtype": "m.text",
+        "body": f"* {new_body}",
+        "m.new_content": {
+            "msgtype": "m.text",
+            "body": new_body,
+        },
+        "m.relates_to": {
+            "rel_type": "m.replace",
+            "event_id": original_event_id,
+        },
+    }
+    try:
+        async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
+            async with session.put(url, headers=headers, json=content) as resp:
+                if resp.status != 200:
+                    try:
+                        err = await resp.json()
+                    except Exception:  # noqa: BLE001
+                        err = {}
+                    raise MatrixSendError(
+                        err.get("errcode") or f"http_{resp.status}",
+                        err.get("error") or f"room_edit status {resp.status}",
+                    )
+                body = await resp.json()
+    except MatrixSendError:
+        raise
+    except (aiohttp.ClientError, TimeoutError) as e:
+        raise MatrixSendError("client_error", f"{type(e).__name__}: {e}") from e
+
+    return (body or {}).get("event_id") or ""
+
+
+async def matrix_room_redact(
+    *,
+    homeserver: str,
+    token: str,
+    room_id: str,
+    event_id: str,
+    reason: str = "",
+    txn_id: Optional[str] = None,
+) -> str:
+    """Redact (Matrix's "delete") a previously-sent event.
+
+    Used by MatrixTrigger's streaming reply state machine to clean up the
+    placeholder message when the agent decides not to reply
+    (silent-not-reply) — otherwise the placeholder would remain in the
+    room as an orphan ``...`` or partial thinking snippet.
+
+    Redacted events remain in the room's timeline but their content is
+    replaced with a redaction marker; clients hide the body from the
+    conversation view. This is Matrix's canonical delete — there is no
+    "hard delete" for regular users.
+
+    Raises ``MatrixSendError`` on HTTP / transport error.
+    """
+    base = (homeserver or "").rstrip("/")
+    if not base or not token:
+        raise MatrixSendError("no_credential", "missing homeserver/token")
+    if not room_id or not event_id:
+        raise MatrixSendError(
+            "bad_room", "room_id and event_id are required"
+        )
+
+    txn = txn_id or f"nx-redact-{uuid.uuid4().hex}"
+    url = base + _ROOM_REDACT_PATH.format(
+        room_id=room_id, event_id=event_id, txn_id=txn
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    body_payload: dict = {}
+    if reason:
+        body_payload["reason"] = reason
+    try:
+        async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
+            async with session.put(url, headers=headers, json=body_payload) as resp:
+                if resp.status != 200:
+                    try:
+                        err = await resp.json()
+                    except Exception:  # noqa: BLE001
+                        err = {}
+                    raise MatrixSendError(
+                        err.get("errcode") or f"http_{resp.status}",
+                        err.get("error") or f"redact status {resp.status}",
                     )
                 body = await resp.json()
     except MatrixSendError:

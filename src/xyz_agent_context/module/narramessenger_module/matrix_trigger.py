@@ -96,7 +96,14 @@ from xyz_agent_context.schema.parsed_message import (
     MessageContentType,
     ParsedMessage,
 )
+from xyz_agent_context.schema.runtime_message import MessageType
 
+from ._matrix_send import (
+    MatrixSendError,
+    matrix_room_edit,
+    matrix_room_redact,
+    matrix_room_send,
+)
 from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
@@ -105,6 +112,27 @@ from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
 _ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
+
+
+@dataclass
+class _StreamReplyState:
+    """Streaming reply state machine, one instance per agent turn.
+
+    Tracks the placeholder message we've sent, how much text we've
+    accumulated from AGENT_RESPONSE deltas, when we last committed an
+    edit, and the eventual ``narra_reply.text`` we'll use for the final
+    overwrite. The state lives for one turn and dies with it — no
+    shared mutable state across concurrent turns.
+
+    ``placeholder_event_id`` is empty until we ship the first message.
+    Downstream cleanup (redact vs final-edit) branches on that.
+    """
+    placeholder_event_id: str = ""
+    accumulated_text: str = ""
+    last_edit_ms: float = 0.0
+    last_edited_length: int = 0
+    narra_reply_text: str = ""
+    send_failure: bool = False
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
 # homeserver requires a bearer token on media fetches — the legacy
@@ -232,6 +260,37 @@ class MatrixTrigger(ChannelTriggerBase):
     # can see it after the fact.
     SEND_MAX_ATTEMPTS = 3
     SEND_INITIAL_BACKOFF_MS = 500
+
+    # ── Progressive streaming (m.replace edits) ──────────────────────────
+    # When True (default), _build_and_run_agent uses run_stream to send a
+    # placeholder to Matrix ASAP, then edits it via m.replace as the agent
+    # generates raw text (AGENT_RESPONSE deltas), and finally overwrites
+    # with narra_reply.text when the tool call materialises. This gives
+    # the room a live "agent is typing" feel similar to ChatGPT / Claude
+    # web, and matches the OpenClaw Matrix compat mode's `streaming: true`
+    # config (see setup guide section 6b).
+    #
+    # Kill switch: flip to False to fall back to the original atomic path
+    # (run_and_collect → final text → one room_send). Used when Matrix
+    # rate limits get aggressive or when debugging tool-call semantics.
+    STREAMING_ENABLED = True
+    # Wait until the agent has produced at least this many raw characters
+    # before sending the initial placeholder. Prevents shipping a "…"
+    # message the agent immediately decides not to reply to (silent path
+    # would then have to redact it — extra event traffic + short window
+    # where the room shows an orphan). Small enough that a real reply
+    # kicks off within ~1s of the agent starting to speak.
+    STREAM_MIN_CHARS_BEFORE_PLACEHOLDER = 6
+    # Min ms between edit events. Matrix rate-limits room writes; more
+    # frequent edits get 429'd and would either burn our retry budget
+    # (_send_matrix_reply's SEND_MAX_ATTEMPTS) or delay downstream edits.
+    STREAM_EDIT_DEBOUNCE_MS = 700
+    # Min additional chars since last edit before we send another. Prevents
+    # a slow drip of 1-char edits when the agent generates token-by-token.
+    STREAM_EDIT_MIN_DELTA_CHARS = 30
+    # Placeholder body — invisible-ish marker showing something's happening.
+    # The agent-generated text overwrites this on the first edit.
+    STREAM_PLACEHOLDER_TEXT = "💭 …"
 
     # ── Narra authorize-event gate ───────────────────────────────────────
     # Every Matrix event must clear ``POST /api/agent-runtime/matrix/
@@ -1189,14 +1248,36 @@ class MatrixTrigger(ChannelTriggerBase):
         *,
         attachments: Optional[list] = None,
     ) -> str:
-        """Run the base pipeline, then post the reply back to Matrix.
+        """Dispatch: streaming (m.replace edits) or atomic (single send).
 
-        Base returns the reply text (from ``extract_output``, overridden
-        below to read ``send_message_to_user_directly``). Anything non-
-        empty is sent via ``client.room_send``; empty means silent-not-
-        reply (the agent chose not to speak) and we send NOTHING —
-        posting an empty message or a placeholder would confuse humans
-        in the room.
+        Toggled by :data:`STREAMING_ENABLED`. The streaming path uses
+        ``run_stream`` from the runtime client and edits the placeholder
+        message as the agent generates text; the atomic path retains
+        the pre-2026-07-03 behaviour of one final ``room_send`` after
+        the runtime completes. Both paths still let the base's
+        ``_process_message`` write to the inbox on the returned string.
+        """
+        if self.STREAMING_ENABLED:
+            return await self._build_and_run_agent_streaming(
+                credential, message, sender_name, attachments=attachments
+            )
+        return await self._build_and_run_agent_atomic(
+            credential, message, sender_name, attachments=attachments
+        )
+
+    async def _build_and_run_agent_atomic(
+        self,
+        credential: NarramessengerCredential,
+        message: ParsedMessage,
+        sender_name: str,
+        *,
+        attachments: Optional[list] = None,
+    ) -> str:
+        """Pre-streaming atomic path: base returns text, we send once.
+
+        Kept as the ``STREAMING_ENABLED=False`` fallback so a Matrix
+        rate-limit spike or a debugging session can trivially bypass the
+        streaming state machine.
         """
         text = await super()._build_and_run_agent(
             credential, message, sender_name, attachments=attachments
@@ -1209,6 +1290,313 @@ class MatrixTrigger(ChannelTriggerBase):
             return text
         await self._send_matrix_reply(credential, message.chat_id, text)
         return text
+
+    async def _build_and_run_agent_streaming(
+        self,
+        credential: NarramessengerCredential,
+        message: ParsedMessage,
+        sender_name: str,
+        *,
+        attachments: Optional[list] = None,
+    ) -> str:
+        """Streaming path: placeholder → edits → final overwrite / redact.
+
+        Structure mirrors ``ChannelTriggerBase._build_and_run_agent`` from
+        prompt-building onward — replicated here because the base uses
+        ``run_and_collect`` (drives to completion) and we need
+        ``run_stream`` (yields events live). Sharing via subclass hook
+        would inflate the base's surface for a Matrix-specific edge case.
+
+        State machine (see :class:`_StreamReplyState`):
+          1. First ``AGENT_RESPONSE`` past ``STREAM_MIN_CHARS_BEFORE_PLACEHOLDER``
+             → send placeholder via ``room_send``, remember event_id.
+          2. Each subsequent ``AGENT_RESPONSE`` delta accumulates; if
+             both ``STREAM_EDIT_DEBOUNCE_MS`` AND
+             ``STREAM_EDIT_MIN_DELTA_CHARS`` are satisfied → send an edit.
+          3. On ``TOOL_CALL`` for ``narra_reply`` → capture the text.
+          4. Stream ends → if we have ``narra_reply.text``, final edit
+             overwrites the placeholder (or, if no placeholder was ever
+             shipped, a fresh send). If no ``narra_reply.text``, redact
+             the placeholder — silent-not-reply, per the trigger's
+             existing contract.
+
+        AGENT_THINKING is deliberately ignored: users see final answers,
+        not the agent's internal reasoning.
+        """
+        # Lazy import — see top-of-file comment about circular dependency.
+        from xyz_agent_context.agent_runtime.client import (
+            get_agent_runtime_client,
+        )
+        from xyz_agent_context.channel.channel_prompts import ChannelTag
+
+        agent_id = getattr(credential, "agent_id", "")
+        builder = self.create_context_builder(message, credential, agent_id)
+        prompt = await builder.build_prompt(self._history_config)
+        try:
+            anchor = await builder.build_retrieval_anchor()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"build_retrieval_anchor failed; using input fallback: {e}"
+            )
+            anchor = None
+
+        channel_tag = ChannelTag(
+            channel=self.channel_name,
+            sender_name=sender_name,
+            sender_id=message.sender_id,
+            room_id=message.chat_id,
+        )
+        tagged_prompt = f"{channel_tag.format()}\n{prompt}"
+        owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
+
+        extra_data: dict[str, Any] = {
+            "channel_tag": channel_tag.to_dict(),
+            "retrieval_anchor": anchor,
+            "trigger_id": (
+                f"{self.channel_name}_{message.message_id}"
+                if message.message_id
+                else f"{self.channel_name}_unknown"
+            ),
+        }
+        if attachments:
+            extra_data["attachments"] = [
+                a.model_dump(mode="json") for a in attachments
+            ]
+
+        state = _StreamReplyState()
+        client_stream = get_agent_runtime_client().run_stream(
+            agent_id=agent_id,
+            user_id=owner_user_id,
+            input_content=tagged_prompt,
+            working_source=self.working_source,
+            trigger_extra_data=extra_data,
+        )
+
+        try:
+            async for event in client_stream:
+                await self._handle_stream_event(
+                    event, state, credential, message.chat_id
+                )
+        except Exception as e:  # noqa: BLE001
+            # Runtime blew up mid-stream. Log and finalize what we have —
+            # the base pipeline handles hook_persist_turn / event.final_output
+            # via AgentRuntime's own error path.
+            logger.warning(
+                f"[matrix:{credential.agent_id}] run_stream raised: "
+                f"{type(e).__name__}: {e}"
+            )
+
+        # Finalize.
+        final_text = (state.narra_reply_text or "").strip()
+        if final_text:
+            await self._finalize_stream_with_reply(
+                credential, message.chat_id, state, final_text
+            )
+        else:
+            await self._finalize_stream_silent(
+                credential, message.chat_id, state
+            )
+        return final_text
+
+    async def _handle_stream_event(
+        self,
+        event: Any,
+        state: _StreamReplyState,
+        credential: NarramessengerCredential,
+        room_id: str,
+    ) -> None:
+        """Dispatch one runtime event to the streaming state machine."""
+        mt = getattr(event, "message_type", None)
+        if mt == MessageType.AGENT_RESPONSE:
+            delta = getattr(event, "delta", "") or ""
+            if not delta:
+                return
+            state.accumulated_text += delta
+            await self._maybe_ship_or_edit(state, credential, room_id)
+            return
+
+        if mt == MessageType.TOOL_CALL:
+            tool_name = getattr(event, "tool_name", "") or ""
+            if "narra_reply" not in tool_name:
+                return
+            tool_input = getattr(event, "tool_input", None) or {}
+            text = tool_input.get("text") if isinstance(tool_input, dict) else None
+            if isinstance(text, str) and text.strip():
+                # LAST-writer wins — if the agent calls narra_reply twice
+                # in one turn (rare), the second call's text is what we
+                # commit. Matches Lark's behaviour on lark_cli spam.
+                state.narra_reply_text = text
+            return
+
+        # AGENT_THINKING and everything else: ignore. Thinking would leak
+        # internal reasoning; PROGRESS / ERROR / etc. aren't user-visible
+        # reply content.
+
+    async def _maybe_ship_or_edit(
+        self,
+        state: _StreamReplyState,
+        credential: NarramessengerCredential,
+        room_id: str,
+    ) -> None:
+        """Ship the placeholder (first pass) or edit it (subsequent).
+
+        Guards:
+          - Wait until enough chars have accumulated before the first send.
+          - Enforce debounce + delta-chars on subsequent edits.
+          - Cauterise on any send failure (``send_failure=True``) so the
+            state machine doesn't keep hitting a broken endpoint.
+        """
+        if state.send_failure:
+            return
+
+        # Time in milliseconds since epoch (monotonic-enough for debounce).
+        now_ms = asyncio.get_event_loop().time() * 1000
+
+        if not state.placeholder_event_id:
+            if len(state.accumulated_text) < self.STREAM_MIN_CHARS_BEFORE_PLACEHOLDER:
+                return
+            # First ship — use the CURRENT accumulated text as the body,
+            # not the static placeholder. This shortens the "…" flash to
+            # essentially zero.
+            try:
+                event_id = await matrix_room_send(
+                    homeserver=credential.matrix_homeserver_url,
+                    token=credential.matrix_access_token,
+                    room_id=room_id,
+                    content={
+                        "msgtype": "m.text",
+                        "body": state.accumulated_text,
+                    },
+                )
+            except MatrixSendError as e:
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] streaming placeholder "
+                    f"send failed ({e.code}); falling back to final-only "
+                    f"send on stream end"
+                )
+                state.send_failure = True
+                return
+            state.placeholder_event_id = event_id or ""
+            state.last_edit_ms = now_ms
+            state.last_edited_length = len(state.accumulated_text)
+            return
+
+        # Have a placeholder — decide whether to edit.
+        delta_chars = len(state.accumulated_text) - state.last_edited_length
+        if delta_chars < self.STREAM_EDIT_MIN_DELTA_CHARS:
+            return
+        if now_ms - state.last_edit_ms < self.STREAM_EDIT_DEBOUNCE_MS:
+            return
+        try:
+            await matrix_room_edit(
+                homeserver=credential.matrix_homeserver_url,
+                token=credential.matrix_access_token,
+                room_id=room_id,
+                original_event_id=state.placeholder_event_id,
+                new_body=state.accumulated_text,
+            )
+        except MatrixSendError as e:
+            # Rate limit (M_LIMIT_EXCEEDED) is the most common failure —
+            # skip this edit; the next tick or the finalize step will try
+            # again with the accumulated content. Do NOT cauterise on
+            # transient errors; only on permanent ones.
+            if e.code in ("M_UNKNOWN_TOKEN", "M_MISSING_TOKEN", "M_FORBIDDEN"):
+                logger.error(
+                    f"[matrix:{credential.agent_id}] streaming edit "
+                    f"permanent failure ({e.code}); disabling further "
+                    f"stream edits this turn"
+                )
+                state.send_failure = True
+            else:
+                logger.info(
+                    f"[matrix:{credential.agent_id}] streaming edit "
+                    f"skipped ({e.code}); will retry on next tick"
+                )
+            return
+        state.last_edit_ms = now_ms
+        state.last_edited_length = len(state.accumulated_text)
+
+    async def _finalize_stream_with_reply(
+        self,
+        credential: NarramessengerCredential,
+        room_id: str,
+        state: _StreamReplyState,
+        final_text: str,
+    ) -> None:
+        """Agent produced narra_reply. Commit final text.
+
+        - If a placeholder was sent: edit it to final_text (overwriting
+          any partial stream we shipped).
+        - If not (agent replied instantly, or streaming errored early):
+          send a fresh message.
+        """
+        if state.placeholder_event_id and not state.send_failure:
+            try:
+                await matrix_room_edit(
+                    homeserver=credential.matrix_homeserver_url,
+                    token=credential.matrix_access_token,
+                    room_id=room_id,
+                    original_event_id=state.placeholder_event_id,
+                    new_body=final_text,
+                )
+                logger.info(
+                    f"[matrix:{credential.agent_id}] streaming final edit "
+                    f"OK (room={room_id}, text_len={len(final_text)})"
+                )
+                return
+            except MatrixSendError as e:
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] streaming final edit "
+                    f"failed ({e.code}); falling back to fresh send"
+                )
+        # No placeholder OR edit failed — send fresh, going through the
+        # retry-aware _send_matrix_reply so rate-limit / transient errors
+        # get the same handling as the atomic path.
+        await self._send_matrix_reply(credential, room_id, final_text)
+
+    async def _finalize_stream_silent(
+        self,
+        credential: NarramessengerCredential,
+        room_id: str,
+        state: _StreamReplyState,
+    ) -> None:
+        """Agent chose silent-not-reply. Redact any placeholder we sent.
+
+        Nothing to do if the placeholder never shipped — the room is
+        clean. If it did, redact so the room doesn't retain a partial
+        thinking snippet the agent later withdrew.
+        """
+        if not state.placeholder_event_id:
+            logger.info(
+                f"[matrix:{credential.agent_id}] silent stream (no "
+                f"placeholder ever sent, room={room_id})"
+            )
+            return
+        if state.send_failure:
+            # Placeholder is out there but subsequent edits failed —
+            # attempt the redact anyway; if it also fails, log and move
+            # on. The turn's memory writes still fire independently.
+            logger.info(
+                f"[matrix:{credential.agent_id}] silent stream after send "
+                f"failure — attempting redact (room={room_id})"
+            )
+        try:
+            await matrix_room_redact(
+                homeserver=credential.matrix_homeserver_url,
+                token=credential.matrix_access_token,
+                room_id=room_id,
+                event_id=state.placeholder_event_id,
+                reason="agent chose silent reply",
+            )
+            logger.info(
+                f"[matrix:{credential.agent_id}] silent stream — redacted "
+                f"placeholder (room={room_id})"
+            )
+        except MatrixSendError as e:
+            logger.warning(
+                f"[matrix:{credential.agent_id}] silent stream redact "
+                f"failed ({e.code}); placeholder remains in room"
+            )
 
     def extract_output(  # type: ignore[override]
         self, result: Any, message: ParsedMessage, credential: Any

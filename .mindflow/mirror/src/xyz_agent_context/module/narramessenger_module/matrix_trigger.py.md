@@ -4,6 +4,63 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 (Phase 4) — progressive streaming via `m.replace`
+
+New `_build_and_run_agent_streaming` path replaces the atomic single-
+send with an OpenClaw-style live edit stream. Placeholder → debounced
+edits from `AGENT_RESPONSE` deltas → final overwrite from
+`narra_reply.text` when the tool call materialises. `AGENT_THINKING`
+is intentionally ignored — the room shows the agent's final answer,
+never its chain-of-thought.
+
+Kill switch: `STREAMING_ENABLED = True` class-level constant. Flipping
+to False routes through the preserved `_build_and_run_agent_atomic`
+path (byte-identical to the pre-streaming behaviour) — used when
+Matrix rate-limits get aggressive or when a debug session wants the
+old shape.
+
+State machine (see `_StreamReplyState`):
+
+- **Placeholder gate**: no `room_send` until the agent has produced
+  at least `STREAM_MIN_CHARS_BEFORE_PLACEHOLDER` characters. Prevents
+  a "…" flash for turns the agent immediately silent-drops (which
+  would then need a redact — extra event traffic + brief room
+  pollution).
+- **Edit debounce**: `STREAM_EDIT_DEBOUNCE_MS` + `STREAM_EDIT_MIN_DELTA_CHARS`
+  must BOTH pass. Time alone lets a fast token stream ship a wall of
+  1-char edits; delta alone lets a slow-generating agent ship 30
+  edits per second the moment enough chars land. Both together
+  keeps Matrix's per-room write budget happy.
+- **Finalise with reply**: on `narra_reply(text=...)`, the accumulated
+  streamed text is OVERWRITTEN by `text` via one last `m.replace`.
+  This is the design's core safety property: any transient thinking
+  we streamed is gone from the visible message by the time the turn
+  ends. If no placeholder ever shipped (agent replied instantly),
+  finalise falls back to `_send_matrix_reply` — retry-aware atomic
+  send.
+- **Finalise silent** (no `narra_reply`): redact the placeholder if
+  one was sent; otherwise no-op. Room stays clean.
+
+New HTTP surface in [[_matrix_send]]: `matrix_room_edit` (MSC2676
+`m.replace` shape) and `matrix_room_redact` (Matrix's canonical
+delete). Kept in the send module so future MCP tools can use them
+too — they don't need trigger-instance state.
+
+Behaviour vs Narra guide: OpenClaw's config sets `streaming: true`
+under the assumption the runtime edits messages incrementally
+(setup guide section 6b). NarraMessenger app already supports
+message edits (Matrix native), so streamed edits render as one
+message that updates in place. Cross-client compatibility: older
+clients that ignore `m.replace` see BOTH the placeholder AND the
+final edit as separate messages with a `* ` prefix on the edit —
+mildly noisy but never broken.
+
+Tests: `tests/narramessenger_module/test_matrix_streaming_reply.py`
+(12 tests: placeholder gating, edit debounce, thinking ignored,
+narra_reply capture / last-wins, finalise-with-reply edit path,
+finalise-with-reply no-placeholder fallback, finalise-silent redact,
+finalise-silent no-op, feature-flag off).
+
 ## 2026-07-03 (fix) — NarraMessenger "compound" multimodal, not inline m.image
 
 Live test (agent_62cf67080ad4, 2026-07-03) showed the Phase-3 inline-media

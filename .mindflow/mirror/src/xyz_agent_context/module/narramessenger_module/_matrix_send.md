@@ -4,6 +4,27 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 — `matrix_room_edit` + `matrix_room_redact` for streaming
+
+Two new authenticated HTTP helpers alongside `matrix_room_send`:
+
+- `matrix_room_edit(homeserver, token, room_id, original_event_id,
+  new_body)` — MSC2676 `m.replace`. Sends a fresh `m.room.message`
+  whose content carries an `m.relates_to` block pointing at the
+  original event. Older clients see the fallback body `"* <new>"`;
+  edit-aware clients (Element, NarraMessenger app) render the
+  updated version in place.
+- `matrix_room_redact(homeserver, token, room_id, event_id, reason)`
+  — Matrix's canonical delete. Keeps the event in the timeline but
+  redacts the content; clients hide the body from the conversation
+  view.
+
+Consumed by [[matrix_trigger.py]]'s
+`_build_and_run_agent_streaming` state machine (progressive reply
+via `m.replace` edits, silent-not-reply cleanup via redact). Kept
+here rather than on the trigger so future MCP tools can reuse them
+without needing a live trigger instance.
+
 ## Why it exists
 
 Phase-3 outbound send, Matrix-native. When we added media send + unified
