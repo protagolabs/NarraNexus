@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_context_builder.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — reply_instruction points at `narra_reply`
+
+`reply_instruction` / `send_tool_name` changed from `narra_send` to
+**`narra_reply`** (+ a line about `narra_send_media` for attachments). This is
+what tells the agent to use the trigger-delivered reply marker instead of the
+old Gateway `/chat/send` tool — the prompt half of the send unification (see
+[[_narramessenger_mcp_tools]] / [[matrix_trigger.py]]).
 
 ## Why it exists
 

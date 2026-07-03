@@ -1199,19 +1199,21 @@ class MatrixTrigger(ChannelTriggerBase):
     def extract_output(  # type: ignore[override]
         self, result: Any, message: ParsedMessage, credential: Any
     ) -> str:
-        """Extract the reply text from the agent's ``send_message_to_user_directly``
-        tool call, matching Lark / Slack / Telegram's discipline.
+        """Extract the reply text from the agent's ``narra_reply`` tool call.
 
-        The generic ``send_message_to_user_directly`` (registered by
-        ChatModule) is what the agent calls to speak to the user; its
-        ``content`` argument IS the reply. Returning "" here means "the
-        agent did not speak this turn" — silent-not-reply — which
-        prevents the base from posting the agent's internal thinking
+        NarraMessenger is **trigger-driven**: the agent calls ``narra_reply``
+        as a *marker* (its ``text`` arg IS the reply), and THIS trigger does
+        the actual ``room_send`` afterwards (see ``_build_and_run_agent`` →
+        ``_send_matrix_reply``). This is deliberately different from Lark /
+        Slack / Telegram (where the channel CLI tool sends and we only
+        scrape): owning delivery in the trigger is what makes progressive
+        ``m.replace`` streaming possible later.
+
+        ``narra_reply`` (NOT the generic ``send_message_to_user_directly``,
+        which the shared channel prompt reserves for OWNER messages). Returning
+        "" means "the agent did not reply this turn" — silent-not-reply —
+        which prevents the base from posting the agent's internal thinking
         (``result.output_text``) into the room by mistake.
-
-        Falls back to a scan through ``raw_items`` looking for a
-        ProgressMessage or tool call whose tool_name matches; that's
-        how the base ships raw agent-loop responses.
         """
         raw_items = getattr(result, "raw_items", None) or []
         for item in raw_items:
@@ -1220,12 +1222,12 @@ class MatrixTrigger(ChannelTriggerBase):
             details = getattr(item, "details", None)
             if isinstance(details, dict):
                 tool_name = details.get("tool_name") or ""
-                if "send_message_to_user_directly" in str(tool_name):
+                if "narra_reply" in str(tool_name):
                     args = details.get("arguments") or {}
                     if isinstance(args, dict):
-                        content = args.get("content")
-                        if isinstance(content, str) and content.strip():
-                            return content
+                        text = args.get("text")
+                        if isinstance(text, str) and text.strip():
+                            return text
         # No explicit reply tool call → stay silent. Do NOT fall back to
         # result.output_text (agent's thinking is not for the room).
         return ""

@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_mcp_tools.py
 stub: false
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — send tools unified onto Matrix (+ media send)
+
+The agent-facing send surface was reworked so ALL outbound is Matrix-native
+(see [[_matrix_send]]); the Gateway `/chat/send` + `/invocations/{id}/reply`
+paths are gone.
+
+- **`narra_reply(agent_id, text)`** — now a **marker** (no invocation_id, no
+  HTTP). It just validates + returns `{ok}`; the reply text rides in the tool
+  call's arguments, which the trigger reads (`extract_output`) and delivers via
+  `room_send`. This is the reply path.
+- **`narra_send(agent_id, room_id, text)`** — repointed from `/chat/send` to
+  Matrix `room_send` (proactive text; e.g. a Job push).
+- **`narra_send_media(agent_id, room_id, file_path, caption?)`** — NEW. Uploads
+  a workspace file to the homeserver media repo + `room_send`s an
+  `m.image`/`m.file`/… event. Path-confined to the agent's own workspace
+  (`resolve_workspace_file`), size-capped at `backend.max_upload_bytes`.
+- `narra_status` / `narra_bind` / `narra_room_members` unchanged.
+
+Why `narra_reply` is a marker (trigger delivers) while `narra_send` /
+`narra_send_media` send immediately: a *reply* is delivered by the trigger so it
+can later be streamed progressively (`m.replace`); a *proactive*/media send has
+no triggering turn to attach to, so it sends now.
 
 ## 2026-07-02 — `narra_room_members` tool added
 

@@ -11,7 +11,8 @@ Locks:
   loop's next tick to disable.
 - Transient exception: raised on room_send → exponential backoff and
   retry; audits after SEND_MAX_ATTEMPTS.
-- extract_output: reads send_message_to_user_directly content; returns
+- extract_output: reads narra_reply text (NOT send_message_to_user_directly,
+  which is the owner channel); returns
   "" when the tool is absent (silent-not-reply); DOES NOT fall back
   to output_text (agent thinking must not spill into the room).
 """
@@ -166,12 +167,12 @@ def _msg() -> ParsedMessage:
     )
 
 
-def test_extract_output_reads_send_message_tool_call():
+def test_extract_output_reads_narra_reply_tool_call():
     t = MatrixTrigger()
     tool_call = SimpleNamespace(
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
-            "arguments": {"content": "here is your answer"},
+            "tool_name": "mcp__narramessenger_module__narra_reply",
+            "arguments": {"text": "here is your answer"},
         }
     )
     result = SimpleNamespace(
@@ -182,10 +183,10 @@ def test_extract_output_reads_send_message_tool_call():
     assert text == "here is your answer"
 
 
-def test_extract_output_returns_empty_when_no_send_tool_call():
-    """Silent-not-reply: no send_message_to_user_directly → empty string,
-    NOT a fall-through to output_text (which is the agent's internal
-    thinking and must not be posted to the room)."""
+def test_extract_output_returns_empty_when_no_narra_reply():
+    """Silent-not-reply: no narra_reply → empty string, NOT a fall-through
+    to output_text (the agent's internal thinking, which must not be posted
+    to the room)."""
     t = MatrixTrigger()
     result = SimpleNamespace(
         raw_items=[],
@@ -195,9 +196,24 @@ def test_extract_output_returns_empty_when_no_send_tool_call():
     assert text == ""
 
 
+def test_extract_output_ignores_send_message_to_user_directly():
+    """send_message_to_user_directly is the OWNER channel, not the room —
+    it must NOT be treated as a NarraMessenger reply."""
+    t = MatrixTrigger()
+    owner_msg = SimpleNamespace(
+        details={
+            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "arguments": {"content": "note to my owner"},
+        }
+    )
+    result = SimpleNamespace(raw_items=[owner_msg], output_text="")
+    text = t.extract_output(result, _msg(), _cred())
+    assert text == ""
+
+
 def test_extract_output_ignores_other_tool_calls():
     """A tool call to some other tool (e.g. web_search) does NOT count
-    as a reply. Only send_message_to_user_directly does."""
+    as a reply. Only narra_reply does."""
     t = MatrixTrigger()
     other = SimpleNamespace(
         details={
@@ -208,3 +224,27 @@ def test_extract_output_ignores_other_tool_calls():
     result = SimpleNamespace(raw_items=[other], output_text="")
     text = t.extract_output(result, _msg(), _cred())
     assert text == ""
+
+
+# ── memory extractor (MessageSourceRegistry handler) ────────────────────
+def test_memory_extractor_recognises_narra_reply_and_send():
+    from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
+        _extract_narramessenger_reply,
+    )
+    assert _extract_narramessenger_reply(
+        "mcp__narramessenger_module__narra_reply", {"text": "hello"}
+    ) == "hello"
+    assert _extract_narramessenger_reply(
+        "narra_send", {"room_id": "!r", "text": "proactive"}
+    ) == "proactive"
+
+
+def test_memory_extractor_ignores_owner_and_others():
+    from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
+        _extract_narramessenger_reply,
+    )
+    # send_message_to_user_directly is the OWNER channel — not a room reply.
+    assert _extract_narramessenger_reply(
+        "send_message_to_user_directly", {"content": "to owner"}
+    ) is None
+    assert _extract_narramessenger_reply("web_search", {"query": "x"}) is None

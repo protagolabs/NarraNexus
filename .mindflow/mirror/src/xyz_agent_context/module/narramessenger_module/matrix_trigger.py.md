@@ -4,6 +4,23 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 — reply unified onto Matrix (extract_output reads `narra_reply`)
+
+Sibling to the outbound-send unification (see [[_matrix_send]]). `extract_output`
+now scrapes **`narra_reply`** (the agent's channel-reply marker, ``text`` arg),
+NOT the generic ``send_message_to_user_directly`` — the shared channel prompt
+(`channel_prompts.py`) reserves that generic tool for OWNER messages, so keying
+the room reply on it was the bug behind "reply went out via Gateway `/chat/send`
+while the room_send path idled and mislogged 'nothing sent'".
+
+NarraMessenger stays **trigger-driven** on purpose (the agent calls `narra_reply`
+as a marker; THIS trigger does the actual `room_send` in `_build_and_run_agent`
+→ `_send_matrix_reply`). That's different from Lark/Slack/Telegram (where the
+channel CLI tool sends and we only scrape) — owning delivery in the trigger is
+the foundation for future progressive `m.replace` streaming (spec §7). Proactive
+text (`narra_send`) and media (`narra_send_media`) are separate, immediate sends
+via [[_matrix_send]].
+
 ## 2026-07-03 (Phase 3) — multimodal ingest (m.image / m.file / m.audio / m.video)
 
 Promoted from the "Deferred to Phase 3" stub in the file docstring to a

@@ -47,8 +47,11 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         room_name = ((gc.get("room") or {}).get("name")) or ""
 
         reply_instruction = (
-            f'call `narra_send(room_id="{room_id}", text="YOUR_REPLY")`. '
-            f"Send exactly ONE message with your real answer (plain text)."
+            'call `narra_reply(text="YOUR_REPLY")` — your reply is delivered '
+            "to this NarraMessenger room automatically. Send exactly ONE "
+            "message with your real answer (plain text / markdown). "
+            "To attach an image or file, put it in your workspace first, then "
+            f'call `narra_send_media(room_id="{room_id}", file_path="...")`.'
         )
 
         return {
@@ -63,7 +66,7 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
             "timestamp": str(self._message.timestamp_ms),
             "my_channel_id": self._credential.matrix_user_id,
             "message_body": self._message.content,
-            "send_tool_name": "narra_send",
+            "send_tool_name": "narra_reply",
             "reply_instruction": reply_instruction,
         }
 
