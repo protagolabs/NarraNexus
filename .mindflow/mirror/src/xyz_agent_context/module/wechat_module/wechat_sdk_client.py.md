@@ -4,21 +4,29 @@ stub: false
 last_verified: 2026-07-03
 ---
 
-## 2026-07-03 — non-BMP strip + send-failure logging (silent-drop incident)
+## 2026-07-03 (final) — root cause was the missing `client_id`; emoji strip reverted
 
-iLink returns `ret=0` for messages it never delivers. Confirmed on dev
-(agent_0ed73ae78099): two replies containing 🍉 (astral-plane / 4-byte
-UTF-8) with CORRECT per-message context_tokens were accepted and never
-arrived; the BMP-only reply in the same session delivered; a send with a
-fabricated context_token also returned ok. Consequences baked in here:
+The silent-drop incident's REAL rule, proven by controlled probes across two
+QR sessions: `client_id` is the server-side per-message dedup key. Our send
+payload omitted it, so every send shared one empty key — the FIRST message of
+a login session delivered and every later one was silently swallowed as a
+duplicate (HTTP 200 + empty body `{}`; there is no `ret` field and no
+delivery receipt in this API at all). Fix: payload now carries
+`from_user_id: ""`, a per-message `uuid4` `client_id` (stable across the
+in-place retry — a retry IS the same message; distinct per chunk), and
+`base_info.channel_version` (the constant existed but was only wired into
+getupdates).
 
-- `sanitize_bmp()` strips astral-plane chars; `send_message` applies it and
-  refuses to fire an empty-after-strip send (returns False). Delivered-
-  without-the-emoji beats silently-dropped. BMP symbols (～ ☺ “”) untouched.
-- Per-chunk send failures are logged (`[wechat send] chunk...`) instead of
-  the previous bare `except Exception:` swallow (lesson #3).
-- KNOWN LIMIT: `ok=True` still only means "gateway accepted", not
-  "delivered" — there is no delivery receipt in the iLink API.
+The interim "non-BMP emoji kills delivery" theory was a coincidental
+correlation (the first two lost replies happened to carry 🍉) — with
+client_id present, astral-plane emoji deliver and render fine (probe P11).
+`sanitize_bmp` and the prompt's emoji ban are reverted. Per-chunk
+send-failure logging (lesson #3) stays.
+
+Debugging landmark: rebinding "fixed" delivery only because a fresh login
+session has an empty dedup slot — one more delivery, then mute again. If
+"only the first message arrives" ever reappears, check payload shape against
+the protocol docs before suspecting the platform.
 
 ## Why it exists
 

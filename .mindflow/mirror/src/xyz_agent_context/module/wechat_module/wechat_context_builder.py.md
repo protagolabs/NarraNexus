@@ -4,11 +4,12 @@ stub: false
 last_verified: 2026-07-03
 ---
 
-## 2026-07-03 — reply instruction warns against emoji
+## 2026-07-03 (final) — emoji warning reverted
 
-The gateway silently drops messages containing astral-plane emoji (see
-wechat_sdk_client.md same date). The reply_instruction now tells the agent
-not to use emoji; sanitize_bmp in the SDK is the hard safety net.
+The reply-instruction emoji ban added earlier today is removed: the drops
+were caused by the send payload's missing `client_id` (see
+wechat_sdk_client.py.md), not by emoji. Instruction is back to the
+markdown-only caveat.
 
 ## Why it exists
 
