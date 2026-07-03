@@ -122,6 +122,13 @@
         "skill": "Skill study",
         "activity": "Background activity"
       }
+    },
+    "error": {
+      "badgeLabel": "Show error details",
+      "titleFailed": "Run failed",
+      "titleRecovered": "Finished with errors",
+      "situationFailed": "This run hit an error and the agent could not reply normally. Details:",
+      "situationRecovered": "The agent replied, but errors occurred during the run. Details:"
     }
   },
   "awareness": {

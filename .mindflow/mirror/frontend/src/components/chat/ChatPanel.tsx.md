@@ -4,6 +4,13 @@ last_verified: 2026-07-03
 stub: false
 ---
 
+## 2026-07-03 — pass error state to MessageBubble
+
+The MessageBubble message prop now forwards item.isError + item.warnings, so
+the bubble's error rendering (red badge + red bubble + warnings) actually
+receives data. Without this the fields died at the ChatPanel boundary even
+after buildTimeline started carrying them.
+
 ## 2026-07-03 — Inner Thoughts rows are InnerThoughtCard
 
 The activity branch of the timeline map (Inner Thoughts tab, ``messageType

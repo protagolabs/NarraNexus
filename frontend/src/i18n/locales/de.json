@@ -122,6 +122,13 @@
         "skill": "Skill-Lernen",
         "activity": "Hintergrundaktivität"
       }
+    },
+    "error": {
+      "badgeLabel": "Fehlerdetails anzeigen",
+      "titleFailed": "Ausführung fehlgeschlagen",
+      "titleRecovered": "Mit Fehlern abgeschlossen",
+      "situationFailed": "Bei dieser Ausführung trat ein Fehler auf und der Agent konnte nicht normal antworten. Details:",
+      "situationRecovered": "Der Agent hat geantwortet, aber während der Ausführung traten Fehler auf. Details:"
     }
   },
   "awareness": {

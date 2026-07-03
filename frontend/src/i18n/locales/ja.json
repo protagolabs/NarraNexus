@@ -122,6 +122,13 @@
         "skill": "スキル学習",
         "activity": "バックグラウンド活動"
       }
+    },
+    "error": {
+      "badgeLabel": "エラー詳細を表示",
+      "titleFailed": "実行に失敗しました",
+      "titleRecovered": "エラーありで完了",
+      "situationFailed": "この実行でエラーが発生し、エージェントは正常に応答できませんでした。詳細：",
+      "situationRecovered": "エージェントは応答しましたが、実行中にエラーが発生しました。詳細："
     }
   },
   "awareness": {

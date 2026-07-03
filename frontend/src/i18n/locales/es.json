@@ -122,6 +122,13 @@
         "skill": "Aprendizaje de habilidad",
         "activity": "Actividad en segundo plano"
       }
+    },
+    "error": {
+      "badgeLabel": "Ver detalles del error",
+      "titleFailed": "La ejecución falló",
+      "titleRecovered": "Finalizado con errores",
+      "situationFailed": "Esta ejecución tuvo un error y el agente no pudo responder con normalidad. Detalles:",
+      "situationRecovered": "El agente respondió, pero ocurrieron errores durante la ejecución. Detalles:"
     }
   },
   "awareness": {
