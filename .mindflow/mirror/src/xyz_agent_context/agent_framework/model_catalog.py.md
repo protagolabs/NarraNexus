@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/model_catalog.py
-last_verified: 2026-06-10
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — `resolve_cli_alias` (upstream #57)
+
+New `_CLI_ALIAS_TO_MODEL_ID` map + `resolve_cli_alias(model_id, auth_type)`
+next to the alias ModelMeta registrations. CLI family aliases ("opus") are
+only valid on the OAuth/CLI path; raw Anthropic-compatible APIs 400 on them
+and the runtime surfaces no_reply. Model strings are free text end to end
+(no backend catalog validation), so normalization lives at the transport
+boundary: non-OAuth → full id, OAuth → verbatim (the CLI resolves "latest
+of family" itself, keeping it un-stale). When a family ships a new latest,
+update the map with the ModelMeta entries —
+tests/agent_framework/test_model_alias_normalization.py guards that map
+targets are registered catalog ids.
 ## 2026-06-10 (later) — onboarding defaults for aggregator sources
 
 _ONBOARD_AGENT/HELPER_MODELS gained netmind (DeepSeek-V4-Pro / V4-Flash,

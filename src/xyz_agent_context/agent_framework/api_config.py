@@ -108,10 +108,18 @@ class ClaudeConfig:
         # with an unknown model, and either fail or drift off-provider.
         # Docs: https://code.claude.com/docs/en/model-config
         if self.model:
-            env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = self.model
-            env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = self.model
-            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = self.model
-            env["CLAUDE_CODE_SUBAGENT_MODEL"] = self.model
+            # CLI family aliases ("opus") are invalid on raw API transports —
+            # normalize here so the CLI's internal calls can't 400 either
+            # (same rule as the main-loop model in xyz_claude_agent_sdk).
+            from xyz_agent_context.agent_framework.model_catalog import (
+                resolve_cli_alias,
+            )
+
+            model = resolve_cli_alias(self.model, auth_type=self.auth_type)
+            env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+            env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+            env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
         else:
             # No explicit model → blank these so a stale inherited value
             # from os.environ can't steer CLI behavior for this run.

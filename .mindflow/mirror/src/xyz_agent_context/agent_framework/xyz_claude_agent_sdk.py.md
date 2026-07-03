@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-06-11
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — main-loop model normalized via `resolve_cli_alias` (upstream #57)
+
+`options_kwargs["model"]` passes through `resolve_cli_alias(model,
+auth_type)`: bare family aliases become full ids on api_key/bearer
+transports, stay verbatim on OAuth. Complements the earlier
+`_is_claude_native` fix (906312b5) which only adjusted tool policy, not
+the model string itself.
 
 ## 2026-06-11 — thinking 走 --effort,绝不发 --max-thinking-tokens 正数
 
