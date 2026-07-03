@@ -17,6 +17,7 @@ import { BracketEmptyState } from '@/components/nm';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { compareInboxMessages } from '@/lib/inboxOrder';
 import { BusFailuresSection } from './BusFailuresSection';
 
 // Local KPI card was removed — this panel now uses the shared <StatStrip />.
@@ -86,9 +87,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
     return rooms
       .map((room) => ({
         ...room,
-        messages: [...room.messages].sort(
-          (a, b) => toTime(b.created_at) - toTime(a.created_at)
-        ),
+        messages: [...room.messages].sort(compareInboxMessages),
       }))
       .sort((a, b) => toTime(b.latest_at) - toTime(a.latest_at));
   }, [rooms]);
