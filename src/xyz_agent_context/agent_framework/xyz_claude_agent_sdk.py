@@ -166,9 +166,25 @@ class ClaudeAgentSDK:
         # History: agents often run 10+ turns; 50K keeps 3-5 full turns.
         # System prompt: T8 (ENABLE_TOOL_SEARCH=false for non-Claude models)
         # forces the full MCP tool schemas (~40 tools) into the base prompt,
-        # typically 60-80K chars; 100K gives headroom without hitting the
-        # 128 KiB argv byte ceiling for mixed-language content.
-        MAX_SYSTEM_PROMPT_LENGTH = 100_000  # chars
+        # typically 60-80K chars.
+        #
+        # 2026-07-03: bumped 100K -> 115K after live diagnosis on
+        # agent_62cf67080ad4 showed the assembled system_prompt clocking
+        # in at 91-93K chars (15 modules × ~6K module_instructions each,
+        # currently ALL loaded per turn because SKIP_MODULE_DECISION_LLM=True
+        # disables the per-turn module-selection LLM). At 100K that left
+        # only ~5-8K for history, evicting 20-23 of ~29 rows on every turn
+        # and starving the LLM of context.
+        #
+        # 115K still fits comfortably under MAX_SYSTEM_PROMPT_BYTES = 120 KiB
+        # for pure-ASCII prompts, and mixed-language content is still
+        # clamped by the byte ceiling below. Argv hard limit is 128 KiB,
+        # so 13 KiB headroom remains. This is a TREATMENT of the symptom
+        # (system_prompt is bloated because we load every module every
+        # turn); the ROOT fix is a smarter module-selection loader that
+        # skips channel modules unrelated to this turn — deferred as a
+        # separate follow-up.
+        MAX_SYSTEM_PROMPT_LENGTH = 115_000  # chars
         MAX_SYSTEM_PROMPT_BYTES = 120 * 1024  # ~120 KiB, leaves 8 KiB for argv overhead
         MAX_HISTORY_LENGTH = 50_000  # chars
 
