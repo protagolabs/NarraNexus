@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-05-31
+last_verified: 2026-07-02
 stub: false
 ---
+
+## 2026-07-02 — `silent: bool = False` kwarg on `run()`
+
+`run()` now accepts `silent: bool = False`. When True, steps 0-2.5 run
+normally (event created, narrative selected, modules loaded, instances
+synced) but step_3 (agent LLM invocation) is skipped; a minimal
+`PathExecutionResult(final_output="", ctx_data=<from ctx>)` is
+fabricated so step_4 / hook_persist_turn / step_5 read a consistent
+result. This is the memory-only path used by IM triggers (Matrix /
+Lark / Slack, via [[channel_trigger_base]]) for group non-@ messages
+and reconnect burst backfill: chat_history writes, observation
+extraction, entity_description updates all still fire; the agent just
+doesn't reply.
+
+Per-message batch metadata (event_id / timestamp / sender_id / content
+/ attachments) travels in `trigger_extra_data["batch_messages"]` and
+is picked up by ChatModule's silent-batch write path (see
+[[chat_module.py]]). The default `silent=False` keeps owner-facing
+runs byte-identical — no regression on the WS / A2A / job paths. See
+`tests/agent_runtime/test_silent_mode.py` for the seam locks.
 
 ## 2026-05-20 — Step 4.6: synchronous turn persistence before background
 

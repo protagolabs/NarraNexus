@@ -989,6 +989,75 @@ class ChatModule(XYZBaseModule):
         existing_memory = await self.event_memory_module.search_instance_json_format_memory(module_name, instance_id)
         messages = existing_memory.get("messages", []) if existing_memory else []
 
+        # ── Silent batch write path ──────────────────────────────────────
+        # AgentRuntime.run(silent=True) skipped step_3, so there is no
+        # assistant reply to persist. The trigger passed per-message metadata
+        # via trigger_extra_data["batch_messages"] (list of
+        # {event_id, timestamp, sender_id, content, attachments?}) so we can
+        # write one user row per original event with its own timestamp /
+        # sender_id, rather than collapsing them into a single row keyed by
+        # the merged input_content.
+        # Used by IM channels (Matrix / Lark / Slack) for group non-@
+        # messages and reconnect burst backfill — see
+        # channel_trigger_base._build_and_run_agent_silent_batch.
+        batch_messages_raw: Any = None
+        if params.ctx_data and params.ctx_data.extra_data:
+            batch_messages_raw = params.ctx_data.extra_data.get("batch_messages")
+        if isinstance(batch_messages_raw, list) and batch_messages_raw:
+            batch_working_source = (
+                params.execution_ctx.working_source.value
+                if params.execution_ctx
+                else "unknown"
+            )
+            channel_tag_data = None
+            if params.ctx_data and params.ctx_data.extra_data:
+                channel_tag_data = params.ctx_data.extra_data.get("channel_tag")
+                if channel_tag_data is not None and hasattr(channel_tag_data, "to_dict"):
+                    channel_tag_data = channel_tag_data.to_dict()
+            appended = 0
+            for item in batch_messages_raw:
+                if not isinstance(item, dict):
+                    continue
+                content = str(item.get("content") or "")
+                if not content.strip() and not item.get("attachments"):
+                    continue
+                meta: Dict[str, Any] = {
+                    "event_id": item.get("event_id") or params.event_id,
+                    "timestamp": item.get("timestamp") or utc_now().isoformat(),
+                    "instance_id": instance_id,
+                    "working_source": batch_working_source,
+                    "silent": True,
+                }
+                if item.get("sender_id"):
+                    meta["sender_id"] = item["sender_id"]
+                if item.get("sender_name"):
+                    meta["sender_name"] = item["sender_name"]
+                if channel_tag_data:
+                    meta["channel_tag"] = channel_tag_data
+                row: Dict[str, Any] = {
+                    "role": "user",
+                    "content": content,
+                    "meta_data": meta,
+                }
+                attachments_raw = item.get("attachments")
+                if isinstance(attachments_raw, list) and attachments_raw:
+                    row["attachments"] = [a for a in attachments_raw if isinstance(a, dict)]
+                messages.append(row)
+                appended += 1
+            memory = {
+                "messages": messages,
+                "last_event_id": params.event_id,
+                "updated_at": utc_now().isoformat(),
+            }
+            await self.event_memory_module.add_instance_json_format_memory(
+                module_name, instance_id, memory
+            )
+            logger.info(
+                f"ChatModule.hook_persist_turn: silent batch wrote {appended} "
+                f"user rows (no assistant row) to instance_id={instance_id}"
+            )
+            return
+
         # Bootstrap greeting injection: if this is the first turn and bootstrap is active,
         # prepend the static greeting as the first assistant message so DB history starts with it.
         #

@@ -4,6 +4,47 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 — Matrix-native send + stale-prompt sweep
+
+Part of the outbound send unification (see [[_matrix_send]] / [[_narramessenger_mcp_tools]]).
+
+- **`send_to_agent`** (ChannelSenderRegistry) repointed from `/chat/send` to
+  Matrix `room_send`. This module no longer imports `NarramessengerClient` for
+  sending (only bind/status uses it now).
+- **MessageSourceRegistry handler**: the memory extractor now recognises
+  `narra_reply` / `narra_send` (both carry text in the `text` arg) and DROPS
+  `send_message_to_user_directly` — that generic tool is the OWNER channel, not
+  a room reply, so logging it as a NarraMessenger reply was wrong.
+- **Prompt sweep (behaviour-lied fixes, cf. the group-visibility fix below)**:
+  `_BEHAVIOUR` point 3 said "images/files… you cannot open them" — false since
+  the Phase-3 receive landed; now it tells the agent files are downloaded to the
+  workspace + `Read` them, and `narra_send_media` to send. `_reply_action_block`
+  dropped the dead `invocation_id` (Matrix has none — the trigger knows the
+  room); `_PROACTIVE_ACTION` reworded. `current_invocation_id` removed from
+  `build_extra_data` (write-only after the reply-block change).
+
+## 2026-07-02 — `_BEHAVIOUR` group-visibility line rewritten
+
+The old rule 2 read "In group rooms you are only invoked when
+@-mentioned" and stopped there. That was accurate under Narra-strict
+policy (group non-@ events were denied and never reached memory), but
+after the `SILENT_BYPASS_AUTHORIZE` override (see
+[[matrix_trigger.py]] owner override note), the agent's chat_history
+DOES contain silent-ingested group messages — the LLM was hallucinating
+"I can't see non-@ messages" because the prompt told it so.
+
+Rewritten rule 2 now says explicitly: "You SEE every message (silently
+ingested into your conversation memory even when you weren't summoned),
+but you only REPLY when directly @-mentioned." It also names the
+`silent=true` metadata marker so the LLM can distinguish
+silently-ingested rows from directly-addressed turns when the
+distinction matters.
+
+Verified live: after this change, `agent_62cf67080ad4` on a group
+non-@ ingest (already in chat_history as `silent=True`) correctly
+answers "yes, I saw that message" when @-mentioned about it. The
+memory infrastructure was fine; only the prompt lied.
+
 ## 2026-07-03 — handler registers `dedicated_trigger=True`
 
 MessageBusTrigger derives its do-not-redispatch channel prefixes from this

@@ -4,6 +4,32 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-02 — `_build_and_run_agent_silent_batch` for group non-@ ingestion
+
+New instance method on the base: takes a non-empty list of
+`ParsedMessage` (same chat_id, chronological), merges into one
+`input_content` line-per-message with `[ts] Display: body`, then calls
+`get_agent_runtime_client().run_and_collect(..., silent=True,
+trigger_extra_data={"batch_messages": [...]})`. Per-message metadata
+(event_id / timestamp / sender_id / sender_name / attachments) rides
+in `batch_messages`; ChatModule's silent-batch write path (see
+[[chat_module.py]]) reads it and appends N user rows to
+`instance_json_format_memory` with NO assistant row.
+
+Why here (channel-agnostic): all IM triggers have the same "group
+message that didn't @ us" shape — Slack currently drops these at the
+event boundary, Lark runs the full agent on every message, both
+suboptimal. Landing the silent-batch shape on the base means each
+trigger only needs a classification step (dm / group_mention /
+group_silent) + a debounced flush; the batch runtime plumbing is
+shared. Matrix (Commit 4b) is the first consumer.
+
+The method is fire-and-forget for output: silent runs produce no
+user-facing text, so no return value; failures inside the runtime
+call are logged and swallowed to keep the sync loop / debounce timer
+advancing (a dropped batch is recoverable via reconnect + since_token
+replay, a crashed trigger is not).
+
 ## 2026-07-03 — CONTENT_DEDUP_WINDOW_SECONDS + _content_fingerprint (X1)
 
 New opt-in class attr (default 0) wires ChannelDedupStore's

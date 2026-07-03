@@ -3,6 +3,27 @@ code_file: src/xyz_agent_context/module/chat_module/chat_module.py
 last_verified: 2026-07-03
 ---
 
+## 2026-07-02 — silent-batch write path in `hook_persist_turn`
+
+`hook_persist_turn` now branches at the top: if
+`params.ctx_data.extra_data["batch_messages"]` is a non-empty list, we
+skip the normal single-turn write (user + assistant) and instead
+append ONE `user` row per batch entry, with each row's own
+`event_id / timestamp / sender_id / sender_name / attachments` and
+`meta_data.silent=True`. NO assistant row is written — silent runs
+(see [[agent_runtime.py]] `silent=True`) skip step_3 entirely, so
+there's nothing agent-authored to persist.
+
+Consumer: [[channel_trigger_base]]'s
+`_build_and_run_agent_silent_batch` for IM group non-@ ingestion and
+reconnect backfill. The write is the only place per-message
+attribution survives — GeneralMemoryModule's observation extraction
+operates on the merged input_content and does not preserve
+per-sender identity, so chat_history is what carries "who said what
+in the group while agent was silent" forward. Empty-content-and-no-
+attachment entries are skipped defensively (matches the
+_process_message guard for the non-batch path).
+
 ## 2026-07-03 — _build_activity_summary says WHAT happened, not the source
 
 Was "Executed a background job" / "Background activity (wechat)". The Inner

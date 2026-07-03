@@ -4,6 +4,33 @@ last_verified: 2026-07-03
 stub: false
 ---
 
+## 2026-07-03 — MAX_SYSTEM_PROMPT_LENGTH bumped 100K → 115K
+
+Symptom-treatment for a bloated system_prompt observed on live agent
+`agent_62cf67080ad4`: assembled prompts clocked in at 91–93K chars
+across five consecutive turns, leaving only ~5–8K of the 100K char
+budget for history. Source-aware eviction was dropping 20–23 of ~29
+history rows on every turn, starving the LLM of NarraMessenger
+context (silent-ingested rows in particular, since they're keyed
+`_source != "chat"` and drop in Tier-1).
+
+Direct cause: `SKIP_MODULE_DECISION_LLM = True` forces the loader to
+inline all 15 modules' `get_instructions()` on every turn, regardless
+of relevance. Sampled sizes: ChatModule 13K, CommonTools 8K, Slack 8K,
+MessageBus 6K, Telegram 6K, Skill 4K, Discord 3K, Lark 2K,
+NarraMessenger 0.8K, WeChat 0.7K, plus BasicInfo / SocialNetwork /
+Awareness / Job (not measurable without an active ctx_data but ~15K
+combined in production). Total steadily >90K.
+
+115K keeps mixed-CJK content comfortably below
+`MAX_SYSTEM_PROMPT_BYTES = 120 KiB` and the 128 KiB argv hard limit,
+and gives history 20–30K of budget instead of 5–8K — enough to
+retain the last full turn on IM channels where history rows are
+long. This is TREATMENT, not cure; the root fix is a
+module-selection loader that only inlines instructions relevant to
+this turn's channel/context (deferred as a separate follow-up per
+the design note added inline at the constant's block comment).
+
 ## 2026-07-03 — 0-message run emits a classifiable error (no more silent fallback)
 
 When the Claude CLI yields 0 messages (expired OAuth / not logged in / crash /
