@@ -34,6 +34,10 @@ from xyz_agent_context.agent_framework.provider_resolver import (
 from xyz_agent_context.memory.engine import MemoryEngine
 from xyz_agent_context.memory.record import _parse_dt
 from xyz_agent_context.memory.spec import get_spec
+from xyz_agent_context.utils.cost_tracker import (
+    clear_cost_context,
+    set_cost_context,
+)
 from xyz_agent_context.utils.timezone import utc_now
 
 _QUEUE = "memory_consolidation_queue"
@@ -174,33 +178,51 @@ class MemoryConsolidationWorker:
         content now lives in the consolidated record, traceable via source_ids.
         """
         await self._inject_owner_credentials(agent_id)
-        spec = get_spec(kind)
-        engine = MemoryEngine(self._db, agent_id)
-        repo = engine.repo(kind)
+        # Account the LLM tokens this background pass burns. Without this the
+        # worker ran OUTSIDE any cost context (only AgentRuntime.run set it),
+        # so every consolidation call recorded ZERO — the largest silent hole
+        # in token accounting (Phase 0 / module H).
+        #
+        # RECORD ONLY, NEVER BILL: record_cost's deduct hook fires solely when
+        # provider_source=="system" AND current_user_id is set. The worker set
+        # neither current_user_id here (_inject_owner_credentials sets
+        # provider_source only) — so consolidation is fully accounted yet never
+        # charged to the owner's free tier. Do NOT add set_current_user_id in
+        # this path: that would silently drain the owner's system quota for
+        # background work they never initiated (iron rule #15).
+        set_cost_context(agent_id, self._db)
+        try:
+            spec = get_spec(kind)
+            engine = MemoryEngine(self._db, agent_id)
+            repo = engine.repo(kind)
 
-        qrow = await self._db.get_one(
-            _QUEUE, {"agent_id": agent_id, "scope_type": scope_type, "scope_id": scope_id, "kind": kind}
-        )
-        last = _parse_dt(qrow.get("last_consolidated_at")) if qrow else None
+            qrow = await self._db.get_one(
+                _QUEUE, {"agent_id": agent_id, "scope_type": scope_type, "scope_id": scope_id, "kind": kind}
+            )
+            last = _parse_dt(qrow.get("last_consolidated_at")) if qrow else None
 
-        scoped = await repo.query(agent_id=agent_id, scope_type=scope_type, scope_id=scope_id, live_only=True)
-        raw_subtypes = set(spec.subtypes)
-        # Raw units carry a subtype (world/experience…); consolidated records do
-        # not. New = raw units created after the last consolidation boundary.
-        new_facts = [
-            r for r in scoped
-            if r.subtype in raw_subtypes and (last is None or (r.created_at and r.created_at > last))
-        ]
-        existing = [r for r in scoped if r.subtype not in raw_subtypes]
-        if not new_facts:
-            return 0
+            scoped = await repo.query(agent_id=agent_id, scope_type=scope_type, scope_id=scope_id, live_only=True)
+            raw_subtypes = set(spec.subtypes)
+            # Raw units carry a subtype (world/experience…); consolidated records do
+            # not. New = raw units created after the last consolidation boundary.
+            new_facts = [
+                r for r in scoped
+                if r.subtype in raw_subtypes and (last is None or (r.created_at and r.created_at > last))
+            ]
+            existing = [r for r in scoped if r.subtype not in raw_subtypes]
+            if not new_facts:
+                return 0
 
-        changed = await engine.consolidate(
-            kind, scope_type=scope_type, scope_id=scope_id, new_facts=new_facts, existing=existing
-        )
-        for r in new_facts:  # consumed — content is now in a consolidated record
-            await repo.tombstone(r.record_id)
-        return changed
+            changed = await engine.consolidate(
+                kind, scope_type=scope_type, scope_id=scope_id, new_facts=new_facts, existing=existing
+            )
+            for r in new_facts:  # consumed — content is now in a consolidated record
+                await repo.tombstone(r.record_id)
+            return changed
+        finally:
+            # Sequential multi-tenant worker: clear so the next scope never
+            # inherits this agent's (agent_id, db) — mirrors clear_user_config.
+            clear_cost_context()
 
 
 def _scope_key(row: Dict[str, Any]) -> Dict[str, Any]:
