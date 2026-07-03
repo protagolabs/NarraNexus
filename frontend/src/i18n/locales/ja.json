@@ -120,7 +120,9 @@
         "collaboration": "連携",
         "im": "メッセージ",
         "skill": "スキル学習",
-        "activity": "バックグラウンド活動"
+        "activity": "バックグラウンド活動",
+        "lark": "Lark",
+        "callback": "コールバック"
       }
     },
     "error": {

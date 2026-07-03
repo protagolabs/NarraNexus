@@ -124,7 +124,9 @@
         "collaboration": "تعاون",
         "im": "رسالة",
         "skill": "تعلّم مهارة",
-        "activity": "نشاط في الخلفية"
+        "activity": "نشاط في الخلفية",
+        "lark": "Lark",
+        "callback": "استدعاء"
       }
     },
     "error": {

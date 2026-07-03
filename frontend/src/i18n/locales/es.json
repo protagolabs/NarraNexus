@@ -120,7 +120,9 @@
         "collaboration": "Colaboración",
         "im": "Mensaje",
         "skill": "Aprendizaje de habilidad",
-        "activity": "Actividad en segundo plano"
+        "activity": "Actividad en segundo plano",
+        "lark": "Lark",
+        "callback": "Retorno de llamada"
       }
     },
     "error": {

@@ -11,6 +11,14 @@ the bubble's error rendering (red badge + red bubble + warnings) actually
 receives data. Without this the fields died at the ChatPanel boundary even
 after buildTimeline started carrying them.
 
+## 2026-07-03 — Inner Thoughts auto-scrolls to bottom (newest activity)
+
+A dedicated effect (keyed on chatTab + the count of activity items) snaps
+scrollContainerRef to the bottom when the Inner Thoughts tab opens and when a
+new activity arrives — the tab behaves like a chat log (newest at the bottom,
+visible without a manual scroll-down), not an inbox. Reuses the existing
+scroll container; the streaming/initial-scroll effects are untouched.
+
 ## 2026-07-03 — Inner Thoughts rows are InnerThoughtCard
 
 The activity branch of the timeline map (Inner Thoughts tab, ``messageType

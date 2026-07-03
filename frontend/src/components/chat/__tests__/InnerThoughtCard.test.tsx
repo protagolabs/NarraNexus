@@ -39,13 +39,20 @@ describe('InnerThoughtCard', () => {
     expect(screen.getByText('chat.inner.source.job')).toBeTruthy();
   });
 
-  test('IM sources share the im label; message_bus gets collaboration', () => {
+  test('IM channels show their brand name; category sources show a label', () => {
     const { rerender } = render(
       <InnerThoughtCard item={{ ...baseItem, workingSource: 'wechat' }} agentId="a" />,
     );
-    expect(screen.getByText('chat.inner.source.im')).toBeTruthy();
+    expect(screen.getByText('WeChat')).toBeTruthy();
+    rerender(<InnerThoughtCard item={{ ...baseItem, workingSource: 'lark' }} agentId="a" />);
+    expect(screen.getByText('chat.inner.source.lark')).toBeTruthy();
     rerender(<InnerThoughtCard item={{ ...baseItem, workingSource: 'message_bus' }} agentId="a" />);
     expect(screen.getByText('chat.inner.source.collaboration')).toBeTruthy();
+  });
+
+  test('unknown source falls back to the generic activity label', () => {
+    render(<InnerThoughtCard item={{ ...baseItem, workingSource: 'mystery' }} agentId="a" />);
+    expect(screen.getByText('chat.inner.source.activity')).toBeTruthy();
   });
 
   test('expanding lazily fetches the event log and renders steps', async () => {
