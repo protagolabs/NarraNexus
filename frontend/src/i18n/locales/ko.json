@@ -120,7 +120,9 @@
         "collaboration": "협업",
         "im": "메시지",
         "skill": "스킬 학습",
-        "activity": "백그라운드 활동"
+        "activity": "백그라운드 활동",
+        "lark": "Lark",
+        "callback": "콜백"
       }
     }
   },

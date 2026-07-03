@@ -3,6 +3,19 @@ code_file: frontend/src/components/chat/InnerThoughtCard.tsx
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 — per-source colour + name (scannable), icons dropped
+
+Every activity used to render identically ("Message" + one MessageCircle
+icon) — a wall of indistinguishable rows. Each working_source now has its own
+COLOUR (SOURCE_META) shown as a left accent bar + a coloured dot + the source
+name; IM channels use their brand name verbatim (WeChat / Slack / Telegram /
+Discord / NarraMessenger), category sources (job / collaboration / skill /
+callback) use a localized label, unknown falls back to a generic activity
+label. Per-source ICONS were dropped on purpose — lucide has no brand logos,
+so colour + name carries the identity honestly. Expand/lazy-load of the
+agent-loop steps (getEventLog + timeline/thinking fallback, distinct
+loading/error/empty states) is unchanged.
+
 # InnerThoughtCard.tsx — one inner-thought (activity) as an expandable card
 
 Renders a ``message_type=activity`` row in the chat's Inner Thoughts tab. An

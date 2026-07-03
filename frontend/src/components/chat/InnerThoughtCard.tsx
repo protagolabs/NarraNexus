@@ -4,54 +4,56 @@
  * @date: 2026-07-03
  * @description: One "inner thought" (message_type=activity) as an expandable card.
  *
- * An activity row is written whenever a NON-chat trigger runs the agent and
- * the agent sent no user-facing reply (chat_module.py). Those triggers are
- * diverse — a scheduled job, an agent-to-agent bus message, an inbound IM on
- * any channel, a skill study — so the card is headed by its
- * ``item.workingSource`` (icon + localized source name) rather than a flat
- * "Background activity" line.
+ * An activity row is written whenever a NON-chat trigger runs the agent and it
+ * sent no user-facing reply (chat_module.py). Those triggers are diverse — a
+ * scheduled job, an agent-to-agent bus message, an inbound IM on any channel,
+ * a skill study — and previously every one rendered identically ("Message"),
+ * so the tab was a wall of indistinguishable rows. Each source now has its own
+ * COLOUR + NAME: a coloured left accent bar and a coloured dot + label make the
+ * source scannable at a glance (icons are avoided — lucide has no brand logos,
+ * and the name + colour carry the identity honestly). IM channels use their
+ * brand name verbatim (WeChat / Slack / …); category sources (job / collab /
+ * skill) use a localized label.
  *
- * What the agent actually did that turn lives in the events table and is
- * fetched lazily by ``item.eventId`` via ``api.getEventLog`` (the same
- * endpoint + shape MessageBubble uses for reasoning) — only on first expand,
- * cached in component state. The event log's ``timeline`` (thinking /
- * tool_call / tool_output / native_output / reply) renders as a compact step
- * list; it falls back to (thinking, tool_calls) for old backends, shows an
- * empty state when the log carries nothing, distinguishes a load FAILURE from
- * a genuinely empty log, and shows no expander at all when there is no
- * event_id.
+ * Info is layered: the collapsed card shows source + time + a one-line summary;
+ * the turn's full agent-loop steps load lazily by ``item.eventId`` via
+ * ``api.getEventLog`` only on first expand (cached), with distinct
+ * loading / load-failed / empty states.
  */
 
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ChevronRight, ChevronDown, Loader2,
-  Brain, Wrench, Users, MessageCircle, Sparkles, CheckCircle2, TerminalSquare,
+  ChevronRight, ChevronDown, Loader2, Brain, Wrench, CheckCircle2, TerminalSquare,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { TimelineItem } from '@/lib/buildTimeline';
 import type { EventLogResponse, EventLogTimelineEntry } from '@/types/api';
 
 interface SourceMeta {
-  Icon: typeof Brain;
-  labelKey: string;
+  /** Brand name shown verbatim (IM channels). */
+  label?: string;
+  /** i18n key for category sources (job / collaboration / skill). */
+  labelKey?: string;
+  /** Accent colour — left bar + dot + name. */
+  color: string;
 }
 
-// working_source → header icon + i18n label. IM channels share one bubble
-// icon; unknown/other sources fall back to the generic "activity" label.
+// Each source gets a distinct colour so the Inner Thoughts list is scannable.
 const SOURCE_META: Record<string, SourceMeta> = {
-  job: { Icon: Wrench, labelKey: 'chat.inner.source.job' },
-  message_bus: { Icon: Users, labelKey: 'chat.inner.source.collaboration' },
-  a2a: { Icon: Users, labelKey: 'chat.inner.source.collaboration' },
-  lark: { Icon: MessageCircle, labelKey: 'chat.inner.source.im' },
-  slack: { Icon: MessageCircle, labelKey: 'chat.inner.source.im' },
-  telegram: { Icon: MessageCircle, labelKey: 'chat.inner.source.im' },
-  wechat: { Icon: MessageCircle, labelKey: 'chat.inner.source.im' },
-  discord: { Icon: MessageCircle, labelKey: 'chat.inner.source.im' },
-  narramessenger: { Icon: MessageCircle, labelKey: 'chat.inner.source.im' },
-  skill_study: { Icon: Sparkles, labelKey: 'chat.inner.source.skill' },
+  wechat: { label: 'WeChat', color: '#07C160' },
+  lark: { labelKey: 'chat.inner.source.lark', color: '#3370FF' },
+  slack: { label: 'Slack', color: '#611F69' },
+  telegram: { label: 'Telegram', color: '#229ED9' },
+  discord: { label: 'Discord', color: '#5865F2' },
+  narramessenger: { label: 'NarraMessenger', color: '#E8590C' },
+  job: { labelKey: 'chat.inner.source.job', color: '#B8860B' },
+  message_bus: { labelKey: 'chat.inner.source.collaboration', color: '#0D9488' },
+  a2a: { labelKey: 'chat.inner.source.collaboration', color: '#0D9488' },
+  skill_study: { labelKey: 'chat.inner.source.skill', color: '#7C3AED' },
+  callback: { labelKey: 'chat.inner.source.callback', color: '#64748B' },
 };
-const DEFAULT_META: SourceMeta = { Icon: Brain, labelKey: 'chat.inner.source.activity' };
+const DEFAULT_META: SourceMeta = { labelKey: 'chat.inner.source.activity', color: '#6B7280' };
 
 type LoadState = 'idle' | 'loading' | 'ok' | 'error';
 
@@ -96,7 +98,6 @@ function EntryRow({ entry }: { entry: EventLogTimelineEntry }) {
       </div>
     );
   }
-  // thinking / native_output — plain text, dimmed
   return (
     <div className="flex items-start gap-1.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>
       <Brain className="w-3 h-3 mt-0.5 shrink-0" />
@@ -113,13 +114,11 @@ export function InnerThoughtCard({ item, agentId }: { item: TimelineItem; agentI
 
   const canExpand = !!item.eventId;
   const meta = SOURCE_META[item.workingSource ?? ''] ?? DEFAULT_META;
-  const { Icon } = meta;
+  const label = meta.label ?? t(meta.labelKey ?? 'chat.inner.source.activity');
 
   const toggle = useCallback(async () => {
     const next = !expanded;
     setExpanded(next);
-    // Fetch once, on first successful-or-pending expand. 'loading' guards
-    // against a double-fetch when the user toggles rapidly mid-flight.
     if (next && (state === 'idle' || state === 'error') && item.eventId) {
       setState('loading');
       try {
@@ -136,12 +135,12 @@ export function InnerThoughtCard({ item, agentId }: { item: TimelineItem; agentI
   return (
     <div
       data-testid="inner-thought-card"
-      className="mx-3 my-1.5 rounded-lg border px-3 py-2"
-      style={{ borderColor: 'var(--border-subtle, #e5e5e5)' }}
+      className="mx-3 my-1.5 rounded-lg border pr-3 py-2 pl-3"
+      style={{ borderColor: 'var(--border-subtle, #e5e5e5)', borderLeft: `3px solid ${meta.color}` }}
     >
       <div className="flex items-center gap-2">
-        <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-tertiary)' }} />
-        <span className="text-xs font-medium">{t(meta.labelKey)}</span>
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: meta.color }} />
+        <span className="text-xs font-semibold" style={{ color: meta.color }}>{label}</span>
         <span className="text-[10px] ml-auto" style={{ color: 'var(--text-tertiary)' }}>
           {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
