@@ -516,6 +516,24 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [isStreaming, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
 
+  // ── Inner Thoughts defaults to the bottom (newest activity) ──
+  // Like a chat log, not an inbox: the newest activity sits at the bottom, so
+  // opening the tab (or a new activity arriving) snaps to the end and the user
+  // sees the latest without scrolling down manually.
+  const innerCount = useMemo(
+    () => timeline.reduce((n, i) => (i.messageType === 'activity' ? n + 1 : n), 0),
+    [timeline],
+  );
+  useEffect(() => {
+    if (chatTab !== 'inner') return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const id = requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [chatTab, innerCount]);
+
   // ── Auto-load more if content doesn't fill the container ──
   // When activity messages are small, the initial page may not cause overflow,
   // making it impossible to scroll up to trigger loadMoreHistory.

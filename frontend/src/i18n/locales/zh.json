@@ -120,7 +120,9 @@
         "collaboration": "协作",
         "im": "消息",
         "skill": "技能学习",
-        "activity": "后台活动"
+        "activity": "后台活动",
+        "lark": "飞书",
+        "callback": "回调"
       }
     }
   },
