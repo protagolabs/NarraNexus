@@ -128,6 +128,13 @@
         "lark": "Lark",
         "callback": "استدعاء"
       }
+    },
+    "error": {
+      "badgeLabel": "عرض تفاصيل الخطأ",
+      "titleFailed": "فشل التشغيل",
+      "titleRecovered": "اكتمل مع وجود أخطاء",
+      "situationFailed": "واجه هذا التشغيل خطأ ولم يتمكن الوكيل من الرد بشكل طبيعي. التفاصيل:",
+      "situationRecovered": "رد الوكيل، لكن حدثت أخطاء أثناء التشغيل. التفاصيل:"
     }
   },
   "awareness": {

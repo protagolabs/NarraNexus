@@ -124,6 +124,13 @@
         "lark": "飞书",
         "callback": "回调"
       }
+    },
+    "error": {
+      "badgeLabel": "查看错误详情",
+      "titleFailed": "运行出错",
+      "titleRecovered": "运行中出现错误",
+      "situationFailed": "此次运行发生错误，Agent 未能正常回复。详情：",
+      "situationRecovered": "Agent 已回复，但运行过程中发生了错误。详情："
     }
   },
   "awareness": {

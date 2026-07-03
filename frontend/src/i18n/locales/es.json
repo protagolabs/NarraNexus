@@ -124,6 +124,13 @@
         "lark": "Lark",
         "callback": "Retorno de llamada"
       }
+    },
+    "error": {
+      "badgeLabel": "Ver detalles del error",
+      "titleFailed": "La ejecución falló",
+      "titleRecovered": "Finalizado con errores",
+      "situationFailed": "Esta ejecución tuvo un error y el agente no pudo responder con normalidad. Detalles:",
+      "situationRecovered": "El agente respondió, pero ocurrieron errores durante la ejecución. Detalles:"
     }
   },
   "awareness": {
