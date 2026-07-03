@@ -63,3 +63,9 @@ stub: false
 `fee.eligible === false`、`fee.checks?.has_arrears`）——否则部分/畸形的 200 会在
 render 阶段崩，反而把上面订阅态也带崩（fetch 的 try 保护不到 render，质量 HIGH）。
 `load()` 改 `Promise.allSettled` 并行拉 subscription + fee，各自独立处理保持隔离。
+
+## Phase 5（2026-07-02）— 使用此订阅（模块 F 入口）
+
+加“使用此订阅”卡片 → `api.useSubscription()`（POST /api/providers/use-subscription）。
+成功→绿字“已接入,去选模型”；失败→红字错误（含功能开关关时的 403 文案）。busyRef 同步锁。
+后端功能开关默认关（C1 待确认），现在点会返 403 提示；开关一开即通。

@@ -660,6 +660,10 @@
       "deduct2": "② 再扣账户余额（充值 / 加油包）",
       "deduct3": "③ 两者用尽后停止付费消费",
       "balanceDegraded": "本周期已消耗、以及订阅额度/账户余额的拆分，NetMind 暂未提供。",
+      "useTitle": "在 NarraNexus 中使用此账户",
+      "useDesc": "用你的 NetMind 余额/订阅额度跑 Agent 对话——无需粘贴 API key。",
+      "useSubscribeBtn": "使用此订阅",
+      "useSubscribeOk": "已接入——现在可到「LLM Providers」选择模型。",
       "sandboxNotice": "NarraNexus 沙盒服务当前限时免费，暂不因沙盒服务扣费；后续将开始计费，届时另行告知。"
     },
     "modal": {

@@ -63,6 +63,7 @@ export function NetmindAccountPanel() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [fee, setFee] = useState<FeeInfo | null>(null);
   const [feeLoaded, setFeeLoaded] = useState(false);
+  const [useResult, setUseResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const mounted = useRef(true);
   // Synchronous locks: React state (busy/polling) updates are async/batched, so
   // a fast double-click can fire a handler twice before `disabled` re-renders.
@@ -209,6 +210,28 @@ export function NetmindAccountPanel() {
     }
   }, [t, load]);
 
+  const handleUseSubscription = useCallback(async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setUseResult(null);
+    try {
+      await api.useSubscription();
+      if (mounted.current) {
+        setUseResult({
+          ok: true,
+          msg: t('settings.netmind.useSubscribeOk',
+            'Connected — you can now pick a model in LLM Providers.'),
+        });
+      }
+    } catch (e) {
+      if (mounted.current) setUseResult({ ok: false, msg: errMessage(e) });
+    } finally {
+      busyRef.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }, [t]);
+
   if (!isCloud) return null; // S0
 
   return (
@@ -293,6 +316,27 @@ export function NetmindAccountPanel() {
         )}
         {actionError && (
           <p className="mt-2 text-xs text-[var(--color-error)]">{actionError}</p>
+        )}
+      </div>
+
+      {/* Module F — use this subscription (wire a NetMind key to the agent) */}
+      <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-sm space-y-2">
+        <h4 className="font-medium text-[var(--text-primary)]">
+          {t('settings.netmind.useTitle', 'Use this account for NarraNexus')}
+        </h4>
+        <p className="text-xs text-[var(--text-tertiary)]">
+          {t('settings.netmind.useDesc',
+            'Run agent conversations on your NetMind balance / subscription — no API key to paste.')}
+        </p>
+        <Button variant="accent" size="sm" onClick={handleUseSubscription} disabled={busy}>
+          {busy
+            ? t('settings.netmind.working', 'Working…')
+            : t('settings.netmind.useSubscribeBtn', 'Use this subscription')}
+        </Button>
+        {useResult && (
+          <p className={`text-xs ${useResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
+            {useResult.msg}
+          </p>
         )}
       </div>
 

@@ -1314,6 +1314,17 @@ class ApiClient {
     });
   }
 
+  // Module F: one-click "use my NetMind subscription" — backend mints an
+  // inference key and wires it to the agent/helper slots. POST + loginToken.
+  async useSubscription(): Promise<{ success: boolean; provider_ids?: string[] }> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<{ success: boolean; provider_ids?: string[] }>(
+      '/api/providers/use-subscription',
+      { method: 'POST', headers: { 'X-Netmind-Token': token } },
+    );
+  }
+
   private billingWrite<T>(endpoint: string): Promise<T> {
     const token = this.getNetmindToken();
     if (!token) throw new Error('NetMind account not linked (no loginToken)');

@@ -23,6 +23,7 @@ const mockGetFeeInfo = vi.fn();
 const mockSubscribe = vi.fn();
 const mockCancel = vi.fn();
 const mockReactivate = vi.fn();
+const mockUseSubscription = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
@@ -30,6 +31,7 @@ vi.mock('@/lib/api', () => ({
     subscribe: (...a: unknown[]) => mockSubscribe(...a),
     cancelSubscription: (...a: unknown[]) => mockCancel(...a),
     reactivateSubscription: (...a: unknown[]) => mockReactivate(...a),
+    useSubscription: (...a: unknown[]) => mockUseSubscription(...a),
   },
 }));
 
@@ -46,6 +48,7 @@ beforeEach(() => {
   mockSubscribe.mockReset();
   mockCancel.mockReset();
   mockReactivate.mockReset();
+  mockUseSubscription.mockReset();
   mockOpenExternal.mockClear();
 });
 
@@ -132,6 +135,27 @@ test('S2: cancel confirm dismissed → no api call', async () => {
   const btn = await screen.findByRole('button', { name: /Cancel subscription/ });
   fireEvent.click(btn);
   expect(mockCancel).not.toHaveBeenCalled();
+});
+
+// --- Phase 5: use subscription ----------------------------------------------
+
+test('use subscription: success → shows connected message', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockUseSubscription.mockResolvedValue({ success: true, provider_ids: ['p1', 'p2'] });
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Use this subscription/ });
+  fireEvent.click(btn);
+  await waitFor(() => expect(mockUseSubscription).toHaveBeenCalled());
+  expect(await screen.findByText(/Connected/)).toBeTruthy();
+});
+
+test('use subscription: failure → shows error, no crash', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockUseSubscription.mockRejectedValue(new Error('not enabled yet'));
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Use this subscription/ });
+  fireEvent.click(btn);
+  await waitFor(() => expect(screen.getByText(/not enabled yet/)).toBeTruthy());
 });
 
 // --- Phase 2 balance ---------------------------------------------------------

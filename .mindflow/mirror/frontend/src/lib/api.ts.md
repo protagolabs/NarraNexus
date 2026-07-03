@@ -192,3 +192,8 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 `getFeeInfo()`（GET /api/billing/fee-info，X-Netmind-Token，空 token 早退）。余额
 数据源，模块 B。
+
+## 2026-07-02 (Phase 5) — useSubscription
+
+`useSubscription()`（POST /api/providers/use-subscription，X-Netmind-Token）。触发后端
+生成 key→建 netmind provider→绑槽（模块 F）。
