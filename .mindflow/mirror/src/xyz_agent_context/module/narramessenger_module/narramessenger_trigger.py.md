@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_trigger.py
 stub: false
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — CONTENT_DEDUP_WINDOW_SECONDS = 20 min (X1 double-reply guard)
+
+The platform re-issues an invocation under a new invocation_id when its
+15-min deadline expires while our worker (30-min timeout) is still on the
+original — both invocations ran AgentRuntime and both replied. DM dedup
+keys on invocation_id so the re-dispatch always passed. The trigger now
+opts into the base's content-fingerprint window (20 min > deadline with
+margin). Residual: a user re-sending IDENTICAL text within 20 min is
+dropped as a re-dispatch — accepted tradeoff, documented in the attr
+comment. Platform-side txn_id semantics still unconfirmed (Hongyi).
 
 ## Why it exists
 

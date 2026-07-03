@@ -78,6 +78,15 @@ class NarramessengerTrigger(ChannelTriggerBase):
 
     DEDUP_TTL_SECONDS = 600
     HISTORY_BUFFER_MS = 5 * 60 * 1000
+    # X1 double-reply guard. The platform re-issues an invocation under a NEW
+    # invocation_id when its 15-min server deadline expires while our worker
+    # (30-min timeout above) is still processing — id-keyed dedup can't see
+    # that. Fingerprint (room, sender, content) for 20 min: covers the
+    # deadline with margin, small enough that a user's genuinely repeated
+    # message is only swallowed if identical within that window. Kept as a
+    # window rather than shrinking PROCESS_MESSAGE_TIMEOUT below 15 min —
+    # cutting a slow LLM turn short would violate 铁律 #14.
+    CONTENT_DEDUP_WINDOW_SECONDS = 20 * 60
 
     # NarraMessenger pushes one invocation per real message; no client-side
     # debounce needed (the platform already coalesces).

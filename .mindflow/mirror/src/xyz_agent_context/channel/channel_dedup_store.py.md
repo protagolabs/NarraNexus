@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_dedup_store.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — Layer 4: opt-in content-fingerprint window (X1)
+
+Platforms that re-dispatch the same message under a NEW message_id
+(NarraMessenger re-issues an invocation when its 15-min server deadline
+expires mid-processing) defeat every id-keyed layer — the agent ran and
+replied twice (X1). `content_window_seconds` (constructor, default 0=off)
+plus a caller-supplied `content_fingerprint` in classify() adds a
+memory-window layer that drops a fresh id carrying a known fingerprint.
+The window SLIDES — a hit refreshes the stamp (review of PR #51 caught the
+fixed-window hole: 20-min window < 30-min worker timeout meant the second
+re-dispatch of a long turn was accepted; with sliding, any-length turns
+stay covered while re-dispatch intervals < window).
+Deliberately in-memory: the re-dispatch lands in the same subscriber
+process within the window; a durable fingerprint would keep blocking a
+user's genuinely repeated text long after. Mechanism only — WHAT
+identifies a message and HOW LONG lives with the trigger
+(ChannelTriggerBase._content_fingerprint / CONTENT_DEDUP_WINDOW_SECONDS).
 
 ## Why it exists
 
