@@ -56,6 +56,7 @@ Design ref: [[Work/Narranexus/2026-07-02 NarraMessenger Matrix Adapter spec]]
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, List, Literal, Optional
 
@@ -1227,20 +1228,32 @@ class MatrixTrigger(ChannelTriggerBase):
         "" means "the agent did not reply this turn" — silent-not-reply —
         which prevents the base from posting the agent's internal thinking
         (``result.output_text``) into the room by mistake.
+
+        raw_items shape comes from ``run_collector.collect_run``: tool calls
+        are dicts ``{"item": {"type": "tool_call_item", "tool_name",
+        "arguments"}}`` (same shape Lark's extractor reads). Getting this
+        wrong is silent — a mismatch just yields "" and the reply is dropped
+        as "nothing sent" (the 2026-07-03 bug this replaced).
         """
         raw_items = getattr(result, "raw_items", None) or []
-        for item in raw_items:
-            # ProgressMessage-style objects: have .details dict with
-            # tool_name + arguments.
-            details = getattr(item, "details", None)
-            if isinstance(details, dict):
-                tool_name = details.get("tool_name") or ""
-                if "narra_reply" in str(tool_name):
-                    args = details.get("arguments") or {}
-                    if isinstance(args, dict):
-                        text = args.get("text")
-                        if isinstance(text, str) and text.strip():
-                            return text
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                continue
+            item = raw.get("item")
+            if not isinstance(item, dict) or item.get("type") != "tool_call_item":
+                continue
+            if "narra_reply" not in str(item.get("tool_name") or ""):
+                continue
+            args = item.get("arguments") or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:  # noqa: BLE001
+                    args = {}
+            if isinstance(args, dict):
+                text = args.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text
         # No explicit reply tool call → stay silent. Do NOT fall back to
         # result.output_text (agent's thinking is not for the room).
         return ""

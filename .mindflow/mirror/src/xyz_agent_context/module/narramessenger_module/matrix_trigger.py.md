@@ -34,6 +34,21 @@ path is kept for any room that genuinely sends inline media.
 Tests: `test_matrix_compound_ingest.py` (wire format captured verbatim from
 the live event).
 
+## 2026-07-03 (fix) — extract_output was reading the wrong raw_items shape
+
+First live reply test: the agent DID call `narra_reply`, but the reply never
+reached the room — logged "agent chose silent reply; nothing sent". Cause:
+`extract_output` read `getattr(item, "details", …)`, but
+`run_collector.collect_run` emits tool calls as **dicts**
+`{"item": {"type":"tool_call_item","tool_name","arguments"}}` (the shape Lark's
+extractor navigates). `getattr(dict, "details")` is always None → no match →
+"" → dropped. The original send_message_to_user_directly version had the same
+mismatch but was never exercised (prompt pointed at narra_send), so the bug
+rode along until the reply path actually went through narra_reply. Now mirrors
+Lark: `raw.get("item")` → check `type=="tool_call_item"` → `item.get("tool_name"/
+"arguments")` (arguments may be a JSON string). The unit test now uses the real
+shape, not a `.details` stand-in.
+
 ## 2026-07-03 — reply unified onto Matrix (extract_output reads `narra_reply`)
 
 Sibling to the outbound-send unification (see [[_matrix_send]]). `extract_output`

@@ -167,20 +167,46 @@ def _msg() -> ParsedMessage:
     )
 
 
+def _tool_call_item(tool_name: str, arguments: dict) -> dict:
+    """Real raw_items shape from run_collector.collect_run — a dict with a
+    nested ``item`` carrying type/tool_name/arguments."""
+    return {
+        "item": {
+            "type": "tool_call_item",
+            "tool_name": tool_name,
+            "arguments": arguments,
+        }
+    }
+
+
 def test_extract_output_reads_narra_reply_tool_call():
     t = MatrixTrigger()
-    tool_call = SimpleNamespace(
-        details={
-            "tool_name": "mcp__narramessenger_module__narra_reply",
-            "arguments": {"text": "here is your answer"},
-        }
-    )
     result = SimpleNamespace(
-        raw_items=[tool_call],
+        raw_items=[
+            _tool_call_item(
+                "mcp__narramessenger_module__narra_reply",
+                {"text": "here is your answer"},
+            )
+        ],
         output_text="internal thinking that must NOT go to the room",
     )
     text = t.extract_output(result, _msg(), _cred())
     assert text == "here is your answer"
+
+
+def test_extract_output_reads_narra_reply_stringified_args():
+    """arguments may arrive JSON-encoded — must still parse."""
+    t = MatrixTrigger()
+    result = SimpleNamespace(
+        raw_items=[
+            _tool_call_item(
+                "mcp__narramessenger_module__narra_reply",
+                '{"text": "stringified reply"}',
+            )
+        ],
+        output_text="",
+    )
+    assert t.extract_output(result, _msg(), _cred()) == "stringified reply"
 
 
 def test_extract_output_returns_empty_when_no_narra_reply():
@@ -200,13 +226,15 @@ def test_extract_output_ignores_send_message_to_user_directly():
     """send_message_to_user_directly is the OWNER channel, not the room —
     it must NOT be treated as a NarraMessenger reply."""
     t = MatrixTrigger()
-    owner_msg = SimpleNamespace(
-        details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
-            "arguments": {"content": "note to my owner"},
-        }
+    result = SimpleNamespace(
+        raw_items=[
+            _tool_call_item(
+                "mcp__chat_module__send_message_to_user_directly",
+                {"content": "note to my owner"},
+            )
+        ],
+        output_text="",
     )
-    result = SimpleNamespace(raw_items=[owner_msg], output_text="")
     text = t.extract_output(result, _msg(), _cred())
     assert text == ""
 
@@ -215,13 +243,10 @@ def test_extract_output_ignores_other_tool_calls():
     """A tool call to some other tool (e.g. web_search) does NOT count
     as a reply. Only narra_reply does."""
     t = MatrixTrigger()
-    other = SimpleNamespace(
-        details={
-            "tool_name": "web_search",
-            "arguments": {"query": "latest news"},
-        }
+    result = SimpleNamespace(
+        raw_items=[_tool_call_item("web_search", {"query": "latest news"})],
+        output_text="",
     )
-    result = SimpleNamespace(raw_items=[other], output_text="")
     text = t.extract_output(result, _msg(), _cred())
     assert text == ""
 
