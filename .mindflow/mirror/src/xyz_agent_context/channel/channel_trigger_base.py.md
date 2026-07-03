@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-06-16
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — unparsed raw events now audited (`_on_unparsed`)
+
+`parse_event(raw) -> None` (stickers/images/voice on text-only channels)
+used to hit a bare `continue` — no log, no audit row, unanswerable "why
+didn't the bot reply?" tickets (lessons #3/#5; 2026-07-03 wechat incident
+burned an hour proving a message was never parseable). The subscriber loop
+now calls `_on_unparsed`, which writes `ingress_dropped_unparsed` with the
+raw item's KEYS only (never payloads — media bytes / text stay out of the
+audit table).
 
 > Concrete subclasses today: ``LarkTrigger``, ``SlackTrigger``,
 > ``TelegramTrigger``, ``DiscordTrigger``. (The file docstring's old

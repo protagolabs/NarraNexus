@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_context_builder.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 (final) — emoji warning reverted
+
+The reply-instruction emoji ban added earlier today is removed: the drops
+were caused by the send payload's missing `client_id` (see
+wechat_sdk_client.py.md), not by emoji. Instruction is back to the
+markdown-only caveat.
 
 ## Why it exists
 
