@@ -92,6 +92,7 @@ try:
         ),
         row_prefix_template="[NarraMessenger · {sender_name} · {sender_id} · {chat_id}]",
         extract_reply_fn=_extract_narramessenger_reply,
+        dedicated_trigger=True,
     ))
 except ValueError:
     # Re-import (test hot-reload, etc.) — handler already registered.

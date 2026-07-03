@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_sdk_client.py
 stub: false
-last_verified: 2026-06-25
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — non-BMP strip + send-failure logging (silent-drop incident)
+
+iLink returns `ret=0` for messages it never delivers. Confirmed on dev
+(agent_0ed73ae78099): two replies containing 🍉 (astral-plane / 4-byte
+UTF-8) with CORRECT per-message context_tokens were accepted and never
+arrived; the BMP-only reply in the same session delivered; a send with a
+fabricated context_token also returned ok. Consequences baked in here:
+
+- `sanitize_bmp()` strips astral-plane chars; `send_message` applies it and
+  refuses to fire an empty-after-strip send (returns False). Delivered-
+  without-the-emoji beats silently-dropped. BMP symbols (～ ☺ “”) untouched.
+- Per-chunk send failures are logged (`[wechat send] chunk...`) instead of
+  the previous bare `except Exception:` swallow (lesson #3).
+- KNOWN LIMIT: `ok=True` still only means "gateway accepted", not
+  "delivered" — there is no delivery receipt in the iLink API.
 
 ## Why it exists
 

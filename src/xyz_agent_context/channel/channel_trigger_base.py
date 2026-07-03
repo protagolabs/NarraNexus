@@ -62,6 +62,7 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_HISTORIC,
     EVENT_INGRESS_DROPPED_ECHO,
     EVENT_INGRESS_DROPPED_UNBOUND,
+    EVENT_INGRESS_DROPPED_UNPARSED,
     EVENT_DEDUP_FAIL_OPEN,
     EVENT_DEBOUNCE_MERGED,
     EVENT_SUBSCRIBER_STARTED,
@@ -716,6 +717,7 @@ class ChannelTriggerBase(ABC):
                         break
                     parsed = self.parse_event(raw)
                     if parsed is None:
+                        await self._on_unparsed(credential, raw)
                         continue
                     await self._dedup_and_handle(credential, parsed)
 
@@ -1203,6 +1205,21 @@ class ChannelTriggerBase(ABC):
         if self._audit_repo is None:
             return
         await self._audit_repo.append(event_type, **kwargs)
+
+    async def _on_unparsed(self, credential: Any, raw: dict) -> None:
+        """Audit a raw event that ``parse_event`` rejected (unsupported type).
+
+        Keys only, never payloads — enough to answer "the sticker you sent
+        at 12:03 was dropped as unsupported" without shipping media bytes
+        or message text into the audit table.
+        """
+        raw_keys = sorted(raw)[:10] if isinstance(raw, dict) else [type(raw).__name__]
+        await self._audit(
+            EVENT_INGRESS_DROPPED_UNPARSED,
+            agent_id=getattr(credential, "agent_id", ""),
+            app_id=getattr(credential, "app_id", ""),
+            details={"raw_keys": raw_keys},
+        )
 
     async def _maybe_heartbeat(self) -> None:
         if self._audit_repo is None:
