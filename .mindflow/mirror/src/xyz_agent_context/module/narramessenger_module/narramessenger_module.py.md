@@ -45,6 +45,11 @@ non-@ ingest (already in chat_history as `silent=True`) correctly
 answers "yes, I saw that message" when @-mentioned about it. The
 memory infrastructure was fine; only the prompt lied.
 
+## 2026-07-03 — handler registers `dedicated_trigger=True`
+
+MessageBusTrigger derives its do-not-redispatch channel prefixes from this
+flag (see message_source_handler.py.md, 2026-07-03).
+
 ## Why it exists
 
 The agent-facing surface of the NarraMessenger channel (`ChannelModuleBase`).

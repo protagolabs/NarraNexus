@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 ---
 
 ## 2026-07-02 — silent-batch write path in `hook_persist_turn`
@@ -23,6 +23,17 @@ per-sender identity, so chat_history is what carries "who said what
 in the group while agent was silent" forward. Empty-content-and-no-
 attachment entries are skipped defensively (matches the
 _process_message guard for the non-batch path).
+
+## 2026-07-03 — _build_activity_summary says WHAT happened, not the source
+
+Was "Executed a background job" / "Background activity (wechat)". The Inner
+Thoughts card now badges the source with its own colour + name, so echoing
+"(wechat)" is noise. The summary uses the channel_tag the IM triggers attach
+(sender_name / room_name): job → "Ran a scheduled job"; message_bus/a2a →
+"Replied to {who}" or "Handled a peer-agent message"; IM with a sender →
+"Handled a message from {who}"; otherwise "Handled a background activity".
+Never echoes the raw working_source token. Guarded by
+tests/chat_module/test_activity_summary.py.
 
 ## 2026-06-08 — memory_chat mirror write removed
 

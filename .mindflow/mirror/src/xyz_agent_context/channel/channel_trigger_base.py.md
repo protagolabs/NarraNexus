@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 ---
 
 ## 2026-07-02 — `_build_and_run_agent_silent_batch` for group non-@ ingestion
@@ -29,6 +29,27 @@ user-facing text, so no return value; failures inside the runtime
 call are logged and swallowed to keep the sync loop / debounce timer
 advancing (a dropped batch is recoverable via reconnect + since_token
 replay, a crashed trigger is not).
+
+## 2026-07-03 — CONTENT_DEDUP_WINDOW_SECONDS + _content_fingerprint (X1)
+
+New opt-in class attr (default 0) wires ChannelDedupStore's
+content-fingerprint layer; `_content_fingerprint` hashes
+(chat_id|sender_id|content) → sha256[:32]. Policy stays in the subclass
+(NarramessengerTrigger sets 20 min to cover the platform's 15-min
+re-dispatch deadline); base computes the fingerprint so every channel
+shares one identity definition. Chosen over shrinking
+PROCESS_MESSAGE_TIMEOUT below the platform deadline, which would cut slow
+LLM turns short (铁律 #14).
+
+## 2026-07-03 — unparsed raw events now audited (`_on_unparsed`)
+
+`parse_event(raw) -> None` (stickers/images/voice on text-only channels)
+used to hit a bare `continue` — no log, no audit row, unanswerable "why
+didn't the bot reply?" tickets (lessons #3/#5; 2026-07-03 wechat incident
+burned an hour proving a message was never parseable). The subscriber loop
+now calls `_on_unparsed`, which writes `ingress_dropped_unparsed` with the
+raw item's KEYS only (never payloads — media bytes / text stay out of the
+audit table).
 
 > Concrete subclasses today: ``LarkTrigger``, ``SlackTrigger``,
 > ``TelegramTrigger``, ``DiscordTrigger``. (The file docstring's old

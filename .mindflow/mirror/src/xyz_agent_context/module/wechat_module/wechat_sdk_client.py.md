@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_sdk_client.py
 stub: false
-last_verified: 2026-06-25
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 (final) — root cause was the missing `client_id`; emoji strip reverted
+
+The silent-drop incident's REAL rule, proven by controlled probes across two
+QR sessions: `client_id` is the server-side per-message dedup key. Our send
+payload omitted it, so every send shared one empty key — the FIRST message of
+a login session delivered and every later one was silently swallowed as a
+duplicate (HTTP 200 + empty body `{}`; there is no `ret` field and no
+delivery receipt in this API at all). Fix: payload now carries
+`from_user_id: ""`, a per-message `uuid4` `client_id` (stable across the
+in-place retry — a retry IS the same message; distinct per chunk), and
+`base_info.channel_version` (the constant existed but was only wired into
+getupdates).
+
+The interim "non-BMP emoji kills delivery" theory was a coincidental
+correlation (the first two lost replies happened to carry 🍉) — with
+client_id present, astral-plane emoji deliver and render fine (probe P11).
+`sanitize_bmp` and the prompt's emoji ban are reverted. Per-chunk
+send-failure logging (lesson #3) stays.
+
+Debugging landmark: rebinding "fixed" delivery only because a fresh login
+session has an empty dedup slot — one more delivery, then mute again. If
+"only the first message arrives" ever reappears, check payload shape against
+the protocol docs before suspecting the platform.
 
 ## Why it exists
 

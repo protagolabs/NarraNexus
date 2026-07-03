@@ -356,6 +356,20 @@ impl ServiceDef {
                 order: 10,
                 startup_delay_ms: None,
             },
+            ServiceDef {
+                id: "wechat_trigger".to_string(),
+                label: "WeChat Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.module.wechat_module.run_wechat_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 11,
+                startup_delay_ms: None,
+            },
         ]
     }
 
@@ -546,6 +560,22 @@ impl ServiceDef {
                 port: None,
                 health_url: None,
                 order: 10,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "wechat_trigger".to_string(),
+                label: "WeChat Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.module.wechat_module.run_wechat_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 11,
                 startup_delay_ms: None,
             },
         ]

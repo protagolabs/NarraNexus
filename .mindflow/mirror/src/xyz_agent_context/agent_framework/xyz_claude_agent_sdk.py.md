@@ -31,6 +31,27 @@ module-selection loader that only inlines instructions relevant to
 this turn's channel/context (deferred as a separate follow-up per
 the design note added inline at the constant's block comment).
 
+## 2026-07-03 — 0-message run emits a classifiable error (no more silent fallback)
+
+When the Claude CLI yields 0 messages (expired OAuth / not logged in / crash /
+quota) the generator used to only log and end, so the pipeline read no-messages
+as "agent chose not to reply" and the helper-LLM fabricated a hollow fallback —
+the Owner reported "mysterious fallback, no error". It now yields
+_zero_output_error_event (a response.error carrying the raw CLI stderr).
+Classification stays in response_processor._is_auth_failure: an auth/login
+stderr becomes a fatal AUTH_EXPIRED (re-login prompt, no_reply fallback skipped);
+anything else stays a recoverable no-output error. The base sentence is kept
+auth-phrase-free so an empty stderr is never misclassified as auth. Guarded by
+tests/agent_framework/test_zero_output_error_event.py.
+
+## 2026-07-03 — main-loop model normalized via `resolve_cli_alias` (upstream #57)
+
+`options_kwargs["model"]` passes through `resolve_cli_alias(model,
+auth_type)`: bare family aliases become full ids on api_key/bearer
+transports, stay verbatim on OAuth. Complements the earlier
+`_is_claude_native` fix (906312b5) which only adjusted tool policy, not
+the model string itself.
+
 ## 2026-06-11 — thinking 走 --effort,绝不发 --max-thinking-tokens 正数
 
 CC 在当前代 Claude 模型上每轮 400(`"thinking.type.enabled" is not supported

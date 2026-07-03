@@ -30,6 +30,7 @@ import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { getChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
+import { InnerThoughtCard } from './InnerThoughtCard';
 import { TurnTimeline } from './TurnTimeline';
 import { ExecutionPopover } from './ExecutionPopover';
 import { Composer, type ComposerHandle } from './Composer';
@@ -515,6 +516,24 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [isStreaming, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
 
+  // ── Inner Thoughts defaults to the bottom (newest activity) ──
+  // Like a chat log, not an inbox: the newest activity sits at the bottom, so
+  // opening the tab (or a new activity arriving) snaps to the end and the user
+  // sees the latest without scrolling down manually.
+  const innerCount = useMemo(
+    () => timeline.reduce((n, i) => (i.messageType === 'activity' ? n + 1 : n), 0),
+    [timeline],
+  );
+  useEffect(() => {
+    if (chatTab !== 'inner') return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const id = requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [chatTab, innerCount]);
+
   // ── Auto-load more if content doesn't fill the container ──
   // When activity messages are small, the initial page may not cause overflow,
   // making it impossible to scroll up to trigger loadMoreHistory.
@@ -952,18 +971,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           // Route by tab: each tab renders only its own items.
           if (chatTab === 'inner' ? !isInner : isInner) return null;
 
-          // Activity record → small centered text (Inner Thoughts only).
+          // Activity record → source-labelled, expandable card (Inner Thoughts only).
           if (isActivity) {
-            return (
-              <div key={item.id} className="flex justify-center py-1">
-                <span className="text-[10px] text-[var(--text-tertiary)] italic">
-                  {item.content}
-                  <span className="ml-2 opacity-60">
-                    {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </span>
-              </div>
-            );
+            return <InnerThoughtCard key={item.id} item={item} agentId={agentId} />;
           }
 
           // Full message bubble (Conversation: owner↔agent chat; Inner Thoughts:
@@ -989,6 +999,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   toolCalls: item.toolCalls,
                   attachments: item.attachments,
                   timeline: item.timeline,
+                  isError: item.isError,
+                  warnings: item.warnings,
                 }}
                 eventId={item.eventId}
                 agentId={agentId}

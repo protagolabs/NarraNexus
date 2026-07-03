@@ -121,6 +121,33 @@ _SECRET_BEARER_PATTERN = re.compile(
 )
 
 
+def im_channel_prefixes() -> tuple[str, ...]:
+    """Channel-id prefixes owned by dedicated IM triggers — registry-driven.
+
+    ChannelInboxWriter persists IM turns to ``bus_messages`` under
+    ``{channel}_{chat_id}`` purely for history/Inbox display; the channel's
+    own trigger already ran AgentRuntime for them. Those rows must never be
+    re-dispatched here. The set used to be a hand-maintained tuple
+    ("lark_", "telegram_", "slack_") that silently drifted — wechat,
+    narramessenger and discord were missing, so every message on those
+    channels fired a SECOND agent run wearing the Owner-Relay peer-agent
+    prompt (2026-07-03 wechat incident: fabricated context_token sends +
+    bogus "我已经在微信上回复你啦" platform DMs). Deriving from
+    ``MessageSourceHandler.dedicated_trigger`` keeps a future channel
+    covered the moment it registers; computed per call because channel
+    modules register at import time and import order isn't guaranteed.
+    """
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceRegistry,
+    )
+
+    return tuple(sorted(
+        f"{name}_"
+        for name, handler in MessageSourceRegistry.handlers().items()
+        if handler.dedicated_trigger
+    ))
+
+
 def build_bus_anchor(messages: List[BusMessage]) -> str:
     """Build the clean retrieval anchor for a bus turn.
 
@@ -303,13 +330,12 @@ class MessageBusTrigger:
 
                 handled_any = False
                 for channel_id, messages in by_channel.items():
-                    # Skip IM-channel-owned channels — each has its own dedicated trigger
-                    # (LarkTrigger, TelegramTrigger, SlackTrigger) that already processed
-                    # the message. ChannelInboxWriter writes these to bus_messages purely
-                    # for frontend Inbox display; re-consuming them here would fire
-                    # AgentRuntime a second time and send duplicate replies.
-                    _IM_CHANNEL_PREFIXES = ("lark_", "telegram_", "slack_")
-                    if channel_id.startswith(_IM_CHANNEL_PREFIXES):
+                    # Skip IM-channel-owned channels — each has its own dedicated
+                    # trigger that already processed the message; re-consuming
+                    # would fire AgentRuntime a second time and send duplicate
+                    # replies. Prefixes derive from MessageSourceRegistry (see
+                    # im_channel_prefixes) so new channels can't be forgotten.
+                    if channel_id.startswith(im_channel_prefixes()):
                         latest = max(messages, key=lambda m: str(m.created_at))
                         await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
                         continue

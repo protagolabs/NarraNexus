@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_audit_events.py
 stub: false
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — `EVENT_INGRESS_DROPPED_UNPARSED`
+
+New ingress constant for raw events rejected by parse_event (unsupported
+message types). Emitted by ChannelTriggerBase._on_unparsed.
 
 ## 2026-07-02 — `EVENT_TRANSPORT_SEND_FAILED` (Matrix Commit 4b)
 

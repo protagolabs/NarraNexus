@@ -412,10 +412,20 @@ class ChatModule(XYZBaseModule):
         Returns:
             Short activity description string
         """
-        if working_source == "job":
-            return "Executed a background job"
+        # Say WHAT happened, not just the source — the UI already badges the
+        # source (working_source) with its own colour + name, so repeating
+        # "(wechat)" here is noise. Use the channel_tag the IM triggers attach
+        # (sender / room) to make the one-line summary actually informative.
+        tag = meta.get("channel_tag") or {}
+        who = tag.get("sender_name") or tag.get("room_name")
 
-        return f"Background activity ({working_source})"
+        if working_source == "job":
+            return "Ran a scheduled job"
+        if working_source in ("message_bus", "a2a"):
+            return f"Replied to {who}" if who else "Handled a peer-agent message"
+        if who:
+            return f"Handled a message from {who}"
+        return "Handled a background activity"
 
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
         """
