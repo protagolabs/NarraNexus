@@ -4,6 +4,75 @@ stub: false
 last_verified: 2026-07-03
 ---
 
+## 2026-07-03 (UX fix) — silent finalize: edit-to-marker, not redact
+
+Live incident on dev EC2 (`agent_3dbc1343a078`, room
+`!nkPGwwuXRnhUBvJOlC:matrix.netmind.chat`) surfaced two overlapping
+bugs the redact path hid:
+
+1. **`aiohttp.http_exceptions.LineTooLong: Got more than 131072 bytes`**
+   fatal-crashed the agent turn on `tool_call_output_item` outputs
+   >128 KiB (Claude Code's `Read` on a PNG returned base64 that
+   exceeded anyio's hardcoded line limit). Every turn ended
+   `_finalize_stream_silent → matrix_room_redact` → room showed
+   "message deleted" as the ONLY visible outcome. The runtime
+   fatal was in the log but never surfaced to the sender.
+2. Even for INTENTIONALLY-silent turns (agent chose not to speak),
+   `redact` renders in every Matrix client as a prominent "message
+   deleted" line — misleading enough to look like a bug.
+
+Fix: `_finalize_stream_silent` now EDITS the placeholder (via
+`m.replace`) instead of redacting. Two new class-level constants:
+
+- `STREAM_SILENT_MARKER = "·"` — discreet dot for the "no reply
+  intended" case. Keeps a single message thread in the room without
+  the alarming delete indicator.
+- `STREAM_ERROR_MARKER = "⚠️ Sorry — I hit an internal error and
+  couldn't finish. Please try again in a moment."` — used when the
+  runtime emitted a `MessageType.ERROR` (or the stream loop caught
+  an exception) during the turn. Tells the sender to retry rather
+  than assume they were ignored.
+
+`_StreamReplyState` gains two fields the state machine writes at ERROR
+time:
+- `error_seen: bool` — set by `_handle_stream_event` when
+  `MessageType.ERROR` fires, and defensively by the outer
+  `run_stream` try/except so a Python-level exception (like the SDK
+  transport's LineTooLong percolating up) also triggers the error
+  marker path.
+- `last_error_message: str` — truncated excerpt logged at finalize
+  time (`last_error=...`) so live debugging doesn't need to re-open
+  the log for the same turn.
+
+Finalise fallback chain when a placeholder exists:
+1. Try `matrix_room_edit` → success is the happy path.
+2. If edit fails transient → try `matrix_room_send` of the marker
+   (fresh message) so the sender still sees something meaningful.
+3. If BOTH fail → attempt `matrix_room_redact` as last-resort
+   cleanup (better a redact than a stranded "💭 Thinking…" in the
+   room).
+
+No-placeholder cases:
+- Error + no placeholder: fresh-send the error marker (user must
+  see the failure).
+- Silent + no placeholder: no-op (room is already clean).
+
+Follow-up (out of scope for this trigger fix): the `LineTooLong` at
+128 KiB is a Claude Agent SDK / anyio bug — the SDK transport uses
+`TextReceiveStream` on the CLI's stdout with anyio's default
+readline limit. Bumping requires a monkey-patch on the SDK's
+subprocess transport or an upstream fix. Filed as a follow-up on
+the agent_framework side; the trigger just surfaces the failure
+gracefully now.
+
+Tests: `test_matrix_streaming_reply.py` gains
+`test_finalise_silent_edits_placeholder_to_silent_marker`,
+`test_finalise_error_edits_placeholder_to_error_marker`,
+`test_finalise_error_no_placeholder_sends_fresh_marker`,
+`test_error_event_sets_error_seen_flag`. The old
+`test_finalise_silent_redacts_placeholder` is replaced (the redact
+was the bug).
+
 ## 2026-07-03 (review fixes) — sync-loop robustness + mention scoping
 
 PR #60 review round. Four correctness/robustness fixes:
