@@ -133,6 +133,17 @@ class _StreamReplyState:
     narra_reply_text: str = ""
     last_progress_ms: float = 0.0
     send_failure: bool = False
+    # 2026-07-03: set True by ``_handle_stream_event`` when any
+    # ``MessageType.ERROR`` fires during the run — signals the finalize
+    # step to surface an error indicator in the room rather than the
+    # default silent-not-reply redact. Prevents "message deleted" as
+    # the ONLY user-visible outcome of a crashed agent turn (e.g. the
+    # ``LineTooLong`` fatal from oversized tool_call_output_item lines,
+    # see mirror md 2026-07-03 hotfix note).
+    error_seen: bool = False
+    # Short excerpt of the most recent error to surface in the placeholder.
+    # Deliberately truncated at write time — full details live in the log.
+    last_error_message: str = ""
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
 # homeserver requires a bearer token on media fetches — the legacy
@@ -286,6 +297,26 @@ class MatrixTrigger(ChannelTriggerBase):
     # Matrix's ~1 msg/s per-room write budget. The final narra_reply edit
     # is NOT subject to this floor.
     STREAM_PROGRESS_MIN_INTERVAL_MS = 900
+    # Marker edited into the placeholder when the turn ends without a
+    # ``narra_reply`` AND without an error — the agent processed the
+    # message but chose not to speak (e.g. group-silent, or a turn where
+    # `Read` returned nothing meaningful). Was originally a `redact`
+    # ("delete the placeholder"), but every Matrix client renders that
+    # as a prominent "message deleted" line — worse UX than a discreet
+    # marker. Overwriting via ``m.replace`` keeps a single message
+    # thread in the room without the alarming delete indicator.
+    STREAM_SILENT_MARKER = "·"
+    # Marker edited into the placeholder when the agent's runtime
+    # emitted an ``ErrorMessage`` during the stream. Distinguishes a
+    # crashed turn from a merely-silent one so the sender knows to
+    # retry rather than assume the agent chose to ignore them.
+    # ``LineTooLong`` on oversized `tool_call_output_item` is a real
+    # failure mode we've observed (128 KiB anyio line limit + Claude
+    # Code's Read on media returning base64 > 128 KiB).
+    STREAM_ERROR_MARKER = (
+        "⚠️ Sorry — I hit an internal error and couldn't finish. "
+        "Please try again in a moment."
+    )
 
     # ── Narra authorize-event gate ───────────────────────────────────────
     # Every Matrix event must clear ``POST /api/agent-runtime/matrix/
@@ -1419,6 +1450,13 @@ class MatrixTrigger(ChannelTriggerBase):
             # Runtime blew up mid-stream. Log and finalize what we have —
             # the base pipeline handles hook_persist_turn / event.final_output
             # via AgentRuntime's own error path.
+            #
+            # Also mark ``error_seen`` so the finalize step surfaces an
+            # error marker in the room rather than the default silent
+            # marker. Belt-and-suspenders for the case where the runtime
+            # doesn't emit a ``MessageType.ERROR`` before dying.
+            state.error_seen = True
+            state.last_error_message = f"{type(e).__name__}: {e}"[:200]
             logger.warning(
                 f"[matrix:{credential.agent_id}] run_stream raised: "
                 f"{type(e).__name__}: {e}"
@@ -1453,7 +1491,28 @@ class MatrixTrigger(ChannelTriggerBase):
         ``AGENT_THINKING`` are ignored on purpose: the room shows intentional
         updates (``narra_progress`` / ``narra_reply``), never streamed output.
         """
-        if getattr(event, "message_type", None) != MessageType.PROGRESS:
+        mt = getattr(event, "message_type", None)
+        # ERROR events surface framework-level failures (agent-loop fatal,
+        # LineTooLong from oversized tool_call_output_item, transport
+        # crashes, etc.). Record them so finalize can distinguish
+        # "crashed silent" from "chose silent" — the UX branches on this.
+        if mt == MessageType.ERROR:
+            state.error_seen = True
+            err_msg = (
+                getattr(event, "error_message", "")
+                or getattr(event, "message", "")
+                or ""
+            )
+            if isinstance(err_msg, str) and err_msg.strip():
+                state.last_error_message = err_msg.strip()[:200]
+            err_type = getattr(event, "error_type", "") or "unknown"
+            logger.warning(
+                f"[matrix:{credential.agent_id}] streaming saw ERROR event "
+                f"(type={err_type}, room={room_id}); finalize will surface "
+                f"the error marker"
+            )
+            return
+        if mt != MessageType.PROGRESS:
             return
         details = getattr(event, "details", None)
         if not isinstance(details, dict):
@@ -1575,43 +1634,134 @@ class MatrixTrigger(ChannelTriggerBase):
         room_id: str,
         state: _StreamReplyState,
     ) -> None:
-        """Agent chose silent-not-reply. Redact any placeholder we sent.
+        """Turn ended without ``narra_reply``. Overwrite placeholder
+        with either an error marker (agent crashed) or a silent marker
+        (agent chose not to speak).
 
-        Nothing to do if the placeholder never shipped — the room is
-        clean. If it did, redact so the room doesn't retain a partial
-        thinking snippet the agent later withdrew.
+        Previously we ``redact``ed the placeholder — Matrix clients
+        render that as a prominent "message deleted" line, which reads
+        as a bug even when the silent path was intentional. The user
+        also lost visibility into runtime failures (the log said
+        ``LineTooLong`` fatal but the room just said "deleted"). Now
+        we EDIT the placeholder instead:
+
+        - ``state.error_seen`` set → edit to ``STREAM_ERROR_MARKER``
+          so the sender sees a "please try again" prompt.
+        - Otherwise → edit to ``STREAM_SILENT_MARKER`` (discreet).
+
+        If the placeholder never shipped OR edit fails permanently, we
+        fall back to a fresh ``room_send`` of the marker so the room
+        still shows *something* meaningful. Redact stays as the
+        last-resort cleanup only if the edit AND the fresh send both
+        fail — better a redact than a stranded ``💭 Thinking…``.
         """
+        marker = (
+            self.STREAM_ERROR_MARKER
+            if state.error_seen
+            else self.STREAM_SILENT_MARKER
+        )
+        kind = "error" if state.error_seen else "silent"
+        if state.last_error_message:
+            logger.info(
+                f"[matrix:{credential.agent_id}] silent stream — surfacing "
+                f"{kind} marker (room={room_id}, "
+                f"last_error={state.last_error_message[:80]!r})"
+            )
+
         if not state.placeholder_event_id:
-            logger.info(
-                f"[matrix:{credential.agent_id}] silent stream (no "
-                f"placeholder ever sent, room={room_id})"
-            )
+            # No placeholder in flight — for the error case, still send a
+            # fresh message so the user knows something failed. For the
+            # plain-silent case, stay silent (nothing to clean up).
+            if state.error_seen:
+                try:
+                    await matrix_room_send(
+                        homeserver=credential.matrix_homeserver_url,
+                        token=credential.matrix_access_token,
+                        room_id=room_id,
+                        content={"msgtype": "m.text", "body": marker},
+                    )
+                    logger.info(
+                        f"[matrix:{credential.agent_id}] silent stream — "
+                        f"sent fresh error marker (no placeholder existed, "
+                        f"room={room_id})"
+                    )
+                except MatrixSendError as e:
+                    logger.warning(
+                        f"[matrix:{credential.agent_id}] silent stream — "
+                        f"fresh error marker send failed ({e.code})"
+                    )
+            else:
+                logger.info(
+                    f"[matrix:{credential.agent_id}] silent stream (no "
+                    f"placeholder, no error, room={room_id})"
+                )
             return
-        if state.send_failure:
-            # Placeholder is out there but subsequent edits failed —
-            # attempt the redact anyway; if it also fails, log and move
-            # on. The turn's memory writes still fire independently.
-            logger.info(
-                f"[matrix:{credential.agent_id}] silent stream after send "
-                f"failure — attempting redact (room={room_id})"
-            )
+
+        # Placeholder exists — edit it to the marker.
+        if not state.send_failure:
+            try:
+                await matrix_room_edit(
+                    homeserver=credential.matrix_homeserver_url,
+                    token=credential.matrix_access_token,
+                    room_id=room_id,
+                    original_event_id=state.placeholder_event_id,
+                    new_body=marker,
+                )
+                logger.info(
+                    f"[matrix:{credential.agent_id}] silent stream — edited "
+                    f"placeholder to {kind} marker (room={room_id})"
+                )
+                return
+            except MatrixSendError as e:
+                if e.code not in ("M_UNKNOWN_TOKEN", "M_MISSING_TOKEN", "M_FORBIDDEN"):
+                    # Transient — try a fresh send below rather than
+                    # leaving the placeholder as "💭 Thinking…".
+                    logger.info(
+                        f"[matrix:{credential.agent_id}] silent stream — "
+                        f"edit to marker failed ({e.code}); trying fresh send"
+                    )
+                else:
+                    logger.warning(
+                        f"[matrix:{credential.agent_id}] silent stream — "
+                        f"edit to marker permanent failure ({e.code}); "
+                        f"placeholder stays as-is"
+                    )
+                    return
+        # Edit failed OR send_failure was already set — send a fresh marker.
+        # Prefer this to redact for the error case (user needs to see it);
+        # for the plain-silent case, the fresh marker is discreet enough
+        # that it's still better than leaving "💭 Thinking…" stranded.
         try:
-            await matrix_room_redact(
+            await matrix_room_send(
                 homeserver=credential.matrix_homeserver_url,
                 token=credential.matrix_access_token,
                 room_id=room_id,
-                event_id=state.placeholder_event_id,
-                reason="agent chose silent reply",
+                content={"msgtype": "m.text", "body": marker},
             )
             logger.info(
-                f"[matrix:{credential.agent_id}] silent stream — redacted "
-                f"placeholder (room={room_id})"
+                f"[matrix:{credential.agent_id}] silent stream — fresh "
+                f"{kind} marker sent as fallback (room={room_id})"
             )
         except MatrixSendError as e:
             logger.warning(
-                f"[matrix:{credential.agent_id}] silent stream redact "
-                f"failed ({e.code}); placeholder remains in room"
+                f"[matrix:{credential.agent_id}] silent stream — fresh "
+                f"marker send also failed ({e.code}); attempting redact "
+                f"as last-resort cleanup"
             )
+            try:
+                await matrix_room_redact(
+                    homeserver=credential.matrix_homeserver_url,
+                    token=credential.matrix_access_token,
+                    room_id=room_id,
+                    event_id=state.placeholder_event_id,
+                    reason=f"{kind}-not-reply (marker send failed)",
+                )
+            except MatrixSendError as re:
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] silent stream — last-"
+                    f"resort redact also failed ({re.code}); placeholder "
+                    f"stays in room as '💭 Thinking…'"
+                )
 
     def extract_output(  # type: ignore[override]
         self, result: Any, message: ParsedMessage, credential: Any

@@ -237,23 +237,84 @@ async def test_finalise_with_reply_no_placeholder_sends_fresh(trigger, monkeypat
 
 # ── finalise: silent ────────────────────────────────────────────────────
 @pytest.mark.asyncio
-async def test_finalise_silent_redacts_placeholder(trigger):
+async def test_finalise_silent_edits_placeholder_to_silent_marker(trigger):
+    """Silent-not-reply (no error) → edit to STREAM_SILENT_MARKER, NOT
+    redact. Redaction rendered as 'message deleted' in every Matrix
+    client — misleading when the silent path was intentional."""
     t, calls = trigger
     state = _StreamReplyState(placeholder_event_id="$sent1")
     await t._finalize_stream_silent(_cred(), ROOM, state)
-    assert calls["redact"] == [
-        {"room": ROOM, "event_id": "$sent1", "reason": "agent chose silent reply"}
+    assert calls["redact"] == []
+    assert calls["edit"] == [
+        {"room": ROOM, "orig": "$sent1", "new_body": t.STREAM_SILENT_MARKER}
     ]
 
 
 @pytest.mark.asyncio
-async def test_finalise_silent_no_placeholder_is_noop(trigger):
+async def test_finalise_silent_no_placeholder_no_error_is_noop(trigger):
+    """No placeholder shipped AND no error → nothing to clean up. Locks
+    that we don't spuriously send a silent marker when the room was
+    already clean."""
     t, calls = trigger
     state = _StreamReplyState()
     await t._finalize_stream_silent(_cred(), ROOM, state)
     assert calls["redact"] == []
     assert calls["edit"] == []
     assert calls["send"] == []
+
+
+# ── finalise: error ─────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_finalise_error_edits_placeholder_to_error_marker(trigger):
+    """When the runtime emitted an ERROR event during the stream
+    (state.error_seen=True), the placeholder MUST become the error
+    marker — not the discreet silent marker, and NOT redacted. This is
+    the direct fix for the LineTooLong live incident: agent crashed
+    → user saw only 'message deleted', now sees a 'try again' prompt."""
+    t, calls = trigger
+    state = _StreamReplyState(
+        placeholder_event_id="$sent1",
+        error_seen=True,
+        last_error_message="LineTooLong: 400, Got more than 131072 bytes...",
+    )
+    await t._finalize_stream_silent(_cred(), ROOM, state)
+    assert calls["redact"] == []
+    assert calls["edit"] == [
+        {"room": ROOM, "orig": "$sent1", "new_body": t.STREAM_ERROR_MARKER}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_finalise_error_no_placeholder_sends_fresh_marker(trigger):
+    """Error but no placeholder ever shipped → send a FRESH error
+    marker so the user still sees a 'try again' prompt. Contrast with
+    the plain-silent no-placeholder case which correctly stays a
+    no-op."""
+    t, calls = trigger
+    state = _StreamReplyState(error_seen=True)
+    await t._finalize_stream_silent(_cred(), ROOM, state)
+    assert calls["send"] == [{"room": ROOM, "body": t.STREAM_ERROR_MARKER}]
+    assert calls["edit"] == []
+    assert calls["redact"] == []
+
+
+@pytest.mark.asyncio
+async def test_error_event_sets_error_seen_flag(trigger):
+    """MessageType.ERROR during the stream MUST flip the flag so
+    finalize picks the error marker branch. Missing this coupling was
+    the whole reason a LineTooLong crash rendered as a plain
+    'message deleted' in the room."""
+    t, _ = trigger
+    state = _StreamReplyState(placeholder_event_id="$sent1")
+    err_event = SimpleNamespace(
+        message_type=MessageType.ERROR,
+        error_type="LineTooLong",
+        error_message="Got more than 131072 bytes ...",
+    )
+    await t._handle_stream_event(err_event, state, _cred(), ROOM)
+    assert state.error_seen is True
+    assert "LineTooLong" in state.last_error_message or \
+        "Got more than" in state.last_error_message
 
 
 # ── feature flag ────────────────────────────────────────────────────────
