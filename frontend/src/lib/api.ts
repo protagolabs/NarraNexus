@@ -79,6 +79,14 @@ import type {
   DiscordCredentialResponse,
   DiscordBindResponse,
   DiscordTestResponse,
+  PlanListResponse,
+  SubscriptionMeResponse,
+  SubscribeResponse,
+  BillingActionResponse,
+  FeeInfoResponse,
+  RecordsResponse,
+  RechargeResponse,
+  RechargeStatusResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -159,7 +167,12 @@ class ApiClient {
         const isAuthEndpoint =
           endpoint.startsWith('/api/auth/login') ||
           endpoint.startsWith('/api/auth/register');
-        if (!isAuthEndpoint) {
+        // Billing routes authenticate the NetMind loginToken (X-Netmind-Token),
+        // NOT the NarraNexus session JWT. A 401 here means the NetMind token is
+        // missing/expired — it must NOT log the user out of their valid
+        // NarraNexus session. The panel handles this failure locally.
+        const isBillingEndpoint = endpoint.startsWith('/api/billing/');
+        if (!isAuthEndpoint && !isBillingEndpoint) {
           window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
         }
       }
@@ -1292,6 +1305,116 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ prefer_system_override: preferSystemOverride }),
     });
+  }
+
+  // =========================================================================
+  // NetMind billing / subscription (Phase 1)
+  // The user's NetMind loginToken lives in configStore.netmindToken and is
+  // forwarded per-request via X-Netmind-Token (backend never stores it).
+  // =========================================================================
+
+  private getNetmindToken(): string {
+    try {
+      const raw = localStorage.getItem('narra-nexus-config');
+      if (raw) return JSON.parse(raw)?.state?.netmindToken || '';
+    } catch {
+      /* localStorage unavailable — fall through to empty */
+    }
+    return '';
+  }
+
+  async getPlans(): Promise<PlanListResponse> {
+    return this.request<PlanListResponse>('/api/billing/plans');
+  }
+
+  async getSubscription(): Promise<SubscriptionMeResponse> {
+    const token = this.getNetmindToken();
+    if (!token) {
+      // Fail fast client-side: no NetMind loginToken means the account isn't
+      // linked (or the session predates the ?token= bootstrap). Don't send an
+      // empty header round-trip; let the panel show its error/link state.
+      throw new Error('NetMind account not linked (no loginToken)');
+    }
+    return this.request<SubscriptionMeResponse>('/api/billing/subscription', {
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  async getFeeInfo(): Promise<FeeInfoResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<FeeInfoResponse>('/api/billing/fee-info', {
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  // Recent financial records (consumption + recharge history). Optional
+  // direction filter: 'expense' | 'income'.
+  async getRecords(direction?: 'expense' | 'income'): Promise<RecordsResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    const qs = direction ? `?direction=${direction}` : '';
+    return this.request<RecordsResponse>(`/api/billing/records${qs}`, {
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  // Module F: one-click "use my NetMind subscription" — backend mints an
+  // inference key and wires it to the agent/helper slots. POST + loginToken.
+  async useSubscription(): Promise<{ success: boolean; provider_ids?: string[] }> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<{ success: boolean; provider_ids?: string[] }>(
+      '/api/providers/use-subscription',
+      { method: 'POST', headers: { 'X-Netmind-Token': token } },
+    );
+  }
+
+  private billingWrite<T>(endpoint: string): Promise<T> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  // Start a Pro subscription — returns Stripe checkout_url to redirect to.
+  async subscribe(): Promise<SubscribeResponse> {
+    return this.billingWrite<SubscribeResponse>('/api/billing/subscribe');
+  }
+
+  // Cancel = turn off auto-renew (stays Pro until period end).
+  async cancelSubscription(): Promise<BillingActionResponse> {
+    return this.billingWrite<BillingActionResponse>('/api/billing/cancel');
+  }
+
+  // Re-enable auto-renew on a cancelled-but-in-period subscription.
+  async reactivateSubscription(): Promise<BillingActionResponse> {
+    return this.billingWrite<BillingActionResponse>('/api/billing/reactivate');
+  }
+
+  // Module E: top-up. Create a hosted Stripe checkout for `amount` (USD by
+  // default) and return checkout_url to open externally, then poll
+  // rechargeStatus(session_id) until succeeded/failed.
+  async recharge(amount: number, currency = 'USD'): Promise<RechargeResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<RechargeResponse>('/api/billing/recharge', {
+      method: 'POST',
+      headers: { 'X-Netmind-Token': token },
+      body: JSON.stringify({ amount, currency }),
+    });
+  }
+
+  // Poll a recharge by its Stripe session id -> { status: pending|succeeded|failed }.
+  async rechargeStatus(sessionId: string): Promise<RechargeStatusResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<RechargeStatusResponse>(
+      `/api/billing/recharge/${encodeURIComponent(sessionId)}`,
+      { headers: { 'X-Netmind-Token': token } },
+    );
   }
 
   // =========================================================================

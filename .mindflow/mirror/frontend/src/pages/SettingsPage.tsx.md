@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-06-11
+last_verified: 2026-07-06
 stub: false
 ---
+ 
+## 2026-07-06 — nav reorder + Account consolidates billing
+
+Cloud IA cleanup: NAV_ITEMS now leads with the "account" entry (Account &
+Subscription), and that entry is "cloudOnly" (new flag; the account/billing
+panels render null locally, so the entry would otherwise open a blank pane).
+Default active tab is the first VISIBLE item (items[0]), so cloud opens on
+Account, local on LLM Providers. QuotaPanel (system free tier) moved OUT of
+ProvidersSection INTO the Account section — all "what are my credits / how is
+usage paid" concerns (platform free tier + NetMind.AI Power
+balance/subscription/top-up) now live together; LLM Providers is
+bring-your-own only.
+
+
+## 2026-07-02 — 新增「Account & Subscription」导航项（Phase 1）
+
+`NAV_ITEMS` 加 `account`（CreditCard 图标，位于 providers 与 bundle 之间），
+`active==='account'` 渲染 [[NetmindAccountPanel]]（NetMind 订阅状态 + 沙盒声明）。
+注意：这是**真正被挂载**的设置页（route `/app/settings`）——`SettingsModal` 是
+死代码（无任何引用），billing 面板务必加在这里而非那里。
+
 ## 2026-06-11 — master–detail：左侧导航 + 右侧内容(取代折叠堆叠)
 
 页面从"竖直折叠堆叠"改成 **master–detail**:左侧 `NAV_ITEMS` 导航

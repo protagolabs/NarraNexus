@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-06-14
+last_verified: 2026-07-06
 stub: false
 ---
+
+## 2026-07-06 — use-subscription pre-flip caveats expanded
+
+Expanded the pre-flip TODO on the in-process _use_sub_locks: before enabling
+netmind_use_subscription_enabled in a multi-worker deploy, a distributed guard
+must also cover the OTHER netmind-source creators (add_provider/onboard), and the
+unbounded per-user lock dict should become TTL/bounded. Current single-worker,
+flag-off deployment is unaffected.
+
+
 ## 2026-06-14 — PR #25 review §3：写接口补「凭证骑乘」门禁
 
 云端镜像单 `app` 用户、单 HOME，所以 `~/.codex/auth.json` /
@@ -243,3 +253,22 @@ migration service 全局单例对云端多用户是错的。
 多进程部署下，per-user 进度仍然是"当前处理这次请求的进程"内的状态；不同进程不
 共享。前端轮询时若请求 load-balance 到不同进程，会看到进度波动。未来可考虑把
 进度落到 DB 或 Redis，但本轮修复不包括。
+
+## 2026-07-02（Phase 5）— POST /use-subscription（模块 F）
+
+一键“使用此订阅”：cloud 门禁（规范 is_cloud_mode）+ 功能开关
+`settings.netmind_use_subscription_enabled`（默认关，待 C1）+ X-Netmind-Token +
+**先显式去重**（已有 source=netmind → 409，避免生成孤儿 key）→
+[[netmind_key_client]] 生成推理 key → 复用 `onboard_one_key(uid, key, "netmind")`
+建双 provider + 绑槽 → 抄 /onboard 的 hot-reload + rearm。错误：KeyAuthError→401、
+KeyUpstreamError→502、onboard ValueError→400。
+
+## 审查加固（2026-07-02）
+
+- **per-user 锁** `_use_sub_lock(uid)`：串行化 dedup+mint+onboard，挡同进程双击/多标签
+  并发双 mint（安全/质量 HIGH TOCTOU）。**仅同进程**——多 worker 需分布式/DB 守卫，
+  flag-flip 前 TODO（注：(user_id,source) 唯一约束不适用，netmind 是双行）。
+- **孤儿 key 清理**：onboard 任何失败后 `key_client.delete_key(token, minted.token_id)`
+  best-effort 撤销刚 mint 的 key，避免留下花钱的孤儿（安全 HIGH）。
+- **ValueError 映射细化**：dedup "already exists"→409、我方 mint 的 key 被 NetMind 拒
+  "rejected"→502（上游集成失败，非用户输入错）、其它→400。

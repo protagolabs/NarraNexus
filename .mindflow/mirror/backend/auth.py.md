@@ -1,8 +1,16 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-07-03
+last_verified: 2026-07-06
 stub: false
 ---
+
+## 2026-07-02 — QUOTA_BYPASS_PREFIXES 新增 /api/billing
+
+NetMind 计费代理（[[billing]]）加入配额绕过前缀。超额用户正是最需要看"升级
+Pro"面板的人——若不绕过，`provider_resolver` 会在路由执行前返回 402，把他们挡在
+升级入口外。billing 调用本身无 NarraNexus LLM 成本（代理 NetMind）。与
+`/api/providers` / `/api/quota` / `/api/transcription` 同属"无成本、需可达"类。
+（与 `/api/notices` 在合并到 dev 时一并加入同一个前缀元组。）
 
 ## 2026-07-03 — /api/notices added to QUOTA_BYPASS_PREFIXES
 

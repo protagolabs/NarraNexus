@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-06-18
+last_verified: 2026-07-06
 stub: false
 ---
+
+## 2026-07-06 — NetMind billing / subscription settings
+
+Added the NetMind billing block (externalize-per-env, same pattern as
+arena_api_base): `billing_api_base` (default prod `billing.api.netmind.ai`; dev
+sets `BILLING_API_BASE=https://billing.api.protago-dev.com`),
+`billing_api_timeout_seconds`, `netmind_key_api_base` (key-mint API, default
+`platform-api.netmind.ai`), and `netmind_use_subscription_enabled` — the flag
+gating the one-click "use my subscription" key-mint (default **False**, stays off
+until the C1 billing contract is confirmed and a multi-worker distributed guard
+lands; see [[providers]] / [[netmind_billing_client]] / [[netmind_key_client]]).
 
 ## 2026-06-18 — arena_api_base (per-env Arena)
 

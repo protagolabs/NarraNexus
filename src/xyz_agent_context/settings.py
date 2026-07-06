@@ -157,6 +157,30 @@ class Settings(BaseSettings):
     # the agent's own HTTP calls target the same environment automatically.
     arena_api_base: str = "https://api.arena42.ai"
 
+    # ===== NetMind Billing / Subscription =====
+    # Base URL of NetMind's billing+subscription API (balance / plan / subscription / recharge).
+    # Externalized per deployment the same way as arena_api_base: prod keeps the
+    # default (billing.api.netmind.ai); the dev stack sets
+    # BILLING_API_BASE=https://billing.api.protago-dev.com in its ops .env.
+    # The NarraNexus backend proxies the user's NetMind loginToken to this host
+    # (see backend/routes/billing.py) — we never store the token, only forward.
+    billing_api_base: str = "https://billing.api.netmind.ai"
+    billing_api_timeout_seconds: float = 10.0
+
+    # NetMind Key-management API (generate/list inference API keys). This is a
+    # DIFFERENT host + auth from billing: header is `token` (not `loginToken`),
+    # body is form-encoded, envelope is HTTP 200 + {success:false} on error.
+    # prod platform-api.netmind.ai; dev sets
+    # NETMIND_KEY_API_BASE=https://mind-web.protago-dev.com.
+    netmind_key_api_base: str = "https://platform-api.netmind.ai"
+
+    # Module F gate (Phase 5): "use this subscription" auto-generates a NetMind
+    # inference key and wires it to the agent/helper slots. Kept OFF until the
+    # C1 contract is confirmed with NetMind — i.e. that the generated key's
+    # consumption bills against the subscription grant / account balance (and
+    # is reflected in user-fee-info). Flip to True once confirmed.
+    netmind_use_subscription_enabled: bool = False
+
     # ===== Speed Optimization =====
     # When True, skip the LLM instance decision call in Step 2 and always load
     # all capability modules directly.  This saves ~2.5-3s per turn since the

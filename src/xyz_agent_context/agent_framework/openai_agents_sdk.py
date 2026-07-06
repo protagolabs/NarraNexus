@@ -20,7 +20,11 @@ from pydantic import BaseModel, TypeAdapter
 from openai import AsyncOpenAI
 
 from xyz_agent_context.agent_framework.api_config import openai_config
-from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
+from xyz_agent_context.utils.cost_tracker import (
+    get_cost_context,
+    record_cost,
+    warn_missing_usage,
+)
 from xyz_agent_context.utils.logging import timed
 
 
@@ -437,19 +441,25 @@ class OpenAIAgentsSDK:
         )
 
         _agent_id, _db = self._resolve_cost_context(None, None)
-        if _agent_id and _db and (input_tokens > 0 or output_tokens > 0):
-            try:
-                await record_cost(
-                    db=_db,
-                    agent_id=_agent_id,
-                    event_id=None,
-                    call_type="llm_stream",
-                    model=model_name,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                )
-            except Exception as e:
-                logger.warning(f"[HelperLLM-Stream] failed to record cost: {e}")
+        if _agent_id and _db:
+            if input_tokens > 0 or output_tokens > 0:
+                try:
+                    await record_cost(
+                        db=_db,
+                        agent_id=_agent_id,
+                        event_id=None,
+                        call_type="llm_stream",
+                        model=model_name,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                    )
+                except Exception as e:
+                    logger.warning(f"[HelperLLM-Stream] failed to record cost: {e}")
+            else:
+                # No usage chunk arrived (provider lacks stream usage, or the
+                # stream was cut before the final usage frame). Don't fail — but
+                # don't hide it either.
+                warn_missing_usage("HelperLLM-Stream", model_name, "llm_stream")
 
     async def _try_agents_sdk(
         self, client, model_name, instructions, user_input, output_type,
@@ -616,18 +626,22 @@ class OpenAIAgentsSDK:
 
         # ── 5. Cost accounting
         raw_content = resp.choices[0].message.content or ""
-        input_tokens = getattr(resp.usage, "prompt_tokens", 0) or 0
-        output_tokens = getattr(resp.usage, "completion_tokens", 0) or 0
+        _usage = getattr(resp, "usage", None)
+        input_tokens = getattr(_usage, "prompt_tokens", 0) or 0
+        output_tokens = getattr(_usage, "completion_tokens", 0) or 0
         _agent_id, _db = self._resolve_cost_context(None, None)
         if _agent_id and _db:
-            try:
-                await record_cost(
-                    db=_db, agent_id=_agent_id, event_id=None,
-                    call_type="llm_function", model=model_name,
-                    input_tokens=input_tokens, output_tokens=output_tokens,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to record cost: {e}")
+            if input_tokens > 0 or output_tokens > 0:
+                try:
+                    await record_cost(
+                        db=_db, agent_id=_agent_id, event_id=None,
+                        call_type="llm_function", model=model_name,
+                        input_tokens=input_tokens, output_tokens=output_tokens,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to record cost: {e}")
+            else:
+                warn_missing_usage("HelperLLM", model_name, "llm_function")
 
         if not output_type:
             return _SimpleResult(raw_content, resp)
@@ -690,6 +704,8 @@ class OpenAIAgentsSDK:
                     call_type="llm_function", model=model_name,
                     input_tokens=input_tokens, output_tokens=output_tokens,
                 )
+            else:
+                warn_missing_usage("HelperLLM-Agents", model_name, "llm_function")
         except Exception as e:
             logger.warning(f"Failed to record OpenAI cost: {e}")
 

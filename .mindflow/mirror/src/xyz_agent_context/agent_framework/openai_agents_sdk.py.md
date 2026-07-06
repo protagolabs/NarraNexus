@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/openai_agents_sdk.py
-last_verified: 2026-05-29
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — de-silence missing usage (Phase 0 / module H)
+
+The three cost sites (`_record_cost` for the Agents-SDK path, the stream path,
+the structured-fallback path) now branch: when a live cost context exists but the
+provider returned 0/absent usage, call `cost_tracker.warn_missing_usage(...)`
+instead of silently skipping. Turns an invisible accounting miss into an
+auditable WARNING. The response_format ladder consumes no tokens on a failed
+level (provider rejects before generating), so nothing is multi-counted — see
+reference/self_notebook/token-accounting-audit-checklist.md.
+
+
 
 ## 2026-05-29 — self-downgrade events audited to DB (E2)
 
