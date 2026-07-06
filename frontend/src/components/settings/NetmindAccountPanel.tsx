@@ -346,6 +346,12 @@ export function NetmindAccountPanel() {
 
   if (!isCloud) return null; // S0
 
+  // Activity shows settled entries only — drop `pending` (abandoned checkouts
+  // linger as pending until the Stripe session expires ~24h later).
+  const settledRecords = records.filter(
+    (r) => (r.status || '').toLowerCase() !== 'pending',
+  );
+
   // Plan badge (top-right): reflects the NetMind.AI Power plan state.
   const planBadge = (() => {
     if (state === 'pro_active') {
@@ -572,14 +578,18 @@ export function NetmindAccountPanel() {
             )}
           </div>
 
-          {/* Recent activity */}
-          {records.length > 0 && (
+          {/* Recent activity — settled ledger only. `pending` rows are hidden:
+              every abandoned checkout (opened, not paid) leaves a pending record
+              that only flips to failed ~24h later when the Stripe session
+              expires, so showing them just piles up noise. In-progress payment
+              is already surfaced by the live "waiting" state above. */}
+          {settledRecords.length > 0 && (
             <div className="pt-3 border-t border-[var(--border-subtle)]">
               <div className="text-xs font-medium text-[var(--text-secondary)] mb-1.5">
                 {t('settings.netmind.activityTitle', 'Recent activity')}
               </div>
               <ul className="space-y-1">
-                {records.slice(0, 8).map((r) => {
+                {settledRecords.slice(0, 8).map((r) => {
                   const income = r.direction === 'income';
                   return (
                     <li

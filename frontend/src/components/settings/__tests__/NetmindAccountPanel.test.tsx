@@ -171,6 +171,34 @@ test('activity: renders recent records when available', async () => {
   expect(screen.getByText(/\+\$10\.00 USD/)).toBeTruthy();
 });
 
+test('activity: pending records are hidden (abandoned checkouts)', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockGetRecords.mockResolvedValue({
+    success: true,
+    data: [
+      { record_id: 'p1', kind: 'Recharge', type: 'Recharge', direction: 'income', amount: '10.00', currency: 'USD', status: 'pending', created_at: '2026-07-06T00:00:00+00:00' },
+      { record_id: 's1', kind: 'Recharge', type: 'Recharge', direction: 'income', amount: '5.00', currency: 'USD', status: 'succeeded', created_at: '2026-07-05T00:00:00+00:00' },
+    ],
+  });
+  render(<NetmindAccountPanel />);
+  // the settled $5 shows; the pending $10 does not
+  expect(await screen.findByText(/\+\$5\.00 USD/)).toBeTruthy();
+  expect(screen.queryByText(/\+\$10\.00 USD/)).toBeNull();
+});
+
+test('activity: hidden entirely when every record is pending', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockGetRecords.mockResolvedValue({
+    success: true,
+    data: [
+      { record_id: 'p1', kind: 'Recharge', type: 'Recharge', direction: 'income', amount: '10.00', currency: 'USD', status: 'pending', created_at: '2026-07-06T00:00:00+00:00' },
+    ],
+  });
+  render(<NetmindAccountPanel />);
+  await screen.findByText(/Free \(not subscribed\)/);
+  expect(screen.queryByText(/Recent activity/)).toBeNull();
+});
+
 test('activity: hidden when records fetch fails', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
   mockGetRecords.mockRejectedValue(new Error('502'));

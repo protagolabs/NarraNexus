@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-05
+last_verified: 2026-07-06
 stub: false
 ---
+ 
+## 2026-07-06 — activity list hides `pending` records
+
+Recent activity now filters out `status==='pending'` (settled ledger only). Every
+abandoned checkout (opened, not paid) leaves a NetMind `pending` recharge record
+that only flips to `failed` ~24h later when the Stripe session expires — showing
+them piled up stale "pending +$X" rows. In-progress payment is already surfaced by
+the live "waiting" state, so the ledger only shows succeeded/failed.
+
+
  
 ## 2026-07-05 — recharge: stop-waiting escape + generation-based cancel
 
