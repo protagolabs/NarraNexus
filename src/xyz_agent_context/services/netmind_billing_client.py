@@ -63,11 +63,6 @@ DEFAULT_BASE_URL_ENV = "BILLING_API_BASE"
 DEFAULT_TIMEOUT_ENV = "BILLING_API_TIMEOUT_SECONDS"
 _FALLBACK_TIMEOUT_SECONDS = 10.0
 
-# HTTP statuses that mean "the loginToken was rejected" (user's problem -> 401).
-# power-subscription uses 401; the finance service uses 403 for the same thing.
-_AUTH_FAIL_STATUSES = (401, 403)
-
-
 class BillingAuthError(Exception):
     """The NetMind loginToken is invalid / expired / rejected (caller -> 401)."""
 
@@ -87,6 +82,26 @@ class BillingBusinessError(Exception):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+
+
+class BillingForbiddenError(Exception):
+    """Authenticated but not permitted for THIS resource (caller -> 403).
+
+    Distinct from BillingAuthError (bad token): the token is valid but the
+    resource isn't the caller's (e.g. recharge by-session for a session owned
+    by another user). Only raised when a caller opts in via
+    ``distinguish_forbidden`` — otherwise 403 collapses into BillingAuthError,
+    since on most endpoints 403 just means "token rejected".
+    """
+
+
+class BillingNotFoundError(Exception):
+    """Resource does not exist (caller -> 404).
+
+    Only raised when a caller opts in via ``distinguish_not_found`` (e.g.
+    recharge by-session for an unknown session id); otherwise a 404 falls
+    through to BillingBusinessError like any other non-auth 4xx.
+    """
 
 
 class NetmindBillingClient:
@@ -184,6 +199,51 @@ class NetmindBillingClient:
             "POST", "/v1/power-subscription/reactivate", login_token=login_token
         )
 
+    async def recharge(
+        self,
+        login_token: str,
+        amount: float,
+        currency: str = "USD",
+    ) -> Any:
+        """Create a Stripe HOSTED Checkout for an account top-up (finance 4.2).
+
+        Uses the hosted-checkout endpoint (returns a redirectable
+        ``checkout_url``), NOT the embedded-SDK endpoint (which returns a
+        ``client_secret``) — hosted matches our openExternal flow (same as
+        subscribe). We omit ``success_url``/``cancel_url`` so NetMind uses its
+        own result page and we poll by-session regardless; they are intentionally
+        NOT forwarded from client input (an unvalidated redirect target into a
+        payment session is attack surface with no current use — re-add with an
+        allowlist when a concrete web-redirect UX needs it).
+
+        Returns the wrapped body ``{success, data: {recharge_id, session_id,
+        checkout_url, status}}``.
+        """
+        body: dict[str, Any] = {"amount": amount, "currency": currency or "USD"}
+        return await self._request(
+            "POST",
+            "/v1/finance/recharge/stripe/checkout",
+            login_token=login_token,
+            json_body=body,
+        )
+
+    async def recharge_status(self, login_token: str, session_id: str) -> Any:
+        """Poll a recharge by its Stripe session id (finance 4.3 by-session).
+
+        Returns the wrapped body ``{success, data: {recharge_id, session_id,
+        status, ...}}`` where ``status`` is ``pending``/``succeeded``/``failed``.
+        403 (session not owned by caller) -> BillingForbiddenError; 404 (unknown
+        session) -> BillingNotFoundError, so the route can pass those through
+        instead of collapsing them to 401/400.
+        """
+        return await self._request(
+            "GET",
+            f"/v1/finance/recharge/by-session/{session_id}",
+            login_token=login_token,
+            distinguish_forbidden=True,
+            distinguish_not_found=True,
+        )
+
     async def _request(
         self,
         method: str,
@@ -191,6 +251,8 @@ class NetmindBillingClient:
         login_token: Optional[str] = None,
         json_body: Optional[dict] = None,
         params: Optional[dict] = None,
+        distinguish_forbidden: bool = False,
+        distinguish_not_found: bool = False,
     ) -> Any:
         """Issue one billing call, mapping transport/auth failures to the
         two-valued error contract. Never logs the loginToken."""
@@ -218,8 +280,17 @@ class NetmindBillingClient:
                 f"NetMind billing API unreachable: {exc}"
             ) from exc
 
-        if response.status_code in _AUTH_FAIL_STATUSES:
+        if response.status_code == 401 or (
+            response.status_code == 403 and not distinguish_forbidden
+        ):
+            # 401 always = bad token. 403 collapses into auth-failure too,
+            # EXCEPT where the caller opts in to distinguish "not your resource"
+            # (recharge by-session) from "token rejected".
             raise BillingAuthError("NetMind rejected the loginToken")
+        if response.status_code == 403:
+            raise BillingForbiddenError("NetMind: not permitted for this resource")
+        if response.status_code == 404 and distinguish_not_found:
+            raise BillingNotFoundError("NetMind: resource not found")
         if response.status_code >= 500:
             raise BillingUpstreamError(
                 f"NetMind billing API returned {response.status_code}"

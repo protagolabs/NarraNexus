@@ -663,7 +663,15 @@
       "deductTitle": "How usage is charged",
       "deductOrder": "subscription grant first → then account balance (recharge) → paid usage stops when both run out.",
       "scopeNote": "These NetMind.AI Power credits cover LLM API usage. Compute (GPU) and other pricing are billed separately.",
-      "sandboxNotice": "The NarraNexus sandbox itself is free for now (no sandbox-service charge); billing will start later, with notice."
+      "sandboxNotice": "The NarraNexus sandbox itself is free for now (no sandbox-service charge); billing will start later, with notice.",
+      "rechargeTitle": "Add credits",
+      "rechargeDesc": "Top up your NetMind.AI Power balance. Credits are kept regardless of plan.",
+      "rechargeCustom": "Custom",
+      "rechargeBtn": "Recharge",
+      "rechargeProcessing": "Waiting for payment… complete it in the opened window; your balance updates automatically.",
+      "rechargeSuccess": "Top-up complete — balance updated.",
+      "rechargeFailed": "Payment failed or was cancelled.",
+      "rechargeInvalidAmount": "Enter an amount greater than 0."
     },
     "modal": {
       "title": "Settings",

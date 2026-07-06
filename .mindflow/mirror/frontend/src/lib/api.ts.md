@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-02
+last_verified: 2026-07-05
 stub: false
 ---
+ 
+## 2026-07-05 — recharge / rechargeStatus (Phase 4, module E)
+
+`recharge(amount, currency?, successUrl?, cancelUrl?)` POSTs the top-up and returns
+`{checkout_url, session_id}`; `rechargeStatus(sessionId)` GETs by-session. Both forward the
+loginToken via X-Netmind-Token. Types RechargeResponse/RechargeStatusResponse added in
+[[api]] (types). The panel opens checkout_url then polls rechargeStatus.
+
+
 
 ## 2026-07-02 (Phase 3) — 订阅写操作
 

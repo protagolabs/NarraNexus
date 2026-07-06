@@ -13,9 +13,12 @@
  * auto-renew). Payment回流 has no deterministic desktop signal, so we also
  * refresh on window focus + poll with a bounded window (C3 mitigation).
  *
+ * Phase 4 adds top-up (module E): preset tiers (+ custom amount) → hosted
+ * Stripe checkout (checkout_url) → openExternal → poll by-session until
+ * succeeded/failed → refresh balance. Same bounded-poll + on-focus pattern.
+ *
  * Mirrors QuotaPanel: cloud-mode gate + `return null` when not applicable.
  * Copy is fully i18n-keyed (settings.netmind.*) with English source defaults.
- * Balance/consumption (module B) and recharge (E) land in later phases.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,6 +33,12 @@ type PanelState = 'loading' | 'error' | 'free' | 'pro_active' | 'pro_cancelled';
 
 const POLL_INTERVAL_MS = 4000;
 const POLL_MAX_MS = 180000; // 3 min bound — never poll forever
+
+// Preset top-up tiers (USD). The API accepts any positive amount; these are a
+// NarraNexus-side convenience (module E / D-5). A custom amount overrides them.
+const RECHARGE_TIERS = [5, 10, 20, 50];
+
+type RechargeState = 'idle' | 'processing' | 'success' | 'failed';
 
 function resolveState(me: SubscriptionMe | null): PanelState {
   if (!me) return 'error';
@@ -65,6 +74,11 @@ export function NetmindAccountPanel() {
   const [feeLoaded, setFeeLoaded] = useState(false);
   const [records, setRecords] = useState<FinanceRecord[]>([]);
   const [useResult, setUseResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Top-up (module E): selected preset tier + optional custom amount override.
+  const [tier, setTier] = useState<number>(10);
+  const [custom, setCustom] = useState<string>('');
+  const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
+  const [rechargeError, setRechargeError] = useState<string | null>(null);
   const mounted = useRef(true);
   // Synchronous locks: React state (busy/polling) updates are async/batched, so
   // a fast double-click can fire a handler twice before `disabled` re-renders.
@@ -72,6 +86,8 @@ export function NetmindAccountPanel() {
   // subscribe → duplicate Stripe checkout sessions.
   const busyRef = useRef(false);
   const pollingRef = useRef(false);
+  const rechargeRef = useRef(false); // synchronous double-click guard
+  const rechargePollRef = useRef(false);
 
   const load = useCallback(async () => {
     // Fetch subscription + balance concurrently; each result is handled
@@ -235,6 +251,82 @@ export function NetmindAccountPanel() {
     }
   }, [t]);
 
+  // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
+  // success, reload so the balance hero + activity reflect the new credit.
+  const pollRechargeStatus = useCallback(async (sessionId: string) => {
+    if (rechargePollRef.current) return; // never overlap two poll loops
+    rechargePollRef.current = true;
+    const deadline = Date.now() + POLL_MAX_MS;
+    try {
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        if (!mounted.current) return;
+        try {
+          const r = await api.rechargeStatus(sessionId);
+          const st = r.data?.status;
+          if (st === 'succeeded') {
+            await load(); // refresh balance + activity
+            if (mounted.current) setRechargeState('success');
+            return;
+          }
+          if (st === 'failed') {
+            if (mounted.current) {
+              setRechargeState('failed');
+              setRechargeError(
+                t('settings.netmind.rechargeFailed', 'Payment failed or was cancelled.'),
+              );
+            }
+            return;
+          }
+        } catch {
+          /* transient — keep polling until the deadline */
+        }
+      }
+      if (mounted.current) {
+        // Deadline hit without a terminal status — don't claim success.
+        setRechargeState('failed');
+        setRechargeError(
+          t('settings.netmind.pollTimeout',
+            'Still not active. If you completed payment, refresh in a moment.'),
+        );
+      }
+    } finally {
+      rechargePollRef.current = false;
+      rechargeRef.current = false;
+    }
+  }, [load, t]);
+
+  const handleRecharge = useCallback(async () => {
+    if (rechargeRef.current) return; // synchronous double-click guard
+    // Number() (not parseFloat) so "5abc" → NaN is rejected, not silently 5.
+    const raw = custom.trim();
+    const amount = raw ? Number(raw) : tier;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setRechargeState('failed');
+      setRechargeError(
+        t('settings.netmind.rechargeInvalidAmount', 'Enter an amount greater than 0.'),
+      );
+      return;
+    }
+    rechargeRef.current = true;
+    setRechargeState('processing');
+    setRechargeError(null);
+    try {
+      const r = await api.recharge(amount);
+      const url = r.data?.checkout_url;
+      const sid = r.data?.session_id;
+      if (!url || !sid) throw new Error('No checkout URL returned');
+      await platform.openExternal(url);
+      void pollRechargeStatus(sid); // reflect the result when payment completes
+    } catch (e) {
+      if (mounted.current) {
+        setRechargeState('failed');
+        setRechargeError(errMessage(e));
+      }
+      rechargeRef.current = false;
+    }
+  }, [custom, tier, t, pollRechargeStatus]);
+
   if (!isCloud) return null; // S0
 
   // Plan badge (top-right): reflects the NetMind.AI Power plan state.
@@ -353,6 +445,74 @@ export function NetmindAccountPanel() {
               )}
             </div>
           )}
+
+          {/* Top-up (module E) — any Free/Pro user can add credits */}
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-[var(--text-primary)]">
+              {t('settings.netmind.rechargeTitle', 'Add credits')}
+            </div>
+            <p className="text-xs text-[var(--text-tertiary)]">
+              {t('settings.netmind.rechargeDesc',
+                'Top up your NetMind.AI Power balance. Credits are kept regardless of plan.')}
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {RECHARGE_TIERS.map((v) => {
+                const active = !custom.trim() && tier === v;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => { setTier(v); setCustom(''); }}
+                    disabled={rechargeState === 'processing'}
+                    className={`px-3 py-1 rounded-md text-sm border transition-colors disabled:opacity-50 ${
+                      active
+                        ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-primary)]/8'
+                        : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
+                    }`}
+                  >
+                    ${v}
+                  </button>
+                );
+              })}
+              <div className="flex items-center gap-1 ml-1">
+                <span className="text-sm text-[var(--text-tertiary)]">$</span>
+                <input
+                  type="number"
+                  min="1"
+                  inputMode="decimal"
+                  value={custom}
+                  onChange={(e) => setCustom(e.target.value)}
+                  placeholder={t('settings.netmind.rechargeCustom', 'Custom')}
+                  disabled={rechargeState === 'processing'}
+                  className="w-24 px-2 py-1 rounded-md text-sm bg-[var(--bg-primary)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50"
+                />
+              </div>
+              <Button
+                variant="accent"
+                size="sm"
+                onClick={handleRecharge}
+                disabled={rechargeState === 'processing'}
+              >
+                {rechargeState === 'processing'
+                  ? t('settings.netmind.working', 'Working…')
+                  : t('settings.netmind.rechargeBtn', 'Recharge')}
+              </Button>
+            </div>
+            {rechargeState === 'processing' && (
+              <p className="text-xs text-[var(--text-tertiary)]">
+                {t('settings.netmind.rechargeProcessing',
+                  'Waiting for payment… complete it in the opened window; your balance updates automatically.')}
+              </p>
+            )}
+            {rechargeState === 'success' && (
+              <p className="text-xs text-[var(--color-success)]">
+                {t('settings.netmind.rechargeSuccess', 'Top-up complete — balance updated.')}
+              </p>
+            )}
+            {rechargeState === 'failed' && rechargeError && (
+              <p className="text-xs text-[var(--color-error)]">{rechargeError}</p>
+            )}
+          </div>
 
           {/* Plan status + primary action */}
           <div className="flex items-center justify-between gap-3">

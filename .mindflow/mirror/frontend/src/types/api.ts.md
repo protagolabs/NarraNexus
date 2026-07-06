@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-06-16
+last_verified: 2026-07-05
 stub: true
 ---
+ 
+## 2026-07-05 — recharge types (Phase 4, module E)
+
+Added RechargeCheckout/RechargeResponse ({recharge_id, session_id, checkout_url, status}) and
+RechargeStatus/RechargeStatusResponse ({status: pending|succeeded|failed}) for the top-up flow.
+
+
 
 ## 2026-05-27 — LarkErrorDetail (translator output)
 

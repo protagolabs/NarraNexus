@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/billing.py
-last_verified: 2026-07-02
+last_verified: 2026-07-05
 stub: false
 ---
+ 
+## 2026-07-05 — recharge routes (Phase 4, module E)
+
+`POST /recharge` (RechargeRequest{amount>0, currency=USD, success_url?, cancel_url?} →
+hosted Stripe checkout, reuses `_validate_checkout_url` MITM guard on the returned URL) and
+`GET /recharge/{session_id}` (by-session poll). Error mapping: auth→401, Forbidden→403,
+NotFound→404, business→400, upstream→502. amount≤0 is rejected by Pydantic (422) before any
+upstream call. Client shape in [[netmind_billing_client]].
+
+
 
 # billing.py — NetMind 计费/订阅代理路由（`/api/billing`）
 

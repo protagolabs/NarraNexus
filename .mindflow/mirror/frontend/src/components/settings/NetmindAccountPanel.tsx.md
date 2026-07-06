@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-02
+last_verified: 2026-07-05
 stub: false
 ---
+ 
+## 2026-07-05 — top-up UI (Phase 4, module E)
+
+Added an "Add credits" block under the balance hero: preset tiers ($5/$10/$20/$50) + custom
+amount → `api.recharge` → openExternal(checkout_url) → bounded poll of `api.rechargeStatus`
+until succeeded/failed → on success reload() refreshes the balance + activity. Three states
+(processing/success/failed) mirror the subscribe flow; same synchronous double-click +
+non-overlapping poll refs. Amount ≤0 is blocked client-side before any call.
+
+
 
 # NetmindAccountPanel.tsx — 「NetMind 账户与订阅」面板（Phase 1 骨架）
 

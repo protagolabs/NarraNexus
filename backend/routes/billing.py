@@ -21,11 +21,13 @@ subscribe/cancel, and recharge land in later phases on the same proxy.
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.settings import settings
@@ -33,6 +35,8 @@ from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 from xyz_agent_context.services.netmind_billing_client import (
     BillingAuthError,
     BillingBusinessError,
+    BillingForbiddenError,
+    BillingNotFoundError,
     BillingUpstreamError,
     NetmindBillingClient,
 )
@@ -223,3 +227,79 @@ async def cancel(request: Request):
 async def reactivate(request: Request):
     """Re-enable auto-renew on a cancelled-but-in-period subscription."""
     return await _write_action(request, "reactivate")
+
+
+# --- Phase 4: recharge / top-up (module E) ---------------------------------
+
+# Preset tiers live in the frontend; the API accepts any positive amount. We
+# only guard amount > 0 here (a 0/negative amount is a client bug, not a
+# business rejection worth a round-trip to NetMind).
+_MAX_RECHARGE_AMOUNT = 100_000  # sanity ceiling; NetMind is the real authority
+
+# Stripe Checkout Session ids are `cs_test_...` / `cs_live_...`. The `session_id`
+# path param is spliced into the OUTBOUND upstream URL, so it must be a strict
+# opaque token — never a path fragment. Without this, a `..` segment (which
+# Starlette's string converter does NOT reject) is normalized by httpx and the
+# request lands on a DIFFERENT NetMind endpoint (still with the caller's token).
+_STRIPE_SESSION_ID_RE = re.compile(r"^cs_[A-Za-z0-9_]+$")
+
+
+class RechargeRequest(BaseModel):
+    """Body for POST /recharge. Preset tiers are a frontend convenience; any
+    positive amount (<= ceiling) is accepted."""
+
+    amount: float = Field(gt=0, le=_MAX_RECHARGE_AMOUNT)
+    currency: str = "USD"
+
+
+@router.post("/recharge")
+async def recharge(req: RechargeRequest, request: Request):
+    """Create a hosted Stripe Checkout for an account top-up.
+
+    Returns Stripe ``{recharge_id, session_id, checkout_url, status}``; the
+    frontend opens ``checkout_url`` then polls GET /recharge/{session_id}.
+    """
+    _require_cloud()
+    await resolve_current_user_id(request)
+    token = _require_netmind_token(request)
+    try:
+        body = await _client().recharge(token, req.amount, req.currency)
+    except BillingAuthError:
+        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+    except BillingBusinessError as exc:
+        raise HTTPException(status_code=400, detail=exc.message)
+    except BillingUpstreamError as exc:
+        logger.error(f"[billing] recharge upstream failure: {exc}")
+        raise HTTPException(status_code=502, detail="Billing service unavailable")
+    inner = body.get("data") if isinstance(body, dict) else None
+    inner = inner if isinstance(inner, dict) else {}
+    # Same MITM guard as subscribe: never hand the frontend a non-Stripe URL.
+    _validate_checkout_url(inner.get("checkout_url"))
+    return {"success": True, "data": inner}
+
+
+@router.get("/recharge/{session_id}")
+async def recharge_status(session_id: str, request: Request):
+    """Poll a recharge by Stripe session id. Returns ``{status}`` =
+    pending/succeeded/failed. 403 (not the caller's session) and 404 (unknown
+    session) are passed through, not collapsed to 401/400."""
+    _require_cloud()
+    await resolve_current_user_id(request)
+    token = _require_netmind_token(request)
+    # Strict allowlist BEFORE the id is spliced into the outbound upstream path
+    # — blocks `..`/`?`/`#`/`/` smuggling that would retarget the NetMind call.
+    if not _STRIPE_SESSION_ID_RE.match(session_id):
+        raise HTTPException(status_code=404, detail="Recharge session not found")
+    try:
+        body = await _client().recharge_status(token, session_id)
+    except BillingAuthError:
+        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+    except BillingForbiddenError:
+        raise HTTPException(status_code=403, detail="This recharge is not yours")
+    except BillingNotFoundError:
+        raise HTTPException(status_code=404, detail="Recharge session not found")
+    except (BillingUpstreamError, BillingBusinessError) as exc:
+        logger.error(f"[billing] recharge_status upstream failure: {exc}")
+        raise HTTPException(status_code=502, detail="Billing service unavailable")
+    inner = body.get("data") if isinstance(body, dict) else None
+    return {"success": True, "data": inner if isinstance(inner, dict) else {}}

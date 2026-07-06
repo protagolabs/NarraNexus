@@ -83,6 +83,8 @@ import type {
   BillingActionResponse,
   FeeInfoResponse,
   RecordsResponse,
+  RechargeResponse,
+  RechargeStatusResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1359,6 +1361,29 @@ class ApiClient {
   // Re-enable auto-renew on a cancelled-but-in-period subscription.
   async reactivateSubscription(): Promise<BillingActionResponse> {
     return this.billingWrite<BillingActionResponse>('/api/billing/reactivate');
+  }
+
+  // Module E: top-up. Create a hosted Stripe checkout for `amount` (USD by
+  // default) and return checkout_url to open externally, then poll
+  // rechargeStatus(session_id) until succeeded/failed.
+  async recharge(amount: number, currency = 'USD'): Promise<RechargeResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<RechargeResponse>('/api/billing/recharge', {
+      method: 'POST',
+      headers: { 'X-Netmind-Token': token },
+      body: JSON.stringify({ amount, currency }),
+    });
+  }
+
+  // Poll a recharge by its Stripe session id -> { status: pending|succeeded|failed }.
+  async rechargeStatus(sessionId: string): Promise<RechargeStatusResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<RechargeStatusResponse>(
+      `/api/billing/recharge/${encodeURIComponent(sessionId)}`,
+      { headers: { 'X-Netmind-Token': token } },
+    );
   }
 
   // =========================================================================

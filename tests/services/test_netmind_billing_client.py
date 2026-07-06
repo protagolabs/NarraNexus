@@ -10,12 +10,16 @@ BillingUpstreamError) and the loginToken header contract.
 """
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
 from xyz_agent_context.services.netmind_billing_client import (
     BillingAuthError,
     BillingBusinessError,
+    BillingForbiddenError,
+    BillingNotFoundError,
     BillingUpstreamError,
     NetmindBillingClient,
 )
@@ -215,6 +219,76 @@ async def test_get_records_sends_direction_and_returns_body():
     assert seen["path"] == "/v1/finance/records"
     assert seen["direction"] == "expense"
     assert seen["page_size"] == "20"
+
+
+# --- Phase 4: recharge / by-session ----------------------------------------
+
+@pytest.mark.asyncio
+async def test_recharge_posts_hosted_checkout_and_returns_checkout_url():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={
+            "success": True,
+            "data": {
+                "recharge_id": "rc_1", "session_id": "cs_1",
+                "checkout_url": "https://checkout.stripe.com/c/pay/cs_1",
+                "status": "pending",
+            },
+        })
+
+    body = await _client_with(handler).recharge("jwt", 10, "USD")
+    assert body["data"]["checkout_url"].startswith("https://checkout.stripe.com/")
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/v1/finance/recharge/stripe/checkout"
+    # Only amount+currency are forwarded — no redirect-URL passthrough (attack
+    # surface with no current use; see recharge() docstring).
+    assert seen["body"] == {"amount": 10, "currency": "USD"}
+
+
+@pytest.mark.asyncio
+async def test_recharge_status_hits_by_session_path():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"success": True, "data": {"status": "succeeded"}})
+
+    body = await _client_with(handler).recharge_status("jwt", "cs_abc")
+    assert body["data"]["status"] == "succeeded"
+    assert seen["path"] == "/v1/finance/recharge/by-session/cs_abc"
+
+
+@pytest.mark.asyncio
+async def test_recharge_status_403_maps_to_forbidden_not_auth():
+    # by-session 403 = "not your session", distinct from a bad token.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "forbidden"})
+
+    with pytest.raises(BillingForbiddenError):
+        await _client_with(handler).recharge_status("jwt", "cs_x")
+
+
+@pytest.mark.asyncio
+async def test_recharge_status_404_maps_to_not_found():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "unknown session"})
+
+    with pytest.raises(BillingNotFoundError):
+        await _client_with(handler).recharge_status("jwt", "cs_missing")
+
+
+@pytest.mark.asyncio
+async def test_subscribe_403_still_maps_to_auth_by_default():
+    # Regression: endpoints that DON'T opt in keep 403 -> BillingAuthError.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "bad token"})
+
+    with pytest.raises(BillingAuthError):
+        await _client_with(handler).subscribe("jwt")
 
 
 @pytest.mark.asyncio

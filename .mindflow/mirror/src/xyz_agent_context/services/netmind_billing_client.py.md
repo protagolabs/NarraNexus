@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/services/netmind_billing_client.py
-last_verified: 2026-07-02
+last_verified: 2026-07-05
 stub: false
 ---
+ 
+## 2026-07-05 — recharge / by-session (Phase 4, module E)
+
+Added `recharge()` (finance 4.2 HOSTED checkout `/v1/finance/recharge/stripe/checkout`,
+returns `checkout_url` — NOT the embedded `client_secret` 4.1 variant, so it fits our
+openExternal flow like [[billing]] subscribe) and `recharge_status()`
+(`/recharge/by-session/{id}`, status pending/succeeded/failed). Two new errors:
+BillingForbiddenError (403 "not your session") + BillingNotFoundError (404), raised ONLY
+when a caller opts in via `distinguish_forbidden`/`distinguish_not_found` — recharge_status
+opts in so the route can pass 403/404 through instead of collapsing them to 401/400 (every
+other endpoint keeps 403→auth). Removed the now-unused `_AUTH_FAIL_STATUSES` constant.
+
+
 
 # netmind_billing_client.py — NetMind 计费/订阅 API 代理客户端
 

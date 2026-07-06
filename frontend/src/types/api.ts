@@ -1082,3 +1082,28 @@ export interface RecordsResponse extends ApiResponse {
   data?: FinanceRecord[];
   has_next?: boolean;
 }
+
+// POST /api/billing/recharge -> hosted Stripe checkout for a top-up (module E).
+export interface RechargeCheckout {
+  recharge_id?: string;
+  session_id: string;
+  checkout_url: string;
+  status?: string; // pending at creation
+}
+
+export interface RechargeResponse extends ApiResponse {
+  data?: RechargeCheckout;
+}
+
+// GET /api/billing/recharge/{session_id} -> poll status by Stripe session.
+export interface RechargeStatus {
+  recharge_id?: string;
+  session_id?: string;
+  status?: string; // pending | succeeded | failed
+  amount?: string;
+  currency?: string;
+}
+
+export interface RechargeStatusResponse extends ApiResponse {
+  data?: RechargeStatus;
+}

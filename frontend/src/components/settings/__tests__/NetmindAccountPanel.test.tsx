@@ -4,7 +4,7 @@
  * mode) renders nothing. api + i18n + runtimeStore are mocked — no network.
  */
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import { NetmindAccountPanel } from '../NetmindAccountPanel';
 
 // i18n: return the inline default string (2nd arg) so assertions read real copy.
@@ -25,6 +25,8 @@ const mockSubscribe = vi.fn();
 const mockCancel = vi.fn();
 const mockReactivate = vi.fn();
 const mockUseSubscription = vi.fn();
+const mockRecharge = vi.fn();
+const mockRechargeStatus = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
@@ -34,6 +36,8 @@ vi.mock('@/lib/api', () => ({
     cancelSubscription: (...a: unknown[]) => mockCancel(...a),
     reactivateSubscription: (...a: unknown[]) => mockReactivate(...a),
     useSubscription: (...a: unknown[]) => mockUseSubscription(...a),
+    recharge: (...a: unknown[]) => mockRecharge(...a),
+    rechargeStatus: (...a: unknown[]) => mockRechargeStatus(...a),
   },
 }));
 
@@ -53,6 +57,8 @@ beforeEach(() => {
   mockCancel.mockReset();
   mockReactivate.mockReset();
   mockUseSubscription.mockReset();
+  mockRecharge.mockReset();
+  mockRechargeStatus.mockReset();
   mockOpenExternal.mockClear();
 });
 
@@ -242,4 +248,56 @@ test('S3: resume button → confirm true → api.reactivateSubscription', async 
   const btn = await screen.findByRole('button', { name: /Resume auto-renew/ });
   fireEvent.click(btn);
   await waitFor(() => expect(mockReactivate).toHaveBeenCalled());
+});
+
+// --- Phase 4: recharge / top-up ---------------------------------------------
+
+test('recharge: default tier → api.recharge(10) + openExternal(checkout_url)', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockRecharge.mockResolvedValue({
+    success: true,
+    data: { checkout_url: 'https://checkout.stripe.com/x', session_id: 'cs_1' },
+  });
+  // never resolve status → stays in processing; we only assert the kickoff
+  mockRechargeStatus.mockReturnValue(new Promise(() => {}));
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Recharge/ });
+  fireEvent.click(btn);
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(10));
+  await waitFor(() =>
+    expect(mockOpenExternal).toHaveBeenCalledWith('https://checkout.stripe.com/x'),
+  );
+});
+
+test('recharge: custom amount overrides the preset tier', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockRecharge.mockResolvedValue({
+    success: true,
+    data: { checkout_url: 'https://checkout.stripe.com/x', session_id: 'cs_1' },
+  });
+  mockRechargeStatus.mockReturnValue(new Promise(() => {}));
+  render(<NetmindAccountPanel />);
+  await screen.findByText(/Free \(not subscribed\)/);
+  fireEvent.change(screen.getByPlaceholderText('Custom'), { target: { value: '25' } });
+  fireEvent.click(screen.getByRole('button', { name: /Recharge/ }));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(25));
+});
+
+test('recharge: non-positive amount → validation error, no api call', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  render(<NetmindAccountPanel />);
+  await screen.findByText(/Free \(not subscribed\)/);
+  fireEvent.change(screen.getByPlaceholderText('Custom'), { target: { value: '0' } });
+  fireEvent.click(screen.getByRole('button', { name: /Recharge/ }));
+  expect(await screen.findByText(/greater than 0/)).toBeTruthy();
+  expect(mockRecharge).not.toHaveBeenCalled();
+});
+
+test('recharge: api.recharge rejects → failed state error shown', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockRecharge.mockRejectedValue(new Error('checkout unavailable'));
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Recharge/ });
+  fireEvent.click(btn);
+  expect(await screen.findByText(/checkout unavailable/)).toBeTruthy();
 });

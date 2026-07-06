@@ -19,6 +19,8 @@ import backend.routes.billing as billing_mod
 from xyz_agent_context.services.netmind_billing_client import (
     BillingAuthError,
     BillingBusinessError,
+    BillingForbiddenError,
+    BillingNotFoundError,
     BillingUpstreamError,
 )
 
@@ -45,7 +47,8 @@ def make_client(monkeypatch):
     return _make
 
 
-def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, records=None, action=None, raise_exc=None):
+def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, records=None, action=None,
+                 recharge=None, recharge_status=None, raise_exc=None):
     class _Stub:
         async def get_plans(self):
             if raise_exc:
@@ -81,6 +84,25 @@ def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, records=None, ac
             if raise_exc:
                 raise raise_exc
             return action if action is not None else {"status": "auto_renew_on"}
+
+        async def recharge(self, token, amount, currency="USD"):
+            if raise_exc:
+                raise raise_exc
+            return recharge if recharge is not None else {
+                "success": True,
+                "data": {
+                    "session_id": "cs_r",
+                    "checkout_url": "https://checkout.stripe.com/c/pay/cs_r",
+                    "status": "pending",
+                },
+            }
+
+        async def recharge_status(self, token, session_id):
+            if raise_exc:
+                raise raise_exc
+            return recharge_status if recharge_status is not None else {
+                "success": True, "data": {"status": "succeeded"},
+            }
 
     monkeypatch.setattr(billing_mod, "_client", lambda: _Stub())
 
@@ -310,3 +332,102 @@ def test_subscribe_missing_netmind_token_401(make_client, monkeypatch):
     _stub_client(monkeypatch)
     client = make_client(cloud=True)
     assert client.post("/api/billing/subscribe", headers=USER).status_code == 401
+
+
+# --- Phase 4: recharge / top-up --------------------------------------------
+
+def test_recharge_ok_returns_checkout(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/recharge", headers=H, json={"amount": 10})
+    assert r.status_code == 200
+    assert r.json()["data"]["checkout_url"].startswith("https://checkout.stripe.com/")
+    assert r.json()["data"]["session_id"] == "cs_r"
+
+
+def test_recharge_rejects_non_stripe_checkout_url(make_client, monkeypatch):
+    _stub_client(monkeypatch, recharge={"data": {"checkout_url": "https://evil.example/x", "session_id": "cs"}})
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/recharge", headers=H, json={"amount": 10}).status_code == 502
+
+
+def test_recharge_rejects_zero_amount(make_client, monkeypatch):
+    # amount <= 0 fails Pydantic validation before any upstream call -> 422.
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/recharge", headers=H, json={"amount": 0}).status_code == 422
+
+
+def test_recharge_business_error_maps_to_400(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingBusinessError("Amount too small.", 400))
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/recharge", headers=H, json={"amount": 1})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Amount too small."
+
+
+def test_recharge_auth_error_maps_to_401(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingAuthError("bad"))
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/recharge", headers=H, json={"amount": 10}).status_code == 401
+
+
+def test_recharge_missing_token_401(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/recharge", headers=USER, json={"amount": 10}).status_code == 401
+
+
+def test_recharge_404_in_local_mode(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=False)
+    assert client.post("/api/billing/recharge", headers=H, json={"amount": 10}).status_code == 404
+
+
+def test_recharge_status_ok(make_client, monkeypatch):
+    _stub_client(monkeypatch, recharge_status={"data": {"status": "succeeded"}})
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/recharge/cs_test_abc123", headers=H)
+    assert r.status_code == 200
+    assert r.json()["data"]["status"] == "succeeded"
+
+
+def test_recharge_status_rejects_malformed_session_id(make_client, monkeypatch):
+    # A session_id that isn't a `cs_...` token must 404 BEFORE any upstream call
+    # (blocks `..`/`?`/`#` path smuggling into the outbound NetMind URL).
+    called = {"hit": False}
+
+    def _boom(*a, **k):
+        called["hit"] = True
+        raise AssertionError("upstream must not be called for a malformed id")
+
+    _stub_client(monkeypatch)
+    monkeypatch.setattr(billing_mod, "_client", lambda: type("C", (), {"recharge_status": _boom})())
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/recharge/notatoken", headers=H)
+    assert r.status_code == 404
+    assert called["hit"] is False
+
+
+def test_recharge_status_forbidden_maps_to_403(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingForbiddenError("not yours"))
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/recharge/cs_x", headers=H).status_code == 403
+
+
+def test_recharge_status_not_found_maps_to_404(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingNotFoundError("unknown"))
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/recharge/cs_missing", headers=H).status_code == 404
+
+
+def test_recharge_status_auth_error_maps_to_401(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingAuthError("bad"))
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/recharge/cs_x", headers=H).status_code == 401
+
+
+def test_recharge_status_upstream_maps_to_502(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingUpstreamError("down"))
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/recharge/cs_x", headers=H).status_code == 502
