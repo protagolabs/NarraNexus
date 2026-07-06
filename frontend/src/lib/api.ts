@@ -8,7 +8,9 @@ import type {
   JobDetailResponse,
   CancelJobResponse,
   AgentInboxListResponse,
+  BusFailuresResponse,
   MarkReadResponse,
+  NoticesResponse,
   AwarenessResponse,
   ClearHistoryResponse,
   SocialNetworkResponse,
@@ -268,6 +270,35 @@ class ApiClient {
   async markAgentRoomRead(roomId: string, agentId: string): Promise<MarkReadResponse> {
     return this.request<MarkReadResponse>(
       `/api/agent-inbox/rooms/${encodeURIComponent(roomId)}/read?agent_id=${encodeURIComponent(agentId)}`,
+      { method: 'POST' }
+    );
+  }
+
+  // Bus-failure recovery (upstream #52) — messages the agent gave up on.
+  async getBusFailures(agentId: string): Promise<BusFailuresResponse> {
+    return this.request<BusFailuresResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/bus-failures`
+    );
+  }
+
+  /** Clear one parked failure so the next bus poll re-delivers it. */
+  async retryBusFailure(agentId: string, messageId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/bus-failures/${encodeURIComponent(messageId)}/retry`,
+      { method: 'POST' }
+    );
+  }
+
+  // User-scope system notices (inbox_table read side).
+  async getNotices(unreadOnly = false, limit = 50): Promise<NoticesResponse> {
+    return this.request<NoticesResponse>(
+      `/api/notices?unread_only=${unreadOnly}&limit=${limit}`
+    );
+  }
+
+  async markNoticeRead(messageId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>(
+      `/api/notices/${encodeURIComponent(messageId)}/read`,
       { method: 'POST' }
     );
   }

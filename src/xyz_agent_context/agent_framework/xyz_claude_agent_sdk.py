@@ -18,11 +18,13 @@ from xyz_agent_context.utils.logging import timed
 # Handle both relative import (when used as module) and absolute import (when run as script)
 try:
     from .output_transfer import output_transfer
-    from .api_config import claude_config, _CLAUDE_CLI_FAMILY_ALIASES
+    from .api_config import claude_config
+    from .model_catalog import resolve_cli_alias
     from ._tool_policy_guard import build_tool_policy_guard
 except ImportError:
     from output_transfer import output_transfer
-    from api_config import claude_config, _CLAUDE_CLI_FAMILY_ALIASES
+    from api_config import claude_config
+    from model_catalog import resolve_cli_alias
     from _tool_policy_guard import build_tool_policy_guard
 
 def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str, Any]:
@@ -92,6 +94,36 @@ def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str
     # emit --max-thinking-tokens, which the CLI turns into the rejected
     # ``enabled`` shape. --effort alone drives adaptive thinking.
     return {"effort": effort}
+
+
+def _zero_output_error_event(cli_stderr_lines: list[str]) -> dict:
+    """Build a ``response.error`` event for a run where the Claude CLI
+    yielded zero messages.
+
+    Zero messages means the run silently produced nothing — the CLI is not
+    logged in / the OAuth session expired / it crashed / quota is exhausted.
+    Emitting this event (instead of only logging and letting the generator
+    end quietly) is what stops the downstream helper-LLM from fabricating a
+    hollow reply over a turn that never ran (the "mysterious fallback" the
+    Owner reported). Classification stays in response_processor: the raw CLI
+    stderr rides along in ``error_message`` so ``_is_auth_failure`` turns an
+    auth/login stderr into a fatal ``AUTH_EXPIRED`` (re-login prompt, no_reply
+    fallback skipped) while a non-auth crash stays a recoverable "no output"
+    error. The base sentence is kept auth-phrase-free on purpose so it can't
+    false-positive the classifier when stderr is empty.
+    """
+    stderr = "\n".join((cli_stderr_lines or [])[-30:]).strip()
+    detail = f"\n\nCLI stderr:\n{stderr}" if stderr else ""
+    return {
+        "type": "raw_response_event",
+        "data": {
+            "type": "response.error",
+            "error_type": "no_output",
+            "error_message": (
+                "The coding agent produced no output (0 messages)." + detail
+            ),
+        },
+    }
 
 
 async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float) -> bool | None:
@@ -166,9 +198,25 @@ class ClaudeAgentSDK:
         # History: agents often run 10+ turns; 50K keeps 3-5 full turns.
         # System prompt: T8 (ENABLE_TOOL_SEARCH=false for non-Claude models)
         # forces the full MCP tool schemas (~40 tools) into the base prompt,
-        # typically 60-80K chars; 100K gives headroom without hitting the
-        # 128 KiB argv byte ceiling for mixed-language content.
-        MAX_SYSTEM_PROMPT_LENGTH = 100_000  # chars
+        # typically 60-80K chars.
+        #
+        # 2026-07-03: bumped 100K -> 115K after live diagnosis on
+        # agent_62cf67080ad4 showed the assembled system_prompt clocking
+        # in at 91-93K chars (15 modules × ~6K module_instructions each,
+        # currently ALL loaded per turn because SKIP_MODULE_DECISION_LLM=True
+        # disables the per-turn module-selection LLM). At 100K that left
+        # only ~5-8K for history, evicting 20-23 of ~29 rows on every turn
+        # and starving the LLM of context.
+        #
+        # 115K still fits comfortably under MAX_SYSTEM_PROMPT_BYTES = 120 KiB
+        # for pure-ASCII prompts, and mixed-language content is still
+        # clamped by the byte ceiling below. Argv hard limit is 128 KiB,
+        # so 13 KiB headroom remains. This is a TREATMENT of the symptom
+        # (system_prompt is bloated because we load every module every
+        # turn); the ROOT fix is a smarter module-selection loader that
+        # skips channel modules unrelated to this turn — deferred as a
+        # separate follow-up.
+        MAX_SYSTEM_PROMPT_LENGTH = 115_000  # chars
         MAX_SYSTEM_PROMPT_BYTES = 120 * 1024  # ~120 KiB, leaves 8 KiB for argv overhead
         MAX_HISTORY_LENGTH = 50_000  # chars
 
@@ -306,7 +354,7 @@ class ClaudeAgentSDK:
         _is_claude_native = (
             claude_config.auth_type == "oauth"
             or _model.startswith("claude-")
-            or _model in _CLAUDE_CLI_FAMILY_ALIASES
+            or _model in ("opus", "sonnet", "haiku")
         )
         # Framework-neutral reasoning params -> Claude dialect. Per rule #15
         # we pass whatever the user configured even on non-Claude proxies
@@ -423,7 +471,12 @@ class ClaudeAgentSDK:
             disallowed_tools=disallowed_tools,
         )
         if claude_config.model:
-            options_kwargs["model"] = claude_config.model
+            # CLI family aliases only work on the OAuth/CLI path; raw API
+            # transports 400 on them (upstream #57 → no_reply). Normalize at
+            # the transport boundary — model strings are free text upstream.
+            options_kwargs["model"] = resolve_cli_alias(
+                claude_config.model, auth_type=claude_config.auth_type
+            )
         # Neutral reasoning params (slot-configured); absent keys keep CLI
         # defaults — identical to today's behavior when unconfigured.
         options_kwargs.update(reasoning_options)
@@ -639,6 +692,11 @@ class ClaudeAgentSDK:
                 )
                 if cli_stderr_lines:
                     logger.error("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                # Surface the silent void as a real error so response_processor
+                # can classify it (auth → fatal AUTH_EXPIRED; else recoverable)
+                # instead of the pipeline treating "no messages" as "agent
+                # chose not to reply" and fabricating a hollow fallback.
+                yield _zero_output_error_event(cli_stderr_lines)
         except GeneratorExit:
             logger.warning(f"Agent loop generator was closed early (client disconnected). Messages received: {message_count}")
         except Exception as e:

@@ -1,8 +1,69 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-06-23
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — IM-channel skip prefixes now registry-driven (wechat double-dispatch)
+
+The hand-maintained `_IM_CHANNEL_PREFIXES = ("lark_", "telegram_", "slack_")`
+tuple silently drifted: wechat / narramessenger / discord were missing, so
+every message on those channels was re-dispatched from their ChannelInboxWriter
+history rows — a SECOND AgentRuntime run wearing the Owner-Relay peer-agent
+prompt (2026-07-03 dev incident: the second run fabricated a wechat_send
+context_token and sent "我已经在微信上回复你啦" platform DMs; ~$0.22 wasted
+per message). New module-level `im_channel_prefixes()` derives the skip set
+from `MessageSourceHandler.dedicated_trigger` registrations at call time
+(import-order safe). Guarded by tests/message_bus/test_bus_channel_inbox_skip.py
+(filesystem truth: every run_*_trigger.py must have a dedicated handler).
+
+## 2026-07-02 (PR #45 review follow-up) — cooldown arms after write, error is redacted
+
+Two fixes from automated PR review on the failure-notification change below:
+
+1. **Cooldown timing**: `_failure_notify_cooldown[cooldown_key] = now` moved
+   from *before* the `try` block to *after* `InboxRepository.create_message`
+   succeeds. Previously, arming the cooldown up-front meant a transient
+   inbox-write failure (DB blip, etc.) silently suppressed the real
+   notification for the next `FAILURE_NOTIFY_COOLDOWN_SECONDS` — the owner
+   would get NOTHING for 30 minutes even though nothing was ever written.
+2. **Secret redaction**: new `_redact_error_for_owner` (static method) masks
+   `sk-...`-style keys, `key=value`/`token=value` pairs, and `Bearer ...`
+   headers, then truncates to `MAX_NOTIFIED_ERROR_LEN` (500 chars), before
+   the error is embedded in the inbox `content`. Provider SDKs routinely
+   echo the credential back in the error body (OpenAI: "Incorrect API key
+   provided: sk-..."), so `str(exception)` was never safe to show verbatim
+   to the owner. `_classify_error` still runs on the RAW (unredacted) error
+   — it only pattern-matches keywords for the hint/cooldown category, never
+   displays the string, so there's nothing to redact there.
+
+## 2026-07-02 — permanent-failure notification (fixes NetMindAI-Open/NarraNexus#52)
+
+`_handle_channel_batch`'s `except` block now checks the failure count right
+after `record_failure()`. Once it reaches `POISON_FAILURE_THRESHOLD` (3, kept
+in sync with `LocalMessageBus.get_pending_messages`'s inline `failure_count <
+3` filter — see `local_bus.py.md`), `_notify_permanent_failure` writes an
+`InboxMessageType.SYSTEM_NOTICE` row via the same `InboxRepository` path
+`_write_to_inbox` already uses (fresh `get_db_client()`, not `self._bus._db`
+— `LocalMessageBus` only holds the raw backend). Before this, a message that
+hit the poison threshold just vanished from `get_pending_messages` forever
+with zero owner-facing signal — the exact silent-failure bug reported in
+NetMindAI-Open/NarraNexus#52 (broken OpenAI provider → every IM/bus message
+dropped after 3 failed `_invoke_runtime` calls, no visibility, no recovery).
+
+De-duplicated per `f"{agent_id}:{error_category}"` with a 30-minute cooldown
+(`_failure_notify_cooldown`, same in-memory / per-process pattern as
+`_rate_counters` — resets on restart, an accepted tradeoff) so a batch of
+messages failing for one root cause (e.g. every pending message for an agent
+whose provider key just broke) writes at most one inbox row, not one per
+message. `_classify_error` does a coarse substring match on the stringified
+error for `"credential"` / `"api_key"` / `"401"` / `"provider"` / etc.
+markers — this only changes the hint text ("check the agent's LLM provider
+configuration…" vs. a generic "check recent activity"), not any retry or
+delivery behavior. The recovery half — clearing a failure record so
+`get_pending_messages` picks the message back up — lives in
+`backend/routes/agents_bus_failures.py`, not in this file (this file only
+detects + reports the permanent failure).
 
 ## 2026-06-23 (PM) — prompt names the live roster, forbids off-channel @mentions
 
@@ -117,6 +178,7 @@ Agent 收到消息后不能靠自己去轮询——它不知道什么时候有�
 - `LocalMessageBus.ack_processed()` 推进游标（成功后）
 - `LocalMessageBus.record_failure()` 记录失败（失败后）
 - `db.insert("inbox_table", ...)` 把 Agent 的回复写入用户 inbox（通过 `_write_to_inbox()`）
+- `InboxRepository.create_message()`（`message_type=SYSTEM_NOTICE`）把永久失败通知写入 owner 的 inbox（通过 `_notify_permanent_failure()`，当某条消息的失败次数达到 `POISON_FAILURE_THRESHOLD` 时触发；见下方 2026-07-02 changelog）。这个失败记录的读取/清除（重试恢复路径）在 `backend/routes/agents_bus_failures.py` 里，**不在**本文件——本文件只负责检测和上报。
 
 ## 设计决策
 

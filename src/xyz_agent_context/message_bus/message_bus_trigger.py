@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import defaultdict
 from typing import Dict, List
@@ -62,6 +63,89 @@ POLL_STEP_UP = 3
 # @mentions are dropped so two agents can't @ each other forever. A user
 # message resets the chain.
 MAX_TEAM_AGENT_HOPS = 4
+
+# Kept in sync with LocalMessageBus.get_pending_messages' inline
+# `failure_count < 3` poison-message filter (local_bus.py). Once a message's
+# failure_count reaches this, it is permanently dropped from the pending
+# queue with no further retries — see `_notify_permanent_failure` below,
+# which is the only signal the owner gets when that happens.
+POISON_FAILURE_THRESHOLD = 3
+
+# De-dup window for permanent-failure inbox notices, keyed per
+# (agent_id, error_category). Same window as the rate limiter — a batch of
+# messages failing for one root cause (e.g. a broken provider key) should
+# not write one inbox row per message.
+FAILURE_NOTIFY_COOLDOWN_SECONDS = 1800  # 30 minutes
+
+# Substrings (lower-cased) that mark an error as a provider/credential
+# problem worth calling out explicitly, vs. a generic failure. Deliberately
+# coarse — this only changes the hint text shown to the owner, not any
+# retry/delivery behavior.
+_CREDENTIAL_ERROR_MARKERS = (
+    "api_key",
+    "api key",
+    "apikey",
+    "credential",
+    "unauthorized",
+    "authentication",
+    " 401",
+    "(401",
+    " 403",
+    "(403",
+    "invalid_api_key",
+    "invalid api key",
+    "provider",
+)
+
+# Max length of the (already-redacted) error string embedded in an owner
+# inbox notification. Provider error bodies can be arbitrarily long (stack
+# traces, full HTTP response bodies); we only need enough for the owner to
+# recognise the failure, not a full dump.
+MAX_NOTIFIED_ERROR_LEN = 500
+
+# Patterns for masking secret-looking substrings out of a provider error
+# message before it is echoed into the owner's inbox. Provider SDKs
+# frequently echo the credential back in the error body (e.g. OpenAI's
+# "Incorrect API key provided: sk-..."), so `str(exception)` is not safe to
+# show verbatim. Deliberately coarse pattern matching, not a full secret
+# scanner — this only touches what is DISPLAYED, never the classification
+# in `_classify_error` (which runs on the raw error) or delivery behavior.
+_SECRET_KEY_PATTERN = re.compile(r"\bsk-[A-Za-z0-9_-]{6,}")
+_SECRET_KEYVALUE_PATTERN = re.compile(
+    r"\b((?:api[_-]?key|apikey|token|secret|password)\s*[:=]\s*)"
+    r"([^\s,;\"']{4,})",
+    re.IGNORECASE,
+)
+_SECRET_BEARER_PATTERN = re.compile(
+    r"\bBearer\s+[A-Za-z0-9._-]{8,}", re.IGNORECASE
+)
+
+
+def im_channel_prefixes() -> tuple[str, ...]:
+    """Channel-id prefixes owned by dedicated IM triggers — registry-driven.
+
+    ChannelInboxWriter persists IM turns to ``bus_messages`` under
+    ``{channel}_{chat_id}`` purely for history/Inbox display; the channel's
+    own trigger already ran AgentRuntime for them. Those rows must never be
+    re-dispatched here. The set used to be a hand-maintained tuple
+    ("lark_", "telegram_", "slack_") that silently drifted — wechat,
+    narramessenger and discord were missing, so every message on those
+    channels fired a SECOND agent run wearing the Owner-Relay peer-agent
+    prompt (2026-07-03 wechat incident: fabricated context_token sends +
+    bogus "我已经在微信上回复你啦" platform DMs). Deriving from
+    ``MessageSourceHandler.dedicated_trigger`` keeps a future channel
+    covered the moment it registers; computed per call because channel
+    modules register at import time and import order isn't guaranteed.
+    """
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceRegistry,
+    )
+
+    return tuple(sorted(
+        f"{name}_"
+        for name, handler in MessageSourceRegistry.handlers().items()
+        if handler.dedicated_trigger
+    ))
 
 
 def build_bus_anchor(messages: List[BusMessage]) -> str:
@@ -115,6 +199,10 @@ class MessageBusTrigger:
         # 3+ times. Observed in production (2026-05-12 13:20 — agent
         # processed one msg_4eb528dc three times, burned ~30K tokens).
         self._agent_locks: Dict[str, asyncio.Lock] = {}
+        # last `time.monotonic()` a permanent-failure inbox notice was
+        # written for a given "agent_id:error_category" key. See
+        # `_notify_permanent_failure`.
+        self._failure_notify_cooldown: Dict[str, float] = {}
 
     async def start(self) -> None:
         """Start the polling loop with adaptive interval."""
@@ -242,13 +330,12 @@ class MessageBusTrigger:
 
                 handled_any = False
                 for channel_id, messages in by_channel.items():
-                    # Skip IM-channel-owned channels — each has its own dedicated trigger
-                    # (LarkTrigger, TelegramTrigger, SlackTrigger) that already processed
-                    # the message. ChannelInboxWriter writes these to bus_messages purely
-                    # for frontend Inbox display; re-consuming them here would fire
-                    # AgentRuntime a second time and send duplicate replies.
-                    _IM_CHANNEL_PREFIXES = ("lark_", "telegram_", "slack_")
-                    if channel_id.startswith(_IM_CHANNEL_PREFIXES):
+                    # Skip IM-channel-owned channels — each has its own dedicated
+                    # trigger that already processed the message; re-consuming
+                    # would fire AgentRuntime a second time and send duplicate
+                    # replies. Prefixes derive from MessageSourceRegistry (see
+                    # im_channel_prefixes) so new channels can't be forgotten.
+                    if channel_id.startswith(im_channel_prefixes()):
                         latest = max(messages, key=lambda m: str(m.created_at))
                         await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
                         continue
@@ -412,6 +499,155 @@ class MessageBusTrigger:
                 message_id=trigger_message.message_id,
                 agent_id=agent_id,
                 error=str(e),
+            )
+            # Once this message crosses the poison threshold,
+            # `get_pending_messages` will filter it out forever (local_bus.py)
+            # — this is the one chance to tell the owner it happened.
+            failure_count = await self._bus.get_failure_count(
+                trigger_message.message_id, agent_id
+            )
+            if failure_count >= POISON_FAILURE_THRESHOLD:
+                await self._notify_permanent_failure(
+                    agent_id=agent_id,
+                    channel_id=channel_id,
+                    trigger_message=trigger_message,
+                    error=str(e),
+                )
+
+    @staticmethod
+    def _classify_error(error: str) -> str:
+        """Coarse category used for (a) the cooldown de-dup key and (b) the
+        hint text shown to the owner. Deliberately a substring match, not a
+        parsed exception type — `record_failure` only ever gets a `str(e)`,
+        the original exception is already gone by the time this runs.
+
+        Runs on the RAW error (before `_redact_error_for_owner` masks
+        anything) — classification only reads for keyword markers like
+        "api_key" / "401", it never displays the raw string, so there is
+        nothing to redact here.
+        """
+        lowered = (error or "").lower()
+        if any(marker in lowered for marker in _CREDENTIAL_ERROR_MARKERS):
+            return "provider_credential"
+        return "generic"
+
+    @staticmethod
+    def _redact_error_for_owner(error: str) -> str:
+        """Mask secret-looking substrings and cap the length before an
+        error string is echoed into the owner-facing inbox notification.
+
+        Provider SDKs routinely echo the offending credential back in the
+        error body (OpenAI: "Incorrect API key provided: sk-..."), so
+        `str(exception)` must never be written verbatim to a place the
+        owner (and anyone with inbox access) can read. This is a coarse
+        pattern mask, not a full secret scanner — good enough for the
+        common `sk-...` / `key=...` / `Bearer ...` shapes, not a security
+        boundary for arbitrary provider error formats.
+        """
+        text = error or ""
+        text = _SECRET_BEARER_PATTERN.sub("Bearer ***", text)
+        text = _SECRET_KEY_PATTERN.sub("sk-***", text)
+        text = _SECRET_KEYVALUE_PATTERN.sub(lambda m: f"{m.group(1)}***", text)
+        if len(text) > MAX_NOTIFIED_ERROR_LEN:
+            text = text[:MAX_NOTIFIED_ERROR_LEN] + "... [truncated]"
+        return text
+
+    async def _notify_permanent_failure(
+        self,
+        agent_id: str,
+        channel_id: str,
+        trigger_message: BusMessage,
+        error: str,
+    ) -> None:
+        """Surface a permanently-dropped bus message to the owner's inbox.
+
+        Without this, hitting `POISON_FAILURE_THRESHOLD` is a pure silent
+        failure (upstream: NetMindAI-Open/NarraNexus#52) — e.g. a broken
+        OpenAI provider key makes every `_invoke_runtime` call raise, and
+        after 3 failures the message just vanishes from
+        `get_pending_messages` forever with zero owner-facing signal.
+
+        De-duplicated per (agent_id, error category) via
+        `_failure_notify_cooldown` (same in-memory, per-process pattern as
+        `_rate_counters` — a process restart resets it, which is an accepted
+        tradeoff here too) so a burst of messages failing for one root cause
+        writes at most one inbox row per `FAILURE_NOTIFY_COOLDOWN_SECONDS`.
+
+        The cooldown is armed ONLY after a successful inbox write (see the
+        end of the `try` block) — arming it up-front would let one transient
+        write failure (DB blip, etc.) silently suppress the real
+        notification for the rest of the cooldown window.
+        """
+        category = self._classify_error(error)
+        cooldown_key = f"{agent_id}:{category}"
+        now = time.monotonic()
+        last_notified = self._failure_notify_cooldown.get(cooldown_key)
+        if (
+            last_notified is not None
+            and now - last_notified < FAILURE_NOTIFY_COOLDOWN_SECONDS
+        ):
+            return
+
+        try:
+            owner_user_id = await self._get_agent_owner(agent_id)
+            if not owner_user_id:
+                logger.warning(
+                    f"Cannot notify of permanent bus failure: agent "
+                    f"{agent_id} has no resolvable owner"
+                )
+                return
+
+            import uuid
+
+            from xyz_agent_context.repository.inbox_repository import (
+                InboxRepository,
+            )
+            from xyz_agent_context.schema.inbox_schema import (
+                InboxMessageType,
+                MessageSource,
+            )
+            from xyz_agent_context.utils.db_factory import get_db_client
+
+            if category == "provider_credential":
+                hint = (
+                    "This looks like a provider/credential problem — check "
+                    "the agent's LLM provider configuration (API key, base "
+                    "URL) in Provider settings, then retry the message."
+                )
+            else:
+                hint = (
+                    "Check the agent's recent activity for details, then "
+                    "retry the message."
+                )
+
+            safe_error = self._redact_error_for_owner(error)
+            content = (
+                f"Your agent could not process a message on channel "
+                f"{channel_id} after {POISON_FAILURE_THRESHOLD} attempts "
+                f"and has stopped retrying it automatically.\n\n"
+                f"Error: {safe_error}\n\n{hint}"
+            )
+
+            db = await get_db_client()
+            await InboxRepository(db).create_message(
+                user_id=owner_user_id,
+                message_id=f"busfail_{uuid.uuid4().hex[:16]}",
+                title=f"Message delivery failed: {agent_id}",
+                content=content,
+                message_type=InboxMessageType.SYSTEM_NOTICE,
+                source=MessageSource(type="message_bus_failure", id=channel_id),
+            )
+            # Arm the cooldown only now that the write actually succeeded.
+            self._failure_notify_cooldown[cooldown_key] = now
+            logger.warning(
+                f"MessageBusTrigger: notified owner {owner_user_id} of "
+                f"permanent failure for agent {agent_id} in channel "
+                f"{channel_id} (category={category})"
+            )
+        except Exception as notify_err:  # noqa: BLE001 — notification is best-effort
+            logger.warning(
+                f"Failed to write permanent-failure notification to inbox: "
+                f"{notify_err}"
             )
 
     async def _team_member_names(self, channel_id: str) -> Dict[str, str]:

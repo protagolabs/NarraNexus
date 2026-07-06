@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-05
+last_verified: 2026-07-06
 stub: false
 ---
  
@@ -27,6 +27,11 @@ checkout_url，面板 openExternal + 轮询 `/me`。
 throw（不发空头 round-trip，安全审查 H-1）；② `request()` 的 401 自动登出处理
 **跳过 `/api/billing/`**（`isBillingEndpoint`）——billing 401 是 NetMind token
 失效，不是 NarraNexus 会话失效，绝不能把有效会话登出（code review HIGH）。
+
+## 2026-07-03 — bus-failures + notices client methods (upstream #52)
+
+`getBusFailures` / `retryBusFailure` (per-agent recovery endpoints) and
+`getNotices` / `markNoticeRead` (user-scope inbox_table read side).
 
 ## 2026-06-24 — team group chat: getTeamChat / sendTeamChat + setProviderSlot
 

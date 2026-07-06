@@ -109,6 +109,28 @@
       "statusRunning": "运行中",
       "statusFailed": "失败",
       "statusPending": "待处理"
+    },
+    "inner": {
+      "viewLoop": "查看这轮做了什么",
+      "loading": "加载中…",
+      "empty": "本轮无可展开的执行记录",
+      "loadFailed": "详情加载失败",
+      "source": {
+        "job": "定时任务",
+        "collaboration": "协作",
+        "im": "消息",
+        "skill": "技能学习",
+        "activity": "后台活动",
+        "lark": "飞书",
+        "callback": "回调"
+      }
+    },
+    "error": {
+      "badgeLabel": "查看错误详情",
+      "titleFailed": "运行出错",
+      "titleRecovered": "运行中出现错误",
+      "situationFailed": "此次运行发生错误，Agent 未能正常回复。详情：",
+      "situationRecovered": "Agent 已回复，但运行过程中发生了错误。详情："
     }
   },
   "awareness": {
@@ -901,6 +923,12 @@
       "roomsSub": "频道",
       "read": "已读",
       "readSub": "比率"
+    },
+    "busFailures": {
+      "title": "投递失败的消息",
+      "retry": "重试",
+      "unknownError": "未知错误",
+      "attempts": "已失败 {{count}} 次"
     }
   },
   "help": {

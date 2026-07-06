@@ -146,6 +146,7 @@ class AgentRuntime:
         forced_narrative_id: Optional[str] = None,
         trigger_extra_data: Optional[Dict[str, Any]] = None,
         cancellation: Optional[CancellationToken] = None,
+        silent: bool = False,
     ) -> AsyncGenerator:
         """
         Execute the main flow of the Agent runtime
@@ -193,6 +194,19 @@ class AgentRuntime:
             job_instance_id: Instance ID when executing a Job
             forced_narrative_id: Forced Narrative ID (used for Job triggers, skips Narrative selection)
             trigger_extra_data: Trigger 层传入的附加数据（如 channel_tag），会合并到 ctx_data.extra_data
+            silent: When True, skip step_3 (agent LLM invocation) entirely.
+                The run still executes step_0..step_2.5 (event created, narrative
+                selected, modules loaded, instances synced), then constructs a
+                minimal empty PathExecutionResult so step_4 / hook_persist_turn /
+                step_5 can run against a consistent ctx. Used by IM triggers for
+                group non-@ messages (or reconnect burst backfill): the agent
+                does not reply, but ChatModule still writes conversation history,
+                GeneralMemoryModule still extracts observations, and
+                SocialNetworkModule still updates entity descriptions.
+                Batch metadata (per-message sender_id/timestamp) travels in
+                trigger_extra_data["batch_messages"]; ChatModule branches to
+                a batch write path when present. Default False = existing
+                owner-facing behavior, byte-identical.
 
         Yields:
             ProgressMessage: Progress messages for each step
@@ -552,12 +566,43 @@ class AgentRuntime:
             #   - execution_steps: List of execution steps
             #   - agent_loop_response: Raw response from Agent Loop
             # =============================================================================
-            async for msg in step_3_execute_path(ctx, db_client, self._response_processor):
-                yield msg
-                # Check cancellation after each streamed message from the agent loop
-                if cancellation.is_cancelled:
-                    logger.info("Cancellation detected during Step 3 (agent loop), breaking")
-                    break
+            if not silent:
+                async for msg in step_3_execute_path(ctx, db_client, self._response_processor):
+                    yield msg
+                    # Check cancellation after each streamed message from the agent loop
+                    if cancellation.is_cancelled:
+                        logger.info("Cancellation detected during Step 3 (agent loop), breaking")
+                        break
+            else:
+                # Silent path: skip agent LLM. Fabricate a minimal
+                # PathExecutionResult so downstream (step_4, hook_persist_turn,
+                # step_5) reads a consistent, empty result — final_output="",
+                # no execution steps, ctx_data carries the trigger's
+                # extra_data (attachments, channel_tag, batch_messages) so
+                # ChatModule / SocialNetworkModule hooks can still find what
+                # they need. See silent-mode docstring above.
+                from xyz_agent_context.schema import PathExecutionResult
+                from xyz_agent_context.schema.context_schema import ContextData
+                ctx.execution_result = PathExecutionResult(
+                    final_output="",
+                    execution_steps=[],
+                    response_count=0,
+                    agent_loop_response=[],
+                    ctx_data=ContextData(
+                        agent_id=agent_id,
+                        user_id=user_id,
+                        input_content=input_content,
+                        narrative_id=(
+                            ctx.main_narrative.id if ctx.main_narrative else None
+                        ),
+                        working_source=ctx.working_source,
+                        extra_data=dict(ctx.trigger_extra_data or {}),
+                    ),
+                )
+                logger.info(
+                    "AgentRuntime.run(silent=True): skipped step_3, "
+                    "wrote empty PathExecutionResult; proceeding to persistence."
+                )
 
             # ---- Cancellation checkpoint (before persistence) ----
             cancellation.raise_if_cancelled()

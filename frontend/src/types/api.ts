@@ -95,6 +95,39 @@ export interface AgentInboxListResponse extends ApiResponse {
   total_unread: number;
 }
 
+// Bus-failure recovery (upstream #52): messages an agent permanently gave
+// up on (retry_count >= 3), plus the user-scope system notices that
+// announced them.
+export interface BusFailureItem {
+  message_id: string;
+  channel_id: string;
+  from_agent: string;
+  content: string;
+  retry_count: number;
+  last_error: string;
+  last_retry_at: string;
+  message_created_at: string;
+}
+
+export interface BusFailuresResponse extends ApiResponse {
+  failures: BusFailureItem[];
+}
+
+export interface NoticeItem {
+  message_id: string;
+  message_type: string;
+  title: string;
+  content: string;
+  is_read: boolean;
+  created_at: string;
+  source: { type: string; id: string } | null;
+}
+
+export interface NoticesResponse extends ApiResponse {
+  notices: NoticeItem[];
+  unread_count: number;
+}
+
 // Awareness types
 export interface AwarenessResponse extends ApiResponse {
   awareness?: string;

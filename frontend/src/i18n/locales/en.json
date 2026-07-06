@@ -109,6 +109,28 @@
       "statusRunning": "running",
       "statusFailed": "failed",
       "statusPending": "pending"
+    },
+    "inner": {
+      "viewLoop": "view what it did",
+      "loading": "Loading…",
+      "empty": "No execution steps for this turn",
+      "loadFailed": "Couldn't load the details",
+      "source": {
+        "job": "Scheduled job",
+        "collaboration": "Collaboration",
+        "im": "Message",
+        "skill": "Skill study",
+        "activity": "Background activity",
+        "lark": "Lark",
+        "callback": "Callback"
+      }
+    },
+    "error": {
+      "badgeLabel": "Show error details",
+      "titleFailed": "Run failed",
+      "titleRecovered": "Finished with errors",
+      "situationFailed": "This run hit an error and the agent could not reply normally. Details:",
+      "situationRecovered": "The agent replied, but errors occurred during the run. Details:"
     }
   },
   "awareness": {
@@ -902,6 +924,12 @@
       "roomsSub": "Channels",
       "read": "Read",
       "readSub": "Rate"
+    },
+    "busFailures": {
+      "title": "Undelivered messages",
+      "retry": "Retry",
+      "unknownError": "Unknown error",
+      "attempts": "{{count}} failed attempts"
     }
   },
   "help": {

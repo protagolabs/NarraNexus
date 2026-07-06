@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-05
+last_verified: 2026-07-06
 stub: true
 ---
  
@@ -10,6 +10,10 @@ Added RechargeCheckout/RechargeResponse ({recharge_id, session_id, checkout_url,
 RechargeStatus/RechargeStatusResponse ({status: pending|succeeded|failed}) for the top-up flow.
 
 
+
+## 2026-07-03 — BusFailureItem/BusFailuresResponse + NoticeItem/NoticesResponse
+
+Types for the upstream #52 recovery surface.
 
 ## 2026-05-27 — LarkErrorDetail (translator output)
 
