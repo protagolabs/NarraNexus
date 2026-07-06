@@ -303,3 +303,30 @@ async def test_business_message_scrubs_token_shaped_value():
         await _client_with(handler).subscribe("jwt")
     assert jwt not in ei.value.message
     assert ei.value.message  # falls back to a generic string
+
+
+@pytest.mark.asyncio
+async def test_business_message_scrubs_id_embedded_in_sentence():
+    # An opaque id embedded mid-sentence must NOT reach the client, even though
+    # it isn't a full 3-segment JWT (defense against upstream echoing a
+    # session/account id in a natural-language rejection).
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={
+            "message": "Duplicate charge for session cs_test_a1b2c3d4e5, contact support",
+        })
+
+    with pytest.raises(BillingBusinessError) as ei:
+        await _client_with(handler).subscribe("jwt")
+    assert "cs_test_a1b2c3d4e5" not in ei.value.message
+    assert ei.value.message  # generic fallback, not empty
+
+
+@pytest.mark.asyncio
+async def test_business_message_keeps_plain_language():
+    # No id/token shape → the human-readable message is preserved verbatim.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"message": "No active Pro subscription."})
+
+    with pytest.raises(BillingBusinessError) as ei:
+        await _client_with(handler).cancel("jwt")
+    assert ei.value.message == "No active Pro subscription."

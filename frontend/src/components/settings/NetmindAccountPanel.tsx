@@ -10,7 +10,7 @@
  *
  * Phase 3 adds subscription actions (module C/D): subscribe → Stripe checkout →
  * poll /me until ACTIVE; cancel (confirm) → auto-renew off; reactivate (resume
- * auto-renew). Payment回流 has no deterministic desktop signal, so we also
+ * auto-renew). Payment return has no deterministic desktop signal, so we also
  * refresh on window focus + poll with a bounded window (C3 mitigation).
  *
  * Phase 4 adds top-up (module E): preset tiers (+ custom amount) → hosted
@@ -68,7 +68,7 @@ export function NetmindAccountPanel() {
   const [me, setMe] = useState<SubscriptionMe | null>(null);
   const [state, setState] = useState<PanelState>('loading');
   const [busy, setBusy] = useState(false); // an action is in flight
-  const [polling, setPolling] = useState(false); // awaiting payment回流
+  const [polling, setPolling] = useState(false); // awaiting payment return
   const [actionError, setActionError] = useState<string | null>(null);
   const [fee, setFee] = useState<FeeInfo | null>(null);
   const [feeLoaded, setFeeLoaded] = useState(false);

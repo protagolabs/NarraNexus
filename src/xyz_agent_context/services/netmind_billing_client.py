@@ -43,17 +43,27 @@ from loguru import logger
 # the client / logs.
 _TOKENISH = re.compile(r"[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
 
+# An id/token-shaped run: 8+ chars of the token alphabet containing at least one
+# DIGIT. Opaque ids/keys/session ids/card numbers have digits; natural-language
+# words (even "subscription", "auto-renew") do not — so this drops an
+# id embedded mid-sentence ("...for session cs_test_a1b2c3d4...") without eating
+# legitimate business copy.
+_IDLIKE = re.compile(r"(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{8,}")
+
 
 def _safe_business_message(msg: str) -> str:
     """Return msg only if it looks like a human-readable error, else "".
 
     Guards against a misbehaving upstream putting a token/id/PII blob under an
-    allowed key (message/detail/error): a JWT-shaped substring, or a long
-    whitespace-free string (likely an id/token, not a sentence), is dropped.
+    allowed key (message/detail/error): a JWT-shaped substring, an id/token-shaped
+    run (8+ chars with a digit) even inside a sentence, or a long whitespace-free
+    string (likely an id/token, not a sentence), is dropped.
     """
     if not msg:
         return ""
     if _TOKENISH.search(msg):
+        return ""
+    if _IDLIKE.search(msg):
         return ""
     if " " not in msg.strip() and len(msg) > 40:
         return ""

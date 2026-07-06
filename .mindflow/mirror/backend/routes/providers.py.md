@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-06-14
+last_verified: 2026-07-06
 stub: false
 ---
+
+## 2026-07-06 — use-subscription pre-flip caveats expanded
+
+Expanded the pre-flip TODO on the in-process _use_sub_locks: before enabling
+netmind_use_subscription_enabled in a multi-worker deploy, a distributed guard
+must also cover the OTHER netmind-source creators (add_provider/onboard), and the
+unbounded per-user lock dict should become TTL/bounded. Current single-worker,
+flag-off deployment is unaffected.
+
+
 ## 2026-06-14 — PR #25 review §3：写接口补「凭证骑乘」门禁
 
 云端镜像单 `app` 用户、单 HOME，所以 `~/.codex/auth.json` /

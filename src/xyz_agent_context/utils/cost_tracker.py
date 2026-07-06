@@ -80,12 +80,15 @@ def warn_missing_usage(source: str, model: str, call_type: str) -> None:
     warning here turns a silent miss into an auditable L2 signal.
 
     Observability only — never raises (iron rule: cost_tracker is not flow
-    control).
+    control), so even a logging-layer failure can't break the LLM call path.
     """
-    logger.warning(
-        f"[cost] {source}: provider returned no token usage for "
-        f"model={model} call_type={call_type} — usage UNRECORDED"
-    )
+    try:
+        logger.warning(
+            f"[cost] {source}: provider returned no token usage for "
+            f"model={model} call_type={call_type} — usage UNRECORDED"
+        )
+    except Exception:
+        pass
 
 
 def calculate_cost(

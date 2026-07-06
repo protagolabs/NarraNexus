@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/services/netmind_billing_client.py
-last_verified: 2026-07-05
+last_verified: 2026-07-06
 stub: false
 ---
+
+## 2026-07-06 — tighter business-message scrub (pre-push review)
+
+_safe_business_message now also drops any message containing an id/token-shaped
+run (8+ chars including a digit), so an opaque session/account id embedded
+mid-sentence by a misbehaving upstream can't reach the client/logs. Natural words
+(subscription, auto-renew, internationalization) have no digit and are kept.
+
+
  
 ## 2026-07-05 — recharge / by-session (Phase 4, module E)
 

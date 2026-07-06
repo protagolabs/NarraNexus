@@ -22,6 +22,7 @@ import pytest
 
 import xyz_agent_context.agent_framework.gemini_api_sdk as gem
 import xyz_agent_context.agent_framework.openai_agents_sdk as oai
+import xyz_agent_context.utils.cost_tracker as ct
 from xyz_agent_context.utils.cost_tracker import (
     clear_cost_context,
     set_cost_context,
@@ -33,6 +34,25 @@ def _reset_ctx():
     clear_cost_context()
     yield
     clear_cost_context()
+
+
+# ── shared helper contract (used identically by all 6 helper-SDK cost sites) ──
+
+def test_warn_missing_usage_warns_once_and_names_context():
+    with patch.object(ct.logger, "warning") as w:
+        ct.warn_missing_usage("AnthropicHelper-Stream", "claude-x", "llm_stream")
+    w.assert_called_once()
+    msg = w.call_args[0][0]
+    assert "AnthropicHelper-Stream" in msg and "claude-x" in msg and "llm_stream" in msg
+
+
+def test_warn_missing_usage_never_raises():
+    # Observability only — must not become flow control.
+    with patch.object(ct.logger, "warning", side_effect=RuntimeError("logger down")):
+        try:
+            ct.warn_missing_usage("X", "m", "llm_function")
+        except RuntimeError:
+            raise AssertionError("warn_missing_usage must never propagate")
 
 
 # ── OpenAI Agents SDK: _record_cost ──────────────────────────────────────────

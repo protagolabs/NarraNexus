@@ -6,11 +6,15 @@ stub: false
  
 ## 2026-07-05 — recharge routes (Phase 4, module E)
 
-`POST /recharge` (RechargeRequest{amount>0, currency=USD, success_url?, cancel_url?} →
-hosted Stripe checkout, reuses `_validate_checkout_url` MITM guard on the returned URL) and
-`GET /recharge/{session_id}` (by-session poll). Error mapping: auth→401, Forbidden→403,
-NotFound→404, business→400, upstream→502. amount≤0 is rejected by Pydantic (422) before any
-upstream call. Client shape in [[netmind_billing_client]].
+`POST /recharge` (RechargeRequest{amount>0, currency=USD} → hosted Stripe checkout, reuses
+`_validate_checkout_url` MITM guard on the returned URL). success_url/cancel_url are
+**deliberately NOT accepted** from the client — an unvalidated redirect target into a payment
+session is attack surface with no current use; NetMind's default result page is used and we poll
+by-session (matches the client docstring). `GET /recharge/{session_id}` (by-session poll):
+session_id is allowlisted `^cs_[A-Za-z0-9_]+$` BEFORE splicing into the outbound path (blocks
+`..`/`?`/`#` smuggling). Error mapping: auth→401, Forbidden→403, NotFound→404, business→400,
+upstream→502. amount≤0 rejected by Pydantic (422) before any upstream call. Client shape in
+[[netmind_billing_client]].
 
 
 

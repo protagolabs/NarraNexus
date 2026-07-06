@@ -1,5 +1,12 @@
 # cost_tracker.py
 
+## 2026-07-06 — warn_missing_usage is exception-safe
+
+warn_missing_usage wraps its logger.warning in try/except: observability must
+never become flow control, so even a logging-layer failure cannot break the LLM
+call path that calls it.
+
+
 ## 2026-07-03 — second setter + de-silence helper (Phase 0 / module H)
 
 Two additions. (1) `set_cost_context` now has a SECOND legitimate caller besides

@@ -315,10 +315,20 @@ async def onboard(req: OnboardRequest, request: Request):
 
 # Per-user in-process lock for use-subscription: serialize dedup + mint +
 # onboard so a double-click / concurrent tabs on the SAME worker can't both pass
-# the dedup check and mint two live (money-spending) keys. In-process only —
-# multi-worker deployments still need a DB/distributed guard before the feature
-# flag is flipped on (pre-flip TODO; a (user_id, source) unique index does NOT
-# fit because a netmind provider is intentionally TWO rows).
+# the dedup check and mint two live (money-spending) keys. In-process only.
+#
+# Pre-flip TODO — before `netmind_use_subscription_enabled` is set True in a
+# multi-worker deploy, replace this with a DB/distributed guard, because:
+#   1. A (user_id, source) unique index does NOT fit — a netmind provider is
+#      intentionally TWO rows (anthropic + openai), so the DB can't dedup it.
+#   2. This lock does NOT serialize against the OTHER netmind-creating routes
+#      (add_provider / onboard with card_type="netmind"): a user firing
+#      use-subscription in one tab and pasting a netmind key in another can
+#      still double-provision (self-inflicted extra billed key on their own
+#      account — cost/UX, not authz). A distributed guard should cover all
+#      netmind-source creators, not just this route.
+#   3. This dict is unbounded (one Lock per user_id, never evicted) — fine while
+#      the flag is off, but swap for a TTL/bounded structure when enabling.
 _use_sub_locks: dict[str, asyncio.Lock] = {}
 
 

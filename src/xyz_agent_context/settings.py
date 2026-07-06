@@ -158,7 +158,7 @@ class Settings(BaseSettings):
     arena_api_base: str = "https://api.arena42.ai"
 
     # ===== NetMind Billing / Subscription =====
-    # Base URL of NetMind's billing+subscription API (余额 / 套餐 / 订阅 / 充值).
+    # Base URL of NetMind's billing+subscription API (balance / plan / subscription / recharge).
     # Externalized per deployment the same way as arena_api_base: prod keeps the
     # default (billing.api.netmind.ai); the dev stack sets
     # BILLING_API_BASE=https://billing.api.protago-dev.com in its ops .env.
