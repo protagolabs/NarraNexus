@@ -158,7 +158,7 @@ test('S2: cancel confirm dismissed → no api call', async () => {
 
 // --- Phase 2 enhancement: recent activity -----------------------------------
 
-test('activity: renders recent records when available', async () => {
+test('activity: collapsed by default, expands on click', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
   mockGetRecords.mockResolvedValue({
     success: true,
@@ -167,8 +167,11 @@ test('activity: renders recent records when available', async () => {
     ],
   });
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/Recent activity/)).toBeTruthy();
-  expect(screen.getByText(/\+\$10\.00 USD/)).toBeTruthy();
+  // toggle present, but the list (amount) is hidden until expanded
+  const toggle = await screen.findByRole('button', { name: /Recent activity/ });
+  expect(screen.queryByText(/\+\$10\.00 USD/)).toBeNull();
+  fireEvent.click(toggle);
+  expect(await screen.findByText(/\+\$10\.00 USD/)).toBeTruthy();
 });
 
 test('activity: pending records are hidden (abandoned checkouts)', async () => {
@@ -181,6 +184,7 @@ test('activity: pending records are hidden (abandoned checkouts)', async () => {
     ],
   });
   render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Recent activity/ }));
   // the settled $5 shows; the pending $10 does not
   expect(await screen.findByText(/\+\$5\.00 USD/)).toBeTruthy();
   expect(screen.queryByText(/\+\$10\.00 USD/)).toBeNull();

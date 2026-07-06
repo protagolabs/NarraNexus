@@ -4,6 +4,15 @@ last_verified: 2026-07-06
 stub: false
 ---
  
+## 2026-07-06 — recent activity collapsed by default
+
+The activity list is now behind a collapsed toggle (`showActivity`, default false):
+by default only a clickable "Recent activity ›" header shows; clicking expands the
+settled-records list. Keeps the panel clean by default while the ledger stays one
+click away. The toggle only renders when there is at least one settled record.
+
+
+ 
 ## 2026-07-06 — activity list hides `pending` records
 
 Recent activity now filters out `status==='pending'` (settled ledger only). Every

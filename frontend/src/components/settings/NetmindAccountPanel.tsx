@@ -79,6 +79,7 @@ export function NetmindAccountPanel() {
   const [custom, setCustom] = useState<string>('');
   const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
   const [rechargeError, setRechargeError] = useState<string | null>(null);
+  const [showActivity, setShowActivity] = useState(false); // recent activity collapsed by default
   const mounted = useRef(true);
   // Synchronous locks: React state (busy/polling) updates are async/batched, so
   // a fast double-click can fire a handler twice before `disabled` re-renders.
@@ -578,17 +579,25 @@ export function NetmindAccountPanel() {
             )}
           </div>
 
-          {/* Recent activity — settled ledger only. `pending` rows are hidden:
-              every abandoned checkout (opened, not paid) leaves a pending record
-              that only flips to failed ~24h later when the Stripe session
-              expires, so showing them just piles up noise. In-progress payment
-              is already surfaced by the live "waiting" state above. */}
+          {/* Recent activity — collapsed by default (keeps the panel clean),
+              settled ledger only. `pending` rows are hidden: every abandoned
+              checkout (opened, not paid) leaves a pending record that only flips
+              to failed ~24h later when the Stripe session expires, so showing
+              them just piles up noise. In-progress payment is already surfaced
+              by the live "waiting" state above. */}
           {settledRecords.length > 0 && (
             <div className="pt-3 border-t border-[var(--border-subtle)]">
-              <div className="text-xs font-medium text-[var(--text-secondary)] mb-1.5">
+              <button
+                type="button"
+                onClick={() => setShowActivity((v) => !v)}
+                className="flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                aria-expanded={showActivity}
+              >
+                <span className={`transition-transform ${showActivity ? 'rotate-90' : ''}`}>›</span>
                 {t('settings.netmind.activityTitle', 'Recent activity')}
-              </div>
-              <ul className="space-y-1">
+              </button>
+              {showActivity && (
+              <ul className="mt-1.5 space-y-1">
                 {settledRecords.slice(0, 8).map((r) => {
                   const income = r.direction === 'income';
                   return (
@@ -608,6 +617,7 @@ export function NetmindAccountPanel() {
                   );
                 })}
               </ul>
+              )}
             </div>
           )}
         </div>
