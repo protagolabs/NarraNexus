@@ -22,6 +22,7 @@ import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
+import { useRuntimeStore } from '@/stores/runtimeStore';
 import { api } from '@/lib/api';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
@@ -288,13 +289,8 @@ function ProvidersSection() {
   return (
     <section>
       <SectionHeader label="LLM Providers" />
-      {/* System free-tier quota — top-level so cloud users see their
-          balance without expanding Advanced. Self-gates to null in local
-          mode / when the free tier is disabled. (Previously only rendered
-          inside the collapsed Advanced panel.) */}
-      <div className="mb-4">
-        <QuotaPanel />
-      </div>
+      {/* System free-tier quota now lives under Account & Subscription (all
+          credits/billing in one place); this section is bring-your-own only. */}
       {/* Current setup (what's in use) — only once a provider exists. */}
       {providerCount !== 0 && (
         <div className="mb-4">
@@ -334,16 +330,22 @@ function ProvidersSection() {
 
 // Left-nav items (master). Each maps to one content panel (detail).
 // ``desktopOnly`` items (App updates) only appear in the Tauri build.
+// ``cloudOnly`` items (Account & Subscription) only appear in cloud-web —
+// the account/billing panels are NetMind cloud features and render nothing
+// locally, so the nav entry would otherwise open a blank pane.
 interface NavItem {
   id: string;
   label: string;
   icon: typeof Cpu;
   desktopOnly?: boolean;
+  cloudOnly?: boolean;
 }
 
+// Account first in cloud: a cloud user's home question is "what are my credits /
+// plan", so billing leads; bring-your-own provider config follows.
 const NAV_ITEMS: NavItem[] = [
+  { id: 'account', label: 'Account & Subscription', icon: CreditCard, cloudOnly: true },
   { id: 'providers', label: 'LLM Providers', icon: Cpu },
-  { id: 'account', label: 'Account & Subscription', icon: CreditCard },
   { id: 'bundle', label: 'Bundle', icon: Package },
   { id: 'artifacts', label: 'Artifacts', icon: FolderArchive },
   { id: 'agents', label: 'Manage agents', icon: Users },
@@ -351,8 +353,11 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export default function SettingsPage() {
-  const [active, setActive] = useState('providers');
-  const items = NAV_ITEMS.filter((it) => !it.desktopOnly || isTauri());
+  const isCloud = useRuntimeStore((s) => s.mode) === 'cloud-web';
+  const items = NAV_ITEMS.filter(
+    (it) => (!it.desktopOnly || isTauri()) && (!it.cloudOnly || isCloud),
+  );
+  const [active, setActive] = useState(items[0]?.id ?? 'providers');
 
   return (
     <div className="h-full flex flex-col">
@@ -396,7 +401,19 @@ export default function SettingsPage() {
         <ScrollArea className="flex-1" viewportClassName="p-6">
           <div className="max-w-3xl">
             {active === 'providers' && <ProvidersSection />}
-            {active === 'account' && <NetmindAccountPanel />}
+            {active === 'account' && (
+              <section>
+                <SectionHeader label="Account & Subscription" />
+                {/* All "what are my credits / how is usage paid" concerns live
+                    here: the platform free tier first, then the user's own
+                    NetMind.AI Power balance/subscription/top-up. Both self-gate
+                    to null when not applicable. */}
+                <div className="mb-4">
+                  <QuotaPanel />
+                </div>
+                <NetmindAccountPanel />
+              </section>
+            )}
             {active === 'bundle' && <BundleContent />}
             {active === 'artifacts' && <ArtifactsContent />}
             {active === 'agents' && <ManageAgentsContent />}
