@@ -4,6 +4,20 @@ last_verified: 2026-07-05
 stub: false
 ---
  
+## 2026-07-05 — recharge: stop-waiting escape + generation-based cancel
+
+If the user closes the Stripe window without paying, the by-session status stays
+`pending` (Stripe sessions don't expire on tab close), so the panel would sit in
+"waiting for payment…" until the 3-min poll deadline with the button disabled. Added
+a "Stop waiting" action that returns to idle immediately. Implemented via a
+`rechargeGenRef` generation token: each top-up captures a gen; the poll loop bails
+whenever the current gen moves on (stop-waiting bumps it, so does a new attempt),
+so a stale loop can never overwrite the UI or block a retry. Replaced the old
+`rechargePollRef` overlap guard (which could wedge a just-cancelled loop and block
+the next attempt for up to one poll interval).
+
+
+ 
 ## 2026-07-05 — top-up UI (Phase 4, module E)
 
 Added an "Add credits" block under the balance hero: preset tiers ($5/$10/$20/$50) + custom

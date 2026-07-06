@@ -670,7 +670,8 @@
       "rechargeProcessing": "等待支付完成…请在打开的窗口里完成付款，余额会自动更新。",
       "rechargeSuccess": "充值完成 —— 余额已更新。",
       "rechargeFailed": "支付失败或已取消。",
-      "rechargeInvalidAmount": "请输入大于 0 的金额。"
+      "rechargeInvalidAmount": "请输入大于 0 的金额。",
+      "rechargeStopWaiting": "停止等待"
     },
     "modal": {
       "title": "设置",

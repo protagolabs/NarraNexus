@@ -671,7 +671,8 @@
       "rechargeProcessing": "Waiting for payment… complete it in the opened window; your balance updates automatically.",
       "rechargeSuccess": "Top-up complete — balance updated.",
       "rechargeFailed": "Payment failed or was cancelled.",
-      "rechargeInvalidAmount": "Enter an amount greater than 0."
+      "rechargeInvalidAmount": "Enter an amount greater than 0.",
+      "rechargeStopWaiting": "Stop waiting"
     },
     "modal": {
       "title": "Settings",

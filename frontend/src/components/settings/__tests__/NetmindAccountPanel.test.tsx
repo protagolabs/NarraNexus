@@ -301,3 +301,22 @@ test('recharge: api.recharge rejects → failed state error shown', async () => 
   fireEvent.click(btn);
   expect(await screen.findByText(/checkout unavailable/)).toBeTruthy();
 });
+
+test('recharge: "Stop waiting" leaves processing and allows immediate retry', async () => {
+  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+  mockRecharge.mockResolvedValue({
+    success: true,
+    data: { checkout_url: 'https://checkout.stripe.com/x', session_id: 'cs_1' },
+  });
+  mockRechargeStatus.mockReturnValue(new Promise(() => {})); // never resolves → stuck pending
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Recharge/ }));
+  // enters the waiting state with an escape hatch
+  const stop = await screen.findByRole('button', { name: /Stop waiting/ });
+  fireEvent.click(stop);
+  // back to idle: waiting message gone
+  await waitFor(() => expect(screen.queryByText(/Waiting for payment/)).toBeNull());
+  // and a fresh top-up is not blocked by the abandoned attempt
+  fireEvent.click(screen.getByRole('button', { name: /Recharge/ }));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledTimes(2));
+});

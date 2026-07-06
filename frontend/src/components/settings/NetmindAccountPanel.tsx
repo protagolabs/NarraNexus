@@ -86,8 +86,11 @@ export function NetmindAccountPanel() {
   // subscribe → duplicate Stripe checkout sessions.
   const busyRef = useRef(false);
   const pollingRef = useRef(false);
-  const rechargeRef = useRef(false); // synchronous double-click guard
-  const rechargePollRef = useRef(false);
+  const rechargeRef = useRef(false); // synchronous double-submit guard
+  // Identifies the active top-up attempt. Bumping it invalidates any in-flight
+  // poll loop (used to stop waiting / supersede) so a stale loop can never
+  // overwrite the UI or block a fresh attempt.
+  const rechargeGenRef = useRef(0);
 
   const load = useCallback(async () => {
     // Fetch subscription + balance concurrently; each result is handled
@@ -253,24 +256,26 @@ export function NetmindAccountPanel() {
 
   // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
   // success, reload so the balance hero + activity reflect the new credit.
-  const pollRechargeStatus = useCallback(async (sessionId: string) => {
-    if (rechargePollRef.current) return; // never overlap two poll loops
-    rechargePollRef.current = true;
+  // `gen` tags this loop; if rechargeGenRef moves on (user stopped waiting or
+  // started another top-up) the loop bails without touching the UI.
+  const pollRechargeStatus = useCallback(async (sessionId: string, gen: number) => {
     const deadline = Date.now() + POLL_MAX_MS;
+    const current = () => mounted.current && rechargeGenRef.current === gen;
     try {
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-        if (!mounted.current) return;
+        if (!current()) return; // unmounted / cancelled / superseded
         try {
           const r = await api.rechargeStatus(sessionId);
+          if (!current()) return; // re-check after the await
           const st = r.data?.status;
           if (st === 'succeeded') {
             await load(); // refresh balance + activity
-            if (mounted.current) setRechargeState('success');
+            if (current()) setRechargeState('success');
             return;
           }
           if (st === 'failed') {
-            if (mounted.current) {
+            if (current()) {
               setRechargeState('failed');
               setRechargeError(
                 t('settings.netmind.rechargeFailed', 'Payment failed or was cancelled.'),
@@ -282,7 +287,7 @@ export function NetmindAccountPanel() {
           /* transient — keep polling until the deadline */
         }
       }
-      if (mounted.current) {
+      if (current()) {
         // Deadline hit without a terminal status — don't claim success.
         setRechargeState('failed');
         setRechargeError(
@@ -291,13 +296,13 @@ export function NetmindAccountPanel() {
         );
       }
     } finally {
-      rechargePollRef.current = false;
-      rechargeRef.current = false;
+      // Only release the submit guard if we're still the active attempt.
+      if (rechargeGenRef.current === gen) rechargeRef.current = false;
     }
   }, [load, t]);
 
   const handleRecharge = useCallback(async () => {
-    if (rechargeRef.current) return; // synchronous double-click guard
+    if (rechargeRef.current) return; // synchronous double-submit guard
     // Number() (not parseFloat) so "5abc" → NaN is rejected, not silently 5.
     const raw = custom.trim();
     const amount = raw ? Number(raw) : tier;
@@ -309,6 +314,7 @@ export function NetmindAccountPanel() {
       return;
     }
     rechargeRef.current = true;
+    const gen = ++rechargeGenRef.current; // this attempt owns the poll
     setRechargeState('processing');
     setRechargeError(null);
     try {
@@ -317,15 +323,26 @@ export function NetmindAccountPanel() {
       const sid = r.data?.session_id;
       if (!url || !sid) throw new Error('No checkout URL returned');
       await platform.openExternal(url);
-      void pollRechargeStatus(sid); // reflect the result when payment completes
+      void pollRechargeStatus(sid, gen); // reflect the result when payment completes
     } catch (e) {
-      if (mounted.current) {
+      if (mounted.current && rechargeGenRef.current === gen) {
         setRechargeState('failed');
         setRechargeError(errMessage(e));
       }
       rechargeRef.current = false;
     }
   }, [custom, tier, t, pollRechargeStatus]);
+
+  // User closed the payment window / doesn't want to keep waiting: invalidate
+  // the in-flight poll (bump the generation) and return to idle so they can
+  // retry immediately. If they DID pay, the on-focus reload + activity list
+  // still surface it; this only stops the blocking "waiting" state.
+  const handleStopWaitingRecharge = useCallback(() => {
+    rechargeGenRef.current += 1; // the running poll loop will bail on next tick
+    rechargeRef.current = false;
+    setRechargeState('idle');
+    setRechargeError(null);
+  }, []);
 
   if (!isCloud) return null; // S0
 
@@ -499,10 +516,19 @@ export function NetmindAccountPanel() {
               </Button>
             </div>
             {rechargeState === 'processing' && (
-              <p className="text-xs text-[var(--text-tertiary)]">
-                {t('settings.netmind.rechargeProcessing',
-                  'Waiting for payment… complete it in the opened window; your balance updates automatically.')}
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-xs text-[var(--text-tertiary)] flex-1">
+                  {t('settings.netmind.rechargeProcessing',
+                    'Waiting for payment… complete it in the opened window; your balance updates automatically.')}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleStopWaitingRecharge}
+                  className="shrink-0 text-xs text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
+                >
+                  {t('settings.netmind.rechargeStopWaiting', 'Stop waiting')}
+                </button>
+              </div>
             )}
             {rechargeState === 'success' && (
               <p className="text-xs text-[var(--color-success)]">
