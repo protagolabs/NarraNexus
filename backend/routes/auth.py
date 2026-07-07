@@ -337,7 +337,7 @@ async def get_agents(request: Request):
                           -- (message bus) replies. New runs are tagged at
                           -- creation (step_0_initialize); see the note below on
                           -- why historical rows can't be filtered reliably.
-                          AND (trigger IS NULL OR trigger != 'message_bus')
+                          AND (`trigger` IS NULL OR `trigger` != 'message_bus')
                     ) ranked
                     WHERE rn = 1
                     """,
