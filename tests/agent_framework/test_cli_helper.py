@@ -213,3 +213,43 @@ async def test_llm_function_raises_when_no_json(monkeypatch):
                     cli_helper=CliHelperConfig(framework="claude_code"))
     with pytest.raises(ValueError, match="Could not extract JSON"):
         await sdk.llm_function("inst", "in", output_type=_Out)
+
+
+# ---------------------------------------------------------------------------
+# Probe: macOS Keychain fallback (file missing but Keychain has the token)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_probe_ok_via_keychain_when_file_missing(monkeypatch, tmp_path):
+    from xyz_agent_context.agent_framework.provider_driver.drivers.claude_oauth import (
+        ClaudeOAuthDriver,
+    )
+    missing = tmp_path / "nope" / ".credentials.json"
+    monkeypatch.setenv("CLAUDE_CLI_CREDENTIALS_PATH", str(missing))
+
+    async def _kc_yes():
+        return True
+
+    driver = ClaudeOAuthDriver(_card())
+    monkeypatch.setattr(driver, "_keychain_has_credentials", _kc_yes)
+    health = await driver.probe()
+    assert health.ok is True
+    assert "Keychain" in health.detail
+
+
+@pytest.mark.asyncio
+async def test_probe_fails_when_neither_file_nor_keychain(monkeypatch, tmp_path):
+    from xyz_agent_context.agent_framework.provider_driver.drivers.claude_oauth import (
+        ClaudeOAuthDriver,
+    )
+    missing = tmp_path / "nope" / ".credentials.json"
+    monkeypatch.setenv("CLAUDE_CLI_CREDENTIALS_PATH", str(missing))
+
+    async def _kc_no():
+        return False
+
+    driver = ClaudeOAuthDriver(_card())
+    monkeypatch.setattr(driver, "_keychain_has_credentials", _kc_no)
+    health = await driver.probe()
+    assert health.ok is False
+    assert "not found" in health.detail

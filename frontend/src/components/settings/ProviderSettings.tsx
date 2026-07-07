@@ -140,7 +140,7 @@ const isCodexFramework = (framework: string | null | undefined): boolean =>
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
   { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic)', protocol: 'anthropic' },
-  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI / Anthropic)', protocol: 'openai' },
+  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (API key or subscription)', protocol: 'openai' },
 ]
 
 // What the helper_llm "Default (recommended)" option actually resolves to,
@@ -923,17 +923,16 @@ export function ProviderSettings() {
     // Agent slot + codex_cli framework → hide third-party
     // aggregators that codex CLI can't talk to (Responses API
     // gate); see CODEX_ALLOWED_PROVIDER_SOURCES above.
-    // Helper slot → hide OAuth providers (claude_oauth / codex_oauth):
-    // CLI OAuth credentials only drive the agent subprocess and cannot
-    // make direct Messages / Chat-Completions calls — picking one here
-    // would only fail at agent-loop time with NotImplementedError.
+    // Helper slot now ACCEPTS OAuth providers (claude_oauth / codex_oauth):
+    // a subscription login covers both slots — the backend routes an OAuth
+    // helper to the CLI-backed helper (one-shot through the same CLI), so
+    // the old "hide OAuth from helper" filter is gone (2026-07).
     const matching = providerList.filter((p) =>
       effectiveProtocols.includes(p.protocol) && p.is_active &&
       (
         !(slot.key === 'agent' && isCodexFramework(agentFramework)) ||
         CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source)
-      ) &&
-      !(slot.key === 'helper_llm' && p.auth_type === 'oauth')
+      )
     )
     const curProv = cfg?.provider_id ? providers[cfg.provider_id] : null
     const isChanged = !!pendingSlots[slot.key]

@@ -74,11 +74,19 @@ class ClaudeOAuthDriver(_DriverBase):
         )
 
     async def probe(self) -> DriverHealth:
-        """Check whether the host CLI credentials file actually exists.
+        """Check whether the host CLI credentials actually exist.
 
         We don't parse the token — that's the CLI's job. Existence is a
         sufficient signal for the Settings page to show "✓ Claude OAuth
         linked" vs "✗ run `claude auth login`".
+
+        Two storage backends, checked in order:
+        1. The credentials FILE (~/.claude/.credentials.json or the
+           CLAUDE_CLI_* overrides) — Linux/containers.
+        2. The macOS KEYCHAIN — Claude Code on macOS stores the OAuth token
+           as a "Claude Code-credentials" generic password and never writes
+           the file, so the file-only probe false-negatived on every Mac
+           ("credentials file not found" while the CLI worked fine).
         """
         path = resolve_claude_credentials_path(self.card.auth_ref)
         if path is None:
@@ -86,14 +94,42 @@ class ClaudeOAuthDriver(_DriverBase):
                 ok=False,
                 detail="auth_ref is missing or not a claude-cli: reference",
             )
-        if not path.exists():
+        if path.is_file():
+            return DriverHealth(ok=True, detail=f"credentials present at {path}")
+        if await self._keychain_has_credentials():
             return DriverHealth(
-                ok=False,
-                detail=f"credentials file not found at {path}",
+                ok=True, detail="credentials present in macOS Keychain"
             )
-        if not path.is_file():
+        if path.exists():
             return DriverHealth(
                 ok=False,
                 detail=f"credentials path exists but is not a file: {path}",
             )
-        return DriverHealth(ok=True, detail=f"credentials present at {path}")
+        return DriverHealth(
+            ok=False,
+            detail=f"credentials file not found at {path}",
+        )
+
+    @staticmethod
+    async def _keychain_has_credentials() -> bool:
+        """True when the macOS Keychain holds Claude Code's OAuth token.
+
+        Uses ``security find-generic-password`` (exit 0 = found). Never
+        reads or logs the secret itself; existence only. Non-macOS or any
+        error → False (fall through to the file-based verdict).
+        """
+        import asyncio
+        import sys
+
+        if sys.platform != "darwin":
+            return False
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "security", "find-generic-password",
+                "-s", "Claude Code-credentials",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            return (await proc.wait()) == 0
+        except Exception:  # noqa: BLE001 — probe is best-effort
+            return False
