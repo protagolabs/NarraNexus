@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/services/memory_consolidation_worker.py
-last_verified: 2026-07-03
+last_verified: 2026-07-07
 stub: false
 ---
 
@@ -49,3 +49,9 @@ isolated as `failed` with pending_count and raw facts untouched.
 Systemic failures log at ERROR (lesson #4: L2 health = useful work,
 not loop-alive).
 
+
+## 2026-07-07 — _inject_owner_credentials 委托到共享原语
+
+`_inject_owner_credentials` 的 clear-first / 查 owner / resolve 序列抽到了
+`provider_resolver.inject_owner_helper_credentials`（narrative updater、Step-5 hooks
+现在共用同一原语）。本文件行为不变，只是不再各留一份副本（铁律 #8）。

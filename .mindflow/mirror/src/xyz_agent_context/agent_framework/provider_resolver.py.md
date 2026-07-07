@@ -132,3 +132,15 @@ request path, that function is authoritative for the agent-owner path
   resolver. auth_middleware must catch it explicitly and emit 402. If
   any other caller invokes `resolve_and_set` directly, it MUST handle
   `QuotaExceededError` or let it propagate.
+
+## 2026-07-07 — inject_owner_helper_credentials（后台任务的凭据注入原语）
+
+新增 `inject_owner_helper_credentials(agent_id, db)`：给**脱离任务**（narrative
+updater、Step-5 hooks、memory worker）在自身 ContextVar 上放 agent OWNER 的有效 LLM
+配置。这些 task 不继承 `AgentRuntime.run`（async generator）设的 per-turn 配置，此前
+一路回退到全局 `_holder` = 平台 `settings.openai_api_key`（2026-07 事故根因）。
+
+先 `clear_user_config()` 再查 owner、`resolve_and_set_provider_for_user`，避免复用该
+协程处理别的租户时继承上一租户凭据。无 owner → 返回 None（保持清空，严格全局兜底）；
+配额/无 provider → 抛 `ProviderResolverError`（调用方隔离并发告警，绝不落平台 key）。
+`memory_consolidation_worker._inject_owner_credentials` 现委托此函数（去重）。

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-07-02
+last_verified: 2026-07-07
 stub: false
 ---
 
@@ -144,3 +144,11 @@ intentional (no back-compat per ironclad rule #2).
 
 - `run()` 是 async generator，必须用 `async for msg in runtime.run(...)` 消费，不能用 `await`。WebSocket handler 必须 iterate 完整个 generator，否则后台 Steps 5-6 的 `asyncio.create_task` 不会被调度（generator 还没运行到那一行）。
 - `forced_narrative_id` 参数用于 Job trigger，跳过 Narrative 选择直接用指定 Narrative。如果传了不存在的 ID，会 fallback 到正常选择流程，这是有意的降级。
+
+## 2026-07-07 — Step-5 后台 hooks 注入 owner 的 Helper LLM
+
+`_run_hooks_background`（`asyncio.create_task` 脱离任务）此前不继承 run() 设的 per-turn
+helper 配置，其 Step-5 LLM hooks（社交实体摘要、memory extraction）一路回退到平台
+`settings.openai_api_key`（2026-07 事故）。现在协程开头 `inject_owner_helper_credentials(_agent_id, db)`：
+解析失败（配额/无 provider）→ 告警 + 跳过（绝不落平台 key）；hooks 内凭据类异常
+（`is_credential_error`）→ `alert_background_llm_failure`，不再仅记日志。

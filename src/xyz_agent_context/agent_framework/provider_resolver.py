@@ -47,6 +47,7 @@ from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
     OpenAIConfig,
     RuntimeLLMConfigs,
+    clear_user_config,
     set_provider_source,
     set_user_config,
 )
@@ -347,6 +348,47 @@ async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
         quota_svc=QuotaService.default(),
     )
     await resolver.resolve_and_set(user_id)
+
+
+async def inject_owner_helper_credentials(agent_id: str, db) -> Optional[str]:
+    """Put the agent OWNER's effective LLM config onto this task's ContextVars.
+
+    Call this at the top of every DETACHED background task (``asyncio.create_task``)
+    that makes helper-LLM calls — the narrative updater, the Step-5 entity/memory
+    hooks. Those tasks do NOT inherit the per-turn ContextVar that
+    ``AgentRuntime.run`` sets (it is set inside an async generator whose context
+    does not propagate to children spawned off the driver task), so without this
+    they fall through ``_ConfigProxy`` to the global ``_holder`` — i.e. the
+    platform ``settings.openai_api_key``. That is exactly the 2026-07 incident:
+    an expired platform OpenAI key 401'd every background helper call for ~2
+    weeks while long memory silently degraded. This is the background twin of
+    ``AgentRuntime.run``'s ``set_user_config`` and of the memory worker's own
+    injection (which now delegates here).
+
+    ``clear_user_config`` runs first so a task that reused this coroutine for a
+    different tenant (or that cannot resolve an owner) cannot inherit the
+    previous tenant's credentials.
+
+    Returns the resolved owner ``user_id``, or ``None`` when the agent row has
+    no owner (creds left cleared → the strict global fallback applies, which in
+    cloud mode has no usable key so the helper call fails fast rather than
+    billing the platform). Raises ``ProviderResolverError`` subclasses
+    (quota exhausted / no provider configured) — the caller isolates the
+    scope and surfaces a credential alert rather than dropping to the platform
+    key.
+    """
+    # Reset first: never inherit a prior tenant's creds when we bail early.
+    clear_user_config()
+    agent_row = await db.get_one("agents", {"agent_id": agent_id})
+    owner = (agent_row or {}).get("created_by")
+    if not owner:
+        logger.warning(
+            f"[background-llm] agent {agent_id} has no owner row — helper "
+            f"credentials left cleared (global fallback)."
+        )
+        return None
+    await resolve_and_set_provider_for_user(owner, db)
+    return owner
 
 
 def _is_user_config_complete(cfg: LLMConfig | None) -> bool:
