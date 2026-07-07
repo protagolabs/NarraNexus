@@ -30,7 +30,11 @@ from xyz_agent_context.agent_framework.api_config import (
     SystemDefaultUnavailable,
     LLMResolverError,
     _ensure_quota_service,
+    get_current_user_id,
+    get_provider_source,
     get_user_llm_configs,
+    set_current_user_id,
+    set_provider_source,
 )
 from xyz_agent_context.agent_framework import quota_service as quota_mod
 from xyz_agent_context.agent_framework.quota_service import QuotaService
@@ -286,6 +290,94 @@ async def test_opted_out_with_own_config_returns_own(
     claude, openai_cfg = await get_user_llm_configs("alice")
     assert claude.model == "claude-fake"
     assert claude.api_key == "sk-fake"
+
+
+# -------- Billing boundary: user_pays must NEVER touch the free tier --------
+#
+# Prod incident (2026-07-07): opted-out (user_pays) users had their free-tier
+# quota drained to 8-30x the cap. Root cause: the deduct in cost_tracker fires
+# only when the `provider_source` ContextVar == "system", and the OLD
+# get_user_runtime_llm_configs else-branch (prefer_system_override=False) never
+# called set_provider_source — so a stale "system" left by a prior run leaked
+# in and made the user's OWN-KEY consumption debit the free tier. The #48
+# convergence fixed it by always tagging the source. These tests pin the whole
+# accounting boundary end-to-end so it cannot regress.
+
+
+@pytest.fixture(autouse=True)
+def _reset_billing_ctx():
+    set_provider_source(None)
+    set_current_user_id(None)
+    yield
+    set_provider_source(None)
+    set_current_user_id(None)
+
+
+@pytest.mark.asyncio
+async def test_opted_out_resolution_retags_source_over_stale_system(
+    db_client, stub_system_provider_enabled, reset_quota_default
+):
+    """The regression that WOULD have caught the leak: a user_pays resolution
+    must overwrite a stale "system" left in the ContextVar with "user"."""
+    await _install_quota_service(db_client)
+    await _seed_quota(db_client, "alice", opted_in=False, input_budget=1000, output_budget=1000)
+    await _seed_full_own_providers(db_client, "alice")
+
+    set_provider_source("system")  # simulate a leak from a prior system run
+    await get_user_llm_configs("alice")
+    assert get_provider_source() == "user"  # retagged — NOT stale "system"
+
+
+@pytest.mark.asyncio
+async def test_user_pays_consumption_never_deducts_free_tier(
+    db_client, stub_system_provider_enabled, reset_quota_default
+):
+    """End-to-end: resolve an opted-out user_pays user (even with a stale
+    "system" leak in place), then record a costly call — the free-tier quota
+    must not move by a single token."""
+    from xyz_agent_context.repository.quota_repository import QuotaRepository
+    from xyz_agent_context.utils.cost_tracker import record_cost
+
+    await _install_quota_service(db_client)
+    await _seed_quota(db_client, "alice", opted_in=False, input_budget=1000, output_budget=1000)
+    await _seed_full_own_providers(db_client, "alice")
+
+    set_provider_source("system")  # stale leak
+    await get_user_llm_configs("alice")  # retags to "user"
+    set_current_user_id("alice")
+    await record_cost(
+        db=db_client, agent_id="ag", event_id=None, call_type="agent_loop",
+        model="claude-fake", input_tokens=500, output_tokens=200,
+    )
+
+    q = await QuotaRepository(db_client).get_by_user_id("alice")
+    assert q.used_input_tokens == 0
+    assert q.used_output_tokens == 0
+
+
+@pytest.mark.asyncio
+async def test_system_consumption_does_deduct_free_tier(
+    db_client, stub_system_provider_enabled, reset_quota_default
+):
+    """The other side of the boundary: a genuine free-tier (system) call DOES
+    debit the quota — so the fix didn't over-correct into never charging."""
+    from xyz_agent_context.repository.quota_repository import QuotaRepository
+    from xyz_agent_context.utils.cost_tracker import record_cost
+
+    await _install_quota_service(db_client)
+    await _seed_quota(db_client, "alice", opted_in=True, input_budget=100_000, output_budget=100_000)
+
+    await get_user_llm_configs("alice")  # opted-in + budget → system
+    assert get_provider_source() == "system"
+    assert get_current_user_id() == "alice"
+    await record_cost(
+        db=db_client, agent_id="ag", event_id=None, call_type="agent_loop",
+        model="claude-fake", input_tokens=500, output_tokens=200,
+    )
+
+    q = await QuotaRepository(db_client).get_by_user_id("alice")
+    assert q.used_input_tokens == 500
+    assert q.used_output_tokens == 200
 
 
 @pytest.mark.asyncio
