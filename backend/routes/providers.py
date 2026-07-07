@@ -70,6 +70,10 @@ class OnboardRequest(BaseModel):
     # netmind is only reachable explicitly — its keys have no
     # recognisable prefix.
     provider_type: str | None = None
+    # Key rotation: when the user already has a provider of this (aggregator)
+    # type, the first call returns needs_replace instead of erroring; the UI
+    # confirms and re-sends with replace=true to swap the key.
+    replace: bool = False
 
 
 class UpdateModelsRequest(BaseModel):
@@ -283,10 +287,21 @@ async def onboard(req: OnboardRequest, request: Request):
     try:
         service = await _get_service()
         config, new_ids, meta = await service.onboard_one_key(
-            uid, req.api_key, req.provider_type,
+            uid, req.api_key, req.provider_type, replace=req.replace,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Key already present and not confirmed: ask the UI to confirm a replace
+    # rather than erroring. Nothing was mutated. HTTP 200 (not an error) so the
+    # frontend branches on a structured flag instead of parsing an error string.
+    if meta.get("needs_replace"):
+        return {
+            "success": False,
+            "needs_replace": True,
+            "provider_type": meta.get("provider_type"),
+            "existing_masked": meta.get("existing_masked"),
+        }
 
     # Hot-reload for current process (mirror add_provider / set_slot)
     try:

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-06
+last_verified: 2026-07-07
 stub: false
 ---
  
@@ -215,3 +215,8 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 ## 2026-07-03 (G1) — getRecords
 
 `getRecords(direction?)`（GET /api/billing/records，X-Netmind-Token）。消费/充值流水。
+
+## 2026-07-07 — onboard() 加 replace 参数 + needs_replace 返回
+
+`onboard(apiKey, providerType, replace?)` 新增可选 `replace`，请求体带 `replace`；返回
+类型加 `needs_replace` / `existing_masked`，供 OneKeyOnboard 的换 key 确认流程使用。

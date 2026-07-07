@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-06
+last_verified: 2026-07-07
 stub: false
 ---
 
@@ -272,3 +272,10 @@ KeyUpstreamError→502、onboard ValueError→400。
   best-effort 撤销刚 mint 的 key，避免留下花钱的孤儿（安全 HIGH）。
 - **ValueError 映射细化**：dedup "already exists"→409、我方 mint 的 key 被 NetMind 拒
   "rejected"→502（上游集成失败，非用户输入错）、其它→400。
+
+## 2026-07-07 — POST /onboard 支持 replace + needs_replace 信号
+
+`OnboardRequest` 加 `replace: bool=False`，透传给 `onboard_one_key`。当服务返回
+`meta.needs_replace` 时，路由返回 `{success: False, needs_replace: True, provider_type,
+existing_masked}`（**HTTP 200**，非错误），让前端按结构化字段分支弹确认，而不是解析
+"already exists" 错误串。确认后前端带 `replace=true` 重发，服务原子换 key。
