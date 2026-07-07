@@ -51,7 +51,10 @@ from xyz_agent_context.channel.channel_audit_events import (
 )
 from xyz_agent_context.channel.channel_context_builder_base import ChannelHistoryConfig
 from xyz_agent_context.channel.channel_dedup_store import ChannelDedupStore
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.channel.channel_trigger_base import (
+    CHANNEL_SILENT_SENTINEL,
+    ChannelTriggerBase,
+)
 from xyz_agent_context.repository.channel_seen_message_repository import (
     ChannelSeenMessageRepository,
 )
@@ -1743,20 +1746,28 @@ class LarkTrigger(ChannelTriggerBase):
                 f"LarkTrigger [{cred.profile_name}] runtime error "
                 f"({result.error.error_type}): {result.error.error_message}"
             )
-            try:
-                await self._cli.send_message(
-                    cred.agent_id, chat_id=message.chat_id, text=friendly
-                )
-            except Exception as send_err:
-                logger.warning(
-                    f"LarkTrigger [{cred.profile_name}] failed to deliver "
-                    f"error reply to Lark: {send_err}"
-                )
+            # Route through the shared error-fallback so Lark also skips the
+            # channel send when the agent already replied before failing
+            # (no double-message), consistent with every other channel.
+            sent = self.extract_output(result, message, cred)
+            already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
+            await self._send_error_fallback(
+                cred, message, friendly, already_replied=already_replied
+            )
             return friendly
 
         # Happy path: scrape the text the agent itself sent via
         # `lark_cli im +messages-send` from the tool_call raw payloads.
         return self.extract_output(result, message, cred)
+
+    async def send_channel_reply(
+        self, credential: LarkCredential, message: ParsedMessage, text: str
+    ) -> None:
+        """Error-fallback send: deliver a message to the originating Lark chat
+        via the CLI client the trigger already holds."""
+        await self._cli.send_message(
+            credential.agent_id, chat_id=message.chat_id, text=text
+        )
 
     # ────────────────────────────────────────────────────────────────────
     # extract_output / format_error_reply overrides
@@ -1783,7 +1794,7 @@ class LarkTrigger(ChannelTriggerBase):
             # Inbox shows this explicitly so it's clear the bot didn't
             # reply, instead of the misleading "(Replied on Lark)" stub
             # that earlier revisions wrote here.
-            output_text = "(stayed silent)"
+            output_text = CHANNEL_SILENT_SENTINEL
         else:
             output_text = ""
 
