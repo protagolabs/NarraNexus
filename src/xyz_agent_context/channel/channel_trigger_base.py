@@ -106,6 +106,13 @@ from xyz_agent_context.utils.attachment_storage import store_uploaded_attachment
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
+# Inbox sentinel: the agent finished a turn without calling ANY user-reply
+# tool. Written to the inbox only, NEVER sent to the channel (respect the
+# agent's / silent-mode choice not to speak). Shared across channels so the
+# error-fallback path can tell "agent stayed silent" from "agent replied".
+CHANNEL_SILENT_SENTINEL = "(stayed silent)"
+
+
 def _compute_next_backoff(
     current: int,
     ran_seconds: float,
@@ -1152,20 +1159,51 @@ class ChannelTriggerBase(ABC):
                 a.model_dump(mode="json") for a in attachments
             ]
 
-        result = await get_agent_runtime_client().run_and_collect(
-            agent_id=agent_id,
-            user_id=owner_user_id,
-            input_content=tagged_prompt,
-            working_source=self.working_source,
-            trigger_extra_data=extra_data,
-        )
+        try:
+            result = await get_agent_runtime_client().run_and_collect(
+                agent_id=agent_id,
+                user_id=owner_user_id,
+                input_content=tagged_prompt,
+                working_source=self.working_source,
+                trigger_extra_data=extra_data,
+            )
+        except Exception as e:  # noqa: BLE001
+            # The runtime is DESIGNED to yield MessageType.ERROR rather than
+            # raise (see run_collector), but a defensive guard here means an
+            # unexpected crash still tells the user something failed instead of
+            # vanishing into channel silence.
+            logger.exception(
+                f"{type(self).__name__}[{agent_id}] run_and_collect raised: "
+                f"{type(e).__name__}: {e}"
+            )
+            from xyz_agent_context.agent_runtime.run_collector import RunError
+            err_text = self.format_error_reply(
+                RunError(error_type=type(e).__name__, error_message=str(e))
+            )
+            await self._send_error_fallback(
+                credential, message, err_text, already_replied=False
+            )
+            return err_text
 
         if result.is_error:
             logger.warning(
                 f"{type(self).__name__}[{agent_id}] runtime error "
                 f"({result.error.error_type}): {result.error.error_message}"
             )
-            return self.format_error_reply(result.error)
+            err_text = self.format_error_reply(result.error)
+            # Distinguish "agent failed" from "agent stayed silent": if the
+            # agent already sent a real reply via its own tool before the
+            # failure (partial_reply_then_error), the user has heard from it —
+            # don't double-message. Otherwise the turn vanished silently, so
+            # surface the error into the channel. A run that stayed silent by
+            # CHOICE never sets is_error, so this never fires on intended
+            # silence (group non-@ / nothing to add).
+            sent = self.extract_output(result, message, credential)
+            already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
+            await self._send_error_fallback(
+                credential, message, err_text, already_replied=already_replied
+            )
+            return err_text
 
         # Subclasses may want to extract platform-specific tool-call output;
         # default returns the agent's text. Lark's subclass will override
@@ -1360,6 +1398,48 @@ class ChannelTriggerBase(ABC):
             "⚠️ I hit an internal error and can't reply to this message. "
             "Please try again in a bit, or contact the bot's owner."
         )
+
+    async def send_channel_reply(
+        self, credential: Any, message: ParsedMessage, text: str
+    ) -> None:
+        """Send ``text`` into the originating chat OUTSIDE the agent's own
+        reply tool.
+
+        Used by the error-fallback path (:meth:`_send_error_fallback`) so a run
+        that failed before the agent could call its reply tool still surfaces
+        *something* to the user — distinguishing "agent failed" from "agent
+        stayed silent". IM subclasses override this with the SDK client they
+        already hold (keyed by subscriber), addressing the reply via
+        ``message.chat_id`` / ``message.sender_id`` / ``message.raw``.
+
+        Default: no-op. Channels that must not be sent to from the trigger
+        (message_bus stays quiet, job has its own delivery) simply inherit it.
+        """
+        return None
+
+    async def _send_error_fallback(
+        self,
+        credential: Any,
+        message: ParsedMessage,
+        error_text: str,
+        *,
+        already_replied: bool,
+    ) -> None:
+        """Surface a run failure into the channel — unless the agent already
+        replied this turn (then don't double-message).
+
+        Best-effort: a send failure must not mask the original error or break
+        inbox recording, so it is logged and swallowed.
+        """
+        if already_replied:
+            return
+        try:
+            await self.send_channel_reply(credential, message, error_text)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}: error-fallback send_channel_reply "
+                f"failed: {type(e).__name__}: {e}"
+            )
 
     def extract_output(self, result, message: ParsedMessage, credential: Any) -> str:
         """

@@ -1,8 +1,44 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-07
 ---
+
+## 2026-07-07 — error-fallback: surface run failures INTO the channel
+
+Problem: IM delivery is "agent calls its own reply tool during the run; the
+trigger only scrapes the sent text for the inbox." So if a run FAILED before
+the agent reached its reply tool, nothing was sent to the channel — the user
+saw silence, indistinguishable from the agent choosing not to answer. Chat had
+a helper_llm fallback; IM was excluded. (slack/discord/telegram/wechat wrote
+the error to the inbox ONLY; lark already sent it; matrix uses streaming
+markers.)
+
+Fix — three pieces, all in `_build_and_run_agent`:
+1. New overridable hook `send_channel_reply(credential, message, text)` —
+   default no-op; each IM subclass implements it with the per-subscriber SDK
+   client it already holds, addressing via `message.chat_id` / `sender_id` /
+   `raw`. The runtime CANNOT do this itself (it has no channel client — those
+   live on the trigger), which is why the fallback lives at the trigger layer.
+2. `_send_error_fallback(...)` sends the error via the hook UNLESS the agent
+   already replied this turn (`already_replied` → don't double-message),
+   best-effort (a send failure is logged, never masks the original error).
+3. `_build_and_run_agent` now: wraps `run_and_collect` in try/except (a hard
+   raise, not just a yielded ERROR, still notifies — no silent crash); on
+   `result.is_error` computes `already_replied` from `extract_output` vs
+   `CHANNEL_SILENT_SENTINEL` and fires the fallback.
+
+**Key safety property**: the fallback fires ONLY on `is_error` (or a raise). A
+run that stays silent by CHOICE never sets `is_error`, so intended silence
+(group non-@, nothing to add — see `_build_and_run_agent_silent_batch`) is
+never disturbed. This deliberately does NOT recover the "agent wrote a reply
+but forgot to call the send tool" (`no_reply`) case for IM — too ambiguous vs
+intended silence; only errors are surfaced.
+
+`CHANNEL_SILENT_SENTINEL = "(stayed silent)"` is now a shared module constant
+(was hard-coded identically in 5 channels) so the base can tell "agent stayed
+silent" from "agent replied" when gating the fallback. Lark's bespoke error
+send was consolidated onto the same hook.
 
 ## 2026-07-02 — `_build_and_run_agent_silent_batch` for group non-@ ingestion
 
