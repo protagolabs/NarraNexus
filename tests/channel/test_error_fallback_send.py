@@ -36,6 +36,7 @@ from tests.channel.test_mock_channel_trigger_integration import (
 class _StubResult:
     output_text: str = ""
     is_error: bool = False
+    has_fatal: bool = False
     error: object = None
     raw_items: list = field(default_factory=list)
     scraped: str | None = None  # what extract_output should return
@@ -45,6 +46,7 @@ class _StubResult:
 class _StubError:
     error_type: str = "BoomError"
     error_message: str = "boom"
+    severity: str = "fatal"
 
 
 class _RecordingTrigger(_FakeTrigger):
@@ -91,21 +93,38 @@ async def _drive(trigger, db_client, monkeypatch, *, result=None, raises=None):
 
 
 @pytest.mark.asyncio
-async def test_error_with_no_reply_sends_fallback_to_channel(db_client, monkeypatch):
+async def test_fatal_error_with_no_reply_sends_fallback_to_channel(db_client, monkeypatch):
     trigger = _RecordingTrigger(_FakeCredential(agent_id="agent_a"))
-    result = _StubResult(is_error=True, error=_StubError(), scraped=None)
+    result = _StubResult(is_error=True, has_fatal=True, error=_StubError(), scraped=None)
     ret = await _drive(trigger, db_client, monkeypatch, result=result)
 
-    assert len(trigger.sent) == 1  # error surfaced into the channel
+    assert len(trigger.sent) == 1  # fatal surfaced into the channel
     assert trigger.sent[0] == ret  # same friendly text goes to inbox + channel
     assert "error" in ret.lower()
 
 
 @pytest.mark.asyncio
-async def test_error_after_reply_does_not_double_send(db_client, monkeypatch):
+async def test_recoverable_error_does_not_send(db_client, monkeypatch):
+    """A recoverable hiccup the loop retried past (is_error but NOT fatal) must
+    NOT fabricate a "something broke" message — that would itself be the
+    confusion we're avoiding if the agent then chose silence."""
     trigger = _RecordingTrigger(_FakeCredential(agent_id="agent_a"))
-    # Agent DID send a real reply before the failure (partial_reply_then_error).
-    result = _StubResult(is_error=True, error=_StubError(), scraped="here is your answer")
+    result = _StubResult(
+        is_error=True, has_fatal=False,
+        error=_StubError(severity="recoverable"), scraped=None,
+    )
+    await _drive(trigger, db_client, monkeypatch, result=result)
+
+    assert trigger.sent == []  # non-fatal → no channel message
+
+
+@pytest.mark.asyncio
+async def test_fatal_after_reply_does_not_double_send(db_client, monkeypatch):
+    trigger = _RecordingTrigger(_FakeCredential(agent_id="agent_a"))
+    # Agent DID send a real reply before the fatal (partial_reply_then_error).
+    result = _StubResult(
+        is_error=True, has_fatal=True, error=_StubError(), scraped="here is your answer",
+    )
     await _drive(trigger, db_client, monkeypatch, result=result)
 
     assert trigger.sent == []  # user already heard from the agent — no double-message
@@ -147,7 +166,7 @@ async def test_send_failure_is_swallowed(db_client, monkeypatch):
             raise RuntimeError("channel API down")
 
     trigger = _BoomTrigger(_FakeCredential(agent_id="agent_a"))
-    result = _StubResult(is_error=True, error=_StubError(), scraped=None)
+    result = _StubResult(is_error=True, has_fatal=True, error=_StubError(), scraped=None)
     # Must not raise — a send failure cannot break inbox recording.
     ret = await _drive(trigger, db_client, monkeypatch, result=result)
     assert "error" in ret.lower()

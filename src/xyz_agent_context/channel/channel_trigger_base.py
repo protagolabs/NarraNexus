@@ -1188,21 +1188,28 @@ class ChannelTriggerBase(ABC):
         if result.is_error:
             logger.warning(
                 f"{type(self).__name__}[{agent_id}] runtime error "
-                f"({result.error.error_type}): {result.error.error_message}"
+                f"({result.error.error_type}, severity={result.error.severity}): "
+                f"{result.error.error_message}"
             )
             err_text = self.format_error_reply(result.error)
-            # Distinguish "agent failed" from "agent stayed silent": if the
-            # agent already sent a real reply via its own tool before the
-            # failure (partial_reply_then_error), the user has heard from it —
-            # don't double-message. Otherwise the turn vanished silently, so
-            # surface the error into the channel. A run that stayed silent by
-            # CHOICE never sets is_error, so this never fires on intended
+            # Only surface FATAL (turn-ending) failures INTO the channel. A
+            # `recoverable` hiccup the loop retried past is not a failure — and
+            # if the agent then chose silence, fabricating a "something broke"
+            # message would itself be the confusion we're trying to avoid.
+            # (Mirrors chat's fallback, which also gates on severity=fatal;
+            # mid-loop crashes / config / auth errors all surface as fatal.)
+            #
+            # Among fatals: if the agent already sent a real reply via its own
+            # tool before the crash (partial_reply_then_error), the user has
+            # heard from it — don't double-message. A run that stayed silent by
+            # CHOICE never sets is_error at all, so this never disturbs intended
             # silence (group non-@ / nothing to add).
-            sent = self.extract_output(result, message, credential)
-            already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
-            await self._send_error_fallback(
-                credential, message, err_text, already_replied=already_replied
-            )
+            if result.has_fatal:
+                sent = self.extract_output(result, message, credential)
+                already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
+                await self._send_error_fallback(
+                    credential, message, err_text, already_replied=already_replied
+                )
             return err_text
 
         # Subclasses may want to extract platform-specific tool-call output;

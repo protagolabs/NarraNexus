@@ -54,6 +54,13 @@ class RunError:
 
     error_type: str
     error_message: str
+    severity: str = "fatal"
+    """Severity of the surfaced error, mirroring ``ErrorMessage.severity``
+    (``fatal`` / ``recoverable`` / ``recovered`` / ``recovered_after_reply``).
+    Defaults to ``fatal`` — the historical assumption, and what a bare
+    ``ErrorMessage`` also defaults to. Consumers that only want to react to
+    turn-ending failures should gate on ``RunCollection.has_fatal``, not just
+    ``is_error``."""
 
 
 @dataclass
@@ -75,6 +82,13 @@ class RunCollection:
     """``None`` when the run succeeded; a ``RunError`` when AgentRuntime
     yielded one or more ``ERROR`` messages. If multiple errors arrived
     the last one wins (callers get the most specific failure)."""
+
+    has_fatal: bool = False
+    """True iff at least one yielded ``ERROR`` had ``severity == "fatal"``
+    (turn-ending failure). Tracked across ALL errors, not just the last, so a
+    fatal followed by a recoverable frame still reads as fatal. Use this — not
+    ``is_error`` — to decide whether to surface a failure to the user: a
+    ``recoverable`` hiccup the loop retried past is not a turn failure."""
 
     @property
     def is_error(self) -> bool:
@@ -101,6 +115,7 @@ async def collect_run(
     tool_calls: list[str] = []
     raw_items: list[Any] = []
     error: Optional[RunError] = None
+    has_fatal: bool = False
     # Dedup synthesized tool_call_items by (tool_name, arguments_json). With
     # include_partial_messages=True the same ToolUseBlock can surface across
     # multiple AssistantMessage frames — the SDK dedups by tool_call_id, but
@@ -129,10 +144,16 @@ async def collect_run(
             # Last error wins — keep the most specific failure the run
             # reached (typically there's only one, but AgentRuntime may
             # yield a generic + specific pair in edge cases).
+            severity = getattr(msg, "severity", "fatal")
             error = RunError(
                 error_type=getattr(msg, "error_type", "unknown"),
                 error_message=getattr(msg, "error_message", str(msg)),
+                severity=severity,
             )
+            # has_fatal latches across ALL errors (a fatal never gets
+            # "downgraded" by a later recoverable frame).
+            if severity == "fatal":
+                has_fatal = True
 
         # Raw payload on any message type (Lark needs it from TOOL_CALL
         # events; other triggers simply ignore the list).
@@ -171,4 +192,5 @@ async def collect_run(
         tool_calls=tool_calls,
         raw_items=raw_items,
         error=error,
+        has_fatal=has_fatal,
     )
