@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-04-20
+last_verified: 2026-07-07
 stub: false
 ---
+
+## 2026-07-07 — severity + has_fatal(区分 turn 失败 vs 可恢复 blip)
+
+`RunError` 加 `severity`(镜像 `ErrorMessage.severity`,默认 `fatal`);
+`RunCollection` 加 `has_fatal`——**只要有一条 ERROR 的 severity 是 `fatal` 就
+True**,跨所有 error 锁存(fatal 不会被后来的 recoverable 帧「降级」)。
+`is_error` 仍是「有没有任何 error」,但 IM 通道的 error-fallback 改成 gate 在
+`has_fatal` 上:`recoverable`(限流/超时,loop 重试过去了)不算 turn 失败,不该
+往通道发「出错了」。与 chat fallback 的 `severity==fatal` 判定对齐。config 错误
+默认 fatal、mid-loop crash 经 `_stream_fallback_recovery` 也是 fatal,所以真实
+失败都抓得到。见 [[channel_trigger_base]] 2026-07-07。
 
 # run_collector.py — 统一的 AgentRuntime 消息收集器
 

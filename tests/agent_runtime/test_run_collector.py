@@ -55,11 +55,12 @@ def _tool(name: str, raw: dict | None = None) -> SimpleNamespace:
     )
 
 
-def _error(error_type: str, message: str) -> SimpleNamespace:
+def _error(error_type: str, message: str, severity: str = "fatal") -> SimpleNamespace:
     return SimpleNamespace(
         message_type=MessageType.ERROR,
         error_type=error_type,
         error_message=message,
+        severity=severity,
     )
 
 
@@ -121,6 +122,49 @@ async def test_error_is_captured_not_silently_dropped():
     # Preserves any text that was emitted BEFORE the error — callers
     # can decide whether to show it (it's half a reply) or drop it.
     assert result.output_text == "Attempting..."
+
+
+@pytest.mark.asyncio
+async def test_has_fatal_true_for_fatal_error():
+    runtime = _FakeRuntime([_error("Boom", "crashed", severity="fatal")])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="wechat",
+    )
+    assert result.is_error is True
+    assert result.has_fatal is True
+    assert result.error.severity == "fatal"
+
+
+@pytest.mark.asyncio
+async def test_has_fatal_false_for_recoverable_only():
+    """A recoverable hiccup sets is_error but NOT has_fatal — IM channels gate
+    their error-fallback on has_fatal so they don't message on a retried-past
+    blip."""
+    runtime = _FakeRuntime([
+        _delta("thinking"),
+        _error("RateLimited", "429", severity="recoverable"),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="discord",
+    )
+    assert result.is_error is True
+    assert result.has_fatal is False
+
+
+@pytest.mark.asyncio
+async def test_has_fatal_latches_even_if_recoverable_follows():
+    """A fatal followed by a later recoverable frame still reads as fatal."""
+    runtime = _FakeRuntime([
+        _error("Boom", "crashed", severity="fatal"),
+        _error("RateLimited", "429", severity="recoverable"),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="slack",
+    )
+    assert result.has_fatal is True
 
 
 @pytest.mark.asyncio

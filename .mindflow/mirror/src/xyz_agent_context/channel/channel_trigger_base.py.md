@@ -25,15 +25,22 @@ Fix — three pieces, all in `_build_and_run_agent`:
    best-effort (a send failure is logged, never masks the original error).
 3. `_build_and_run_agent` now: wraps `run_and_collect` in try/except (a hard
    raise, not just a yielded ERROR, still notifies — no silent crash); on
-   `result.is_error` computes `already_replied` from `extract_output` vs
+   `result.has_fatal` computes `already_replied` from `extract_output` vs
    `CHANNEL_SILENT_SENTINEL` and fires the fallback.
 
-**Key safety property**: the fallback fires ONLY on `is_error` (or a raise). A
-run that stays silent by CHOICE never sets `is_error`, so intended silence
-(group non-@, nothing to add — see `_build_and_run_agent_silent_batch`) is
-never disturbed. This deliberately does NOT recover the "agent wrote a reply
+**Key safety property**: the fallback fires ONLY on a **fatal** error
+(`result.has_fatal`) or a raise — NOT on any `is_error`. A `recoverable` hiccup
+the loop retried past is not a turn failure; if the agent then chose silence,
+fabricating a "something broke" message would be the very confusion we're
+avoiding. This mirrors chat's fallback, which also gates on `severity=fatal`
+(mid-loop crashes / config / auth errors all surface as fatal — verified:
+`_stream_fallback_recovery` yields `severity=fatal` for IM too, since its
+ErrorMessage emission is gated on `captured_error`, not on `fallback_mode`).
+A run that stays silent by CHOICE never sets `is_error` at all, so intended
+silence (group non-@, nothing to add — see `_build_and_run_agent_silent_batch`)
+is never disturbed. This deliberately does NOT recover the "agent wrote a reply
 but forgot to call the send tool" (`no_reply`) case for IM — too ambiguous vs
-intended silence; only errors are surfaced.
+intended silence; only fatal failures are surfaced.
 
 `CHANNEL_SILENT_SENTINEL = "(stayed silent)"` is now a shared module constant
 (was hard-coded identically in 5 channels) so the base can tell "agent stayed
