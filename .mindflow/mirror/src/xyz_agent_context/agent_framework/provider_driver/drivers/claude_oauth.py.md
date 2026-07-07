@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/drivers/claude_oauth.py
-last_verified: 2026-05-13
+last_verified: 2026-07-07
 stub: false
 ---
 
@@ -22,3 +22,7 @@ The ``user_providers`` row carries:
 
 Agent slot only. ``probe()`` checks file existence; token validity is
 the CLI's problem.
+
+## 2026-07-07 — helper 槽也由订阅覆盖
+
+新增 `build_cli_helper_config`（framework=claude_code, auth_type=oauth, key 空）。一次登录既服务 agent（build_claude_config）也服务 helper（helper 的结构化调用经 CliHelperSDK 走同一 claude CLI）。

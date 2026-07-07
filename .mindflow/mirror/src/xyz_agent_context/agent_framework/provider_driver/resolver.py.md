@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/resolver.py
-last_verified: 2026-06-17
+last_verified: 2026-07-07
 stub: false
 ---
 ## 2026-06-17 — 把 codex / helper 派发收进 driver 多态(铁律 #9)
@@ -108,3 +108,7 @@ Every failure raises ``LLMConfigNotConfigured`` with an actionable
 message. The caller's UX layer surfaces it to the user. No silent
 fallback to a different account — that was a leading cause of
 billing surprises in the old code.
+
+## 2026-07-07 — helper_llm 槽的 OAuth 走 CLI helper
+
+`_resolve_slot_target` 的 helper_llm 分支：`auth_type==oauth` 的 card 先于 protocol 判断，路由到 `build_cli_helper_config` → cfgs 键 `cli_helper` → 装进 `RuntimeLLMConfigs.cli_helper`。

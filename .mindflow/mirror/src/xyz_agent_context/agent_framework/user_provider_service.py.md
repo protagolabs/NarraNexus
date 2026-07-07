@@ -154,3 +154,7 @@ route 层 `backend/routes/providers.py` 现在 import 本文件的 `_SUPPORTED_A
   两个槽位改指新对 → 删旧对及其槽位。中途失败也不会让用户落到"无 provider"，比
   用户手动"先删后加"更安全。官方 anthropic/openai（source="user"，本就不守卫）不走此逻辑。
 背景：过期 key 场景（配合 background-llm 修复）用户要换 key，旧逻辑直接报"已存在"。
+
+## 2026-07-07 (bug#3) — OAuth 登录自动覆盖 helper 槽
+
+`add_provider(claude_oauth/codex_oauth)`：只填**空**的 agent/helper 槽（不覆盖已有配置），一次登录即 可用。`set_slot` 移除了"helper 拒绝 OAuth"的守卫（现在 OAuth 经 CliHelperSDK 服务 helper）。

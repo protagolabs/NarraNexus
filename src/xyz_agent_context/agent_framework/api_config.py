@@ -239,6 +239,33 @@ class CodexConfig:
 
 
 @dataclass(frozen=True)
+class CliHelperConfig:
+    """CLI-backed helper_llm configuration (subscription / OAuth helper).
+
+    Used when the helper_llm slot points at a subscription provider —
+    Claude Code (``claude_oauth``) or Codex (``codex_oauth``). Those OAuth
+    credentials cannot make direct Messages / Chat-Completions API calls, so
+    the helper's small structured-output calls run through the SAME CLI the
+    subscription already authorizes (one-shot, no separate API key). This is
+    what lets a single subscription login cover BOTH the agent slot and the
+    helper_llm slot. Consumed by :class:`CliHelperSDK`, never by the agent
+    loop.
+
+    ``framework`` selects the CLI backend: "claude_code" (via
+    ``claude_agent_sdk.query()``) or "codex_cli" (via ``codex exec``).
+    ``model`` is the model to request. ``auth_type`` / ``api_key`` /
+    ``base_url`` mirror the agent config so the SDK can reuse the exact
+    ``ClaudeConfig``/``CodexConfig`` ``to_cli_env`` credential wiring — for
+    OAuth the key is blank and the CLI reads its own credential file.
+    """
+    framework: str = "claude_code"  # "claude_code" | "codex_cli"
+    model: str = ""
+    base_url: str = ""
+    auth_type: str = "oauth"  # "oauth" | "api_key"
+    api_key: str = ""
+
+
+@dataclass(frozen=True)
 class GeminiConfig:
     """Google Gemini API configuration"""
     api_key: str = ""
@@ -256,6 +283,10 @@ class RuntimeLLMConfigs:
     # provider (single-Claude-key path); None means the helper runs
     # on the OpenAI protocol via ``openai`` above.
     anthropic_helper: Optional[AnthropicHelperConfig] = None
+    # Set when the helper_llm slot points at a subscription (OAuth)
+    # provider — the helper runs through the same CLI as the agent. Takes
+    # precedence over ``anthropic_helper`` / ``openai`` in get_helper_sdk().
+    cli_helper: Optional[CliHelperConfig] = None
 
 
 # =============================================================================
@@ -466,6 +497,9 @@ _codex_ctx: ContextVar[Optional[CodexConfig]] = ContextVar("codex_config", defau
 _anthropic_helper_ctx: ContextVar[Optional[AnthropicHelperConfig]] = ContextVar(
     "anthropic_helper_config", default=None
 )
+_cli_helper_ctx: ContextVar[Optional[CliHelperConfig]] = ContextVar(
+    "cli_helper_config", default=None
+)
 
 
 class _ConfigProxy:
@@ -499,6 +533,9 @@ codex_config: CodexConfig = _ConfigProxy("codex", _codex_ctx)  # type: ignore
 anthropic_helper_config: AnthropicHelperConfig = _ConfigProxy(
     "anthropic_helper", _anthropic_helper_ctx
 )  # type: ignore
+cli_helper_config: CliHelperConfig = _ConfigProxy(
+    "cli_helper", _cli_helper_ctx
+)  # type: ignore
 
 
 def reload_llm_config() -> None:
@@ -511,6 +548,7 @@ def set_user_config(
     openai: OpenAIConfig,
     codex: CodexConfig | None = None,
     anthropic_helper: AnthropicHelperConfig | None = None,
+    cli_helper: CliHelperConfig | None = None,
 ) -> None:
     """
     Set per-user LLM config for the CURRENT asyncio task only.
@@ -529,6 +567,7 @@ def set_user_config(
     _openai_ctx.set(openai)
     _codex_ctx.set(codex or CodexConfig())
     _anthropic_helper_ctx.set(anthropic_helper)
+    _cli_helper_ctx.set(cli_helper)
 
 
 def snapshot_user_config() -> dict[str, Optional[object]]:
@@ -545,6 +584,7 @@ def snapshot_user_config() -> dict[str, Optional[object]]:
         "openai": _openai_ctx.get(),
         "codex": _codex_ctx.get(),
         "anthropic_helper": _anthropic_helper_ctx.get(),
+        "cli_helper": _cli_helper_ctx.get(),
     }
 
 
@@ -594,6 +634,7 @@ def clear_user_config() -> None:
     _openai_ctx.set(None)
     _codex_ctx.set(CodexConfig())
     _anthropic_helper_ctx.set(None)
+    _cli_helper_ctx.set(None)
 
 def set_provider_source(src: Optional[str]) -> None:
     _provider_source_ctx.set(src)
@@ -889,4 +930,4 @@ async def setup_mcp_llm_context(agent_id: str) -> None:
             LLM providers. The caller should surface this as a tool error.
     """
     cfg = await get_agent_owner_runtime_llm_configs(agent_id)
-    set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+    set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)

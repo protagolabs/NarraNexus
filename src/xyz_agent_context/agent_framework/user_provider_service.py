@@ -312,6 +312,42 @@ class UserProviderService:
         else:
             raise ValueError(f"Unknown card_type: {card_type}")
 
+        # Subscription (OAuth) login covers BOTH slots in one step. The OAuth
+        # credential drives the agent CLI AND, via CliHelperSDK, the helper's
+        # one-shot calls — so bind agent + helper_llm to this provider now
+        # instead of forcing a second manual helper config (2026-07 P0).
+        #
+        # Fill EMPTY slots only: a fresh subscription login becomes fully
+        # runnable, but adding an OAuth provider on top of an existing working
+        # setup never clobbers the user's chosen agent/helper. Order mirrors
+        # onboard_one_key: framework first (set_slot's agent-protocol check
+        # reads it), then agent, then helper.
+        if card_type in ("claude_oauth", "codex_oauth") and new_ids:
+            pid = new_ids[0]
+            if card_type == "claude_oauth":
+                framework, agent_model, helper_model = "claude_code", "opus", "haiku"
+            else:
+                curated = list(json.loads((await self.db.get_one(
+                    "user_providers", {"user_id": user_id, "provider_id": pid}
+                ) or {}).get("models") or "[]"))
+                agent_model = curated[0] if curated else ""
+                framework, helper_model = "codex_cli", (curated[0] if curated else "")
+
+            def _slot_empty(row) -> bool:
+                return not row or not row.get("provider_id")
+
+            agent_slot = await self.db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": "agent"}
+            )
+            if _slot_empty(agent_slot):
+                await self.set_user_agent_framework(user_id, framework)
+                await self.set_slot(user_id, "agent", pid, agent_model)
+            helper_slot = await self.db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": "helper_llm"}
+            )
+            if _slot_empty(helper_slot):
+                await self.set_slot(user_id, "helper_llm", pid, helper_model)
+
         config = await self.get_user_config(user_id)
         return config, new_ids
 
@@ -453,22 +489,14 @@ class UserProviderService:
                 f"OpenAI's Responses API and are not supported."
             )
 
-        # helper_llm rejects OAuth providers (claude_oauth / codex_oauth):
-        # CLI OAuth credentials only drive the agent subprocess and cannot
-        # make direct Messages / Chat-Completions calls. The frontend
-        # hides them from the helper dropdown — this server-side check is
-        # defense in depth; without it the misbinding only surfaces at
-        # agent-loop time as a cryptic NotImplementedError.
-        if (
-            slot_name == SlotName.HELPER_LLM.value
-            and (prov.get("auth_type") or "").lower() == "oauth"
-        ):
-            raise ValueError(
-                f"helper_llm slot cannot use OAuth provider "
-                f"{prov.get('name') or provider_id!r} — CLI sign-in "
-                f"credentials can't make direct API calls. Assign an "
-                f"API-key provider instead."
-            )
+        # helper_llm now ACCEPTS OAuth providers (claude_oauth / codex_oauth):
+        # a subscription login covers both slots. The OAuth credential can't
+        # make DIRECT Messages / Chat-Completions calls, but the resolver
+        # routes an OAuth helper to a CliHelperConfig, and CliHelperSDK runs
+        # the helper's structured-output calls ONE-SHOT through the same CLI
+        # as the agent (see build_cli_helper_config). Previously this raised;
+        # the block was removed so `onboard`/`add_provider` can auto-bind the
+        # helper slot to the subscription (2026-07 "subscription covers helper").
 
         # Upsert slot
         existing = await self.db.get_one("user_slots", {"user_id": user_id, "slot_name": slot_name})

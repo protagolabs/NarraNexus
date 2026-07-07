@@ -255,7 +255,7 @@ async def add_provider(req: AddProviderRequest, request: Request):
                 set_user_config,
             )
             cfg = await get_user_runtime_llm_configs(uid)
-            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
         except Exception:
             pass
 
@@ -310,7 +310,7 @@ async def onboard(req: OnboardRequest, request: Request):
             set_user_config,
         )
         cfg = await get_user_runtime_llm_configs(uid)
-        set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+        set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
     except Exception:
         pass
 
@@ -461,7 +461,7 @@ async def use_subscription(request: Request):
             set_user_config,
         )
         cfg = await get_user_runtime_llm_configs(uid)
-        set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+        set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
     except Exception:
         pass
     from xyz_agent_context.module.job_module.job_recovery import (
@@ -606,7 +606,7 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
                 set_user_config,
             )
             cfg = await get_user_runtime_llm_configs(uid)
-            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
         except Exception:
             pass
 

@@ -22,13 +22,19 @@ are both empty. The ``ClaudeConfig.to_cli_env`` builder already does
 the right thing for that case, so this Driver just produces a
 ClaudeConfig with empty api_key + auth_type="oauth".
 
-OAuth rows can't serve the helper_llm slot — that needs a
-chat-completions endpoint, which Claude
-provides via the OAuth credential.
+The helper_llm slot is served the SAME way — a subscription login covers
+both the agent slot (``build_claude_config``) and the helper slot
+(``build_cli_helper_config``, framework="claude_code"): the helper's small
+structured-output calls run one-shot through the same ``claude`` CLI, so no
+separate API key is needed (bug: "Claude Code subscription should also apply
+to Helper LLM", 2026-07).
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.api_config import ClaudeConfig
+from xyz_agent_context.agent_framework.api_config import (
+    ClaudeConfig,
+    CliHelperConfig,
+)
 from xyz_agent_context.agent_framework.provider_driver.base import (
     DriverHealth,
     _DriverBase,
@@ -54,6 +60,17 @@ class ClaudeOAuthDriver(_DriverBase):
             model=model,
             auth_type="oauth",
             supports_anthropic_server_tools=True,
+        )
+
+    def build_cli_helper_config(self, model: str) -> CliHelperConfig:
+        # Same subscription, run one-shot through the claude CLI for the
+        # helper slot — no separate API key.
+        return CliHelperConfig(
+            framework="claude_code",
+            model=model,
+            base_url=self.card.base_url or "",
+            auth_type="oauth",
+            api_key="",
         )
 
     async def probe(self) -> DriverHealth:

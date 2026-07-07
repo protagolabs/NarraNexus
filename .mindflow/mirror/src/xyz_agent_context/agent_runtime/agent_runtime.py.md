@@ -156,3 +156,7 @@ helper 配置，其 Step-5 LLM hooks（社交实体摘要、memory extraction）
 ## 2026-07-07 (PR#68 review) — post_turn_hooks 告警补上 owner
 
 `_run_hooks_background` 此前丢弃 `inject_owner_helper_credentials` 的返回值、两处告警写死 `owner_user_id=None`,导致 Step-5 hooks(entity/memory)路径的凭据失败只落审计、进不了 owner inbox(正是事故里静默退化那条路)。现在捕获 owner 并传给告警;ProviderResolverError 分支额外查 agents 表补 owner。通用 except 保持 continue(而非 narrative updater 的 skip)——已加注释说明:Step-5 非 LLM hooks + Step-6 callback 仍需执行,需要凭据的 LLM hook 在内层 except fail-fast 并告警。
+
+## 2026-07-07 (bug#3) — set_user_config 传 cli_helper
+
+run() 起始的 `set_user_config(owner_configs...)` 增传 `owner_configs.cli_helper`，订阅 helper 才能 在本次 turn 生效。
