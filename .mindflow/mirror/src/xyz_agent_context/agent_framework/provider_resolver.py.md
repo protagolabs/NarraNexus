@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-07
 ---
+
+## 2026-07-07 — auto-switch 改竞态安全 CAS + 一次性通知(#48)
+
+`classify()` 的「用尽 + 有 own provider → 关免费层偏好 → USER_OK」分支,原本
+无条件 `set_preference(user_id, False)`(每次都写、并发多写)。改为
+`quota_svc.disable_preference_if_enabled(user_id)` —— 底层
+`UPDATE … SET prefer=0 WHERE prefer=1` 的 compare-and-swap:并发请求里**只有
+一个**拿到 rowcount>0(赢得 1→0 翻转),它才调 `_emit_free_tier_switch_notice`
+写一条 `SYSTEM_NOTICE`(source.type `free_tier_switch`,前端 App.tsx 弹一次性
+banner 再 mark-read)。通知是 best-effort:失败只 warn、绝不拖垮已切到用户
+key 的 run。**为什么这里是唯一的 flip 点**:`classify()` 是全项目单一决策树,
+agent-run 路径(api_config)现已收敛到它(见 api_config.py.md 2026-07-07),所以
+HTTP / 后台 job·bus / lark 全部共享同一次性 auto-switch。
 
 ## 2026-06-17 — resolve() 并入单点 resolver,不再用 protocol-blind builder
 

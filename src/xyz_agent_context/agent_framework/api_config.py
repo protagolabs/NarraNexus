@@ -711,57 +711,95 @@ async def get_agent_owner_runtime_llm_configs(
 
 async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig]:
     """
-    Resolve the LLM config stack for a specific user.
+    Resolve the (claude, openai) config pair for a specific user.
 
-    Decision tree (deliberately simple, no silent fallback):
+    Thin wrapper over :func:`get_user_runtime_llm_configs`, which routes the
+    decision through the single ``ProviderResolver`` tree. Decision summary:
 
-      1. ``prefer_system_override = True``  → strictly use the system
-         free tier. If disabled or quota exhausted →
-         ``SystemDefaultUnavailable`` (no fallback to the user's own
-         provider).
-      2. ``prefer_system_override = False`` (or no quota row) → strictly
-         use the user's own providers. If misconfigured →
-         ``LLMConfigNotConfigured`` (no fallback to the free tier).
+      1. ``prefer_system_override = True`` + budget → system free tier
+         (tags ``provider_source="system"`` so cost_tracker deducts quota).
+      2. ``prefer_system_override = True`` + exhausted + complete own provider
+         → auto-switch to the user's own key (#48); the free-tier preference
+         is flipped off and a one-time notice is surfaced.
+      3. ``prefer_system_override = True`` + exhausted + no own provider →
+         ``SystemDefaultUnavailable`` (add a provider / ask for more quota).
+      4. ``prefer_system_override = False`` (or no quota row) → strictly the
+         user's own providers; if misconfigured → ``LLMConfigNotConfigured``.
 
-    The user's Settings toggle is the single source of truth. When they
-    opted in we honour it even if the free tier is broken; when they
-    opted out we honour it even if they forgot to configure their own
-    provider — both error messages direct them to the right place.
-
-    The system branch tags ``provider_source="system"`` and
-    ``current_user_id=user_id`` on the current asyncio task's ContextVars
-    so ``cost_tracker.record_cost`` deducts the quota after the LLM call
-    completes.
-
-    QuotaService is lazily bootstrapped via ``_ensure_quota_service``,
-    so every entry point (backend.main, job_trigger, bus_trigger,
-    run_lark_trigger, standalone MCP runner) works out-of-the-box
-    without each having to call ``bootstrap_quota_subsystem``.
+    QuotaService is lazily bootstrapped via ``_ensure_quota_service``, so every
+    entry point (backend.main, job_trigger, bus_trigger, run_lark_trigger,
+    standalone MCP runner) works without calling ``bootstrap_quota_subsystem``.
 
     Raises:
-        SystemDefaultUnavailable: user opted in but free tier unusable.
-        LLMConfigNotConfigured: user opted out but own config missing.
+        SystemDefaultUnavailable: opted in, free tier gone, no own provider.
+        LLMConfigNotConfigured: opted out but own config missing/incomplete.
     """
     cfg = await get_user_runtime_llm_configs(user_id)
     return cfg.claude, cfg.openai
 
 
 async def get_user_runtime_llm_configs(user_id: str) -> RuntimeLLMConfigs:
-    """Resolve all runtime LLM configs, including the Codex agent config."""
-    quota_service = await _ensure_quota_service()
-    quota = await quota_service.get(user_id)
+    """Resolve all runtime LLM configs (agent + helper + codex) for a user.
 
-    if quota is not None and quota.prefer_system_override:
-        claude, openai_cfg = await _use_system_default_strict(
-            user_id,
-            quota_service,
-        )
-        return RuntimeLLMConfigs(
-            claude=claude,
-            openai=openai_cfg,
-        )
+    Delegates to the ONE provider decision tree — ``ProviderResolver`` — the
+    same classifier the HTTP quota gate and background workers use, so every
+    run path shares a single source of truth. In particular the agent-run path
+    now inherits the #48 auto-switch: an opted-in user whose free tier is
+    exhausted but who has a complete own provider is flipped to their own key
+    here too. Previously this path kept a divergent strict copy of the tree
+    that 402'd on exhaustion, ignoring the configured key on any run that did
+    not first pass through the HTTP middleware (background job/bus triggers).
 
-    return await _get_user_runtime_llm_configs_strict(user_id)
+    ``resolve()`` returns ``(configs, source)``; we tag ``provider_source`` /
+    ``current_user_id`` so ``cost_tracker`` deducts the free-tier quota only on
+    the system branch. ``None`` means the free tier is disabled (local/desktop
+    mode) — fall back to the strict own-config resolution unchanged.
+
+    Raises (ProviderResolverError translated into the LLMResolverError family
+    the agent runtime + job/lark triggers already handle):
+        SystemDefaultUnavailable: opted in, free tier gone, no own provider.
+        LLMConfigNotConfigured: opted out, own provider missing/incomplete.
+    """
+    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        NoProviderConfiguredError,
+        ProviderResolver,
+        ProviderResolverError,
+    )
+    from xyz_agent_context.agent_framework.system_provider_service import (
+        SystemProviderService,
+    )
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        UserProviderService,
+    )
+
+    db = await get_db_client()
+    resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=SystemProviderService.instance(),
+        quota_svc=await _ensure_quota_service(),
+    )
+    try:
+        resolved = await resolver.resolve(user_id)
+    except NoProviderConfiguredError as e:
+        # Opted out but own config missing/broken — same UX the strict
+        # own-config path raised before.
+        raise LLMConfigNotConfigured(str(e)) from e
+    except ProviderResolverError as e:
+        # Opted in, free tier gone, no own provider (QuotaExceededError), plus
+        # any other gate. Keep the SystemDefaultUnavailable *type* so triggers
+        # that string-match the class name (job_trigger, lark_trigger) are
+        # unaffected by the convergence.
+        raise SystemDefaultUnavailable(str(e)) from e
+
+    if resolved is None:
+        # SYSTEM_DISABLED — local/desktop mode, free tier not in play.
+        return await _get_user_runtime_llm_configs_strict(user_id)
+
+    cfgs, source = resolved
+    set_provider_source(source)
+    set_current_user_id(user_id)
+    return cfgs
 
 
 async def _ensure_quota_service():
@@ -786,40 +824,6 @@ async def _ensure_quota_service():
         return await bootstrap_quota_subsystem(db)
 
 
-async def _use_system_default_strict(
-    user_id: str,
-    quota_service,
-) -> tuple[ClaudeConfig, OpenAIConfig]:
-    """Strict system-default branch. Raises SystemDefaultUnavailable
-    with an actionable message if the free tier can't serve the request."""
-    from xyz_agent_context.agent_framework.system_provider_service import (
-        SystemProviderService,
-    )
-    from xyz_agent_context.agent_framework.provider_resolver import (
-        _llm_config_to_dataclasses,
-    )
-
-    sys_provider = SystemProviderService.instance()
-    if not sys_provider.is_enabled():
-        raise SystemDefaultUnavailable(
-            f"User {user_id!r} has opted in to the system free tier, but "
-            f"the administrator has disabled it. Either turn off 'Use free "
-            f"quota' in Settings and configure your own provider, or ask "
-            f"the administrator to enable SYSTEM_DEFAULT_LLM_ENABLED."
-        )
-
-    if not await quota_service.check(user_id):
-        raise SystemDefaultUnavailable(
-            f"User {user_id!r}: system free-tier quota exhausted. Either "
-            f"turn off 'Use free quota' in Settings and configure your "
-            f"own provider, or ask the administrator to grant more tokens."
-        )
-
-    # Budget available — tag ContextVars so cost_tracker's deduct hook
-    # attributes the cost correctly when the LLM call completes.
-    set_provider_source("system")
-    set_current_user_id(user_id)
-    return _llm_config_to_dataclasses(sys_provider.get_config())
 
 
 async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig]:

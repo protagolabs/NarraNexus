@@ -652,6 +652,8 @@
       "preferToggle": "Use free-tier quota even when I have my own provider configured",
       "preferOn": "Currently: routing through system provider — free-tier usage applies. Falls back to your own provider if the free tier runs out.",
       "preferOff": "Currently: using your own provider when configured; free tier only applies when you have no provider set.",
+      "exhaustedPreferOn": "Free tier used up — turn this off to route through your own provider now, or top up to keep using the free tier.",
+      "exhaustedPreferOff": "Free tier used up — currently using your own provider. This re-enables automatically once your quota is replenished.",
       "exhaustedNote": "Free tier consumed. Add your own provider below, or uncheck the toggle above to route through your existing provider."
     },
     "netmind": {
