@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-07-03
+last_verified: 2026-07-07
 stub: false
 ---
+
+## 2026-07-07 — `get_user_runtime_llm_configs` 收敛到单一 ProviderResolver(#48)
+
+根因:agent-run 路径(`get_agent_owner_runtime_llm_configs` → 此函数)原本自带
+**第二份**决策树(读 `prefer_system_override` 后 if/else + `_use_system_default_strict`),
+它**没有** `ProviderResolver.classify()` 的 #48 auto-switch。于是免费额度用尽 +
+配了 own key 的用户,在任何**不经过 HTTP 中间件**的 run(后台 job/bus 触发)上仍被
+硬 402,配置的 key 被忽略。
+
+改法:`get_user_runtime_llm_configs` 删掉那份 if/else + `_use_system_default_strict`,
+改为构造 `ProviderResolver` 并 `await resolver.resolve(user_id)`。这样 classify 的
+auto-switch/通知在所有 run 路径统一生效,全项目只剩一棵决策树。
+
+两个必须记住的边界:
+1. **错误翻译**:resolve() 抛的是 `ProviderResolverError` 家族(≠ `LLMResolverError`)。
+   agent_runtime / job_trigger / lark_trigger 只认 `LLMResolverError`(且按类名字符串
+   匹配 `SystemDefaultUnavailable`)。所以此函数 catch 并翻译:
+   `NoProviderConfiguredError→LLMConfigNotConfigured`,其余(`QuotaExceededError` 等)
+   `→SystemDefaultUnavailable`。**改类名会连累那些字符串匹配**。
+2. **SYSTEM_DISABLED 行为变化**:免费层被禁(本地/desktop 模式,或运营关掉)时
+   resolve() 返回 None → 此函数 fall through 到 `_get_user_runtime_llm_configs_strict`
+   (用 own config)。旧版对 opted-in 用户是硬抛 `SystemDefaultUnavailable`;现在与
+   resolver 的 passthrough 语义一致(有 own→用之,无 own→`LLMConfigNotConfigured`)。
 
 ## 2026-07-03 — `to_cli_env` normalizes CLI aliases (upstream #57)
 

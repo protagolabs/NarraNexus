@@ -37,8 +37,11 @@ pattern-matches on this string to decide which remediation UI to show.
 """
 from __future__ import annotations
 
+import uuid
 from enum import Enum
 from typing import Optional
+
+from loguru import logger
 
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
@@ -147,6 +150,44 @@ class NoProviderConfiguredError(ProviderResolverError):
         )
 
 
+async def _emit_free_tier_switch_notice(db, user_id: str) -> None:
+    """One-time inbox notice that the free tier ran out and NarraNexus
+    auto-switched the user to their own configured provider (#48).
+
+    Best-effort: the notice is a courtesy, never load-bearing. A failure to
+    write it must NOT break the run that triggered the switch, so we swallow
+    and log rather than propagate (the run still succeeds on the user's key).
+    Callers gate this on ``disable_preference_if_enabled`` returning True, so
+    it fires at most once per exhaustion episode; a fresh ``message_id`` per
+    call is therefore safe (no concurrent double-write to dedup against).
+    """
+    try:
+        from xyz_agent_context.repository.inbox_repository import InboxRepository
+        from xyz_agent_context.schema.inbox_schema import (
+            InboxMessageType,
+            MessageSource,
+        )
+
+        await InboxRepository(db).create_message(
+            user_id=user_id,
+            message_id=f"freeswitch_{uuid.uuid4().hex[:16]}",
+            title="Switched to your own provider",
+            content=(
+                "Your free-tier quota is used up. NarraNexus has automatically "
+                "switched to the API provider you configured — new runs now use "
+                "your own key. You can change this any time in Settings → Quota."
+            ),
+            message_type=InboxMessageType.SYSTEM_NOTICE,
+            # `source.type` lets the frontend recognise this specific notice and
+            # surface it as a one-time banner (App.tsx), then mark it read.
+            source=MessageSource(type="free_tier_switch", id=user_id),
+        )
+    except Exception as e:  # noqa: BLE001 — notice is best-effort, never fatal
+        logger.warning(
+            f"free-tier auto-switch notice failed for {user_id}: {e}"
+        )
+
+
 class ProviderResolver:
     """Arbitrates which LLMConfig feeds the current request's ContextVar."""
 
@@ -195,7 +236,13 @@ class ProviderResolver:
             # gated in QuotaService.set_preference). With no own provider there
             # is nothing to fall back to → surface the gate unchanged.
             if has_own:
-                await self.quota_svc.set_preference(user_id, False)
+                # Compare-and-swap: exactly one concurrent caller wins the 1→0
+                # flip and is the one that surfaces the one-time "switched to
+                # your own key" notice — no double-notify under load (#48).
+                if await self.quota_svc.disable_preference_if_enabled(user_id):
+                    await _emit_free_tier_switch_notice(
+                        self.user_provider_svc.db, user_id
+                    )
                 return ProviderAvailability.USER_OK
             return ProviderAvailability.QUOTA_EXCEEDED
 
