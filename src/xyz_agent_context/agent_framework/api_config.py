@@ -101,6 +101,27 @@ class ClaudeConfig:
         env["API_TIMEOUT_MS"] = str(_settings.llm_api_timeout_ms)
         env["CLAUDE_CODE_MAX_RETRIES"] = str(_settings.llm_max_retries)
 
+        # Isolate the subprocess from the host user's personal
+        # ``~/.claude/settings.json``. Claude Code applies that file's ``env``
+        # block ABOVE the subprocess env we set here (it even survives
+        # ``--setting-sources ""``), so a developer who runs their own Claude
+        # Code with a custom ``ANTHROPIC_BASE_URL``/``ANTHROPIC_AUTH_TOKEN``
+        # would have every agent_loop silently redirected to their personal
+        # endpoint — the netmind config we inject loses the precedence fight.
+        #  → 2026-07-08 incident: personal relay in the env block returned
+        #    ``503 No available accounts`` for every frontend message.
+        # Point keyed auth at a dedicated NarraNexus config dir (the CLI
+        # auto-creates it) so that file is never read. OAuth must keep the
+        # real ``~/.claude`` — its credential file lives there and the CLI
+        # reads the token from it. Always set the key (never omit) so a stray
+        # inherited ``CLAUDE_CONFIG_DIR`` can't leak in via the SDK's
+        # ``{**os.environ, **options.env}`` merge.
+        from pathlib import Path as _Path
+        if self.auth_type == "oauth":
+            env["CLAUDE_CONFIG_DIR"] = str(_Path.home() / ".claude")
+        else:
+            env["CLAUDE_CONFIG_DIR"] = _settings.claude_cli_config_path
+
         # Redirect Claude Code's *internal* LLM calls (WebFetch summarizer,
         # subagent task dispatch, alias-to-model resolution) to the same
         # provider as the main loop. Without these, those calls fall back

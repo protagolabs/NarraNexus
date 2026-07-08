@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-07-07
+last_verified: 2026-07-08
 stub: false
 ---
+
+## 2026-07-08 — `to_cli_env()` 用 `CLAUDE_CONFIG_DIR` 隔离个人 `~/.claude`(治根)
+
+事故:某开发者机器上每条前端消息都 `503 No available accounts`。根因不在
+netmind、也不在 NarraNexus 代码,而是 Claude Code 的 `~/.claude/settings.json`
+里那个 `env` 块——它把 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` 指到个人私
+有 relay,**优先级高于我们注入给 subprocess 的环境变量**,把 agent_loop 的
+provider 悄悄改道过去;relay 账号池耗尽 → 每次必挂。实测这个覆盖连 SDK 的
+`--setting-sources ""` 都压不住。
+
+修法:`to_cli_env()` 现在**总是**设 `CLAUDE_CONFIG_DIR`——keyed 认证
+(api_key/bearer)指向独立的 `settings.claude_cli_config_path`
+(`~/.nexusagent/claude_config`,CLI 会自动创建),那份个人 settings.json 从此
+不被读取;`auth_type == "oauth"` 则显式指向真正的 `~/.claude`,因为 OAuth 的
+凭据文件 `.credentials.json` 就在那、CLI 要从里面读 token。两个分支都显式赋值
+(不留空、不省略),这样父进程若带了 `CLAUDE_CONFIG_DIR` 也无法经 SDK 的
+`{**os.environ, **options.env}` 合并泄进来。守卫测试见
+`tests/agent_framework/test_claude_config_isolation.py`;新增的 settings 字段
+`claude_cli_config_path` 与 `base_working_path` 同风格(user-home 绝对路径)。
 
 ## 2026-07-07 — `get_user_runtime_llm_configs` 收敛到单一 ProviderResolver(#48)
 
