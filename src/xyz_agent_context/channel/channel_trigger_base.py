@@ -491,6 +491,24 @@ class ChannelTriggerBase(ABC):
     # Lifecycle
     # ────────────────────────────────────────────────────────────────────
 
+    async def pre_start(self, db) -> None:
+        """One-time, channel-specific bootstrap run BEFORE ``start()``.
+
+        Default is a no-op. The consolidated supervisor
+        (``module/run_channel_triggers.py``) calls ``pre_start(db)`` then
+        ``start(db)`` for each trigger. Subclasses override this to run their
+        own idempotent one-off migrations here — keeping channel-specific
+        logic inside the channel (rule #4) instead of in the shared entrypoint.
+
+        Example: ``LarkTrigger`` migrates the legacy ``auth_status`` value that
+        used to live in the standalone ``run_lark_trigger`` entrypoint.
+
+        MUST be idempotent (it runs on every process start) and SHOULD NOT
+        raise — the supervisor wraps the call, but a channel that fails
+        pre_start is skipped entirely, so swallow recoverable errors here.
+        """
+        return None
+
     async def start(self, db) -> None:
         """Start workers + credential watcher. Idempotent ish — call once per process."""
         self.running = True

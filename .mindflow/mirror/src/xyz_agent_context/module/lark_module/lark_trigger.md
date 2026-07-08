@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-05-27
+last_verified: 2026-07-08
 ---
+
+## 2026-07-08 — trigger consolidation: pre_start hook + health server moved out
+
+Two changes from the six-process → one-supervisor consolidation
+([[run_channel_triggers]]):
+
+- **`pre_start(db)`** now carries the legacy `auth_status="logged_in" ->
+  "bot_ready"` migration that used to live in the deleted `run_lark_trigger`
+  entrypoint. The supervisor calls `pre_start` before `start`.
+- **`/healthz` is no longer started in `LarkTrigger.start()`.** The supervisor
+  brings up ONE aggregated health endpoint ([[channel_health_server]]) covering
+  every channel; a per-trigger server would double-bind port 47831.
+  `_last_ws_connected_wallclock_ms` is still set here and surfaced by the
+  aggregated server via `getattr`.
+
+The `_subscribe_loop` override (threaded lark_oapi SDK in a `daemon` thread,
+main loop polling `t.is_alive()` via `await asyncio.sleep(1)`, callbacks via
+`run_coroutine_threadsafe(..., self._loop)`) was audited safe for the shared
+event loop — it never blocks the loop, so consolidation needs no change to it.
 
 ## 2026-05-27 — capture brand_mismatch (WS error 1000040351) at runtime
 
