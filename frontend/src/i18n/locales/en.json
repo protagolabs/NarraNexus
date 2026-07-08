@@ -696,7 +696,11 @@
       "rechargeSuccess": "Top-up complete — balance updated.",
       "rechargeFailed": "Payment failed or was cancelled.",
       "rechargeInvalidAmount": "Enter an amount greater than 0.",
-      "rechargeStopWaiting": "Stop waiting"
+      "rechargeStopWaiting": "Stop waiting",
+      "connectedStatus": "Running NarraNexus on your NetMind.AI Power credits (used after the free tier).",
+      "connecting": "Connecting your NetMind.AI Power account…",
+      "useDescSwitch": "You have your own provider configured. Switch to running on your NetMind.AI Power credits instead.",
+      "connectRetry": "Retry connecting"
     },
     "modal": {
       "title": "Settings",

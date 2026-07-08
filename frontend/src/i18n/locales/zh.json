@@ -695,7 +695,11 @@
       "rechargeSuccess": "充值完成 —— 余额已更新。",
       "rechargeFailed": "支付失败或已取消。",
       "rechargeInvalidAmount": "请输入大于 0 的金额。",
-      "rechargeStopWaiting": "停止等待"
+      "rechargeStopWaiting": "停止等待",
+      "connectedStatus": "正在用你的 NetMind.AI Power 额度运行 NarraNexus（免费额度用完后生效）。",
+      "connecting": "正在接入你的 NetMind.AI Power 账户…",
+      "useDescSwitch": "你已配置了自己的服务商。可改为用你的 NetMind.AI Power 额度运行。",
+      "connectRetry": "重试接入"
     },
     "modal": {
       "title": "设置",

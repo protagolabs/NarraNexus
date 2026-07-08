@@ -17,6 +17,14 @@
  * Stripe checkout (checkout_url) → openExternal → poll by-session until
  * succeeded/failed → refresh balance. Same bounded-poll + on-focus pattern.
  *
+ * Module F (use-subscription) is auto-connect + status, NOT a manual button:
+ * cloud login IS NetMind login, so a fresh user (no provider) is auto-wired on
+ * mount (mint key → onboard); an existing netmind provider shows a ✓ status; a
+ * user with their OWN provider is left alone and only offered an explicit
+ * switch. NetMind sits behind the system free tier (prefer_system default on),
+ * so auto-connecting never spends money before the free tier is exhausted. The
+ * whole section is hidden when the feature flag is off (403).
+ *
  * Mirrors QuotaPanel: cloud-mode gate + `return null` when not applicable.
  * Copy is fully i18n-keyed (settings.netmind.*) with English source defaults.
  */
@@ -39,6 +47,34 @@ const POLL_MAX_MS = 180000; // 3 min bound — never poll forever
 const RECHARGE_TIERS = [5, 10, 20, 50];
 
 type RechargeState = 'idle' | 'processing' | 'success' | 'failed';
+
+// How the user's NetMind account is wired into NarraNexus (module F). Since
+// cloud login IS NetMind login, a fresh user is auto-connected (mint key +
+// onboard) so their credits "just work" — no manual button. A user who already
+// configured their OWN provider is left alone (respect their choice) and only
+// offered an explicit switch.
+type ConnectState =
+  | 'checking'        // reading provider state
+  | 'connecting'      // auto/manual connect in flight
+  | 'connected'       // a netmind provider is wired
+  | 'other_provider'  // user has their own provider; offer an explicit switch
+  | 'failed'          // connect attempt errored; offer retry
+  | 'off';            // feature flag disabled → hide the section
+
+// Money strings from NetMind can carry 4 decimals ("9.9300"); show 2.
+function money(v?: string | null): string {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(2) : '—';
+}
+
+// Classify a useSubscription() rejection into a ConnectState. Pure (module-level
+// so the connect callbacks don't need it in their dep arrays).
+function classifyConnectError(msg: string): ConnectState {
+  if (/not enabled|\b403\b/i.test(msg)) return 'off';   // feature flag off
+  if (/already/i.test(msg)) return 'connected';         // dedup race
+  return 'failed';
+}
 
 function resolveState(me: SubscriptionMe | null): PanelState {
   if (!me) return 'error';
@@ -73,13 +109,16 @@ export function NetmindAccountPanel() {
   const [fee, setFee] = useState<FeeInfo | null>(null);
   const [feeLoaded, setFeeLoaded] = useState(false);
   const [records, setRecords] = useState<FinanceRecord[]>([]);
-  const [useResult, setUseResult] = useState<{ ok: boolean; msg: string } | null>(null);
   // Top-up (module E): selected preset tier + optional custom amount override.
   const [tier, setTier] = useState<number>(10);
   const [custom, setCustom] = useState<string>('');
   const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
   const [rechargeError, setRechargeError] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false); // recent activity collapsed by default
+  // Module F: how the NetMind account is wired in (auto-connect + status).
+  const [connect, setConnect] = useState<ConnectState>('checking');
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const connectRef = useRef(false); // guard the auto-connect from re-entry
   const mounted = useRef(true);
   // Synchronous locks: React state (busy/polling) updates are async/batched, so
   // a fast double-click can fire a handler twice before `disabled` re-renders.
@@ -115,14 +154,6 @@ export function NetmindAccountPanel() {
     setFeeLoaded(true);
     setRecords(recR.status === 'fulfilled' ? recR.value.data ?? [] : []);
   }, []);
-
-  useEffect(() => {
-    mounted.current = true;
-    if (isCloud) void load();
-    return () => {
-      mounted.current = false;
-    };
-  }, [isCloud, load]);
 
   // C3 mitigation: no deterministic signal when the user returns from the
   // external Stripe window (esp. desktop). Refresh whenever the tab regains
@@ -233,27 +264,58 @@ export function NetmindAccountPanel() {
     }
   }, [t, load]);
 
-  const handleUseSubscription = useCallback(async () => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    setUseResult(null);
+  // Mint + wire the NetMind account (explicit: fresh-user auto-connect, a manual
+  // switch from another provider, or a retry). Sets the connect status.
+  const connectNetmind = useCallback(async () => {
+    setConnect('connecting');
+    setConnectError(null);
     try {
       await api.useSubscription();
-      if (mounted.current) {
-        setUseResult({
-          ok: true,
-          msg: t('settings.netmind.useSubscribeOk',
-            'Connected — you can now pick a model in LLM Providers.'),
-        });
-      }
+      if (mounted.current) setConnect('connected');
     } catch (e) {
-      if (mounted.current) setUseResult({ ok: false, msg: errMessage(e) });
-    } finally {
-      busyRef.current = false;
-      if (mounted.current) setBusy(false);
+      if (!mounted.current) return;
+      const next = classifyConnectError(errMessage(e));
+      setConnect(next);
+      if (next === 'failed') setConnectError(errMessage(e));
     }
-  }, [t]);
+  }, []);
+
+  // Decide the connect status on mount. Cloud login IS NetMind login, so:
+  //  - already have a netmind provider → connected (status only)
+  //  - have some OTHER provider → respect it; offer an explicit switch
+  //  - no provider at all (fresh NetMind user) → AUTO-connect once
+  const resolveConnection = useCallback(async () => {
+    if (connectRef.current) return;
+    connectRef.current = true;
+    try {
+      const r = await api.getProviders();
+      const provs = (r.data?.providers ?? {}) as Record<string, { source?: string }>;
+      const values = Object.values(provs);
+      if (values.some((p) => p?.source === 'netmind')) {
+        if (mounted.current) setConnect('connected');
+      } else if (values.length > 0) {
+        if (mounted.current) setConnect('other_provider'); // don't hijack their choice
+      } else {
+        await connectNetmind(); // fresh user → auto-connect (the "default effect")
+      }
+    } catch {
+      // Couldn't read providers — don't block; fall back to a manual retry.
+      if (mounted.current) { setConnect('failed'); setConnectError(null); }
+    } finally {
+      connectRef.current = false;
+    }
+  }, [connectNetmind]);
+
+  useEffect(() => {
+    mounted.current = true;
+    if (isCloud) {
+      void load();
+      void resolveConnection(); // auto-connect a fresh NetMind user; else status
+    }
+    return () => {
+      mounted.current = false;
+    };
+  }, [isCloud, load, resolveConnection]);
 
   // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
   // success, reload so the balance hero + activity reflect the new credit.
@@ -449,12 +511,12 @@ export function NetmindAccountPanel() {
           {feeLoaded && fee && (
             <div>
               <div className="text-2xl font-semibold font-mono text-[var(--text-primary)] leading-none">
-                ${fee.metrics?.free_credit ?? '—'}
+                ${money(fee.metrics?.free_credit)}
               </div>
               <div className="mt-1 text-xs text-[var(--text-tertiary)]">
                 {t('settings.netmind.currentBalance', 'Current balance')}
                 {' · '}
-                {t('settings.netmind.monthlyGrant', 'Monthly grant')} ${fee.metrics?.monthly_free_credit ?? '—'}
+                {t('settings.netmind.monthlyGrant', 'Monthly grant')} ${money(fee.metrics?.monthly_free_credit)}
               </div>
               {fee.eligible === false && (
                 <div className="mt-1.5 text-xs text-[var(--color-warning)]">
@@ -469,6 +531,19 @@ export function NetmindAccountPanel() {
               )}
             </div>
           )}
+
+          {/* Plan status + primary action (subscribe / cancel / resume) */}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-[var(--text-secondary)]">{statusLine()}</p>
+            {actionButton()}
+          </div>
+          {polling && (
+            <p className="text-xs text-[var(--text-tertiary)]">
+              {t('settings.netmind.awaitingPayment',
+                'Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.')}
+            </p>
+          )}
+          {actionError && <p className="text-xs text-[var(--color-error)]">{actionError}</p>}
 
           {/* Top-up (module E) — any Free/Pro user can add credits */}
           <div className="space-y-2">
@@ -547,37 +622,49 @@ export function NetmindAccountPanel() {
             )}
           </div>
 
-          {/* Plan status + primary action */}
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-[var(--text-secondary)]">{statusLine()}</p>
-            {actionButton()}
-          </div>
-          {polling && (
-            <p className="text-xs text-[var(--text-tertiary)]">
-              {t('settings.netmind.awaitingPayment',
-                'Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.')}
-            </p>
-          )}
-          {actionError && <p className="text-xs text-[var(--color-error)]">{actionError}</p>}
-
-          {/* Use this NetMind.AI Power account to power the agent */}
-          <div className="rounded-md bg-[var(--bg-sunken)] p-3 space-y-2">
-            <div className="text-sm font-medium text-[var(--text-primary)]">
-              {t('settings.netmind.useTitle', 'Power NarraNexus with this account')}
+          {/* How this account drives NarraNexus (module F) — auto-connected for
+              a fresh NetMind user, so this is a STATUS, not a manual button.
+              Hidden entirely when the feature flag is off. */}
+          {connect !== 'off' && (
+            <div className="rounded-md bg-[var(--bg-sunken)] p-3 space-y-2">
+              {connect === 'connected' && (
+                <div className="flex items-center gap-1.5 text-sm text-[var(--color-success)]">
+                  <span aria-hidden>✓</span>
+                  <span>
+                    {t('settings.netmind.connectedStatus',
+                      'Running NarraNexus on your NetMind.AI Power credits (used after the free tier).')}
+                  </span>
+                </div>
+              )}
+              {(connect === 'checking' || connect === 'connecting') && (
+                <div className="text-sm text-[var(--text-tertiary)]">
+                  {t('settings.netmind.connecting', 'Connecting your NetMind.AI Power account…')}
+                </div>
+              )}
+              {connect === 'other_provider' && (
+                <>
+                  <div className="text-sm font-medium text-[var(--text-primary)]">
+                    {t('settings.netmind.useTitle', 'Power NarraNexus with this account')}
+                  </div>
+                  <p className="text-xs text-[var(--text-tertiary)]">
+                    {t('settings.netmind.useDescSwitch',
+                      'You have your own provider configured. Switch to running on your NetMind.AI Power credits instead.')}
+                  </p>
+                  <Button variant="accent" size="sm" onClick={connectNetmind}>
+                    {t('settings.netmind.useSubscribeBtn', 'Use this account')}
+                  </Button>
+                </>
+              )}
+              {connect === 'failed' && (
+                <>
+                  {connectError && <p className="text-xs text-[var(--color-error)]">{connectError}</p>}
+                  <Button variant="outline" size="sm" onClick={connectNetmind}>
+                    {t('settings.netmind.connectRetry', 'Retry connecting')}
+                  </Button>
+                </>
+              )}
             </div>
-            <p className="text-xs text-[var(--text-tertiary)]">
-              {t('settings.netmind.useDesc',
-                'Run agent conversations on your NetMind.AI Power credits — no API key to paste.')}
-            </p>
-            <Button variant="accent" size="sm" onClick={handleUseSubscription} disabled={busy}>
-              {busy ? t('settings.netmind.working', 'Working…') : t('settings.netmind.useSubscribeBtn', 'Use this account')}
-            </Button>
-            {useResult && (
-              <p className={`text-xs ${useResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
-                {useResult.msg}
-              </p>
-            )}
-          </div>
+          )}
 
           {/* Recent activity — collapsed by default (keeps the panel clean),
               settled ledger only. `pending` rows are hidden: every abandoned
