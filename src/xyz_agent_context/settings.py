@@ -174,6 +174,16 @@ class Settings(BaseSettings):
     # NETMIND_KEY_API_BASE=https://mind-web.protago-dev.com.
     netmind_key_api_base: str = "https://platform-api.netmind.ai"
 
+    # NetMind inference base (chat/completions + messages). ONLY the
+    # use-subscription (minted-key) path uses this: a key we mint via
+    # NETMIND_KEY_API_BASE must hit the MATCHING inference env, so this must be
+    # set to the same NetMind environment as the key/auth/billing hosts.
+    # Manual "paste your own key" (OneKeyOnboard) intentionally does NOT use it —
+    # a user's own key is a public prod NetMind key, so that path stays on prod.
+    # prod api.netmind.ai; dev sets
+    # NETMIND_INFERENCE_BASE=https://test.api.netmind.ai/inference-api.
+    netmind_inference_base: str = "https://api.netmind.ai/inference-api"
+
     # Module F gate (Phase 5): "use this subscription" auto-generates a NetMind
     # inference key and wires it to the agent/helper slots. Kept OFF until the
     # C1 contract is confirmed with NetMind — i.e. that the generated key's

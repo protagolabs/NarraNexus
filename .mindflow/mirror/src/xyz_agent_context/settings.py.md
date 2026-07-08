@@ -1,8 +1,47 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-06
+last_verified: 2026-07-07
 stub: false
 ---
+
+## 2026-07-07 — deploy env vars added by the NetMind billing integration (count + prod/local impact)
+
+The NetMind subscription/billing feature (PRs #62 + #70) added **5** deployment
+env vars (names only — values are per-environment, see `.env.cloud.example`):
+
+- `BILLING_API_BASE`
+- `BILLING_API_TIMEOUT_SECONDS`
+- `NETMIND_KEY_API_BASE`
+- `NETMIND_INFERENCE_BASE`
+- `NETMIND_USE_SUBSCRIPTION_ENABLED`
+
+`NETMIND_AUTH_API_URL` is NOT one of them — it predates this (the NetMind login
+feature). The system free-tier vars (`SYSTEM_DEFAULT_NETMIND_*`) are also separate.
+
+**Local/desktop mode: unaffected — needs none of these.** The billing and
+use-subscription routes are cloud-gated (`is_cloud_mode()` → 404 in local), so
+these settings are never read off the local path. Local behavior is identical
+whether or not they are set.
+
+**Prod-upgrade checklist (so nothing is missed):**
+- The three base URLs (`BILLING_API_BASE` / `NETMIND_KEY_API_BASE` /
+  `NETMIND_INFERENCE_BASE`) DEFAULT to prod, so a prod deploy needs **no change**
+  to them — the defaults are already the prod hosts.
+- The ONE deliberate prod action is `NETMIND_USE_SUBSCRIPTION_ENABLED`: keep
+  **False** until the C1 billing contract is verified end-to-end on prod, then flip.
+- Dev/staging must override all three base URLs (+ the pre-existing
+  `NETMIND_AUTH_API_URL`) to the dev NetMind env AND set the flag True. Full
+  dev↔prod mapping lives in `.env.cloud.example`.
+
+## 2026-07-07 — netmind_inference_base
+
+Added `netmind_inference_base` (default prod `https://api.netmind.ai/inference-api`;
+dev sets `NETMIND_INFERENCE_BASE=https://test.api.netmind.ai/inference-api`). Used
+ONLY by the use-subscription minted-key path; must match the same NetMind env as
+NETMIND_KEY_API_BASE / BILLING_API_BASE / NETMIND_AUTH_API_URL. Manual key paste
+stays on prod. See [[providers]] / [[user_provider_service]].
+
+
 
 ## 2026-07-06 — NetMind billing / subscription settings
 

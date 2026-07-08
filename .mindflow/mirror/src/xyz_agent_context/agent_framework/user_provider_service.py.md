@@ -3,6 +3,20 @@ code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
 last_verified: 2026-07-07
 stub: false
 ---
+
+## 2026-07-07 — netmind inference base env-configurable (minted-key path only)
+
+_build_dual_providers / _verify_onboard_key / add_provider / onboard_one_key gained
+an optional inference_base. When set AND card_type=="netmind", the two provider
+rows' base_url is derived from it (_netmind_base_for: {base}/anthropic,
+{base}/openai/v1) and the pre-write probe uses the same base. Default (None) =
+the hardcoded prod _DUAL_PROVIDER_CONFIGS. ONLY use-subscription passes it (from
+settings.netmind_inference_base); manual /onboard paste passes nothing → prod.
+Rationale: a minted key belongs to the deployment's NetMind env (dev key → dev
+inference), but a user-pasted key is their own public prod key. See [[settings]]
+and reference/self_notebook/todo/2026-07-03-netmind-inference-base-hardcoded.md.
+
+
 ## 2026-06-10 (5th pass) — onboard live-verifies the key before writing
 
 onboard_one_key now probes the key via provider_registry.test_provider

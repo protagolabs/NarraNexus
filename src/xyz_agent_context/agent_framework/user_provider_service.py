@@ -179,6 +179,7 @@ class UserProviderService:
         auth_type: str = "api_key",
         models: Optional[List[str]] = None,
         replace: bool = False,
+        inference_base: Optional[str] = None,
     ) -> tuple[LLMConfig, list[str]]:
         """Add a provider for a user. Returns (updated_config, new_provider_ids).
 
@@ -200,7 +201,9 @@ class UserProviderService:
                     raise ValueError(f"A {card_type} provider already exists for this user")
 
             group_id = _generate_group_id()
-            configs = _build_dual_providers(card_type, api_key, group_id, models)
+            configs = _build_dual_providers(
+                card_type, api_key, group_id, models, inference_base=inference_base
+            )
             for cfg in configs:
                 await self._insert_provider(user_id, cfg, now)
                 new_ids.append(cfg["provider_id"])
@@ -498,6 +501,7 @@ class UserProviderService:
         api_key: str,
         provider_type: Optional[str] = None,
         replace: bool = False,
+        inference_base: Optional[str] = None,
     ) -> tuple[LLMConfig, list[str], dict]:
         """Wire a complete runnable config from a single API key.
 
@@ -573,7 +577,9 @@ class UserProviderService:
         # Definitive auth rejections (401/403) raise; transient failures
         # (network, 5xx) do NOT block — we proceed and report
         # key_check="unverified (...)" so the UI can surface a warning.
-        key_check = await self._verify_onboard_key(ptype, key, agent_model)
+        key_check = await self._verify_onboard_key(
+            ptype, key, agent_model, inference_base=inference_base
+        )
 
         await self.set_user_agent_framework(user_id, framework)
         # Expand-contract replace: create the NEW provider(s) and repoint slots
@@ -583,6 +589,7 @@ class UserProviderService:
         # delete-then-add the user would otherwise do by hand).
         config, new_ids = await self.add_provider(
             user_id=user_id, card_type=ptype, api_key=key, replace=bool(old_rows),
+            inference_base=inference_base,
         )
         # Official anthropic/openai cards create ONE provider that
         # serves both slots. The netmind card creates TWO linked rows
@@ -622,7 +629,8 @@ class UserProviderService:
         return config, new_ids, meta
 
     async def _verify_onboard_key(
-        self, ptype: str, api_key: str, agent_model: str
+        self, ptype: str, api_key: str, agent_model: str,
+        inference_base: Optional[str] = None,
     ) -> str:
         """Live-probe the key against its provider before persisting.
 
@@ -645,6 +653,12 @@ class UserProviderService:
 
         if ptype in _DUAL_PROVIDER_CONFIGS:
             info = _DUAL_PROVIDER_CONFIGS[ptype]["anthropic"]
+            # Probe the SAME base the provider will be created with — otherwise a
+            # dev-minted netmind key gets probed against prod inference and 401s,
+            # failing onboarding before it ever writes.
+            base_url = info["base_url"]
+            if ptype == "netmind" and inference_base:
+                base_url = _netmind_base_for("anthropic", inference_base)
             probe_cfg = ProviderConfig(
                 provider_id="_onboard_verify",
                 name="onboard verify",
@@ -652,7 +666,7 @@ class UserProviderService:
                 protocol=ProviderProtocol.ANTHROPIC,
                 auth_type=info["auth_type"],
                 api_key=api_key,
-                base_url=info["base_url"],
+                base_url=base_url,
                 models=[agent_model],
             )
         else:
@@ -834,12 +848,35 @@ _DUAL_PROVIDER_CONFIGS = {
 }
 
 
-def _build_dual_providers(card_type: str, api_key: str, group_id: str, models: Optional[list] = None) -> list[dict]:
+# NetMind's two inference sub-endpoints hang off one base prefix
+# (prod: https://api.netmind.ai/inference-api). ONLY netmind's base is
+# environment-swappable — a key minted on dev NetMind must hit dev inference
+# (https://test.api.netmind.ai/inference-api). yunwu/openrouter are single-env.
+_NETMIND_INFERENCE_SUBPATHS = {"anthropic": "/anthropic", "openai": "/openai/v1"}
+
+
+def _netmind_base_for(protocol: str, inference_base: str) -> str:
+    """Derive netmind's per-protocol inference URL from a base prefix override."""
+    return inference_base.rstrip("/") + _NETMIND_INFERENCE_SUBPATHS[protocol]
+
+
+def _build_dual_providers(
+    card_type: str,
+    api_key: str,
+    group_id: str,
+    models: Optional[list] = None,
+    inference_base: Optional[str] = None,
+) -> list[dict]:
     from xyz_agent_context.agent_framework.model_catalog import get_default_models
     cfg = _DUAL_PROVIDER_CONFIGS[card_type]
     result = []
     for protocol, info in cfg.items():
         proto_models = models or get_default_models(card_type, protocol)
+        # Override the base ONLY for netmind + when a caller opted in
+        # (use-subscription). Everything else keeps the hardcoded prod base.
+        base_url = info["base_url"]
+        if card_type == "netmind" and inference_base:
+            base_url = _netmind_base_for(protocol, inference_base)
         result.append({
             "provider_id": _generate_provider_id(),
             "name": info["name"],
@@ -847,7 +884,7 @@ def _build_dual_providers(card_type: str, api_key: str, group_id: str, models: O
             "protocol": protocol,
             "auth_type": info["auth_type"],
             "api_key": api_key,
-            "base_url": info["base_url"],
+            "base_url": base_url,
             "models": json.dumps(proto_models),
             "linked_group": group_id,
         })

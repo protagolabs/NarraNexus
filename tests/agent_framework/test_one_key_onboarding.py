@@ -711,3 +711,64 @@ async def test_framework_probe_passes_on_api_key_provider(monkeypatch):
     probe = await _probe_agent_framework_auth("claude_code", user_id="u2")
     assert probe["ok"] is True
     assert "API-key provider" in probe["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 follow-up: netmind inference base is env-configurable, but ONLY on
+# the use-subscription (minted-key) path. Manual paste keeps the prod default.
+# ---------------------------------------------------------------------------
+
+def test_build_dual_providers_netmind_default_is_prod():
+    """No inference_base → the hardcoded prod bases (manual-paste path)."""
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        _build_dual_providers,
+    )
+    rows = {r["protocol"]: r for r in _build_dual_providers("netmind", "k", "g")}
+    assert rows["anthropic"]["base_url"] == "https://api.netmind.ai/inference-api/anthropic"
+    assert rows["openai"]["base_url"] == "https://api.netmind.ai/inference-api/openai/v1"
+
+
+def test_build_dual_providers_netmind_inference_base_override():
+    """use-subscription passes a base → both rows point at that env (dev)."""
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        _build_dual_providers,
+    )
+    rows = {
+        r["protocol"]: r
+        for r in _build_dual_providers(
+            "netmind", "k", "g",
+            inference_base="https://test.api.netmind.ai/inference-api",
+        )
+    }
+    assert rows["anthropic"]["base_url"] == "https://test.api.netmind.ai/inference-api/anthropic"
+    assert rows["openai"]["base_url"] == "https://test.api.netmind.ai/inference-api/openai/v1"
+
+
+def test_build_dual_providers_trailing_slash_normalized():
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        _build_dual_providers,
+    )
+    rows = {
+        r["protocol"]: r
+        for r in _build_dual_providers(
+            "netmind", "k", "g",
+            inference_base="https://test.api.netmind.ai/inference-api/",  # trailing /
+        )
+    }
+    assert rows["openai"]["base_url"] == "https://test.api.netmind.ai/inference-api/openai/v1"
+
+
+def test_inference_base_override_only_applies_to_netmind():
+    """A stray inference_base must NOT rewrite yunwu/openrouter bases."""
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        _build_dual_providers,
+    )
+    rows = {
+        r["protocol"]: r
+        for r in _build_dual_providers(
+            "yunwu", "k", "g",
+            inference_base="https://test.api.netmind.ai/inference-api",
+        )
+    }
+    assert "netmind" not in rows["openai"]["base_url"]
+    assert rows["openai"]["base_url"] == "https://api.yunwuai.cloud/v1"
