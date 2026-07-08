@@ -726,15 +726,22 @@ class AgentRuntime:
                 )
                 from xyz_agent_context.utils.db_factory import get_db_client
 
+                owner_user_id = None
                 try:
                     _db = await get_db_client()
-                    await inject_owner_helper_credentials(_agent_id, _db)
+                    owner_user_id = await inject_owner_helper_credentials(_agent_id, _db)
                 except ProviderResolverError as e:
                     # No usable provider / quota gone. Don't run the LLM hooks
-                    # against the platform key — surface it and skip.
+                    # against the platform key — surface it and skip. Resolution
+                    # raised before returning the owner, so look it up directly
+                    # so the credential alert still reaches the owner's inbox.
+                    owner_user_id = (
+                        (await _db.get_one("agents", {"agent_id": _agent_id}) or {})
+                        .get("created_by")
+                    )
                     await alert_background_llm_failure(
                         agent_id=_agent_id,
-                        owner_user_id=None,
+                        owner_user_id=owner_user_id,
                         source="post_turn_hooks",
                         error=e,
                         source_id=_event_id,
@@ -742,6 +749,11 @@ class AgentRuntime:
                     clear_cost_context()
                     return
                 except Exception as e:  # noqa: BLE001 — best-effort injection
+                    # Unlike the narrative updater (which skips the whole update
+                    # on an injection failure), we CONTINUE here: Step-5 also runs
+                    # non-LLM hooks and the Step-6 callbacks must still fire. The
+                    # LLM hooks that need creds fail fast below and are alerted at
+                    # the inner credential-error handler.
                     logger.warning(
                         f"[BG] helper-credential injection failed for {_agent_id}: {e}"
                     )
@@ -775,7 +787,7 @@ class AgentRuntime:
                     if is_credential_error(e):
                         await alert_background_llm_failure(
                             agent_id=_agent_id,
-                            owner_user_id=None,
+                            owner_user_id=owner_user_id,
                             source="post_turn_hooks",
                             error=e,
                             source_id=_event_id,

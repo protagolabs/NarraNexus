@@ -669,8 +669,6 @@ class MessageBusTrigger:
     ) -> List[str]:
         """Resolve @mentions in an agent's reply to channel-member agent_ids
         (or ["@everyone"] for @all/@everyone), so a hand-off pulls teammates in."""
-        import re
-
         tokens = {t.lower() for t in re.findall(r"@([\w一-鿿]+)", text or "")}
         if not tokens:
             return []
