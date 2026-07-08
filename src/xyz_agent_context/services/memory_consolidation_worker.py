@@ -27,10 +27,6 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.api_config import clear_user_config
-from xyz_agent_context.agent_framework.provider_resolver import (
-    resolve_and_set_provider_for_user,
-)
 from xyz_agent_context.memory.engine import MemoryEngine
 from xyz_agent_context.memory.record import _parse_dt
 from xyz_agent_context.memory.spec import get_spec
@@ -155,21 +151,17 @@ class MemoryConsolidationWorker:
         Raises ProviderResolverError subclasses (quota exhausted / no
         provider) — the scope is isolated as failed with facts intact, and
         retried once the owner's provider situation changes.
+
+        Delegates to the shared ``inject_owner_helper_credentials`` (the same
+        primitive the narrative updater and Step-5 hooks now use) so the
+        clear-first / owner-lookup / resolve sequence lives in exactly one
+        place.
         """
-        # The worker processes every tenant's scopes in ONE task. Reset the
-        # ContextVars first so a scope that cannot resolve (deleted agent,
-        # missing owner) falls back to the GLOBAL config — never to the
-        # previous tenant's credentials left over from the last scope.
-        clear_user_config()
-        agent_row = await self._db.get_one("agents", {"agent_id": agent_id})
-        owner = (agent_row or {}).get("created_by")
-        if not owner:
-            logger.warning(
-                f"[memory.consolidation] agent {agent_id} has no owner row — "
-                f"falling back to global LLM config"
-            )
-            return
-        await resolve_and_set_provider_for_user(owner, self._db)
+        from xyz_agent_context.agent_framework.provider_resolver import (
+            inject_owner_helper_credentials,
+        )
+
+        await inject_owner_helper_credentials(agent_id, self._db)
 
     async def _default_engine_consolidate(self, *, agent_id: str, scope_type: str, scope_id: str, kind: str) -> int:
         """Production consolidation: gather the scope's NEW raw units (the

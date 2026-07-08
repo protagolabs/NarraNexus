@@ -704,8 +704,60 @@ class AgentRuntime:
             _bg_start = _time.monotonic()
             _agent_id = ctx.agent_id
 
+            _event_id = str(ctx.event.id) if ctx.event and ctx.event.id else ""
+
             async def _run_hooks_background():
                 """Run Step 5 hooks + Step 6 callbacks in background."""
+                # This task is detached via ``asyncio.create_task`` and does NOT
+                # inherit the per-turn helper-LLM config that this run set on its
+                # own ContextVars. Re-inject the agent OWNER's Helper LLM so the
+                # Step-5 LLM hooks (social-network entity summaries, memory
+                # extraction) run on the user's provider — not the platform key
+                # they used to silently fall through to (2026-07 incident).
+                from xyz_agent_context.agent_framework.llm_failure import (
+                    is_credential_error,
+                )
+                from xyz_agent_context.agent_framework.provider_resolver import (
+                    ProviderResolverError,
+                    inject_owner_helper_credentials,
+                )
+                from xyz_agent_context.services.background_llm_alerts import (
+                    alert_background_llm_failure,
+                )
+                from xyz_agent_context.utils.db_factory import get_db_client
+
+                owner_user_id = None
+                try:
+                    _db = await get_db_client()
+                    owner_user_id = await inject_owner_helper_credentials(_agent_id, _db)
+                except ProviderResolverError as e:
+                    # No usable provider / quota gone. Don't run the LLM hooks
+                    # against the platform key — surface it and skip. Resolution
+                    # raised before returning the owner, so look it up directly
+                    # so the credential alert still reaches the owner's inbox.
+                    owner_user_id = (
+                        (await _db.get_one("agents", {"agent_id": _agent_id}) or {})
+                        .get("created_by")
+                    )
+                    await alert_background_llm_failure(
+                        agent_id=_agent_id,
+                        owner_user_id=owner_user_id,
+                        source="post_turn_hooks",
+                        error=e,
+                        source_id=_event_id,
+                    )
+                    clear_cost_context()
+                    return
+                except Exception as e:  # noqa: BLE001 — best-effort injection
+                    # Unlike the narrative updater (which skips the whole update
+                    # on an injection failure), we CONTINUE here: Step-5 also runs
+                    # non-LLM hooks and the Step-6 callbacks must still fire. The
+                    # LLM hooks that need creds fail fast below and are alerted at
+                    # the inner credential-error handler.
+                    logger.warning(
+                        f"[BG] helper-credential injection failed for {_agent_id}: {e}"
+                    )
+
                 try:
                     hook_callback_results = None
                     async for msg in step_5_execute_hooks(ctx, self.hook_manager):
@@ -729,6 +781,17 @@ class AgentRuntime:
                     )
                 except Exception as e:
                     elapsed = _time.monotonic() - _bg_start
+                    # A credential-class failure means the resolved key is bad
+                    # (expired/revoked) — alert the owner instead of only
+                    # logging, so silent long-memory degradation can't recur.
+                    if is_credential_error(e):
+                        await alert_background_llm_failure(
+                            agent_id=_agent_id,
+                            owner_user_id=owner_user_id,
+                            source="post_turn_hooks",
+                            error=e,
+                            source_id=_event_id,
+                        )
                     logger.exception(
                         f"[BG] Steps 5-6 failed for {_agent_id} after {elapsed:.1f}s: {e}"
                     )
