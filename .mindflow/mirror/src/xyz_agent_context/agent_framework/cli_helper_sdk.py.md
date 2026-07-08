@@ -1,8 +1,55 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/cli_helper_sdk.py
-last_verified: 2026-07-07
+last_verified: 2026-07-08
 stub: false
 ---
+
+## 2026-07-08 — codex 一次性路径修复(真机 E2E 暴露的三个 bug)
+
+`claude_code` 路径真机 E2E 通过(haiku 一次性、带 schema 的结构化输出正确解析)。
+`codex_cli` 路径此前**从未被真机结构化调用验证过**(单测只 mock 了 `_run_oneshot`,
+绕开了 driver 事件循环),导致三个形状 bug 一起漏网:
+
+1. **instructions.md 写空**:codex driver 的 `_build_system_prompt_and_user_msg`
+   只从 `role=="system"` 的消息拼 instructions,并 pop 最后一条作 user turn。原
+   `_run_codex_oneshot` 把 system prompt 拼进 user 内容、只传一条 `role:"user"`,
+   于是 instructions.md 写空 → codex 进程启动即拒("model instructions file is
+   empty")。**修法**:instructions 走独立 `role:"system"` 消息、user_input 单独
+   `role:"user"`,与 `_run_claude_oneshot` 对齐。
+2. **事件键读错**:codex_official 的 translator(`output_transfer`)吐的是
+   `{"type":"raw_response_event","data":{...}}`——可见助手文本在
+   `data.type=="response.text.delta"`、终态用量在 `data.type=="response.done"`。
+   原代码读 `ev["raw_event"]` / `ev["usage"]`(此 translator 从不设这两个键)→
+   永远累积不到文本 → 结构化调用在空 body 上 JSON 抽取失败。**修法**:改读
+   `ev["data"]` 的对应形状。
+3. **吞掉 `response.error`**:codex 把鉴权/配额失败作为终态 **error 事件**(不是
+   异常)上报(如 `error_type="unauthorized"` + "access token could not be
+   refreshed")。原代码忽略它 → helper 拿空文本 → 抛误导性的"could not extract
+   JSON(空)",掩盖真因、且绕过 #68 凭据告警。**修法**:捕获 `response.error`,
+   无文本时抛 `RuntimeError("codex CLI helper failed: {error_type}: {error_message}")`
+   ——**同时带上 error_type**,否则 codex 的 auth 错误消息本身不含 `is_credential_error`
+   的标记词(靠 "unauthorized" 命中)。
+
+4. **默认模型无效**:`_DEFAULT_CODEX_HELPER_MODEL` 原为 `gpt-5.1-codex-mini`,但订阅
+   走的是 **ChatGPT 账号**,它拒绝 API-key 专用的 `-codex-mini` 系列(400 "not
+   supported when using Codex with a ChatGPT account",真机确认)。改为 `gpt-5.4-mini`
+   (真机验证可用,也是 openai helper 的 onboard 默认)。真机探测:`gpt-5.5/5.4/5.4-mini`
+   可用;`gpt-5.2-mini/gpt-5.1/gpt-5.1-codex-mini` 被拒。
+5. **文本重复**:codex 把回复既按 `agentMessageDelta` 增量流式吐、又在 `item.completed`
+   全量重吐一遍(措辞有时略不同),两者都被 translator flatten 成
+   `response.text.delta` → 累积后是两份 JSON 拼接 → 抽取失败。**本次在抽取侧兜底**
+   (见 [[openai_agents_sdk]] 的 `_first_balanced_json`,取第一个平衡对象),结构化调用
+   因此稳定通过;根因(translator 双 emit,亦影响 agent 主链路)单独立项。
+
+回归测试:`test_codex_oneshot_*`(在 `test_cli_helper.py`)mock driver 吐**真实
+translator 事件形状**,分别钉住文本累积、system 消息分离、error 抛出+可分类;三者
+在修复前全 FAIL、修复后全 PASS。抽取兜底见 `test_json_extraction.py`。
+
+**真机 E2E 结论(2026-07-08)**:`claude_code`(haiku)与 `codex_cli`(gpt-5.4-mini)
+两条路径的带 schema 结构化调用**均真机通过**。claude 路径确定性可靠;codex 是 agentic
+CLI,**best-effort**——偶发输出裹 prose / JSON 不干净时会抛 `ValueError`(响亮失败,
+非静默),属 codex 侧特性(铁律 #15),平台不干预。
+
 # cli_helper_sdk.py — CLI-backed helper LLM（订阅同时覆盖 Helper）
 
 ## 为什么存在

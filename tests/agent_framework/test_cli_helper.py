@@ -87,7 +87,11 @@ def test_resolve_model_codex_default():
         set_user_config(ClaudeConfig(), OpenAIConfig(),
                         cli_helper=CliHelperConfig(framework="codex_cli", model="default"))
         return CliHelperSDK._resolve_model(None)
-    assert "codex" in _run_isolated(check)
+    # A ChatGPT-account subscription rejects the API-key-only "-codex-mini" ids,
+    # so the default must be a plain gpt-5.x model (verified live 2026-07-08).
+    model = _run_isolated(check)
+    assert model.startswith("gpt-5")
+    assert "codex" not in model
 
 
 def test_resolve_model_slot_wins_over_percall():
@@ -213,6 +217,106 @@ async def test_llm_function_raises_when_no_json(monkeypatch):
                     cli_helper=CliHelperConfig(framework="claude_code"))
     with pytest.raises(ValueError, match="Could not extract JSON"):
         await sdk.llm_function("inst", "in", output_type=_Out)
+
+
+# ---------------------------------------------------------------------------
+# Codex one-shot: event-shape parsing against the REAL codex_official
+# translator output (output_transfer emits {"type":"raw_response_event",
+# "data":{...}}). These drive _run_codex_oneshot directly by faking the
+# driver — the _run_oneshot-mocking tests above never exercised it, which is
+# how three shape bugs shipped: (1) instructions folded into the user message
+# left instructions.md empty and the CLI exited on startup; (2) the loop read
+# ev["raw_event"]/ev["usage"] instead of ev["data"], so no text accumulated;
+# (3) a terminal response.error was ignored, surfacing as a misleading empty
+# "could not extract JSON" instead of a classifiable credential failure.
+# ---------------------------------------------------------------------------
+
+class _FakeCodexDriver:
+    def __init__(self, events, captured):
+        self._events = events
+        self._captured = captured
+
+    async def agent_loop(self, messages, mcp_server_urls):
+        self._captured["messages"] = messages
+        self._captured["mcp_server_urls"] = mcp_server_urls
+        for ev in self._events:
+            yield ev
+
+
+def _use_codex_driver(monkeypatch, events, captured):
+    import xyz_agent_context.agent_framework as af
+    monkeypatch.setattr(
+        af, "get_agent_loop_driver",
+        lambda framework: _FakeCodexDriver(events, captured),
+    )
+    set_user_config(ClaudeConfig(), OpenAIConfig(),
+                    cli_helper=CliHelperConfig(framework="codex_cli", model="m"))
+
+
+def _delta(d):
+    return {"type": "raw_response_event", "data": {"type": "response.text.delta", "delta": d}}
+
+
+@pytest.mark.asyncio
+async def test_codex_oneshot_accumulates_text_and_usage(monkeypatch):
+    """Reads assistant text from data.type==response.text.delta and usage from
+    response.done — the shapes the codex_official translator actually emits."""
+    captured = {}
+    events = [
+        {"type": "raw_response_event", "data": {"type": "response.text.delta"}},  # no delta key
+        _delta('{"answer":'),
+        _delta(' "hi"}'),
+        {"type": "run_item_stream_event", "item": {"type": "thinking_item", "content": "noise"}},
+        {"type": "raw_response_event",
+         "data": {"type": "response.done", "usage": {"input_tokens": 11, "output_tokens": 7}}},
+    ]
+    _use_codex_driver(monkeypatch, events, captured)
+    sdk = CliHelperSDK()
+    res = await sdk.llm_function("inst", "in", output_type=_Out)
+    assert res.final_output.answer == "hi"
+
+
+@pytest.mark.asyncio
+async def test_codex_oneshot_passes_instructions_as_system_message(monkeypatch):
+    """The schema/instructions MUST ride a role=='system' message — the codex
+    driver builds instructions.md ONLY from system messages; folding them into
+    the user turn leaves it empty and the CLI refuses to start."""
+    captured = {}
+    _use_codex_driver(monkeypatch, [_delta('{"answer": "ok"}')], captured)
+    sdk = CliHelperSDK()
+    await sdk.llm_function("MY-INSTRUCTIONS", "the-user-input", output_type=_Out)
+    roles = [m["role"] for m in captured["messages"]]
+    assert "system" in roles, roles
+    sys_msg = next(m["content"] for m in captured["messages"] if m["role"] == "system")
+    assert "MY-INSTRUCTIONS" in sys_msg
+    # user_input stays in its own user turn, NOT merged into the system prompt
+    user_msg = next(m["content"] for m in captured["messages"] if m["role"] == "user")
+    assert user_msg == "the-user-input"
+    assert "the-user-input" not in sys_msg
+
+
+@pytest.mark.asyncio
+async def test_codex_oneshot_raises_classifiable_error_on_response_error(monkeypatch):
+    """A terminal response.error (e.g. expired OAuth token) must raise an error
+    that is_credential_error can classify — not silently return empty text."""
+    from xyz_agent_context.agent_framework.llm_failure import is_credential_error
+
+    captured = {}
+    events = [{
+        "type": "raw_response_event",
+        "data": {
+            "type": "response.error",
+            "error_message": "Your access token could not be refreshed. Sign in again.",
+            "error_type": "unauthorized",
+        },
+    }]
+    _use_codex_driver(monkeypatch, events, captured)
+    sdk = CliHelperSDK()
+    with pytest.raises(RuntimeError) as exc:
+        await sdk.llm_function("inst", "in", output_type=_Out)
+    # carries the error type so downstream credential-alerting (#68) triggers
+    assert "unauthorized" in str(exc.value)
+    assert is_credential_error(str(exc.value)) is True
 
 
 # ---------------------------------------------------------------------------

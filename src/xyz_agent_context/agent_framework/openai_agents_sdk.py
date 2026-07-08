@@ -75,7 +75,8 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
     # Strip markdown code fences
     text = re.sub(r"```(?:json)?\s*", "", text).strip()
     text = text.rstrip("`").strip()
-    # Find the outermost JSON object or array
+    # Find the outermost JSON object or array. Greedy (first opener → last
+    # closer) so a single nested object like {"a": {"b": 1}} is captured whole.
     for pattern in [r"\{[\s\S]*\}", r"\[[\s\S]*\]"]:
         match = re.search(pattern, text)
         if match:
@@ -85,6 +86,48 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
                 return candidate
             except json.JSONDecodeError:
                 continue
+    # Fallback: the greedy span didn't parse — most often because the text
+    # carries TWO concatenated objects ({...}{...}). This happens with the
+    # codex CLI helper, whose stream repeats the message (streamed increments
+    # + an item.completed full copy, sometimes slightly reworded), so greedy
+    # grabs first-{ … last-} = both objects = invalid. Return the FIRST
+    # balanced object/array instead (string- and escape-aware so braces inside
+    # JSON strings don't miscount).
+    return _first_balanced_json(text)
+
+
+def _first_balanced_json(text: str) -> Optional[str]:
+    """Return the first balanced ``{...}`` / ``[...]`` substring that parses as
+    JSON, scanning with string/escape awareness. ``None`` when there is none."""
+    start = next((i for i, c in enumerate(text) if c in "{["), None)
+    if start is None:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for j in range(start, len(text)):
+        c = text[j]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c in "{[":
+            depth += 1
+        elif c in "}]":
+            depth -= 1
+            if depth == 0:
+                candidate = text[start:j + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    return None
     return None
 
 

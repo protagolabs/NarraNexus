@@ -56,8 +56,12 @@ from xyz_agent_context.utils.cost_tracker import (
 from xyz_agent_context.utils.logging import timed
 
 # Cheap sensible defaults per framework when the slot model is empty/"default".
+# Codex NOTE: a subscription runs Codex against a ChatGPT ACCOUNT, which rejects
+# the API-key-only "-codex-mini" model ids (400 "not supported when using Codex
+# with a ChatGPT account" — verified live 2026-07-08). Use a plain gpt-5.x id;
+# gpt-5.4-mini is accepted and is also the openai helper onboard default.
 _DEFAULT_CLAUDE_HELPER_MODEL = "haiku"
-_DEFAULT_CODEX_HELPER_MODEL = "gpt-5.1-codex-mini"
+_DEFAULT_CODEX_HELPER_MODEL = "gpt-5.4-mini"
 
 # Reusable neutral cwd for the tool-free claude one-shot — the CLI requires a
 # working directory to exist but the helper never touches the filesystem
@@ -168,25 +172,64 @@ class CliHelperSDK:
         from xyz_agent_context.agent_framework import get_agent_loop_driver
 
         driver = get_agent_loop_driver(framework="codex_cli")
-        prompt = f"{system_prompt}\n\n---\n\n{user_input}"
+        # The codex driver derives instructions.md ONLY from role=="system"
+        # messages and pops the LAST message as the per-turn user turn. The
+        # schema/instructions MUST ride a system message — folding them into
+        # the user content leaves instructions.md empty and the codex CLI exits
+        # on startup ("model instructions file is empty"), so the codex helper
+        # never ran. Mirrors _run_claude_oneshot, which passes system_prompt and
+        # user_input separately.
         text_parts: list[str] = []
         in_tok = out_tok = 0
+        err_msg = ""
         async for ev in driver.agent_loop(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_input},
+            ],
             mcp_server_urls={},
         ):
-            if not isinstance(ev, dict):
+            # The codex driver's translator (output_transfer, codex_official)
+            # emits internal events shaped {"type":"raw_response_event",
+            # "data":{...}} — the visible assistant text streams as
+            # data.type=="response.text.delta" and the terminal usage lands on
+            # data.type=="response.done". (An earlier draft read ev["raw_event"]
+            # / ev["usage"], keys this translator never sets, so no text was
+            # ever accumulated and every structured call failed JSON extraction
+            # on an empty body.)
+            if not isinstance(ev, dict) or ev.get("type") != "raw_response_event":
                 continue
-            raw = ev.get("raw_event") if ev.get("type") == "raw_response_event" else None
-            if raw and raw.get("type") == "response.text.delta":
-                delta = raw.get("delta") or ""
+            data = ev.get("data") or {}
+            dtype = data.get("type")
+            if dtype == "response.text.delta":
+                delta = data.get("delta") or ""
                 if delta:
                     text_parts.append(delta)
-            usage = ev.get("usage") if isinstance(ev.get("usage"), dict) else None
-            if usage:
-                in_tok = int(usage.get("input_tokens", in_tok) or in_tok)
-                out_tok = int(usage.get("output_tokens", out_tok) or out_tok)
-        return "".join(text_parts), in_tok, out_tok
+            elif dtype == "response.done":
+                usage = data.get("usage")
+                if isinstance(usage, dict):
+                    in_tok = int(usage.get("input_tokens", in_tok) or in_tok)
+                    out_tok = int(usage.get("output_tokens", out_tok) or out_tok)
+            elif dtype == "response.error":
+                # Codex surfaces auth / quota failures as a terminal error
+                # EVENT, not an exception. Capture it so the helper raises a
+                # classifiable error below — otherwise the empty text falls
+                # through to a misleading "could not extract JSON" on an empty
+                # body, masking the real cause (e.g. "unauthorized — re-login")
+                # and defeating the #68 credential-failure alerting, which keys
+                # off is_credential_error reading the error text.
+                # Keep BOTH the type and the message: codex phrases auth
+                # failures as error_type="unauthorized" with a message
+                # ("access token could not be refreshed …") that carries no
+                # credential marker on its own, so dropping the type would make
+                # is_credential_error miss it.
+                _etype = str(data.get("error_type") or "").strip()
+                _emsg = str(data.get("error_message") or "").strip()
+                err_msg = ": ".join(p for p in (_etype, _emsg) if p) or "codex error"
+        text = "".join(text_parts)
+        if not text and err_msg:
+            raise RuntimeError(f"codex CLI helper failed: {err_msg}")
+        return text, in_tok, out_tok
 
     async def _run_oneshot(
         self, system_prompt: str, user_input: str, model_name: str
