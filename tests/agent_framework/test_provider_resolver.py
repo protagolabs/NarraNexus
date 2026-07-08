@@ -191,6 +191,49 @@ async def test_system_disabled_is_strict_noop():
     quota_svc.check.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_system_disabled_falls_through_to_own_config_when_flagged(monkeypatch):
+    """Background helper injection (local/desktop mode): with SYSTEM_DISABLED,
+    ``own_config_when_system_disabled=True`` must fall through to the user's OWN
+    provider config instead of a strict no-op. The background path clears the
+    ContextVars first, so a no-op leaves the helper config EMPTY and detached
+    hooks 401 on the bare platform OpenAI endpoint. Mirrors the agent-loop path.
+    """
+    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.api_config import (
+        ClaudeConfig,
+        OpenAIConfig,
+        RuntimeLLMConfigs,
+        clear_user_config,
+        openai_config,
+    )
+
+    async def _own(_user_id, _db):
+        return RuntimeLLMConfigs(
+            claude=ClaudeConfig(api_key="own-claude"),
+            openai=OpenAIConfig(
+                api_key="own-openai-key",
+                base_url="https://api.netmind.ai/inference-api/openai/v1",
+                model="deepseek",
+            ),
+        )
+
+    monkeypatch.setattr(provider_driver, "resolve_user_runtime_llm_configs", _own)
+
+    r = ProviderResolver(
+        user_provider_svc=_mk_user_svc(None),
+        system_provider_svc=_mk_sys(enabled=False),
+        quota_svc=_mk_quota_svc(prefer_system=True, has_budget=True),
+    )
+    clear_user_config()
+    await r.resolve_and_set("usr_x", own_config_when_system_disabled=True)
+
+    # The user's OWN helper config must now be live (not the empty default).
+    assert openai_config.api_key == "own-openai-key"
+    assert openai_config.base_url == "https://api.netmind.ai/inference-api/openai/v1"
+    assert get_provider_source() == "user"
+
+
 # ---------- Branch 1: opted-in (prefer_system_override=True) -------------
 
 @pytest.mark.asyncio

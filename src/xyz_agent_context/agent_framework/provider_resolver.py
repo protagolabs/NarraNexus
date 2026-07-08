@@ -294,15 +294,42 @@ class ProviderResolver:
             raise QuotaExceededError(user_id)
         raise NoProviderConfiguredError(user_id)  # NO_PROVIDER
 
-    async def resolve_and_set(self, user_id: str) -> None:
+    async def resolve_and_set(
+        self, user_id: str, *, own_config_when_system_disabled: bool = False
+    ) -> None:
         """Resolve the user's configs and push them onto the request ContextVars.
 
         Thin wrapper over :meth:`resolve` — pushes ALL FOUR configs (claude /
         openai / codex / anthropic_helper) so the helper-SDK factory and the
         codex agent slot are wired correctly off the request/background task.
+
+        ``own_config_when_system_disabled`` governs the SYSTEM_DISABLED branch
+        (``resolve`` returns None — local/desktop mode):
+
+        - **False (default, request path)**: strict no-op. The caller keeps
+          whatever global/desktop config is already in effect (the auth
+          middleware never clears the ContextVars).
+        - **True (background path)**: fall through to the user's OWN provider
+          config. ``inject_owner_helper_credentials`` clears the ContextVars
+          first, so a no-op would leave the helper config EMPTY and detached
+          hooks (memory / entity / narrative) would 401 on the bare platform
+          OpenAI endpoint. This mirrors the agent-loop path
+          (``get_user_runtime_llm_configs`` → ``_get_user_runtime_llm_configs_strict``).
         """
         resolved = await self.resolve(user_id)
         if resolved is None:
+            if own_config_when_system_disabled:
+                from xyz_agent_context.agent_framework.provider_driver import (
+                    resolve_user_runtime_llm_configs,
+                )
+
+                cfgs = await resolve_user_runtime_llm_configs(
+                    user_id, self.user_provider_svc.db
+                )
+                set_user_config(
+                    cfgs.claude, cfgs.openai, cfgs.codex, cfgs.anthropic_helper
+                )
+                set_provider_source("user")
             return
         cfgs, source = resolved
         set_user_config(
@@ -334,8 +361,14 @@ async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
     auth_middleware path, for callers that run OUTSIDE any HTTP request
     (memory consolidation worker; future lifespan jobs).
 
-    Local mode / system-provider disabled: strict no-op, the global
-    llm_config.json / .env fallback stays in effect (iron rule #7).
+    Local mode / system-provider disabled: falls through to the user's OWN
+    provider config (NOT a no-op). Background callers (this + the memory
+    consolidation worker) clear the ContextVars before calling, so a no-op
+    would leave the helper config empty and detached LLM hooks would 401 on
+    the bare platform endpoint — that was the local/desktop-mode gap in the
+    detached-helper injection (#68). The agent-loop path already resolves the
+    owner's own config here; this mirrors it.
+
     Quota / no-provider verdicts raise the same ProviderResolverError
     subclasses the request path uses — callers isolate, never drop data.
     """
@@ -347,7 +380,7 @@ async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
         system_provider_svc=SystemProviderService.instance(),
         quota_svc=QuotaService.default(),
     )
-    await resolver.resolve_and_set(user_id)
+    await resolver.resolve_and_set(user_id, own_config_when_system_disabled=True)
 
 
 async def inject_owner_helper_credentials(agent_id: str, db) -> Optional[str]:
