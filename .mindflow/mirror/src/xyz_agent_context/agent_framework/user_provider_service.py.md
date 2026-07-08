@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-06-10
+last_verified: 2026-07-07
 stub: false
 ---
 ## 2026-06-10 (5th pass) — onboard live-verifies the key before writing
@@ -127,3 +127,16 @@ route 层 `backend/routes/providers.py` 现在 import 本文件的 `_SUPPORTED_A
 
 - `user_providers.models` 和 `user_slots` 的 `updated_at` 用 ISO 8601 字符串存储（`datetime.now(timezone.utc).isoformat()`），而不是 datetime 对象。读回来需要 `datetime.fromisoformat()`。
 - `get_user_config()` 不抛出异常，如果用户没有配置任何 provider，返回空的 `LLMConfig`，后续 `get_user_llm_configs()` 里才会因 slot 缺失抛出 `LLMConfigNotConfigured`。
+
+## 2026-07-07 — quick-add 支持换 key（replace 流程）
+
+`add_provider` 加 `replace` 参数：为 True 时跳过 netmind/yunwu/openrouter 的
+按-source 唯一性守卫（换 key 时先插新对再删旧对，provider_id 随机不冲突）。
+
+`onboard_one_key` 加 `replace` 参数，仅对聚合类型（netmind/yunwu/openrouter）：
+- 已有同源 provider 且 `replace=False` → **不报错**，返回 meta
+  `{needs_replace: True, existing_masked, provider_type}`，不改动任何数据，让 UI 弹确认。
+- `replace=True`（或本无）→ **expand-contract**：验 key → 加新对（replace=True）→
+  两个槽位改指新对 → 删旧对及其槽位。中途失败也不会让用户落到"无 provider"，比
+  用户手动"先删后加"更安全。官方 anthropic/openai（source="user"，本就不守卫）不走此逻辑。
+背景：过期 key 场景（配合 background-llm 修复）用户要换 key，旧逻辑直接报"已存在"。

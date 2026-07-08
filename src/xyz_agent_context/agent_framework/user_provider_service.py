@@ -178,17 +178,26 @@ class UserProviderService:
         base_url: str = "",
         auth_type: str = "api_key",
         models: Optional[List[str]] = None,
+        replace: bool = False,
     ) -> tuple[LLMConfig, list[str]]:
-        """Add a provider for a user. Returns (updated_config, new_provider_ids)."""
+        """Add a provider for a user. Returns (updated_config, new_provider_ids).
+
+        ``replace=True`` skips the per-source uniqueness guard for aggregator
+        card types so the key-rotation (replace) flow can insert a fresh
+        provider pair alongside the old one before deleting it (expand-contract
+        — see ``onboard_one_key``). New rows get fresh random provider_ids, so
+        there is no primary-key collision with the rows being replaced.
+        """
 
         new_ids: list[str] = []
         now = datetime.now(timezone.utc).isoformat()
 
         if card_type in ("netmind", "yunwu", "openrouter"):
-            # Check uniqueness
-            existing = await self.db.get("user_providers", filters={"user_id": user_id, "source": card_type})
-            if existing:
-                raise ValueError(f"A {card_type} provider already exists for this user")
+            # Check uniqueness (unless the caller is mid-replace).
+            if not replace:
+                existing = await self.db.get("user_providers", filters={"user_id": user_id, "source": card_type})
+                if existing:
+                    raise ValueError(f"A {card_type} provider already exists for this user")
 
             group_id = _generate_group_id()
             configs = _build_dual_providers(card_type, api_key, group_id, models)
@@ -488,6 +497,7 @@ class UserProviderService:
         user_id: str,
         api_key: str,
         provider_type: Optional[str] = None,
+        replace: bool = False,
     ) -> tuple[LLMConfig, list[str], dict]:
         """Wire a complete runnable config from a single API key.
 
@@ -536,6 +546,28 @@ class UserProviderService:
         agent_model = get_default_agent_model(ptype)
         helper_model = get_default_helper_model(ptype)
 
+        # Key rotation: aggregator cards (netmind/yunwu/openrouter) are guarded
+        # one-per-source, so a second onboard is a REPLACE, not an add. If the
+        # user already has one and hasn't confirmed, don't mutate — report
+        # needs_replace so the UI can prompt "you already have <masked>, replace?".
+        # Official anthropic/openai cards use source="user" (unguarded, users
+        # may hold several) so they never need this.
+        old_rows: list[dict] = []
+        if ptype in ("netmind", "yunwu", "openrouter"):
+            old_rows = await self.db.get(
+                "user_providers", filters={"user_id": user_id, "source": ptype}
+            )
+            if old_rows and not replace:
+                config = await self.get_user_config(user_id)
+                existing_key = str(old_rows[0].get("api_key") or "")
+                masked = ("***" + existing_key[-4:]) if len(existing_key) > 4 else "***"
+                meta = {
+                    "provider_type": ptype,
+                    "needs_replace": True,
+                    "existing_masked": masked,
+                }
+                return config, [], meta
+
         # Verify the key BEFORE writing anything — a typo'd key should
         # fail here with a clear message, not at the first chat turn.
         # Definitive auth rejections (401/403) raise; transient failures
@@ -544,8 +576,13 @@ class UserProviderService:
         key_check = await self._verify_onboard_key(ptype, key, agent_model)
 
         await self.set_user_agent_framework(user_id, framework)
+        # Expand-contract replace: create the NEW provider(s) and repoint slots
+        # to them BEFORE deleting the old ones (replace=True skips the source
+        # guard). If any step fails the old, working provider is still in place —
+        # the user is never left without a runnable config (safer than the
+        # delete-then-add the user would otherwise do by hand).
         config, new_ids = await self.add_provider(
-            user_id=user_id, card_type=ptype, api_key=key,
+            user_id=user_id, card_type=ptype, api_key=key, replace=bool(old_rows),
         )
         # Official anthropic/openai cards create ONE provider that
         # serves both slots. The netmind card creates TWO linked rows
@@ -561,6 +598,19 @@ class UserProviderService:
             helper_pid = by_protocol.get("openai", new_ids[0])
         config = await self.set_slot(user_id, "agent", agent_pid, agent_model)
         config = await self.set_slot(user_id, "helper_llm", helper_pid, helper_model)
+
+        # Contract step: drop the old pair now that slots point at the new one.
+        # Slots for the old provider_ids were already overwritten above, so their
+        # deletion here is a harmless no-op — this only removes stale rows.
+        new_id_set = set(new_ids)
+        for r in old_rows:
+            old_pid = r.get("provider_id")
+            if not old_pid or old_pid in new_id_set:
+                continue
+            await self.db.delete("user_providers", {"user_id": user_id, "provider_id": old_pid})
+            await self.db.delete("user_slots", {"user_id": user_id, "provider_id": old_pid})
+        if old_rows:
+            config = await self.get_user_config(user_id)
 
         meta = {
             "provider_type": ptype,

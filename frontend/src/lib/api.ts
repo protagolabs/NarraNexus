@@ -966,6 +966,7 @@ class ApiClient {
   async onboard(
     apiKey: string,
     providerType?: OnboardProviderType,
+    replace?: boolean,
   ): Promise<{
     success: boolean;
     detail?: string;
@@ -977,12 +978,18 @@ class ApiClient {
     /** "ok" | "unverified (<reason>)" — live key probe result. A
      * definitively bad key never reaches success (400 instead). */
     key_check?: string;
+    /** Set when the user already has a provider of this (aggregator) type.
+     * The UI confirms and re-sends with replace=true to rotate the key. */
+    needs_replace?: boolean;
+    /** Masked tail of the currently-configured key, e.g. "***fXQA". */
+    existing_masked?: string;
   }> {
     return this.request(`/api/providers/onboard`, {
       method: 'POST',
       body: JSON.stringify({
         api_key: apiKey,
         provider_type: providerType ?? null,
+        replace: replace ?? false,
       }),
     });
   }
