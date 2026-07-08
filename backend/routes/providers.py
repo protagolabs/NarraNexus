@@ -431,8 +431,12 @@ async def use_subscription(request: Request):
         #    money-spending orphan on the user's NetMind account.
         try:
             service = await _get_service()
+            # Minted key belongs to the deployment's NetMind env, so it must be
+            # wired to the MATCHING inference base (dev key -> dev inference).
+            # Manual /onboard paste does NOT pass this — a user's own key is prod.
             config, new_ids, meta = await service.onboard_one_key(
                 uid, minted.apitoken, provider_type="netmind",
+                inference_base=settings.netmind_inference_base,
             )
         except ValueError as e:
             await key_client.delete_key(token, minted.token_id)

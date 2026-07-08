@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-06
+last_verified: 2026-07-07
 stub: false
 ---
+
+## 2026-07-07 — netmind_inference_base
+
+Added `netmind_inference_base` (default prod `https://api.netmind.ai/inference-api`;
+dev sets `NETMIND_INFERENCE_BASE=https://test.api.netmind.ai/inference-api`). Used
+ONLY by the use-subscription minted-key path; must match the same NetMind env as
+NETMIND_KEY_API_BASE / BILLING_API_BASE / NETMIND_AUTH_API_URL. Manual key paste
+stays on prod. See [[providers]] / [[user_provider_service]].
+
+
 
 ## 2026-07-06 — NetMind billing / subscription settings
 

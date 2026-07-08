@@ -4,6 +4,15 @@ last_verified: 2026-07-07
 stub: false
 ---
 
+## 2026-07-07 — use-subscription wires minted key to the env's inference base
+
+/use-subscription now passes inference_base=settings.netmind_inference_base into
+onboard_one_key, so a dev-minted key is registered against dev inference
+(test.api.netmind.ai) rather than the hardcoded prod. /onboard (manual paste) is
+unchanged (prod). See [[user_provider_service]].
+
+
+
 ## 2026-07-06 — use-subscription pre-flip caveats expanded
 
 Expanded the pre-flip TODO on the in-process _use_sub_locks: before enabling
