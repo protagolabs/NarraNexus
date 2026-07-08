@@ -68,5 +68,10 @@ def test_to_cli_env_normalizes_alias_for_api_key():
 
 
 def test_to_cli_env_keeps_alias_for_oauth():
+    """OAuth keeps the alias for the SUBAGENT pin, but the
+    ANTHROPIC_DEFAULT_*_MODEL redirects must stay BLANK: pointing an alias
+    at itself makes the CLI reject the model (exit 1) — proven live
+    2026-07-07 ("There's an issue with the selected model (opus)")."""
     env = ClaudeConfig(model="opus", auth_type="oauth").to_cli_env()
-    assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "opus"
+    assert env["CLAUDE_CODE_SUBAGENT_MODEL"] == "opus"
+    assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == ""

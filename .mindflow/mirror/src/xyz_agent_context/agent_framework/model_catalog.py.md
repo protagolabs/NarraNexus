@@ -78,3 +78,7 @@ Settings 页面需要知道"NetMind 支持哪些模型"、"text-embedding-3-larg
    脚本是幂等的——已经包含了的 model 会被识别为 `[OK]` 跳过；只追加缺失项到 `models` JSON 数组末尾。该脚本目前硬编码 `source="netmind"` + 双协议遍历；如果以后要给 yunwu / openrouter 也做同样的事，复制这个脚本改 source 即可。
 
 后端**必须重起**才能让新 model 的元数据进入 catalog 缓存——`_KNOWN_MODELS` 和 `_DEFAULT_MODELS` 是模块级的，import 时初始化一次。前端再刷一下页面，Settings 下拉就能看到新 model。
+
+## 2026-07-07 — is_cli_family_alias
+
+新增 `is_cli_family_alias(model_id)`(即 `_CLI_ALIAS_TO_MODEL_ID` 成员判定),供 `to_cli_env` 判断 DEFAULT 重定向是否会自指(别名进重定向会让 CLI 拒启)。

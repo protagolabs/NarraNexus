@@ -271,3 +271,9 @@ Claim: these additions do NOT alter existing behaviour of `set_user_config`,
 ## 2026-07-07 — CliHelperConfig（订阅 Helper 第三通道）
 
 新增 `CliHelperConfig`（framework=claude_code|codex_cli + model/base_url/auth_type/api_key）、`_cli_helper_ctx`、`cli_helper_config` 代理、`RuntimeLLMConfigs.cli_helper`；`set_user_config` 加 `cli_helper` 形参，`snapshot_user_config`/`clear_user_config` 同步。用于让订阅（OAuth）登录同时覆盖 helper 槽——helper 走 CLI 一次性（见 cli_helper_sdk.py）。dispatch 优先级 cli>anthropic>openai。
+
+## 2026-07-07 (实测跟进) — to_cli_env 两个致命 env 修复
+
+本地实测 claude_oauth 后发现两个让 `claude` 子进程直接退出码 1 的 env 问题(主循环和 CLI helper 同死):
+1. **CLAUDECODE 嵌套守卫**:后端若从 Claude Code 会话里启动(dev 常见),继承的 `CLAUDECODE` 让每次 spawn 报 'cannot be launched inside another Claude Code session'。 to_cli_env 现在显式置空(平台受管子进程,非人为嵌套)。
+2. **别名自指**:oauth 路径 `resolve_cli_alias` 保留家族别名('opus'),但把 `ANTHROPIC_DEFAULT_*_MODEL` 指向别名是自引用 → CLI 报 'issue with the selected model' 拒启。现在别名时重定向置空(官方后端无漂移风险),仅保留接受别名的 `CLAUDE_CODE_SUBAGENT_MODEL`;具体 id(api_key 转换后)行为不变。

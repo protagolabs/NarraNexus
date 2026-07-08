@@ -84,6 +84,15 @@ class ClaudeConfig:
             "ANTHROPIC_API_KEY": "",
             "ANTHROPIC_AUTH_TOKEN": "",
             "ANTHROPIC_BASE_URL": self.base_url or "",
+            # Nested-session guard suppression. When the backend itself was
+            # launched from inside a Claude Code session (dev workflow:
+            # `bash run.sh` typed into a Claude Code terminal), the inherited
+            # CLAUDECODE var makes every spawned `claude` CLI refuse to start
+            # ("cannot be launched inside another Claude Code session", exit 1)
+            # — killing both the agent loop and the CLI helper. We are a
+            # platform spawning claude as a managed subprocess, not a human
+            # nesting sessions; blank it so the child env is deterministic.
+            "CLAUDECODE": "",
         }
         if self.api_key:
             if self.auth_type == "bearer_token":
@@ -133,14 +142,29 @@ class ClaudeConfig:
             # normalize here so the CLI's internal calls can't 400 either
             # (same rule as the main-loop model in xyz_claude_agent_sdk).
             from xyz_agent_context.agent_framework.model_catalog import (
+                is_cli_family_alias,
                 resolve_cli_alias,
             )
 
             model = resolve_cli_alias(self.model, auth_type=self.auth_type)
-            env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
-            env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
-            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
-            env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
+            if is_cli_family_alias(model):
+                # OAuth keeps family aliases verbatim ("opus") — but the
+                # ANTHROPIC_DEFAULT_*_MODEL redirects may only carry CONCRETE
+                # ids: pointing an alias at itself makes the CLI reject the
+                # model outright ("There's an issue with the selected model",
+                # exit 1 — killed every claude_oauth agent turn AND the CLI
+                # helper). Blank the redirects (official backend needs no
+                # anti-drift pinning; the CLI resolves aliases itself) and
+                # keep only the subagent pin, which accepts aliases.
+                env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = ""
+                env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = ""
+                env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = ""
+                env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
+            else:
+                env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+                env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+                env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+                env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
         else:
             # No explicit model → blank these so a stale inherited value
             # from os.environ can't steer CLI behavior for this run.
