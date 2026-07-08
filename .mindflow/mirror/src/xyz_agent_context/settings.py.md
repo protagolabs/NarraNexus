@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-07
+last_verified: 2026-07-08
 stub: false
 ---
+
+## 2026-07-08 — claude_cli_config_path (agent_loop config-dir isolation)
+
+Added `claude_cli_config_path` (default `~/.nexusagent/claude_config`). It
+becomes the `CLAUDE_CONFIG_DIR` of the keyed agent_loop CLI subprocess so the
+host user's personal `~/.claude/settings.json` — whose `env` block outranks the
+subprocess env we inject — can no longer hijack the provider (2026-07-08
+incident: personal relay in that `env` block returned `503 No available
+accounts` for every message). Consumed by `api_config.ClaudeConfig.to_cli_env()`;
+OAuth deliberately keeps the real `~/.claude`. Same user-home-absolute-path
+style as `base_working_path`.
 
 ## 2026-07-07 — deploy env vars added by the NetMind billing integration (count + prod/local impact)
 

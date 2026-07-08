@@ -139,6 +139,15 @@ class Settings(BaseSettings):
     # dev server, Electron bundle, and CLI scripts.
     base_working_path: str = str(Path.home() / ".nexusagent" / "workspaces")
 
+    # Dedicated CLAUDE_CONFIG_DIR for the agent_loop CLI subprocess, kept
+    # OUT of the host user's ~/.claude. Claude Code applies that file's `env`
+    # block above the subprocess env we inject, so a developer's personal
+    # config (custom ANTHROPIC_BASE_URL/AUTH_TOKEN/model) would otherwise
+    # silently redirect the agent_loop off its configured provider. Only the
+    # keyed auth paths use this; OAuth needs the real ~/.claude for its
+    # credential file. See api_config.ClaudeConfig.to_cli_env.
+    claude_cli_config_path: str = str(Path.home() / ".nexusagent" / "claude_config")
+
 
     # ===== Export Paths =====
     narrative_markdown_path: str = str(Path.home() / ".nexusagent" / "data" / "narratives")
