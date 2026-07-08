@@ -91,18 +91,17 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
     async def narra_progress(agent_id: str, text: str) -> dict:
-        """Post a short progress update to the current NarraMessenger turn.
+        """Emit a short progress note for backend logging.
 
-        OPTIONAL — use only during genuinely long work (reading a file,
-        multi-step research, waiting on a tool). Call it with a brief status
-        like ``"Reading the chart…"`` or ``"Analyzing the numbers…"``. It
-        updates the "thinking" message the sender already sees, IN PLACE — it
-        does NOT post a new message, and you do NOT pass a room_id. Keep it to
-        a few words; your real answer still goes through ``narra_reply``.
+        NO USER-VISIBLE EFFECT. There is no "thinking" placeholder for
+        this to update — the NarraMessenger room stays quiet until you
+        call ``narra_reply``. You may still call this for backend
+        observability (the trigger logs it), but do NOT rely on it to
+        communicate progress to the sender. If the sender needs a status
+        update, call ``narra_reply`` with an interim note instead.
 
-        Has no effect on non-streaming turns (owner web chat, Jobs) — safe to
-        call anywhere. Returns ``{"ok": true}``. Marker only: the trigger
-        performs the edit when it sees this call in the live stream.
+        Returns ``{"ok": true}``. Kept as a stable tool surface so agent
+        prompts that already reference it don't error.
         """
         if not text or not text.strip():
             return {"ok": False, "error": "non-empty text is required"}

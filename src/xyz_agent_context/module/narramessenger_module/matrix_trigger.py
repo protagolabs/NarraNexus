@@ -101,8 +101,6 @@ from xyz_agent_context.schema.runtime_message import MessageType
 
 from ._matrix_send import (
     MatrixSendError,
-    matrix_room_edit,
-    matrix_room_redact,
     matrix_room_send,
 )
 from ._narramessenger_credential_manager import (
@@ -119,30 +117,21 @@ _ClassifyTarget = Literal["dm", "group_mention", "group_silent"]
 class _StreamReplyState:
     """Streaming reply state for one agent turn.
 
-    A ``💭 Thinking…`` placeholder is shipped immediately at turn start.
-    The agent MAY edit it via ``narra_progress`` during the run; the final
-    ``narra_reply.text`` overwrites it in place. There is no token-stream
-    accumulation — the room only ever shows intentional updates, never the
-    agent's raw output/reasoning. State lives for one turn; no cross-turn
-    shared mutable state.
+    2026-07-08 UX refactor: no placeholder, no progressive edits. The
+    trigger accumulates ``narra_reply.text`` from the tool call stream,
+    plus any error signal, and decides at finalize whether to fresh-send
+    a reply, a fresh error marker, or nothing. State lives for one turn;
+    no cross-turn shared mutable state.
 
-    ``placeholder_event_id`` is empty only if the initial send failed;
-    finalize (redact vs final-edit vs fresh-send) branches on that.
+    - ``narra_reply_text`` — the reply the agent produced, empty if silent.
+    - ``error_seen`` — set True by ``_handle_stream_event`` on any
+      ``MessageType.ERROR`` OR by the outer stream try/except catching a
+      Python exception. Signals finalize to surface ``STREAM_ERROR_MARKER``.
+    - ``last_error_message`` — short excerpt for the log line only;
+      never rendered in the room (which just gets the generic marker).
     """
-    placeholder_event_id: str = ""
     narra_reply_text: str = ""
-    last_progress_ms: float = 0.0
-    send_failure: bool = False
-    # 2026-07-03: set True by ``_handle_stream_event`` when any
-    # ``MessageType.ERROR`` fires during the run — signals the finalize
-    # step to surface an error indicator in the room rather than the
-    # default silent-not-reply redact. Prevents "message deleted" as
-    # the ONLY user-visible outcome of a crashed agent turn (e.g. the
-    # ``LineTooLong`` fatal from oversized tool_call_output_item lines,
-    # see mirror md 2026-07-03 hotfix note).
     error_seen: bool = False
-    # Short excerpt of the most recent error to surface in the placeholder.
-    # Deliberately truncated at write time — full details live in the log.
     last_error_message: str = ""
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
@@ -272,46 +261,38 @@ class MatrixTrigger(ChannelTriggerBase):
     SEND_MAX_ATTEMPTS = 3
     SEND_INITIAL_BACKOFF_MS = 500
 
-    # ── Progressive streaming (m.replace edits) ──────────────────────────
-    # When True (default), _build_and_run_agent uses run_stream to send a
-    # placeholder to Matrix ASAP, then edits it via m.replace as the agent
-    # generates raw text (AGENT_RESPONSE deltas), and finally overwrites
-    # with narra_reply.text when the tool call materialises. This gives
-    # the room a live "agent is typing" feel similar to ChatGPT / Claude
-    # web, and matches the OpenClaw Matrix compat mode's `streaming: true`
-    # config (see setup guide section 6b).
+    # ── Silent-first streaming (no placeholder) ──────────────────────────
+    # 2026-07-08 UX refactor: the "💭 Thinking…" placeholder is gone.
+    # Behaviour matrix:
+    #   - Agent calls ``narra_reply(text)`` → we ``room_send`` the text as
+    #     a fresh message when the turn ends. One message, no edit dance.
+    #   - Agent stays silent (no ``narra_reply``) → the room stays empty.
+    #     No dot marker, no redact, no "message deleted".
+    #   - Agent's runtime crashes mid-turn (``MessageType.ERROR`` or the
+    #     outer try/except catches a Python exception) → we ``room_send``
+    #     ``STREAM_ERROR_MARKER`` fresh. Failures MUST stay visible so the
+    #     sender knows to retry rather than assume they were ignored.
+    #   - Agent calls ``narra_progress(text)`` → NO-OP on the room. The
+    #     tool still exists and returns ``{"ok": true}`` so agent prompts
+    #     don't have to change, but the trigger no longer edits anything.
+    #     Kept as a "backend log only" signal in case we want to surface
+    #     it elsewhere (analytics, owner dashboard) later.
     #
-    # Kill switch: flip to False to fall back to the original atomic path
-    # (run_and_collect → final text → one room_send). Used when Matrix
-    # rate limits get aggressive or when debugging tool-call semantics.
+    # Why gone: the placeholder-then-silent-marker dance ("Thinking…" then
+    # "·") looked broken to real users on dev — worse UX than just staying
+    # silent when there's nothing to say. Deferred/lazy placeholder was
+    # explored but our typical agent turn is 20-60s (see the timing data
+    # from 2026-07-08), so no reasonable delay window skips the placeholder
+    # on the silent path without also delaying it on the reply path.
+    #
+    # Kill switch: flip ``STREAMING_ENABLED`` to False to fall back to the
+    # atomic path (run_and_collect → final text → one room_send).
     STREAMING_ENABLED = True
-    # Placeholder shown immediately at turn start, so the sender gets
-    # instant "the agent is on it" feedback. The final answer (or a
-    # narra_progress update) edits THIS message in place via m.replace; a
-    # silent turn redacts it. 2026-07-03 redesign: we NO LONGER stream the
-    # agent's raw token output (it read as jumpy, and leaked reasoning for
-    # some models) — the room shows only intentional updates.
-    STREAM_PLACEHOLDER_TEXT = "💭 Thinking…"
-    # Min ms between narra_progress edits. The agent drives progress
-    # intentionally, but a light floor keeps a chatty agent from tripping
-    # Matrix's ~1 msg/s per-room write budget. The final narra_reply edit
-    # is NOT subject to this floor.
-    STREAM_PROGRESS_MIN_INTERVAL_MS = 900
-    # Marker edited into the placeholder when the turn ends without a
-    # ``narra_reply`` AND without an error — the agent processed the
-    # message but chose not to speak (e.g. group-silent, or a turn where
-    # `Read` returned nothing meaningful). Was originally a `redact`
-    # ("delete the placeholder"), but every Matrix client renders that
-    # as a prominent "message deleted" line — worse UX than a discreet
-    # marker. Overwriting via ``m.replace`` keeps a single message
-    # thread in the room without the alarming delete indicator.
-    STREAM_SILENT_MARKER = "·"
-    # Marker edited into the placeholder when the agent's runtime
-    # emitted an ``ErrorMessage`` during the stream. Distinguishes a
-    # crashed turn from a merely-silent one so the sender knows to
-    # retry rather than assume the agent chose to ignore them.
-    # ``LineTooLong`` on oversized `tool_call_output_item` is a real
-    # failure mode we've observed (128 KiB anyio line limit + Claude
+    # Marker fresh-sent when the agent's runtime emitted an ``ErrorMessage``
+    # during the stream, or the outer try/except caught a Python-level
+    # exception. Tells the sender to retry rather than assume they were
+    # ignored. ``LineTooLong`` on oversized `tool_call_output_item` is a
+    # real failure mode we've observed (128 KiB anyio line limit + Claude
     # Code's Read on media returning base64 > 128 KiB).
     STREAM_ERROR_MARKER = (
         "⚠️ Sorry — I hit an internal error and couldn't finish. "
@@ -1343,28 +1324,25 @@ class MatrixTrigger(ChannelTriggerBase):
         *,
         attachments: Optional[list] = None,
     ) -> str:
-        """Streaming path: thinking placeholder → agent-driven progress → final.
+        """Silent-first streaming path — no placeholder.
 
         Structure mirrors ``ChannelTriggerBase._build_and_run_agent`` from
         prompt-building onward — replicated here because the base uses
         ``run_and_collect`` (drives to completion) and we need
-        ``run_stream`` (yields events live). Sharing via subclass hook
-        would inflate the base's surface for a Matrix-specific edge case.
+        ``run_stream`` (yields events live to catch ``MessageType.ERROR``).
 
         Flow (see :class:`_StreamReplyState`):
-          1. Ship a ``💭 Thinking…`` placeholder IMMEDIATELY via ``room_send``
-             — instant feedback to the sender.
-          2. Consume the runtime stream. The ONLY events that touch the room
-             are the agent's explicit tool calls:
-               - ``narra_progress(text)`` → ``m.replace``-edit the placeholder
-                 to that status (rate-limited); optional, agent-driven.
+          1. NOTHING sent up front. The room stays as-is while the agent works.
+          2. Consume the runtime stream:
                - ``narra_reply(text)`` → captured as the final answer.
-             Raw ``AGENT_RESPONSE`` token deltas and ``AGENT_THINKING`` are
-             IGNORED — the room shows intentional updates, never the agent's
-             streamed reasoning (this is the 2026-07-03 anti-jitter redesign).
-          3. Stream ends → if we captured ``narra_reply.text``, edit the
-             placeholder to the final answer (fresh send if the placeholder
-             never shipped). Otherwise redact the placeholder (silent turn).
+               - ``narra_progress(text)`` → recorded to log only, no room
+                 side-effect (2026-07-08: room-facing progress removed).
+               - ``MessageType.ERROR`` → set ``state.error_seen``.
+             Raw token deltas and thinking events are ignored.
+          3. Stream ends. Finalize:
+               - narra_reply captured → fresh ``room_send`` the reply text.
+               - No reply + error_seen → fresh ``room_send`` STREAM_ERROR_MARKER.
+               - No reply + no error → NO-OP (room stays untouched).
         """
         # Lazy import — see top-of-file comment about circular dependency.
         from xyz_agent_context.agent_runtime.client import (
@@ -1407,31 +1385,6 @@ class MatrixTrigger(ChannelTriggerBase):
             ]
 
         state = _StreamReplyState()
-        # Ship the "thinking" placeholder immediately — the sender sees the
-        # agent is on it before any work happens. The final reply (or a
-        # narra_progress update) edits THIS message in place; a silent turn
-        # redacts it.
-        try:
-            state.placeholder_event_id = (
-                await matrix_room_send(
-                    homeserver=credential.matrix_homeserver_url,
-                    token=credential.matrix_access_token,
-                    room_id=message.chat_id,
-                    content={
-                        "msgtype": "m.text",
-                        "body": self.STREAM_PLACEHOLDER_TEXT,
-                    },
-                )
-                or ""
-            )
-        except MatrixSendError as e:
-            # Couldn't ship the placeholder — degrade to a fresh send of the
-            # final answer on stream end (no progress edits this turn).
-            logger.warning(
-                f"[matrix:{agent_id}] streaming placeholder send failed "
-                f"({e.code}); will fresh-send the reply at turn end"
-            )
-            state.send_failure = True
 
         client_stream = get_agent_runtime_client().run_stream(
             agent_id=agent_id,
@@ -1447,14 +1400,11 @@ class MatrixTrigger(ChannelTriggerBase):
                     event, state, credential, message.chat_id
                 )
         except Exception as e:  # noqa: BLE001
-            # Runtime blew up mid-stream. Log and finalize what we have —
-            # the base pipeline handles hook_persist_turn / event.final_output
-            # via AgentRuntime's own error path.
-            #
-            # Also mark ``error_seen`` so the finalize step surfaces an
-            # error marker in the room rather than the default silent
-            # marker. Belt-and-suspenders for the case where the runtime
-            # doesn't emit a ``MessageType.ERROR`` before dying.
+            # Runtime blew up mid-stream. Belt-and-suspenders for the case
+            # where the runtime doesn't emit a ``MessageType.ERROR`` before
+            # dying — mark ``error_seen`` so finalize surfaces the error
+            # marker rather than staying silent (which would look identical
+            # to a normal no-reply turn).
             state.error_seen = True
             state.last_error_message = f"{type(e).__name__}: {e}"[:200]
             logger.warning(
@@ -1534,61 +1484,22 @@ class MatrixTrigger(ChannelTriggerBase):
 
         if "narra_reply" in tool_name:
             # LAST-writer wins if the agent calls it twice (rare). The
-            # placeholder is overwritten with this at finalize.
+            # captured text is fresh-sent to the room at finalize.
             state.narra_reply_text = text
             logger.info(
                 f"[matrix:{credential.agent_id}] streaming captured "
                 f"narra_reply.text (len={len(text)}, room={room_id})"
             )
         elif "narra_progress" in tool_name:
-            await self._apply_progress(state, credential, room_id, text.strip())
-
-    async def _apply_progress(
-        self,
-        state: _StreamReplyState,
-        credential: NarramessengerCredential,
-        room_id: str,
-        text: str,
-    ) -> None:
-        """Edit the placeholder to an agent-supplied progress line.
-
-        Best-effort: skipped if the placeholder never shipped, if a prior
-        send permanently failed, or if it arrives inside the rate-limit
-        floor (progress is transient — dropping an over-frequent update is
-        fine; the final ``narra_reply`` overwrites everything anyway).
-        """
-        if state.send_failure or not state.placeholder_event_id:
-            return
-        now_ms = asyncio.get_running_loop().time() * 1000
-        if now_ms - state.last_progress_ms < self.STREAM_PROGRESS_MIN_INTERVAL_MS:
-            return
-        try:
-            await matrix_room_edit(
-                homeserver=credential.matrix_homeserver_url,
-                token=credential.matrix_access_token,
-                room_id=room_id,
-                original_event_id=state.placeholder_event_id,
-                new_body=text,
+            # 2026-07-08 UX refactor: narra_progress no longer edits any
+            # room message (there is no placeholder to edit). Kept for
+            # backend visibility so an agent that already invokes it
+            # doesn't get an error — future analytics or an owner
+            # dashboard may want to consume this signal.
+            logger.info(
+                f"[matrix:{credential.agent_id}] narra_progress noted "
+                f"(no room side-effect, len={len(text)}, room={room_id})"
             )
-        except MatrixSendError as e:
-            if e.code in ("M_UNKNOWN_TOKEN", "M_MISSING_TOKEN", "M_FORBIDDEN"):
-                # Permanent — stop editing this turn (finalize will fresh-send).
-                state.send_failure = True
-                logger.error(
-                    f"[matrix:{credential.agent_id}] progress edit permanent "
-                    f"failure ({e.code}); disabling further edits this turn"
-                )
-            else:
-                logger.info(
-                    f"[matrix:{credential.agent_id}] progress edit skipped "
-                    f"({e.code})"
-                )
-            return
-        state.last_progress_ms = now_ms
-        logger.info(
-            f"[matrix:{credential.agent_id}] progress update applied "
-            f"(room={room_id}, len={len(text)})"
-        )
 
     async def _finalize_stream_with_reply(
         self,
@@ -1597,35 +1508,11 @@ class MatrixTrigger(ChannelTriggerBase):
         state: _StreamReplyState,
         final_text: str,
     ) -> None:
-        """Agent produced narra_reply. Commit final text.
+        """Agent produced narra_reply. Fresh-send the text to the room.
 
-        - If a placeholder was sent: edit it to final_text (overwriting
-          any partial stream we shipped).
-        - If not (agent replied instantly, or streaming errored early):
-          send a fresh message.
+        No placeholder to edit — this always goes through
+        ``_send_matrix_reply`` (rate-limit / transient-error aware).
         """
-        if state.placeholder_event_id and not state.send_failure:
-            try:
-                await matrix_room_edit(
-                    homeserver=credential.matrix_homeserver_url,
-                    token=credential.matrix_access_token,
-                    room_id=room_id,
-                    original_event_id=state.placeholder_event_id,
-                    new_body=final_text,
-                )
-                logger.info(
-                    f"[matrix:{credential.agent_id}] streaming final edit "
-                    f"OK (room={room_id}, text_len={len(final_text)})"
-                )
-                return
-            except MatrixSendError as e:
-                logger.warning(
-                    f"[matrix:{credential.agent_id}] streaming final edit "
-                    f"failed ({e.code}); falling back to fresh send"
-                )
-        # No placeholder OR edit failed — send fresh, going through the
-        # retry-aware _send_matrix_reply so rate-limit / transient errors
-        # get the same handling as the atomic path.
         await self._send_matrix_reply(credential, room_id, final_text)
 
     async def _finalize_stream_silent(
@@ -1634,134 +1521,44 @@ class MatrixTrigger(ChannelTriggerBase):
         room_id: str,
         state: _StreamReplyState,
     ) -> None:
-        """Turn ended without ``narra_reply``. Overwrite placeholder
-        with either an error marker (agent crashed) or a silent marker
-        (agent chose not to speak).
+        """Turn ended without ``narra_reply``.
 
-        Previously we ``redact``ed the placeholder — Matrix clients
-        render that as a prominent "message deleted" line, which reads
-        as a bug even when the silent path was intentional. The user
-        also lost visibility into runtime failures (the log said
-        ``LineTooLong`` fatal but the room just said "deleted"). Now
-        we EDIT the placeholder instead:
-
-        - ``state.error_seen`` set → edit to ``STREAM_ERROR_MARKER``
-          so the sender sees a "please try again" prompt.
-        - Otherwise → edit to ``STREAM_SILENT_MARKER`` (discreet).
-
-        If the placeholder never shipped OR edit fails permanently, we
-        fall back to a fresh ``room_send`` of the marker so the room
-        still shows *something* meaningful. Redact stays as the
-        last-resort cleanup only if the edit AND the fresh send both
-        fail — better a redact than a stranded ``💭 Thinking…``.
+        - ``state.error_seen`` set → fresh-send ``STREAM_ERROR_MARKER`` so
+          the sender knows to retry rather than assume they were ignored.
+          Covers both ``MessageType.ERROR`` events and outer stream
+          exceptions (e.g. ``LineTooLong`` on oversized tool output).
+        - Otherwise → NO-OP. The agent chose silence; the room stays as it
+          was. No dot marker, no redact, no "message deleted" indicator.
         """
-        marker = (
-            self.STREAM_ERROR_MARKER
-            if state.error_seen
-            else self.STREAM_SILENT_MARKER
-        )
-        kind = "error" if state.error_seen else "silent"
+        if not state.error_seen:
+            logger.info(
+                f"[matrix:{credential.agent_id}] silent stream — no reply, "
+                f"no error, staying quiet (room={room_id})"
+            )
+            return
+
         if state.last_error_message:
             logger.info(
                 f"[matrix:{credential.agent_id}] silent stream — surfacing "
-                f"{kind} marker (room={room_id}, "
+                f"error marker (room={room_id}, "
                 f"last_error={state.last_error_message[:80]!r})"
             )
-
-        if not state.placeholder_event_id:
-            # No placeholder in flight — for the error case, still send a
-            # fresh message so the user knows something failed. For the
-            # plain-silent case, stay silent (nothing to clean up).
-            if state.error_seen:
-                try:
-                    await matrix_room_send(
-                        homeserver=credential.matrix_homeserver_url,
-                        token=credential.matrix_access_token,
-                        room_id=room_id,
-                        content={"msgtype": "m.text", "body": marker},
-                    )
-                    logger.info(
-                        f"[matrix:{credential.agent_id}] silent stream — "
-                        f"sent fresh error marker (no placeholder existed, "
-                        f"room={room_id})"
-                    )
-                except MatrixSendError as e:
-                    logger.warning(
-                        f"[matrix:{credential.agent_id}] silent stream — "
-                        f"fresh error marker send failed ({e.code})"
-                    )
-            else:
-                logger.info(
-                    f"[matrix:{credential.agent_id}] silent stream (no "
-                    f"placeholder, no error, room={room_id})"
-                )
-            return
-
-        # Placeholder exists — edit it to the marker.
-        if not state.send_failure:
-            try:
-                await matrix_room_edit(
-                    homeserver=credential.matrix_homeserver_url,
-                    token=credential.matrix_access_token,
-                    room_id=room_id,
-                    original_event_id=state.placeholder_event_id,
-                    new_body=marker,
-                )
-                logger.info(
-                    f"[matrix:{credential.agent_id}] silent stream — edited "
-                    f"placeholder to {kind} marker (room={room_id})"
-                )
-                return
-            except MatrixSendError as e:
-                if e.code not in ("M_UNKNOWN_TOKEN", "M_MISSING_TOKEN", "M_FORBIDDEN"):
-                    # Transient — try a fresh send below rather than
-                    # leaving the placeholder as "💭 Thinking…".
-                    logger.info(
-                        f"[matrix:{credential.agent_id}] silent stream — "
-                        f"edit to marker failed ({e.code}); trying fresh send"
-                    )
-                else:
-                    logger.warning(
-                        f"[matrix:{credential.agent_id}] silent stream — "
-                        f"edit to marker permanent failure ({e.code}); "
-                        f"placeholder stays as-is"
-                    )
-                    return
-        # Edit failed OR send_failure was already set — send a fresh marker.
-        # Prefer this to redact for the error case (user needs to see it);
-        # for the plain-silent case, the fresh marker is discreet enough
-        # that it's still better than leaving "💭 Thinking…" stranded.
         try:
             await matrix_room_send(
                 homeserver=credential.matrix_homeserver_url,
                 token=credential.matrix_access_token,
                 room_id=room_id,
-                content={"msgtype": "m.text", "body": marker},
+                content={"msgtype": "m.text", "body": self.STREAM_ERROR_MARKER},
             )
             logger.info(
                 f"[matrix:{credential.agent_id}] silent stream — fresh "
-                f"{kind} marker sent as fallback (room={room_id})"
+                f"error marker sent (room={room_id})"
             )
         except MatrixSendError as e:
             logger.warning(
                 f"[matrix:{credential.agent_id}] silent stream — fresh "
-                f"marker send also failed ({e.code}); attempting redact "
-                f"as last-resort cleanup"
+                f"error marker send failed ({e.code})"
             )
-            try:
-                await matrix_room_redact(
-                    homeserver=credential.matrix_homeserver_url,
-                    token=credential.matrix_access_token,
-                    room_id=room_id,
-                    event_id=state.placeholder_event_id,
-                    reason=f"{kind}-not-reply (marker send failed)",
-                )
-            except MatrixSendError as re:
-                logger.warning(
-                    f"[matrix:{credential.agent_id}] silent stream — last-"
-                    f"resort redact also failed ({re.code}); placeholder "
-                    f"stays in room as '💭 Thinking…'"
-                )
 
     def extract_output(  # type: ignore[override]
         self, result: Any, message: ParsedMessage, credential: Any

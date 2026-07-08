@@ -1,18 +1,26 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_mcp_tools.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-08
 ---
 
-## 2026-07-03 — `narra_progress` marker (streaming progress)
+## 2026-07-08 — `narra_progress` demoted to a backend-log signal
 
-Added alongside the streaming redesign (see [[matrix_trigger.py]]). `narra_progress
-(agent_id, text)` is a marker like `narra_reply` — it just validates + returns
-`{ok}`; the trigger, watching `run_stream`, catches the tool call and
-`m.replace`-edits the "thinking" placeholder to that status. Optional, agent-driven;
-no-op on non-streaming turns (owner web chat / Jobs have no live trigger consuming
-the stream). Kept a marker (not a real send) so the trigger owns all room writes —
-same reason `narra_reply` is a marker.
+The Matrix trigger's "thinking placeholder" is gone (see
+[[matrix_trigger.py]] 2026-07-08 UX refactor). Without a placeholder to
+edit, `narra_progress` has no user-visible effect anymore. The tool
+remains in the MCP surface (so existing agent prompts that reference it
+don't error) but its docstring now says "no user-visible effect; call
+it for backend observability only". If the sender needs a status
+update, the agent must call `narra_reply` with an interim note.
+
+Trigger side: `_handle_stream_event` still catches the tool call, but
+only logs "narra_progress noted (no room side-effect)" — no
+`m.replace` edit, no `matrix_room_edit` call.
+
+## 2026-07-03 — `narra_progress` marker (streaming progress) [SUPERSEDED]
+
+**Superseded by the 2026-07-08 refactor above** — kept for provenance.
 
 ## 2026-07-03 — send tools unified onto Matrix (+ media send)
 

@@ -1,10 +1,58 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-08
 ---
 
+## 2026-07-08 (UX refactor) — no placeholder, silent = quiet room
+
+Dev feedback: even after the 2026-07-03 fix (edit-to-`·`-marker instead
+of redact), users flagged the "💭 Thinking… → ·" sequence for casual
+messages ("ok"/"嗯"/etc.) as visually confusing. The agent appears to
+"try to say something" then trails off — worse UX than staying silent.
+
+**Explored & rejected**: deferred/lazy placeholder (send only if agent
+takes >800 ms). RDS timing data (2026-07-08) shows our typical Matrix
+turn is 20–60 s; the ONE fast case in ~30 days of dev traffic was 5.4 s.
+No reasonable delay window skips the placeholder on the silent path
+without also delaying it on the reply path.
+
+**Decision**: kill the placeholder outright. The room stays as-is while
+the agent works; the trigger fresh-sends when there's something to say.
+
+Rules matrix:
+
+| Situation                        | Room outcome                       |
+|----------------------------------|------------------------------------|
+| Agent calls `narra_reply(text)`  | Fresh `room_send` on finalize     |
+| Agent calls `narra_progress(t)`  | Backend log only (NO room activity)|
+| Agent stays silent (no reply)    | NO-OP — room untouched            |
+| Runtime crash (ERROR / raise)    | Fresh `room_send` `STREAM_ERROR_MARKER` — failures MUST stay visible |
+
+Constants surviving: `STREAMING_ENABLED`, `STREAM_ERROR_MARKER`.
+Removed: `STREAM_PLACEHOLDER_TEXT`, `STREAM_PROGRESS_MIN_INTERVAL_MS`,
+`STREAM_SILENT_MARKER`. Removed method: `_apply_progress`. Removed
+imports: `matrix_room_edit`, `matrix_room_redact` (the `m.replace` and
+redaction paths no longer trigger).
+
+`_StreamReplyState` slimmed down: `placeholder_event_id`,
+`last_progress_ms`, `send_failure` gone. Only `narra_reply_text`,
+`error_seen`, `last_error_message` remain — the trigger no longer needs
+to track any Matrix event ids across the stream.
+
+`narra_progress` MCP tool remains for prompt stability but its docstring
+now says "no user-visible effect; call it for backend observability
+only". Existing agent prompts that already reference `narra_progress`
+don't error — they just don't render.
+
+Underlying `LineTooLong` on oversized `tool_call_output_item` still
+requires an upstream fix (Claude Agent SDK / anyio 128 KiB readline
+limit). Filed as an agent_framework follow-up.
+
 ## 2026-07-03 (UX fix) — silent finalize: edit-to-marker, not redact
+
+**Superseded by the 2026-07-08 refactor above** — kept for provenance.
+
 
 Live incident on dev EC2 (`agent_3dbc1343a078`, room
 `!nkPGwwuXRnhUBvJOlC:matrix.netmind.chat`) surfaced two overlapping
