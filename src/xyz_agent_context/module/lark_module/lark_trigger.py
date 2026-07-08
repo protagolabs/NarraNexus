@@ -330,7 +330,9 @@ class LarkTrigger(ChannelTriggerBase):
         # _build_and_run_agent.
         self._cli = LarkCLIClient()
 
-        # Lark-specific lifecycle bookkeeping consumed by _health_server.
+        # Lark-specific lifecycle bookkeeping surfaced via the aggregated
+        # channel health server (channel/channel_health_server.py) through
+        # getattr; other channels simply report 0 for this field.
         self._last_ws_connected_monotonic: float = 0.0
         self._last_ws_connected_wallclock_ms: int = 0
 
@@ -342,6 +344,19 @@ class LarkTrigger(ChannelTriggerBase):
     # ────────────────────────────────────────────────────────────────────
     # Lifecycle — start/stop
     # ────────────────────────────────────────────────────────────────────
+
+    async def pre_start(self, db) -> None:
+        """Migrate legacy ``auth_status="logged_in"`` -> ``"bot_ready"``.
+
+        One-time, idempotent. Previously lived in the standalone
+        ``run_lark_trigger`` entrypoint; moved onto the trigger so the
+        consolidated supervisor stays channel-agnostic (rule #4).
+        """
+        from xyz_agent_context.module.lark_module._lark_credential_manager import (
+            LarkCredentialManager,
+        )
+
+        await LarkCredentialManager(db).migrate_legacy_auth_status()
 
     async def start(self, db) -> None:
         """Start trigger machinery + Lark health endpoint.
@@ -363,13 +378,10 @@ class LarkTrigger(ChannelTriggerBase):
         )
         self._dedup_store.update_baseline(self._startup_time_ms)
 
-        # Lark-specific: bring up /healthz so operators can curl from
-        # inside the container during incidents. Best-effort — trigger
-        # still runs if the health server can't bind.
-        from ._health_server import start_health_server
-        health_task = await start_health_server(self)
-        if health_task is not None:
-            self._monitor_tasks.append(health_task)
+        # NOTE: /healthz is no longer started here. The consolidated supervisor
+        # (module/run_channel_triggers.py) brings up ONE aggregated health
+        # endpoint (channel/channel_health_server.py) covering every channel,
+        # so a per-trigger server would double-bind port 47831.
 
         logger.info(
             f"LarkTrigger started: {len(self._workers)} workers, "

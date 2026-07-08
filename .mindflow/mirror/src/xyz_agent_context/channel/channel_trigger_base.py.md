@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-07
+last_verified: 2026-07-08
 ---
+
+## 2026-07-08 — `pre_start(db)` hook added for the consolidated supervisor
+
+New optional lifecycle hook `pre_start(db)` (default no-op), called by the
+consolidated supervisor (`module/run_channel_triggers.py`) BEFORE `start(db)`.
+Subclasses override it to run their own idempotent one-off migration inside the
+channel instead of in the shared entrypoint (rule #4). First user:
+`LarkTrigger.pre_start` carries the legacy `auth_status` migration that used to
+live in the now-deleted `run_lark_trigger` entrypoint. The design decision
+"6 abstract methods + 1 optional hook + 2 PUSH stubs" below now reads "…+ 2
+optional hooks…" (`fetch_attachments` and `pre_start`). Consolidation relies on
+`start()` already being non-blocking + all state being per-instance, so N
+triggers coexist in one event loop.
 
 ## 2026-07-07 — error-fallback: surface run failures INTO the channel
 
