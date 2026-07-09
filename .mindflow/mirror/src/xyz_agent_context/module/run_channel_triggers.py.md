@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/run_channel_triggers.py
 stub: false
-last_verified: 2026-07-08
+last_verified: 2026-07-09
 ---
 
 ## Why it exists
