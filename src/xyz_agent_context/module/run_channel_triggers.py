@@ -150,7 +150,11 @@ async def main(only: Optional[set[str]] = None) -> None:
             except Exception as e:  # noqa: BLE001 — best-effort shutdown
                 logger.warning(f"[supervisor] stop failed: {e}")
         if health_task is not None:
+            # Cancel AND await so uvicorn's ``server.shutdown()`` (in the
+            # task's CancelledError handler) actually runs — a bare cancel()
+            # leaves it pending and the socket only closes on process exit.
             health_task.cancel()
+            await asyncio.gather(health_task, return_exceptions=True)
         # Close the shared DB client. We opened it, so we close it — the
         # aiosqlite backend runs its single connection on a background thread
         # that otherwise keeps the process alive after main() returns, turning
