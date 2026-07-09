@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-07-08
+last_verified: 2026-07-09
 ---
 
 ## 2026-07-08 — 后台 helper 在 SYSTEM_DISABLED 下兜底到 user config

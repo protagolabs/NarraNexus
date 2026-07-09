@@ -250,8 +250,8 @@ async def test_system_disabled_flagged_no_own_config_raises_catchable_error(monk
     from xyz_agent_context.agent_framework import provider_driver
     from xyz_agent_context.agent_framework.api_config import (
         LLMConfigNotConfigured,
+        _openai_ctx,
         clear_user_config,
-        openai_config,
     )
 
     async def _no_own(_user_id, _db):
@@ -268,8 +268,12 @@ async def test_system_disabled_flagged_no_own_config_raises_catchable_error(monk
     with pytest.raises(NoProviderConfiguredError):
         await r.resolve_and_set("usr_x", own_config_when_system_disabled=True)
 
-    # ContextVars stay cleared — must NOT have fallen back to a platform key.
-    assert not openai_config.api_key
+    # The per-user ContextVar must NOT have been written (assert on the ctxvar
+    # directly, NOT via ``openai_config`` — that proxy falls back to the global
+    # _holder / platform key, so it can't distinguish "cleared" from "fell back
+    # to platform key"). Platform-key isolation is guaranteed by the caller
+    # aborting on NoProviderConfiguredError + alerting, not by an empty read.
+    assert _openai_ctx.get() is None
     assert get_provider_source() is None
 
 
