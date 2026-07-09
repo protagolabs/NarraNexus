@@ -8,6 +8,7 @@
 
 import asyncio
 from contextlib import suppress
+from pathlib import Path
 
 from loguru import logger
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
@@ -27,7 +28,8 @@ except ImportError:
     from model_catalog import resolve_cli_alias
     from _tool_policy_guard import build_tool_policy_guard
 
-def _stage_claude_oauth_credentials(config_dir) -> None:
+
+def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
     """Copy the host Claude OAuth credential into the isolated CONFIG_DIR.
 
     OAuth used to point ``CLAUDE_CONFIG_DIR`` straight at ``~/.claude`` so the
@@ -48,9 +50,16 @@ def _stage_claude_oauth_credentials(config_dir) -> None:
     fresh ``claude auth login`` while NOT clobbering a token the CLI refreshed
     in-place inside the isolated dir — clobbering it would break rotating
     refresh tokens (the host copy still carries the already-consumed one).
+
+    KNOWN COST (host may be logged out): this stages one-way host → isolated
+    dir. If the isolated CLI refreshes the OAuth token in place, the host
+    ``~/.claude/.credentials.json`` keeps the now-rotated refresh token and the
+    user's own interactive ``claude`` gets logged out once its access token
+    expires. Accepted tradeoff, matching Codex's one-way ``_stage_codex_oauth_
+    credentials``; there is no write-back. See the mirror md for the rationale.
     """
+    import os
     import shutil
-    from pathlib import Path
 
     from xyz_agent_context.agent_framework.provider_driver.derive import (
         CLAUDE_CLI_CREDENTIALS_REF,
@@ -72,9 +81,22 @@ def _stage_claude_oauth_credentials(config_dir) -> None:
     dest = dest_dir / ".credentials.json"
     if dest.exists() and dest.stat().st_mtime >= source.stat().st_mtime:
         return  # staged copy is at least as fresh — preserve any CLI refresh
-    shutil.copy2(source, dest)
-    with suppress(OSError):
-        dest.chmod(0o600)  # credential file: keep it private
+    # Atomic stage: copy2 into a same-dir temp, then os.replace (atomic rename
+    # on POSIX). The OAuth config dir is SHARED across concurrent agent_loops
+    # and a running CLI may be reading ``.credentials.json`` at this instant —
+    # a bare copy2 onto ``dest`` truncates-then-writes, re-opening the very
+    # half-read / concurrent-write window this fix set out to close. copy2
+    # preserves mtime so newest-wins still holds after the rename. chmod the
+    # temp BEFORE the rename so ``dest`` is never briefly world-readable.
+    tmp = dest_dir / f".credentials.json.{os.getpid()}.tmp"
+    try:
+        shutil.copy2(source, tmp)
+        with suppress(OSError):
+            tmp.chmod(0o600)  # credential file: keep it private
+        os.replace(tmp, dest)  # atomic
+    finally:
+        with suppress(OSError):
+            tmp.unlink()  # no-op after a successful replace; cleans up on error
 
 
 def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str, Any]:

@@ -87,6 +87,14 @@ def test_stage_oauth_credentials_copies_only_credential_file(tmp_path, monkeypat
     assert (dest / ".credentials.json").read_text() == '{"token":"real"}'
     # The hijack vector must NOT be carried over.
     assert not (dest / "settings.json").exists()
+    # Staged credential must be private (0o600) — the code chmods it, so guard
+    # against a regression that drops the permission tightening.
+    import stat
+
+    mode = stat.S_IMODE((dest / ".credentials.json").stat().st_mode)
+    assert mode == 0o600
+    # Atomic stage (temp + os.replace) must not leave a ``.tmp`` turd behind.
+    assert not list(dest.glob(".credentials.json.*.tmp"))
 
 
 def test_stage_oauth_credentials_newest_wins(tmp_path, monkeypatch):
