@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-08
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — claude_oauth_config_path (OAuth config-dir isolation)
+
+Added `claude_oauth_config_path` (default `~/.nexusagent/claude_oauth_config`),
+a dir kept SEPARATE from both the host `~/.claude` and the keyed
+`claude_cli_config_path` below. #72 (below) isolated only the keyed path and
+left OAuth pointing at the real `~/.claude`, which re-exposed the same hijack
+(personal `settings.json` `env` block overriding the OAuth run) AND raced the
+user's own Claude Code on `~/.claude/.claude.json` (2026-07-09 incident). OAuth
+now uses this isolated dir; `xyz_claude_agent_sdk._stage_claude_oauth_credentials`
+stages ONLY `.credentials.json` into it before the spawn (never `settings.json`).
+Consumed by `api_config.ClaudeConfig.to_cli_env()`.
 
 ## 2026-07-08 — claude_cli_config_path (agent_loop config-dir isolation)
 
@@ -11,9 +23,9 @@ becomes the `CLAUDE_CONFIG_DIR` of the keyed agent_loop CLI subprocess so the
 host user's personal `~/.claude/settings.json` — whose `env` block outranks the
 subprocess env we inject — can no longer hijack the provider (2026-07-08
 incident: personal relay in that `env` block returned `503 No available
-accounts` for every message). Consumed by `api_config.ClaudeConfig.to_cli_env()`;
-OAuth deliberately keeps the real `~/.claude`. Same user-home-absolute-path
-style as `base_working_path`.
+accounts` for every message). Consumed by `api_config.ClaudeConfig.to_cli_env()`.
+Same user-home-absolute-path style as `base_working_path`. (2026-07-09: OAuth no
+longer "keeps the real ~/.claude" — see `claude_oauth_config_path` above.)
 
 ## 2026-07-07 — deploy env vars added by the NetMind billing integration (count + prod/local impact)
 

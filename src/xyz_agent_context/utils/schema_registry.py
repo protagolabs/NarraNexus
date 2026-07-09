@@ -740,6 +740,49 @@ _register(
     )
 )
 
+# 25b. agent_slots (per-agent slot OVERRIDES; falls back to user_slots)
+# Mirrors user_slots column-for-column but keyed by agent_id instead of
+# user_id. A row here overrides the owner's user_slots row for that slot on
+# runs of THIS agent only; absence = inherit the user-level default. Both
+# 'agent' and 'helper_llm' slots may be overridden (helper follows its agent).
+# The identical column vocabulary is deliberate: resolve_user_runtime_llm_configs
+# overlays an agent_slots row onto by_slot_name and consumes it with the exact
+# same card-lookup / self-heal / driver-dispatch code — no special-casing.
+_register(
+    TableDef(
+        name="agent_slots",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("slot_name", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("provider_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("model", "TEXT", "VARCHAR(128)", nullable=False),
+            # Same framework-neutral per-slot JSON blob as user_slots
+            # (thinking, reasoning_effort, future knobs). NULL = all auto.
+            Column("params_json", "TEXT", "MEDIUMTEXT"),
+            # self_heal_if_broken writes here when an overridden slot.model
+            # drifts out of its provider.models array — the writeback is
+            # table-aware so it repairs the OVERRIDE, not the user default.
+            Column("last_auto_repaired_at", "TEXT", "DATETIME(6)"),
+            # Coding-agent framework override — only meaningful on the
+            # slot_name='agent' row; null falls back to the user default.
+            Column(
+                "agent_framework",
+                "TEXT",
+                "VARCHAR(32)",
+                nullable=True,
+                default="'claude_code'",
+            ),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_as_agent_slot", ["agent_id", "slot_name"], unique=True),
+            Index("idx_as_agent_id", ["agent_id"]),
+        ],
+    )
+)
+
 # 26. bus_message_failures (composite primary key)
 _register(
     TableDef(

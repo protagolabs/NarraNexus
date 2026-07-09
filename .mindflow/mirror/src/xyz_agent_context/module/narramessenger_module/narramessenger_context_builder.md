@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_context_builder.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-09
 ---
+
+## 2026-07-09 — reply_instruction drops the `narra_progress` clause
+
+Companion cleanup to the silent-first refactor on [[matrix_trigger.py]]
+(2026-07-08). The `reply_instruction` string used to include:
+
+> "For genuinely long work you MAY call `narra_progress(text="…")` first
+> with a few-word status — it updates the sender's 'thinking' message in
+> place."
+
+That whole clause is gone. There is no thinking placeholder anymore —
+the room stays quiet until `narra_reply` fires — so telling the agent
+otherwise burned a tool call, spent tokens, and let the model believe
+it had already communicated a status to the sender. Prompt now tells
+the agent explicitly: *the room stays quiet until you call
+`narra_reply`; if the work takes a while, just do it and send the
+final answer when ready*.
+
+The `narra_progress` tool itself was removed in the same PR (see
+[[_narramessenger_mcp_tools]] 2026-07-09 section).
 
 ## 2026-07-03 — reply_instruction points at `narra_reply`
 

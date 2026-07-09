@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-07-08
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — validate_slot_binding 放开 helper 的 OAuth(订阅覆盖 helper)
+
+合并 #81 后,`validate_slot_binding` 的 **Rule 3(helper_llm 拒 OAuth)已移除**:helper
+现在**接受** claude_oauth / codex_oauth——resolver 把 OAuth helper 路由成
+`CliHelperConfig`,`CliHelperSDK` 用同一个 CLI 一次性跑结构化调用(见
+`build_cli_helper_config`)。因 #81 把三条规则抽成共享的 `validate_slot_binding`,
+删这条同时让 **per-agent override(`AgentSlotService`)** 也一致放开 OAuth helper。
+
+## 2026-07-09 — extracted validate_slot_binding + agent_slots cleanup
+
+The three provider↔slot binding rules (protocol / codex-source / helper-OAuth)
+were extracted from ``set_slot`` into a module-level ``validate_slot_binding``,
+now the single source of truth shared with [[agent_slot_service]] so a per-agent
+override enforces identical rules. ``remove_provider`` also deletes matching
+``agent_slots`` rows (by ``provider_id``, globally unique) — else a deleted
+provider leaves dangling per-agent overrides that fail at resolve.
 
 ## 2026-07-08 — codex OAuth auto-bind: helper 用便宜 mini,不复用旗舰
 

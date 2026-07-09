@@ -65,7 +65,7 @@ async def _patch_resolver(monkeypatch, *, resolve):
         def __init__(self, **_kw):
             pass
 
-        async def resolve(self, user_id):
+        async def resolve(self, user_id, agent_id=None):
             return await resolve(user_id)
 
     monkeypatch.setattr(pr, "ProviderResolver", _StubResolver)
@@ -90,7 +90,7 @@ async def test_quota_exceeded_translated_to_system_default_unavailable(monkeypat
     """Opted in, exhausted, no own provider → QuotaExceededError must surface
     to the agent-run path as SystemDefaultUnavailable (an LLMResolverError the
     runtime catches; job/lark triggers match on that exact class name)."""
-    async def _resolve(_uid):
+    async def _resolve(_uid, agent_id=None):
         raise QuotaExceededError("usr_x")
 
     api_config = await _patch_resolver(monkeypatch, resolve=_resolve)
@@ -100,7 +100,7 @@ async def test_quota_exceeded_translated_to_system_default_unavailable(monkeypat
 
 @pytest.mark.asyncio
 async def test_no_provider_translated_to_llm_config_not_configured(monkeypatch):
-    async def _resolve(_uid):
+    async def _resolve(_uid, agent_id=None):
         raise NoProviderConfiguredError("usr_x")
 
     api_config = await _patch_resolver(monkeypatch, resolve=_resolve)
@@ -112,7 +112,7 @@ async def test_no_provider_translated_to_llm_config_not_configured(monkeypatch):
 async def test_translated_errors_are_llm_resolver_errors(monkeypatch):
     """Both translations land in the LLMResolverError family so a single
     `except LLMResolverError` in agent_runtime catches them."""
-    async def _resolve(_uid):
+    async def _resolve(_uid, agent_id=None):
         raise QuotaExceededError("usr_x")
 
     api_config = await _patch_resolver(monkeypatch, resolve=_resolve)

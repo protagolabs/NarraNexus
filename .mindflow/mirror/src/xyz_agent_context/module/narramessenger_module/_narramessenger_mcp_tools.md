@@ -1,18 +1,40 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_mcp_tools.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-09
 ---
 
-## 2026-07-03 — `narra_progress` marker (streaming progress)
+## 2026-07-09 — `narra_progress` tool removed entirely
 
-Added alongside the streaming redesign (see [[matrix_trigger.py]]). `narra_progress
-(agent_id, text)` is a marker like `narra_reply` — it just validates + returns
-`{ok}`; the trigger, watching `run_stream`, catches the tool call and
-`m.replace`-edits the "thinking" placeholder to that status. Optional, agent-driven;
-no-op on non-streaming turns (owner web chat / Jobs have no live trigger consuming
-the stream). Kept a marker (not a real send) so the trigger owns all room writes —
-same reason `narra_reply` is a marker.
+Review of PR #78 flagged the intermediate "keep the tool as a stable
+surface for future analytics" story as YAGNI — no consumer exists, and
+leaving a tool that promises status updates but delivers none tempts
+agents to call it (burning a tool round-trip) or to say "I've told you
+I'm still working" in later replies (they haven't, from the sender's
+point of view). Per project rule #2 ("no backwards compat"), the tool
+is deleted outright.
+
+Now removed from three places at once:
+
+1. `_narramessenger_mcp_tools.py` — the `@mcp.tool()` registration and
+   its docstring gone.
+2. The file-header "Tools exposed" list — the bullet is gone; the
+   `narra_reply` bullet gained a sentence noting that the previous
+   `narra_progress` status-update surface no longer exists.
+3. `matrix_trigger.py`'s `_handle_stream_event` — the
+   `elif "narra_progress" in tool_name` branch is gone. A stray tool
+   call with that name from an older prompt is silently dropped
+   (unknown tool → no state change, no room activity), tested by
+   `test_stray_narra_progress_is_inert`.
+
+Companion prompt cleanup: [[narramessenger_context_builder]]'s
+`reply_instruction` used to instruct the agent to "MAY call
+`narra_progress` first with a few-word status". That whole clause is
+gone in the same PR.
+
+## 2026-07-03 — `narra_progress` marker (streaming progress) [SUPERSEDED]
+
+**Superseded by the 2026-07-09 delete above** — kept for provenance.
 
 ## 2026-07-03 — send tools unified onto Matrix (+ media send)
 

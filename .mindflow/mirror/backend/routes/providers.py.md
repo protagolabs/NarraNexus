@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-07
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — `_is_cloud` delegates to deployment_mode
+
+`_is_cloud()` no longer re-sniffs `DATABASE_URL`; it delegates to
+[[deployment_mode]]'s `is_cloud_mode()` (the single source of truth — honours
+`NARRANEXUS_DEPLOYMENT_MODE`, treats an unset `DATABASE_URL` as local). This was
+one of three skewed copies; the per-agent config route ([[agents_llm_config]])
+converged on the same helper. Import is top-level now.
 
 ## 2026-07-07 — use-subscription wires minted key to the env's inference base
 

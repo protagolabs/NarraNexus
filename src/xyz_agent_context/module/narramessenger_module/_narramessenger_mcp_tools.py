@@ -7,9 +7,9 @@ Tools exposed:
   - narra_reply(agent_id, text)                — REPLY to the message you were
     invoked on. A marker: your ``text`` is delivered to the room automatically
     by the trigger (Matrix ``room_send``) once the turn ends. No room_id needed.
-  - narra_progress(agent_id, text)             — OPTIONAL short status update
-    during long work; edits the "thinking" message in place (streaming turns
-    only). Marker: the trigger performs the ``m.replace`` edit.
+    The room stays quiet until this fires — there is no intermediate status
+    surface (the previous ``narra_progress`` tool was removed 2026-07-08 with
+    the placeholder-free UX refactor).
   - narra_send(agent_id, room_id, text)        — PROACTIVE text send to a room
     via Matrix ``room_send``. Use when you are NOT replying to an inbound
     message (e.g. a Job / scheduled push).
@@ -86,26 +86,6 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
         # tool call's arguments, which the runtime records for the trigger
         # to read. Owning delivery in the trigger is what makes future
         # progressive m.replace streaming possible.
-        return {"ok": True}
-
-    # ──────────────────────────────────────────────────────────────────
-    @mcp.tool()
-    async def narra_progress(agent_id: str, text: str) -> dict:
-        """Post a short progress update to the current NarraMessenger turn.
-
-        OPTIONAL — use only during genuinely long work (reading a file,
-        multi-step research, waiting on a tool). Call it with a brief status
-        like ``"Reading the chart…"`` or ``"Analyzing the numbers…"``. It
-        updates the "thinking" message the sender already sees, IN PLACE — it
-        does NOT post a new message, and you do NOT pass a room_id. Keep it to
-        a few words; your real answer still goes through ``narra_reply``.
-
-        Has no effect on non-streaming turns (owner web chat, Jobs) — safe to
-        call anywhere. Returns ``{"ok": true}``. Marker only: the trigger
-        performs the edit when it sees this call in the live stream.
-        """
-        if not text or not text.strip():
-            return {"ok": False, "error": "non-empty text is required"}
         return {"ok": True}
 
     # ──────────────────────────────────────────────────────────────────

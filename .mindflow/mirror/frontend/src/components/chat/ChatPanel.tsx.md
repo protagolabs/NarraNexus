@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-03
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — hosts the per-agent model/framework panel
+
+ChatPanel now owns the per-agent [[AgentLlmConfigPanel]]: a ⚙ (SlidersHorizontal)
+ghost icon button sits in the header's right cluster, LEFT of the cost chip
+([[CostPopover]]), and opens it. The panel is rendered once here (state
+``agentCfgOpen``); on save it bumps ``modelReloadKey``, passed to
+[[ComposerModelBadge]] so the composer's quick-switch chip re-reads the model.
+The header icon is the single entry point for the detailed settings — the
+composer chip stays only the quick model switch.
 
 ## 2026-07-03 — pass error state to MessageBubble
 
