@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-06-18
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — per-agent framework + owner bugfix
+
+``_resolve_agent_framework_name`` is now keyed by ``agent_id`` (was ``user_id``).
+It honours a per-agent ``agent_slots`` override that actually rebinds the agent
+slot (has a ``provider_id`` — mirrors [[resolver]]'s overlay predicate so
+framework and config never disagree), else falls back to the OWNER's
+``user_slots`` (``agents.created_by``), else ``claude_code``. The call site was
+fixed to pass ``ctx.agent_id`` instead of ``ctx.user_id`` — a latent correctness
+bug: background triggers pass a trigger identity that isn't the owner, so the
+framework could disagree with the owner-resolved config.
+
 ## 2026-06-18 — 冷启动 executor 先等就绪再驱动
 
 冷启动分支（`ensured.cold_started`）发完 `executor.warming` UX 事件后,**先

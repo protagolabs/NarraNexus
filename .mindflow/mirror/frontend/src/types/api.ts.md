@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-06
+last_verified: 2026-07-09
 stub: true
 ---
+
+## 2026-07-09 — AgentSlotView / AgentSlotEffective
+
+Types for the per-agent LLM config endpoint: ``AgentSlotEffective`` (flat
+provider/model/thinking/reasoning_effort, +agent_framework on the agent slot)
+and ``AgentSlotView`` (inheriting / effective / override / owner_default per
+slot). Consumed by [[api.ts]], [[ComposerModelBadge]], [[AgentLlmConfigPanel]].
+
  
 ## 2026-07-05 — recharge types (Phase 4, module E)
 

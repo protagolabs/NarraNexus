@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/chat/ComposerModelBadge.tsx
-last_verified: 2026-06-24
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — now PER-AGENT (was user-scoped)
+
+The model chip is now the active AGENT's effective model, not the user-level
+agent slot. Picking a model writes a per-agent override (PUT
+/api/agents/{id}/llm-config/agent via [[api]]) that only affects THIS agent; a
+dot marks "custom for this agent" vs inheriting the owner default. A ⚙ opens
+[[AgentLlmConfigPanel]] (framework + reasoning + helper). Takes ``agentId`` as a
+prop (ChatPanel passes the active id from configStore). Falls back to the
+Settings link only when the owner has no agent slot at all. Option-building is
+shared via [[agentFramework]].
 
 # chat/ComposerModelBadge.tsx — in-composer model indicator + one-click switcher
 

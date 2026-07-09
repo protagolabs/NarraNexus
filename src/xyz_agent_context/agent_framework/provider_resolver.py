@@ -255,7 +255,7 @@ class ProviderResolver:
         return ProviderAvailability.USER_OK if has_own else ProviderAvailability.NO_PROVIDER
 
     async def resolve(
-        self, user_id: str
+        self, user_id: str, agent_id: str | None = None
     ) -> Optional[tuple[RuntimeLLMConfigs, str]]:
         """Resolve a user's effective LLM configs WITHOUT mutating ContextVars.
 
@@ -267,10 +267,13 @@ class ProviderResolver:
         The USER branch delegates to the single-point Provider Driver
         resolver (``resolve_user_runtime_llm_configs``) — the SAME builder the
         agent-loop path uses — so a codex agent or an anthropic-protocol
-        helper is wired correctly here too. There is intentionally no second
-        protocol-blind builder on this path (that drift was the root of the
-        consolidation anthropic-helper bug). The SYSTEM/free-tier branch keeps
-        the controlled NetMind (openai-protocol) shape.
+        helper is wired correctly here too. When ``agent_id`` is given it also
+        overlays that agent's per-agent slot overrides on the USER branch.
+        There is intentionally no second protocol-blind builder on this path
+        (that drift was the root of the consolidation anthropic-helper bug).
+        The SYSTEM/free-tier branch keeps the controlled NetMind
+        (openai-protocol) shape — per-agent overrides do NOT apply there
+        (scope: the free tier is a fixed one-model pool).
         """
         verdict = await self.classify(user_id)
 
@@ -289,7 +292,7 @@ class ProviderResolver:
             # Use the db behind the injected user_provider_svc (DI), not a
             # global — the same dependency classify() already read from.
             cfgs = await resolve_user_runtime_llm_configs(
-                user_id, self.user_provider_svc.db
+                user_id, self.user_provider_svc.db, agent_id=agent_id
             )
             return cfgs, "user"
         if verdict == ProviderAvailability.FREE_TIER_EXHAUSTED:
@@ -299,7 +302,11 @@ class ProviderResolver:
         raise NoProviderConfiguredError(user_id)  # NO_PROVIDER
 
     async def resolve_and_set(
-        self, user_id: str, *, own_config_when_system_disabled: bool = False
+        self,
+        user_id: str,
+        *,
+        agent_id: str | None = None,
+        own_config_when_system_disabled: bool = False,
     ) -> None:
         """Resolve the user's configs and push them onto the request ContextVars.
 
@@ -329,7 +336,7 @@ class ProviderResolver:
           into a generic ``except`` that continues on the cleared/global
           platform key (the exact 2026-07 incident this path prevents).
         """
-        resolved = await self.resolve(user_id)
+        resolved = await self.resolve(user_id, agent_id=agent_id)
         if resolved is None:
             if not own_config_when_system_disabled:
                 return
@@ -342,7 +349,7 @@ class ProviderResolver:
 
             try:
                 cfgs = await resolve_user_runtime_llm_configs(
-                    user_id, self.user_provider_svc.db
+                    user_id, self.user_provider_svc.db, agent_id=agent_id
                 )
             except LLMConfigNotConfigured as e:
                 raise NoProviderConfiguredError(user_id) from e
@@ -373,11 +380,18 @@ async def classify_provider_for_user(user_id: str, db) -> ProviderAvailability:
     return await resolver.classify(user_id)
 
 
-async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
+async def resolve_and_set_provider_for_user(
+    user_id: str, db, agent_id: str | None = None
+) -> None:
     """Wire the default services and push the user's effective LLM config
     onto this task's ContextVars — the background-job twin of the
     auth_middleware path, for callers that run OUTSIDE any HTTP request
     (memory consolidation worker; future lifespan jobs).
+
+    When ``agent_id`` is given, the owner's config is overlaid with that
+    agent's per-agent slot overrides (helper_llm is per-agent, so a background
+    helper task for agent A must use A's helper override, not the owner
+    default).
 
     Local mode / system-provider disabled: falls through to the user's OWN
     provider config (NOT a no-op). Background callers (this + the memory
@@ -398,7 +412,9 @@ async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
         system_provider_svc=SystemProviderService.instance(),
         quota_svc=QuotaService.default(),
     )
-    await resolver.resolve_and_set(user_id, own_config_when_system_disabled=True)
+    await resolver.resolve_and_set(
+        user_id, agent_id=agent_id, own_config_when_system_disabled=True
+    )
 
 
 async def inject_owner_helper_credentials(agent_id: str, db) -> Optional[str]:
@@ -438,7 +454,9 @@ async def inject_owner_helper_credentials(agent_id: str, db) -> Optional[str]:
             f"credentials left cleared (global fallback)."
         )
         return None
-    await resolve_and_set_provider_for_user(owner, db)
+    # Pass agent_id so the owner's helper_llm is overlaid with this agent's
+    # per-agent helper override (helper follows its agent).
+    await resolve_and_set_provider_for_user(owner, db, agent_id=agent_id)
     return owner
 
 

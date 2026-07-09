@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-07
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — agent-delete cascades agent_slots
+
+The delete-agent cascade (step 14f, before deleting the agent row) now
+``DELETE FROM agent_slots WHERE agent_id = %s`` so a removed agent leaves no
+orphan per-agent LLM overrides.
 
 ## 2026-07-07 — `trigger` is a MySQL reserved word: must be backticked
 

@@ -286,7 +286,11 @@ async def test_inject_owner_credentials_resolves_for_agent_owner(db_client):
         new=AsyncMock(),
     ) as resolver:
         await worker._inject_owner_credentials("agent_x")
-        resolver.assert_awaited_once_with("user_owner", db_client)
+        # agent_id is threaded through so the owner's helper_llm is overlaid
+        # with THIS agent's per-agent helper override (helper follows its agent).
+        resolver.assert_awaited_once_with(
+            "user_owner", db_client, agent_id="agent_x"
+        )
 
 
 @pytest.mark.asyncio

@@ -1314,7 +1314,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             }}
           />
           </div>
-          <ComposerModelBadge />
+          <ComposerModelBadge agentId={agentId} />
         </div>
       </div>
 

@@ -30,6 +30,15 @@ import { getApiBaseUrl } from '@/stores/runtimeStore'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { api } from '@/lib/api'
 import { isTauri, triggerClaudeLogin, triggerClaudeLogout, cancelClaudeLogin } from '@/lib/tauri'
+import {
+  AGENT_FRAMEWORKS,
+  isCodexFramework,
+  RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
+  MODEL_SUGGESTION_GROUPS,
+  CODEX_ALLOWED_PROVIDER_SOURCES,
+  getModelsForSlot as libGetModelsForSlot,
+  type ModelSuggestionGroup,
+} from '@/lib/agentFramework'
 
 /** How long we let `claude auth login` block before auto-aborting it.
  *  Anthropic's OAuth flow itself has no hard upper bound, but past ~10 min
@@ -111,139 +120,15 @@ interface KnownModelMeta {
 // URLs, and recommended default models now live there / in
 // model_catalog._ONBOARD_*_MODELS.
 
-// =============================================================================
-// Agent Framework definitions
-// =============================================================================
-
-interface AgentFramework {
-  id: string
-  label: string
-  protocol: string
-  desc: string
-}
-
-// One framework name per agent kind. ``codex_cli`` runs the official
-// ``openai-codex`` Python SDK under the hood; the older hand-rolled
-// implementation file is kept in the repo as a revival fallback only,
-// not registered as a driver.
-const AGENT_FRAMEWORKS: AgentFramework[] = [
-  { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
-  { id: 'codex_cli', label: 'Codex CLI', protocol: 'openai', desc: 'Official openai-codex SDK — streaming reasoning + RPC interrupt' },
-]
-
-// Codex-framework predicate. Kept as a helper rather than an inline
-// ``=== 'codex_cli'`` comparison so a future v3 framework id lands in
-// one spot instead of being scattered across three UI branches
-// (model curation, provider source filter, install banner).
-const isCodexFramework = (framework: string | null | undefined): boolean =>
-  framework === 'codex_cli'
-
+// The framework list, codex-curated models / allowed sources, recommended
+// helper models, model suggestions, and getModelsForSlot are shared with the
+// per-agent chat surfaces via ``@/lib/agentFramework`` (imported above) — so
+// the Settings default editor and the per-agent override offer identical
+// choices. SLOT_DEFS stays local: it carries the per-slot default protocols
+// this user-level editor renders.
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
   { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic)', protocol: 'anthropic' },
   { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI / Anthropic)', protocol: 'openai' },
-]
-
-// What the helper_llm "Default (recommended)" option actually resolves to,
-// per provider protocol. Mirrors backend ``_ONBOARD_HELPER_MODELS`` in
-// model_catalog.py (openai → gpt-5.4-mini, anthropic → claude-haiku-4-5).
-// Surfaced in the option label so users aren't left guessing what "default"
-// means. Keep in sync with the backend map.
-const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
-  openai: 'gpt-5.4-mini',
-  anthropic: 'claude-haiku-4-5',
-}
-
-// =============================================================================
-// Model Name Suggestions
-// =============================================================================
-//
-// UX affordance for users who don't know the exact model IDs off the top
-// of their head. Rendered as dimmed chips below the ModelBubbleInput —
-// click a chip and it moves into the selected-models bubble row.
-//
-// Why we DON'T filter by the form's protocol: in practice almost all of
-// our users hit providers through a forwarding platform (Yunwu /
-// OpenRouter / NetMind / custom proxies) that does its own protocol
-// translation. A Custom Anthropic endpoint may be fronting GPT, Gemini,
-// or MiniMax; a Custom OpenAI endpoint may be fronting Claude. Hiding
-// suggestions based on the form's declared protocol would steer users
-// away from valid model names. Always show the full set and let the
-// user pick — they know what their forwarder exposes.
-//
-// List curation rules:
-//   - OpenAI: 10 newest text / chat / reasoning models
-//   - Anthropic: all current models
-//   - Gemini: all current text models, exclude deprecated / embedding /
-//     audio / live / TTS / image / computer-use
-//   - Chinese vendors (Zhipu, Kimi, Qwen, MiniMax, DeepSeek): top 3
-//     newest text models each (Kimi has only 1 listed)
-//   - DeepSeek compatibility aliases (deepseek-chat, deepseek-reasoner)
-//     excluded — users who want them can still type them in manually.
-
-interface ModelSuggestionGroup {
-  label: string
-  models: string[]
-}
-
-const MODEL_SUGGESTION_GROUPS: ModelSuggestionGroup[] = [
-  {
-    label: 'Anthropic',
-    models: [
-      'claude-opus-4-8',
-      'claude-sonnet-4-6',
-      'claude-haiku-4-5',
-      'claude-haiku-4-5-20251001',
-    ],
-  },
-  {
-    label: 'OpenAI',
-    models: [
-      'gpt-5.4',
-      'gpt-5.4-mini',
-      'gpt-5.4-nano',
-      'gpt-5.2',
-      'gpt-5.2-mini',
-      'gpt-5.1',
-      'gpt-5',
-      'gpt-4.1',
-      'o4-mini',
-      'o3',
-    ],
-  },
-  {
-    label: 'Google Gemini',
-    models: [
-      'gemini-3.1-pro-preview',
-      'gemini-3.1-pro-preview-customtools',
-      'gemini-3-flash-preview',
-      'gemini-3.1-flash-lite-preview',
-      'gemini-2.5-pro',
-      'gemini-2.5-flash',
-      'gemini-2.5-flash-lite',
-      'gemini-deep-research-preview',
-      'gemini-deep-research-max-preview',
-    ],
-  },
-  {
-    label: 'Zhipu / GLM',
-    models: ['glm-5.1', 'glm-5', 'glm-5-turbo'],
-  },
-  {
-    label: 'Kimi (Moonshot)',
-    models: ['kimi-k2.6'],
-  },
-  {
-    label: 'Qwen (DashScope)',
-    models: ['qwen3.6-max-preview', 'qwen3.6-plus', 'qwen3.6-flash'],
-  },
-  {
-    label: 'MiniMax',
-    models: ['MiniMax-M2.7', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.5'],
-  },
-  {
-    label: 'DeepSeek',
-    models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
-  },
 ]
 
 // =============================================================================
@@ -847,54 +732,12 @@ export function ProviderSettings() {
     return urls.includes(prov.base_url || '')
   }
 
-  // Curated model list the Codex CLI subprocess actually accepts.
-  // Must stay in sync with backend ``CODEX_CURATED_MODELS`` in
-  // ``user_provider_service.py`` — verified 2026-06-02 from
-  // codex CLI's interactive "Select Model and Effort" picker.
-  // Both codex_oauth and "Custom OpenAI provider used as codex_cli
-  // agent" funnel through this list; otherwise the dropdown would
-  // offer e.g. gpt-4.1 / o3 which codex CLI rejects at runtime.
-  const CODEX_CURATED_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
-
-  // Provider sources the codex_cli framework actually works with.
-  // Codex CLI expects OpenAI's Responses API; third-party
-  // aggregators (NetMind / Yunwu / OpenRouter / etc.) only expose
-  // ``chat/completions``, so codex CLI silently fails — model is
-  // missing, tool-calling format mismatches, MCP integration
-  // broken. Without testing each aggregator against codex CLI
-  // we can't claim support. Whitelist what's verified:
-  //   * codex_oauth — ChatGPT login (OpenAI's own backend)
-  //   * user        — Provider added via "+ Custom OpenAI" form
-  //                  (assumes user pointed it at api.openai.com or
-  //                  a Responses-API-compatible endpoint — that's
-  //                  on the user to get right).
-  // Anything else (netmind, yunwu, openrouter, etc.) is hidden
-  // from the agent slot dropdown when framework=codex_cli.
-  // Note: "openai" is a PROTOCOL value, not a SOURCE — preset
-  // aggregators are openai-protocol too. Filter by source, not
-  // protocol (protocol is already enforced upstream by the slot
-  // framework check).
-  const CODEX_ALLOWED_PROVIDER_SOURCES = ['codex_oauth', 'user']
-
-  const getModelsForSlot = (prov: ProviderSummary, slotKey: string) => {
-    // Agent slot + codex_cli framework → always show the codex-
-    // curated set, regardless of provider source AND regardless of
-    // whether the provider's stored ``models`` happens to include
-    // them. A Custom OpenAI provider's ``models`` column is the
-    // user's "I have access to these" claim for non-agent slots
-    // (helper_llm). The codex CLI subprocess talks straight to
-    // OpenAI with the API key — OpenAI's tier check is the real
-    // gate, not this list. Offer all three; if the user's tier
-    // doesn't permit one, they'll see a clear error at run time.
-    if (slotKey === 'agent' && isCodexFramework(agentFramework)) {
-      return CODEX_CURATED_MODELS.map((mid) => ({
-        model_id: mid,
-        display_name: knownModels[mid]?.display_name || mid,
-      }))
-    }
-    return prov.models
-      .map((mid) => ({ model_id: mid, display_name: knownModels[mid]?.display_name || mid }))
-  }
+  // CODEX_CURATED_MODELS + CODEX_ALLOWED_PROVIDER_SOURCES are imported from
+  // @/lib/agentFramework (shared with the per-agent chat surfaces). This thin
+  // wrapper binds the component's current agentFramework + knownModels to the
+  // shared resolver so callers keep the (prov, slotKey) signature.
+  const getModelsForSlot = (prov: ProviderSummary, slotKey: string) =>
+    libGetModelsForSlot(prov, slotKey, agentFramework, knownModels)
 
   // Switching the agent framework is staff-only in cloud (a framework
   // with no API-key provider falls back to the shared CLI credentials —

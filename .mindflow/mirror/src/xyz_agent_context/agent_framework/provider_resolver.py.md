@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-07-09
 ---
 
+## 2026-07-09 — agent_id on resolve / resolve_and_set / helper injection
+
+``ProviderResolver.resolve`` + ``resolve_and_set`` gained optional ``agent_id``,
+passed into ``resolve_user_runtime_llm_configs`` on the USER_OK / SYSTEM_DISABLED
+own-config branches (SYSTEM free-tier ignores it). ``resolve_and_set_provider_for_user``
+and ``inject_owner_helper_credentials`` thread it too — the memory-consolidation
+worker's detached helper task for agent A now overlays A's per-agent helper
+override (helper follows its agent), not just the owner default.
+
 ## 2026-07-08 — 后台 helper 在 SYSTEM_DISABLED 下兜底到 user config
 
 `resolve()` 在系统免费层禁用(本地/desktop 模式)时返回 None,`resolve_and_set`

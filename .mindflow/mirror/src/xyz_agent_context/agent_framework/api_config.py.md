@@ -4,6 +4,19 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 — agent_id threaded through the resolver entry points
+
+Per-agent overrides ([[resolver]]) reach the run + MCP-tool paths by threading an
+optional ``agent_id`` through: ``get_agent_owner_runtime_llm_configs(agent_id)``
+→ ``get_user_runtime_llm_configs(owner, agent_id=agent_id)`` →
+``resolver.resolve(user_id, agent_id)`` / ``_get_user_runtime_llm_configs_strict``
+→ ``resolve_user_runtime_llm_configs(..., agent_id=agent_id)``. Owner still bills;
+the agent + helper slots resolve with this agent's overrides overlaid on the
+owner default. ``get_user_llm_configs`` / ``_get_user_llm_configs_strict`` gained
+the same optional param. The cloud SYSTEM free-tier branch ignores ``agent_id``
+(fixed one-model pool). ``setup_mcp_llm_context`` is override-aware for free (it
+funnels through the owner helper).
+
 ## 2026-07-09 — OAuth 分支也隔离 CONFIG_DIR(补完 #72 的漏)
 
 事故延续:#72(下条)只隔离了 keyed 路径,OAuth 分支被特意放行、`CLAUDE_CONFIG_DIR`

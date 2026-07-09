@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-07-07
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — extracted validate_slot_binding + agent_slots cleanup
+
+The three provider↔slot binding rules (protocol / codex-source / helper-OAuth)
+were extracted from ``set_slot`` into a module-level ``validate_slot_binding``,
+now the single source of truth shared with [[agent_slot_service]] so a per-agent
+override enforces identical rules. ``remove_provider`` also deletes matching
+``agent_slots`` rows (by ``provider_id``, globally unique) — else a deleted
+provider leaves dangling per-agent overrides that fail at resolve.
 
 ## 2026-07-07 — netmind inference base env-configurable (minted-key path only)
 

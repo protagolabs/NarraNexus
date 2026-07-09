@@ -31,7 +31,7 @@ async def test_injects_owner_config_when_owner_present(monkeypatch):
         lambda: cleared.__setitem__("n", cleared["n"] + 1),
     )
 
-    async def _fake_resolve(user_id, db):
+    async def _fake_resolve(user_id, db, agent_id=None):
         resolved["user"] = user_id
 
     monkeypatch.setattr(
@@ -54,7 +54,7 @@ async def test_returns_none_and_does_not_resolve_when_no_owner(monkeypatch):
 
     monkeypatch.setattr(provider_resolver, "clear_user_config", lambda: None)
 
-    async def _fake_resolve(user_id, db):
+    async def _fake_resolve(user_id, db, agent_id=None):
         called["resolve"] = True
 
     monkeypatch.setattr(
@@ -72,7 +72,7 @@ async def test_returns_none_and_does_not_resolve_when_no_owner(monkeypatch):
 async def test_returns_none_when_agent_row_missing(monkeypatch):
     monkeypatch.setattr(provider_resolver, "clear_user_config", lambda: None)
 
-    async def _fake_resolve(user_id, db):  # pragma: no cover - must not run
+    async def _fake_resolve(user_id, db, agent_id=None):  # pragma: no cover - must not run
         raise AssertionError("should not resolve without an owner")
 
     monkeypatch.setattr(
@@ -88,7 +88,7 @@ async def test_returns_none_when_agent_row_missing(monkeypatch):
 async def test_resolver_errors_propagate(monkeypatch):
     monkeypatch.setattr(provider_resolver, "clear_user_config", lambda: None)
 
-    async def _boom(user_id, db):
+    async def _boom(user_id, db, agent_id=None):
         raise provider_resolver.QuotaExceededError("free tier exhausted")
 
     monkeypatch.setattr(

@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/resolver.py
-last_verified: 2026-06-17
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — per-agent slot overlay (agent_id)
+
+``resolve_user_runtime_llm_configs`` gained ``agent_id: str | None``. After
+building ``by_slot_name`` from ``user_slots`` it calls ``_apply_agent_overrides``:
+load ``agent_slots`` rows for the agent and, for each row whose ``slot_name`` ∈
+``_REQUIRED_SLOTS`` with a non-empty ``provider_id``, overlay it. Both agent and
+helper slots can be overridden; empty-provider stub rows are skipped (a
+framework-only stub must not shadow the user default — matches
+``step_3._resolve_agent_framework_name``). No ``agent_id`` / no override rows →
+byte-identical to the user-only path. The overlaid row carries ``agent_id`` (not
+``user_id``), which is how [[self_heal]] routes its writeback to ``agent_slots``.
+
 ## 2026-06-17 — 把 codex / helper 派发收进 driver 多态(铁律 #9)
 
 去掉 resolve loop 里两处 `if` 特判,改成单一决策点 `_resolve_slot_target(

@@ -166,7 +166,7 @@ def _stub_single_resolver(monkeypatch):
         RuntimeLLMConfigs,
     )
 
-    async def _fake(_user_id, _db):
+    async def _fake(_user_id, _db, agent_id=None):
         return RuntimeLLMConfigs(claude=ClaudeConfig(), openai=OpenAIConfig())
 
     monkeypatch.setattr(
@@ -211,7 +211,7 @@ async def test_system_disabled_falls_through_to_own_config_when_flagged(monkeypa
         openai_config,
     )
 
-    async def _own(_user_id, _db):
+    async def _own(_user_id, _db, agent_id=None):
         return RuntimeLLMConfigs(
             claude=ClaudeConfig(api_key="own-claude"),
             openai=OpenAIConfig(
@@ -254,7 +254,7 @@ async def test_system_disabled_flagged_no_own_config_raises_catchable_error(monk
         clear_user_config,
     )
 
-    async def _no_own(_user_id, _db):
+    async def _no_own(_user_id, _db, agent_id=None):
         raise LLMConfigNotConfigured("no usable provider for user")
 
     monkeypatch.setattr(provider_driver, "resolve_user_runtime_llm_configs", _no_own)

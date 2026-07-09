@@ -1,7 +1,20 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-06-17
+last_verified: 2026-07-09
 ---
+
+## 2026-07-09 — Section 2 reframed as the GLOBAL DEFAULT; shared consts extracted
+
+Section 2 ("Model Assignment") is relabeled "Global Default" (i18n
+section2Title/Subtitle, en+zh): it still writes the user-level ``user_slots``
+via the unchanged /api/providers endpoints, but is now explicitly the default
+every agent INHERITS — per-agent model/framework overrides live in chat
+([[ComposerModelBadge]] + [[AgentLlmConfigPanel]]). The framework list, codex
+curated models / allowed sources, recommended helper models, model suggestions,
+and getModelsForSlot were extracted to [[agentFramework]] and imported back
+(single source of truth shared with the per-agent surfaces); SLOT_DEFS stays
+local. Other 8 locales keep their existing section2 translation as fallback.
+
 ## 2026-06-17 — 临时屏蔽「自定义 Provider」上传(安全加固)
 
 新增模块级开关 `CUSTOM_PROVIDER_ENABLED = false`。`+ Custom Anthropic /
