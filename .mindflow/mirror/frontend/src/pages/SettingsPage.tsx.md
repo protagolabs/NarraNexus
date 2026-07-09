@@ -4,6 +4,14 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 (latest) — new "Model Defaults" nav section
+
+Added a `NAV_ITEMS` entry `{ id: 'modeldefaults', label: 'Model Defaults' }`
+(after `providers`) rendering [[ModelDefaultsSettings]] — the global default
+agent/helper model + framework, extracted out of LLM Providers. LLM Providers is
+now purely the credential wallet ([[ProviderSettings]] card grid). Panel is
+gated by `{active === 'modeldefaults'}` like the others.
+
 ## 2026-07-09 — LLM Providers: ProviderSettings owns the whole flow
 
 ``ProvidersSection`` is now just the "LLM Providers" ``SectionHeader`` +

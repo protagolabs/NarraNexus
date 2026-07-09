@@ -3,6 +3,31 @@ code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-07-09
 ---
 
+## 2026-07-09 (latest) — card grid + detail/add modals; global default moved out
+
+Final redesign of this component (supersedes the ordered-sections entry below):
+
+- **Card grid**: each configured provider is a card (name + protocol/source badge
+  + models count + masked key). Click → a **detail modal** (`detailProviderId`)
+  showing protocol/source/auth_type, base_url, masked key, model chips, and the
+  Test / Edit / Delete actions (reusing `handleTest` / `openEditModels` +
+  edit-models dialog / `handleDelete`). The last grid cell is a dashed
+  **"+ Add provider"** card → the **add modal** (`addModalOpen`).
+- **Add modal** = the three add methods (was "② Add a provider"), now inside a
+  `Dialog`: OneKeyOnboard (paste a key), the Claude Code / Codex CLI login cards
+  (OAuth), and the **custom endpoint form** — `CUSTOM_PROVIDER_ENABLED` flipped
+  back to `true` (Owner-authorized reversal of the 2026-06-17 hardening; the
+  security note stays in the source, a custom base_url still routes agent traffic
+  to a user-chosen host).
+- **Global Default (old Section ③) is GONE from here** — moved to the new
+  [[ModelDefaultsSettings]] under the "Model Defaults" nav item. All the slot /
+  framework machinery was deleted: `SLOT_DEFS`, `renderSlotRow`,
+  `getEffectiveSlotConfig`, `handleApply/Discard`, `handleLocalSlotChange/
+  ReasoningChange`, the `agentFramework*` state, `slots` / `knownModels` /
+  `officialBaseUrls` state, the getAgentFramework fetch, and the framework-only
+  lib imports. refreshConfig now loads only providers (+ claude/codex status).
+- The "Update available models" (sync) header action stays.
+
 ## 2026-07-09 — LLM Providers page: three ordered sections (list → add → default)
 
 Since per-agent model/framework moved to chat, this page is a credential WALLET

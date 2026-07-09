@@ -11,8 +11,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
+import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
 import { QuotaPanel } from '@/components/settings/QuotaPanel';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
@@ -271,6 +272,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'account', label: 'Account & Subscription', icon: CreditCard, cloudOnly: true },
   { id: 'providers', label: 'LLM Providers', icon: Cpu },
+  { id: 'modeldefaults', label: 'Model Defaults', icon: SlidersHorizontal },
   { id: 'bundle', label: 'Bundle', icon: Package },
   { id: 'artifacts', label: 'Artifacts', icon: FolderArchive },
   { id: 'agents', label: 'Manage agents', icon: Users },
@@ -326,6 +328,12 @@ export default function SettingsPage() {
         <ScrollArea className="flex-1" viewportClassName="p-6">
           <div className="max-w-3xl">
             {active === 'providers' && <ProvidersSection />}
+            {active === 'modeldefaults' && (
+              <section>
+                <SectionHeader label="Model Defaults" hint="The framework + model every agent inherits by default. Per-agent overrides live in the chat page." />
+                <ModelDefaultsSettings />
+              </section>
+            )}
             {active === 'account' && (
               <section>
                 <SectionHeader label="Account & Subscription" />
