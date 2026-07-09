@@ -820,6 +820,8 @@
       "delete": "删除",
       "section2Title": "全局默认",
       "section2Subtitle": "每个 Agent 默认继承的服务商 + 模型。想给某个 Agent 单独换模型或框架,直接在它的聊天页里改(输入框旁边的模型标签)。",
+      "manageProvidersTitle": "管理服务商",
+      "manageProvidersSubtitle": "用 Claude Code / Codex 登录、添加自定义 endpoint、查看你的 key,或同步模型列表。",
       "applying": "正在应用...",
       "applyChanges": "应用更改",
       "discard": "放弃",

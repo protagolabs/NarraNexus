@@ -821,6 +821,8 @@
       "delete": "Delete",
       "section2Title": "Global Default",
       "section2Subtitle": "The provider + model every agent inherits by default. To give one agent its own model or framework, change it right in that agent's chat (the model chip next to the composer).",
+      "manageProvidersTitle": "Manage providers",
+      "manageProvidersSubtitle": "Sign in with Claude Code / Codex, add a custom endpoint, review your keys, or sync model lists.",
       "applying": "Applying...",
       "applyChanges": "Apply Changes",
       "discard": "Discard",

@@ -3,17 +3,32 @@ code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-07-09
 ---
 
-## 2026-07-09 — Section 2 reframed as the GLOBAL DEFAULT; shared consts extracted
+## 2026-07-09 — LLM Providers page relayout: wallet + Global Default
 
-Section 2 ("Model Assignment") is relabeled "Global Default" (i18n
-section2Title/Subtitle, en+zh): it still writes the user-level ``user_slots``
-via the unchanged /api/providers endpoints, but is now explicitly the default
-every agent INHERITS — per-agent model/framework overrides live in chat
-([[ComposerModelBadge]] + [[AgentLlmConfigPanel]]). The framework list, codex
-curated models / allowed sources, recommended helper models, model suggestions,
-and getModelsForSlot were extracted to [[agentFramework]] and imported back
-(single source of truth shared with the per-agent surfaces); SLOT_DEFS stays
-local. Other 8 locales keep their existing section2 translation as fallback.
+The page had ONE big "Advanced" junk-drawer disclosure ([[SettingsPage]]) hiding
+both provider management AND model assignment. Since per-agent model/framework
+moved to chat, the page now has two clear jobs and the layout reflects that:
+
+- The external "Advanced" collapse is GONE — [[SettingsPage]] renders
+  ProviderSettings directly (summary + one-key above it).
+- "Global Default" (was "Section 2 / Model Assignment", relabeled — i18n
+  section2Title/Subtitle en+zh) is now **always visible**: the provider + model
+  every agent INHERITS. Still writes user-level ``user_slots`` via the unchanged
+  /api/providers endpoints; per-agent overrides live in chat
+  ([[ComposerModelBadge]] + [[AgentLlmConfigPanel]]).
+- "Section 1 / Add Providers" became a collapsed-by-default **"Manage
+  providers"** sub-section (``showManage``) INSIDE this component — CLI sign-in,
+  custom endpoints, provider list, model sync. The collapse moved from the page
+  level to here so the two jobs (wallet vs default) render at the right depth
+  without the double-fetch of two ProviderSettings instances.
+- ``SectionHeader``'s ``step`` badge is now optional (Global Default is the only
+  header, so a lone "02" was dropped).
+
+The framework list, codex curated models / allowed sources, recommended helper
+models, model suggestions, and getModelsForSlot were extracted to
+[[agentFramework]] and imported back (single source of truth shared with the
+per-agent surfaces); SLOT_DEFS stays local. Other 8 locales fall back to en for
+the new manageProviders* keys (fallbackLng='en').
 
 ## 2026-06-17 — 临时屏蔽「自定义 Provider」上传(安全加固)
 

@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive, CreditCard } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
 import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
@@ -238,20 +238,22 @@ function UpdatesSection() {
   );
 }
 
-// Providers section — same logic as the first-run /setup page: simple
-// surface first, the full 1400-line ProviderSettings behind an
-// "Advanced configuration" disclosure (collapsed by default).
+// Providers section. Since per-agent model/framework selection moved into the
+// chat page, this page has just two jobs — a credential WALLET and a GLOBAL
+// DEFAULT — so the old single "Advanced" junk-drawer disclosure is gone:
 //
-//   zero providers  → OneKeyOnboard card (paste one key and go)
-//   any provider    → read-only ProviderSummaryCard (agent framework +
-//                     model, helper model, registered keys at a glance)
+//   Current setup summary  → what's in use, at a glance (once a provider exists)
+//   One-key onboard        → the primary "paste a key" add path
+//   ProviderSettings       → the Global Default editor (visible) + a collapsed
+//                            "Manage providers" sub-section (CLI sign-in, custom
+//                            endpoints, provider list, sync). The collapse now
+//                            lives INSIDE ProviderSettings, wrapping only the
+//                            provider-management block.
 //
-// Collapsing the disclosure (or completing onboard) bumps refreshToken
-// so the summary re-fetches whatever was edited in Advanced, and
-// settingsKey remounts ProviderSettings so it re-reads fresh config.
+// Completing an onboard bumps refreshToken (summary re-fetches) and settingsKey
+// (remounts ProviderSettings so it re-reads fresh config).
 function ProvidersSection() {
   const [providerCount, setProviderCount] = useState<number | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [settingsKey, setSettingsKey] = useState(0);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -269,21 +271,15 @@ function ProvidersSection() {
   };
 
   useEffect(() => {
+    // probe() setStates asynchronously after a fetch; suppress the
+    // set-state-in-effect heuristic (it can't see past the async boundary).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     probe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken]);
 
   const refresh = () => {
     setRefreshToken((t) => t + 1);
     setSettingsKey((k) => k + 1);
-  };
-
-  const toggleAdvanced = () => {
-    setShowAdvanced((v) => {
-      // Closing Advanced → re-sync the summary with whatever was edited.
-      if (v) refresh();
-      return !v;
-    });
   };
 
   return (
@@ -298,32 +294,13 @@ function ProvidersSection() {
         </div>
       )}
 
-      {/* Add / switch a provider — ALWAYS available so pasting a key is a
-          first-class action, not something to hunt for in Advanced. The
-          panel thus shows both the current setup (above) and a way to add
-          a new one (here). Custom endpoints + CLI sign-in stay in Advanced. */}
+      {/* Add / switch a provider — the primary paste-a-key path. */}
       <div className="mb-4">
         <OneKeyOnboard onComplete={refresh} />
       </div>
 
-      <button
-        type="button"
-        className="flex items-center gap-1.5 text-sm hover:opacity-80"
-        style={{ color: 'var(--nm-ink70)' }}
-        onClick={toggleAdvanced}
-      >
-        {showAdvanced ? (
-          <ChevronDown className="w-4 h-4" />
-        ) : (
-          <ChevronRight className="w-4 h-4" />
-        )}
-        Advanced — CLI sign-in, custom endpoints, frameworks, per-slot models
-      </button>
-      {showAdvanced && (
-        <div className="mt-4">
-          <ProviderSettings key={settingsKey} />
-        </div>
-      )}
+      {/* Global Default editor + the collapsed provider-management block. */}
+      <ProviderSettings key={settingsKey} />
     </section>
   );
 }

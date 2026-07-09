@@ -1,9 +1,21 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-06
+last_verified: 2026-07-09
 stub: false
 ---
- 
+
+## 2026-07-09 — LLM Providers: dropped the "Advanced" junk-drawer disclosure
+
+``ProvidersSection`` no longer wraps [[ProviderSettings]] in a single external
+"Advanced" collapse (which hid provider management AND model assignment behind
+one stale label). It now renders: the "LLM Providers" header, the current-setup
+summary, OneKeyOnboard (primary add), then ``<ProviderSettings>`` directly.
+ProviderSettings owns its own collapse now — a "Manage providers" fold around the
+credential machinery, with the "Global Default" editor always visible. The
+``showAdvanced`` toggle + the ChevronDown/ChevronRight imports were removed.
+Rationale: per-agent model/framework selection moved to the chat page, so this
+page is just a credential wallet + a global default — no junk drawer needed.
+
 ## 2026-07-06 — nav reorder + Account consolidates billing
 
 Cloud IA cleanup: NAV_ITEMS now leads with the "account" entry (Account &

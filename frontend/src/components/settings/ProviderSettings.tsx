@@ -24,6 +24,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
@@ -296,18 +297,20 @@ function formatExpiresAt(raw: string | null | undefined): string | null {
 // Section Header
 // =============================================================================
 
-function SectionHeader({ step, title, subtitle }: { step: number; title: string; subtitle: string }) {
+function SectionHeader({ step, title, subtitle }: { step?: number; title: string; subtitle: string }) {
   return (
     <div className="mb-4">
       <div className="flex items-baseline gap-3 mb-1">
-        <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)] tabular-nums">
-          {String(step).padStart(2, '0')}
-        </span>
+        {step != null && (
+          <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)] tabular-nums">
+            {String(step).padStart(2, '0')}
+          </span>
+        )}
         <h3 className="text-base font-[family-name:var(--font-display)] font-semibold text-[var(--text-primary)] tracking-tight">
           {title}
         </h3>
       </div>
-      <p className="text-sm text-[var(--text-tertiary)] ml-[44px] leading-relaxed">{subtitle}</p>
+      <p className={cn('text-sm text-[var(--text-tertiary)] leading-relaxed', step != null && 'ml-[44px]')}>{subtitle}</p>
     </div>
   )
 }
@@ -412,6 +415,11 @@ export function ProviderSettings() {
   // Testing
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
+
+  // Collapsed-by-default "Manage providers" sub-section (CLI sign-in, custom
+  // endpoints, provider list, sync). The Global Default editor stays visible;
+  // only this provider-management machinery folds away.
+  const [showManage, setShowManage] = useState(false)
 
   // Edit-models dialog. We only support editing the models list (backend has
   // PUT /{id}/models) — name / url / key changes aren't exposed, so the
@@ -1019,16 +1027,26 @@ export function ProviderSettings() {
           default Advanced section hid it from cloud users. */}
 
       {/* ================================================================= */}
-      {/* SECTION 1: Add Providers                                          */}
+      {/* Manage providers (collapsed) — CLI sign-in, custom endpoints,     */}
+      {/* provider list, model sync. The primary "paste a key" add path is  */}
+      {/* OneKeyOnboard at the panel top level (SettingsPage); this fold is  */}
+      {/* the rest of the credential wallet.                                */}
       {/* ================================================================= */}
       <div>
-        <SectionHeader
-          step={1}
-          title={t('settings.provider.section1Title')}
-          subtitle={t('settings.provider.section1Subtitle')}
-        />
+        <button
+          type="button"
+          onClick={() => setShowManage((v) => !v)}
+          className="flex items-center gap-1.5 text-sm font-[family-name:var(--font-display)] font-semibold text-[var(--text-primary)] hover:opacity-80"
+        >
+          {showManage ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          {t('settings.provider.manageProvidersTitle')}
+        </button>
+        <p className="text-sm text-[var(--text-tertiary)] ml-[22px] mt-0.5 leading-relaxed">
+          {t('settings.provider.manageProvidersSubtitle')}
+        </p>
 
-        <div className="space-y-4 ml-[34px]">
+        {showManage && (
+        <div className="space-y-4 ml-[22px] mt-4">
           {/* One-key preset setup (pick provider + paste key) now lives at
               the panel level — SettingsPage embeds <OneKeyOnboard> directly,
               and SetupPage shows it as the first-run hero. It used to be
@@ -1416,15 +1434,16 @@ export function ProviderSettings() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* ================================================================= */}
-      {/* SECTION 2: Model Assignment                                        */}
+      {/* Global Default — the provider + model every agent inherits.        */}
+      {/* Per-agent overrides live in the chat page (model chip + header ⚙). */}
       {/* ================================================================= */}
       {hasProviders && (
         <div>
           <SectionHeader
-            step={2}
             title={t('settings.provider.section2Title')}
             subtitle={t('settings.provider.section2Subtitle')}
           />
