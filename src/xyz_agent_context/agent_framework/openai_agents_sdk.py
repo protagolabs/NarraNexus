@@ -75,7 +75,8 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
     # Strip markdown code fences
     text = re.sub(r"```(?:json)?\s*", "", text).strip()
     text = text.rstrip("`").strip()
-    # Find the outermost JSON object or array
+    # Find the outermost JSON object or array. Greedy (first opener → last
+    # closer) so a single nested object like {"a": {"b": 1}} is captured whole.
     for pattern in [r"\{[\s\S]*\}", r"\[[\s\S]*\]"]:
         match = re.search(pattern, text)
         if match:
@@ -85,6 +86,61 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
                 return candidate
             except json.JSONDecodeError:
                 continue
+    # Fallback: the greedy span didn't parse — most often because the text
+    # carries TWO concatenated objects ({...}{...}). This happens with the
+    # codex CLI helper, whose stream repeats the message (streamed increments
+    # + an item.completed full copy, sometimes slightly reworded), so greedy
+    # grabs first-{ … last-} = both objects = invalid. Return the FIRST
+    # balanced object/array instead (string- and escape-aware so braces inside
+    # JSON strings don't miscount).
+    return _first_balanced_json(text)
+
+
+def _balanced_end(text: str, start: int) -> Optional[int]:
+    """Index of the closer that balances the opener at ``text[start]``, matching
+    ``{``↔``}`` and ``[``↔``]`` via a type-checked stack (so ``{"a": 1]`` is
+    rejected, not mis-accepted), string/escape aware. ``None`` if unbalanced."""
+    pairs = {"{": "}", "[": "]"}
+    stack: list[str] = []
+    in_str = False
+    esc = False
+    for j in range(start, len(text)):
+        c = text[j]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c in "{[":
+            stack.append(pairs[c])
+        elif c in "}]":
+            if not stack or stack[-1] != c:
+                return None  # mismatched closer → not balanced from here
+            stack.pop()
+            if not stack:
+                return j
+    return None
+
+
+def _first_balanced_json(text: str) -> Optional[str]:
+    """Return the FIRST balanced ``{...}`` / ``[...]`` substring that parses as
+    JSON. Scans every opener in order; a candidate that balances but does not
+    parse falls through to the next opener (instead of giving up)."""
+    for i, c in enumerate(text):
+        if c in "{[":
+            end = _balanced_end(text, i)
+            if end is not None:
+                candidate = text[i:end + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    continue  # balanced but invalid → try the next opener
     return None
 
 

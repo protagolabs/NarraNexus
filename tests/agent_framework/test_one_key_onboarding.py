@@ -323,19 +323,17 @@ async def test_set_slot_helper_accepts_anthropic_provider():
 
 
 @pytest.mark.asyncio
-async def test_set_slot_helper_rejects_oauth_providers():
-    """OAuth rows (claude_oauth / codex_oauth) can't make direct API
-    calls — the helper slot must reject them at assignment time, not
-    fail cryptically at agent-loop time."""
+async def test_set_slot_helper_accepts_oauth_providers():
+    """OAuth rows (claude_oauth / codex_oauth) now serve the helper slot via
+    the CLI helper (subscription covers both slots, 2026-07). set_slot must
+    accept them — the resolver routes them to a CliHelperConfig."""
     db = _FakeDB()
     svc = UserProviderService(db)
     _, claude_ids = await svc.add_provider(user_id="u1", card_type="claude_oauth")
-    _, codex_ids = await svc.add_provider(user_id="u1", card_type="codex_oauth")
 
-    with pytest.raises(ValueError, match="cannot use OAuth provider"):
-        await svc.set_slot("u1", "helper_llm", claude_ids[0], "haiku")
-    with pytest.raises(ValueError, match="cannot use OAuth provider"):
-        await svc.set_slot("u1", "helper_llm", codex_ids[0], "gpt-5.4-mini")
+    # Re-assigning an OAuth provider to the helper slot must NOT raise.
+    cfg = await svc.set_slot("u1", "helper_llm", claude_ids[0], "haiku")
+    assert cfg.slots["helper_llm"].provider_id == claude_ids[0]
 
 
 @pytest.mark.asyncio

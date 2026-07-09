@@ -125,14 +125,19 @@ async def test_codex_framework_rejects_aggregator_source():
 
 
 @pytest.mark.asyncio
-async def test_helper_slot_rejects_oauth_provider():
+async def test_helper_slot_accepts_oauth_provider():
+    # OAuth now covers the helper slot: the resolver routes an OAuth helper to a
+    # CliHelperConfig + CliHelperSDK (one-shot through the same CLI as the
+    # agent), so validate_slot_binding no longer rejects it — and the per-agent
+    # override (which shares that validator) must accept it too.
     db = _FakeDB()
     svc = await _owned_agent(db)
     _, claude_oauth = await svc.add_provider(user_id="u1", card_type="claude_oauth")
-    with pytest.raises(ValueError, match="OAuth"):
-        await AgentSlotService(db).set_agent_slot(
-            "ag1", "helper_llm", claude_oauth[0], "claude-haiku-4-5",
-        )
+    row = await AgentSlotService(db).set_agent_slot(
+        "ag1", "helper_llm", claude_oauth[0], "haiku",
+    )
+    assert row["provider_id"] == claude_oauth[0]
+    assert "helper_llm" in (await AgentSlotService(db).get_agent_slots("ag1"))
 
 
 @pytest.mark.asyncio

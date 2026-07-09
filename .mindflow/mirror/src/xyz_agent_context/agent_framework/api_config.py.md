@@ -4,6 +4,15 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 — _ConfigHolder.cli_helper property(代理无回退兜底)
+
+`_ConfigHolder` 新增 `cli_helper` property(返回默认 `CliHelperConfig()`)。`cli_helper_config`
+是 `_ConfigProxy`,ContextVar 为 None 时回退到 `getattr(_holder, "cli_helper")`——而 holder
+原本没有这个属性(其余四个代理都有对应 property),一旦有人在 CLI-helper 路径外读
+`cli_helper_config.framework` 就是 AttributeError。CLI helper 无全局/桌面来源(只由 OAuth
+provider 派生到 per-task ContextVar),故这个 property 返回的是**永不作为真实配置**的默认值,
+纯粹为让代理回退安全。
+
 ## 2026-07-09 — agent_id threaded through the resolver entry points
 
 Per-agent overrides ([[resolver]]) reach the run + MCP-tool paths by threading an
@@ -304,3 +313,13 @@ Claim: these additions do NOT alter existing behaviour of `set_user_config`,
 - 在没有调用 `set_user_config()` 的代码路径（如单元测试、独立脚本）里读 `claude_config.model` 会穿透 ContextVar 到全局 `_holder`，行为取决于环境配置。测试时最好 patch `api_config` 模块级别的代理对象或 patch `_holder`。
 - 不要把 `embedding_config.dimensions` 传给 OpenAI embeddings API 调用，虽然 `EmbeddingConfig` 有这个字段但它只用于 UI 展示，真正的请求故意不带它。
 - `LLMConfigNotConfigured` 是 `RuntimeError` 子类，在 `agent_runtime.py` 的 run() 里被捕获后会 yield `ErrorMessage` 给前端并 return，不会继续执行后续步骤。
+
+## 2026-07-07 — CliHelperConfig（订阅 Helper 第三通道）
+
+新增 `CliHelperConfig`（framework=claude_code|codex_cli + model/base_url/auth_type/api_key）、`_cli_helper_ctx`、`cli_helper_config` 代理、`RuntimeLLMConfigs.cli_helper`；`set_user_config` 加 `cli_helper` 形参，`snapshot_user_config`/`clear_user_config` 同步。用于让订阅（OAuth）登录同时覆盖 helper 槽——helper 走 CLI 一次性（见 cli_helper_sdk.py）。dispatch 优先级 cli>anthropic>openai。
+
+## 2026-07-07 (实测跟进) — to_cli_env 两个致命 env 修复
+
+本地实测 claude_oauth 后发现两个让 `claude` 子进程直接退出码 1 的 env 问题(主循环和 CLI helper 同死):
+1. **CLAUDECODE 嵌套守卫**:后端若从 Claude Code 会话里启动(dev 常见),继承的 `CLAUDECODE` 让每次 spawn 报 'cannot be launched inside another Claude Code session'。 to_cli_env 现在显式置空(平台受管子进程,非人为嵌套)。
+2. **别名自指**:oauth 路径 `resolve_cli_alias` 保留家族别名('opus'),但把 `ANTHROPIC_DEFAULT_*_MODEL` 指向别名是自引用 → CLI 报 'issue with the selected model' 拒启。现在别名时重定向置空(官方后端无漂移风险),仅保留接受别名的 `CLAUDE_CODE_SUBAGENT_MODEL`;具体 id(api_key 转换后)行为不变。

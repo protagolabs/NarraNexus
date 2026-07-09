@@ -84,6 +84,15 @@ class ClaudeConfig:
             "ANTHROPIC_API_KEY": "",
             "ANTHROPIC_AUTH_TOKEN": "",
             "ANTHROPIC_BASE_URL": self.base_url or "",
+            # Nested-session guard suppression. When the backend itself was
+            # launched from inside a Claude Code session (dev workflow:
+            # `bash run.sh` typed into a Claude Code terminal), the inherited
+            # CLAUDECODE var makes every spawned `claude` CLI refuse to start
+            # ("cannot be launched inside another Claude Code session", exit 1)
+            # — killing both the agent loop and the CLI helper. We are a
+            # platform spawning claude as a managed subprocess, not a human
+            # nesting sessions; blank it so the child env is deterministic.
+            "CLAUDECODE": "",
         }
         if self.api_key:
             if self.auth_type == "bearer_token":
@@ -139,14 +148,29 @@ class ClaudeConfig:
             # normalize here so the CLI's internal calls can't 400 either
             # (same rule as the main-loop model in xyz_claude_agent_sdk).
             from xyz_agent_context.agent_framework.model_catalog import (
+                is_cli_family_alias,
                 resolve_cli_alias,
             )
 
             model = resolve_cli_alias(self.model, auth_type=self.auth_type)
-            env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
-            env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
-            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
-            env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
+            if is_cli_family_alias(model):
+                # OAuth keeps family aliases verbatim ("opus") — but the
+                # ANTHROPIC_DEFAULT_*_MODEL redirects may only carry CONCRETE
+                # ids: pointing an alias at itself makes the CLI reject the
+                # model outright ("There's an issue with the selected model",
+                # exit 1 — killed every claude_oauth agent turn AND the CLI
+                # helper). Blank the redirects (official backend needs no
+                # anti-drift pinning; the CLI resolves aliases itself) and
+                # keep only the subagent pin, which accepts aliases.
+                env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = ""
+                env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = ""
+                env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = ""
+                env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
+            else:
+                env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+                env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+                env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+                env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
         else:
             # No explicit model → blank these so a stale inherited value
             # from os.environ can't steer CLI behavior for this run.
@@ -245,6 +269,33 @@ class CodexConfig:
 
 
 @dataclass(frozen=True)
+class CliHelperConfig:
+    """CLI-backed helper_llm configuration (subscription / OAuth helper).
+
+    Used when the helper_llm slot points at a subscription provider —
+    Claude Code (``claude_oauth``) or Codex (``codex_oauth``). Those OAuth
+    credentials cannot make direct Messages / Chat-Completions API calls, so
+    the helper's small structured-output calls run through the SAME CLI the
+    subscription already authorizes (one-shot, no separate API key). This is
+    what lets a single subscription login cover BOTH the agent slot and the
+    helper_llm slot. Consumed by :class:`CliHelperSDK`, never by the agent
+    loop.
+
+    ``framework`` selects the CLI backend: "claude_code" (via
+    ``claude_agent_sdk.query()``) or "codex_cli" (via ``codex exec``).
+    ``model`` is the model to request. ``auth_type`` / ``api_key`` /
+    ``base_url`` mirror the agent config so the SDK can reuse the exact
+    ``ClaudeConfig``/``CodexConfig`` ``to_cli_env`` credential wiring — for
+    OAuth the key is blank and the CLI reads its own credential file.
+    """
+    framework: str = "claude_code"  # "claude_code" | "codex_cli"
+    model: str = ""
+    base_url: str = ""
+    auth_type: str = "oauth"  # "oauth" | "api_key"
+    api_key: str = ""
+
+
+@dataclass(frozen=True)
 class GeminiConfig:
     """Google Gemini API configuration"""
     api_key: str = ""
@@ -262,6 +313,10 @@ class RuntimeLLMConfigs:
     # provider (single-Claude-key path); None means the helper runs
     # on the OpenAI protocol via ``openai`` above.
     anthropic_helper: Optional[AnthropicHelperConfig] = None
+    # Set when the helper_llm slot points at a subscription (OAuth)
+    # provider — the helper runs through the same CLI as the agent. Takes
+    # precedence over ``anthropic_helper`` / ``openai`` in get_helper_sdk().
+    cli_helper: Optional[CliHelperConfig] = None
 
 
 # =============================================================================
@@ -445,6 +500,15 @@ class _ConfigHolder:
         self._ensure_loaded()
         return self._anthropic_helper  # type: ignore
 
+    @property
+    def cli_helper(self) -> "CliHelperConfig":
+        # No global/desktop source for a CLI helper — it is only ever derived
+        # from an OAuth provider onto the per-task ContextVar. This default
+        # (never a real config) exists so the ``cli_helper_config`` proxy's
+        # fall-through (ContextVar is None) returns a benign object instead of
+        # raising AttributeError if something reads it off the helper path.
+        return CliHelperConfig()
+
 
 _holder = _ConfigHolder()
 
@@ -471,6 +535,9 @@ _openai_ctx: ContextVar[Optional[OpenAIConfig]] = ContextVar("openai_config", de
 _codex_ctx: ContextVar[Optional[CodexConfig]] = ContextVar("codex_config", default=None)
 _anthropic_helper_ctx: ContextVar[Optional[AnthropicHelperConfig]] = ContextVar(
     "anthropic_helper_config", default=None
+)
+_cli_helper_ctx: ContextVar[Optional[CliHelperConfig]] = ContextVar(
+    "cli_helper_config", default=None
 )
 
 
@@ -505,6 +572,9 @@ codex_config: CodexConfig = _ConfigProxy("codex", _codex_ctx)  # type: ignore
 anthropic_helper_config: AnthropicHelperConfig = _ConfigProxy(
     "anthropic_helper", _anthropic_helper_ctx
 )  # type: ignore
+cli_helper_config: CliHelperConfig = _ConfigProxy(
+    "cli_helper", _cli_helper_ctx
+)  # type: ignore
 
 
 def reload_llm_config() -> None:
@@ -517,6 +587,7 @@ def set_user_config(
     openai: OpenAIConfig,
     codex: CodexConfig | None = None,
     anthropic_helper: AnthropicHelperConfig | None = None,
+    cli_helper: CliHelperConfig | None = None,
 ) -> None:
     """
     Set per-user LLM config for the CURRENT asyncio task only.
@@ -535,6 +606,7 @@ def set_user_config(
     _openai_ctx.set(openai)
     _codex_ctx.set(codex or CodexConfig())
     _anthropic_helper_ctx.set(anthropic_helper)
+    _cli_helper_ctx.set(cli_helper)
 
 
 def snapshot_user_config() -> dict[str, Optional[object]]:
@@ -551,6 +623,7 @@ def snapshot_user_config() -> dict[str, Optional[object]]:
         "openai": _openai_ctx.get(),
         "codex": _codex_ctx.get(),
         "anthropic_helper": _anthropic_helper_ctx.get(),
+        "cli_helper": _cli_helper_ctx.get(),
     }
 
 
@@ -600,6 +673,7 @@ def clear_user_config() -> None:
     _openai_ctx.set(None)
     _codex_ctx.set(CodexConfig())
     _anthropic_helper_ctx.set(None)
+    _cli_helper_ctx.set(None)
 
 def set_provider_source(src: Optional[str]) -> None:
     _provider_source_ctx.set(src)
@@ -919,4 +993,4 @@ async def setup_mcp_llm_context(agent_id: str) -> None:
             LLM providers. The caller should surface this as a tool error.
     """
     cfg = await get_agent_owner_runtime_llm_configs(agent_id)
-    set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+    set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)

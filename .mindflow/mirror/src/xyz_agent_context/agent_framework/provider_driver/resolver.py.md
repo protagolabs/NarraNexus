@@ -121,3 +121,7 @@ Every failure raises ``LLMConfigNotConfigured`` with an actionable
 message. The caller's UX layer surfaces it to the user. No silent
 fallback to a different account — that was a leading cause of
 billing surprises in the old code.
+
+## 2026-07-07 — helper_llm 槽的 OAuth 走 CLI helper
+
+`_resolve_slot_target` 的 helper_llm 分支：`auth_type==oauth` 的 card 先于 protocol 判断，路由到 `build_cli_helper_config` → cfgs 键 `cli_helper` → 装进 `RuntimeLLMConfigs.cli_helper`。

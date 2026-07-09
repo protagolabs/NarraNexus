@@ -370,3 +370,7 @@ reset path.
   `anthropic` card_type). As of 2026-04-23 the input shows a warning hint
   and pulses the `+` button while uncommitted text exists, to make the
   commit step visible. A stronger fix (auto-flush on submit) was deferred.
+
+## 2026-07-07 (bug#3 跟进) — helper 下拉不再隐藏 OAuth provider
+
+`renderSlotRow` 的 matching 过滤移除了 `helper_llm && auth_type==='oauth'` 排除项:订阅(claude_oauth/codex_oauth)现在可以进 helper 槽(后端经 CliHelperSDK 走 CLI 一次性)。SLOT_DEFS 的 helper 描述改为 'API key or subscription'。此前后端 auto-bind 已把槽绑好,但前端下拉过滤让 UI 显示 'No provider configured' —— 本次对齐。

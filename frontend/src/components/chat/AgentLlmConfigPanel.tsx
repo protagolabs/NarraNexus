@@ -24,6 +24,7 @@ import {
   prettifyModel,
   CODEX_ALLOWED_PROVIDER_SOURCES,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
+  defaultHelperModel,
   type ProviderSummary,
 } from '@/lib/agentFramework';
 import type { AgentSlotView, AgentSlotEffective } from '@/types';
@@ -125,10 +126,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     return true;
   });
 
-  // Helper slot: openai/anthropic protocols, never an OAuth provider (CLI
-  // credentials can't make direct API calls).
+  // Helper slot: openai/anthropic protocols. OAuth providers (claude_oauth /
+  // codex_oauth) are allowed too — the backend routes an OAuth helper to a
+  // CliHelperConfig and runs its structured calls one-shot through the same CLI
+  // as the agent, so one subscription covers both slots.
   const helperProviders = providerList.filter(
-    (p) => ['openai', 'anthropic'].includes(p.protocol) && p.auth_type !== 'oauth',
+    (p) => ['openai', 'anthropic'].includes(p.protocol),
   );
 
   const agentChanged = !sameDraft(agentDraft, agentInitial);
@@ -351,9 +354,8 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                       const pid = e.target.value;
                       const prov = providers[pid];
                       const models = prov ? getModelsForSlot(prov, 'helper_llm', null, {}) : [];
-                      setHelperDraft((d) => ({
-                        ...d, provider_id: pid, model: models[0]?.model_id || '',
-                      }));
+                      const model = defaultHelperModel(prov?.source, prov?.protocol, models.map((m) => m.model_id));
+                      setHelperDraft((d) => ({ ...d, provider_id: pid, model }));
                     }}
                   >
                     <option value="">Select provider…</option>
@@ -383,7 +385,8 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
               </div>
               <p className="text-xs text-[var(--text-tertiary)] mt-2">
                 Recommended: {prettifyModel(helperRecModel)} — small/fast model for
-                summaries, dedup, memory. OAuth (CLI sign-in) providers can't be used here.
+                summaries, dedup, memory. OAuth (CLI sign-in) providers also work here —
+                routed one-shot through the same CLI, so one subscription covers both slots.
               </p>
 
               {slots.helper_llm?.inheriting === false && (

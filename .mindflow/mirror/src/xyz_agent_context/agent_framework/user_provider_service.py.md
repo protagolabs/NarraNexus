@@ -4,6 +4,14 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 — validate_slot_binding 放开 helper 的 OAuth(订阅覆盖 helper)
+
+合并 #81 后,`validate_slot_binding` 的 **Rule 3(helper_llm 拒 OAuth)已移除**:helper
+现在**接受** claude_oauth / codex_oauth——resolver 把 OAuth helper 路由成
+`CliHelperConfig`,`CliHelperSDK` 用同一个 CLI 一次性跑结构化调用(见
+`build_cli_helper_config`)。因 #81 把三条规则抽成共享的 `validate_slot_binding`,
+删这条同时让 **per-agent override(`AgentSlotService`)** 也一致放开 OAuth helper。
+
 ## 2026-07-09 — extracted validate_slot_binding + agent_slots cleanup
 
 The three provider↔slot binding rules (protocol / codex-source / helper-OAuth)
@@ -13,6 +21,17 @@ override enforces identical rules. ``remove_provider`` also deletes matching
 ``agent_slots`` rows (by ``provider_id``, globally unique) — else a deleted
 provider leaves dangling per-agent overrides that fail at resolve.
 
+## 2026-07-08 — codex OAuth auto-bind: helper 用便宜 mini,不复用旗舰
+
+`add_provider` 的 OAuth auto-bind:claude 分支拆成 `opus`(agent)/`haiku`
+(helper);codex 分支原本把 **agent 和 helper 都设成 `curated[0]`**
+(`CODEX_CURATED_MODELS[0]` = 旗舰 `gpt-5.5`),导致 helper slot 也被绑成 gpt-5.5。
+按设计意图(`_ONBOARD_HELPER_MODELS["openai"] = "gpt-5.4-mini"`,helper 干小结构化
+活、便宜快为先),codex helper 应固定为 `gpt-5.4-mini`(在 `CODEX_CURATED_MODELS`
+里、ChatGPT 账号验证可用)。修法:agent 仍 `curated[0]`(旗舰),helper 固定
+`gpt-5.4-mini`,与 claude 的 opus/haiku 拆分对齐。auto-bind 只填空 slot,故不影响
+已绑账户(需手动改或删了重加)。测试见 `test_oauth_dual_slot.py`
+(`test_codex_oauth_add_binds_both_slots` 断言 agent=gpt-5.5 / helper=gpt-5.4-mini)。
 ## 2026-07-07 — netmind inference base env-configurable (minted-key path only)
 
 _build_dual_providers / _verify_onboard_key / add_provider / onboard_one_key gained
@@ -163,3 +182,7 @@ route 层 `backend/routes/providers.py` 现在 import 本文件的 `_SUPPORTED_A
   两个槽位改指新对 → 删旧对及其槽位。中途失败也不会让用户落到"无 provider"，比
   用户手动"先删后加"更安全。官方 anthropic/openai（source="user"，本就不守卫）不走此逻辑。
 背景：过期 key 场景（配合 background-llm 修复）用户要换 key，旧逻辑直接报"已存在"。
+
+## 2026-07-07 (bug#3) — OAuth 登录自动覆盖 helper 槽
+
+`add_provider(claude_oauth/codex_oauth)`：只填**空**的 agent/helper 槽（不覆盖已有配置），一次登录即 可用。`set_slot` 移除了"helper 拒绝 OAuth"的守卫（现在 OAuth 经 CliHelperSDK 服务 helper）。

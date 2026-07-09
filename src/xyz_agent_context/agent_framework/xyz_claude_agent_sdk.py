@@ -29,6 +29,71 @@ except ImportError:
     from _tool_policy_guard import build_tool_policy_guard
 
 
+def _stage_claude_oauth_from_keychain(config_dir: str | Path) -> bool:
+    """macOS: materialize the Claude Code OAuth credential from the login
+    Keychain into the isolated CONFIG_DIR as ``.credentials.json`` (0600).
+
+    Returns True when the isolated credential is present (already staged, or
+    exported now), False when the Keychain has no entry / the export failed (the
+    caller then emits the login hint). macOS-only — the caller gates on
+    ``sys.platform == "darwin"``; on Linux/cloud the host credential FILE exists
+    so this path is never reached.
+
+    Why it's needed: on macOS the OAuth token lives in the Keychain, not in
+    ~/.claude/.credentials.json, so there's no file for the file-copy path to
+    stage; and because CLAUDE_CONFIG_DIR is explicitly set (for #76's isolation)
+    the CLI reads a file and ignores the Keychain. Exporting the Keychain item
+    into the isolated dir bridges the two. The token is the user's own, on their
+    own machine, written 0600 — same exposure class as Codex's plaintext
+    ~/.codex/auth.json and claude-on-Linux's .credentials.json.
+
+    Stage-ONCE (not newest-wins): the Keychain item carries no mtime to compare,
+    and re-exporting every spawn would clobber a token the isolated file-mode CLI
+    refreshed in place (re-injecting an already-consumed refresh token → logout,
+    the failure #76's newest-wins avoids). So export ONLY when the isolated file
+    is missing. COST: after a fresh ``claude login`` (updates the Keychain) the
+    stale isolated copy is not refreshed — delete the isolated dir
+    (``settings.claude_oauth_config_path``) to re-stage. Accepted, mirrors the
+    one-way host→isolated staging of the file path.
+    """
+    import os
+    import subprocess
+
+    dest_dir = Path(config_dir)
+    dest = dest_dir / ".credentials.json"
+    if dest.is_file():
+        return True  # already staged — preserve any in-place CLI refresh
+
+    try:
+        proc = subprocess.run(
+            ["security", "find-generic-password",
+             "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception as e:  # noqa: BLE001 — Keychain read is best-effort
+        logger.warning(f"[ClaudeAgentSDK] macOS Keychain read failed: {e}")
+        return False
+    blob = (proc.stdout or "").strip()
+    if proc.returncode != 0 or not blob:
+        return False  # no Keychain entry → caller emits the 'run claude login' hint
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    tmp = dest_dir / f".credentials.json.{os.getpid()}.tmp"
+    try:
+        tmp.write_text(blob, encoding="utf-8")  # NEVER log `blob` — it's the token
+        with suppress(OSError):
+            tmp.chmod(0o600)  # keep the credential private
+        os.replace(tmp, dest)  # atomic
+    finally:
+        with suppress(OSError):
+            tmp.unlink()
+    logger.info(
+        f"[ClaudeAgentSDK] staged Claude OAuth credential from macOS Keychain "
+        f"→ {dest} (0600)"
+    )
+    return True
+
+
 def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
     """Copy the host Claude OAuth credential into the isolated CONFIG_DIR.
 
@@ -60,6 +125,7 @@ def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
     """
     import os
     import shutil
+    import sys
 
     from xyz_agent_context.agent_framework.provider_driver.derive import (
         CLAUDE_CLI_CREDENTIALS_REF,
@@ -68,6 +134,16 @@ def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
 
     source = resolve_claude_credentials_path(CLAUDE_CLI_CREDENTIALS_REF)
     if source is None or not source.is_file():
+        # macOS: Claude Code stores the OAuth token in the login KEYCHAIN, not
+        # in ~/.claude/.credentials.json — so there is no host FILE to copy, yet
+        # an explicitly-set CLAUDE_CONFIG_DIR (this isolated dir) makes the CLI
+        # read a file and ignore the Keychain → "Not logged in". Materialize the
+        # Keychain credential into the isolated dir so the CLI authenticates
+        # while #76's settings.json / .claude.json isolation is preserved.
+        # darwin-ONLY: `security` is macOS; on Linux/cloud the file above exists
+        # so this branch is never reached and behavior is byte-identical to #76.
+        if sys.platform == "darwin" and _stage_claude_oauth_from_keychain(config_dir):
+            return
         logger.warning(
             f"[ClaudeAgentSDK] OAuth credential not found at "
             f"{source or '~/.claude/.credentials.json'}; the agent_loop CLI "

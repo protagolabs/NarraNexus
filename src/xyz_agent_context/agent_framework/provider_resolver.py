@@ -358,7 +358,8 @@ class ProviderResolver:
             cfgs, source = resolved
 
         set_user_config(
-            cfgs.claude, cfgs.openai, cfgs.codex, cfgs.anthropic_helper
+            cfgs.claude, cfgs.openai, cfgs.codex, cfgs.anthropic_helper,
+            cfgs.cli_helper,
         )
         set_provider_source(source)
 

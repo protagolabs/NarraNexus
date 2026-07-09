@@ -127,7 +127,27 @@ def test_stage_oauth_credentials_newest_wins(tmp_path, monkeypatch):
 
 
 def test_stage_oauth_credentials_missing_source_is_noop(tmp_path, monkeypatch):
-    """No host credential (never logged in) → warn + no-op, never raise."""
+    """No host file AND no Keychain entry → warn + no-op, never raise."""
+    from xyz_agent_context.agent_framework import xyz_claude_agent_sdk as sdk
+
+    monkeypatch.setenv(
+        "CLAUDE_CLI_CREDENTIALS_PATH", str(tmp_path / "nonexistent.json")
+    )
+    # Force the macOS Keychain fallback to report "no entry" so this is a true
+    # no-op on EVERY platform — a dev Mac's real Keychain may hold a token.
+    monkeypatch.setattr(sdk, "_stage_claude_oauth_from_keychain", lambda _d: False)
+    dest = tmp_path / "isolated"
+    sdk._stage_claude_oauth_credentials(dest)  # must not raise
+    assert not (dest / ".credentials.json").exists()
+
+
+def test_stage_oauth_credentials_darwin_keychain_fallback(tmp_path, monkeypatch):
+    """macOS, no host file but a Keychain entry → export it into the isolated
+    dir as .credentials.json (0600). darwin-only path."""
+    import stat
+    import subprocess
+    import sys
+
     from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
         _stage_claude_oauth_credentials,
     )
@@ -135,6 +155,25 @@ def test_stage_oauth_credentials_missing_source_is_noop(tmp_path, monkeypatch):
     monkeypatch.setenv(
         "CLAUDE_CLI_CREDENTIALS_PATH", str(tmp_path / "nonexistent.json")
     )
+    monkeypatch.setattr(sys, "platform", "darwin")
+    blob = '{"claudeAiOauth": {"accessToken": "tok", "refreshToken": "r"}}'
+
+    class _Proc:
+        returncode = 0
+        stdout = blob + "\n"  # `security -w` prints a trailing newline
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Proc())
+
     dest = tmp_path / "isolated"
-    _stage_claude_oauth_credentials(dest)  # must not raise
-    assert not (dest / ".credentials.json").exists()
+    _stage_claude_oauth_credentials(dest)
+    cred = dest / ".credentials.json"
+    assert cred.is_file()
+    assert cred.read_text(encoding="utf-8") == blob
+    assert stat.S_IMODE(cred.stat().st_mode) == 0o600
+
+    # stage-once: a second call must NOT re-run `security` (dest already there).
+    def _boom(*a, **k):  # noqa: ANN002, ANN003
+        raise AssertionError("security must not be called when dest exists")
+
+    monkeypatch.setattr(subprocess, "run", _boom)
+    _stage_claude_oauth_credentials(dest)  # must not raise / not re-export

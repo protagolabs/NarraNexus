@@ -58,6 +58,24 @@ export const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
   anthropic: 'claude-haiku-4-5',
 }
 
+// Default helper-slot model when a provider is picked: the recommended CHEAP
+// model, never the flagship models[0] (the helper does small structured jobs).
+// OAuth providers list CLI family aliases, so the concrete
+// RECOMMENDED_HELPER_MODEL_BY_PROTOCOL id may be absent — map those to the alias
+// the backend auto-bind uses (claude→haiku, codex→gpt-5.4-mini). Falls back to
+// the first model only when none of the above is available.
+export function defaultHelperModel(
+  source: string | undefined,
+  protocol: string | undefined,
+  modelIds: string[],
+): string {
+  const rec = RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai']
+  if (rec && modelIds.includes(rec)) return rec
+  if (source === 'claude_oauth' && modelIds.includes('haiku')) return 'haiku'
+  if (source === 'codex_oauth' && modelIds.includes('gpt-5.4-mini')) return 'gpt-5.4-mini'
+  return modelIds[0] || ''
+}
+
 // Curated model list the Codex CLI subprocess actually accepts. Must stay in
 // sync with backend ``CODEX_CURATED_MODELS`` in user_provider_service.py.
 export const CODEX_CURATED_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']

@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-07-09
 ---
 
+## 2026-07-09 — resolve_and_set 串 cli_helper(订阅覆盖 helper)
+
+`resolve_and_set` 的 `set_user_config(...)` 增传 `cfgs.cli_helper`,让"订阅覆盖
+Helper LLM"的 CLI-backed helper 在**这条统一解析路径**上也被激活——即 HTTP 请求路径
+(auth 中间件)和后台注入原语(`resolve_and_set_provider_for_user` →
+`inject_owner_helper_credentials`)拿到 OAuth helper 时,`get_helper_sdk` 能 dispatch
+到 `cli`。与 `RuntimeLLMConfigs.cli_helper`(见 [[api_config]])一致。
+
 ## 2026-07-09 — agent_id on resolve / resolve_and_set / helper injection
 
 ``ProviderResolver.resolve`` + ``resolve_and_set`` gained optional ``agent_id``,

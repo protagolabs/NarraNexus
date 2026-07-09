@@ -4,6 +4,15 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 — helper dropdown 放开 OAuth + 默认便宜模型
+
+`helperProviders` 过滤去掉 `p.auth_type !== 'oauth'`——helper 现在可选 OAuth
+(claude_oauth / codex_oauth),因为后端把 OAuth helper 路由成 CliHelperConfig 经同一 CLI
+一次性跑(一个订阅覆盖两个 slot)。选定 provider 后的默认 model 改用
+`defaultHelperModel`(见 [[agentFramework]]),挑便宜的 `gpt-5.4-mini`/`haiku` 而非旗舰
+`models[0]`。提示文案同步改为"OAuth 也能用"。这是"OAuth 覆盖 helper"特性适配 #81 重构 UI
+的前端部分(旧 `ProviderSettings.tsx` 的同款放开已随 #81 重构失效)。
+
 ## 2026-07-09 — global default model editor (Settings › Model Defaults)
 
 The provider + model + coding-agent framework every agent INHERITS by default —

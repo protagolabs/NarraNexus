@@ -296,3 +296,7 @@ KeyUpstreamError→502、onboard ValueError→400。
 `meta.needs_replace` 时，路由返回 `{success: False, needs_replace: True, provider_type,
 existing_masked}`（**HTTP 200**，非错误），让前端按结构化字段分支弹确认，而不是解析
 "already exists" 错误串。确认后前端带 `replace=true` 重发，服务原子换 key。
+
+## 2026-07-07 (bug#3) — hot-reload 传 cli_helper
+
+add/onboard/set-slot/use-subscription 的 4 处 `set_user_config(cfg...)` 均增传 `cfg.cli_helper`，订阅（OAuth）helper 才能在当前进程即时生效。OAuth 登录后 add_provider 自动绑定 agent+helper 两槽。

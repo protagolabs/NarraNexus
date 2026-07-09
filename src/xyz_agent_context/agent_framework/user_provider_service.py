@@ -85,9 +85,12 @@ def validate_slot_binding(
          (Custom OpenAI, user-typed base_url) expose the Responses API codex
          needs; third-party aggregators (netmind / yunwu / openrouter) speak
          chat-completions only and fail in non-obvious ways.
-      3. helper_llm — rejects OAuth providers: CLI credentials only drive the
-         agent subprocess, they can't make direct Messages / Chat-Completions
-         calls.
+      3. helper_llm — ACCEPTS OAuth providers (claude_oauth / codex_oauth): a
+         subscription login covers both slots. The OAuth credential can't make
+         DIRECT Messages / Chat-Completions calls, but the resolver routes an
+         OAuth helper to a CliHelperConfig and CliHelperSDK runs the helper's
+         structured calls one-shot through the same CLI as the agent
+         (build_cli_helper_config) — so no reject here.
     """
     required = get_slot_required_protocols(slot_name, agent_framework=agent_framework)
     if required and prov["protocol"] not in [p.value for p in required]:
@@ -109,16 +112,12 @@ def validate_slot_binding(
             f"OpenAI's Responses API and are not supported."
         )
 
-    if (
-        slot_name == SlotName.HELPER_LLM.value
-        and (prov.get("auth_type") or "").lower() == "oauth"
-    ):
-        raise ValueError(
-            f"helper_llm slot cannot use OAuth provider "
-            f"{prov.get('name') or prov.get('provider_id')!r} — CLI sign-in "
-            f"credentials can't make direct API calls. Assign an "
-            f"API-key provider instead."
-        )
+    # helper_llm ACCEPTS OAuth (claude_oauth / codex_oauth) — no reject: the
+    # resolver routes an OAuth helper to a CliHelperConfig and CliHelperSDK runs
+    # its structured calls one-shot through the same CLI as the agent, so a
+    # single subscription covers both slots (2026-07 "subscription covers
+    # helper"). Removing the guard here also lets a per-agent override
+    # (AgentSlotService, which shares this validator) bind an OAuth helper.
 
 
 def _generate_provider_id() -> str:
@@ -368,6 +367,50 @@ class UserProviderService:
             new_ids.append(pid)
         else:
             raise ValueError(f"Unknown card_type: {card_type}")
+
+        # Subscription (OAuth) login covers BOTH slots in one step. The OAuth
+        # credential drives the agent CLI AND, via CliHelperSDK, the helper's
+        # one-shot calls — so bind agent + helper_llm to this provider now
+        # instead of forcing a second manual helper config (2026-07 P0).
+        #
+        # Fill EMPTY slots only: a fresh subscription login becomes fully
+        # runnable, but adding an OAuth provider on top of an existing working
+        # setup never clobbers the user's chosen agent/helper. Order mirrors
+        # onboard_one_key: framework first (set_slot's agent-protocol check
+        # reads it), then agent, then helper.
+        if card_type in ("claude_oauth", "codex_oauth") and new_ids:
+            pid = new_ids[0]
+            if card_type == "claude_oauth":
+                framework, agent_model, helper_model = "claude_code", "opus", "haiku"
+            else:
+                curated = list(json.loads((await self.db.get_one(
+                    "user_providers", {"user_id": user_id, "provider_id": pid}
+                ) or {}).get("models") or "[]"))
+                # Agent on the flagship (curated[0] = gpt-5.5), helper on the
+                # cheap mini — mirrors claude's opus/haiku split. The helper
+                # does small structured jobs, so pin gpt-5.4-mini (in
+                # CODEX_CURATED_MODELS, accepted by a ChatGPT-account
+                # subscription; verified 2026-07-08) instead of reusing
+                # curated[0], which wrongly put the flagship gpt-5.5 on the
+                # helper slot.
+                framework = "codex_cli"
+                agent_model = curated[0] if curated else ""
+                helper_model = "gpt-5.4-mini"
+
+            def _slot_empty(row) -> bool:
+                return not row or not row.get("provider_id")
+
+            agent_slot = await self.db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": "agent"}
+            )
+            if _slot_empty(agent_slot):
+                await self.set_user_agent_framework(user_id, framework)
+                await self.set_slot(user_id, "agent", pid, agent_model)
+            helper_slot = await self.db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": "helper_llm"}
+            )
+            if _slot_empty(helper_slot):
+                await self.set_slot(user_id, "helper_llm", pid, helper_model)
 
         config = await self.get_user_config(user_id)
         return config, new_ids

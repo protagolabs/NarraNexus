@@ -118,6 +118,18 @@ def resolve_cli_alias(model_id: str, *, auth_type: str) -> str:
     return _CLI_ALIAS_TO_MODEL_ID.get(model_id, model_id)
 
 
+def is_cli_family_alias(model_id: str) -> bool:
+    """True when ``model_id`` is a CLI family alias ("opus"/"sonnet"/"haiku").
+
+    Needed by ``ClaudeConfig.to_cli_env``: pointing the CLI's
+    ``ANTHROPIC_DEFAULT_*_MODEL`` redirect env vars at an ALIAS is
+    self-referential and makes the CLI reject the model outright
+    ("There's an issue with the selected model") — those redirects may
+    only carry concrete model ids.
+    """
+    return model_id in _CLI_ALIAS_TO_MODEL_ID
+
+
 # --- OpenAI models ---
 # Text / chat / reasoning models surfaced as in-UI suggestions.
 _register(
