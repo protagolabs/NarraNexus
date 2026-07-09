@@ -8,13 +8,11 @@
  * regions instead of plain `<h2>` headings.
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
-import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
-import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
 import { QuotaPanel } from '@/components/settings/QuotaPanel';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
@@ -23,7 +21,6 @@ import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { useRuntimeStore } from '@/stores/runtimeStore';
-import { api } from '@/lib/api';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -238,69 +235,20 @@ function UpdatesSection() {
   );
 }
 
-// Providers section. Since per-agent model/framework selection moved into the
-// chat page, this page has just two jobs — a credential WALLET and a GLOBAL
-// DEFAULT — so the old single "Advanced" junk-drawer disclosure is gone:
-//
-//   Current setup summary  → what's in use, at a glance (once a provider exists)
-//   One-key onboard        → the primary "paste a key" add path
-//   ProviderSettings       → the Global Default editor (visible) + a collapsed
-//                            "Manage providers" sub-section (CLI sign-in, custom
-//                            endpoints, provider list, sync). The collapse now
-//                            lives INSIDE ProviderSettings, wrapping only the
-//                            provider-management block.
-//
-// Completing an onboard bumps refreshToken (summary re-fetches) and settingsKey
-// (remounts ProviderSettings so it re-reads fresh config).
+// Providers section. Per-agent model/framework selection moved into the chat
+// page, so this page is a credential WALLET + a GLOBAL DEFAULT. ProviderSettings
+// now owns the whole vertical flow — ① your providers (list), ② add a provider
+// (one-key + CLI sign-in + custom + sync), ③ global default — so this wrapper is
+// just the section header. (The old "Advanced" junk-drawer disclosure, the
+// separate summary card, and the top-level one-key are gone — all folded into
+// ProviderSettings' ordered sections.)
 function ProvidersSection() {
-  const [providerCount, setProviderCount] = useState<number | null>(null);
-  const [settingsKey, setSettingsKey] = useState(0);
-  const [refreshToken, setRefreshToken] = useState(0);
-
-  const probe = async () => {
-    try {
-      const data = await api.getProviders();
-      if (data.success && data.data?.providers) {
-        setProviderCount(Object.keys(data.data.providers).length);
-        return;
-      }
-    } catch {
-      // Backend not ready — fall through to "unknown", card stays hidden
-    }
-    setProviderCount(null);
-  };
-
-  useEffect(() => {
-    // probe() setStates asynchronously after a fetch; suppress the
-    // set-state-in-effect heuristic (it can't see past the async boundary).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    probe();
-  }, [refreshToken]);
-
-  const refresh = () => {
-    setRefreshToken((t) => t + 1);
-    setSettingsKey((k) => k + 1);
-  };
-
   return (
     <section>
       <SectionHeader label="LLM Providers" />
       {/* System free-tier quota now lives under Account & Subscription (all
           credits/billing in one place); this section is bring-your-own only. */}
-      {/* Current setup (what's in use) — only once a provider exists. */}
-      {providerCount !== 0 && (
-        <div className="mb-4">
-          <ProviderSummaryCard refreshToken={refreshToken} />
-        </div>
-      )}
-
-      {/* Add / switch a provider — the primary paste-a-key path. */}
-      <div className="mb-4">
-        <OneKeyOnboard onComplete={refresh} />
-      </div>
-
-      {/* Global Default editor + the collapsed provider-management block. */}
-      <ProviderSettings key={settingsKey} />
+      <ProviderSettings />
     </section>
   );
 }

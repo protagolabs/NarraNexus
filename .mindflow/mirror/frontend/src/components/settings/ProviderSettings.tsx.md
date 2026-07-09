@@ -3,32 +3,35 @@ code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-07-09
 ---
 
-## 2026-07-09 — LLM Providers page relayout: wallet + Global Default
+## 2026-07-09 — LLM Providers page: three ordered sections (list → add → default)
 
-The page had ONE big "Advanced" junk-drawer disclosure ([[SettingsPage]]) hiding
-both provider management AND model assignment. Since per-agent model/framework
-moved to chat, the page now has two clear jobs and the layout reflects that:
+Since per-agent model/framework moved to chat, this page is a credential WALLET
++ a GLOBAL DEFAULT. It owns the whole vertical flow now (the old "Advanced"
+junk-drawer disclosure at the [[SettingsPage]] level, the separate
+ProviderSummaryCard, and the top-level one-key are all gone / folded in). Order,
+top to bottom:
 
-- The external "Advanced" collapse is GONE — [[SettingsPage]] renders
-  ProviderSettings directly (summary + one-key above it).
-- "Global Default" (was "Section 2 / Model Assignment", relabeled — i18n
-  section2Title/Subtitle en+zh) is now **always visible**: the provider + model
-  every agent INHERITS. Still writes user-level ``user_slots`` via the unchanged
-  /api/providers endpoints; per-agent overrides live in chat
-  ([[ComposerModelBadge]] + [[AgentLlmConfigPanel]]).
-- "Section 1 / Add Providers" became a collapsed-by-default **"Manage
-  providers"** sub-section (``showManage``) INSIDE this component — CLI sign-in,
-  custom endpoints, provider list, model sync. The collapse moved from the page
-  level to here so the two jobs (wallet vs default) render at the right depth
-  without the double-fetch of two ProviderSettings instances.
-- ``SectionHeader``'s ``step`` badge is now optional (Global Default is the only
-  header, so a lone "02" was dropped).
+1. **① Your providers** — the configured provider list at the TOP (test / edit /
+   delete). Empty state prompts to add below. Claude Code Login / Codex CLI Login
+   ARE provider types: they appear here once added, and as sign-in options in ②.
+2. **② Add a provider** — OneKeyOnboard (primary paste-a-key, imported here now,
+   ``onComplete=refreshConfig``), then the Claude Code / Codex CLI login cards,
+   custom endpoints (feature-flagged off), and model sync.
+3. **③ Global Default** — the provider + model every agent INHERITS (was
+   "Section 2 / Model Assignment", relabeled section2Title/Subtitle). Still writes
+   user-level ``user_slots`` via the unchanged /api/providers endpoints; per-agent
+   overrides live in chat ([[ComposerModelBadge]] + [[AgentLlmConfigPanel]]).
+
+No collapse anymore — the sections are visible in order (an earlier iteration
+folded provider-management into a ``showManage`` collapse; the Owner wanted the
+list-first flow visible). ``SectionHeader``'s ``step`` badge is optional (no
+numbered steps now). New i18n: providersListTitle/Subtitle, noProvidersYet,
+addProviderTitle/Subtitle (en+zh; others fall back to en).
 
 The framework list, codex curated models / allowed sources, recommended helper
 models, model suggestions, and getModelsForSlot were extracted to
 [[agentFramework]] and imported back (single source of truth shared with the
-per-agent surfaces); SLOT_DEFS stays local. Other 8 locales fall back to en for
-the new manageProviders* keys (fallbackLng='en').
+per-agent surfaces); SLOT_DEFS stays local.
 
 ## 2026-06-17 — 临时屏蔽「自定义 Provider」上传(安全加固)
 

@@ -24,8 +24,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { OneKeyOnboard } from './OneKeyOnboard'
 import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
@@ -416,10 +416,6 @@ export function ProviderSettings() {
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
 
-  // Collapsed-by-default "Manage providers" sub-section (CLI sign-in, custom
-  // endpoints, provider list, sync). The Global Default editor stays visible;
-  // only this provider-management machinery folds away.
-  const [showManage, setShowManage] = useState(false)
 
   // Edit-models dialog. We only support editing the models list (backend has
   // PUT /{id}/models) — name / url / key changes aren't exposed, so the
@@ -1022,37 +1018,68 @@ export function ProviderSettings() {
   return (
     <div className="space-y-8">
 
-      {/* System free-tier quota is surfaced at the Providers-panel top level
-          (SettingsPage), not here — keeping it inside this collapsed-by-
-          default Advanced section hid it from cloud users. */}
-
       {/* ================================================================= */}
-      {/* Manage providers (collapsed) — CLI sign-in, custom endpoints,     */}
-      {/* provider list, model sync. The primary "paste a key" add path is  */}
-      {/* OneKeyOnboard at the panel top level (SettingsPage); this fold is  */}
-      {/* the rest of the credential wallet.                                */}
+      {/* ① Your providers — the configured list, at the TOP. Claude Code    */}
+      {/*    Login / Codex CLI Login are provider types too: they show here   */}
+      {/*    once added, and as sign-in options in "Add a provider" below.    */}
       {/* ================================================================= */}
       <div>
-        <button
-          type="button"
-          onClick={() => setShowManage((v) => !v)}
-          className="flex items-center gap-1.5 text-sm font-[family-name:var(--font-display)] font-semibold text-[var(--text-primary)] hover:opacity-80"
-        >
-          {showManage ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          {t('settings.provider.manageProvidersTitle')}
-        </button>
-        <p className="text-sm text-[var(--text-tertiary)] ml-[22px] mt-0.5 leading-relaxed">
-          {t('settings.provider.manageProvidersSubtitle')}
-        </p>
+        <SectionHeader
+          title={t('settings.provider.providersListTitle')}
+          subtitle={t('settings.provider.providersListSubtitle')}
+        />
+        <div className="ml-[34px]">
+          {hasProviders ? (
+            <div className="space-y-2">
+              {providerList.map((prov) => (
+                <div key={prov.provider_id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase">{prov.protocol}</span>
+                    </div>
+                    <span className="text-sm text-[var(--text-tertiary)]">{prov.api_key_masked} · {t('settings.provider.modelsCount', { count: prov.models.length })}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
+                      className="px-3 py-1.5 text-sm text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded-lg disabled:opacity-40 transition-colors">
+                      {testing === prov.provider_id ? '...' : t('settings.provider.test')}
+                    </button>
+                    <button onClick={() => openEditModels(prov)}
+                      className="px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
+                      {t('settings.provider.edit')}
+                    </button>
+                    <button onClick={() => handleDelete(prov.provider_id)}
+                      className="px-3 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded-lg transition-colors">
+                      {t('settings.provider.delete')}
+                    </button>
+                    {testResults[prov.provider_id] && (
+                      <span className={cn('text-sm', testResults[prov.provider_id].ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
+                        {testResults[prov.provider_id].msg}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--text-tertiary)]">{t('settings.provider.noProvidersYet')}</p>
+          )}
+        </div>
+      </div>
 
-        {showManage && (
-        <div className="space-y-4 ml-[22px] mt-4">
-          {/* One-key preset setup (pick provider + paste key) now lives at
-              the panel level — SettingsPage embeds <OneKeyOnboard> directly,
-              and SetupPage shows it as the first-run hero. It used to be
-              duplicated here; removed so Advanced doesn't repeat it. This
-              section is the rest: model sync, CLI OAuth sign-in, and custom
-              (base_url) endpoints. */}
+      {/* ================================================================= */}
+      {/* ② Add a provider — one-key (primary), CLI sign-in (Claude Code /   */}
+      {/*    Codex are provider types), custom endpoints, and model sync.     */}
+      {/* ================================================================= */}
+      <div>
+        <SectionHeader
+          title={t('settings.provider.addProviderTitle')}
+          subtitle={t('settings.provider.addProviderSubtitle')}
+        />
+        <div className="space-y-4 ml-[34px]">
+          {/* Primary add path — paste one key, wire framework + both slots. */}
+          <OneKeyOnboard onComplete={refreshConfig} />
 
           {/* ---- Sync available models ---- */}
           {/*
@@ -1394,47 +1421,7 @@ export function ProviderSettings() {
           )}
 
           {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
-
-          {/* ---- Configured Providers List ---- */}
-          {hasProviders && (
-            <div className="space-y-2">
-              <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-wider font-medium">
-                {t('settings.provider.configuredProviders')}
-              </span>
-              {providerList.map((prov) => (
-                <div key={prov.provider_id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
-                      <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase">{prov.protocol}</span>
-                    </div>
-                    <span className="text-sm text-[var(--text-tertiary)]">{prov.api_key_masked} · {t('settings.provider.modelsCount', { count: prov.models.length })}</span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
-                      className="px-3 py-1.5 text-sm text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded-lg disabled:opacity-40 transition-colors">
-                      {testing === prov.provider_id ? '...' : t('settings.provider.test')}
-                    </button>
-                    <button onClick={() => openEditModels(prov)}
-                      className="px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
-                      {t('settings.provider.edit')}
-                    </button>
-                    <button onClick={() => handleDelete(prov.provider_id)}
-                      className="px-3 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded-lg transition-colors">
-                      {t('settings.provider.delete')}
-                    </button>
-                    {testResults[prov.provider_id] && (
-                      <span className={cn('text-sm', testResults[prov.provider_id].ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
-                        {testResults[prov.provider_id].msg}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-        )}
       </div>
 
       {/* ================================================================= */}

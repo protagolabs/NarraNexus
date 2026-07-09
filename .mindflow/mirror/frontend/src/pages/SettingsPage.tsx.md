@@ -4,17 +4,19 @@ last_verified: 2026-07-09
 stub: false
 ---
 
-## 2026-07-09 — LLM Providers: dropped the "Advanced" junk-drawer disclosure
+## 2026-07-09 — LLM Providers: ProviderSettings owns the whole flow
 
-``ProvidersSection`` no longer wraps [[ProviderSettings]] in a single external
-"Advanced" collapse (which hid provider management AND model assignment behind
-one stale label). It now renders: the "LLM Providers" header, the current-setup
-summary, OneKeyOnboard (primary add), then ``<ProviderSettings>`` directly.
-ProviderSettings owns its own collapse now — a "Manage providers" fold around the
-credential machinery, with the "Global Default" editor always visible. The
-``showAdvanced`` toggle + the ChevronDown/ChevronRight imports were removed.
-Rationale: per-agent model/framework selection moved to the chat page, so this
-page is just a credential wallet + a global default — no junk drawer needed.
+``ProvidersSection`` is now just the "LLM Providers" ``SectionHeader`` +
+``<ProviderSettings/>``. Everything else moved INTO [[ProviderSettings]], which
+renders the ordered flow ① your providers (list) → ② add a provider (one-key +
+CLI sign-in + custom + sync) → ③ global default. Removed from this file: the
+external "Advanced" collapse (``showAdvanced``), the separate
+``ProviderSummaryCard`` (redundant with the list + global default), the top-level
+``OneKeyOnboard`` (moved into ② Add a provider), the providerCount probe, and the
+now-unused useEffect / api / ProviderSummaryCard / OneKeyOnboard / Chevron
+imports. Rationale: per-agent model/framework moved to chat, so this page is a
+credential wallet + a global default — a single top-to-bottom flow, no junk
+drawer.
 
 ## 2026-07-06 — nav reorder + Account consolidates billing
 
