@@ -1,23 +1,22 @@
 /**
  * @file ProviderSettings.tsx
- * @description LLM Provider configuration for the web frontend Settings modal
+ * @description LLM Providers — the credential WALLET (Settings › LLM Providers).
  *
- * Layout (always expanded, no collapsed state):
+ * Layout (a card grid + two modals):
  *
  *   ┌─────────────────────────────────────────┐
- *   │  SECTION 1: Add Providers               │
- *   │  ┌ Quick Add (preset selector + key) ─┐ │
- *   │  │ Claude Code Login card              │ │
- *   │  │ + Anthropic / + OpenAI buttons      │ │
- *   │  │ Configured Providers list           │ │
- *   │  └────────────────────────────────────-┘ │
- *   ├─────────────────────────────────────────┤
- *   │  SECTION 2: Model Assignment            │
- *   │  ┌ Agent slot ────────────────────────┐ │
- *   │  │ Helper LLM slot                   │ │
- *   │  │ Apply / Discard                    │ │
- *   │  └───────────────────────────────────-┘ │
+ *   │  Your providers          [Update models] │
+ *   │  ┌ provider card ┐ ┌ provider card ┐     │
+ *   │  ┌ provider card ┐ ┌ + Add provider ┐    │
  *   └─────────────────────────────────────────┘
+ *   • click a provider card → detail modal (models, masked key, endpoint,
+ *     Test / Edit / Delete)
+ *   • "+ Add provider" card → add modal with 3 methods: OAuth sign-in
+ *     (Claude Code / Codex CLI), one-key preset, custom endpoint.
+ *
+ * The GLOBAL DEFAULT model/framework does NOT live here anymore — it moved to
+ * the "Model Defaults" nav section (ModelDefaultsSettings). Per-agent overrides
+ * live in the chat page.
  *
  * Uses the bioluminescent terminal design system CSS variables.
  */
@@ -99,12 +98,9 @@ interface ProviderSummary {
 // URLs, and recommended default models now live there / in
 // model_catalog._ONBOARD_*_MODELS.
 
-// The framework list, codex-curated models / allowed sources, recommended
-// helper models, model suggestions, and getModelsForSlot are shared with the
-// per-agent chat surfaces via ``@/lib/agentFramework`` (imported above) — so
-// the Settings default editor and the per-agent override offer identical
-// choices. SLOT_DEFS stays local: it carries the per-slot default protocols
-// this user-level editor renders.
+// MODEL_SUGGESTION_GROUPS (imported above) powers the custom-provider form's
+// model bubble input. The framework/slot machinery that used to live here moved
+// out with the global default → ModelDefaultsSettings.
 
 // =============================================================================
 // Model Bubble Tag Input
