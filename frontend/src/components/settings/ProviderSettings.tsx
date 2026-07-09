@@ -22,10 +22,12 @@
  * Uses the bioluminescent terminal design system CSS variables.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { OneKeyOnboard } from './OneKeyOnboard'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
@@ -297,18 +299,21 @@ function formatExpiresAt(raw: string | null | undefined): string | null {
 // Section Header
 // =============================================================================
 
-function SectionHeader({ step, title, subtitle }: { step?: number; title: string; subtitle: string }) {
+function SectionHeader({ step, title, subtitle, action }: { step?: number; title: string; subtitle: string; action?: ReactNode }) {
   return (
     <div className="mb-4">
-      <div className="flex items-baseline gap-3 mb-1">
-        {step != null && (
-          <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)] tabular-nums">
-            {String(step).padStart(2, '0')}
-          </span>
-        )}
-        <h3 className="text-base font-[family-name:var(--font-display)] font-semibold text-[var(--text-primary)] tracking-tight">
-          {title}
-        </h3>
+      <div className="flex items-baseline justify-between gap-3 mb-1">
+        <div className="flex items-baseline gap-3 min-w-0">
+          {step != null && (
+            <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)] tabular-nums">
+              {String(step).padStart(2, '0')}
+            </span>
+          )}
+          <h3 className="text-base font-[family-name:var(--font-display)] font-semibold text-[var(--text-primary)] tracking-tight">
+            {title}
+          </h3>
+        </div>
+        {action && <div className="shrink-0 self-center">{action}</div>}
       </div>
       <p className={cn('text-sm text-[var(--text-tertiary)] leading-relaxed', step != null && 'ml-[44px]')}>{subtitle}</p>
     </div>
@@ -1027,7 +1032,44 @@ export function ProviderSettings() {
         <SectionHeader
           title={t('settings.provider.providersListTitle')}
           subtitle={t('settings.provider.providersListSubtitle')}
+          action={
+            hasProviders ? (
+              // "Update available models" — maintenance on the existing
+              // providers (backfills the latest default model lists). A header
+              // action, not an add step: hover → what it does, click → run it.
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleSyncDefaults}
+                      disabled={syncing || !userId}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
+                    >
+                      <RefreshCw className={cn('w-3.5 h-3.5', syncing && 'animate-spin')} />
+                      {syncing ? t('settings.provider.syncing') : t('settings.provider.updateModelsBtn')}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="max-w-[280px]">
+                    {t('settings.provider.updateModelsDesc')}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : undefined
+          }
         />
+        {syncResult && (
+          <p
+            className={cn(
+              'text-xs whitespace-pre-wrap leading-relaxed mb-3 ml-[34px] -mt-2',
+              syncResult.kind === 'ok'
+                ? 'text-[var(--text-secondary)]'
+                : 'text-[var(--color-red-500)]'
+            )}
+          >
+            {syncResult.text}
+          </p>
+        )}
         <div className="ml-[34px]">
           {hasProviders ? (
             <div className="space-y-2">
@@ -1064,42 +1106,6 @@ export function ProviderSettings() {
             </div>
           ) : (
             <p className="text-sm text-[var(--text-tertiary)]">{t('settings.provider.noProvidersYet')}</p>
-          )}
-
-          {/* ---- Sync available models ---- Maintenance on EXISTING providers:
-            one-click backfill of the latest default model list (from
-            model_catalog._DEFAULT_MODELS) onto the user's configured providers,
-            keeping their slot assignments + provider IDs. Belongs with the list
-            (it acts on it), not with "Add a provider". Only shown when there's
-            at least one provider to update. */}
-          {hasProviders && (
-            <div className="mt-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-              <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1.5">{t('settings.provider.updateModelsTitle')}</h4>
-              <p className="text-sm text-[var(--text-tertiary)]">
-                {t('settings.provider.updateModelsDesc')}
-              </p>
-              <div className="flex items-center gap-3 mt-5">
-                <button
-                  onClick={handleSyncDefaults}
-                  disabled={syncing || !userId}
-                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors"
-                >
-                  {syncing ? t('settings.provider.syncing') : t('settings.provider.updateModelsBtn')}
-                </button>
-                {syncResult && (
-                  <span
-                    className={cn(
-                      'text-xs whitespace-pre-wrap leading-relaxed',
-                      syncResult.kind === 'ok'
-                        ? 'text-[var(--text-secondary)]'
-                        : 'text-[var(--color-red-500)]'
-                    )}
-                  >
-                    {syncResult.text}
-                  </span>
-                )}
-              </div>
-            </div>
           )}
         </div>
       </div>

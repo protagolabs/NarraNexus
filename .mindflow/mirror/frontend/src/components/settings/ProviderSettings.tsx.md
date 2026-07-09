@@ -14,8 +14,11 @@ top to bottom:
 1. **① Your providers** — the configured provider list at the TOP (test / edit /
    delete). Empty state prompts to add below. Claude Code Login / Codex CLI Login
    ARE provider types: they appear here once added, and as sign-in options in ②.
-   The **"Update available models" (sync)** card lives here too (shown only when
-   hasProviders): it's maintenance ON the existing providers, not an add action.
+   The **"Update available models" (sync)** action is a compact button in the ①
+   section HEADER (right-aligned, via ``SectionHeader``'s new ``action`` slot),
+   shown only when hasProviders: a Radix Tooltip explains it on hover, click runs
+   ``handleSyncDefaults``; the sync result renders as a small line under the
+   header. It's maintenance ON the existing providers, not an add action.
 2. **② Add a provider** — OneKeyOnboard (primary paste-a-key, imported here now,
    ``onComplete=refreshConfig``), then the Claude Code / Codex CLI login cards
    and custom endpoints (feature-flagged off).
