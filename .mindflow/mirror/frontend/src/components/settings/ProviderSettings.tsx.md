@@ -13,12 +13,11 @@ Final redesign of this component (supersedes the ordered-sections entry below):
   Test / Edit / Delete actions (reusing `handleTest` / `openEditModels` +
   edit-models dialog / `handleDelete`). The last grid cell is a dashed
   **"+ Add provider"** card → the **add modal** (`addModalOpen`).
-- **Add modal** = a **two-step wizard** (`addMethod` state: menu → onekey /
-  oauth / custom). Step 1 is a method picker (three option cards); step 2 shows
-  only the chosen method's UI with a "← Back" link — so the custom form no longer
-  dumps alongside everything. Methods: OneKeyOnboard (paste a key), the Claude
-  Code / Codex CLI login cards (OAuth), and the **custom endpoint form** —
-  `CUSTOM_PROVIDER_ENABLED` flipped
+- **Add modal** = **three tabs** (`addMethod` state: onekey / oauth / custom,
+  default onekey) switched in place at the top of the modal — no wizard menu, no
+  "paste an api key" step title. Tabs: **API key** (OneKeyOnboard preset dropdown
+  + key), **Sign in** (Claude Code / Codex CLI login cards), **Custom** (the
+  custom-endpoint form). `CUSTOM_PROVIDER_ENABLED` flipped
   back to `true` (Owner-authorized reversal of the 2026-06-17 hardening; the
   security note stays in the source, a custom base_url still routes agent traffic
   to a user-chosen host).

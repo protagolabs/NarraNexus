@@ -380,7 +380,7 @@ export function ProviderSettings() {
   // Add-provider modal is a two-step wizard: 'menu' shows the three methods,
   // then the chosen one fills the modal (with a back link). Avoids the old
   // "everything stacked at once" wall — especially the custom form.
-  const [addMethod, setAddMethod] = useState<'menu' | 'onekey' | 'oauth' | 'custom'>('menu')
+  const [addMethod, setAddMethod] = useState<'onekey' | 'oauth' | 'custom'>('onekey')
 
   // ---- Data loading ----
   const refreshConfig = useCallback(async () => {
@@ -653,7 +653,7 @@ export function ProviderSettings() {
             {/* + Add provider card — opens the 3-method add modal. */}
             <button
               type="button"
-              onClick={() => { setAddMethod('menu'); setAddModalOpen(true) }}
+              onClick={() => { setAddMethod('onekey'); setAddModalOpen(true) }}
               className="flex flex-col items-center justify-center gap-1 p-4 rounded-xl border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent-primary)]/50 hover:text-[var(--text-secondary)] transition-colors min-h-[76px]"
             >
               <Plus className="w-5 h-5" />
@@ -674,43 +674,30 @@ export function ProviderSettings() {
         size="2xl"
       >
         <DialogContent>
+          {/* Tabs — three ways to add, switched in place (no wizard menu). */}
+          <div className="flex gap-1 border-b border-[var(--border-subtle)] mb-4">
+            {([
+              { id: 'onekey', label: t('settings.provider.tabApiKey') },
+              { id: 'oauth', label: t('settings.provider.tabSignin') },
+              { id: 'custom', label: t('settings.provider.tabCustom') },
+            ] as const).map((tb) => (
+              <button
+                key={tb.id}
+                type="button"
+                onClick={() => setAddMethod(tb.id)}
+                className={cn(
+                  'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                  addMethod === tb.id
+                    ? 'border-[var(--accent-primary)] text-[var(--text-primary)]'
+                    : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                )}
+              >
+                {tb.label}
+              </button>
+            ))}
+          </div>
           <div className="space-y-4">
-          {/* Step 1: method picker. */}
-          {addMethod === 'menu' && (
-            <>
-              <p className="text-sm text-[var(--text-tertiary)]">{t('settings.provider.addProviderSubtitle')}</p>
-              <div className="grid grid-cols-1 gap-2.5">
-                {([
-                  { id: 'onekey', title: t('settings.provider.methodOneKeyTitle'), desc: t('settings.provider.methodOneKeyDesc') },
-                  { id: 'oauth', title: t('settings.provider.methodOauthTitle'), desc: t('settings.provider.methodOauthDesc') },
-                  { id: 'custom', title: t('settings.provider.methodCustomTitle'), desc: t('settings.provider.methodCustomDesc') },
-                ] as const).map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setAddMethod(m.id)}
-                    className="text-left p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)] hover:border-[var(--accent-primary)]/40 transition-colors"
-                  >
-                    <div className="text-sm font-medium text-[var(--text-primary)]">{m.title}</div>
-                    <div className="text-xs text-[var(--text-tertiary)] mt-0.5">{m.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Step 2: back link + the chosen method. */}
-          {addMethod !== 'menu' && (
-            <button
-              type="button"
-              onClick={() => setAddMethod('menu')}
-              className="inline-flex items-center gap-1 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-            >
-              ← {t('settings.provider.backToMethods')}
-            </button>
-          )}
-
-          {/* Primary add path — paste one key, wire framework + both slots. */}
+          {/* API key — one-key preset dropdown + paste key. */}
           {addMethod === 'onekey' && <OneKeyOnboard onComplete={refreshConfig} />}
 
           {addMethod === 'oauth' && (<>
