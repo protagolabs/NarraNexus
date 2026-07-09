@@ -830,7 +830,7 @@
       "addProviderSubtitle": "Choose how to add a provider.",
       "backToMethods": "Back",
       "tabApiKey": "API key",
-      "tabSignin": "Sign in",
+      "tabSignin": "CLI sign-in",
       "tabCustom": "Custom",
       "methodOneKeyTitle": "Paste an API key",
       "methodOneKeyDesc": "One key wires the provider and its default models.",
