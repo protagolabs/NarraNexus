@@ -1,10 +1,85 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-09
 ---
 
+## 2026-07-09 (review fixes) — full progress removal + inline
+
+PR #78 review round. Four cleanups applied on top of the 2026-07-08
+refactor:
+
+1. **`_handle_stream_event` no longer has a `narra_progress` branch.**
+   The tool itself was deleted in the same PR (see
+   [[_narramessenger_mcp_tools]] 2026-07-09), and a stray call from an
+   older prompt now falls through as an unknown tool call — silent,
+   no state change. Test: `test_stray_narra_progress_is_inert`.
+2. **`_finalize_stream_with_reply` inlined.** The method had degraded
+   to a single `await self._send_matrix_reply(...)` call, and its
+   `state` parameter was unused. Removed and inlined at the sole
+   caller in `_build_and_run_agent_streaming`. Only
+   `_finalize_stream_silent` remains as a distinct finalize hook.
+3. **Test coverage extended to the outer try/except path.** The
+   belt-and-suspenders branch where `async for event in client_stream`
+   raises a Python exception (rather than emitting
+   `MessageType.ERROR`) had no test — that's exactly the path
+   `LineTooLong` from the anyio 128 KiB readline limit percolates up
+   through. New test
+   `test_run_stream_exception_surfaces_error_marker` asserts the
+   room receives `STREAM_ERROR_MARKER` in that scenario.
+4. **`narramessenger_context_builder`'s `reply_instruction` no longer
+   mentions `narra_progress`.** Prompt now tells the agent explicitly
+   that the room stays quiet until `narra_reply` fires (see the
+   [[narramessenger_context_builder]] 2026-07-09 note).
+
+## 2026-07-08 (UX refactor) — no placeholder, silent = quiet room
+
+Dev feedback: even after the 2026-07-03 fix (edit-to-`·`-marker instead
+of redact), users flagged the "💭 Thinking… → ·" sequence for casual
+messages ("ok"/"嗯"/etc.) as visually confusing. The agent appears to
+"try to say something" then trails off — worse UX than staying silent.
+
+**Explored & rejected**: deferred/lazy placeholder (send only if agent
+takes >800 ms). RDS timing data (2026-07-08) shows our typical Matrix
+turn is 20–60 s; the ONE fast case in ~30 days of dev traffic was 5.4 s.
+No reasonable delay window skips the placeholder on the silent path
+without also delaying it on the reply path.
+
+**Decision**: kill the placeholder outright. The room stays as-is while
+the agent works; the trigger fresh-sends when there's something to say.
+
+Rules matrix (updated after 2026-07-09 review fixes):
+
+| Situation                        | Room outcome                       |
+|----------------------------------|------------------------------------|
+| Agent calls `narra_reply(text)`  | Fresh `room_send` on finalize      |
+| Agent stays silent (no reply)    | NO-OP — room untouched             |
+| Runtime crash (ERROR / raise)    | Fresh `room_send` `STREAM_ERROR_MARKER` — failures MUST stay visible |
+
+Constants surviving: `STREAMING_ENABLED`, `STREAM_ERROR_MARKER`.
+Removed: `STREAM_PLACEHOLDER_TEXT`, `STREAM_PROGRESS_MIN_INTERVAL_MS`,
+`STREAM_SILENT_MARKER`. Removed method: `_apply_progress` (and after
+2026-07-09, `_finalize_stream_with_reply` was inlined too). Removed
+imports: `matrix_room_edit`, `matrix_room_redact` (the `m.replace` and
+redaction paths no longer trigger).
+
+`_StreamReplyState` slimmed down: `placeholder_event_id`,
+`last_progress_ms`, `send_failure` gone. Only `narra_reply_text`,
+`error_seen`, `last_error_message` remain — the trigger no longer needs
+to track any Matrix event ids across the stream.
+
+The 2026-07-09 review round finished the job on `narra_progress`: the
+MCP tool was deleted entirely (not just neutered), and the prompt no
+longer instructs the agent to call it.
+
+Underlying `LineTooLong` on oversized `tool_call_output_item` still
+requires an upstream fix (Claude Agent SDK / anyio 128 KiB readline
+limit). Filed as an agent_framework follow-up.
+
 ## 2026-07-03 (UX fix) — silent finalize: edit-to-marker, not redact
+
+**Superseded by the 2026-07-08 refactor above** — kept for provenance.
+
 
 Live incident on dev EC2 (`agent_3dbc1343a078`, room
 `!nkPGwwuXRnhUBvJOlC:matrix.netmind.chat`) surfaced two overlapping
