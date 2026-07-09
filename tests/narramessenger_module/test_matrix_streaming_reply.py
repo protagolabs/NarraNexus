@@ -99,12 +99,13 @@ async def test_agent_thinking_ignored(trigger):
     assert calls["send"] == []
 
 
-# ── narra_progress is a no-op (log only) ───────────────────────────────
+# ── narra_progress: tool is gone, stray call must not touch the room ───
 @pytest.mark.asyncio
-async def test_narra_progress_no_matrix_side_effect(trigger):
-    """narra_progress no longer edits or sends anything to Matrix. It
-    stays in the tool surface (for backend observability) but the room
-    remains untouched."""
+async def test_stray_narra_progress_is_inert(trigger):
+    """The ``narra_progress`` tool was deleted with this refactor. If an
+    older prompt still emits the tool name, the trigger must NOT touch
+    the room, must NOT capture a reply, and must NOT flag error. It is
+    just an unknown tool call — silently ignored."""
     t, calls = trigger
     state = _StreamReplyState()
     await t._handle_stream_event(
@@ -116,7 +117,6 @@ async def test_narra_progress_no_matrix_side_effect(trigger):
         _tool_call("narra_progress", {"text": "step 2"}), state, _cred(), ROOM
     )
     assert calls["send"] == []
-    # Silent state — no reply captured, no error flagged.
     assert state.narra_reply_text == ""
     assert state.error_seen is False
 
@@ -163,23 +163,6 @@ async def test_narra_reply_mcp_prefixed_and_json_args(trigger):
     assert state.narra_reply_text == "from a json blob"
 
 
-# ── finalise: with reply ────────────────────────────────────────────────
-@pytest.mark.asyncio
-async def test_finalise_with_reply_fresh_sends(trigger, monkeypatch):
-    """Reply captured → the trigger fresh-sends via _send_matrix_reply
-    (the retry-aware sender). There is no placeholder edit path anymore."""
-    t, _ = trigger
-    state = _StreamReplyState(narra_reply_text="Clean final answer.")
-    fake_send = AsyncMock(return_value=True)
-    monkeypatch.setattr(t, "_send_matrix_reply", fake_send)
-    await t._finalize_stream_with_reply(_cred(), ROOM, state, "Clean final answer.")
-    fake_send.assert_awaited_once()
-    args = fake_send.await_args
-    # signature: (credential, room_id, text)
-    assert args.args[1] == ROOM
-    assert args.args[2] == "Clean final answer."
-
-
 # ── finalise: silent ────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_finalise_silent_no_error_stays_quiet(trigger):
@@ -223,6 +206,61 @@ async def test_error_event_sets_error_seen_flag(trigger):
     assert state.error_seen is True
     assert "LineTooLong" in state.last_error_message or \
         "Got more than" in state.last_error_message
+
+
+# ── outer try/except: run_stream raising Python exception ──────────────
+@pytest.mark.asyncio
+async def test_run_stream_exception_surfaces_error_marker(trigger, monkeypatch):
+    """PR-review follow-up: the belt-and-suspenders branch in
+    _build_and_run_agent_streaming where ``async for event in
+    client_stream`` raises a Python exception must ALSO trigger
+    STREAM_ERROR_MARKER. This is the path LineTooLong actually takes —
+    the SDK transport crashes rather than emitting MessageType.ERROR."""
+    t, calls = trigger
+
+    # Minimal builder + runtime plumbing to reach the stream loop.
+    class _FakeBuilder:
+        async def build_prompt(self, _):
+            return "prompt"
+
+        async def build_retrieval_anchor(self):
+            return None
+
+    monkeypatch.setattr(
+        t, "create_context_builder", lambda *a, **kw: _FakeBuilder()
+    )
+    monkeypatch.setattr(t, "_resolve_agent_owner", AsyncMock(return_value="owner"))
+
+    async def _boom_stream(**kw):
+        # Simulate what LineTooLong looks like: iteration raises a
+        # transport-level Python exception.
+        if False:  # pragma: no cover — turn function into async gen
+            yield
+        raise RuntimeError("simulated transport crash (LineTooLong-like)")
+
+    class _FakeRuntimeClient:
+        def run_stream(self, **kw):
+            return _boom_stream(**kw)
+
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        lambda: _FakeRuntimeClient(),
+    )
+
+    msg = SimpleNamespace(
+        chat_id=ROOM,
+        message_id="$evt",
+        sender_id="@u:h",
+        content="hi",
+        raw={},
+        timestamp_ms=0,
+        sender_name="U",
+    )
+    result = await t._build_and_run_agent_streaming(
+        _cred(), msg, "U", attachments=None
+    )
+    assert result == ""
+    assert calls["send"] == [{"room": ROOM, "body": t.STREAM_ERROR_MARKER}]
 
 
 # ── feature flag ────────────────────────────────────────────────────────

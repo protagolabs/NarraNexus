@@ -7,9 +7,9 @@ Tools exposed:
   - narra_reply(agent_id, text)                — REPLY to the message you were
     invoked on. A marker: your ``text`` is delivered to the room automatically
     by the trigger (Matrix ``room_send``) once the turn ends. No room_id needed.
-  - narra_progress(agent_id, text)             — OPTIONAL short status update
-    during long work; edits the "thinking" message in place (streaming turns
-    only). Marker: the trigger performs the ``m.replace`` edit.
+    The room stays quiet until this fires — there is no intermediate status
+    surface (the previous ``narra_progress`` tool was removed 2026-07-08 with
+    the placeholder-free UX refactor).
   - narra_send(agent_id, room_id, text)        — PROACTIVE text send to a room
     via Matrix ``room_send``. Use when you are NOT replying to an inbound
     message (e.g. a Job / scheduled push).
@@ -86,25 +86,6 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
         # tool call's arguments, which the runtime records for the trigger
         # to read. Owning delivery in the trigger is what makes future
         # progressive m.replace streaming possible.
-        return {"ok": True}
-
-    # ──────────────────────────────────────────────────────────────────
-    @mcp.tool()
-    async def narra_progress(agent_id: str, text: str) -> dict:
-        """Emit a short progress note for backend logging.
-
-        NO USER-VISIBLE EFFECT. There is no "thinking" placeholder for
-        this to update — the NarraMessenger room stays quiet until you
-        call ``narra_reply``. You may still call this for backend
-        observability (the trigger logs it), but do NOT rely on it to
-        communicate progress to the sender. If the sender needs a status
-        update, call ``narra_reply`` with an interim note instead.
-
-        Returns ``{"ok": true}``. Kept as a stable tool surface so agent
-        prompts that already reference it don't error.
-        """
-        if not text or not text.strip():
-            return {"ok": False, "error": "non-empty text is required"}
         return {"ok": True}
 
     # ──────────────────────────────────────────────────────────────────

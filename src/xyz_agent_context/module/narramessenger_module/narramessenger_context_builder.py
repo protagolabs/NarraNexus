@@ -49,13 +49,12 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         reply_instruction = (
             'call `narra_reply(text="YOUR_REPLY")` — your reply is delivered '
             "to this NarraMessenger room automatically. Send exactly ONE "
-            "message with your real answer (plain text / markdown). "
-            "For genuinely long work (reading a file, multi-step research), you "
-            'MAY call `narra_progress(text="…")` first with a few-word status '
-            '(e.g. "Reading the chart…") — it updates the sender\'s "thinking" '
-            "message in place; optional, and never a substitute for the final "
-            "`narra_reply`. To attach an image or file, put it in your workspace "
-            f'first, then call `narra_send_media(room_id="{room_id}", file_path="...")`.'
+            "message with your real answer (plain text / markdown). The room "
+            "stays quiet until you call this tool — there is no intermediate "
+            "status message, so if the work takes a while, just do it and send "
+            "the final answer when ready. To attach an image or file, put it "
+            "in your workspace first, then call "
+            f'`narra_send_media(room_id="{room_id}", file_path="...")`.'
         )
 
         return {

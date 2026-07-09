@@ -1415,8 +1415,10 @@ class MatrixTrigger(ChannelTriggerBase):
         # Finalize.
         final_text = (state.narra_reply_text or "").strip()
         if final_text:
-            await self._finalize_stream_with_reply(
-                credential, message.chat_id, state, final_text
+            # No placeholder to edit — fresh-send via the retry-aware
+            # reply sender (same one the atomic path uses).
+            await self._send_matrix_reply(
+                credential, message.chat_id, final_text
             )
         else:
             await self._finalize_stream_silent(
@@ -1490,30 +1492,6 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"[matrix:{credential.agent_id}] streaming captured "
                 f"narra_reply.text (len={len(text)}, room={room_id})"
             )
-        elif "narra_progress" in tool_name:
-            # 2026-07-08 UX refactor: narra_progress no longer edits any
-            # room message (there is no placeholder to edit). Kept for
-            # backend visibility so an agent that already invokes it
-            # doesn't get an error — future analytics or an owner
-            # dashboard may want to consume this signal.
-            logger.info(
-                f"[matrix:{credential.agent_id}] narra_progress noted "
-                f"(no room side-effect, len={len(text)}, room={room_id})"
-            )
-
-    async def _finalize_stream_with_reply(
-        self,
-        credential: NarramessengerCredential,
-        room_id: str,
-        state: _StreamReplyState,
-        final_text: str,
-    ) -> None:
-        """Agent produced narra_reply. Fresh-send the text to the room.
-
-        No placeholder to edit — this always goes through
-        ``_send_matrix_reply`` (rate-limit / transient-error aware).
-        """
-        await self._send_matrix_reply(credential, room_id, final_text)
 
     async def _finalize_stream_silent(
         self,
