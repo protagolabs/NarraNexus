@@ -239,6 +239,11 @@ class _FakeCodexDriver:
     async def agent_loop(self, messages, mcp_server_urls):
         self._captured["messages"] = messages
         self._captured["mcp_server_urls"] = mcp_server_urls
+        # Capture the ambient codex_config the driver would actually read — the
+        # helper must install its OWN slot model + creds here, not the agent's.
+        from xyz_agent_context.agent_framework.api_config import codex_config
+        self._captured["codex_model"] = codex_config.model
+        self._captured["codex_auth_ref"] = codex_config.auth_ref
         for ev in self._events:
             yield ev
 
@@ -317,6 +322,45 @@ async def test_codex_oneshot_raises_classifiable_error_on_response_error(monkeyp
     # carries the error type so downstream credential-alerting (#68) triggers
     assert "unauthorized" in str(exc.value)
     assert is_credential_error(str(exc.value)) is True
+
+
+@pytest.mark.asyncio
+async def test_codex_oneshot_installs_helper_model_and_creds(monkeypatch):
+    """The codex driver reads model/creds from the ambient ``codex_config``. The
+    helper must install its OWN slot model + OAuth ref there — NOT run on the
+    agent slot's config (which is the flagship when agent==codex, and empty /
+    credential-less when agent==claude). Regression for the review finding that
+    _run_codex_oneshot ignored cli_helper_config entirely."""
+    from xyz_agent_context.agent_framework.api_config import (
+        CodexConfig,
+        codex_config,
+    )
+    from xyz_agent_context.agent_framework.provider_driver.derive import (
+        CODEX_CLI_CREDENTIALS_REF,
+    )
+    import xyz_agent_context.agent_framework as af
+
+    captured = {}
+    monkeypatch.setattr(
+        af, "get_agent_loop_driver",
+        lambda framework: _FakeCodexDriver([_delta('{"answer": "ok"}')], captured),
+    )
+    # Ambient AGENT codex_config: a DIFFERENT (flagship) model + a stale ref —
+    # the helper must not inherit either.
+    set_user_config(
+        ClaudeConfig(), OpenAIConfig(),
+        codex=CodexConfig(model="gpt-5.5", auth_type="oauth", auth_ref="stale-agent-ref"),
+        cli_helper=CliHelperConfig(
+            framework="codex_cli", model="gpt-5.4-mini", auth_type="oauth",
+        ),
+    )
+    res = await CliHelperSDK().llm_function("inst", "in", output_type=_Out)
+    assert res.final_output.answer == "ok"
+    # Driver saw the HELPER's slot model + the canonical codex OAuth ref.
+    assert captured["codex_model"] == "gpt-5.4-mini"
+    assert captured["codex_auth_ref"] == CODEX_CLI_CREDENTIALS_REF
+    # The ambient agent codex_config is restored afterwards (reset in finally).
+    assert codex_config.model == "gpt-5.5"
 
 
 # ---------------------------------------------------------------------------

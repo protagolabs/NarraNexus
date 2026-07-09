@@ -4,6 +4,20 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 — codex helper 用自己的 CodexConfig,不复用 agent 的(PR review 修复)
+
+`_run_codex_oneshot` 原来只 `driver.agent_loop(messages=...)`,而 codex driver 的
+model / api_key / auth_ref 全读环境里的 `codex_config`——那是 **agent slot** 的配置,
+不是 helper 的。后果:① claude agent + codex helper → `codex_config` 空 → 无凭据 →
+unauthorized;② codex agent + codex helper → 跑 agent 的旗舰(gpt-5.5)而非 helper 的
+`gpt-5.4-mini`;③ `record_cost(model=model_name)` 记的是 helper 解析模型、与实际不符。
+修法:拆出 `_run_codex_oneshot_inner`,外层用 `cli_helper_config` 造一个
+`CodexConfig(model=model_name, api_key/base_url/auth_type=…, auth_ref=CODEX_CLI_
+CREDENTIALS_REF if oauth)`,`_codex_ctx.set()` 后跑、`finally` 里 `reset` 复位(不污染
+agent 的 codex_config)。与 `_run_claude_oneshot` 自建 ClaudeConfig 对称,codex helper
+从此自足(agent 非 codex 也能跑)。测试 `test_codex_oneshot_installs_helper_model_and_creds`
+断言 driver 收到 helper 的 model + 规范 oauth ref、且事后 agent 配置复位。
+
 ## 2026-07-09 — claude helper 自己 stage OAuth 凭据(自足)
 
 合并 #76 后,claude OAuth 走隔离 `CLAUDE_CONFIG_DIR`(`claude_oauth_config_path`),

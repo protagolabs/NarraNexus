@@ -176,13 +176,45 @@ class CliHelperSDK:
     ) -> tuple[str, int, int]:
         """One-shot via the registered codex agent-loop driver.
 
-        Reuses the ambient ``codex_config`` (already the subscription for a
-        codex-agent user) and the driver's tested CODEX_HOME / credential
-        staging. We prepend the schema/instructions to the user turn and
-        accumulate the streamed text deltas. Best-effort: codex is an agentic
-        CLI, so JSON reliability rests on the schema prompt + extractor. Usage
-        is read from the terminal event when the driver reports it.
+        The codex driver reads model / credentials from the ambient
+        ``codex_config`` ContextVar — which is the AGENT slot's config, NOT the
+        helper's. So we install a CodexConfig built from THIS helper's
+        ``cli_helper_config`` (its own slot model + OAuth credential ref) for the
+        duration and reset after, mirroring how ``_run_claude_oneshot`` builds
+        its own ClaudeConfig. Without this the codex helper (a) runs the agent's
+        model instead of its cheap slot model, and (b) has no credentials at all
+        when the agent slot is NOT codex (e.g. claude agent + codex helper) →
+        empty CODEX_HOME → unauthorized. Best-effort JSON: codex is agentic, so
+        reliability rests on the schema prompt + extractor.
         """
+        from xyz_agent_context.agent_framework.api_config import (
+            CodexConfig,
+            _codex_ctx,
+        )
+        from xyz_agent_context.agent_framework.provider_driver.derive import (
+            CODEX_CLI_CREDENTIALS_REF,
+        )
+
+        # Run codex on the HELPER's own model + credentials, not the agent's.
+        _auth_type = cli_helper_config.auth_type or "oauth"
+        _helper_codex = CodexConfig(
+            api_key=cli_helper_config.api_key or "",
+            base_url=cli_helper_config.base_url or "",
+            model=model_name,
+            auth_type=_auth_type,
+            # OAuth stages ~/.codex/auth.json via this ref (to_cli_env /
+            # _stage_codex_oauth_credentials read it); api-key codex uses the key.
+            auth_ref=(CODEX_CLI_CREDENTIALS_REF if _auth_type == "oauth" else ""),
+        )
+        _codex_token = _codex_ctx.set(_helper_codex)
+        try:
+            return await self._run_codex_oneshot_inner(system_prompt, user_input)
+        finally:
+            _codex_ctx.reset(_codex_token)
+
+    async def _run_codex_oneshot_inner(
+        self, system_prompt: str, user_input: str
+    ) -> tuple[str, int, int]:
         from xyz_agent_context.agent_framework import get_agent_loop_driver
 
         driver = get_agent_loop_driver(framework="codex_cli")
