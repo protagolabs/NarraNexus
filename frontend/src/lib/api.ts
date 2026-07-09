@@ -87,6 +87,8 @@ import type {
   RecordsResponse,
   RechargeResponse,
   RechargeStatusResponse,
+  AgentSlotView,
+  AgentSlotEffective,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1064,6 +1066,55 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ framework }),
     });
+  }
+
+  // ── per-agent LLM config overrides ────────────────────────────────────
+  // An agent inherits the owner's user-level slots by default; these override
+  // just that agent's agent/helper slots. See backend agents_llm_config.py.
+
+  /** Per-slot view: inheriting/effective/override/owner_default for the
+   *  agent's 'agent' and 'helper_llm' slots. */
+  async getAgentLlmConfig(agentId: string): Promise<{
+    success: boolean;
+    data?: {
+      agent_id: string;
+      slots: Record<string, AgentSlotView>;
+    };
+  }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/llm-config`);
+  }
+
+  /** Set (or replace) this agent's override for one slot. */
+  async setAgentLlmConfig(
+    agentId: string,
+    slot: string,
+    body: {
+      provider_id: string;
+      model: string;
+      thinking?: string;
+      reasoning_effort?: string;
+      agent_framework?: string | null;
+    },
+  ): Promise<{ success: boolean; detail?: string; data?: { slot: AgentSlotEffective | null } }> {
+    return this.request(
+      `/api/agents/${encodeURIComponent(agentId)}/llm-config/${slot}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
+  /** Reset a slot to inherit the owner default. slot='all' resets both. */
+  async resetAgentLlmConfig(
+    agentId: string,
+    slot: string,
+  ): Promise<{ success: boolean; detail?: string }> {
+    return this.request(
+      `/api/agents/${encodeURIComponent(agentId)}/llm-config/${slot}`,
+      { method: 'DELETE' },
+    );
   }
 
   /**

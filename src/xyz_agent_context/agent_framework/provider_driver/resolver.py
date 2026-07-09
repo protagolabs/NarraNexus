@@ -156,25 +156,60 @@ def _is_visible(card: ProviderCard, user_id: str) -> bool:
 async def resolve_user_llm_configs(
     user_id: str,
     db: "AsyncDatabaseClient",
+    agent_id: str | None = None,
 ) -> tuple[ClaudeConfig, OpenAIConfig]:
-    cfg = await resolve_user_runtime_llm_configs(user_id, db)
+    cfg = await resolve_user_runtime_llm_configs(user_id, db, agent_id=agent_id)
     return cfg.claude, cfg.openai
+
+
+async def _apply_agent_overrides(
+    by_slot_name: dict,
+    agent_id: str,
+    db: "AsyncDatabaseClient",
+) -> None:
+    """Overlay per-agent slot overrides onto the user-level slot map, in place.
+
+    An ``agent_slots`` row for ``agent_id`` replaces the owner's ``user_slots``
+    row for the same ``slot_name`` on runs of THIS agent. Both ``agent`` and
+    ``helper_llm`` may be overridden; a slot with no override row keeps the
+    user default. Rows with an empty ``provider_id`` (framework-only stub — the
+    agent_framework switch can write one before a provider is picked) do NOT
+    shadow the user default's provider/model; only the framework carries over,
+    which resolution reads off the agent slot regardless. To keep that simple
+    and avoid a half-configured override, we skip empty-provider rows entirely
+    here — a stub-only override still resolves via the user default, and the
+    framework override is handled at agent-loop dispatch (step_3) separately.
+    """
+    override_rows = await db.get("agent_slots", {"agent_id": agent_id})
+    for row in override_rows or []:
+        slot_name = row.get("slot_name")
+        if slot_name in _REQUIRED_SLOTS and row.get("provider_id"):
+            by_slot_name[slot_name] = row
 
 
 async def resolve_user_runtime_llm_configs(
     user_id: str,
     db: "AsyncDatabaseClient",
+    agent_id: str | None = None,
 ) -> RuntimeLLMConfigs:
     """Resolve a user's agent + helper_llm (+ optional Codex) configs in one shot.
+
+    When ``agent_id`` is given, per-agent overrides in ``agent_slots`` take
+    precedence over the owner's ``user_slots`` for that agent's run (both the
+    agent and helper_llm slots may be overridden). Without it — or when the
+    agent has no override rows — resolution is byte-identical to the
+    user-only path.
 
     Raises ``LLMConfigNotConfigured`` if any required piece is missing
     or invisible. The caller is responsible for any further handling —
     e.g. AgentRuntime currently catches this and surfaces a friendly
     error message to the user.
     """
-    # Pull all slot rows for this user.
+    # Pull all slot rows for this user, then overlay any per-agent overrides.
     slot_rows = await db.get("user_slots", {"user_id": user_id})
     by_slot_name = {r.get("slot_name"): r for r in slot_rows or []}
+    if agent_id:
+        await _apply_agent_overrides(by_slot_name, agent_id, db)
 
     required = set(_REQUIRED_SLOTS)
     missing_slots = required - by_slot_name.keys()
