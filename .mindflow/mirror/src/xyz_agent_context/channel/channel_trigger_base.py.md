@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-08
+last_verified: 2026-07-09
 ---
+
+## 2026-07-09 — `_build_and_run_agent` wires current-turn attachment marker
+
+`_resolve_agent_owner(agent_id)` 现在在 `create_context_builder` 之前 await（原来在 `channel_tag` 之后）——因为 marker 里的绝对路径要用 owner 的 user_id 索引 workspace 才能定位到文件。如果 `fetch_attachments` 返回非空列表，紧接着 `builder.with_current_turn_attachments(attachments, agent_id=..., owner_user_id=...)` 挂上，后续 `build_prompt` 里由 [[channel_context_builder_base.py]] 侧的注入逻辑把 marker 拼进 `## Current Message`。
+
+配套：`_build_and_run_agent_silent_batch` 不动——silent=True 跳 step_3，本轮不跑 agent，attachment 走 `batch_messages[i]["attachments"]` 供下轮记忆读取，marker 无需当前 turn 注入。
+
+修的是 2026-07-09 agent_93461ec945f5 事故：Matrix 收到图片、trigger 下载落盘（audit `attachment_persisted`），但 agent 本轮回复"no image attached"——ChatModule 的 marker 合成只在**历史消息**遍历路径上，当前 turn 一直漏。
 
 ## 2026-07-08 — `pre_start(db)` hook added for the consolidated supervisor
 

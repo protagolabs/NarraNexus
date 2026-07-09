@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-07-09
 ---
 
+## 2026-07-09 (later) — streaming path wires current-turn attachment marker
+
+`_build_and_run_agent_streaming` 跟 base `_build_and_run_agent` 同步修：
+`_resolve_agent_owner` 前置到 `create_context_builder` 前，非空 `attachments` 时
+`builder.with_current_turn_attachments(...)`。marker 由
+[[channel_context_builder_base.py]] 的注入逻辑写进 `## Current Message`。
+修的是 2026-07-09 agent_93461ec945f5 的 "图片上传成功但 agent 说没收到" 事故。
+
 ## 2026-07-09 (review fixes) — full progress removal + inline
 
 PR #78 review round. Four cleanups applied on top of the 2026-07-08

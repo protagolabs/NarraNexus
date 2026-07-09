@@ -1131,7 +1131,22 @@ class ChannelTriggerBase(ABC):
 
         agent_id = getattr(credential, "agent_id", "")
 
+        # Resolve the AGENT'S OWNER (NarraNexus user_id), NOT the IM
+        # sender. ProviderResolver maps the owner's user_id to API keys;
+        # using the IM sender_id silently routes through the system
+        # default provider. This bug has been fixed in Lark — preserve
+        # the fix here for free. Hoisted before ``builder`` construction
+        # so the current-turn attachment markers can reference the
+        # owner's workspace path (that's where the file was persisted).
+        owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
+
         builder = self.create_context_builder(message, credential, agent_id)
+        if attachments:
+            builder.with_current_turn_attachments(
+                attachments,
+                agent_id=agent_id,
+                owner_user_id=owner_user_id,
+            )
         prompt = await builder.build_prompt(self._history_config)
         # Clean retrieval anchor (sender + this-turn body) for narrative
         # routing — not the full tagged execution prompt. Graceful: the anchor
@@ -1152,13 +1167,6 @@ class ChannelTriggerBase(ABC):
             room_id=message.chat_id,
         )
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
-
-        # Resolve the AGENT'S OWNER (NarraNexus user_id), NOT the IM
-        # sender. ProviderResolver maps the owner's user_id to API keys;
-        # using the IM sender_id silently routes through the system
-        # default provider. This bug has been fixed in Lark — preserve
-        # the fix here for free.
-        owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
         extra_data: dict[str, Any] = {
             "channel_tag": channel_tag.to_dict(),

@@ -1351,7 +1351,18 @@ class MatrixTrigger(ChannelTriggerBase):
         from xyz_agent_context.schema.channel_tag import ChannelTag
 
         agent_id = getattr(credential, "agent_id", "")
+        # Resolve owner up front so the builder can synthesise current-turn
+        # attachment markers with the correct workspace path (mirrors the
+        # base ``_build_and_run_agent`` ordering).
+        owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
+
         builder = self.create_context_builder(message, credential, agent_id)
+        if attachments:
+            builder.with_current_turn_attachments(
+                attachments,
+                agent_id=agent_id,
+                owner_user_id=owner_user_id,
+            )
         prompt = await builder.build_prompt(self._history_config)
         try:
             anchor = await builder.build_retrieval_anchor()
@@ -1368,7 +1379,6 @@ class MatrixTrigger(ChannelTriggerBase):
             room_id=message.chat_id,
         )
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
-        owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
         extra_data: dict[str, Any] = {
             "channel_tag": channel_tag.to_dict(),

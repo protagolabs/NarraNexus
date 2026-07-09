@@ -74,51 +74,32 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         }
 
     async def get_conversation_history(self, limit: int) -> List[Dict[str, Any]]:
-        """Read recent turns from the invocation payload itself.
+        """Always returns an empty list — history is served from memory.
 
-        Group invocations expose richer ``group_context.history_messages``;
-        DM invocations carry ``context`` (``[{role, sender, content}]``). We
-        normalise either into ``[{sender, timestamp, body}]`` and drop the
-        current trigger message (the last user turn), which the prompt renders
-        separately as the "Current Message" section.
+        Pre-Matrix (Gateway/polling) NarraMessenger shipped inline
+        ``group_context.history_messages`` (group) or ``context``
+        (DM) in every invocation, and this method normalised them into
+        the base's ``[{sender, timestamp, body}]`` shape so
+        ``## Conversation History`` in the channel prompt could carry a
+        few rounds of context.
+
+        Direct Matrix (Commit 7, 2026-07-02) removed that channel: we
+        read raw ``m.room.message`` events off ``/sync`` and neither
+        field is populated in ``ParsedMessage.raw``. Every read fell
+        through to the empty fallback, and the section was recomputed
+        as ``""`` on every turn.
+
+        The intended path is now ChatModule's chat_history: past turns
+        (including their attachments) are recalled from persisted
+        messages during ``hook_data_gathering`` and rendered into the
+        system prompt, not into the channel prompt. Historical
+        attachment markers are synthesised there via
+        ``Attachment.synthesize_marker``; the current turn's marker is
+        appended by
+        ``ChannelContextBuilderBase.with_current_turn_attachments``.
         """
-        raw = self._message.raw or {}
-        gc = raw.get("group_context") or {}
-
-        entries: List[Dict[str, Any]] = []
-        history_messages = gc.get("history_messages")
-        if isinstance(history_messages, list) and history_messages:
-            for m in history_messages:
-                if not isinstance(m, dict):
-                    continue
-                entries.append({
-                    "sender": m.get("sender_display_name")
-                    or m.get("sender_matrix_user_id")
-                    or m.get("sender", "unknown"),
-                    "timestamp": str(m.get("origin_server_ts", "") or m.get("sent_at", "")),
-                    "body": m.get("body", "") or m.get("content", ""),
-                })
-        else:
-            context = raw.get("context")
-            if isinstance(context, list):
-                for c in context:
-                    if not isinstance(c, dict):
-                        continue
-                    sender = c.get("sender", "") or ""
-                    is_bot = bool(sender) and sender == self._credential.matrix_user_id
-                    entries.append({
-                        "sender": "Me (agent)" if is_bot else (sender or c.get("role", "user")),
-                        "timestamp": "",
-                        "body": c.get("content", ""),
-                    })
-
-        # Drop a trailing entry that duplicates the current trigger message.
-        if entries and entries[-1].get("body", "").strip() == (self._message.content or "").strip():
-            entries = entries[:-1]
-
-        if len(entries) > limit:
-            entries = entries[-limit:]
-        return entries
+        del limit  # honoured only as a signature contract
+        return []
 
     async def get_room_members(self) -> List[Dict[str, Any]]:
         """Group member list from ``group_context.members``. DM → empty (the

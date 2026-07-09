@@ -4,6 +4,18 @@ stub: false
 last_verified: 2026-07-09
 ---
 
+## 2026-07-09 (later) — `get_conversation_history` reduced to `return []`
+
+死路径清理。Pre-Matrix（Gateway/polling 年代）NarraMessenger 后端会在每次 invocation payload 里塞 `context`（DM）或 `group_context.history_messages`（Group）——本方法读它、正规化成 `[{sender, timestamp, body}]` 供 base `_build_history_section` 拼进 `## Conversation History`。
+
+Direct Matrix 迁移（Commit 7，2026-07-02）后，我们直接从 `/sync` 拿 raw `m.room.message` 事件，`_wrap_event` 返回的 dict 里**既没有 `context` 也没有 `group_context`**。本方法的两个分支都 miss、走到"末尾 `return entries`（空 list）"。这段 fallback 逻辑存在了 6 天，运行时行为一直是"返回空 list、channel prompt 里没有 `## Conversation History` 这一节"。
+
+2026-07-09 直接把方法体压缩到 `return []` + 一段说明"历史走 ChatModule 记忆，不走 channel prompt"。行为不变，代码不再撒谎。
+
+配合 `ChannelContextBuilderBase.with_current_turn_attachments`（同一 PR），当前 turn 的附件 marker 现在会拼到 `## Current Message` 里，agent 本轮就能看到路径 → `Read(...)` 直接读。过去 turn 的附件仍靠 ChatModule 在 `hook_data_gathering` 遍历历史时通过 `_synthesize_attachment_markers` 注入，marker 格式两边完全一致。
+
+Regression：`tests/narramessenger_module/test_context_builder_no_inline_history.py` 2 条（裸 Matrix 事件 → []、legacy Gateway shape 也 → []）。
+
 ## 2026-07-09 — reply_instruction drops the `narra_progress` clause
 
 Companion cleanup to the silent-first refactor on [[matrix_trigger.py]]
