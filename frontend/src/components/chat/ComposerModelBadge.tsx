@@ -2,12 +2,14 @@
  * ComposerModelBadge — per-agent model indicator + quick-switch, docked
  * bottom-right of the composer tools row.
  *
- * The conversation model is now PER-AGENT: each agent picks its own framework
- * + model, overriding the owner's global default (Settings › Providers). This
- * badge shows the active agent's effective model and lets you switch it inline
- * — picking a model here writes a per-agent override (PUT
- * /api/agents/{id}/llm-config/agent). The ⚙ opens the full AgentLlmConfigPanel
- * (framework + reasoning + helper). When the owner has no agent slot at all it
+ * The conversation model is PER-AGENT: each agent picks its own model,
+ * overriding the owner's global default (Settings › Providers). This badge
+ * shows the active agent's effective model and lets you switch it inline —
+ * picking a model here writes a per-agent override (PUT
+ * /api/agents/{id}/llm-config/agent). Framework + reasoning + helper live in
+ * the detailed AgentLlmConfigPanel, opened from the header (the ⚙ button left
+ * of the cost chip) — not from here. ``reloadKey`` bumps when that panel saves
+ * so this chip re-reads the model. When the owner has no agent slot at all it
  * falls back to a "set model" link into Settings.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -22,13 +24,14 @@ import {
   type ProviderSummary,
 } from '@/lib/agentFramework';
 import type { AgentSlotEffective } from '@/types';
-import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 
 interface Props {
   agentId: string;
+  /** Bumped by the header panel on save so the chip re-reads the model. */
+  reloadKey?: number;
 }
 
-export function ComposerModelBadge({ agentId }: Props) {
+export function ComposerModelBadge({ agentId, reloadKey }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [eff, setEff] = useState<AgentSlotEffective | null>(null);
@@ -37,7 +40,6 @@ export function ComposerModelBadge({ agentId }: Props) {
   const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -67,7 +69,8 @@ export function ComposerModelBadge({ agentId }: Props) {
   useEffect(() => {
     setLoaded(false);
     void load();
-  }, [load]);
+    // reloadKey: re-read after the header panel saves a change.
+  }, [load, reloadKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -167,24 +170,8 @@ export function ComposerModelBadge({ agentId }: Props) {
               );
             })
           )}
-          <div className="mt-1 border-t border-[var(--nm-hairline)] px-3 pb-0.5 pt-1.5">
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setPanelOpen(true); }}
-              className="text-[11px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--color-carbon)]"
-            >
-              Model &amp; framework settings…
-            </button>
-          </div>
         </div>
       )}
-
-      <AgentLlmConfigPanel
-        agentId={agentId}
-        isOpen={panelOpen}
-        onClose={() => setPanelOpen(false)}
-        onSaved={load}
-      />
     </div>
   );
 }
