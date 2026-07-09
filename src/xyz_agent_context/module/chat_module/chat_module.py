@@ -90,32 +90,19 @@ def _synthesize_attachment_markers(
     agent_id: str,
     user_id: str,
 ) -> str:
-    """Render a list of attachment dicts as natural-language markers.
+    """Thin wrapper around ``Attachment.markers_from_dicts``.
 
-    Used by hook_data_gathering when assembling chat_history for the LLM —
-    the persisted message keeps its `content` as the user's original text,
-    and the markers (which carry the resolved absolute path on disk) are
-    appended only into the in-memory copy fed to the next turn's prompt.
-    Invalid entries are skipped silently rather than failing the whole
-    turn (defensive: the dict shape is data we control, but a future
-    schema change shouldn't crash old conversations).
-
-    Path resolution requires the workspace owner's identity, so
-    `agent_id` and `user_id` are threaded through; for orphaned uploads
-    (file deleted) the marker still reports `path=<unavailable>`.
+    Kept as a module-local alias so existing history-assembly call
+    sites (``hook_data_gathering`` at chat_module.py:508 / :889) don't
+    have to import the schema helper directly. The runtime-layer
+    current-turn injection (context_runtime.build_input_for_framework)
+    calls ``Attachment.markers_from_dicts`` directly — the two
+    codepaths share one implementation now, so agent behaviour is
+    identical for current-turn vs historical attachments.
     """
-    if not attachments:
-        return ""
-    lines: List[str] = []
-    for att in attachments:
-        try:
-            marker = Attachment.model_validate(att).synthesize_marker(
-                agent_id=agent_id, user_id=user_id,
-            )
-            lines.append(marker)
-        except Exception as e:
-            logger.warning(f"Skipping malformed attachment in chat history: {e}")
-    return "\n".join(lines)
+    return Attachment.markers_from_dicts(
+        attachments, agent_id=agent_id, user_id=user_id,
+    )
 
 
 def _detect_fatal_error_in_agent_loop(

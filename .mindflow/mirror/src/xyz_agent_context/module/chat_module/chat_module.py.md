@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-07-03
+last_verified: 2026-07-09
 ---
+
+## 2026-07-09 — `_synthesize_attachment_markers` collapses to a wrapper
+
+Historical-turn marker synthesis (call sites at `chat_module.py:508` and `:889`) now delegates to `Attachment.markers_from_dicts` (see [[attachment_schema.py]] 2026-07-09). The wrapper is kept so the two call sites don't have to import the schema helper directly, but the implementation lives in one place. Current-turn marker synthesis now happens in [[context_runtime.py]] `build_input_for_framework` — same underlying helper, so agent behaviour is uniform across current vs historical attachments.
+
+Malformed attachment dicts are no longer silently dropped: the schema helper emits a WARNING (`skipping malformed attachment dict: <type>: <msg>`). Silent drops would recreate the "agent claims no file received" class of failure the 2026-07-09 fix addresses.
 
 ## 2026-07-02 — silent-batch write path in `hook_persist_turn`
 

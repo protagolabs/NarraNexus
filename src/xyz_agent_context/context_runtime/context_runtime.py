@@ -597,12 +597,40 @@ class ContextRuntime:
             f"source={history_source}"
         )
 
-        # Add current user input
+        # Add current user input — augment with Read-tool markers for any
+        # attachments carried on this turn WITHOUT mutating
+        # ``ctx_data.input_content`` (which is the string persisted by
+        # ChatModule.hook_persist_turn as the user message's ``content`` and
+        # rendered verbatim in the frontend chat panel). The marker is
+        # visible ONLY to the LLM this turn; the next turn's history read
+        # will re-synthesise the SAME marker from ``msg["attachments"]``,
+        # so agent behaviour is uniform across current-turn vs historical.
+        current_user_content = ctx_data.input_content or ""
+        raw_atts = (ctx_data.extra_data or {}).get("attachments")
+        if isinstance(raw_atts, list) and raw_atts:
+            from xyz_agent_context.schema.attachment_schema import Attachment
+
+            markers = Attachment.markers_from_dicts(
+                raw_atts,
+                agent_id=ctx_data.agent_id,
+                user_id=ctx_data.user_id or "",
+            )
+            if markers:
+                current_user_content = (
+                    f"{current_user_content}\n{markers}"
+                    if current_user_content
+                    else markers
+                )
+                logger.debug(
+                    f"        Injected {len(raw_atts)} current-turn "
+                    f"attachment marker(s) into LLM-facing user message "
+                    f"(persisted content stays original)"
+                )
         final_messages.append({
             "role": "user",
-            "content": ctx_data.input_content
+            "content": current_user_content,
         })
-        logger.debug(f"        Added current user input: {len(ctx_data.input_content)} chars")
+        logger.debug(f"        Added current user input: {len(current_user_content)} chars")
 
         # Step 2: Collect all Module MCP URLs (deduplicated by module_class)
         logger.debug("        Step 2: Collecting MCP URLs from instances (deduped by module_class)")
