@@ -252,7 +252,7 @@ def _use_codex_driver(monkeypatch, events, captured):
     import xyz_agent_context.agent_framework as af
     monkeypatch.setattr(
         af, "get_agent_loop_driver",
-        lambda framework: _FakeCodexDriver(events, captured),
+        lambda framework, **_kw: _FakeCodexDriver(events, captured),
     )
     set_user_config(ClaudeConfig(), OpenAIConfig(),
                     cli_helper=CliHelperConfig(framework="codex_cli", model="m"))
@@ -343,7 +343,7 @@ async def test_codex_oneshot_installs_helper_model_and_creds(monkeypatch):
     captured = {}
     monkeypatch.setattr(
         af, "get_agent_loop_driver",
-        lambda framework: _FakeCodexDriver([_delta('{"answer": "ok"}')], captured),
+        lambda framework, **_kw: _FakeCodexDriver([_delta('{"answer": "ok"}')], captured),
     )
     # Ambient AGENT codex_config: a DIFFERENT (flagship) model + a stale ref —
     # the helper must not inherit either.

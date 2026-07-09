@@ -31,6 +31,7 @@ consumers see identical shapes.
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from typing import AsyncGenerator, Optional, Type
@@ -63,17 +64,18 @@ from xyz_agent_context.utils.logging import timed
 _DEFAULT_CLAUDE_HELPER_MODEL = "haiku"
 _DEFAULT_CODEX_HELPER_MODEL = "gpt-5.4-mini"
 
-# Reusable neutral cwd for the tool-free claude one-shot — the CLI requires a
-# working directory to exist but the helper never touches the filesystem
-# (allowed_tools=[]). One shared dir avoids per-call mkdtemp churn.
-_HELPER_CWD = os.path.join(tempfile.gettempdir(), "narranexus-cli-helper")
+# Neutral cwd / sandbox root for the CLI one-shots — the claude branch is
+# tool-free (allowed_tools=[]) and the codex branch points its writable_roots
+# here (never the backend cwd), so any codex file op is confined to this
+# disposable dir. One shared dir avoids per-call mkdtemp churn. UID-suffixed +
+# 0o700 so another local user can't pre-create / read it on a shared host.
+_HELPER_CWD = os.path.join(
+    tempfile.gettempdir(), f"narranexus-cli-helper-{os.getuid()}"
+)
 
 
 class CliHelperSDK:
     """Helper-LLM client that runs one-shot completions through a coding CLI."""
-
-    def __init__(self):
-        pass
 
     @staticmethod
     def _resolve_model(requested_model: Optional[str]) -> str:
@@ -96,12 +98,11 @@ class CliHelperSDK:
         if not output_type:
             return instructions
         schema_obj = output_type.model_json_schema()
-        import json as _json
         return instructions + (
             "\n\nYou MUST respond with ONLY a valid JSON object matching "
             "this schema. No markdown, no code blocks, no explanation, "
             "no <think> tags. ONLY the raw JSON object.\n"
-            f"Schema: {_json.dumps(schema_obj, ensure_ascii=False)}"
+            f"Schema: {json.dumps(schema_obj, ensure_ascii=False)}"
         )
 
     async def _run_claude_oneshot(
@@ -143,7 +144,7 @@ class CliHelperSDK:
             _cfg_dir = env.get("CLAUDE_CONFIG_DIR")
             if _cfg_dir:
                 _stage_claude_oauth_credentials(_cfg_dir)
-        os.makedirs(_HELPER_CWD, exist_ok=True)
+        os.makedirs(_HELPER_CWD, mode=0o700, exist_ok=True)
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
             model=resolve_cli_alias(model_name, auth_type=cli_helper_config.auth_type),
@@ -217,7 +218,16 @@ class CliHelperSDK:
     ) -> tuple[str, int, int]:
         from xyz_agent_context.agent_framework import get_agent_loop_driver
 
-        driver = get_agent_loop_driver(framework="codex_cli")
+        # working_path=_HELPER_CWD: (1) it is a REQUIRED arg for the executor
+        # seam (RemoteAgentLoopDriver.__init__) — omitting it TypeErrors once
+        # AGENT_EXECUTOR_URL is set; (2) it confines codex's writable_roots /
+        # cwd to a disposable per-uid temp dir instead of the backend process
+        # cwd, so a prompt-injected helper input (narrative/entity text) can't
+        # touch the app tree. The dir must exist before the driver spawns.
+        os.makedirs(_HELPER_CWD, mode=0o700, exist_ok=True)
+        driver = get_agent_loop_driver(
+            framework="codex_cli", working_path=_HELPER_CWD
+        )
         # The codex driver derives instructions.md ONLY from role=="system"
         # messages and pops the LAST message as the per-turn user turn. The
         # schema/instructions MUST ride a system message — folding them into

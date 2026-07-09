@@ -49,3 +49,17 @@ def test_markdown_fenced_doubled():
 
 def test_no_json_returns_none():
     assert extract('no json here') is None
+
+
+def test_mismatched_brackets_rejected():
+    # `{` closed by `]` is not balanced (type-checked stack) → no candidate.
+    assert extract('{"a": 1]') is None
+
+
+def test_first_balanced_but_invalid_falls_through_to_next():
+    # First balanced object doesn't parse (bareword) → scan the next opener.
+    assert extract('{oops} {"k": 2}') == '{"k": 2}'
+
+
+def test_object_containing_array_captured_whole():
+    assert extract('{"xs": [1, 2], "y": 3}') == '{"xs": [1, 2], "y": 3}'

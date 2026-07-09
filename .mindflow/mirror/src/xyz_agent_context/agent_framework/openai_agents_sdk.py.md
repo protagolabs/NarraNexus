@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/openai_agents_sdk.py
-last_verified: 2026-07-08
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — 平衡扫描精确化(PR review Minor)
+
+抽出 `_balanced_end(text, start)`:用**类型化配对栈**(`{`↔`}`、`[`↔`]`)而非共享
+depth 计数,`{"a": 1]` 这类错配会被判为不平衡(而非"平衡但随后 loads 失败")。
+`_first_balanced_json` 改为**遍历每个 opener**:某个候选虽平衡但 `json.loads` 失败时,
+继续找下一个 opener(不再一失败就 return None),对象内含数组等嵌套仍整段捕获。
 
 ## 2026-07-08 — `_extract_json_from_llm_output`: 首个平衡对象兜底
 

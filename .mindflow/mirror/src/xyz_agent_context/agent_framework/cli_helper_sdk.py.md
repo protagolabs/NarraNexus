@@ -4,7 +4,17 @@ last_verified: 2026-07-09
 stub: false
 ---
 
-## 2026-07-09 — codex helper 用自己的 CodexConfig,不复用 agent 的(PR review 修复)
+## 2026-07-09 — codex helper 沙箱收敛 + 小清理(PR review Important/Minor)
+
+- **working_path=_HELPER_CWD**:`_run_codex_oneshot_inner` 给 `get_agent_loop_driver`
+  显式传 `working_path=_HELPER_CWD`。两个作用:① 它是 executor seam
+  (`RemoteAgentLoopDriver.__init__`)的**必填**位置参数,不传则 `AGENT_EXECUTOR_URL`
+  一上线就 TypeError(潜伏);② 把 codex 的 `writable_roots`/`cwd` 从**后端进程 cwd**
+  收敛到一次性 per-uid 临时目录——helper 输入是 narrative/实体等含用户与外部内容的文本,
+  一次 prompt injection 就能让 codex 在应用目录里动文件,收敛后爆炸半径限于可弃临时目录。
+- **_HELPER_CWD 加固**:路径加 `os.getuid()` 后缀、`os.makedirs(mode=0o700)`,避免共享宿主机
+  上其他本地用户抢建/读该目录。
+- 小清理:删空 `__init__`;`import json` 提到模块顶部。
 
 `_run_codex_oneshot` 原来只 `driver.agent_loop(messages=...)`,而 codex driver 的
 model / api_key / auth_ref 全读环境里的 `codex_config`——那是 **agent slot** 的配置,

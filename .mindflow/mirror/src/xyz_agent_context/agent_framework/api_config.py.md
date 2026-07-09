@@ -4,6 +4,15 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 — _ConfigHolder.cli_helper property(代理无回退兜底)
+
+`_ConfigHolder` 新增 `cli_helper` property(返回默认 `CliHelperConfig()`)。`cli_helper_config`
+是 `_ConfigProxy`,ContextVar 为 None 时回退到 `getattr(_holder, "cli_helper")`——而 holder
+原本没有这个属性(其余四个代理都有对应 property),一旦有人在 CLI-helper 路径外读
+`cli_helper_config.framework` 就是 AttributeError。CLI helper 无全局/桌面来源(只由 OAuth
+provider 派生到 per-task ContextVar),故这个 property 返回的是**永不作为真实配置**的默认值,
+纯粹为让代理回退安全。
+
 ## 2026-07-09 — agent_id threaded through the resolver entry points
 
 Per-agent overrides ([[resolver]]) reach the run + MCP-tool paths by threading an

@@ -500,6 +500,15 @@ class _ConfigHolder:
         self._ensure_loaded()
         return self._anthropic_helper  # type: ignore
 
+    @property
+    def cli_helper(self) -> "CliHelperConfig":
+        # No global/desktop source for a CLI helper — it is only ever derived
+        # from an OAuth provider onto the per-task ContextVar. This default
+        # (never a real config) exists so the ``cli_helper_config`` proxy's
+        # fall-through (ContextVar is None) returns a benign object instead of
+        # raising AttributeError if something reads it off the helper path.
+        return CliHelperConfig()
+
 
 _holder = _ConfigHolder()
 

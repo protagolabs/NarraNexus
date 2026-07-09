@@ -96,13 +96,12 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
     return _first_balanced_json(text)
 
 
-def _first_balanced_json(text: str) -> Optional[str]:
-    """Return the first balanced ``{...}`` / ``[...]`` substring that parses as
-    JSON, scanning with string/escape awareness. ``None`` when there is none."""
-    start = next((i for i, c in enumerate(text) if c in "{["), None)
-    if start is None:
-        return None
-    depth = 0
+def _balanced_end(text: str, start: int) -> Optional[int]:
+    """Index of the closer that balances the opener at ``text[start]``, matching
+    ``{``↔``}`` and ``[``↔``]`` via a type-checked stack (so ``{"a": 1]`` is
+    rejected, not mis-accepted), string/escape aware. ``None`` if unbalanced."""
+    pairs = {"{": "}", "[": "]"}
+    stack: list[str] = []
     in_str = False
     esc = False
     for j in range(start, len(text)):
@@ -118,16 +117,30 @@ def _first_balanced_json(text: str) -> Optional[str]:
         if c == '"':
             in_str = True
         elif c in "{[":
-            depth += 1
+            stack.append(pairs[c])
         elif c in "}]":
-            depth -= 1
-            if depth == 0:
-                candidate = text[start:j + 1]
+            if not stack or stack[-1] != c:
+                return None  # mismatched closer → not balanced from here
+            stack.pop()
+            if not stack:
+                return j
+    return None
+
+
+def _first_balanced_json(text: str) -> Optional[str]:
+    """Return the FIRST balanced ``{...}`` / ``[...]`` substring that parses as
+    JSON. Scans every opener in order; a candidate that balances but does not
+    parse falls through to the next opener (instead of giving up)."""
+    for i, c in enumerate(text):
+        if c in "{[":
+            end = _balanced_end(text, i)
+            if end is not None:
+                candidate = text[i:end + 1]
                 try:
                     json.loads(candidate)
                     return candidate
                 except json.JSONDecodeError:
-                    return None
+                    continue  # balanced but invalid → try the next opener
     return None
 
 
