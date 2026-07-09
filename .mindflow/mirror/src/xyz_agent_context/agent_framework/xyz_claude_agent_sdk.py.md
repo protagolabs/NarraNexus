@@ -4,6 +4,29 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 — macOS: OAuth 凭据从 Keychain 导出进隔离目录(#76 的 macOS 补丁)
+
+#76 把 claude OAuth 隔离进独立 `CLAUDE_CONFIG_DIR`(`claude_oauth_config_path`)
+并把 `~/.claude/.credentials.json` **拷**进去。但 macOS 上 claude 把 OAuth token 存
+**Keychain、没有那个文件** → 文件拷贝 no-op、隔离目录空;而显式设了 `CLAUDE_CONFIG_DIR`
+又让 CLI 走文件模式忽略 Keychain → "Not logged in"(真机实测)。
+
+新增 `_stage_claude_oauth_from_keychain(config_dir)`:`_stage_claude_oauth_credentials`
+在**源文件缺失且 `sys.platform=="darwin"`** 时调它——用 `security find-generic-password
+-s "Claude Code-credentials" -w` 读出 Keychain 凭据,原子写成隔离目录里的
+`.credentials.json`(0600,**绝不 log 内容**)。**darwin-only**:Linux/云端那个源文件存在,
+永远走不到此分支,行为与 #76 逐字一致(零云端影响)。
+
+**stage-once**(非 newest-wins):Keychain 无 mtime 可比,且每次 spawn 重导会覆盖 CLI
+在隔离文件里刷新过的 token(重新注入已消费的 refresh token → 登出,正是 #76 newest-wins
+要避免的)。故仅在隔离文件缺失时导出一次。**代价**:重新 `claude login`(更新 Keychain)
+后隔离副本不自动刷新——删隔离目录重新 stage。安全面:token 是本人本机、0600,与 codex
+的明文 `~/.codex/auth.json`、claude-on-Linux 的 `.credentials.json` 同级。
+
+`CliHelperSDK._run_claude_oneshot` 也会调 `_stage_claude_oauth_credentials`(见
+[[cli_helper_sdk]]),使 claude helper 自足——agent 槽是 codex 或后台单独调 helper 时
+隔离目录也能被 seed。
+
 ## 2026-07-09 — `_stage_claude_oauth_credentials`(OAuth 隔离目录的凭据搬运)
 
 OAuth 的 `CLAUDE_CONFIG_DIR` 现在指向独立目录

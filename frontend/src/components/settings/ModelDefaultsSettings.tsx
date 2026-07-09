@@ -23,6 +23,7 @@ import {
   prettifyModel,
   CODEX_ALLOWED_PROVIDER_SOURCES,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
+  defaultHelperModel,
   type ProviderSummary,
 } from '@/lib/agentFramework';
 
@@ -110,8 +111,11 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
     if (isCodexFramework(framework)) return CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source);
     return true;
   });
+  // Helper accepts OAuth (claude_oauth / codex_oauth) too: the backend routes an
+  // OAuth helper to a CliHelperConfig and runs its structured calls one-shot
+  // through the same CLI as the agent, so one subscription covers both slots.
   const helperProviders = providerList.filter(
-    (p) => ['openai', 'anthropic'].includes(p.protocol) && p.auth_type !== 'oauth',
+    (p) => ['openai', 'anthropic'].includes(p.protocol),
   );
 
   const sameAgent = (a: AgentDraft, b: AgentDraft) =>
@@ -340,7 +344,8 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
                 const pid = e.target.value;
                 const prov = providers[pid];
                 const models = prov ? getModelsForSlot(prov, 'helper_llm', null, {}) : [];
-                setHelperDraft({ provider_id: pid, model: models[0]?.model_id || '' });
+                const model = defaultHelperModel(prov?.source, prov?.protocol, models.map((m) => m.model_id));
+                setHelperDraft({ provider_id: pid, model });
               }}
             >
               <option value="">Select provider…</option>
@@ -365,7 +370,8 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
         </div>
         <p className="text-xs text-[var(--text-tertiary)] mt-2">
           Recommended: {prettifyModel(helperRecModel)} — small/fast model for summaries,
-          dedup, memory. OAuth (CLI sign-in) providers can't be used here.
+          dedup, memory. OAuth (CLI sign-in) providers also work here — routed one-shot
+          through the same CLI, so one subscription covers both slots.
         </p>
       </div>
 

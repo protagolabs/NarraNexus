@@ -129,11 +129,25 @@ class CliHelperSDK:
             model=model_name,
             auth_type=cli_helper_config.auth_type,
         )
+        env = cfg.to_cli_env()
+        # OAuth helper runs against the isolated CLAUDE_CONFIG_DIR that to_cli_env
+        # set (#76). Stage the credential into it ourselves so the helper is
+        # self-sufficient — it must work even when the agent slot is NOT claude
+        # (codex agent + claude helper) or when a background-only hook fires with
+        # no prior claude agent_loop to seed the shared dir. Same stager the
+        # agent loop uses (macOS Keychain export included).
+        if cli_helper_config.auth_type == "oauth":
+            from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
+                _stage_claude_oauth_credentials,
+            )
+            _cfg_dir = env.get("CLAUDE_CONFIG_DIR")
+            if _cfg_dir:
+                _stage_claude_oauth_credentials(_cfg_dir)
         os.makedirs(_HELPER_CWD, exist_ok=True)
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
             model=resolve_cli_alias(model_name, auth_type=cli_helper_config.auth_type),
-            env=cfg.to_cli_env(),
+            env=env,
             allowed_tools=[],      # pure completion — no tool use
             mcp_servers={},
             max_turns=1,

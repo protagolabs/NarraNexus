@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/cli_helper_sdk.py
-last_verified: 2026-07-08
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — claude helper 自己 stage OAuth 凭据(自足)
+
+合并 #76 后,claude OAuth 走隔离 `CLAUDE_CONFIG_DIR`(`claude_oauth_config_path`),
+凭据要先被 stage 进去。`_run_claude_oneshot` 现在在 `auth_type=="oauth"` 时,spawn 前
+调 `xyz_claude_agent_sdk._stage_claude_oauth_credentials(env["CLAUDE_CONFIG_DIR"])`
+(懒导入避环),使 helper **不依赖同轮 agent_loop 先 seed** 共享隔离目录——**agent 槽
+是 codex、helper 是 claude 的混配**,或后台单独触发 helper(无前置 claude turn)时也能
+认证。macOS 上该 stager 含 Keychain 导出(见 [[xyz_claude_agent_sdk]])。
 
 ## 2026-07-08 — codex 一次性路径修复(真机 E2E 暴露的三个 bug)
 

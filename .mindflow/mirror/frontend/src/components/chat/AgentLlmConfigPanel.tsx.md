@@ -4,6 +4,14 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 — per-agent helper 放开 OAuth + 默认便宜模型
+
+与 [[ModelDefaultsSettings]] 同步(per-agent 覆盖面板):`helperProviders` 去掉
+`p.auth_type !== 'oauth'` 过滤,helper 可选 OAuth;选定 provider 后默认 model 用
+`defaultHelperModel`(见 [[agentFramework]])挑便宜的 mini/haiku 而非旗舰;提示文案改为
+"OAuth 也能用"。后端 `validate_slot_binding` 已一致放开 helper 的 OAuth(见
+[[user_provider_service]]),所以 per-agent override 也能绑 OAuth helper。
+
 ## 2026-07-09 — per-agent LLM config modal
 
 Detailed per-agent editor opened from the "Model & framework settings…" link in
