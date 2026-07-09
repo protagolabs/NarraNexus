@@ -29,6 +29,7 @@ from xyz_agent_context.schema.provider_schema import (
     SlotName,
     SLOT_REQUIRED_PROTOCOLS,
 )
+from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
 router = APIRouter()
 
@@ -128,7 +129,6 @@ def _is_cloud() -> bool:
     """Cloud deployment. Delegates to the single deployment-mode source of
     truth (honours NARRANEXUS_DEPLOYMENT_MODE + treats an unset DATABASE_URL as
     local) rather than re-sniffing the DB URL here."""
-    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
     return is_cloud_mode()
 
 
@@ -372,7 +372,6 @@ async def use_subscription(request: Request):
     against the subscription grant / account balance). Cloud-only.
     """
     from xyz_agent_context.settings import settings
-    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
     from xyz_agent_context.utils.db_factory import get_db_client
 
     uid = _get_user_id(request)
