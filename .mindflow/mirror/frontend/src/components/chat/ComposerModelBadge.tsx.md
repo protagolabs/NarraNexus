@@ -9,11 +9,13 @@ stub: false
 The model chip is now the active AGENT's effective model, not the user-level
 agent slot. Picking a model writes a per-agent override (PUT
 /api/agents/{id}/llm-config/agent via [[api]]) that only affects THIS agent; a
-dot marks "custom for this agent" vs inheriting the owner default. A ⚙ opens
-[[AgentLlmConfigPanel]] (framework + reasoning + helper). Takes ``agentId`` as a
-prop (ChatPanel passes the active id from configStore). Falls back to the
-Settings link only when the owner has no agent slot at all. Option-building is
-shared via [[agentFramework]].
+dot marks "custom for this agent" vs inheriting the owner default. The detailed
+[[AgentLlmConfigPanel]] (framework + reasoning + helper) opens from a "Model &
+framework settings…" link at the bottom of the chip's dropdown — an earlier
+standalone ⚙ icon next to the chip was removed (unclear affordance; users
+couldn't tell what it did). Takes ``agentId`` as a prop (ChatPanel passes the
+active id from configStore). Falls back to the Settings link only when the owner
+has no agent slot at all. Option-building is shared via [[agentFramework]].
 
 # chat/ComposerModelBadge.tsx — in-composer model indicator + one-click switcher
 

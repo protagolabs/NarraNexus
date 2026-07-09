@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, Check, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import {
@@ -125,7 +125,7 @@ export function ComposerModelBadge({ agentId }: Props) {
   };
 
   return (
-    <div ref={rootRef} className="relative flex items-center gap-1">
+    <div ref={rootRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -140,15 +140,6 @@ export function ComposerModelBadge({ agentId }: Props) {
         )}
         <span className="max-w-[180px] truncate">{label}</span>
         <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', open && 'rotate-180')} />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => setPanelOpen(true)}
-        title="Agent model & framework settings"
-        className="text-[var(--text-tertiary)] transition-colors hover:text-[var(--color-carbon)]"
-      >
-        <SlidersHorizontal className="h-3 w-3" />
       </button>
 
       {open && eff && (
@@ -180,9 +171,9 @@ export function ComposerModelBadge({ agentId }: Props) {
             <button
               type="button"
               onClick={() => { setOpen(false); setPanelOpen(true); }}
-              className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.12em] text-[var(--text-tertiary)] transition-colors hover:text-[var(--color-carbon)]"
+              className="text-[11px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--color-carbon)]"
             >
-              framework & more
+              Model &amp; framework settings…
             </button>
           </div>
         </div>

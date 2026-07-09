@@ -7,14 +7,15 @@
  * Providers). Writes to the per-agent override endpoints
  * (/api/agents/{id}/llm-config); changes apply on the agent's next run.
  *
- * Modeled on AwarenessPanel's per-agent modal pattern. Provider/model options
- * are built with the shared helpers in lib/agentFramework so this offers
- * exactly the same choices the Settings default editor does.
+ * ONE Save button applies the whole panel — it only writes the slots the user
+ * actually changed, so touching the agent model doesn't turn an inheriting
+ * helper into a custom one. Provider/model options are built with the shared
+ * helpers in lib/agentFramework so this offers exactly the same choices the
+ * Settings default editor does.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
 import {
   AGENT_FRAMEWORKS,
   isCodexFramework,
@@ -61,13 +62,23 @@ function draftFrom(eff: AgentSlotEffective | null, fallbackFramework: string): D
   };
 }
 
+const sameDraft = (a: Draft, b: Draft) =>
+  a.provider_id === b.provider_id &&
+  a.model === b.model &&
+  a.thinking === b.thinking &&
+  a.reasoning_effort === b.reasoning_effort &&
+  a.agent_framework === b.agent_framework;
+
 export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props) {
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
   const [slots, setSlots] = useState<Record<string, AgentSlotView>>({});
   const [agentDraft, setAgentDraft] = useState<Draft>(EMPTY_DRAFT);
   const [helperDraft, setHelperDraft] = useState<Draft>(EMPTY_DRAFT);
+  // Snapshot of what was loaded — so Save only writes slots the user changed.
+  const [agentInitial, setAgentInitial] = useState<Draft>(EMPTY_DRAFT);
+  const [helperInitial, setHelperInitial] = useState<Draft>(EMPTY_DRAFT);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null); // slot being saved
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -84,8 +95,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       setSlots(s);
       const ownerFramework =
         s.agent?.owner_default?.agent_framework || 'claude_code';
-      setAgentDraft(draftFrom(s.agent?.effective ?? null, ownerFramework));
-      setHelperDraft(draftFrom(s.helper_llm?.effective ?? null, 'claude_code'));
+      const a = draftFrom(s.agent?.effective ?? null, ownerFramework);
+      const h = draftFrom(s.helper_llm?.effective ?? null, 'claude_code');
+      setAgentDraft(a);
+      setHelperDraft(h);
+      setAgentInitial(a);
+      setHelperInitial(h);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load config');
     } finally {
@@ -114,37 +129,54 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     (p) => ['openai', 'anthropic'].includes(p.protocol) && p.auth_type !== 'oauth',
   );
 
-  const saveSlot = async (slot: 'agent' | 'helper_llm') => {
-    const d = slot === 'agent' ? agentDraft : helperDraft;
-    if (!d.provider_id || !d.model) {
-      setError('Pick a provider and model first.');
+  const agentChanged = !sameDraft(agentDraft, agentInitial);
+  const helperChanged = !sameDraft(helperDraft, helperInitial);
+  const isDirty = agentChanged || helperChanged;
+
+  // Save writes ONLY the slots the user actually changed — so editing the
+  // agent model doesn't silently create a helper override.
+  const saveAll = async () => {
+    if (!isDirty || saving) return;
+    // Validate changed slots before writing any.
+    if (agentChanged && (!agentDraft.provider_id || !agentDraft.model)) {
+      setError('Pick a provider and model for the agent slot.');
       return;
     }
-    setBusy(slot);
+    if (helperChanged && (!helperDraft.provider_id || !helperDraft.model)) {
+      setError('Pick a provider and model for the helper slot.');
+      return;
+    }
+    setSaving(true);
     setError('');
     try {
-      const res = await api.setAgentLlmConfig(agentId, slot, {
-        provider_id: d.provider_id,
-        model: d.model,
-        thinking: slot === 'agent' ? d.thinking : '',
-        reasoning_effort: slot === 'agent' ? d.reasoning_effort : '',
-        agent_framework: slot === 'agent' ? d.agent_framework : null,
-      });
-      if (!res.success) {
-        setError(res.detail || 'Save failed');
-        return;
+      if (agentChanged) {
+        const r = await api.setAgentLlmConfig(agentId, 'agent', {
+          provider_id: agentDraft.provider_id,
+          model: agentDraft.model,
+          thinking: agentDraft.thinking,
+          reasoning_effort: agentDraft.reasoning_effort,
+          agent_framework: agentDraft.agent_framework,
+        });
+        if (!r.success) { setError(r.detail || 'Save failed'); return; }
+      }
+      if (helperChanged) {
+        const r = await api.setAgentLlmConfig(agentId, 'helper_llm', {
+          provider_id: helperDraft.provider_id,
+          model: helperDraft.model,
+        });
+        if (!r.success) { setError(r.detail || 'Save failed'); return; }
       }
       await load();
       onSaved?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
-      setBusy(null);
+      setSaving(false);
     }
   };
 
   const resetSlot = async (slot: 'agent' | 'helper_llm') => {
-    setBusy(slot);
+    setSaving(true);
     setError('');
     try {
       await api.resetAgentLlmConfig(agentId, slot);
@@ -153,7 +185,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Reset failed');
     } finally {
-      setBusy(null);
+      setSaving(false);
     }
   };
 
@@ -164,6 +196,8 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     'px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors';
   const btnGhost =
     'px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors';
+  const resetLink =
+    'text-xs text-[var(--text-tertiary)] underline decoration-dotted hover:text-[var(--color-error)] transition-colors disabled:opacity-40';
 
   const StatusChip = ({ view }: { view?: AgentSlotView }) =>
     view?.inheriting !== false ? (
@@ -287,16 +321,13 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
               </div>
 
-              <div className="flex gap-2 mt-3">
-                <button className={btnPrimary} disabled={busy === 'agent'} onClick={() => saveSlot('agent')}>
-                  {busy === 'agent' ? 'Saving…' : 'Save for this agent'}
-                </button>
-                {slots.agent?.inheriting === false && (
-                  <button className={btnGhost} disabled={busy === 'agent'} onClick={() => resetSlot('agent')}>
-                    Reset to default
+              {slots.agent?.inheriting === false && (
+                <div className="mt-3">
+                  <button className={resetLink} disabled={saving} onClick={() => resetSlot('agent')}>
+                    Reset this slot to the global default
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* ---- Helper slot ---- */}
@@ -353,16 +384,13 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 summaries, dedup, memory. OAuth (CLI sign-in) providers can't be used here.
               </p>
 
-              <div className="flex gap-2 mt-3">
-                <button className={btnPrimary} disabled={busy === 'helper_llm'} onClick={() => saveSlot('helper_llm')}>
-                  {busy === 'helper_llm' ? 'Saving…' : 'Save for this agent'}
-                </button>
-                {slots.helper_llm?.inheriting === false && (
-                  <button className={btnGhost} disabled={busy === 'helper_llm'} onClick={() => resetSlot('helper_llm')}>
-                    Reset to default
+              {slots.helper_llm?.inheriting === false && (
+                <div className="mt-3">
+                  <button className={resetLink} disabled={saving} onClick={() => resetSlot('helper_llm')}>
+                    Reset this slot to the global default
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
@@ -370,11 +398,9 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
         )}
       </DialogContent>
       <DialogFooter>
-        <button
-          className={cn(btnGhost)}
-          onClick={onClose}
-        >
-          Close
+        <button className={btnGhost} onClick={onClose}>Close</button>
+        <button className={btnPrimary} disabled={!isDirty || saving || loading} onClick={saveAll}>
+          {saving ? 'Saving…' : 'Save'}
         </button>
       </DialogFooter>
     </Dialog>
