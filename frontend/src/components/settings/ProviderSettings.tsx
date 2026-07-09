@@ -292,14 +292,10 @@ function SectionHeader({ step, title, subtitle, action }: { step?: number; title
 // Main Component
 // =============================================================================
 
-// Security note (2026-06-17): user-supplied custom (arbitrary base_url)
-// providers let an agent's LLM traffic be pointed at an external endpoint.
-// The "+ Custom Anthropic / + Custom OpenAI" add flow was disabled pending
-// workspace/credential isolation work.
-// 2026-07-09: Owner-authorized re-enable — custom endpoints are a first-class
-// add method (the third way to add a provider). The tradeoff above still
-// stands; a custom base_url routes agent LLM traffic to a user-chosen host.
-const CUSTOM_PROVIDER_ENABLED = true
+// Security note (2026-06-17 → re-enabled 2026-07-09, Owner-authorized): custom
+// endpoints are a first-class add method (the "Custom" tab). A user-supplied
+// base_url routes the agent's LLM traffic to a host they choose — the tradeoff
+// the original hardening flagged; kept visible here.
 
 export function ProviderSettings() {
   const { t } = useTranslation()
@@ -910,98 +906,78 @@ export function ProviderSettings() {
           </div>
           </>)}
 
-          {addMethod === 'custom' && (<>
-          {/* ---- Custom: Add Protocol Buttons ----
-            *
-            * Note: API-key Codex flows through ``+ Custom OpenAI`` —
-            * the resolver builds CodexConfig from any OpenAI-protocol
-            * provider when ``agent_framework=codex_cli`` is set on
-            * the slot. No dedicated card needed; auth.json fetch is
-            * the only thing the OAuth card adds functionally.
-            */}
-          {CUSTOM_PROVIDER_ENABLED ? (
-          <>
-          <div className="flex gap-2">
-            <button onClick={() => openForm('anthropic')}
-              className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-              {t('settings.provider.customAnthropic')}
-            </button>
-            <button onClick={() => openForm('openai')}
-              className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-              {t('settings.provider.customOpenai')}
-            </button>
-          </div>
+          {addMethod === 'custom' && (
+          <div className="space-y-4">
+            {/* Step 1: pick the protocol; the fields only appear after that. */}
+            <div>
+              <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.protocolLabel')}</label>
+              <select
+                value={showForm || ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (!v) setShowForm(null)
+                  else openForm(v as 'anthropic' | 'openai')
+                }}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+              >
+                <option value="">{t('settings.provider.selectProtocol')}</option>
+                <option value="openai">{t('settings.provider.protocolOpenai')}</option>
+                <option value="anthropic">{t('settings.provider.protocolAnthropic')}</option>
+              </select>
+            </div>
 
-          {/* ---- Protocol Form ---- */}
-          {showForm && (
-            <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium text-[var(--text-primary)]">
-                  {showForm === 'anthropic' ? t('settings.provider.customAnthropicProvider') : t('settings.provider.customOpenaiProvider')}
-                </h4>
-                <button onClick={() => setShowForm(null)} className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">{t('settings.provider.cancel')}</button>
-              </div>
-              <p className="text-sm text-[var(--text-tertiary)]">
-                {showForm === 'anthropic' ? t('settings.provider.anthropicEndpointHint') : t('settings.provider.openaiEndpointHint')}
-              </p>
-              <div className="grid grid-cols-2 gap-3">
+            {/* Step 2: the endpoint fields (shown once a protocol is chosen). */}
+            {showForm && (
+              <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-3">
+                <p className="text-sm text-[var(--text-tertiary)]">
+                  {showForm === 'anthropic' ? t('settings.provider.anthropicEndpointHint') : t('settings.provider.openaiEndpointHint')}
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.providerNameLabel')}</label>
+                    <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
+                      placeholder={showForm === 'anthropic' ? t('settings.provider.providerNameEgAnthropic') : t('settings.provider.providerNameEgOpenai')}
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                  </div>
+                  {showForm === 'anthropic' ? (
+                    <div>
+                      <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.authType')}</label>
+                      <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
+                        <option value="api_key">{t('settings.provider.authApiKey')}</option>
+                        <option value="bearer_token">{t('settings.provider.authBearerToken')}</option>
+                      </select>
+                    </div>
+                  ) : <div />}
+                </div>
                 <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.providerNameLabel')}</label>
-                  <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
-                    placeholder={showForm === 'anthropic' ? t('settings.provider.providerNameEgAnthropic') : t('settings.provider.providerNameEgOpenai')}
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.baseUrl')}</label>
+                  <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
+                    placeholder={t('settings.provider.baseUrl')}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 </div>
-                {showForm === 'anthropic' ? (
-                  <div>
-                    <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.authType')}</label>
-                    <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
-                      <option value="api_key">{t('settings.provider.authApiKey')}</option>
-                      <option value="bearer_token">{t('settings.provider.authBearerToken')}</option>
-                    </select>
-                  </div>
-                ) : <div />}
+                <div>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.apiKeyLabel')}</label>
+                  <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
+                    placeholder={t('settings.provider.yourApiKey')}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.availableModels')}</label>
+                  <ModelBubbleInput
+                    models={formModels}
+                    onChange={setFormModels}
+                    suggestions={MODEL_SUGGESTION_GROUPS}
+                  />
+                </div>
+                <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
+                  className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
+                  {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
+                </button>
               </div>
-              <div>
-                <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.baseUrl')}</label>
-                <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
-                  placeholder={t('settings.provider.baseUrl')}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-              </div>
-              <div>
-                <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.apiKeyLabel')}</label>
-                <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
-                  placeholder={t('settings.provider.yourApiKey')}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-              </div>
-              <div>
-                <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.availableModels')}</label>
-                <ModelBubbleInput
-                  models={formModels}
-                  onChange={setFormModels}
-                  suggestions={MODEL_SUGGESTION_GROUPS}
-                />
-              </div>
-              <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-                className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
-                {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
-              </button>
-            </div>
+            )}
+          </div>
           )}
-          </>
-          ) : (
-            <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)]">
-              <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">
-                Adding custom providers is temporarily unavailable
-              </h4>
-              <p className="text-sm text-[var(--text-tertiary)]">
-                Custom (custom base URL) provider setup is paused for security
-                hardening and will be restored soon. Your already-configured
-                providers remain fully usable.
-              </p>
-            </div>
-          )}
-          </>)}
 
           {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
           </div>
