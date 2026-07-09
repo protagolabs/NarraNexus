@@ -1,10 +1,34 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-07-08
+last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 — OAuth 分支也隔离 CONFIG_DIR(补完 #72 的漏)
+
+事故延续:#72(下条)只隔离了 keyed 路径,OAuth 分支被特意放行、`CLAUDE_CONFIG_DIR`
+仍指向真正的 `~/.claude`。结果同一个洞在 OAuth 上复现——`~/.claude/settings.json`
+的 `env` 块(个人 relay)照样劫持 OAuth run,`503 No available accounts` 再现;
+且 agent_loop 与用户自己的交互式 Claude Code **并发写同一个 `~/.claude/.claude.json`**,
+互相清空(实测该文件在 55KB 与 50 字节间反复横跳,CLI 触发自救备份)。
+
+修法:OAuth 也改指独立目录 `settings.claude_oauth_config_path`
+(`~/.nexusagent/claude_oauth_config`,与 keyed 的 `claude_cli_config_path` **分开**)。
+`to_cli_env()` 只负责设 `CLAUDE_CONFIG_DIR`(纯函数、无 I/O);真正把凭据搬进去的是
+`xyz_claude_agent_sdk._stage_claude_oauth_credentials`——spawn 前**只拷 `.credentials.json`**
+一个文件(绝不拷 `settings.json`),对齐 Codex 的 `_stage_codex_oauth_credentials`。
+
+一个必须记住的边界——**newest-wins 拷贝**:仅当宿主 `~/.claude/.credentials.json`
+比已暂存副本更新(或副本不存在)时才覆盖。这样既能让新的 `claude auth login` 传进来,
+又不会把 CLI 在隔离目录里就地刷新过的 token 冲掉(宿主副本可能还带着已被消费/轮转
+作废的旧 refresh token,盲目回灌会把用户登出)。宿主没有凭据文件时 warn + no-op,
+不抛错。守卫测试见 `tests/agent_framework/test_claude_config_isolation.py`
+(`test_oauth_isolates_config_dir` + 三个 `_stage_*` 用例)。
+
 ## 2026-07-08 — `to_cli_env()` 用 `CLAUDE_CONFIG_DIR` 隔离个人 `~/.claude`(治根)
+
+> ⚠️ 下面这条描述的 OAuth「显式指向真正的 `~/.claude`」已被上面 2026-07-09 条**取代**——
+> OAuth 现在也走独立目录。保留本条记录当时的推理链。
 
 事故:某开发者机器上每条前端消息都 `503 No available accounts`。根因不在
 netmind、也不在 NarraNexus 代码,而是 Claude Code 的 `~/.claude/settings.json`

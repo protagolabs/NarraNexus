@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-07-03
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — `_stage_claude_oauth_credentials`(OAuth 隔离目录的凭据搬运)
+
+OAuth 的 `CLAUDE_CONFIG_DIR` 现在指向独立目录
+`settings.claude_oauth_config_path`(见 [[api_config]] 2026-07-09 条),不再是
+宿主 `~/.claude`。`agent_loop` 在 `to_cli_env()` 之后、spawn 之前,若
+`auth_type == "oauth"` 就调用这个新的模块级函数,把宿主
+`~/.claude/.credentials.json`(经 `provider_driver.derive.resolve_claude_credentials_path`
+解析,尊重 `CLAUDE_CLI_CREDENTIALS_PATH`/`CLAUDE_CLI_HOME` 覆盖)**单文件**拷进隔离目录。
+只拷 `.credentials.json`、绝不拷 `settings.json` —— 后者的 `env` 块正是劫持源。
+
+**newest-wins**:仅当宿主副本比已暂存副本更新(或副本缺失)才覆盖;否则保留 CLI 在
+隔离目录里就地刷新过的 token(避免把已轮转作废的旧 refresh token 回灌、把用户登出)。
+宿主无凭据文件 → warn + no-op,不抛错。对齐 Codex 的 `_stage_codex_oauth_credentials`
+(那边是 per-run temp `CODEX_HOME`;Claude 这边用持久隔离目录,与 keyed 路径同风格,
+故用 newest-wins 而非每次覆盖)。守卫测试见
+`tests/agent_framework/test_claude_config_isolation.py`。
 
 ## 2026-07-03 — MAX_SYSTEM_PROMPT_LENGTH bumped 100K → 115K
 

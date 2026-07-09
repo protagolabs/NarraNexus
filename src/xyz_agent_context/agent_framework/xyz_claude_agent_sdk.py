@@ -27,6 +27,56 @@ except ImportError:
     from model_catalog import resolve_cli_alias
     from _tool_policy_guard import build_tool_policy_guard
 
+def _stage_claude_oauth_credentials(config_dir) -> None:
+    """Copy the host Claude OAuth credential into the isolated CONFIG_DIR.
+
+    OAuth used to point ``CLAUDE_CONFIG_DIR`` straight at ``~/.claude`` so the
+    CLI could read ``~/.claude/.credentials.json``. That re-opened the very
+    leak #72 closed for keyed auth: the personal ``~/.claude/settings.json``
+    ``env`` block (ANTHROPIC_BASE_URL/AUTH_TOKEN) overrode our provider and
+    503'd, and the agent_loop raced the user's own Claude Code on
+    ``~/.claude/.claude.json`` (2026-07-09 incident). OAuth now gets its own
+    isolated dir; we stage ONLY the credential file into it — never
+    ``settings.json`` — mirroring Codex's ``_stage_codex_oauth_credentials``.
+
+    ``config_dir`` is ``settings.claude_oauth_config_path`` (a ``str`` or
+    ``Path``); it is the same dir ``ClaudeConfig.to_cli_env`` puts in
+    ``CLAUDE_CONFIG_DIR`` for the OAuth branch.
+
+    newest-wins: copy the host credential in only when it is newer than the
+    already-staged copy (or the staged copy is missing). This propagates a
+    fresh ``claude auth login`` while NOT clobbering a token the CLI refreshed
+    in-place inside the isolated dir — clobbering it would break rotating
+    refresh tokens (the host copy still carries the already-consumed one).
+    """
+    import shutil
+    from pathlib import Path
+
+    from xyz_agent_context.agent_framework.provider_driver.derive import (
+        CLAUDE_CLI_CREDENTIALS_REF,
+        resolve_claude_credentials_path,
+    )
+
+    source = resolve_claude_credentials_path(CLAUDE_CLI_CREDENTIALS_REF)
+    if source is None or not source.is_file():
+        logger.warning(
+            f"[ClaudeAgentSDK] OAuth credential not found at "
+            f"{source or '~/.claude/.credentials.json'}; the agent_loop CLI "
+            "may prompt for login or fail auth. Run 'claude auth login' or "
+            "sign in from Settings → Providers."
+        )
+        return
+
+    dest_dir = Path(config_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / ".credentials.json"
+    if dest.exists() and dest.stat().st_mtime >= source.stat().st_mtime:
+        return  # staged copy is at least as fresh — preserve any CLI refresh
+    shutil.copy2(source, dest)
+    with suppress(OSError):
+        dest.chmod(0o600)  # credential file: keep it private
+
+
 def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str, Any]:
     """Map the framework-neutral slot params to ClaudeAgentOptions kwargs.
 
@@ -386,6 +436,12 @@ class ClaudeAgentSDK:
         # Step 1: Build ClaudeAgentOptions
         # 从 api_config 构建传给 Claude CLI 子进程的环境变量（仅包含非空值）
         cli_env: dict[str, str] = claude_config.to_cli_env()
+
+        # OAuth runs against an isolated CLAUDE_CONFIG_DIR (see to_cli_env):
+        # stage the host credential file into it before the spawn, so the CLI
+        # authenticates without ever reading the host's personal settings.json.
+        if claude_config.auth_type == "oauth":
+            _stage_claude_oauth_credentials(cli_env["CLAUDE_CONFIG_DIR"])
 
         # 确保 CLI 子进程绕过代理直连 localhost 的 MCP 服务器。
         # 系统若设置了 http_proxy / https_proxy（如 VPN 代理），会导致
