@@ -110,15 +110,21 @@ class ClaudeConfig:
         # endpoint — the netmind config we inject loses the precedence fight.
         #  → 2026-07-08 incident: personal relay in the env block returned
         #    ``503 No available accounts`` for every frontend message.
-        # Point keyed auth at a dedicated NarraNexus config dir (the CLI
-        # auto-creates it) so that file is never read. OAuth must keep the
-        # real ``~/.claude`` — its credential file lives there and the CLI
-        # reads the token from it. Always set the key (never omit) so a stray
-        # inherited ``CLAUDE_CONFIG_DIR`` can't leak in via the SDK's
+        # Both auth kinds get a dedicated NarraNexus config dir (the CLI
+        # auto-creates it) so the personal settings.json is never read:
+        #   * keyed (api_key/bearer) → ``claude_cli_config_path``; the key is
+        #     injected via env above, no credential file needed.
+        #   * oauth → ``claude_oauth_config_path``; a SEPARATE dir into which
+        #     ``_stage_claude_oauth_credentials`` (in xyz_claude_agent_sdk)
+        #     copies ONLY ``.credentials.json`` before the spawn. OAuth used to
+        #     point straight at ``~/.claude`` here, which re-exposed the exact
+        #     hijack above AND raced the user's own Claude Code on
+        #     ``~/.claude/.claude.json`` (2026-07-09 incident).
+        # Always set the key (never omit) so a stray inherited
+        # ``CLAUDE_CONFIG_DIR`` can't leak in via the SDK's
         # ``{**os.environ, **options.env}`` merge.
-        from pathlib import Path as _Path
         if self.auth_type == "oauth":
-            env["CLAUDE_CONFIG_DIR"] = str(_Path.home() / ".claude")
+            env["CLAUDE_CONFIG_DIR"] = _settings.claude_oauth_config_path
         else:
             env["CLAUDE_CONFIG_DIR"] = _settings.claude_cli_config_path
 

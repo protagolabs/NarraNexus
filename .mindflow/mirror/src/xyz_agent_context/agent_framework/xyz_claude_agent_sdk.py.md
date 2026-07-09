@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-07-03
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — `_stage_claude_oauth_credentials`(OAuth 隔离目录的凭据搬运)
+
+OAuth 的 `CLAUDE_CONFIG_DIR` 现在指向独立目录
+`settings.claude_oauth_config_path`(见 [[api_config]] 2026-07-09 条),不再是
+宿主 `~/.claude`。`agent_loop` 在 `to_cli_env()` 之后、spawn 之前,若
+`auth_type == "oauth"` 就调用这个新的模块级函数,把宿主
+`~/.claude/.credentials.json`(经 `provider_driver.derive.resolve_claude_credentials_path`
+解析,尊重 `CLAUDE_CLI_CREDENTIALS_PATH`/`CLAUDE_CLI_HOME` 覆盖)**单文件**拷进隔离目录。
+只拷 `.credentials.json`、绝不拷 `settings.json` —— 后者的 `env` 块正是劫持源。
+
+**newest-wins**:仅当宿主副本比已暂存副本更新(或副本缺失)才覆盖;否则保留 CLI 在
+隔离目录里就地刷新过的 token(避免把已轮转作废的旧 refresh token 回灌、把用户登出)。
+宿主无凭据文件 → warn + no-op,不抛错。对齐 Codex 的 `_stage_codex_oauth_credentials`
+(那边是 per-run temp `CODEX_HOME`;Claude 这边用持久隔离目录,与 keyed 路径同风格,
+故用 newest-wins 而非每次覆盖)。守卫测试见
+`tests/agent_framework/test_claude_config_isolation.py`。
+
+**原子落盘(必须)**:`claude_oauth_config_path` 是**所有 OAuth agent_loop 共用的固定
+目录**(不是 Codex 那种 per-run temp),staging 那一刻隔离目录里可能正好有一个 CLI 在读
+`.credentials.json`。裸 `shutil.copy2(source, dest)` 会先 truncate `dest` 再写,重新打开
+了本 fix 要堵的「半读 / 并发写」窗口(与当初 `~/.claude/.claude.json` 在 55KB↔50 字节
+反复横跳同形)。所以落盘走**同目录临时文件 + `os.replace`**(POSIX 原子 rename);`copy2`
+保留 mtime,rename 后 newest-wins 仍成立;`chmod(0o600)` 在 rename **之前**做,避免 `dest`
+短暂出现 0644。
+
+**已知代价 — 宿主可能被登出(单向拷贝的取舍)**:staging 是**单向** 宿主 → 隔离目录,
+没有回写。若隔离目录里的 CLI 就地刷新了 OAuth token,宿主 `~/.claude/.credentials.json`
+仍留着已被服务端轮转作废的旧 refresh token,用户自己的交互式 `claude` 在 access token
+过期后拿旧 refresh token 去刷 → 401 → 被登出、需重新 `claude auth login`。DMG 模式下
+agent_loop 与宿主是同一个人,体感尤其差,且只在数小时后 token 过期时才炸、难归因。
+这是**已接受的取舍**,与 Codex 单向 `_stage_codex_oauth_credentials` 一致——当前不做
+token 回写(真要回写,也必须走同样的原子 rename,否则回到上面「原子落盘」那条)。下一个
+碰到「宿主被登出」的人:这是设计取舍,不是 bug,别再重推一遍这条链。
 
 ## 2026-07-03 — MAX_SYSTEM_PROMPT_LENGTH bumped 100K → 115K
 

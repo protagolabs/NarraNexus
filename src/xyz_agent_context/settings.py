@@ -143,10 +143,19 @@ class Settings(BaseSettings):
     # OUT of the host user's ~/.claude. Claude Code applies that file's `env`
     # block above the subprocess env we inject, so a developer's personal
     # config (custom ANTHROPIC_BASE_URL/AUTH_TOKEN/model) would otherwise
-    # silently redirect the agent_loop off its configured provider. Only the
-    # keyed auth paths use this; OAuth needs the real ~/.claude for its
-    # credential file. See api_config.ClaudeConfig.to_cli_env.
+    # silently redirect the agent_loop off its configured provider. The keyed
+    # auth paths use this dir. See api_config.ClaudeConfig.to_cli_env.
     claude_cli_config_path: str = str(Path.home() / ".nexusagent" / "claude_config")
+
+    # Dedicated CLAUDE_CONFIG_DIR for the OAuth agent_loop path. Kept SEPARATE
+    # from both the host ~/.claude and the keyed dir above: OAuth used to point
+    # straight at ~/.claude so the CLI could read `.credentials.json`, but that
+    # re-opened the same hijack (personal settings.json env block overrides the
+    # OAuth run) AND raced the user's own Claude Code on ~/.claude/.claude.json
+    # (2026-07-09 incident). Now the credential file is STAGED into this
+    # isolated dir by _stage_claude_oauth_credentials; the personal settings.json
+    # is never copied, so it can't leak. See api_config.ClaudeConfig.to_cli_env.
+    claude_oauth_config_path: str = str(Path.home() / ".nexusagent" / "claude_oauth_config")
 
 
     # ===== Export Paths =====
