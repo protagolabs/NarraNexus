@@ -105,40 +105,6 @@ class ChannelContextBuilderBase(ABC):
     - Subclasses may override get_sender_extra_profile() for channel-specific info
     """
 
-    # Current-turn attachment context set by the trigger via
-    # ``with_current_turn_attachments`` right after ``create_context_builder``.
-    # ``build_prompt`` reads these to append attachment markers to the
-    # ``## Current Message`` slot so the agent knows the file path THIS turn.
-    # History-turn attachments are handled separately by ChatModule during
-    # chat_history assembly — same marker format, so agent behaviour is
-    # identical across current vs historical turns.
-    _current_turn_attachments: List[Any] = []
-    _current_turn_agent_id: str = ""
-    _current_turn_owner_user_id: str = ""
-
-    def with_current_turn_attachments(
-        self,
-        attachments: List[Any],
-        *,
-        agent_id: str,
-        owner_user_id: str,
-    ) -> "ChannelContextBuilderBase":
-        """Register current-turn Attachments so ``build_prompt`` synthesises
-        markers into the ``message_body`` slot.
-
-        Chainable (returns self) so triggers can write
-        ``builder.with_current_turn_attachments(...).build_prompt(...)``.
-        ``attachments`` is the list returned by
-        ``ChannelTriggerBase.fetch_attachments`` (already downloaded +
-        persisted to workspace); ``owner_user_id`` is the AGENT OWNER's
-        NarraNexus user_id (the workspace root the file actually lives in),
-        NOT the IM sender.
-        """
-        self._current_turn_attachments = list(attachments or [])
-        self._current_turn_agent_id = agent_id or ""
-        self._current_turn_owner_user_id = owner_user_id or ""
-        return self
-
     @abstractmethod
     async def get_message_info(self) -> Dict[str, Any]:
         """
@@ -244,26 +210,6 @@ class ChannelContextBuilderBase(ABC):
         # subclasses already sanitised via sanitize_display_name.
         if "message_body" in info:
             info["message_body"] = _cap_message_body(info["message_body"])
-
-        # Append current-turn attachment markers so the agent knows the
-        # file paths delivered this turn (see docstring on
-        # ``_current_turn_attachments``). Historical attachments are
-        # handled by ChatModule during chat_history assembly — same
-        # ``Attachment.synthesize_marker`` output on both sides so agent
-        # behaviour is uniform.
-        if self._current_turn_attachments:
-            markers = "\n".join(
-                a.synthesize_marker(
-                    agent_id=self._current_turn_agent_id,
-                    user_id=self._current_turn_owner_user_id,
-                )
-                for a in self._current_turn_attachments
-            ).strip()
-            if markers:
-                body = info.get("message_body", "") or ""
-                info["message_body"] = (
-                    f"{body}\n{markers}" if body else markers
-                )
 
         # Default reply_instruction if channel didn't provide one
         if "reply_instruction" not in info:

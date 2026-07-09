@@ -3,73 +3,47 @@
 @date: 2026-07-09
 @description: Regressions for current-turn attachment marker injection.
 
-The 2026-07-09 fix ("agent 没看到我上传的图片") ships current-turn
-attachment markers via ``ChannelContextBuilderBase.with_current_turn_
-attachments`` — historical turns were already covered by ChatModule's
-``_synthesize_attachment_markers`` during chat_history assembly, but
-the CURRENT turn's attachment was invisible to the agent this turn (it
-only surfaced on the NEXT turn via the persisted user row).
+Symptom that motivated this: on dev 2026-07-09 an agent replied "no
+image was actually attached" to a NarraMessenger message that had a
+real PNG attached. The file was persisted correctly (audit row +
+bytes on disk under the owner's workspace), but the agent's current-
+turn view of the user message had no marker pointing at the path,
+so the model could not Read it.
+
+Fix location: ``context_runtime.build_input_for_framework`` augments
+the LLM-facing current-turn user message with markers synthesised via
+``Attachment.markers_from_dicts`` — while leaving
+``ctx_data.input_content`` (the string persisted by
+``ChatModule.hook_persist_turn`` and echoed to the frontend chat
+panel) untouched. Same seam covers WS chat and every IM channel: they
+already stash attachments in ``trigger_extra_data["attachments"]``.
 
 These tests lock:
 
-  1. Given a builder with attachments registered, ``build_prompt``
-     appends the ``Attachment.synthesize_marker`` output to the
-     ``message_body`` slot.
-  2. Given no attachments, ``build_prompt`` behaves identically to
-     pre-fix behaviour (no marker line).
-  3. The marker text carries the absolute path via
-     ``resolve_attachment_path`` — this is what tells the agent where
-     to Read.
+  1. The staticmethod ``Attachment.markers_from_dicts`` returns one
+     marker per input dict, joined with newlines, and skips malformed
+     entries with a WARNING (never silently — silent drops are what
+     produced the original "agent claims no file" incident).
+  2. Empty / None input returns an empty string.
+  3. The runtime helper produces markers whose path uses the
+     agent-owner routing (so the file the agent Reads is the one the
+     trigger persisted).
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.channel.channel_context_builder_base import (
-    ChannelContextBuilderBase,
-    ChannelHistoryConfig,
-)
 from xyz_agent_context.schema.attachment_schema import (
     Attachment,
     AttachmentCategory,
 )
 
 
-class _MinimalBuilder(ChannelContextBuilderBase):
-    """Tiny builder that satisfies the abstract contract with fixed
-    metadata — enough to exercise ``build_prompt`` end-to-end without
-    a live channel."""
-
-    def __init__(self, message_body: str = "hello agent"):
-        self._message_body = message_body
-
-    async def get_message_info(self) -> Dict[str, Any]:
-        return {
-            "channel_display_name": "TestChannel",
-            "channel_key": "testchannel",
-            "room_name": "TestRoom",
-            "room_id": "!room:test",
-            "room_type": "Direct Message",
-            "sender_display_name": "Alice",
-            "sender_id": "u_alice",
-            "timestamp": "1720000000000",
-            "my_channel_id": "@agent-x:test",
-            "message_body": self._message_body,
-            "send_tool_name": "reply",
-        }
-
-    async def get_conversation_history(
-        self, limit: int
-    ) -> List[Dict[str, Any]]:
-        return []
-
-    async def get_room_members(self) -> List[Dict[str, Any]]:
-        return []
-
-
-def _make_attachment(file_id: str = "att_1d31e04a") -> Attachment:
+def _att_dict(file_id: str = "att_1d31e04a") -> dict:
+    """Serialised Attachment as it lives in
+    ``ctx_data.extra_data["attachments"]``."""
     return Attachment(
         file_id=file_id,
         mime_type="image/png",
@@ -77,71 +51,11 @@ def _make_attachment(file_id: str = "att_1d31e04a") -> Attachment:
         size_bytes=1024,
         category=AttachmentCategory.IMAGE,
         transcript=None,
-    )
+    ).model_dump(mode="json")
 
 
-@pytest.mark.asyncio
-async def test_build_prompt_appends_marker_when_attachments_registered(
-    monkeypatch,
-):
-    """Register one attachment via ``with_current_turn_attachments``;
-    the rendered prompt MUST contain a Read-tool marker referencing the
-    file path. This is the direct regression for the "agent 没看到我上
-    传的图片" incident on agent_93461ec945f5 (2026-07-09).
-
-    monkeypatches ``resolve_attachment_path`` so we don't need to
-    actually write bytes to disk to exercise the path-substitution
-    branch of ``synthesize_marker``.
-    """
-    from pathlib import Path
-    from xyz_agent_context.utils import attachment_storage as storage_mod
-
-    def _fake_resolve(agent_id: str, user_id: str, file_id: str):
-        return Path(f"/ws/{user_id}/{agent_id}/user_upload_files/2026-07-09/{file_id}.png")
-
-    monkeypatch.setattr(storage_mod, "resolve_attachment_path", _fake_resolve)
-
-    builder = _MinimalBuilder(message_body="what does this say?")
-    att = _make_attachment("att_test001")
-
-    builder.with_current_turn_attachments(
-        [att], agent_id="agent_x", owner_user_id="user_owner"
-    )
-
-    prompt = await builder.build_prompt(
-        ChannelHistoryConfig(load_conversation_history=False)
-    )
-
-    assert "what does this say?" in prompt
-    # Marker sentinel + path structure the agent's Read tool relies on.
-    assert "[User uploaded image:" in prompt
-    assert "att_test001" in prompt
-    assert "/ws/user_owner/agent_x/" in prompt  # ownership routing correct
-    assert "use Read tool to view]" in prompt
-
-
-@pytest.mark.asyncio
-async def test_build_prompt_no_attachments_leaves_message_body_untouched():
-    """No ``with_current_turn_attachments`` call → no marker,
-    message_body is exactly what was returned by ``get_message_info``."""
-    builder = _MinimalBuilder(message_body="just some text")
-
-    prompt = await builder.build_prompt(
-        ChannelHistoryConfig(load_conversation_history=False)
-    )
-
-    assert "just some text" in prompt
-    assert "[User uploaded" not in prompt
-    assert "use Read tool to view" not in prompt
-
-
-@pytest.mark.asyncio
-async def test_build_prompt_appends_multiple_markers_one_per_attachment(
-    monkeypatch,
-):
-    """The user may upload several files in one turn; each Attachment
-    gets its own marker line and they're joined with newlines."""
-    from pathlib import Path
+def test_markers_from_dicts_renders_one_marker_per_valid_entry(monkeypatch):
+    """Two well-formed dicts → two marker lines, in input order."""
     from xyz_agent_context.utils import attachment_storage as storage_mod
 
     monkeypatch.setattr(
@@ -150,50 +64,166 @@ async def test_build_prompt_appends_multiple_markers_one_per_attachment(
         lambda agent_id, user_id, file_id: Path(f"/ws/{file_id}.png"),
     )
 
-    builder = _MinimalBuilder(message_body="look at these")
-    atts = [
-        _make_attachment("att_first"),
-        _make_attachment("att_second"),
-    ]
-
-    builder.with_current_turn_attachments(
-        atts, agent_id="agent_x", owner_user_id="user_owner"
+    out = Attachment.markers_from_dicts(
+        [_att_dict("att_first"), _att_dict("att_second")],
+        agent_id="agent_x",
+        user_id="user_owner",
     )
 
-    prompt = await builder.build_prompt(
-        ChannelHistoryConfig(load_conversation_history=False)
+    lines = out.splitlines()
+    assert len(lines) == 2
+    assert "att_first" in lines[0]
+    assert "att_second" in lines[1]
+    for line in lines:
+        assert line.startswith("[User uploaded image:")
+        assert line.endswith("use Read tool to view]")
+
+
+def test_markers_from_dicts_empty_input_returns_empty_string():
+    """``None`` and ``[]`` both produce ``""`` — caller decides how to
+    compose with the surrounding user message."""
+    assert Attachment.markers_from_dicts(None, agent_id="a", user_id="u") == ""
+    assert Attachment.markers_from_dicts([], agent_id="a", user_id="u") == ""
+
+
+def test_markers_from_dicts_skips_malformed_entry_with_warning(
+    monkeypatch, caplog
+):
+    """A dict missing required fields must NOT abort the whole marker
+    block — the other valid entries still render — AND the drop must
+    be logged (silent drops recreate the "agent claims no file"
+    incident this whole fix addresses)."""
+    import logging
+    from xyz_agent_context.utils import attachment_storage as storage_mod
+
+    monkeypatch.setattr(
+        storage_mod,
+        "resolve_attachment_path",
+        lambda agent_id, user_id, file_id: Path(f"/ws/{file_id}.png"),
     )
 
-    assert "att_first" in prompt
-    assert "att_second" in prompt
-    # Both markers present + separated by newline (visible in the same
-    # ``## Current Message`` section, not scattered across the template).
-    first_idx = prompt.find("att_first")
-    second_idx = prompt.find("att_second")
-    assert first_idx > 0 and second_idx > first_idx
+    # loguru → propagate to stdlib so caplog can see the warning.
+    from loguru import logger as _loguru
+    handler_id = _loguru.add(
+        lambda msg: logging.getLogger("attachment_markers").warning(msg),
+        level="WARNING",
+    )
+    try:
+        with caplog.at_level(logging.WARNING, logger="attachment_markers"):
+            out = Attachment.markers_from_dicts(
+                [_att_dict("att_good"), {"file_id": "totally_bogus"}],
+                agent_id="agent_x",
+                user_id="user_owner",
+            )
+    finally:
+        _loguru.remove(handler_id)
+
+    # Good entry still rendered.
+    assert "att_good" in out
+    # Bad entry did NOT render.
+    assert "totally_bogus" not in out
+    # And the drop is loud, not silent.
+    assert any(
+        "malformed attachment" in rec.getMessage().lower()
+        for rec in caplog.records
+    )
+
+
+def test_markers_from_dicts_routes_path_via_owner_user_id(monkeypatch):
+    """The path field in the marker MUST come from
+    ``resolve_attachment_path(agent_id, owner_user_id, file_id)`` — the
+    IM sender's user_id would resolve to a different workspace and the
+    agent's Read tool would 404. Locks the owner-vs-sender routing."""
+    from xyz_agent_context.utils import attachment_storage as storage_mod
+
+    captured: dict = {}
+
+    def _spy(agent_id, user_id, file_id):
+        captured.update({
+            "agent_id": agent_id,
+            "user_id": user_id,
+            "file_id": file_id,
+        })
+        return Path(f"/ws/{user_id}/{agent_id}/{file_id}.png")
+
+    monkeypatch.setattr(storage_mod, "resolve_attachment_path", _spy)
+
+    out = Attachment.markers_from_dicts(
+        [_att_dict("att_route_check")],
+        agent_id="agent_x",
+        user_id="user_owner",
+    )
+
+    assert captured == {
+        "agent_id": "agent_x",
+        "user_id": "user_owner",
+        "file_id": "att_route_check",
+    }
+    assert "/ws/user_owner/agent_x/att_route_check.png" in out
 
 
 @pytest.mark.asyncio
-async def test_with_current_turn_attachments_is_chainable():
-    """API sugar: ``with_current_turn_attachments`` returns ``self`` so
-    triggers can write it inline before ``build_prompt``."""
-    builder = _MinimalBuilder()
-    returned = builder.with_current_turn_attachments(
-        [_make_attachment()], agent_id="a", owner_user_id="u"
-    )
-    assert returned is builder
+async def test_build_input_for_framework_augments_current_turn_only(
+    monkeypatch,
+):
+    """End-to-end at the ``context_runtime.build_input_for_framework``
+    seam: when ``ctx_data.extra_data["attachments"]`` is set, the
+    LLM-facing user message content picks up the marker, but the
+    persisted ``ctx_data.input_content`` is unchanged.
 
+    We stub the LLM message assembly minimally by driving
+    ``build_input_for_framework`` with a ``ctx_data``-shaped object
+    that carries what the runtime would carry after step_1 / step_2.
+    """
+    from pathlib import Path
 
-@pytest.mark.asyncio
-async def test_empty_attachments_list_is_treated_as_no_attachments():
-    """An empty list (rather than ``None``) MUST behave the same as no
-    call at all — no marker, no exception."""
-    builder = _MinimalBuilder(message_body="hi")
-    builder.with_current_turn_attachments(
-        [], agent_id="a", owner_user_id="u"
+    from xyz_agent_context.utils import attachment_storage as storage_mod
+
+    monkeypatch.setattr(
+        storage_mod,
+        "resolve_attachment_path",
+        lambda agent_id, user_id, file_id: Path(f"/ws/{file_id}.png"),
     )
-    prompt = await builder.build_prompt(
-        ChannelHistoryConfig(load_conversation_history=False)
+
+    # Minimal ctx_data-shaped object. build_input_for_framework only
+    # reaches for a small subset of fields when there's no history and
+    # no active instance — enough to lock the injection semantics
+    # without spinning up the full runtime.
+    from types import SimpleNamespace
+
+    ctx_data = SimpleNamespace(
+        input_content="what does this image show?",
+        agent_id="agent_x",
+        user_id="user_owner",
+        extra_data={
+            "attachments": [_att_dict("att_incident_repro")],
+        },
+        chat_history=[],
+        module_instructions=[],
+        working_source="chat",
     )
-    assert "hi" in prompt
-    assert "[User uploaded" not in prompt
+
+    from xyz_agent_context.context_runtime.context_runtime import (
+        ContextRuntime,
+    )
+
+    # ContextRuntime constructor is dependency-injectable; None-drive
+    # everything we don't touch in this narrow path.
+    runtime = ContextRuntime.__new__(ContextRuntime)
+
+    final_messages, _mcp_urls = await runtime.build_input_for_framework(
+        messages=[],
+        system_prompt="you are an agent",
+        active_instances=[],
+        ctx_data=ctx_data,
+    )
+
+    # Last message is the current-turn user message.
+    user_msg = final_messages[-1]
+    assert user_msg["role"] == "user"
+    # The persisted input_content is untouched.
+    assert ctx_data.input_content == "what does this image show?"
+    # The LLM-facing content carries the original text AND the marker.
+    assert "what does this image show?" in user_msg["content"]
+    assert "att_incident_repro" in user_msg["content"]
+    assert "use Read tool to view]" in user_msg["content"]

@@ -1,20 +1,8 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_context_builder_base.py
-last_verified: 2026-07-09
+last_verified: 2026-06-01
 stub: false
 ---
-
-## 2026-07-09 — `with_current_turn_attachments` 注入当前 turn 附件 marker
-
-**背景**：dev 复盘 agent_93461ec945f5（2026-07-09 16:35）发现，用户在 NarraMessenger 上传的图片虽然被 trigger 正确下载并落盘（audit `attachment_persisted`），但 agent 本轮回复"no image was actually attached"。原因：`ChatModule._synthesize_attachment_markers` 只在 `hook_data_gathering` 遍历**历史**消息（`chat_module.py:508 / :889`）时注入 marker，**当前 turn 没有对应调用点**。当前 turn 的附件要等 `hook_persist_turn` 落到 DB，下一轮才被读取——延迟一轮，用户体感"agent 没看到我的图"。
-
-**修复**：ContextBuilder 基类新增 `with_current_turn_attachments(attachments, *, agent_id, owner_user_id)` 链式方法，把 Attachment 列表 + 定位坐标（agent_id + owner user_id）挂在 builder 上。`build_prompt` 在 `_cap_message_body` 之后遍历这些 Attachment 调 `synthesize_marker(agent_id, user_id)`，把结果拼接到 `info["message_body"]` 尾部——marker 和用户 caption 一起进模板的 `## Current Message` slot。
-
-Marker 格式跟 ChatModule 的历史路径**完全一致**（都来自 `Attachment.synthesize_marker`），agent 侧行为在"当前 turn vs 历史 turn"上无差别。owner_user_id 是 agent OWNER 的 NarraNexus user_id（不是 IM sender_id），因为文件是持久化在 owner workspace 下，`resolve_attachment_path` 用 owner_user_id 才能查到路径。
-
-调用侧：`ChannelTriggerBase._build_and_run_agent` 把 `_resolve_agent_owner` 前置到 `create_context_builder` 之前，然后如果 `attachments` 非空就 `builder.with_current_turn_attachments(...)`；`matrix_trigger._build_and_run_agent_streaming` 做同样处理（重复 super 的模式而不是复用，因为流式路径整段独立）。`backend/routes/websocket.py` 前端 chat 走 raw `input_content` 不用 builder，用一段相同语义的 `Attachment.synthesize_marker` 追加逻辑。Silent batch 路径（group_silent）不需要——silent=True 跳过 step_3，本轮不跑 agent，attachment 已进 `batch_messages[i]["attachments"]` 供下轮记忆。
-
-Regression：`tests/channel/test_current_turn_attachment_marker.py` 5 条覆盖注入/空 list/多 attachment/API 链式/无 attachment。
 
 # channel_context_builder_base.py — 渠道消息 Prompt 组装的抽象基类
 

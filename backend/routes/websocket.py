@@ -657,45 +657,12 @@ async def websocket_agent_run(websocket: WebSocket):
                 cancellation=cancellation,
             )
 
-            # Append current-turn attachment markers to input_content so
-            # the agent knows the file path THIS turn (mirrors the IM
-            # trigger path via ``ChannelContextBuilderBase.with_current_
-            # turn_attachments``). Historical turns' markers are handled
-            # by ChatModule during chat_history assembly — the marker
-            # format is identical either way (``Attachment.synthesize_
-            # marker``) so the agent's behaviour is uniform.
-            input_content_final = request.input_content or ""
-            if request.attachments:
-                from xyz_agent_context.schema.attachment_schema import Attachment
-                marker_lines = []
-                for att_dict in request.attachments:
-                    try:
-                        marker_lines.append(
-                            Attachment.model_validate(att_dict).synthesize_marker(
-                                agent_id=request.agent_id,
-                                user_id=request.user_id or "",
-                            )
-                        )
-                    except Exception:  # noqa: BLE001
-                        # Malformed attachment dict — skip rather than
-                        # dropping the whole run. Persist path (which is
-                        # ChatModule's responsibility) will surface any
-                        # real issue on its own.
-                        continue
-                markers = "\n".join(marker_lines).strip()
-                if markers:
-                    input_content_final = (
-                        f"{input_content_final}\n{markers}"
-                        if input_content_final
-                        else markers
-                    )
-
             # Kick off the agent run task. It self-registers in
             # active_runs once Step 0 yields the event_id.
             bg.task = asyncio.create_task(bg.drive(
                 agent_id=request.agent_id,
                 user_id=request.user_id,
-                input_content=input_content_final,
+                input_content=request.input_content or "",
                 working_source=working_source,
                 pass_mcp_urls=mcp_urls,
                 trigger_extra_data={
@@ -707,9 +674,6 @@ async def websocket_agent_run(websocket: WebSocket):
                     "sender_user_id": request.user_id,
                     # Front-end chat input is already a clean user message —
                     # use it directly as the narrative retrieval anchor.
-                    # Use the original (marker-free) content so retrieval
-                    # embedding stays on the semantic question, not on the
-                    # file path noise.
                     "retrieval_anchor": request.input_content or "",
                     **(
                         {"attachments": request.attachments}
