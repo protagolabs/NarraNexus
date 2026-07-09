@@ -21,6 +21,15 @@ no-op;后台孪生传 True,在 None 时 fall through 到
 真实 NetMind 环境验证:注入后 helper 带上 NetMind 的 openai key + base_url + model,
 不再是空默认。
 
+**异常契约(review 抓到的坑)**:`resolve_user_runtime_llm_configs` 在无可用配置时抛
+`LLMConfigNotConfigured`(属 `LLMResolverError`/`RuntimeError`),而后台三个调用方
+(narrative updater / `_run_hooks_background` / memory worker)catch 的是**互不相交**的
+`ProviderResolverError` 家族。若不翻译,unhappy path(SYSTEM_DISABLED + 无 own config)
+会绕过 `except ProviderResolverError` 的凭证告警,落进泛 `except` → agent_runtime **继续
+跑 hook 且退回全局平台 key**——正是这套机制要防的 2026-07 事故。所以 fall-through 里把
+`LLMConfigNotConfigured` 翻译成 `NoProviderConfiguredError`(方向与 api_config 里
+`ProviderResolverError → SystemDefaultUnavailable` 互为镜像),保持调用方异常契约不变。
+
 ## 2026-07-07 — auto-switch 改竞态安全 CAS + 一次性通知(#48)
 
 `classify()` 的「用尽 + 有 own provider → 关免费层偏好 → USER_OK」分支,原本

@@ -8,7 +8,10 @@ at the middleware layer with a clear, actionable error_code.
 
 Decision tree:
 
-  0. SystemProviderService.is_enabled() == False -> strict no-op.
+  0. SystemProviderService.is_enabled() == False
+     -> request path (default): strict no-op.
+     -> background path (own_config_when_system_disabled=True): fall through to
+        the user's own config; missing own config -> NoProviderConfiguredError.
   1. quota row exists and prefer_system_override=True (default for new users)
      1a. has budget  -> route "system"
      1b. no budget + has own complete config -> auto-switch (#48): compare-and-
@@ -232,6 +235,42 @@ async def test_system_disabled_falls_through_to_own_config_when_flagged(monkeypa
     assert openai_config.api_key == "own-openai-key"
     assert openai_config.base_url == "https://api.netmind.ai/inference-api/openai/v1"
     assert get_provider_source() == "user"
+
+
+@pytest.mark.asyncio
+async def test_system_disabled_flagged_no_own_config_raises_catchable_error(monkeypatch):
+    """SYSTEM_DISABLED + own config missing/broken: the fall-through must raise a
+    ``NoProviderConfiguredError`` (the ``ProviderResolverError`` family the
+    background callers catch to fire a credential alert) — NOT the raw
+    ``LLMConfigNotConfigured`` (an ``LLMResolverError``/``RuntimeError``), which
+    would slip past ``except ProviderResolverError`` into a generic handler that
+    continues on the cleared/global platform key (the 2026-07 incident). The
+    ContextVars must also stay cleared (no silent platform-key fallback).
+    """
+    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.api_config import (
+        LLMConfigNotConfigured,
+        clear_user_config,
+        openai_config,
+    )
+
+    async def _no_own(_user_id, _db):
+        raise LLMConfigNotConfigured("no usable provider for user")
+
+    monkeypatch.setattr(provider_driver, "resolve_user_runtime_llm_configs", _no_own)
+
+    r = ProviderResolver(
+        user_provider_svc=_mk_user_svc(None),
+        system_provider_svc=_mk_sys(enabled=False),
+        quota_svc=_mk_quota_svc(prefer_system=True, has_budget=True),
+    )
+    clear_user_config()
+    with pytest.raises(NoProviderConfiguredError):
+        await r.resolve_and_set("usr_x", own_config_when_system_disabled=True)
+
+    # ContextVars stay cleared — must NOT have fallen back to a platform key.
+    assert not openai_config.api_key
+    assert get_provider_source() is None
 
 
 # ---------- Branch 1: opted-in (prefer_system_override=True) -------------

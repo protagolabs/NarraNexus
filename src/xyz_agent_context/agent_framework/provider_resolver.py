@@ -10,9 +10,13 @@ business-layer `api_config.get_user_llm_configs` so the two entry points
 cannot disagree):
 
   0. SystemProviderService.is_enabled() == False
-     -> strict no-op; local mode / disabled env leaves every ContextVar
-        untouched. Agent code paths continue to use the existing
+     -> request path (default): strict no-op; local mode / disabled env leaves
+        every ContextVar untouched, agent code paths keep the existing
         llm_config.json global fallback.
+     -> background path (resolve_and_set(..., own_config_when_system_disabled=
+        True)): fall through to the user's OWN provider config, because the
+        detached-helper injection clears the ContextVars first. See
+        resolve_and_set / resolve_and_set_provider_for_user.
 
   1. quota row exists AND prefer_system_override=True (the default for
      newly registered users — they start on the free tier):
@@ -315,23 +319,37 @@ class ProviderResolver:
           hooks (memory / entity / narrative) would 401 on the bare platform
           OpenAI endpoint. This mirrors the agent-loop path
           (``get_user_runtime_llm_configs`` → ``_get_user_runtime_llm_configs_strict``).
+
+          The strict own-config resolver raises ``LLMConfigNotConfigured`` (an
+          ``LLMResolverError``/``RuntimeError``) when the owner has no usable
+          config — a DIFFERENT family than the ``ProviderResolverError`` this
+          method's callers catch. We translate it to ``NoProviderConfiguredError``
+          so the exception contract holds: callers' ``except ProviderResolverError``
+          still fires the credential alert instead of the exception slipping
+          into a generic ``except`` that continues on the cleared/global
+          platform key (the exact 2026-07 incident this path prevents).
         """
         resolved = await self.resolve(user_id)
         if resolved is None:
-            if own_config_when_system_disabled:
-                from xyz_agent_context.agent_framework.provider_driver import (
-                    resolve_user_runtime_llm_configs,
-                )
+            if not own_config_when_system_disabled:
+                return
+            from xyz_agent_context.agent_framework.api_config import (
+                LLMConfigNotConfigured,
+            )
+            from xyz_agent_context.agent_framework.provider_driver import (
+                resolve_user_runtime_llm_configs,
+            )
 
+            try:
                 cfgs = await resolve_user_runtime_llm_configs(
                     user_id, self.user_provider_svc.db
                 )
-                set_user_config(
-                    cfgs.claude, cfgs.openai, cfgs.codex, cfgs.anthropic_helper
-                )
-                set_provider_source("user")
-            return
-        cfgs, source = resolved
+            except LLMConfigNotConfigured as e:
+                raise NoProviderConfiguredError(user_id) from e
+            source = "user"
+        else:
+            cfgs, source = resolved
+
         set_user_config(
             cfgs.claude, cfgs.openai, cfgs.codex, cfgs.anthropic_helper
         )
