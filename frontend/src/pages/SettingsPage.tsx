@@ -8,13 +8,12 @@
  * regions instead of plain `<h2>` headings.
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, ChevronDown, ChevronRight, Cpu, FolderArchive, CreditCard } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
-import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
-import { ProviderSummaryCard } from '@/components/settings/ProviderSummaryCard';
+import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
 import { QuotaPanel } from '@/components/settings/QuotaPanel';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
@@ -23,7 +22,6 @@ import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { useRuntimeStore } from '@/stores/runtimeStore';
-import { api } from '@/lib/api';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -238,92 +236,20 @@ function UpdatesSection() {
   );
 }
 
-// Providers section — same logic as the first-run /setup page: simple
-// surface first, the full 1400-line ProviderSettings behind an
-// "Advanced configuration" disclosure (collapsed by default).
-//
-//   zero providers  → OneKeyOnboard card (paste one key and go)
-//   any provider    → read-only ProviderSummaryCard (agent framework +
-//                     model, helper model, registered keys at a glance)
-//
-// Collapsing the disclosure (or completing onboard) bumps refreshToken
-// so the summary re-fetches whatever was edited in Advanced, and
-// settingsKey remounts ProviderSettings so it re-reads fresh config.
+// Providers section. Per-agent model/framework selection moved into the chat
+// page, so this page is a credential WALLET + a GLOBAL DEFAULT. ProviderSettings
+// now owns the whole vertical flow — ① your providers (list), ② add a provider
+// (one-key + CLI sign-in + custom + sync), ③ global default — so this wrapper is
+// just the section header. (The old "Advanced" junk-drawer disclosure, the
+// separate summary card, and the top-level one-key are gone — all folded into
+// ProviderSettings' ordered sections.)
 function ProvidersSection() {
-  const [providerCount, setProviderCount] = useState<number | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [settingsKey, setSettingsKey] = useState(0);
-  const [refreshToken, setRefreshToken] = useState(0);
-
-  const probe = async () => {
-    try {
-      const data = await api.getProviders();
-      if (data.success && data.data?.providers) {
-        setProviderCount(Object.keys(data.data.providers).length);
-        return;
-      }
-    } catch {
-      // Backend not ready — fall through to "unknown", card stays hidden
-    }
-    setProviderCount(null);
-  };
-
-  useEffect(() => {
-    probe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshToken]);
-
-  const refresh = () => {
-    setRefreshToken((t) => t + 1);
-    setSettingsKey((k) => k + 1);
-  };
-
-  const toggleAdvanced = () => {
-    setShowAdvanced((v) => {
-      // Closing Advanced → re-sync the summary with whatever was edited.
-      if (v) refresh();
-      return !v;
-    });
-  };
-
   return (
     <section>
       <SectionHeader label="LLM Providers" />
       {/* System free-tier quota now lives under Account & Subscription (all
           credits/billing in one place); this section is bring-your-own only. */}
-      {/* Current setup (what's in use) — only once a provider exists. */}
-      {providerCount !== 0 && (
-        <div className="mb-4">
-          <ProviderSummaryCard refreshToken={refreshToken} />
-        </div>
-      )}
-
-      {/* Add / switch a provider — ALWAYS available so pasting a key is a
-          first-class action, not something to hunt for in Advanced. The
-          panel thus shows both the current setup (above) and a way to add
-          a new one (here). Custom endpoints + CLI sign-in stay in Advanced. */}
-      <div className="mb-4">
-        <OneKeyOnboard onComplete={refresh} />
-      </div>
-
-      <button
-        type="button"
-        className="flex items-center gap-1.5 text-sm hover:opacity-80"
-        style={{ color: 'var(--nm-ink70)' }}
-        onClick={toggleAdvanced}
-      >
-        {showAdvanced ? (
-          <ChevronDown className="w-4 h-4" />
-        ) : (
-          <ChevronRight className="w-4 h-4" />
-        )}
-        Advanced — CLI sign-in, custom endpoints, frameworks, per-slot models
-      </button>
-      {showAdvanced && (
-        <div className="mt-4">
-          <ProviderSettings key={settingsKey} />
-        </div>
-      )}
+      <ProviderSettings />
     </section>
   );
 }
@@ -346,6 +272,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'account', label: 'Account & Subscription', icon: CreditCard, cloudOnly: true },
   { id: 'providers', label: 'LLM Providers', icon: Cpu },
+  { id: 'modeldefaults', label: 'Model Defaults', icon: SlidersHorizontal },
   { id: 'bundle', label: 'Bundle', icon: Package },
   { id: 'artifacts', label: 'Artifacts', icon: FolderArchive },
   { id: 'agents', label: 'Manage agents', icon: Users },
@@ -401,6 +328,12 @@ export default function SettingsPage() {
         <ScrollArea className="flex-1" viewportClassName="p-6">
           <div className="max-w-3xl">
             {active === 'providers' && <ProvidersSection />}
+            {active === 'modeldefaults' && (
+              <section>
+                <SectionHeader label="Model Defaults" hint="The framework + model every agent inherits by default. Per-agent overrides live in the chat page." />
+                <ModelDefaultsSettings onManageProviders={() => setActive('providers')} />
+              </section>
+            )}
             {active === 'account' && (
               <section>
                 <SectionHeader label="Account & Subscription" />

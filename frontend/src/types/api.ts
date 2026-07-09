@@ -1140,3 +1140,24 @@ export interface RechargeStatus {
 export interface RechargeStatusResponse extends ApiResponse {
   data?: RechargeStatus;
 }
+
+// ── per-agent LLM config (GET /api/agents/{id}/llm-config) ────────────────
+
+/** The flat, effective config for one slot (override or owner default). */
+export interface AgentSlotEffective {
+  provider_id: string;
+  model: string;
+  thinking: string;
+  reasoning_effort: string;
+  // Present only on the 'agent' slot.
+  agent_framework?: string;
+}
+
+/** Per-slot view: whether the agent inherits the owner default, the effective
+ *  config, and (if any) the raw override + owner default. */
+export interface AgentSlotView {
+  inheriting: boolean;
+  effective: AgentSlotEffective | null;
+  override: AgentSlotEffective | null;
+  owner_default: AgentSlotEffective | null;
+}

@@ -175,7 +175,7 @@ async def test_provider_resolver_resolve_returns_configs_and_source(monkeypatch)
     )
 
     # resolve()'s USER branch delegates to the single-point driver resolver.
-    async def _fake_resolve(_user_id, _db):
+    async def _fake_resolve(_user_id, _db, agent_id=None):
         return RuntimeLLMConfigs(claude=ClaudeConfig(), openai=OpenAIConfig())
 
     monkeypatch.setattr(

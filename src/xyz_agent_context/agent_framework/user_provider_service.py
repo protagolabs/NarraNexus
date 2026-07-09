@@ -64,6 +64,63 @@ def _is_cloud_mode() -> bool:
 CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
 
 
+def validate_slot_binding(
+    prov: Dict[str, Any], slot_name: str, agent_framework: Optional[str]
+) -> None:
+    """Validate that provider ``prov`` (a ``user_providers`` row) can back
+    ``slot_name`` under ``agent_framework``. Raises ``ValueError`` on mismatch.
+
+    Single source of truth for the three binding rules, shared by the
+    user-level slot writer (``UserProviderService.set_slot``) and the per-agent
+    override writer (``AgentSlotService.set_agent_slot``) — the same rules must
+    guard a per-agent override, or the misbinding only surfaces at agent-loop
+    time as a cryptic NotImplementedError / runtime failure.
+
+    Rules:
+      1. Protocol — the agent slot follows the framework (claude_code →
+         anthropic, codex_cli → openai); other slots keep their static
+         requirement.
+      2. codex_cli agent slot — narrowed further by SOURCE: only
+         ``codex_oauth`` (ChatGPT login → OpenAI's own backend) or ``user``
+         (Custom OpenAI, user-typed base_url) expose the Responses API codex
+         needs; third-party aggregators (netmind / yunwu / openrouter) speak
+         chat-completions only and fail in non-obvious ways.
+      3. helper_llm — rejects OAuth providers: CLI credentials only drive the
+         agent subprocess, they can't make direct Messages / Chat-Completions
+         calls.
+    """
+    required = get_slot_required_protocols(slot_name, agent_framework=agent_framework)
+    if required and prov["protocol"] not in [p.value for p in required]:
+        raise ValueError(
+            f"Slot '{slot_name}' requires protocol {[p.value for p in required]}, "
+            f"got '{prov['protocol']}'"
+        )
+
+    if (
+        slot_name == SlotName.AGENT.value
+        and agent_framework == "codex_cli"
+        and prov["source"] not in {"codex_oauth", "user"}
+    ):
+        raise ValueError(
+            f"agent slot with framework='codex_cli' accepts only "
+            f"source=codex_oauth or source=user providers; "
+            f"got source={prov['source']!r}. Third-party aggregator "
+            f"endpoints (netmind / yunwu / openrouter) don't expose "
+            f"OpenAI's Responses API and are not supported."
+        )
+
+    if (
+        slot_name == SlotName.HELPER_LLM.value
+        and (prov.get("auth_type") or "").lower() == "oauth"
+    ):
+        raise ValueError(
+            f"helper_llm slot cannot use OAuth provider "
+            f"{prov.get('name') or prov.get('provider_id')!r} — CLI sign-in "
+            f"credentials can't make direct API calls. Assign an "
+            f"API-key provider instead."
+        )
+
+
 def _generate_provider_id() -> str:
     return f"prov_{uuid4().hex[:8]}"
 
@@ -353,11 +410,18 @@ class UserProviderService:
             group_rows = await self.db.get("user_providers", {"user_id": user_id, "linked_group": linked_group})
             for r in group_rows:
                 await self.db.delete("user_providers", {"user_id": user_id, "provider_id": r["provider_id"]})
-                # Clear any slots using this provider
+                # Clear any slots using this provider — both the user-level
+                # defaults and any per-agent overrides (agent_slots is keyed by
+                # agent_id, not user_id; provider_id is globally unique, so a
+                # provider_id filter only ever hits this owner's rows). Without
+                # this, a deleted provider leaves a dangling override that
+                # fails at resolve time.
                 await self.db.delete("user_slots", {"user_id": user_id, "provider_id": r["provider_id"]})
+                await self.db.delete("agent_slots", {"provider_id": r["provider_id"]})
         else:
             await self.db.delete("user_providers", {"user_id": user_id, "provider_id": provider_id})
             await self.db.delete("user_slots", {"user_id": user_id, "provider_id": provider_id})
+            await self.db.delete("agent_slots", {"provider_id": provider_id})
 
         return await self.get_user_config(user_id)
 
@@ -404,71 +468,17 @@ class UserProviderService:
         if not prov:
             raise ValueError(f"Provider {provider_id} not found for user {user_id}")
 
-        # Validate protocol. The agent slot is framework-dependent:
-        # claude_code requires Anthropic protocol, codex_cli requires
-        # OpenAI protocol. Other slots keep their static requirements.
+        # Validate the provider↔slot binding (protocol / codex-source /
+        # helper-OAuth). The agent slot is framework-dependent, so resolve the
+        # user's current framework first. Shared with AgentSlotService via
+        # validate_slot_binding so both writers enforce identical rules.
         agent_framework = None
         if slot_name == SlotName.AGENT.value:
             existing_slot = await self.db.get_one(
                 "user_slots", {"user_id": user_id, "slot_name": slot_name}
             )
             agent_framework = (existing_slot or {}).get("agent_framework") or "claude_code"
-        required = get_slot_required_protocols(
-            slot_name,
-            agent_framework=agent_framework,
-        )
-        if required and prov["protocol"] not in [p.value for p in required]:
-            raise ValueError(f"Slot '{slot_name}' requires protocol {[p.value for p in required]}, got '{prov['protocol']}'")
-
-        # codex_cli agent slot — narrow further by SOURCE (not
-        # protocol; protocol is already gated above). Codex CLI
-        # talks to OpenAI's Responses API; third-party aggregators
-        # (netmind / yunwu / openrouter) expose chat-completions only
-        # and would fail at runtime in non-obvious ways (missing model,
-        # tool-call shape mismatch, broken MCP).
-        #
-        # Allow:
-        #   * "codex_oauth" — ChatGPT login → OpenAI's own backend
-        #   * "user"        — anything added via "+ Custom OpenAI"
-        #                     (user-typed base_url; we trust them)
-        # Reject everything else (netmind/yunwu/openrouter/system pool
-        # for now). Frontend hides these from the dropdown — this
-        # server-side check is defense in depth for any caller
-        # bypassing the UI.
-        # Codex framework requires an OpenAI-Responses-API-capable
-        # provider — only codex_oauth (ChatGPT login) and user-added
-        # Custom OpenAI providers qualify. Third-party aggregators
-        # (netmind / yunwu / openrouter) speak chat-completions only
-        # and don't expose Responses API, so codex can't use them.
-        if (
-            slot_name == SlotName.AGENT.value
-            and agent_framework == "codex_cli"
-            and prov["source"] not in {"codex_oauth", "user"}
-        ):
-            raise ValueError(
-                f"agent slot with framework='codex_cli' accepts only "
-                f"source=codex_oauth or source=user providers; "
-                f"got source={prov['source']!r}. Third-party aggregator "
-                f"endpoints (netmind / yunwu / openrouter) don't expose "
-                f"OpenAI's Responses API and are not supported."
-            )
-
-        # helper_llm rejects OAuth providers (claude_oauth / codex_oauth):
-        # CLI OAuth credentials only drive the agent subprocess and cannot
-        # make direct Messages / Chat-Completions calls. The frontend
-        # hides them from the helper dropdown — this server-side check is
-        # defense in depth; without it the misbinding only surfaces at
-        # agent-loop time as a cryptic NotImplementedError.
-        if (
-            slot_name == SlotName.HELPER_LLM.value
-            and (prov.get("auth_type") or "").lower() == "oauth"
-        ):
-            raise ValueError(
-                f"helper_llm slot cannot use OAuth provider "
-                f"{prov.get('name') or provider_id!r} — CLI sign-in "
-                f"credentials can't make direct API calls. Assign an "
-                f"API-key provider instead."
-            )
+        validate_slot_binding(prov, slot_name, agent_framework)
 
         # Upsert slot
         existing = await self.db.get_one("user_slots", {"user_id": user_id, "slot_name": slot_name})

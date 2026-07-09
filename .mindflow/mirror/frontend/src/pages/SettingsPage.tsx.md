@@ -1,9 +1,31 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-06
+last_verified: 2026-07-09
 stub: false
 ---
- 
+
+## 2026-07-09 (latest) — new "Model Defaults" nav section
+
+Added a `NAV_ITEMS` entry `{ id: 'modeldefaults', label: 'Model Defaults' }`
+(after `providers`) rendering [[ModelDefaultsSettings]] — the global default
+agent/helper model + framework, extracted out of LLM Providers. LLM Providers is
+now purely the credential wallet ([[ProviderSettings]] card grid). Panel is
+gated by `{active === 'modeldefaults'}` like the others.
+
+## 2026-07-09 — LLM Providers: ProviderSettings owns the whole flow
+
+``ProvidersSection`` is now just the "LLM Providers" ``SectionHeader`` +
+``<ProviderSettings/>``. Everything else moved INTO [[ProviderSettings]], which
+renders the ordered flow ① your providers (list) → ② add a provider (one-key +
+CLI sign-in + custom + sync) → ③ global default. Removed from this file: the
+external "Advanced" collapse (``showAdvanced``), the separate
+``ProviderSummaryCard`` (redundant with the list + global default), the top-level
+``OneKeyOnboard`` (moved into ② Add a provider), the providerCount probe, and the
+now-unused useEffect / api / ProviderSummaryCard / OneKeyOnboard / Chevron
+imports. Rationale: per-agent model/framework moved to chat, so this page is a
+credential wallet + a global default — a single top-to-bottom flow, no junk
+drawer.
+
 ## 2026-07-06 — nav reorder + Account consolidates billing
 
 Cloud IA cleanup: NAV_ITEMS now leads with the "account" entry (Account &

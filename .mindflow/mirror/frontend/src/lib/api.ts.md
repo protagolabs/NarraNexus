@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-07
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — per-agent LLM config methods
+
+Added ``getAgentLlmConfig`` / ``setAgentLlmConfig`` / ``resetAgentLlmConfig``
+(GET/PUT/DELETE ``/api/agents/{id}/llm-config[/{slot}]``) backing the chat-page
+per-agent override surfaces. Types ``AgentSlotView`` / ``AgentSlotEffective`` in
+[[api.ts]] (types). setProviderSlot / getAgentFramework stay — they now write the
+user-level GLOBAL DEFAULT (see [[ProviderSettings]]).
+
  
 ## 2026-07-05 — recharge / rechargeStatus (Phase 4, module E)
 

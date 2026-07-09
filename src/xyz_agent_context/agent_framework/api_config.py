@@ -713,13 +713,21 @@ async def get_agent_owner_llm_configs(
         raise LLMConfigNotConfigured(
             f"Agent {agent_id!r} has no owner (created_by is empty)."
         )
-    return await get_user_llm_configs(owner_user_id)
+    # Bill to the owner, but resolve with THIS agent's per-agent overrides
+    # overlaid on the owner's user-level defaults.
+    return await get_user_llm_configs(owner_user_id, agent_id=agent_id)
 
 
 async def get_agent_owner_runtime_llm_configs(
     agent_id: str,
 ) -> RuntimeLLMConfigs:
-    """Load every LLM config needed for an agent turn based on owner."""
+    """Load every LLM config needed for an agent turn based on owner.
+
+    Billed to the owner (``agents.created_by``); the agent slot + helper slot
+    are resolved with this agent's per-agent overrides (``agent_slots``)
+    overlaid on the owner's user-level defaults, falling back to the defaults
+    for any slot the agent hasn't overridden.
+    """
     from xyz_agent_context.utils.db_factory import get_db_client
 
     db = await get_db_client()
@@ -733,10 +741,12 @@ async def get_agent_owner_runtime_llm_configs(
         raise LLMConfigNotConfigured(
             f"Agent {agent_id!r} has no owner (created_by is empty)."
         )
-    return await get_user_runtime_llm_configs(owner_user_id)
+    return await get_user_runtime_llm_configs(owner_user_id, agent_id=agent_id)
 
 
-async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig]:
+async def get_user_llm_configs(
+    user_id: str, agent_id: str | None = None
+) -> tuple[ClaudeConfig, OpenAIConfig]:
     """
     Resolve the (claude, openai) config pair for a specific user.
 
@@ -761,12 +771,20 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
         SystemDefaultUnavailable: opted in, free tier gone, no own provider.
         LLMConfigNotConfigured: opted out but own config missing/incomplete.
     """
-    cfg = await get_user_runtime_llm_configs(user_id)
+    cfg = await get_user_runtime_llm_configs(user_id, agent_id=agent_id)
     return cfg.claude, cfg.openai
 
 
-async def get_user_runtime_llm_configs(user_id: str) -> RuntimeLLMConfigs:
+async def get_user_runtime_llm_configs(
+    user_id: str, agent_id: str | None = None
+) -> RuntimeLLMConfigs:
     """Resolve all runtime LLM configs (agent + helper + codex) for a user.
+
+    ``agent_id`` (optional) overlays that agent's per-agent slot overrides
+    (``agent_slots``) on the owner's user-level defaults — used by the
+    agent-run + MCP-tool paths so each agent can pin its own framework/model
+    (agent slot) and helper model. The cloud SYSTEM free-tier branch ignores
+    it (fixed one-model pool).
 
     Delegates to the ONE provider decision tree — ``ProviderResolver`` — the
     same classifier the HTTP quota gate and background workers use, so every
@@ -807,7 +825,7 @@ async def get_user_runtime_llm_configs(user_id: str) -> RuntimeLLMConfigs:
         quota_svc=await _ensure_quota_service(),
     )
     try:
-        resolved = await resolver.resolve(user_id)
+        resolved = await resolver.resolve(user_id, agent_id=agent_id)
     except NoProviderConfiguredError as e:
         # Opted out but own config missing/broken — same UX the strict
         # own-config path raised before.
@@ -821,7 +839,7 @@ async def get_user_runtime_llm_configs(user_id: str) -> RuntimeLLMConfigs:
 
     if resolved is None:
         # SYSTEM_DISABLED — local/desktop mode, free tier not in play.
-        return await _get_user_runtime_llm_configs_strict(user_id)
+        return await _get_user_runtime_llm_configs_strict(user_id, agent_id=agent_id)
 
     cfgs, source = resolved
     set_provider_source(source)
@@ -853,16 +871,20 @@ async def _ensure_quota_service():
 
 
 
-async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig]:
+async def _get_user_llm_configs_strict(
+    user_id: str, agent_id: str | None = None
+) -> tuple[ClaudeConfig, OpenAIConfig]:
     """Strict version: raises LLMConfigNotConfigured on any missing
     slot / broken provider. The public `get_user_llm_configs` wraps
     this with a system-default fallback.
     """
-    cfg = await _get_user_runtime_llm_configs_strict(user_id)
+    cfg = await _get_user_runtime_llm_configs_strict(user_id, agent_id=agent_id)
     return cfg.claude, cfg.openai
 
 
-async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfigs:
+async def _get_user_runtime_llm_configs_strict(
+    user_id: str, agent_id: str | None = None
+) -> RuntimeLLMConfigs:
     """Resolve agent + helper (+ codex) configs via the single-point
     Provider Driver resolver. There is deliberately NO second
     hand-rolled fallback path: a young project keeps one resolver and
@@ -870,6 +892,8 @@ async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfig
     silently re-deriving configs through a stale parallel copy — the old
     fallback predated Codex and would mis-wire a codex agent into a
     ClaudeConfig.
+
+    ``agent_id`` (optional) overlays that agent's per-agent slot overrides.
     """
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.provider_driver import (
@@ -877,7 +901,7 @@ async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfig
     )
 
     db = await get_db_client()
-    return await resolve_user_runtime_llm_configs(user_id, db)
+    return await resolve_user_runtime_llm_configs(user_id, db, agent_id=agent_id)
 
 
 async def setup_mcp_llm_context(agent_id: str) -> None:

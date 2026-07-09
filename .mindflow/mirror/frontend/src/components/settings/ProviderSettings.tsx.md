@@ -1,7 +1,70 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-06-17
+last_verified: 2026-07-09
 ---
+
+## 2026-07-09 (latest) — card grid + detail/add modals; global default moved out
+
+Final redesign of this component (supersedes the ordered-sections entry below):
+
+- **Card grid**: each configured provider is a card (name + protocol/source badge
+  + models count + masked key). Click → a **detail modal** (`detailProviderId`)
+  showing protocol/source/auth_type, base_url, masked key, model chips, and the
+  Test / Edit / Delete actions (reusing `handleTest` / `openEditModels` +
+  edit-models dialog / `handleDelete`). The last grid cell is a dashed
+  **"+ Add provider"** card → the **add modal** (`addModalOpen`).
+- **Add modal** = **three tabs** (`addMethod` state: onekey / oauth / custom,
+  default onekey) switched in place at the top of the modal — no wizard menu, no
+  "paste an api key" step title. Tabs: **API key** (OneKeyOnboard preset dropdown
+  + key), **Sign in** (Claude Code / Codex CLI login cards), **Custom** (the
+  custom-endpoint form). `CUSTOM_PROVIDER_ENABLED` flipped
+  back to `true` (Owner-authorized reversal of the 2026-06-17 hardening; the
+  security note stays in the source, a custom base_url still routes agent traffic
+  to a user-chosen host).
+- **Global Default (old Section ③) is GONE from here** — moved to the new
+  [[ModelDefaultsSettings]] under the "Model Defaults" nav item. All the slot /
+  framework machinery was deleted: `SLOT_DEFS`, `renderSlotRow`,
+  `getEffectiveSlotConfig`, `handleApply/Discard`, `handleLocalSlotChange/
+  ReasoningChange`, the `agentFramework*` state, `slots` / `knownModels` /
+  `officialBaseUrls` state, the getAgentFramework fetch, and the framework-only
+  lib imports. refreshConfig now loads only providers (+ claude/codex status).
+- The "Update available models" (sync) header action stays.
+
+## 2026-07-09 — LLM Providers page: three ordered sections (list → add → default)
+
+Since per-agent model/framework moved to chat, this page is a credential WALLET
++ a GLOBAL DEFAULT. It owns the whole vertical flow now (the old "Advanced"
+junk-drawer disclosure at the [[SettingsPage]] level, the separate
+ProviderSummaryCard, and the top-level one-key are all gone / folded in). Order,
+top to bottom:
+
+1. **① Your providers** — the configured provider list at the TOP (test / edit /
+   delete). Empty state prompts to add below. Claude Code Login / Codex CLI Login
+   ARE provider types: they appear here once added, and as sign-in options in ②.
+   The **"Update available models" (sync)** action is a compact button in the ①
+   section HEADER (right-aligned, via ``SectionHeader``'s new ``action`` slot),
+   shown only when hasProviders: a Radix Tooltip explains it on hover, click runs
+   ``handleSyncDefaults``; the sync result renders as a small line under the
+   header. It's maintenance ON the existing providers, not an add action.
+2. **② Add a provider** — OneKeyOnboard (primary paste-a-key, imported here now,
+   ``onComplete=refreshConfig``), then the Claude Code / Codex CLI login cards
+   and custom endpoints (feature-flagged off).
+3. **③ Global Default** — the provider + model every agent INHERITS (was
+   "Section 2 / Model Assignment", relabeled section2Title/Subtitle). Still writes
+   user-level ``user_slots`` via the unchanged /api/providers endpoints; per-agent
+   overrides live in chat ([[ComposerModelBadge]] + [[AgentLlmConfigPanel]]).
+
+No collapse anymore — the sections are visible in order (an earlier iteration
+folded provider-management into a ``showManage`` collapse; the Owner wanted the
+list-first flow visible). ``SectionHeader``'s ``step`` badge is optional (no
+numbered steps now). New i18n: providersListTitle/Subtitle, noProvidersYet,
+addProviderTitle/Subtitle (en+zh; others fall back to en).
+
+The framework list, codex curated models / allowed sources, recommended helper
+models, model suggestions, and getModelsForSlot were extracted to
+[[agentFramework]] and imported back (single source of truth shared with the
+per-agent surfaces); SLOT_DEFS stays local.
+
 ## 2026-06-17 — 临时屏蔽「自定义 Provider」上传(安全加固)
 
 新增模块级开关 `CUSTOM_PROVIDER_ENABLED = false`。`+ Custom Anthropic /

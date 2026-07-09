@@ -1081,6 +1081,19 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"inbox orphan sweep failed (non-critical): {e}")
 
+        # 14f. Per-agent LLM slot overrides (agent_slots). Keyed by agent_id;
+        # without this, a deleted agent's override rows linger as orphans.
+        try:
+            as_res = await db_client.execute(
+                "DELETE FROM agent_slots WHERE agent_id = %s",
+                (agent_id,), fetch=False,
+            )
+            as_cnt = as_res if isinstance(as_res, int) else 0
+            if as_cnt > 0:
+                stats["agent_slots"] = as_cnt
+        except Exception as e:
+            logger.warning(f"agent_slots cascade cleanup failed (non-critical): {e}")
+
         # 15. The Agent itself
         result = await db_client.execute(
             "DELETE FROM agents WHERE agent_id = %s",
