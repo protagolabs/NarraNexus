@@ -14,6 +14,7 @@
  * Settings default editor does.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui';
 import { api } from '@/lib/api';
 import {
@@ -70,6 +71,7 @@ const sameDraft = (a: Draft, b: Draft) =>
   a.agent_framework === b.agent_framework;
 
 export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props) {
+  const navigate = useNavigate();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
   const [slots, setSlots] = useState<Record<string, AgentSlotView>>({});
   const [agentDraft, setAgentDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -398,6 +400,13 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
         )}
       </DialogContent>
       <DialogFooter>
+        <button
+          type="button"
+          className="mr-auto text-xs text-[var(--accent-primary)] hover:opacity-80"
+          onClick={() => { onClose(); navigate('/app/settings'); }}
+        >
+          Manage providers →
+        </button>
         <button className={btnGhost} onClick={onClose}>Close</button>
         <button className={btnPrimary} disabled={!isDirty || saving || loading} onClick={saveAll}>
           {saving ? 'Saving…' : 'Save'}

@@ -331,7 +331,7 @@ export default function SettingsPage() {
             {active === 'modeldefaults' && (
               <section>
                 <SectionHeader label="Model Defaults" hint="The framework + model every agent inherits by default. Per-agent overrides live in the chat page." />
-                <ModelDefaultsSettings />
+                <ModelDefaultsSettings onManageProviders={() => setActive('providers')} />
               </section>
             )}
             {active === 'account' && (

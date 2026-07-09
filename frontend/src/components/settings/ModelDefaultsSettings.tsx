@@ -44,7 +44,12 @@ interface SlotCfg {
   reasoning_effort?: string;
 }
 
-export function ModelDefaultsSettings() {
+interface Props {
+  /** Jump to the LLM Providers settings section (switch the nav tab). */
+  onManageProviders?: () => void;
+}
+
+export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
   const [framework, setFramework] = useState('claude_code');
   const [probe, setProbe] = useState<{ ok: boolean; detail: string } | null>(null);
@@ -196,19 +201,37 @@ export function ModelDefaultsSettings() {
   if (!hasProviders) {
     return (
       <p className="text-sm text-[var(--text-tertiary)]">
-        No providers yet — add one under <span className="font-medium">LLM Providers</span> first,
-        then set the default model here.
+        No providers yet — add one under{' '}
+        {onManageProviders ? (
+          <button type="button" onClick={onManageProviders} className="font-medium text-[var(--accent-primary)] underline underline-offset-2 hover:opacity-80">
+            LLM Providers
+          </button>
+        ) : (
+          <span className="font-medium">LLM Providers</span>
+        )}{' '}
+        first, then set the default model here.
       </p>
     );
   }
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <p className="text-sm text-[var(--text-tertiary)]">
-        The framework + model every agent inherits by default. To give one agent
-        its own model, change it in that agent's chat (the model chip next to the
-        composer).
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm text-[var(--text-tertiary)]">
+          The framework + model every agent inherits by default. To give one agent
+          its own model, change it in that agent's chat (the model chip next to the
+          composer).
+        </p>
+        {onManageProviders && (
+          <button
+            type="button"
+            onClick={onManageProviders}
+            className="shrink-0 text-xs text-[var(--accent-primary)] hover:opacity-80 whitespace-nowrap"
+          >
+            Manage providers →
+          </button>
+        )}
+      </div>
 
       {/* ---- Agent slot ---- */}
       <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
