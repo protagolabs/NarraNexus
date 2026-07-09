@@ -60,6 +60,9 @@ async def test_claude_oauth_add_binds_both_slots():
     assert helper and helper["provider_id"] == pid
     # Framework auto-set to claude_code for the agent slot.
     assert agent["agent_framework"] == "claude_code"
+    # Agent on the flagship, helper on the cheap model (opus / haiku split).
+    assert agent["model"] == "opus"
+    assert helper["model"] == "haiku"
 
 
 @pytest.mark.asyncio
@@ -74,6 +77,10 @@ async def test_codex_oauth_add_binds_both_slots():
     assert agent and agent["provider_id"] == pid
     assert helper and helper["provider_id"] == pid
     assert agent["agent_framework"] == "codex_cli"
+    # Agent on the flagship (curated[0]); helper on the cheap mini — NOT the
+    # flagship (bug: previously both got curated[0] = gpt-5.5).
+    assert agent["model"] == "gpt-5.5"
+    assert helper["model"] == "gpt-5.4-mini"
 
 
 @pytest.mark.asyncio

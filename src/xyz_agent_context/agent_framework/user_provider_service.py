@@ -330,8 +330,16 @@ class UserProviderService:
                 curated = list(json.loads((await self.db.get_one(
                     "user_providers", {"user_id": user_id, "provider_id": pid}
                 ) or {}).get("models") or "[]"))
+                # Agent on the flagship (curated[0] = gpt-5.5), helper on the
+                # cheap mini — mirrors claude's opus/haiku split. The helper
+                # does small structured jobs, so pin gpt-5.4-mini (in
+                # CODEX_CURATED_MODELS, accepted by a ChatGPT-account
+                # subscription; verified 2026-07-08) instead of reusing
+                # curated[0], which wrongly put the flagship gpt-5.5 on the
+                # helper slot.
+                framework = "codex_cli"
                 agent_model = curated[0] if curated else ""
-                framework, helper_model = "codex_cli", (curated[0] if curated else "")
+                helper_model = "gpt-5.4-mini"
 
             def _slot_empty(row) -> bool:
                 return not row or not row.get("provider_id")

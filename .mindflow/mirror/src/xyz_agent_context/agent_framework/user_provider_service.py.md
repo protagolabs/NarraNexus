@@ -1,9 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-07-07
+last_verified: 2026-07-08
 stub: false
 ---
 
+## 2026-07-08 — codex OAuth auto-bind: helper 用便宜 mini,不复用旗舰
+
+`add_provider` 的 OAuth auto-bind:claude 分支拆成 `opus`(agent)/`haiku`
+(helper);codex 分支原本把 **agent 和 helper 都设成 `curated[0]`**
+(`CODEX_CURATED_MODELS[0]` = 旗舰 `gpt-5.5`),导致 helper slot 也被绑成 gpt-5.5。
+按设计意图(`_ONBOARD_HELPER_MODELS["openai"] = "gpt-5.4-mini"`,helper 干小结构化
+活、便宜快为先),codex helper 应固定为 `gpt-5.4-mini`(在 `CODEX_CURATED_MODELS`
+里、ChatGPT 账号验证可用)。修法:agent 仍 `curated[0]`(旗舰),helper 固定
+`gpt-5.4-mini`,与 claude 的 opus/haiku 拆分对齐。auto-bind 只填空 slot,故不影响
+已绑账户(需手动改或删了重加)。测试见 `test_oauth_dual_slot.py`
+(`test_codex_oauth_add_binds_both_slots` 断言 agent=gpt-5.5 / helper=gpt-5.4-mini)。
 ## 2026-07-07 — netmind inference base env-configurable (minted-key path only)
 
 _build_dual_providers / _verify_onboard_key / add_provider / onboard_one_key gained
