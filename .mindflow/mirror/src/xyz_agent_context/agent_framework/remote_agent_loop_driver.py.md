@@ -29,11 +29,11 @@ Fix:
 2. Manually accumulate an in-memory `bytearray`, split on `\n`, and
    yield each complete NDJSON event.
 3. Hold an emergency ceiling `_MAX_STREAM_BYTES = 50 MiB` (aligned
-   with the SDK's `max_buffer_size` at `xyz_claude_agent_sdk.py:537`)
-   so a truly malformed stream still fails fast rather than eating
-   memory. Experiment 3 in the writeup showed real image event lines
-   top out around 365 KiB even for 3.4 MB source images, so 50 MiB is
-   a generous belt-and-suspenders bound, not a tight fit.
+   with the SDK's `max_buffer_size` in `xyz_claude_agent_sdk`) so a
+   truly malformed stream still fails fast rather than eating memory.
+   Experiment 3 in the writeup showed real image event lines top out
+   around 365 KiB even for 3.4 MB source images, so 50 MiB is a
+   generous belt-and-suspenders bound, not a tight fit.
 4. Tolerate a trailing event without `\n` — the executor should end
    NDJSON cleanly but we don't want to lose the last event to a
    missing newline.

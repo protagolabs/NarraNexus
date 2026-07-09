@@ -29,8 +29,8 @@ image (tool_result events run 150-400 KiB). The multimodal-large-file
 incident (2026-07-08) traces to exactly that: any Read on an image
 >~90 KiB crashed the transport, killing the executor connection, and
 the fallback helper LLM covered it up with a fake reply. The fix lifts
-the ceiling to ``_MAX_STREAM_BYTES`` (50 MiB, aligned with the SDK's
-own ``max_buffer_size`` at ``xyz_claude_agent_sdk.py:537``).
+the ceiling to ``_MAX_STREAM_BYTES`` (aligned with the SDK's own
+``max_buffer_size`` in ``xyz_claude_agent_sdk``).
 """
 from __future__ import annotations
 
@@ -45,13 +45,30 @@ from xyz_agent_context.agent_runtime.executor_protocol import (
 
 
 # Ceiling for a single NDJSON event line pulled from the executor. Chosen
-# to match the SDK's ``max_buffer_size`` in ``xyz_claude_agent_sdk.py``
-# (50 MiB) so that whatever the SDK is willing to hand us upstream, this
-# transport can pass through. Experiment 3 of the 2026-07-08 incident
+# to match the SDK's ``max_buffer_size`` in ``xyz_claude_agent_sdk`` (50 MiB)
+# so that whatever the SDK is willing to hand us upstream, this transport
+# can pass through. Experiment 3 of the 2026-07-08 incident
 # analysis showed image event lines top out around 400 KiB even for
 # 3.4 MB source images (CLI transparently downsamples), so this is a
 # generous belt-and-suspenders bound, not a tight fit.
 _MAX_STREAM_BYTES = 50 * 1024 * 1024
+
+
+def _decode_event(raw: bytes) -> dict[str, Any]:
+    """Parse one NDJSON line from the executor stream.
+
+    On an ``{"error": ...}`` frame, raises ``RuntimeError`` for
+    step_3's except path to capture (same behaviour as the local
+    driver's exceptions surface). On an ``{"event": ...}`` frame,
+    returns the event dict itself so the caller can yield it.
+    """
+    msg = json.loads(raw)
+    if "error" in msg:
+        err = msg["error"]
+        raise RuntimeError(
+            f"{err.get('type', 'Error')}: {err.get('message', '')}"
+        )
+    return msg["event"]
 
 
 class RemoteAgentLoopDriver:
@@ -118,20 +135,11 @@ class RemoteAgentLoopDriver:
                         nl = buf.find(b"\n")
                         if nl < 0:
                             break
-                        raw_line = bytes(buf[:nl])
+                        line = bytes(buf[:nl]).strip()
                         del buf[: nl + 1]
-                        line = raw_line.strip()
                         if not line:
                             continue
-                        msg = json.loads(line)
-                        if "error" in msg:
-                            err = msg["error"]
-                            # Match local-driver behaviour: the loop raised,
-                            # so re-raise here for step_3's except path.
-                            raise RuntimeError(
-                                f"{err.get('type', 'Error')}: {err.get('message', '')}"
-                            )
-                        yield msg["event"]
+                        yield _decode_event(line)
                     if len(buf) > _MAX_STREAM_BYTES:
                         # Preserve the aiohttp-style failure mode (raise
                         # rather than silently truncate) but at a ceiling
@@ -145,11 +153,6 @@ class RemoteAgentLoopDriver:
                 # Trailing bytes without a final newline: the executor
                 # should terminate its NDJSON stream cleanly, but tolerate
                 # a missing trailing "\n" rather than losing the last event.
-                if buf.strip():
-                    msg = json.loads(bytes(buf).strip())
-                    if "error" in msg:
-                        err = msg["error"]
-                        raise RuntimeError(
-                            f"{err.get('type', 'Error')}: {err.get('message', '')}"
-                        )
-                    yield msg["event"]
+                tail = bytes(buf).strip()
+                if tail:
+                    yield _decode_event(tail)
