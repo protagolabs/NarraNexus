@@ -1,22 +1,28 @@
 """
 @file_name: test_context_builder_no_inline_history.py
 @date: 2026-07-09
-@description: Lock that ``NarramessengerContextBuilder.get_conversation_history``
-returns an empty list post-Matrix migration.
+@description: Lock the empty-payload contract for
+``NarramessengerContextBuilder``'s ``get_conversation_history`` and
+``get_room_members``.
 
 Pre-Matrix (Gateway/polling) NarraMessenger delivered inline
-``group_context.history_messages`` (group) / ``context`` (DM) on every
-invocation, and this method normalised it into a small history section.
-Direct Matrix (Commit 7, 2026-07-02) reads raw ``m.room.message`` off
-``/sync`` and neither key is populated in ``ParsedMessage.raw``. The
-pre-2026-07-09 implementation was dead code — every call returned an
-empty list via the fallback.
+``group_context.history_messages`` (group) / ``context`` (DM) plus
+``group_context.members`` on every invocation, and these methods
+normalised them for the base's ``## Conversation History`` and
+``## Conversation Members`` slots.
 
-The 2026-07-09 refactor made this explicit: the method returns ``[]``
-unconditionally, and history is served from ChatModule memory during
-``hook_data_gathering`` (both the current-turn attachment marker and
-past-turn markers use the same ``Attachment.synthesize_marker`` format
-now, thanks to ``ChannelContextBuilderBase.with_current_turn_attachments``).
+Direct Matrix (Commit 7, 2026-07-02) reads raw ``m.room.message`` off
+``/sync``; ``matrix_trigger._wrap_event`` produces none of those
+fields in ``ParsedMessage.raw``. The pre-2026-07-09 implementation was
+dead code — every call returned an empty list via the fallback branch.
+
+The 2026-07-09 refactor made this explicit: both methods return ``[]``
+unconditionally. History is served from ChatModule memory during
+``hook_data_gathering``; live roster is fetched on demand via the
+``narra_room_members`` MCP tool. Current-turn attachment markers are
+injected at ``context_runtime.build_input_for_framework``; historical
+markers use the same ``Attachment.markers_from_dicts`` helper —
+identical shape at both callsites.
 """
 from __future__ import annotations
 
@@ -96,4 +102,38 @@ async def test_get_conversation_history_ignores_legacy_inline_history_keys():
         _message(raw=legacy_raw), _cred(), agent_id="agent_x"
     )
     result = await builder.get_conversation_history(limit=20)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_room_members_always_returns_empty_for_bare_matrix_event():
+    """Direct-Matrix wrapped event has no ``group_context.members``
+    field; the method MUST return ``[]``. Live roster access is via
+    the ``narra_room_members`` MCP tool, not the prompt."""
+    builder = NarramessengerContextBuilder(
+        _message(), _cred(), agent_id="agent_x"
+    )
+    result = await builder.get_room_members()
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_room_members_ignores_legacy_inline_members_key():
+    """Same as the history test: even a smuggled Gateway-shape
+    ``group_context.members`` MUST NOT surface — the roster contract
+    is now "on-demand via the MCP tool, never on the prompt"."""
+    legacy_raw = {
+        "group_context": {
+            "members": [
+                {
+                    "matrix_user_id": "@bob:test",
+                    "display_name": "Bob",
+                }
+            ]
+        }
+    }
+    builder = NarramessengerContextBuilder(
+        _message(raw=legacy_raw), _cred(), agent_id="agent_x"
+    )
+    result = await builder.get_room_members()
     assert result == []

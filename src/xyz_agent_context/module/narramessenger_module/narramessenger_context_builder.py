@@ -3,15 +3,26 @@
 @date: 2026-06-17
 @description: Build execution context for NarraMessenger-triggered messages.
 
-Inherits ChannelContextBuilderBase. Unlike Telegram (which keeps its own
-``bus_messages`` log), NarraMessenger ships conversation context INLINE in
-every invocation:
-  - DM:    ``context`` = recent ``[{role, sender, content}]`` (up to ~20).
-  - Group: ``group_context.history_messages`` + ``compressed_context`` +
-           ``members`` (with role / identity_badge / governance_status).
+Inherits ``ChannelContextBuilderBase``. Post-Direct-Matrix migration
+(Commit 7, 2026-07-02) the trigger reads raw ``m.room.message`` events
+off ``/sync``; there is NO inline history or member roster on the
+invocation payload — ``ParsedMessage.raw`` only carries the fields
+``matrix_trigger._wrap_event`` populates (text / mxc_url / mimetype /
+size / event_id / room_id / sender_id / server_ts).
 
-So ``get_conversation_history`` / ``get_room_members`` read straight from
-``ParsedMessage.raw`` (the full invocation), no extra API call.
+Consequences for the abstract methods:
+  - ``get_conversation_history`` → ``[]``. History is served by
+    ChatModule's chat_history assembly during ``hook_data_gathering``
+    (persisted turns + attachment markers all end up in the system
+    prompt).
+  - ``get_room_members`` → ``[]``. If a future turn actually needs a
+    live roster, the ``narra_room_members`` MCP tool queries Matrix on
+    demand. Baking the roster into every prompt is expensive and would
+    duplicate what the tool already returns per-agent-decision.
+
+Only ``get_message_info`` still reads a bit of ``raw`` — the
+``room_name`` from ``group_context.room.name`` (graceful ``""``
+fallback when absent, which is the current default).
 """
 
 from __future__ import annotations
@@ -77,46 +88,43 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         """Always returns an empty list — history is served from memory.
 
         Pre-Matrix (Gateway/polling) NarraMessenger shipped inline
-        ``group_context.history_messages`` (group) or ``context``
-        (DM) in every invocation, and this method normalised them into
-        the base's ``[{sender, timestamp, body}]`` shape so
-        ``## Conversation History`` in the channel prompt could carry a
-        few rounds of context.
+        ``group_context.history_messages`` (group) / ``context`` (DM)
+        in every invocation, and this method normalised them into the
+        base's ``[{sender, timestamp, body}]`` shape so the
+        ``## Conversation History`` slot in the channel prompt could
+        carry a few rounds of context.
 
-        Direct Matrix (Commit 7, 2026-07-02) removed that channel: we
-        read raw ``m.room.message`` events off ``/sync`` and neither
-        field is populated in ``ParsedMessage.raw``. Every read fell
-        through to the empty fallback, and the section was recomputed
-        as ``""`` on every turn.
+        Direct Matrix (Commit 7, 2026-07-02) removed that channel:
+        ``matrix_trigger._wrap_event`` produces neither field in
+        ``ParsedMessage.raw``, so every call returned ``[]`` via the
+        fallback branch. The method now returns ``[]``
+        unconditionally.
 
-        The intended path is now ChatModule's chat_history: past turns
+        The intended path is ChatModule's chat_history: past turns
         (including their attachments) are recalled from persisted
         messages during ``hook_data_gathering`` and rendered into the
-        system prompt, not into the channel prompt. Historical
-        attachment markers are synthesised there via
-        ``Attachment.synthesize_marker``; the current turn's marker is
-        appended by
-        ``ChannelContextBuilderBase.with_current_turn_attachments``.
+        system prompt. Historical attachment markers are synthesised
+        there via ``Attachment.markers_from_dicts``; the current
+        turn's marker is appended at
+        ``context_runtime.build_input_for_framework`` — same helper,
+        same shape.
         """
-        del limit  # honoured only as a signature contract
+        del limit  # signature contract only
         return []
 
     async def get_room_members(self) -> List[Dict[str, Any]]:
-        """Group member list from ``group_context.members``. DM → empty (the
-        base hides the members section for <=2 members anyway)."""
-        gc = (self._message.raw or {}).get("group_context") or {}
-        members = gc.get("members")
-        if not isinstance(members, list):
-            return []
-        out: List[Dict[str, Any]] = []
-        for m in members:
-            if not isinstance(m, dict):
-                continue
-            uid = m.get("matrix_user_id", "") or ""
-            if not uid:
-                continue
-            out.append({
-                "user_id": uid,
-                "display_name": m.get("display_name", "") or uid,
-            })
-        return out
+        """Always returns an empty list — no inline roster on Direct Matrix.
+
+        Pre-Matrix Gateway shipped ``group_context.members`` (with
+        ``matrix_user_id`` / ``display_name`` per member), and this
+        method normalised them for the base's ``## Conversation
+        Members`` section. Direct Matrix's ``_wrap_event`` produces no
+        ``group_context`` at all — this method returned ``[]`` on
+        every call anyway.
+
+        If a specific turn needs the live roster, the
+        ``narra_room_members`` MCP tool queries the homeserver on
+        demand. Baking the roster into every prompt would duplicate
+        what that tool already exposes per-agent-decision.
+        """
+        return []

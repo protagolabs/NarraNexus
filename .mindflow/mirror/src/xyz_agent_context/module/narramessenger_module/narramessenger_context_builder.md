@@ -4,17 +4,21 @@ stub: false
 last_verified: 2026-07-09
 ---
 
-## 2026-07-09 (later) — `get_conversation_history` reduced to `return []`
+## 2026-07-09 (later) — `get_conversation_history` + `get_room_members` → `return []`
 
-死路径清理。Pre-Matrix（Gateway/polling 年代）NarraMessenger 后端会在每次 invocation payload 里塞 `context`（DM）或 `group_context.history_messages`（Group）——本方法读它、正规化成 `[{sender, timestamp, body}]` 供 base `_build_history_section` 拼进 `## Conversation History`。
+死路径清理。Pre-Matrix（Gateway/polling 年代）NarraMessenger 后端会在每次 invocation payload 里塞：
+- `context`（DM）/ `group_context.history_messages`（Group）→ 本文件的 `get_conversation_history` 读它、正规化后供 base `_build_history_section` 拼进 `## Conversation History`
+- `group_context.members` → `get_room_members` 读它、供 base `_build_members_section` 拼进 `## Conversation Members`
 
-Direct Matrix 迁移（Commit 7，2026-07-02）后，我们直接从 `/sync` 拿 raw `m.room.message` 事件，`_wrap_event` 返回的 dict 里**既没有 `context` 也没有 `group_context`**。本方法的两个分支都 miss、走到"末尾 `return entries`（空 list）"。这段 fallback 逻辑存在了 6 天，运行时行为一直是"返回空 list、channel prompt 里没有 `## Conversation History` 这一节"。
+Direct Matrix 迁移（Commit 7，2026-07-02）后，我们直接从 `/sync` 拿 raw `m.room.message` 事件，`matrix_trigger._wrap_event` 返回的 dict 里**既没有 `context` 也没有 `group_context`**。两个方法都走 fallback、返回空 list。这套 fallback 逻辑存在了 6 天，运行时行为一直是"返回空 list、channel prompt 里没有对应 section"。
 
-2026-07-09 直接把方法体压缩到 `return []` + 一段说明"历史走 ChatModule 记忆，不走 channel prompt"。行为不变，代码不再撒谎。
+2026-07-09 直接把两个方法的方法体都压缩到 `return []`，同步 module-level docstring（原来说"从 ParsedMessage.raw 直接读"，与实际实现矛盾——review #3 命中的那条 stale docstring）。行为不变，代码不再撒谎。
 
-配合 `ChannelContextBuilderBase.with_current_turn_attachments`（同一 PR），当前 turn 的附件 marker 现在会拼到 `## Current Message` 里，agent 本轮就能看到路径 → `Read(...)` 直接读。过去 turn 的附件仍靠 ChatModule 在 `hook_data_gathering` 遍历历史时通过 `_synthesize_attachment_markers` 注入，marker 格式两边完全一致。
+当前 turn 的附件 marker 现在由 [[context_runtime.py]] `build_input_for_framework` 在组装 LLM-facing user message 时注入，本 builder 不参与——marker 只进 LLM 视图，不动 `ctx_data.input_content`，因此不会污染持久化 content 和前端 chat 面板回显。历史 turn 的附件仍靠 ChatModule 在 `hook_data_gathering` 遍历历史时合成，跟当前 turn 共用同一个 `Attachment.markers_from_dicts` 底层（见 [[attachment_schema.py]]），格式一致。
 
-Regression：`tests/narramessenger_module/test_context_builder_no_inline_history.py` 2 条（裸 Matrix 事件 → []、legacy Gateway shape 也 → []）。
+live roster 现在通过 `narra_room_members` MCP 工具按需查（见 [[_narramessenger_mcp_tools]]），不再无脑塞进每次 prompt。
+
+Regression：`tests/narramessenger_module/test_context_builder_no_inline_history.py` 4 条（`get_conversation_history` 裸 Matrix / legacy shape 各 1；`get_room_members` 裸 Matrix / legacy shape 各 1）。
 
 ## 2026-07-09 — reply_instruction drops the `narra_progress` clause
 
