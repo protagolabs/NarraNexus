@@ -125,8 +125,11 @@ _OAUTH_CARD_TYPES = frozenset({"claude_oauth", "codex_oauth"})
 
 
 def _is_cloud() -> bool:
-    """Cloud deployment runs on a non-sqlite backend (MySQL)."""
-    return not os.environ.get("DATABASE_URL", "").startswith("sqlite")
+    """Cloud deployment. Delegates to the single deployment-mode source of
+    truth (honours NARRANEXUS_DEPLOYMENT_MODE + treats an unset DATABASE_URL as
+    local) rather than re-sniffing the DB URL here."""
+    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+    return is_cloud_mode()
 
 
 def _is_staff(request: Request) -> bool:

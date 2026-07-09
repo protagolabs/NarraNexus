@@ -25,7 +25,6 @@ cannot reach an already-running loop).
 from __future__ import annotations
 
 import json
-import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -34,20 +33,13 @@ from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.agent_framework.agent_slot_service import AgentSlotService
-from xyz_agent_context.agent_framework.user_provider_service import (
-    UserProviderService,
-)
 from xyz_agent_context.schema.provider_schema import SlotName
 from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
 router = APIRouter()
 
 _OAUTH_SOURCES = frozenset({"claude_oauth", "codex_oauth"})
-
-
-def _is_cloud() -> bool:
-    """Cloud deployment runs on a non-sqlite backend (MySQL)."""
-    return not os.environ.get("DATABASE_URL", "").startswith("sqlite")
 
 
 def _is_staff(request: Request) -> bool:
@@ -118,16 +110,19 @@ async def get_agent_llm_config(agent_id: str, request: Request):
     db = await get_db_client()
 
     overrides = await AgentSlotService(db).get_agent_slots(agent_id)
-    owner_cfg = await UserProviderService(db).get_user_config(user_id)
-    owner_slots = owner_cfg.slots or {}
+    # Read the RAW user_slots rows, NOT UserProviderService.get_user_config():
+    # that returns SlotConfig objects, which carry only provider_id / model /
+    # thinking / reasoning_effort — they DROP the ``params_json`` and
+    # ``agent_framework`` columns ``_slot_view`` reads. Feeding model_dump()
+    # would make every owner-default framework read as claude_code and every
+    # reasoning param read as auto, breaking inheritance for codex_cli owners.
+    owner_rows = await db.get("user_slots", {"user_id": user_id})
+    owner_by_slot = {r.get("slot_name"): r for r in owner_rows or []}
 
     slots_out: dict[str, dict] = {}
     for slot_name in (SlotName.AGENT.value, SlotName.HELPER_LLM.value):
         override_row = overrides.get(slot_name)
-        owner_slot = owner_slots.get(slot_name)
-        owner_default_row = (
-            owner_slot.model_dump() if owner_slot is not None else None
-        )
+        owner_default_row = owner_by_slot.get(slot_name)
         override_view = _slot_view(slot_name, override_row)
         owner_view = _slot_view(slot_name, owner_default_row)
         slots_out[slot_name] = {
@@ -145,17 +140,18 @@ async def set_agent_llm_config(
     agent_id: str, slot_name: str, req: SetAgentSlotRequest, request: Request
 ):
     """Set a per-agent override for ``slot_name`` (agent | helper_llm)."""
-    _user_id, _ = await _require_owner(agent_id, request)
+    owner_id, _ = await _require_owner(agent_id, request)
     db = await get_db_client()
 
     # Cloud staff-gate: a non-staff caller may not bind an OAuth-source
     # provider to a per-agent slot — it would ride the shared CLI credentials
-    # (same rule the framework switch enforces in providers.py).
-    if _is_cloud() and not _is_staff(request):
+    # (same rule the framework switch enforces in providers.py). Scope the
+    # lookup to the OWNER so we never inspect another user's provider row.
+    if is_cloud_mode() and not _is_staff(request):
         prov = await db.get_one(
-            "user_providers", {"provider_id": req.provider_id}
+            "user_providers", {"user_id": owner_id, "provider_id": req.provider_id}
         )
-        if prov and (prov.get("source") in _OAUTH_SOURCES):
+        if prov is not None and prov.get("source") in _OAUTH_SOURCES:
             raise HTTPException(
                 status_code=403,
                 detail=(

@@ -4,6 +4,23 @@ last_verified: 2026-07-09
 stub: false
 ---
 
+## 2026-07-09 (review fixes) — raw owner rows + deployment_mode + owner-scoped gate
+
+- **GET reads RAW ``user_slots`` rows**, not ``UserProviderService.get_user_config().slots``.
+  ``SlotConfig`` carries only provider_id / model / thinking / reasoning_effort —
+  it DROPS the ``params_json`` and ``agent_framework`` columns ``_slot_view``
+  reads. Feeding ``model_dump()`` made every owner-default framework read as
+  claude_code and every reasoning param read as auto, breaking inheritance for
+  codex_cli owners (the panel then wrote claude_code into the override → 400).
+- ``_is_cloud`` was replaced by ``deployment_mode.is_cloud_mode()`` (single
+  source of truth; honours ``NARRANEXUS_DEPLOYMENT_MODE`` + treats an unset
+  ``DATABASE_URL`` as local) — the local ``_is_cloud`` DB-URL sniff was a 3rd
+  copy of a known-skewed impl. ``providers.py``'s copy now delegates too.
+- The staff-gate provider lookup is scoped to the OWNER
+  (``{user_id, provider_id}``) so it never inspects another user's row.
+- Route-level tests: ``tests/backend/test_agents_llm_config_routes.py`` (owner
+  codex_cli default → GET returns codex_cli; non-owner 403; override view; reset).
+
 ## 2026-07-09 — per-agent LLM config endpoints
 
 Sub-router (mounted under ``/api/agents`` via [[agents]]) for the per-agent LLM

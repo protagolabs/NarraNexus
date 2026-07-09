@@ -130,6 +130,13 @@ class AgentSlotService:
         if slot_name == SlotName.AGENT.value:
             payload["agent_framework"] = eff_framework
 
+        # Check-then-write upsert — mirrors UserProviderService.set_slot. Not
+        # atomic: two concurrent PUTs on the same (agent_id, slot_name) could
+        # both miss the row and race the unique index (idx_as_agent_slot),
+        # surfacing as a 500 on the loser. The UI saves a single slot at a
+        # time so it doesn't fire in practice; kept consistent with the
+        # existing user-slot writer rather than introducing a dialect-specific
+        # upsert here.
         existing = await self.db.get_one(
             "agent_slots", {"agent_id": agent_id, "slot_name": slot_name}
         )
