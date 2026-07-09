@@ -14,9 +14,11 @@ top to bottom:
 1. **① Your providers** — the configured provider list at the TOP (test / edit /
    delete). Empty state prompts to add below. Claude Code Login / Codex CLI Login
    ARE provider types: they appear here once added, and as sign-in options in ②.
+   The **"Update available models" (sync)** card lives here too (shown only when
+   hasProviders): it's maintenance ON the existing providers, not an add action.
 2. **② Add a provider** — OneKeyOnboard (primary paste-a-key, imported here now,
-   ``onComplete=refreshConfig``), then the Claude Code / Codex CLI login cards,
-   custom endpoints (feature-flagged off), and model sync.
+   ``onComplete=refreshConfig``), then the Claude Code / Codex CLI login cards
+   and custom endpoints (feature-flagged off).
 3. **③ Global Default** — the provider + model every agent INHERITS (was
    "Section 2 / Model Assignment", relabeled section2Title/Subtitle). Still writes
    user-level ``user_slots`` via the unchanged /api/providers endpoints; per-agent

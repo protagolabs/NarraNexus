@@ -1065,12 +1065,49 @@ export function ProviderSettings() {
           ) : (
             <p className="text-sm text-[var(--text-tertiary)]">{t('settings.provider.noProvidersYet')}</p>
           )}
+
+          {/* ---- Sync available models ---- Maintenance on EXISTING providers:
+            one-click backfill of the latest default model list (from
+            model_catalog._DEFAULT_MODELS) onto the user's configured providers,
+            keeping their slot assignments + provider IDs. Belongs with the list
+            (it acts on it), not with "Add a provider". Only shown when there's
+            at least one provider to update. */}
+          {hasProviders && (
+            <div className="mt-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+              <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1.5">{t('settings.provider.updateModelsTitle')}</h4>
+              <p className="text-sm text-[var(--text-tertiary)]">
+                {t('settings.provider.updateModelsDesc')}
+              </p>
+              <div className="flex items-center gap-3 mt-5">
+                <button
+                  onClick={handleSyncDefaults}
+                  disabled={syncing || !userId}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors"
+                >
+                  {syncing ? t('settings.provider.syncing') : t('settings.provider.updateModelsBtn')}
+                </button>
+                {syncResult && (
+                  <span
+                    className={cn(
+                      'text-xs whitespace-pre-wrap leading-relaxed',
+                      syncResult.kind === 'ok'
+                        ? 'text-[var(--text-secondary)]'
+                        : 'text-[var(--color-red-500)]'
+                    )}
+                  >
+                    {syncResult.text}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* ================================================================= */}
       {/* ② Add a provider — one-key (primary), CLI sign-in (Claude Code /   */}
-      {/*    Codex are provider types), custom endpoints, and model sync.     */}
+      {/*    Codex are provider types), and custom endpoints. (Model sync is  */}
+      {/*    maintenance on existing providers → it lives in ① above.)        */}
       {/* ================================================================= */}
       <div>
         <SectionHeader
@@ -1080,46 +1117,6 @@ export function ProviderSettings() {
         <div className="space-y-4 ml-[34px]">
           {/* Primary add path — paste one key, wire framework + both slots. */}
           <OneKeyOnboard onComplete={refreshConfig} />
-
-          {/* ---- Sync available models ---- */}
-          {/*
-            One-click backfill: takes the current default model list out of
-            `model_catalog._DEFAULT_MODELS` for every preset source and
-            appends any missing entries onto the user's already-configured
-            providers. Useful when we ship new models — the user keeps
-            their existing slot assignments and provider IDs while picking
-            up the additions. Quick Add would re-create + lose those bonds.
-          */}
-          <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1.5">{t('settings.provider.updateModelsTitle')}</h4>
-            <p className="text-sm text-[var(--text-tertiary)]">
-              {t('settings.provider.updateModelsDesc')}
-            </p>
-            {/* Gap lives on this row, not the <p>/<h4> above: index.css resets
-                `p`/`h*` margins (unlayered), which kills any mb-* utility on
-                them — so the spacing must sit on a div. */}
-            <div className="flex items-center gap-3 mt-5">
-              <button
-                onClick={handleSyncDefaults}
-                disabled={syncing || !userId}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors"
-              >
-                {syncing ? t('settings.provider.syncing') : t('settings.provider.updateModelsBtn')}
-              </button>
-              {syncResult && (
-                <span
-                  className={cn(
-                    'text-xs whitespace-pre-wrap leading-relaxed',
-                    syncResult.kind === 'ok'
-                      ? 'text-[var(--text-secondary)]'
-                      : 'text-[var(--color-red-500)]'
-                  )}
-                >
-                  {syncResult.text}
-                </span>
-              )}
-            </div>
-          </div>
 
           {/* ---- Claude Code Login Card ----
             *
