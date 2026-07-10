@@ -344,11 +344,27 @@ class ChatHistoryResponse(BaseModel):
 
 
 class ClearHistoryResponse(BaseModel):
-    """Response model for clear history endpoint"""
+    """Response model for the scoped clear conversation & memory endpoint.
+
+    Reports which scopes ran and per-target counts. `success` is True once the
+    DB transaction commits even if `disk_errors` is non-empty (the on-disk
+    markdown/trajectory/session deletes are best-effort and idempotent)."""
     success: bool
+    scopes: list = []                    # ["conversations", "memory"]
     narrative_ids_deleted: list = []
     narratives_count: int = 0
     events_count: int = 0
+    event_stream_count: int = 0
+    chat_memory_count: int = 0
+    chat_instances_count: int = 0
+    agent_messages_count: int = 0
+    bus_messages_count: int = 0
+    memory_rows_count: int = 0
+    artifacts_count: int = 0
+    disk_markdown_removed: bool = False
+    disk_trajectories_removed: bool = False
+    session_removed: bool = False
+    disk_errors: list = []
     error: Optional[str] = None
 
 

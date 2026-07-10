@@ -413,9 +413,16 @@ class ApiClient {
     );
   }
 
-  async clearHistory(agentId: string): Promise<ClearHistoryResponse> {
+  async clearHistory(
+    agentId: string,
+    opts: { conversations: boolean; memory: boolean } = { conversations: true, memory: true },
+  ): Promise<ClearHistoryResponse> {
+    const params = new URLSearchParams({
+      conversations: String(opts.conversations),
+      memory: String(opts.memory),
+    });
     return this.request<ClearHistoryResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/history`,
+      `/api/agents/${encodeURIComponent(agentId)}/history?${params}`,
       { method: 'DELETE' },
     );
   }

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: true
 ---
+
+## 2026-07-10 — ClearHistoryResponse expanded
+
+`ClearHistoryResponse` now carries `scopes` + per-target counts
+(event_stream, chat memory, chat instances, agent_messages, memory_rows,
+artifacts), disk-removal booleans and `disk_errors[]`, mirroring the backend
+`WipeResult`.
 
 ## 2026-07-09 — AgentSlotView / AgentSlotEffective
 
