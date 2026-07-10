@@ -51,3 +51,26 @@ test('submit disabled on empty text', () => {
   expect(btn?.disabled).toBe(true);
   expect(mockSubmit).not.toHaveBeenCalled();
 });
+
+/**
+ * Regression: the first cut passed children straight to <Dialog>, whose body
+ * carries NO padding (p-5 lives in DialogContent). The w-full textarea then
+ * bled to the dialog's edges and read as "the input IS the dialog".
+ */
+test('fields are wrapped in padded DialogContent, not bleeding to dialog edges', () => {
+  renderOpen();
+  const textarea = screen.getByRole('textbox');
+  const padded = textarea.closest('.p-5');
+  expect(padded).not.toBeNull();
+  expect(padded!.contains(screen.getByRole('combobox'))).toBe(true);
+  // and the textarea keeps its own chrome + fixed rows rather than filling
+  expect(textarea.getAttribute('rows')).toBe('4');
+  expect(textarea.className).toContain('resize-none');
+});
+
+test('actions live in the bordered footer, outside the padded body', () => {
+  renderOpen();
+  const submit = screen.getByText('feedback.submit').closest('button')!;
+  expect(submit.closest('.border-t')).not.toBeNull();
+  expect(submit.closest('.p-5')).toBeNull();
+});

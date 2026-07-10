@@ -5,15 +5,25 @@
  * submit_feedback tool: category select + free text, relayed by the
  * backend to the team's feedback intake. Fire-and-forget UX — we thank
  * the user even if the intake is unreachable (delivered=false).
+ *
+ * Layout follows the house pattern (see ConfirmDialog): Dialog's own body
+ * has NO padding, so content must be wrapped in DialogContent and actions
+ * in DialogFooter. Skipping them makes children bleed to the dialog edges.
  */
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Dialog } from './Dialog';
+import { Dialog, DialogContent, DialogFooter } from './Dialog';
 import { Button } from './Button';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 const CATEGORIES = ['user_dissatisfaction', 'feature_gap', 'error', 'other'] as const;
+
+const FIELD_CLASS =
+  'w-full px-2.5 py-1.5 text-sm rounded-[var(--radius-md)] bg-transparent ' +
+  'border border-[var(--nm-hairline)] text-[var(--nm-ink)] ' +
+  'focus:outline-none focus:border-[var(--nm-ink50)] transition-colors';
 
 interface FeedbackDialogProps {
   isOpen: boolean;
@@ -27,15 +37,11 @@ export function FeedbackDialog({ isOpen, onClose }: FeedbackDialogProps) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
-  const reset = () => {
+  const handleClose = () => {
     setText('');
     setCategory('other');
     setDone(false);
     setBusy(false);
-  };
-
-  const handleClose = () => {
-    reset();
     onClose();
   };
 
@@ -54,49 +60,56 @@ export function FeedbackDialog({ isOpen, onClose }: FeedbackDialogProps) {
   return (
     <Dialog isOpen={isOpen} onClose={handleClose} title={t('feedback.title')} size="md">
       {done ? (
-        <div className="space-y-4">
-          <p className="text-sm">{t('feedback.thanks')}</p>
-          <div className="flex justify-end">
+        <>
+          <DialogContent>
+            <p className="text-sm text-[var(--text-secondary)]">{t('feedback.thanks')}</p>
+          </DialogContent>
+          <DialogFooter>
             <Button onClick={handleClose}>{t('feedback.close')}</Button>
-          </div>
-        </div>
+          </DialogFooter>
+        </>
       ) : (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-mono uppercase mb-1 text-[var(--text-secondary)]">
-              {t('feedback.categoryLabel')}
-            </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full border border-[var(--border-default)] bg-transparent px-2 py-1.5 text-sm"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>{t(`feedback.categories.${c}`)}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-mono uppercase mb-1 text-[var(--text-secondary)]">
-              {t('feedback.textLabel')}
-            </label>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              maxLength={500}
-              rows={5}
-              placeholder={t('feedback.placeholder')}
-              className="w-full border border-[var(--border-default)] bg-transparent px-2 py-1.5 text-sm resize-none"
-            />
-            <div className="text-right text-[10px] text-[var(--text-tertiary)]">{text.length}/500</div>
-          </div>
-          <div className="flex justify-end gap-2">
+        <>
+          <DialogContent className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-mono uppercase tracking-wider mb-1.5 text-[var(--text-secondary)]">
+                {t('feedback.categoryLabel')}
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className={FIELD_CLASS}
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{t(`feedback.categories.${c}`)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-mono uppercase tracking-wider mb-1.5 text-[var(--text-secondary)]">
+                {t('feedback.textLabel')}
+              </label>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                maxLength={500}
+                rows={4}
+                placeholder={t('feedback.placeholder')}
+                // resize-none: dragging the handle past the dialog edge looks broken
+                className={cn(FIELD_CLASS, 'resize-none leading-relaxed')}
+              />
+              <div className="mt-1 text-right text-[10px] font-mono text-[var(--text-tertiary)]">
+                {text.length}/500
+              </div>
+            </div>
+          </DialogContent>
+          <DialogFooter>
             <Button variant="ghost" onClick={handleClose}>{t('feedback.cancel')}</Button>
             <Button onClick={handleSubmit} disabled={!text.trim() || busy}>
               {busy ? t('feedback.sending') : t('feedback.submit')}
             </Button>
-          </div>
-        </div>
+          </DialogFooter>
+        </>
       )}
     </Dialog>
   );
