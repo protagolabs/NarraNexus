@@ -1,8 +1,14 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-06
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — feedback_router 注册
+
+`backend.routes.feedback` 挂在 `/api`（完整路径 POST /api/feedback）。web UI
+反馈弹窗的服务端中继——不让浏览器直连团队接收端（CORS/杀开关/身份可信）。
+
 
 ## 2026-07-02 — billing_router 注册
 
