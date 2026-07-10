@@ -4,6 +4,17 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — add_reaction runs `--as bot` (identity fix)
+
+`add_reaction` now passes `--as bot` explicitly. The workspace holds both a bot
+token and (post three-click) the owner's user OAuth token; the raw
+`im reactions create` command defaults to the USER token when present, so the
+reaction was showing under the human owner's name instead of the bot. Unlike the
+`+messages-send` shortcut (which forces bot on its own), the raw reactions
+command needs the flag. Requires the bot app to hold
+`im:message.reactions:write_only` — without it the reaction now silently fails
+(best-effort) rather than falling back to the user identity.
+
 ## 2026-07-10 — PR #87 review: emoji_type key source
 
 The `emoji_type` keys the react tool maps to (`Typing`/`GLANCE`/`DONE`/`ERROR`/
