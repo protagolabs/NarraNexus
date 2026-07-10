@@ -569,6 +569,14 @@ class LarkCLIClient:
         best-effort (needs the bot's ``im:message.reactions:write_only`` scope),
         so this raises on failure and lets the caller log + swallow. Returns the
         ``reaction_id`` (or "" when unparsable — informational only).
+
+        Runs ``--as bot`` on purpose: the reaction must be attributed to the
+        agent's bot, not the owner's user identity. The workspace holds BOTH a
+        bot token AND (after the three-click flow) the owner's user OAuth token;
+        the raw ``im reactions create`` command defaults to the user token when
+        present, so without ``--as bot`` the 👍 shows up under the human owner's
+        name instead of the bot. (``+messages-send`` forces bot on its own, which
+        is why replies were already attributed correctly.)
         """
         if not _LARK_ID_PATTERN.match(message_id):
             raise RuntimeError(
@@ -577,7 +585,10 @@ class LarkCLIClient:
             )
         params = json.dumps({"message_id": message_id})
         data = json.dumps({"reaction_type": {"emoji_type": emoji_type}})
-        args = ["im", "reactions", "create", "--params", params, "--data", data]
+        args = [
+            "im", "reactions", "create", "--as", "bot",
+            "--params", params, "--data", data,
+        ]
         result = await self._run_with_agent_id(args, agent_id)
         if not result.get("success"):
             raise RuntimeError(result.get("error", "reaction create failed"))
