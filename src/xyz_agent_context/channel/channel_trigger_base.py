@@ -1273,6 +1273,11 @@ class ChannelTriggerBase(ABC):
                 if message.message_id
                 else f"{self.channel_name}_unknown"
             ),
+            # The inbound platform message id, surfaced per-turn so a channel
+            # module's get_instructions can tell the agent which message to
+            # react to / reply in-thread (e.g. react_to_user_message). Kept
+            # here (not in ChannelTag) so it stays ephemeral, not persisted.
+            "source_message_id": message.message_id or "",
         }
         # Only set "attachments" when non-empty — matches the WS route
         # pattern in backend/routes/websocket.py:644-648 so ChatModule's

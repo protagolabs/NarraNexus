@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
-last_verified: 2026-05-22
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — react_to_user_message tool (agent-driven early feedback)
+
+New agent-facing `react_to_user_message(agent_id, room_id, message_id, emoji)`.
+`emoji` is a shared cross-channel semantic value (`on_it`/`done`/`thumbs_up`/
+`heart`/`problem`, unknown → `on_it`) mapped via `_LARK_REACTIONS` to Lark
+`emoji_type` keys, backed by `LarkCLIClient.add_reaction`. Best-effort: returns
+`{success:false, reason}` on any error, never raises.
 
 ## 2026-05-22 — add `lark_unbind` to close the bind/unbind symmetry
 

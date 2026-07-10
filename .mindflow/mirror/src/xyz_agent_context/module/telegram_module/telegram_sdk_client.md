@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_sdk_client.py
 stub: false
-last_verified: 2026-05-20
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — set_message_reaction (backs react_to_user_message)
+
+New `set_message_reaction(chat_id, message_id, emoji)` over the `setMessageReaction`
+Bot API. Coerces message_id to int; best-effort (returns False, never raises) so
+a rejected reaction never breaks the agent turn. `emoji` must be in Telegram's
+allowed reaction set (👍❤️🔥👀🎉💯😱…). Consumer: `_telegram_mcp_tools`'
+`react_to_user_message`.
 
 ## Why it exists
 

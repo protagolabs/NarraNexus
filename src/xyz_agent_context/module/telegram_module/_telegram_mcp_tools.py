@@ -30,6 +30,18 @@ from ._telegram_skill_loader import get_skill_loader
 from .telegram_sdk_client import TelegramSDKClient
 
 
+# Semantic reaction vocabulary → Telegram allowed reaction emojis (shared
+# cross-channel set; each IM module maps it to its own platform tokens). Only
+# emojis in Telegram's default allowed set are used (✅ is NOT allowed → 🎉).
+_TELEGRAM_REACTIONS = {
+    "on_it": "👀",
+    "done": "🎉",
+    "thumbs_up": "👍",
+    "heart": "❤",
+    "problem": "😱",
+}
+
+
 # Telegram Bot API methods are camelCase — no dots, unlike Slack.
 _VALID_METHOD_RE = re.compile(r"^[a-z][a-zA-Z0-9]+$")
 
@@ -112,6 +124,39 @@ def register_telegram_mcp_tools(mcp: Any) -> None:
         client = TelegramSDKClient(cred.bot_token)
         try:
             return await client.api_call(method, args)
+        finally:
+            await client.close()
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def react_to_user_message(
+        agent_id: str, room_id: str, message_id: str, emoji: str = "on_it"
+    ) -> dict:
+        """React to the user's message with an emoji (a lightweight ack).
+
+        Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
+        longer task — without a full message. ``room_id`` is the chat id,
+        ``message_id`` the inbound message id (both shown in your channel
+        instructions). ``emoji`` is a semantic value: ``on_it`` / ``done`` /
+        ``thumbs_up`` / ``heart`` / ``problem`` (unknown → ``on_it``).
+
+        Best-effort: a failure returns ``{"success": false, "reason": ...}`` and
+        never breaks your turn.
+        """
+        if not room_id or not message_id:
+            return {"success": False, "reason": "room_id and message_id are required"}
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"success": False, "reason": "no_credential"}
+        tg_emoji = _TELEGRAM_REACTIONS.get(emoji, _TELEGRAM_REACTIONS["on_it"])
+        client = TelegramSDKClient(cred.bot_token)
+        try:
+            ok = await client.set_message_reaction(room_id, message_id, tg_emoji)
+            if ok:
+                return {"success": True, "emoji": emoji}
+            return {"success": False, "reason": "telegram rejected the reaction"}
+        except Exception as e:  # noqa: BLE001 — best-effort, never break the turn
+            return {"success": False, "reason": f"{type(e).__name__}: {e}"}
         finally:
             await client.close()
 

@@ -572,6 +572,18 @@ class LarkModule(ChannelModuleBase):
                 "**Mode: LARK CHANNEL** — handling an incoming Lark message. "
                 "Reply via `lark_cli(agent_id, command=\"im +messages-send ...\")`.\n"
             )
+            _msg_id = ctx_data.extra_data.get("source_message_id", "")
+            if _msg_id:
+                _ct = ctx_data.extra_data.get("channel_tag") or {}
+                _room_id = _ct.get("room_id", "")
+                mode_section += (
+                    f"**Early feedback (optional)**: the sender's message id is "
+                    f"`{_msg_id}`{f' (chat `{_room_id}`)' if _room_id else ''}. Before "
+                    f"a longer task you MAY acknowledge fast — a one-line reply, or "
+                    f"`mcp__lark_module__react_to_user_message(agent_id, room_id, "
+                    f"message_id, emoji=\"on_it\")` (emoji: on_it/done/thumbs_up/heart/"
+                    f"problem) — then keep working.\n"
+                )
         else:
             mode_section = (
                 "**Mode: OWNER CHAT** — you are in the owner's direct chat. "

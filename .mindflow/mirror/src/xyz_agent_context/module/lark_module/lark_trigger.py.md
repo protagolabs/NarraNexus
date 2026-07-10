@@ -4,6 +4,12 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — surface source_message_id (agent-driven feedback enabler)
+
+Lark's `_build_and_run_agent` override adds `source_message_id` to
+`trigger_extra_data` (same as the base), so get_instructions can show the agent
+the inbound message id for `react_to_user_message`.
+
 ## 2026-07-10 — native processing indicator (emoji reaction on the user's msg)
 
 `processing_indicator` override (built on the base `_emoji_reaction_indicator`

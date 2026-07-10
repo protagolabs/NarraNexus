@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — surface source_message_id (agent-driven feedback enabler)
+
+`_build_and_run_agent` now adds `source_message_id` (the inbound platform
+message id) to `trigger_extra_data`. It merges into `ctx_data.extra_data`, so a
+channel module's get_instructions can tell the agent which message to react to /
+reply in-thread (the agent-facing `react_to_user_message` tool). Kept here, not
+in ChannelTag, so it stays ephemeral (not persisted into chat-history tags).
+
 ## 2026-07-10 — outcome-aware processing indicator (native "working" signal)
 
 `processing_indicator` is no longer a no-op-only seam: it now yields a
