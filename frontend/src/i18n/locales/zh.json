@@ -1886,5 +1886,22 @@
         "validation": "添加后，状态指示点会校验连接 — “失败”表示该链接无法访问或不是有效的 SSE 端点。"
       }
     }
+  },
+  "feedback": {
+    "title": "反馈",
+    "categoryLabel": "类别",
+    "textLabel": "哪里不满意 / 希望有什么？",
+    "placeholder": "告诉我们哪里让你失望、缺什么功能——会直达 NarraNexus 团队。",
+    "submit": "提交反馈",
+    "sending": "发送中…",
+    "cancel": "取消",
+    "close": "关闭",
+    "thanks": "谢谢——你的反馈已送达团队。",
+    "categories": {
+      "user_dissatisfaction": "有不满意的地方",
+      "feature_gap": "缺少功能",
+      "error": "出错了",
+      "other": "其他"
+    }
   }
 }

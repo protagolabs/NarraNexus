@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — submitFeedback()
+
+`submitFeedback(category, text)` → POST /api/feedback。返回 {ok, delivered}；
+delivered=false 只代表接收端不可达或杀开关开启，UI 不据此报错。
+
 
 ## 2026-07-09 — per-agent LLM config methods
 

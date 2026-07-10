@@ -305,6 +305,14 @@ class ApiClient {
     );
   }
 
+  /** Send user-written product feedback to the team (relayed server-side). */
+  async submitFeedback(category: string, text: string): Promise<{ ok: boolean; delivered: boolean }> {
+    return this.request<{ ok: boolean; delivered: boolean }>('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ category, text }),
+    });
+  }
+
   // Agents API
   async getAwareness(agentId: string): Promise<AwarenessResponse> {
     return this.request<AwarenessResponse>(`/api/agents/${encodeURIComponent(agentId)}/awareness`);
