@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — agent slot 去掉 codex source 过滤
+
+`agentProviders` 过滤删掉 `isCodexFramework → CODEX_ALLOWED_PROVIDER_SOURCES`
+分支,只留 `p.protocol !== fw.protocol`。codex_cli 现在能选任意 openai-protocol
+provider(含 netmind/yunwu/openrouter),恢复 pre-#81。理由与后端一致(铁律 #15,
+见 [[user_provider_service]] / [[agentFramework]] 2026-07-10)。相应删掉
+`isCodexFramework` / `CODEX_ALLOWED_PROVIDER_SOURCES` 两个 import。
 
 ## 2026-07-09 — per-agent helper 放开 OAuth + 默认便宜模型
 
@@ -29,7 +37,8 @@ resetAgentLlmConfig; changes apply on the agent's NEXT run (no hot-reload —
 config is resolved per run from the DB).
 
 Provider filtering mirrors the backend binding rules (via [[agentFramework]]):
-agent slot follows the framework protocol (+codex source whitelist); helper slot
-is openai/anthropic and never an OAuth provider (CLI creds can't make direct API
-calls). Modeled on AwarenessPanel's per-agent modal. Uses getProviders() for the
+agent slot follows the framework protocol ONLY (no source whitelist since
+2026-07-10); helper slot is openai/anthropic and now ALSO accepts OAuth
+providers (backend routes them via CliHelperConfig). Modeled on AwarenessPanel's
+per-agent modal. Uses getProviders() for the
 option lists; display names fall back to raw model ids (no catalog dependency).

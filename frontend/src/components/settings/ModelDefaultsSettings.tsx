@@ -21,7 +21,6 @@ import {
   isCodexFramework,
   getModelsForSlot,
   prettifyModel,
-  CODEX_ALLOWED_PROVIDER_SOURCES,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
   type ProviderSummary,
@@ -105,10 +104,14 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const providerList = Object.values(providers).filter((p) => p.is_active);
   const hasProviders = providerList.length > 0;
 
+  // Agent slot: only the framework's protocol gates the list (codex_cli →
+  // openai, claude_code → anthropic). No source filter — any openai-protocol
+  // provider (codex_oauth / user / netmind / yunwu / openrouter) can back
+  // codex; Responses-API compatibility is the provider's concern, not policed
+  // here (binding rule #15). Mirrors backend validate_slot_binding.
   const agentProviders = providerList.filter((p) => {
     const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework);
     if (fw && p.protocol !== fw.protocol) return false;
-    if (isCodexFramework(framework)) return CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source);
     return true;
   });
   // Helper accepts OAuth (claude_oauth / codex_oauth) too: the backend routes an

@@ -76,15 +76,12 @@ export function defaultHelperModel(
   return modelIds[0] || ''
 }
 
-// Curated model list the Codex CLI subprocess actually accepts. Must stay in
-// sync with backend ``CODEX_CURATED_MODELS`` in user_provider_service.py.
+// Curated model list OpenAI's OWN codex backend (codex_oauth) accepts, gated by
+// account tier. Scoped to codex_oauth ONLY — a third-party openai-protocol
+// provider (netmind / yunwu / openrouter / custom base_url) exposes its own
+// catalogue. Must stay in sync with backend ``CODEX_CURATED_MODELS`` in
+// user_provider_service.py (same codex_oauth-only scoping).
 export const CODEX_CURATED_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
-
-// Provider SOURCES the codex_cli framework works with (Responses API). Anything
-// else (netmind / yunwu / openrouter aggregators) is hidden from the agent slot
-// when framework=codex_cli. See the same rule server-side in
-// user_provider_service.validate_slot_binding.
-export const CODEX_ALLOWED_PROVIDER_SOURCES = ['codex_oauth', 'user']
 
 export interface ModelSuggestionGroup {
   label: string
@@ -169,9 +166,12 @@ export function prettifyModel(model: string | null | undefined): string {
 /**
  * Models offered for (provider, slot) under the current agent framework.
  *
- * Agent slot + codex_cli → the codex-curated set regardless of the provider's
- * stored ``models`` (OpenAI's tier check is the real gate). Otherwise → the
- * provider's own model list. ``knownModels`` supplies display names.
+ * Agent slot + codex_cli on the ``codex_oauth`` provider → the codex-curated
+ * set (OpenAI's account-tier check is the real gate, mirrors backend
+ * get_user_config). Every other provider — including third-party
+ * openai-protocol aggregators (netmind / yunwu / openrouter) and custom
+ * base_urls — exposes ITS OWN model list. ``knownModels`` supplies display
+ * names.
  */
 export function getModelsForSlot(
   prov: ProviderSummary,
@@ -179,7 +179,11 @@ export function getModelsForSlot(
   agentFramework: string | null | undefined,
   knownModels: Record<string, KnownModelMeta>,
 ): Array<{ model_id: string; display_name: string }> {
-  if (slotKey === 'agent' && isCodexFramework(agentFramework)) {
+  if (
+    slotKey === 'agent' &&
+    isCodexFramework(agentFramework) &&
+    prov.source === 'codex_oauth'
+  ) {
     return CODEX_CURATED_MODELS.map((mid) => ({
       model_id: mid,
       display_name: knownModels[mid]?.display_name || mid,
