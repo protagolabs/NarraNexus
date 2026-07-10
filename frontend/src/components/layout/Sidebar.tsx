@@ -47,6 +47,9 @@ import { AgentList } from './AgentList';
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [showModePopup, setShowModePopup] = useState(false);
+  // Mobile-only feedback entry. Desktop uses the floating FeedbackButton
+  // (bottom-right, by the help "?"); on mobile that corner is the composer's,
+  // so the drawer footer carries it instead. Exactly one entry per viewport.
   const [showFeedback, setShowFeedback] = useState(false);
   // Mobile (< md): the sidebar is an off-canvas drawer toggled from the TopBar.
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
@@ -194,7 +197,7 @@ export function Sidebar() {
       )}
     >
       {confirmDialog}
-      <FeedbackDialog isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
+      {isMobile && <FeedbackDialog isOpen={showFeedback} onClose={() => setShowFeedback(false)} />}
 
       {/* Header — original NarraNexus logo image preserved.
           Collapsed state hides the wordmark and keeps only the toggle button. */}
@@ -483,15 +486,17 @@ export function Sidebar() {
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--rule)]">
               <ThemeToggle />
               <LanguageToggle />
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowFeedback(true)}
-                title={t('feedback.title')}
-                className={NAV_ITEM}
-              >
-                <MessageSquarePlus className="w-4 h-4" />
-              </Button>
+              {isMobile && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowFeedback(true)}
+                  title={t('feedback.title')}
+                  className={NAV_ITEM}
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                </Button>
+              )}
               <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
                 {t('sidebar.poweredBy')}
               </span>
