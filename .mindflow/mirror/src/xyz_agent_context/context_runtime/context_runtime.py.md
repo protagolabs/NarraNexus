@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — 移除写死的假模型身份（改由 BasicInfoModule 动态填）
+
+`run()` 构造 `ContextData` 时曾写死 `agent_info_model_type="Claude Agent SDK"` +
+`model_name="sonnet-4"`，经 basic_info [[prompts.py]] 的 "LLM Model" 段灌进系统
+prompt → **每个** agent（含 codex_cli+gpt5）都自称 Claude Sonnet-4，被问模型就照读
+（违反铁律#9）。两行 kwargs 已删；这两个字段改由 [[basic_info_module.py]]
+`hook_data_gathering` 经 [[agent_model_identity.py]] 按真实 slot 动态填。
+ContextRuntime 从此不掺和模型身份（本就不该知道），字段也在 [[context_schema.py]]
+正式声明了。
 
 ## 2026-07-09 — current-turn attachment marker injection
 

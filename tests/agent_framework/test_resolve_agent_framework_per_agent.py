@@ -80,6 +80,24 @@ async def test_framework_only_stub_does_not_win():
 
 
 @pytest.mark.asyncio
+async def test_override_with_provider_but_null_framework_does_not_win():
+    """Regression (PR #84): agent_slots.agent_framework is nullable. An
+    override that has a provider_id but a NULL framework must NOT win — it
+    falls through to the owner's user_slots framework. (Now enforced by the
+    shared overlay in agent_model_identity that this function delegates to.)"""
+    db = _FakeDB()
+    db.tables["agents"].append({"agent_id": "ag1", "created_by": "u1"})
+    db.tables["user_slots"].append(
+        {"user_id": "u1", "slot_name": "agent", "agent_framework": "codex_cli"}
+    )
+    db.tables["agent_slots"].append({
+        "agent_id": "ag1", "slot_name": "agent",
+        "provider_id": "p_x", "agent_framework": None,
+    })
+    assert await _resolve_agent_framework_name("ag1", db) == "codex_cli"
+
+
+@pytest.mark.asyncio
 async def test_missing_owner_defaults_to_claude_code():
     db = _FakeDB()
     db.tables["agents"].append({"agent_id": "ag1", "created_by": ""})
