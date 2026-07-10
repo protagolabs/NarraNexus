@@ -464,12 +464,13 @@ class SlackModule(ChannelModuleBase):
                 _ct = ctx_data.extra_data.get("channel_tag") or {}
                 _room_id = _ct.get("room_id", "")
                 early_feedback = (
-                    "\n### Early feedback (optional)\n\n"
-                    f"The sender's message ts is `{_msg_id}`"
-                    f"{f' (channel `{_room_id}`)' if _room_id else ''}. Before a longer "
-                    "task you MAY acknowledge fast — a one-line `chat.postMessage`, or "
-                    "`react_to_user_message(agent_id, room_id, message_id, emoji=\"on_it\")` "
-                    "(emoji: on_it/done/thumbs_up/heart/problem) — then keep working.\n"
+                    "\n### Early feedback\n\n"
+                    "For any request that needs more than a one-line answer, ACK FIRST, "
+                    "THEN do the work — either react to the sender's message with "
+                    f"`react_to_user_message(agent_id, room_id=\"{_room_id}\", "
+                    f"message_id=\"{_msg_id}\", emoji=\"on_it\")`, or send a quick "
+                    "\"on it, one moment\". Skip it only for trivial one-line replies. "
+                    "(emoji: on_it/done/thumbs_up/heart/problem)\n"
                 )
 
         # Operational prompt — the hot path. Keep ≤ 80 lines.

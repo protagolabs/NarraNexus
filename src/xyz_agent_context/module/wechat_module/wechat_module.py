@@ -169,11 +169,11 @@ class WeChatModule(ChannelModuleBase):
         early_feedback = ""
         if ctx_data.extra_data.get("source_message_id", ""):
             early_feedback = (
-                "\n### Early feedback (optional)\n\n"
-                "Before a longer task you MAY acknowledge fast with a one-line "
-                "`wechat_send` message, then keep working. (WeChat has no reaction "
-                "API, so `react_to_user_message` is unavailable here — use a short "
-                "message instead.)\n"
+                "\n### Early feedback\n\n"
+                "For any request that needs more than a one-line answer, ACK FIRST "
+                "with a quick `wechat_send` \"on it, one moment\", THEN do the work. "
+                "Skip it only for trivial one-line replies. (WeChat has no reaction "
+                "API, so acknowledge with a short message.)\n"
             )
 
         return f"""\

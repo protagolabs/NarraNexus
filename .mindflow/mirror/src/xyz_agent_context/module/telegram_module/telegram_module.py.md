@@ -6,9 +6,12 @@ last_verified: 2026-07-10
 
 ## 2026-07-10 — get_instructions surfaces early-feedback affordance
 
-Operational prompt now includes an "Early feedback (optional)" block (when in
-the Telegram channel with a `source_message_id`): message id + chat + the
-`react_to_user_message` tool + a permissive "you MAY ack fast, then continue".
+Operational prompt now includes an "Early feedback" block (when in the Telegram
+channel with a `source_message_id`): a generic SHOULD directive — for non-trivial
+requests, ACK FIRST (react `on_it` via `react_to_user_message` with real
+chat/message id embedded, or a quick "on it") THEN do the work. Generic
+interaction rule in the system prompt, not per-agent Awareness (rule #4); not a
+hard guarantee (rule #15).
 
 ## 2026-07-03 — handler registers `dedicated_trigger=True`
 

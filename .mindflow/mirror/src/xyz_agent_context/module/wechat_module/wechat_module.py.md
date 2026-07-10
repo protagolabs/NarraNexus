@@ -6,9 +6,11 @@ last_verified: 2026-07-10
 
 ## 2026-07-10 — get_instructions surfaces early-feedback affordance
 
-Operational prompt now includes an "Early feedback (optional)" block (when a
-`source_message_id` is present) pointing the agent to a short `wechat_send` ack —
-WeChat has no reaction API, so `react_to_user_message` is unavailable here.
+Operational prompt now includes an "Early feedback" block (when a
+`source_message_id` is present): a generic SHOULD directive — for non-trivial
+requests, ACK FIRST with a short `wechat_send` "on it" THEN do the work. WeChat
+has no reaction API, so the ack is a message. Generic system-prompt rule, not
+per-agent Awareness (rule #4); not a hard guarantee (rule #15).
 
 ## 2026-07-03 — handler registers `dedicated_trigger=True`
 
