@@ -4,6 +4,12 @@ last_verified: 2026-07-10
 stub: false
 ---
 
+## 2026-07-10 (3) — footer 反馈入口改为移动端专属
+
+桌面端入口已是右下角浮动 [[FeedbackButton.tsx]]；footer 这个入口用
+`isMobile` 门控保留,因为移动端右下角归 composer。每个视口恰好一个入口。
+
+
 ## 2026-07-10 (2) — 反馈入口移出 footer
 
 Owner 反馈 footer 位置不好；入口移到右下角浮动按钮

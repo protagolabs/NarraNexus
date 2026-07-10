@@ -348,10 +348,8 @@ export function ChatView() {
 
       {/* Hand-annotated page guide — bottom-left ?, spec §12 */}
       {/* Floating help (?) — desktop only; on mobile the bottom-right corner
-          is reserved for content and the page guide isn't tuned for touch.
-          Feedback stacks directly above it (same rationale + visuals). */}
+          is reserved for content and the page guide isn't tuned for touch. */}
       {!isMobile && <HelpButton pages={CHAT_VIEW_PAGES} />}
-      {!isMobile && <FeedbackButton />}
 
       {/* Slide-over drawer (default, unpinned) */}
       {!drawerPinned && agentId && (
@@ -396,6 +394,7 @@ export function MainLayout() {
   const navigate = useNavigate();
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
+  const isMobile = useIsMobile();
 
   // Close the mobile sidebar drawer whenever the view changes (picked an agent
   // or navigated to a sub-page) so the user lands on the content they tapped.
@@ -444,6 +443,13 @@ export function MainLayout() {
 
       {/* Background agent completion toasts */}
       <AgentCompletionToast />
+
+      {/* Feedback entry — every desktop route, not just the chat view (the
+          sidebar-footer entry it replaced was global too). It occupies the
+          corner slot when there's no "?" (sub-pages) and stacks above it on
+          the chat view. Mobile keeps its entry in the sidebar drawer footer:
+          the corner belongs to the composer there. */}
+      {!isMobile && <FeedbackButton aboveHelp={!isSubPage && !teamChatId} />}
 
       {/* Render: team group chat, a sub-page via Outlet, or the chat view */}
       {teamChatId ? (

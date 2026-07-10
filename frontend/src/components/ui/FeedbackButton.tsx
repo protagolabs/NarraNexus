@@ -2,19 +2,33 @@
  * @file_name: FeedbackButton.tsx
  * @author:
  * @date: 2026-07-10
- * @description: Floating feedback entry — sits directly above the
- * bottom-right help "?" button (Owner moved it here from the sidebar
- * footer, 2026-07-10) and shares its visual language: same circle,
- * same card/hairline tokens, stacked at bottom-14 vs help's bottom-4.
- * Owns the FeedbackDialog open state.
+ * @description: Floating feedback entry — the desktop home for the feedback
+ * dialog (Owner moved it out of the sidebar footer, 2026-07-10).
+ *
+ * Placement: it shares HelpButton's circle + card visual language and stacks
+ * directly above it when the "?" is on screen. The help button only renders
+ * on the chat view, so on sub-pages (settings / system / dashboard) this
+ * button drops down into the corner slot the "?" would have occupied —
+ * hence the `aboveHelp` prop rather than a hardcoded offset.
+ *
+ * Mobile keeps its entry in the sidebar drawer footer instead: the bottom-
+ * right corner there belongs to the composer, which is the same reason
+ * HelpButton is desktop-only. Feedback must stay reachable everywhere, so
+ * the two entries together cover every route on every viewport.
  */
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MessageSquarePlus } from 'lucide-react';
 import { FeedbackDialog } from './FeedbackDialog';
+import { cn } from '@/lib/utils';
 
-export function FeedbackButton() {
+interface FeedbackButtonProps {
+  /** True when HelpButton's "?" occupies the bottom-right corner slot. */
+  aboveHelp?: boolean;
+}
+
+export function FeedbackButton({ aboveHelp = false }: FeedbackButtonProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
@@ -25,7 +39,11 @@ export function FeedbackButton() {
         aria-label={t('feedback.title')}
         title={t('feedback.title')}
         onClick={() => setOpen(true)}
-        className="fixed bottom-14 right-4 z-[150] flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-all duration-150 hover:scale-110"
+        className={cn(
+          'fixed right-4 z-[150] flex items-center justify-center w-8 h-8',
+          'rounded-full cursor-pointer transition-all duration-150 hover:scale-110',
+          aboveHelp ? 'bottom-14' : 'bottom-4',
+        )}
         style={{
           background: 'var(--nm-card)',
           border: '1px solid var(--nm-hairline)',
