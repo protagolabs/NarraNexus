@@ -4,6 +4,11 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+
+The "ack early" block is gone from `get_instructions`; it's now injected per-turn
+by the trigger (`_early_feedback_prefix`, see [[channel_trigger_base]]).
+
 ## 2026-07-10 — PR #87 review: early-feedback via shared render
 
 The Slack early-feedback section is now produced by [[channel_reactions]]

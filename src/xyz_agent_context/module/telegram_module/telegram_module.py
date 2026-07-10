@@ -30,7 +30,6 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
-from xyz_agent_context.channel.channel_reactions import render_early_feedback
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -355,24 +354,13 @@ class TelegramModule(ChannelModuleBase):
                 "disclose owner-private context."
             )
 
-        early_feedback = ""
-        if is_telegram_channel:
-            _msg_id = ctx_data.extra_data.get("source_message_id", "")
-            if _msg_id:
-                _ct = ctx_data.extra_data.get("channel_tag") or {}
-                early_feedback = render_early_feedback(
-                    tool_ref="react_to_user_message",
-                    room_id=_ct.get("room_id", ""),
-                    message_id=_msg_id,
-                )
-
         return f"""\
 ## Telegram Integration  ({mode})
 
 You are connected to Telegram as bot **@{bot_username}** (`{bot_user_id}`).
 
 {trust_block}
-{early_feedback}
+
 ### Tools you can call
 
 - `tg_cli(method, args)` — call ANY of Telegram's ~100 Bot API methods.

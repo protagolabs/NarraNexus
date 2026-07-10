@@ -21,7 +21,6 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
-from xyz_agent_context.channel.channel_reactions import render_early_feedback
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -167,24 +166,13 @@ class WeChatModule(ChannelModuleBase):
                 "untrusted until then."
             )
 
-        ws = ctx_data.working_source
-        is_wechat_channel = (
-            ws == WorkingSource.WECHAT
-            or (isinstance(ws, str) and ws == WorkingSource.WECHAT.value)
-        )
-        early_feedback = ""
-        if is_wechat_channel and ctx_data.extra_data.get("source_message_id", ""):
-            early_feedback = render_early_feedback(
-                tool_ref=None, room_id="", message_id="",
-            )
-
         return f"""\
 ## WeChat Integration  (Reply on WeChat)
 
 You are connected to a personal WeChat account (via the iLink gateway).
 
 {trust_block}
-{early_feedback}
+
 ### Replying
 
 To reply, call `wechat_send(to_user_id, context_token, text)`:

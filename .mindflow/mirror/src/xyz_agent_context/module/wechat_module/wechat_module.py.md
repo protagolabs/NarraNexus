@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+
+The "ack early" block (and its `is_wechat_channel` gate) is gone from
+`get_instructions`; it's now injected per-turn by the trigger
+(`_early_feedback_prefix`, see [[channel_trigger_base]]). WeChat leaves
+`react_tool_ref` unset → the base default (None) → message-only ack, so the
+channel gate is no longer needed here.
+
 ## 2026-07-10 — PR #87 review: is_wechat_channel gate + shared render
 
 Two review fixes: (1) the early-feedback block is now gated on

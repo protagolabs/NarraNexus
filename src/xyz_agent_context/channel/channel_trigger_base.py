@@ -84,6 +84,7 @@ from xyz_agent_context.channel.channel_context_builder_base import (
 from xyz_agent_context.channel.channel_debounce_merger import ChannelDebounceMerger
 from xyz_agent_context.channel.channel_dedup_store import ChannelDedupStore
 from xyz_agent_context.channel.channel_inbox_writer import ChannelInboxWriter
+from xyz_agent_context.channel.channel_reactions import render_early_feedback
 from xyz_agent_context.repository.channel_seen_message_repository import (
     ChannelSeenMessageRepository,
 )
@@ -160,6 +161,12 @@ class ChannelTriggerBase(ABC):
     channel_name: str = ""
     brand_display: str = ""
     working_source: WorkingSource = WorkingSource.CHAT  # subclass overrides
+
+    # The react tool name to show in the per-turn "ack early" directive (see
+    # _early_feedback_prefix). Fully-qualified for Lark (to match its
+    # ``mcp__lark_module__…`` convention), bare for the others. None = the
+    # channel has no reaction API (WeChat) → the ack is a message instead.
+    react_tool_ref: Optional[str] = None
 
     # ── Tunable defaults — subclass may override ──────────────────────────
     MIN_WORKERS: int = 3
@@ -1108,6 +1115,28 @@ class ChannelTriggerBase(ABC):
                 },
             )
 
+    def _early_feedback_prefix(self, message: ParsedMessage) -> str:
+        """The per-turn "ack early" directive prepended to the tagged prompt.
+
+        Channel-agnostic: each trigger sets ``react_tool_ref`` (bare name, or
+        fully-qualified for Lark, or None for a channel with no reaction API).
+        Reaction-capable channels only get the react form when the inbound
+        message id is present; message-only channels (react_tool_ref=None) get
+        the "send a quick 'on it'" form. Returns "" when nothing applies.
+        """
+        if self.react_tool_ref:
+            if not message.message_id:
+                return ""
+            return render_early_feedback(
+                tool_ref=self.react_tool_ref,
+                room_id=message.chat_id,
+                message_id=message.message_id,
+                inline=True,
+            )
+        return render_early_feedback(
+            tool_ref=None, room_id="", message_id="", inline=True,
+        )
+
     async def _build_and_run_agent(
         self,
         credential: Any,
@@ -1151,7 +1180,10 @@ class ChannelTriggerBase(ABC):
             sender_id=message.sender_id,
             room_id=message.chat_id,
         )
-        tagged_prompt = f"{channel_tag.format()}\n{prompt}"
+        tagged_prompt = (
+            f"{channel_tag.format()}\n"
+            f"{self._early_feedback_prefix(message)}{prompt}"
+        )
 
         # Resolve the AGENT'S OWNER (NarraNexus user_id), NOT the IM
         # sender. ProviderResolver maps the owner's user_id to API keys;

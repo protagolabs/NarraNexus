@@ -297,6 +297,7 @@ class LarkTrigger(ChannelTriggerBase):
     channel_name = "lark"
     brand_display = "Lark"  # Per-credential rendering picks Feishu vs Lark in inbox writer
     working_source = WorkingSource.LARK
+    react_tool_ref = "mcp__lark_module__react_to_user_message"
 
     # ── Worker pool — same defaults as the base, kept here for tests ─────
     MIN_WORKERS = 3
@@ -1711,7 +1712,10 @@ class LarkTrigger(ChannelTriggerBase):
             chat_id=message.chat_id,
             chat_name=message.raw.get("chat_name", ""),
         )
-        tagged_prompt = f"{channel_tag.format()}\n{prompt}"
+        tagged_prompt = (
+            f"{channel_tag.format()}\n"
+            f"{self._early_feedback_prefix(message)}{prompt}"
+        )
 
         # Resolve the AGENT'S OWNER (NarraNexus user_id) — NOT the Lark
         # sender's open_id. sender_id is a Lark-internal identifier that

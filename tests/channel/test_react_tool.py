@@ -314,6 +314,65 @@ async def test_source_message_id_in_trigger_extra_data(db_client, monkeypatch):
     assert extra.get("source_message_id") == "om_xyz"
 
 
+@pytest.mark.asyncio
+async def test_trigger_prepends_early_feedback_to_input(db_client, monkeypatch):
+    """The trigger injects the 'ack early' directive into the per-turn input
+    (input_content), right after the channel tag — using the channel's
+    react_tool_ref + the real room/message ids."""
+    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
+    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+
+    captured: dict = {}
+
+    async def _fake_collect_run(*a, **k):
+        captured["blob"] = " ".join(str(x) for x in (list(a) + list(k.values())))
+
+        @dataclass
+        class _R:
+            output_text: str = "ok"
+            is_error: bool = False
+            error: object = None
+            raw_items: list = None
+
+        return _R(raw_items=[])
+
+    class _FakeAgentRuntime:
+        def __init__(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
+    monkeypatch.setattr(rc_mod, "collect_run", _fake_collect_run)
+
+    class _ReactTrigger(_FakeTrigger):
+        react_tool_ref = "react_to_user_message"
+
+    trigger = _ReactTrigger([], _FakeCredential(agent_id="agent_a"))
+    trigger._db = db_client
+    msg = ParsedMessage(
+        message_id="om_1", chat_id="C9", sender_id="u1",
+        sender_name="Alice", content="hi", timestamp_ms=1,
+    )
+    await trigger._build_and_run_agent(trigger._credential, msg, "Alice", attachments=[])
+
+    blob = captured.get("blob", "")
+    assert "Early feedback" in blob
+    assert 'react_to_user_message(agent_id, room_id="C9", message_id="om_1"' in blob
+
+
+def test_early_feedback_prefix_message_only_when_no_react_tool():
+    """A trigger with react_tool_ref=None (WeChat) emits the message-only ack,
+    with no react tool name."""
+    cred = _FakeCredential(agent_id="agent_a")
+    trigger = _FakeTrigger([], cred)  # base default react_tool_ref = None
+    msg = ParsedMessage(
+        message_id="m1", chat_id="C1", sender_id="u1",
+        sender_name="A", content="hi", timestamp_ms=1,
+    )
+    prefix = trigger._early_feedback_prefix(msg)
+    assert "on it, one moment" in prefix
+    assert "react_to_user_message" not in prefix
+
+
 # ── shared render_early_feedback ─────────────────────────────────────
 
 
