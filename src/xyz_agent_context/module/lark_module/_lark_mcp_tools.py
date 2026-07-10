@@ -44,6 +44,17 @@ from ._lark_workspace import build_profile_name, ensure_workspace, get_home_env
 # Shared CLI client instance (stateless)
 _cli = LarkCLIClient()
 
+# Semantic reaction vocabulary → Lark emoji_type keys. Shared across every IM
+# channel's react_to_user_message tool so the agent uses one cross-channel set;
+# each module maps it to its platform's own tokens.
+_LARK_REACTIONS = {
+    "on_it": "Typing",
+    "done": "DONE",
+    "thumbs_up": "THUMBSUP",
+    "heart": "LOVE",
+    "problem": "ERROR",
+}
+
 # Max time we'll wait for the user to finish the browser-side setup flow
 # before we kill the subprocess and delete the pending DB row.
 _SETUP_TIMEOUT_SECONDS = 15 * 60
@@ -602,6 +613,30 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             logger.debug(f"lark_cli self-heal skipped: {e}")
 
         return result
+
+    @mcp.tool()
+    async def react_to_user_message(
+        agent_id: str, room_id: str, message_id: str, emoji: str = "on_it"
+    ) -> dict:
+        """React to the user's message with an emoji (a lightweight ack).
+
+        Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
+        longer task — without sending a full message. ``message_id`` is the
+        inbound message id shown in your channel instructions; ``room_id`` is the
+        chat id. ``emoji`` is a semantic value: ``on_it`` / ``done`` /
+        ``thumbs_up`` / ``heart`` / ``problem`` (unknown → ``on_it``).
+
+        Best-effort: needs the bot's reaction scope; a failure returns
+        ``{"success": false, "reason": ...}`` and never breaks your turn.
+        """
+        if not message_id:
+            return {"success": False, "reason": "message_id is required"}
+        emoji_type = _LARK_REACTIONS.get(emoji, _LARK_REACTIONS["on_it"])
+        try:
+            reaction_id = await _cli.add_reaction(agent_id, message_id, emoji_type)
+            return {"success": True, "reaction_id": reaction_id, "emoji": emoji}
+        except Exception as e:  # noqa: BLE001 — best-effort, never break the turn
+            return {"success": False, "reason": f"{type(e).__name__}: {e}"}
 
     @mcp.tool()
     async def lark_setup(agent_id: str, brand: str, owner_email: str = "") -> dict:

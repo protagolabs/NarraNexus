@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/discord_module.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — get_instructions surfaces early-feedback affordance
+
+Operational prompt now includes an "Early feedback (optional)" block (when in
+the Discord channel with a `source_message_id`): message id + channel + the
+`react_to_user_message` tool + a permissive "you MAY ack fast, then continue".
 
 ## 2026-07-03 — handler registers `dedicated_trigger=True`
 

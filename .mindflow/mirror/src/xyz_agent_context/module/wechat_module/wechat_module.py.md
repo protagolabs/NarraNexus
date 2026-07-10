@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_module.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — get_instructions surfaces early-feedback affordance
+
+Operational prompt now includes an "Early feedback (optional)" block (when a
+`source_message_id` is present) pointing the agent to a short `wechat_send` ack —
+WeChat has no reaction API, so `react_to_user_message` is unavailable here.
 
 ## 2026-07-03 — handler registers `dedicated_trigger=True`
 

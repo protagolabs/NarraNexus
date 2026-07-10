@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_cli_client.py
 stub: false
-last_verified: 2026-05-28
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — add_reaction (backs react_to_user_message)
+
+New `add_reaction(agent_id, message_id, emoji_type) -> reaction_id`, routed
+through the same per-agent `_run_with_agent_id` path as `send_message` (workspace
+HOME isolation, hydrated credential). Shells out to `lark-cli im reactions
+create` (`--params`/`--data` JSON), validates `message_id` against
+`_LARK_ID_PATTERN`, raises `RuntimeError` on CLI failure so the react tool can
+log + swallow (best-effort). `_extract_reaction_id` digs the id out of either the
+direct or `data`-wrapped payload. Consumer: `_lark_mcp_tools.react_to_user_message`.
 
 ## 2026-05-28 — set CWD to agent workspace when spawning lark-cli (P0 fix)
 

@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/discord_sdk_client.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — add_reaction (backs react_to_user_message)
+
+`add_reaction(channel_id, message_id, emoji)` via REST
+`PUT /channels/{ch}/messages/{msg}/reactions/{urlencoded_emoji}/@me` (unicode
+emoji percent-encoded with `urllib.parse.quote`). Raises `DiscordSDKError` on
+non-2xx so the react tool can log + swallow. Consumer:
+`_discord_mcp_tools.react_to_user_message`.
 
 > Also exposes ``create_dm_channel(user_id)`` (POST /users/@me/channels →
 > DM channel id, backs ``discord_dm``), ``list_guilds()`` and

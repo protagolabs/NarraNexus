@@ -32,6 +32,17 @@ from ._discord_service import _friendly_discord_error, do_bind, do_test_connecti
 from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
 
 
+# Semantic reaction vocabulary → Discord unicode emoji (shared cross-channel
+# set; each IM module maps it to its own platform tokens).
+_DISCORD_REACTIONS = {
+    "on_it": "⌨️",
+    "done": "✅",
+    "thumbs_up": "👍",
+    "heart": "❤️",
+    "problem": "⚠️",
+}
+
+
 async def _get_credential(agent_id: str):
     db = await XYZBaseModule.get_mcp_db_client()
     mgr = DiscordCredentialManager(db)
@@ -76,6 +87,35 @@ def register_discord_mcp_tools(mcp: Any) -> None:
             return {"success": True, "data": {"message_id": str(msg.get("id", ""))}}
         except DiscordSDKError as e:
             return {"success": False, "error": _friendly_discord_error(e.code or "")}
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def react_to_user_message(
+        agent_id: str, room_id: str, message_id: str, emoji: str = "on_it"
+    ) -> dict:
+        """React to the user's message with an emoji (a lightweight ack).
+
+        Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
+        longer task — without a full message. ``room_id`` is the channel id,
+        ``message_id`` the inbound message id (both shown in your channel
+        instructions). ``emoji`` is a semantic value: ``on_it`` / ``done`` /
+        ``thumbs_up`` / ``heart`` / ``problem`` (unknown → ``on_it``).
+
+        Best-effort: needs the Add Reactions permission; a failure returns
+        ``{"success": false, "reason": ...}`` and never breaks your turn.
+        """
+        if not room_id or not message_id:
+            return {"success": False, "reason": "room_id and message_id are required"}
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"success": False, "reason": "no_credential"}
+        unicode_emoji = _DISCORD_REACTIONS.get(emoji, _DISCORD_REACTIONS["on_it"])
+        client = DiscordSDKClient(cred.bot_token)
+        try:
+            await client.add_reaction(room_id, message_id, unicode_emoji)
+            return {"success": True, "emoji": emoji}
+        except Exception as e:  # noqa: BLE001 — best-effort, never break the turn
+            return {"success": False, "reason": f"{type(e).__name__}: {e}"}
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()

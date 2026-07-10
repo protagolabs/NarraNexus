@@ -457,6 +457,21 @@ class SlackModule(ChannelModuleBase):
                 "and never disclose owner-private context."
             )
 
+        early_feedback = ""
+        if is_slack_channel:
+            _msg_id = ctx_data.extra_data.get("source_message_id", "")
+            if _msg_id:
+                _ct = ctx_data.extra_data.get("channel_tag") or {}
+                _room_id = _ct.get("room_id", "")
+                early_feedback = (
+                    "\n### Early feedback (optional)\n\n"
+                    f"The sender's message ts is `{_msg_id}`"
+                    f"{f' (channel `{_room_id}`)' if _room_id else ''}. Before a longer "
+                    "task you MAY acknowledge fast — a one-line `chat.postMessage`, or "
+                    "`react_to_user_message(agent_id, room_id, message_id, emoji=\"on_it\")` "
+                    "(emoji: on_it/done/thumbs_up/heart/problem) — then keep working.\n"
+                )
+
         # Operational prompt — the hot path. Keep ≤ 80 lines.
         return f"""\
 ## Slack Integration  ({mode})
@@ -465,7 +480,7 @@ You are connected to Slack workspace **{team_name}** as bot user
 `{bot_user_id}`.
 
 {trust_block}
-
+{early_feedback}
 ### Tools you can call
 
 - `slack_cli(method, args)` — call ANY of the ~250 Slack Web API methods.

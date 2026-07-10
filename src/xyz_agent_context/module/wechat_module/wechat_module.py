@@ -166,13 +166,23 @@ class WeChatModule(ChannelModuleBase):
                 "untrusted until then."
             )
 
+        early_feedback = ""
+        if ctx_data.extra_data.get("source_message_id", ""):
+            early_feedback = (
+                "\n### Early feedback (optional)\n\n"
+                "Before a longer task you MAY acknowledge fast with a one-line "
+                "`wechat_send` message, then keep working. (WeChat has no reaction "
+                "API, so `react_to_user_message` is unavailable here — use a short "
+                "message instead.)\n"
+            )
+
         return f"""\
 ## WeChat Integration  (Reply on WeChat)
 
 You are connected to a personal WeChat account (via the iLink gateway).
 
 {trust_block}
-
+{early_feedback}
 ### Replying
 
 To reply, call `wechat_send(to_user_id, context_token, text)`:

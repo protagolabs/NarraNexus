@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — get_instructions surfaces early-feedback affordance
+
+The LARK CHANNEL mode block renders (when `source_message_id` is present) an
+"Early feedback (optional)" line: the inbound message id + chat id + the
+`react_to_user_message` tool + a permissive "you MAY acknowledge fast, then keep
+working". Permission is generic (says *may*, never forces — rule #15); the actual
+"do ack early" preference belongs in per-agent Awareness.
 
 ## 2026-07-03 — handler registers `dedicated_trigger=True`
 

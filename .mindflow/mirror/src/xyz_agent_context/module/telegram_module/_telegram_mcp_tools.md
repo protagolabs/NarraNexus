@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/_telegram_mcp_tools.py
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — react_to_user_message tool (agent-driven early feedback)
+
+New `react_to_user_message(agent_id, room_id, message_id, emoji)` — shared
+semantic `emoji` mapped via `_TELEGRAM_REACTIONS` to Telegram's allowed set
+(✅ is NOT allowed → `done`=🎉), backed by `TelegramSDKClient.set_message_reaction`;
+closes the client in `finally`. Best-effort envelope, never raises.
 
 ## Why it exists
 

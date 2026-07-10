@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/_slack_mcp_tools.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — react_to_user_message tool (agent-driven early feedback)
+
+New `react_to_user_message(agent_id, room_id, message_id, emoji)` — shared
+semantic `emoji` mapped via `_SLACK_REACTIONS` to Slack names, backed by
+`SlackSDKClient.add_reaction` (reactions.add). Best-effort envelope, never raises.
 
 ## Why it exists
 
