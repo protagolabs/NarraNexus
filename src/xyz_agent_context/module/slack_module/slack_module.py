@@ -470,7 +470,8 @@ class SlackModule(ChannelModuleBase):
                     f"`react_to_user_message(agent_id, room_id=\"{_room_id}\", "
                     f"message_id=\"{_msg_id}\", emoji=\"on_it\")`, or send a quick "
                     "\"on it, one moment\". Skip it only for trivial one-line replies. "
-                    "(emoji: on_it/done/thumbs_up/heart/problem)\n"
+                    "(emoji options: on_it/searching/done/celebrate/thumbs_up/"
+                    "heart/thanks/applause/hundred/warning/problem)\n"
                 )
 
         # Operational prompt — the hot path. Keep ≤ 80 lines.

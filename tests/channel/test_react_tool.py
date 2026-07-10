@@ -72,7 +72,15 @@ class _FakeLarkCli:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "semantic,expected",
-    [("on_it", "Typing"), ("done", "DONE"), ("thumbs_up", "THUMBSUP"), ("nope", "Typing")],
+    [
+        ("on_it", "Typing"),
+        ("done", "DONE"),
+        ("thumbs_up", "THUMBSUP"),
+        ("searching", "GLANCE"),
+        ("celebrate", "FIRECRACKER"),
+        ("problem", "CrossMark"),
+        ("nope", "Typing"),  # unknown → default on_it
+    ],
 )
 async def test_lark_react_maps_semantic_to_emoji_type(monkeypatch, semantic, expected):
     import xyz_agent_context.module.lark_module._lark_mcp_tools as m
@@ -171,9 +179,9 @@ async def test_discord_react_maps_and_calls(monkeypatch):
     monkeypatch.setattr(m, "_get_credential", _cred)
     monkeypatch.setattr(m, "DiscordSDKClient", _FakeDiscordClient)
     react = _tools(m.register_discord_mcp_tools)["react_to_user_message"]
-    out = await react("agent_a", "123", "456", "problem")
+    out = await react("agent_a", "123", "456", "celebrate")
     assert out["success"] is True
-    assert _FakeDiscordClient.last.calls == [("123", "456", "⚠️")]
+    assert _FakeDiscordClient.last.calls == [("123", "456", "🎉")]
 
 
 # ── Telegram ─────────────────────────────────────────────────────────

@@ -36,10 +36,16 @@ from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
 # set; each IM module maps it to its own platform tokens).
 _DISCORD_REACTIONS = {
     "on_it": "⌨️",
+    "searching": "🔍",
     "done": "✅",
+    "celebrate": "🎉",
     "thumbs_up": "👍",
     "heart": "❤️",
-    "problem": "⚠️",
+    "thanks": "🙏",
+    "applause": "👏",
+    "hundred": "💯",
+    "warning": "⚠️",
+    "problem": "❌",
 }
 
 
@@ -98,8 +104,8 @@ def register_discord_mcp_tools(mcp: Any) -> None:
         Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
         longer task — without a full message. ``room_id`` is the channel id,
         ``message_id`` the inbound message id (both shown in your channel
-        instructions). ``emoji`` is a semantic value: ``on_it`` / ``done`` /
-        ``thumbs_up`` / ``heart`` / ``problem`` (unknown → ``on_it``).
+        instructions). ``emoji`` is a semantic reaction name — see the channel
+        instruction for the full menu (unknown → ``on_it``).
 
         Best-effort: needs the Add Reactions permission; a failure returns
         ``{"success": false, "reason": ...}`` and never breaks your turn.

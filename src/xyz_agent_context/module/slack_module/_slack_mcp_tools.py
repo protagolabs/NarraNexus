@@ -36,10 +36,16 @@ from .slack_sdk_client import SlackSDKClient
 # each IM module maps it to its own platform tokens).
 _SLACK_REACTIONS = {
     "on_it": "eyes",
+    "searching": "mag",
     "done": "white_check_mark",
+    "celebrate": "tada",
     "thumbs_up": "thumbsup",
     "heart": "heart",
-    "problem": "warning",
+    "thanks": "pray",
+    "applause": "clap",
+    "hundred": "100",
+    "warning": "warning",
+    "problem": "x",
 }
 
 
@@ -139,8 +145,8 @@ def register_slack_mcp_tools(mcp: Any) -> None:
         Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
         longer task — without a full message. ``room_id`` is the Slack channel,
         ``message_id`` the inbound message ts (both shown in your channel
-        instructions). ``emoji`` is a semantic value: ``on_it`` / ``done`` /
-        ``thumbs_up`` / ``heart`` / ``problem`` (unknown → ``on_it``).
+        instructions). ``emoji`` is a semantic reaction name — see the channel
+        instruction for the full menu (unknown → ``on_it``).
 
         Best-effort: needs ``reactions:write``; a failure returns
         ``{"success": false, "reason": ...}`` and never breaks your turn.

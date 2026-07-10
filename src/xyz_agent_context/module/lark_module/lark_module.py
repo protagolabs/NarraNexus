@@ -583,7 +583,8 @@ class LarkModule(ChannelModuleBase):
                     f"(agent_id, room_id=\"{_room_id}\", message_id=\"{_msg_id}\", "
                     f"emoji=\"on_it\")`, or send a quick \"on it, one moment\". Skip it "
                     f"only for trivial one-line replies. "
-                    f"(emoji: on_it/done/thumbs_up/heart/problem)\n"
+                    f"(emoji options: on_it/searching/done/celebrate/thumbs_up/"
+                    f"heart/thanks/applause/hundred/warning/problem)\n"
                 )
         else:
             mode_section = (

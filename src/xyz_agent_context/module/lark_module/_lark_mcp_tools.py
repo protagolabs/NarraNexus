@@ -49,10 +49,16 @@ _cli = LarkCLIClient()
 # each module maps it to its platform's own tokens.
 _LARK_REACTIONS = {
     "on_it": "Typing",
+    "searching": "GLANCE",
     "done": "DONE",
+    "celebrate": "FIRECRACKER",
     "thumbs_up": "THUMBSUP",
     "heart": "LOVE",
-    "problem": "ERROR",
+    "thanks": "THANKS",
+    "applause": "APPLAUSE",
+    "hundred": "Hundred",
+    "warning": "ERROR",
+    "problem": "CrossMark",
 }
 
 # Max time we'll wait for the user to finish the browser-side setup flow
@@ -623,8 +629,8 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
         longer task — without sending a full message. ``message_id`` is the
         inbound message id shown in your channel instructions; ``room_id`` is the
-        chat id. ``emoji`` is a semantic value: ``on_it`` / ``done`` /
-        ``thumbs_up`` / ``heart`` / ``problem`` (unknown → ``on_it``).
+        chat id. ``emoji`` is a semantic reaction name — see the channel
+        instruction for the full menu (unknown → ``on_it``).
 
         Best-effort: needs the bot's reaction scope; a failure returns
         ``{"success": false, "reason": ...}`` and never breaks your turn.

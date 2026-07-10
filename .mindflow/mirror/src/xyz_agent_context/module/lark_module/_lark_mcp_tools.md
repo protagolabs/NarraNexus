@@ -7,10 +7,13 @@ last_verified: 2026-07-10
 ## 2026-07-10 — react_to_user_message tool (agent-driven early feedback)
 
 New agent-facing `react_to_user_message(agent_id, room_id, message_id, emoji)`.
-`emoji` is a shared cross-channel semantic value (`on_it`/`done`/`thumbs_up`/
-`heart`/`problem`, unknown → `on_it`) mapped via `_LARK_REACTIONS` to Lark
-`emoji_type` keys, backed by `LarkCLIClient.add_reaction`. Best-effort: returns
-`{success:false, reason}` on any error, never raises.
+`emoji` is a shared cross-channel semantic value from an 11-item "task mood" menu
+(`on_it`/`searching`/`done`/`celebrate`/`thumbs_up`/`heart`/`thanks`/`applause`/
+`hundred`/`warning`/`problem`; unknown → `on_it`) — the agent picks per task.
+Each module maps it to its platform tokens (`_LARK_REACTIONS` → Lark `emoji_type`
+keys), backed by `LarkCLIClient.add_reaction`. Best-effort: returns
+`{success:false, reason}` on any error, never raises. The full menu + the
+platform each renders lives in each channel's get_instructions.
 
 ## 2026-05-22 — add `lark_unbind` to close the bind/unbind symmetry
 
