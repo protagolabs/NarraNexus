@@ -1,8 +1,94 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-08
 ---
+
+## 2026-07-08 — `pre_start(db)` hook added for the consolidated supervisor
+
+New optional lifecycle hook `pre_start(db)` (default no-op), called by the
+consolidated supervisor (`module/run_channel_triggers.py`) BEFORE `start(db)`.
+Subclasses override it to run their own idempotent one-off migration inside the
+channel instead of in the shared entrypoint (rule #4). First user:
+`LarkTrigger.pre_start` carries the legacy `auth_status` migration that used to
+live in the now-deleted `run_lark_trigger` entrypoint. The design decision
+"6 abstract methods + 1 optional hook + 2 PUSH stubs" below now reads "…+ 2
+optional hooks…" (`fetch_attachments` and `pre_start`). Consolidation relies on
+`start()` already being non-blocking + all state being per-instance, so N
+triggers coexist in one event loop.
+
+## 2026-07-07 — error-fallback: surface run failures INTO the channel
+
+Problem: IM delivery is "agent calls its own reply tool during the run; the
+trigger only scrapes the sent text for the inbox." So if a run FAILED before
+the agent reached its reply tool, nothing was sent to the channel — the user
+saw silence, indistinguishable from the agent choosing not to answer. Chat had
+a helper_llm fallback; IM was excluded. (slack/discord/telegram/wechat wrote
+the error to the inbox ONLY; lark already sent it; matrix uses streaming
+markers.)
+
+Fix — three pieces, all in `_build_and_run_agent`:
+1. New overridable hook `send_channel_reply(credential, message, text)` —
+   default no-op; each IM subclass implements it with the per-subscriber SDK
+   client it already holds, addressing via `message.chat_id` / `sender_id` /
+   `raw`. The runtime CANNOT do this itself (it has no channel client — those
+   live on the trigger), which is why the fallback lives at the trigger layer.
+2. `_send_error_fallback(...)` sends the error via the hook UNLESS the agent
+   already replied this turn (`already_replied` → don't double-message),
+   best-effort (a send failure is logged, never masks the original error).
+3. `_build_and_run_agent` now: wraps `run_and_collect` in try/except (a hard
+   raise, not just a yielded ERROR, still notifies — no silent crash); on
+   `result.is_error` computes `already_replied` from `extract_output` vs
+   `CHANNEL_SILENT_SENTINEL` and fires the fallback.
+
+**Key safety property**: the fallback fires ONLY on `is_error` (or a raise). A
+run that stays silent by CHOICE never sets `is_error`, so intended silence
+(group non-@, nothing to add — see `_build_and_run_agent_silent_batch`) is
+never disturbed. This deliberately does NOT recover the "agent wrote a reply
+but forgot to call the send tool" (`no_reply`) case for IM — too ambiguous vs
+intended silence; only errors are surfaced.
+
+`CHANNEL_SILENT_SENTINEL = "(stayed silent)"` is now a shared module constant
+(was hard-coded identically in 5 channels) so the base can tell "agent stayed
+silent" from "agent replied" when gating the fallback. Lark's bespoke error
+send was consolidated onto the same hook.
+
+## 2026-07-02 — `_build_and_run_agent_silent_batch` for group non-@ ingestion
+
+New instance method on the base: takes a non-empty list of
+`ParsedMessage` (same chat_id, chronological), merges into one
+`input_content` line-per-message with `[ts] Display: body`, then calls
+`get_agent_runtime_client().run_and_collect(..., silent=True,
+trigger_extra_data={"batch_messages": [...]})`. Per-message metadata
+(event_id / timestamp / sender_id / sender_name / attachments) rides
+in `batch_messages`; ChatModule's silent-batch write path (see
+[[chat_module.py]]) reads it and appends N user rows to
+`instance_json_format_memory` with NO assistant row.
+
+Why here (channel-agnostic): all IM triggers have the same "group
+message that didn't @ us" shape — Slack currently drops these at the
+event boundary, Lark runs the full agent on every message, both
+suboptimal. Landing the silent-batch shape on the base means each
+trigger only needs a classification step (dm / group_mention /
+group_silent) + a debounced flush; the batch runtime plumbing is
+shared. Matrix (Commit 4b) is the first consumer.
+
+The method is fire-and-forget for output: silent runs produce no
+user-facing text, so no return value; failures inside the runtime
+call are logged and swallowed to keep the sync loop / debounce timer
+advancing (a dropped batch is recoverable via reconnect + since_token
+replay, a crashed trigger is not).
+
+## 2026-07-03 — CONTENT_DEDUP_WINDOW_SECONDS + _content_fingerprint (X1)
+
+New opt-in class attr (default 0) wires ChannelDedupStore's
+content-fingerprint layer; `_content_fingerprint` hashes
+(chat_id|sender_id|content) → sha256[:32]. Policy stays in the subclass
+(NarramessengerTrigger sets 20 min to cover the platform's 15-min
+re-dispatch deadline); base computes the fingerprint so every channel
+shares one identity definition. Chosen over shrinking
+PROCESS_MESSAGE_TIMEOUT below the platform deadline, which would cut slow
+LLM turns short (铁律 #14).
 
 ## 2026-07-03 — unparsed raw events now audited (`_on_unparsed`)
 

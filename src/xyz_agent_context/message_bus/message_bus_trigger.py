@@ -28,6 +28,11 @@ from typing import Dict, List
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.llm_failure import (
+    MAX_REDACTED_ERROR_LEN,
+    is_credential_error,
+    redact_secrets,
+)
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.schemas import BusMessage
 
@@ -77,48 +82,11 @@ POISON_FAILURE_THRESHOLD = 3
 # not write one inbox row per message.
 FAILURE_NOTIFY_COOLDOWN_SECONDS = 1800  # 30 minutes
 
-# Substrings (lower-cased) that mark an error as a provider/credential
-# problem worth calling out explicitly, vs. a generic failure. Deliberately
-# coarse — this only changes the hint text shown to the owner, not any
-# retry/delivery behavior.
-_CREDENTIAL_ERROR_MARKERS = (
-    "api_key",
-    "api key",
-    "apikey",
-    "credential",
-    "unauthorized",
-    "authentication",
-    " 401",
-    "(401",
-    " 403",
-    "(403",
-    "invalid_api_key",
-    "invalid api key",
-    "provider",
-)
-
-# Max length of the (already-redacted) error string embedded in an owner
-# inbox notification. Provider error bodies can be arbitrarily long (stack
-# traces, full HTTP response bodies); we only need enough for the owner to
-# recognise the failure, not a full dump.
-MAX_NOTIFIED_ERROR_LEN = 500
-
-# Patterns for masking secret-looking substrings out of a provider error
-# message before it is echoed into the owner's inbox. Provider SDKs
-# frequently echo the credential back in the error body (e.g. OpenAI's
-# "Incorrect API key provided: sk-..."), so `str(exception)` is not safe to
-# show verbatim. Deliberately coarse pattern matching, not a full secret
-# scanner — this only touches what is DISPLAYED, never the classification
-# in `_classify_error` (which runs on the raw error) or delivery behavior.
-_SECRET_KEY_PATTERN = re.compile(r"\bsk-[A-Za-z0-9_-]{6,}")
-_SECRET_KEYVALUE_PATTERN = re.compile(
-    r"\b((?:api[_-]?key|apikey|token|secret|password)\s*[:=]\s*)"
-    r"([^\s,;\"']{4,})",
-    re.IGNORECASE,
-)
-_SECRET_BEARER_PATTERN = re.compile(
-    r"\bBearer\s+[A-Za-z0-9._-]{8,}", re.IGNORECASE
-)
+# Credential-error classification and secret redaction moved to the shared
+# ``agent_framework.llm_failure`` module so every background LLM path (bus,
+# narrative updater, Step-5 hooks) asks the same questions the same way.
+# ``_classify_error`` / ``_redact_error_for_owner`` below delegate to it.
+MAX_NOTIFIED_ERROR_LEN = MAX_REDACTED_ERROR_LEN
 
 
 def im_channel_prefixes() -> tuple[str, ...]:
@@ -526,10 +494,7 @@ class MessageBusTrigger:
         "api_key" / "401", it never displays the raw string, so there is
         nothing to redact here.
         """
-        lowered = (error or "").lower()
-        if any(marker in lowered for marker in _CREDENTIAL_ERROR_MARKERS):
-            return "provider_credential"
-        return "generic"
+        return "provider_credential" if is_credential_error(error) else "generic"
 
     @staticmethod
     def _redact_error_for_owner(error: str) -> str:
@@ -544,13 +509,7 @@ class MessageBusTrigger:
         common `sk-...` / `key=...` / `Bearer ...` shapes, not a security
         boundary for arbitrary provider error formats.
         """
-        text = error or ""
-        text = _SECRET_BEARER_PATTERN.sub("Bearer ***", text)
-        text = _SECRET_KEY_PATTERN.sub("sk-***", text)
-        text = _SECRET_KEYVALUE_PATTERN.sub(lambda m: f"{m.group(1)}***", text)
-        if len(text) > MAX_NOTIFIED_ERROR_LEN:
-            text = text[:MAX_NOTIFIED_ERROR_LEN] + "... [truncated]"
-        return text
+        return redact_secrets(error, MAX_NOTIFIED_ERROR_LEN)
 
     async def _notify_permanent_failure(
         self,
@@ -710,8 +669,6 @@ class MessageBusTrigger:
     ) -> List[str]:
         """Resolve @mentions in an agent's reply to channel-member agent_ids
         (or ["@everyone"] for @all/@everyone), so a hand-off pulls teammates in."""
-        import re
-
         tokens = {t.lower() for t in re.findall(r"@([\w一-鿿]+)", text or "")}
         if not tokens:
             return []

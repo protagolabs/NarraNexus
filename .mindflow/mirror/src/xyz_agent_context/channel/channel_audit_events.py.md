@@ -9,6 +9,19 @@ last_verified: 2026-07-03
 New ingress constant for raw events rejected by parse_event (unsupported
 message types). Emitted by ChannelTriggerBase._on_unparsed.
 
+## 2026-07-02 — `EVENT_TRANSPORT_SEND_FAILED` (Matrix Commit 4b)
+
+New shared audit type for reply-side transport failures. Added when
+MatrixTrigger's `_send_matrix_reply` exhausts retries or hits a
+permanent auth error on `client.room_send`. Kept generic so any
+channel whose reply path can fail out-of-band after the agent
+finished can emit it — Slack / Telegram might too once their reply
+tools land on this pattern. Distinct from `inbox_write_failed`:
+that one is our own DB row; this one is the platform refusing our
+outbound message. Details carry `error_code` (M_LIMIT_EXCEEDED /
+M_UNKNOWN_TOKEN / transport_exception / no_active_client / …),
+`attempts`, and a truncated `body_preview` for post-mortem.
+
 ## Why it exists
 
 Single source of truth for the event-type strings that flow into
