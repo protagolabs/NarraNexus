@@ -680,10 +680,6 @@
       "notEligible": "Cannot incur paid usage right now (no balance / not eligible).",
       "hasArrears": "You have outstanding arrears.",
       "activityTitle": "Recent activity",
-      "useTitle": "Power NarraNexus with this account",
-      "useDesc": "Run agent conversations on your NetMind.AI Power credits — no API key to paste.",
-      "useSubscribeBtn": "Use this account",
-      "useSubscribeOk": "Connected — you can now pick a model in LLM Providers.",
       "deductTitle": "How usage is charged",
       "deductOrder": "subscription grant first → then account balance (recharge) → paid usage stops when both run out.",
       "scopeNote": "These NetMind.AI Power credits cover LLM API usage. Compute (GPU) and other pricing are billed separately.",
@@ -697,10 +693,9 @@
       "rechargeFailed": "Payment failed or was cancelled.",
       "rechargeInvalidAmount": "Enter an amount greater than 0.",
       "rechargeStopWaiting": "Stop waiting",
-      "connectedStatus": "Running NarraNexus on your NetMind.AI Power credits (used after the free tier).",
-      "connecting": "Connecting your NetMind.AI Power account…",
-      "useDescSwitch": "You have your own provider configured. Switch to running on your NetMind.AI Power credits instead.",
-      "connectRetry": "Retry connecting"
+      "connectedManage": "Your NetMind.AI Power account is connected. Manage which provider runs NarraNexus in LLM Providers.",
+      "checkingStatus": "Checking your NetMind.AI Power connection…",
+      "notConnected": "Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers."
     },
     "modal": {
       "title": "Settings",

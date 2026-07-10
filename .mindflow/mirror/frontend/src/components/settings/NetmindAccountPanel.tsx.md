@@ -1,9 +1,22 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-06
+last_verified: 2026-07-10
 stub: false
 ---
- 
+
+## 2026-07-10 — 模块 F 改为「只读状态」，删掉 mint/connect 按钮
+
+云端登录已在后端自动 register NetMind provider（见 [[netmind_provisioner]] +
+[[auth]]），所以面板这里**不再 mint、不再有按钮**。原来的连接状态机
+（`connect`/`connectNetmind`/`resolveConnection`/`classifyConnectError`/
+`other_provider` 切换按钮/重试按钮）**全部删除**，换成读 `api.getProviders()` 的三态
+只读状态 `netStatus`：`connected`（存在 `source==='netmind'` 的 provider）/
+`checking` / `not_connected`。选择"由哪个 provider 驱动"归 LLM Providers 区。
+面板不再调 `api.useSubscription()`（`api.ts` 仍保留该方法，供兜底路由用）。i18n
+去掉 `useTitle/useDesc/useSubscribeBtn/useSubscribeOk/connectedStatus/connecting/
+useDescSwitch/connectRetry`，加 `connectedManage/checkingStatus/notConnected`。
+（本条取代下方 2026-07-02「Phase 5」与旧版 auto-connect 描述。）
+
 ## 2026-07-06 — recent activity collapsed by default
 
 The activity list is now behind a collapsed toggle (`showActivity`, default false):

@@ -224,6 +224,16 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     )
     _schedule_login_rearm(user.user_id)
 
+    # Cloud login IS NetMind login — make the user's NetMind.AI Power credits
+    # available automatically (mint key + register the netmind provider if
+    # missing). Fire-and-forget + non-fatal: login must never block on or fail
+    # from NetMind minting. Self-guards on the feature flag; register-only when
+    # the user already has an active config (no slot hijack).
+    from xyz_agent_context.services.netmind_provisioner import (
+        schedule_ensure_netmind_provider,
+    )
+    schedule_ensure_netmind_provider(user.user_id, request.netmind_token)
+
     return NetmindLoginResponse(
         success=True,
         user_id=user.user_id,

@@ -24,7 +24,6 @@ const mockGetRecords = vi.fn();
 const mockSubscribe = vi.fn();
 const mockCancel = vi.fn();
 const mockReactivate = vi.fn();
-const mockUseSubscription = vi.fn();
 const mockRecharge = vi.fn();
 const mockRechargeStatus = vi.fn();
 const mockGetProviders = vi.fn();
@@ -36,16 +35,14 @@ vi.mock('@/lib/api', () => ({
     subscribe: (...a: unknown[]) => mockSubscribe(...a),
     cancelSubscription: (...a: unknown[]) => mockCancel(...a),
     reactivateSubscription: (...a: unknown[]) => mockReactivate(...a),
-    useSubscription: (...a: unknown[]) => mockUseSubscription(...a),
     recharge: (...a: unknown[]) => mockRecharge(...a),
     rechargeStatus: (...a: unknown[]) => mockRechargeStatus(...a),
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
   },
 }));
 
-// A netmind provider already exists → connect resolves to "connected" (a status,
-// no auto-mint). This is the default so unrelated tests aren't perturbed by the
-// module-F auto-connect on mount; tests that exercise connect override it.
+// A netmind provider already exists → status resolves to "connected". Default so
+// unrelated tests see a stable status block; status tests override it.
 const NETMIND_CONNECTED = {
   success: true,
   data: { providers: { p1: { source: 'netmind' } }, slots: {} },
@@ -66,10 +63,8 @@ beforeEach(() => {
   mockSubscribe.mockReset();
   mockCancel.mockReset();
   mockReactivate.mockReset();
-  mockUseSubscription.mockReset();
   mockRecharge.mockReset();
   mockRechargeStatus.mockReset();
-  mockUseSubscription.mockResolvedValue({ success: true, provider_ids: ['p1'] });
   mockGetProviders.mockReset();
   mockGetProviders.mockResolvedValue(NETMIND_CONNECTED); // default: already connected
   mockOpenExternal.mockClear();
@@ -224,45 +219,31 @@ test('activity: hidden when records fetch fails', async () => {
   expect(screen.queryByText(/Recent activity/)).toBeNull();
 });
 
-// --- Phase 5 / module F: auto-connect + status ------------------------------
+// --- Phase 5 / module F: connection status (read-only) ----------------------
+// The backend auto-registers the NetMind provider on login; this panel only
+// reflects the result read from GET /api/providers — no mint/connect button.
 
-test('connect: already-connected netmind provider → ✓ status, no auto-mint', async () => {
+test('status: netmind provider present → ✓ connected', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
   // default mockGetProviders = NETMIND_CONNECTED
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/Running NarraNexus on your NetMind\.AI Power credits/)).toBeTruthy();
-  expect(mockUseSubscription).not.toHaveBeenCalled();
+  expect(await screen.findByText(/account is connected/)).toBeTruthy();
+  // status-only: there is no mint/connect/switch button anywhere
+  expect(screen.queryByRole('button', { name: /Use this account/ })).toBeNull();
 });
 
-test('connect: fresh user (no provider) → auto-connects on mount', async () => {
-  mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
-  mockGetProviders.mockResolvedValue({ success: true, data: { providers: {}, slots: {} } });
-  mockUseSubscription.mockResolvedValue({ success: true, provider_ids: ['p1'] });
-  render(<NetmindAccountPanel />);
-  await waitFor(() => expect(mockUseSubscription).toHaveBeenCalled());
-  expect(await screen.findByText(/Running NarraNexus on your NetMind\.AI Power credits/)).toBeTruthy();
-});
-
-test('connect: user with their OWN provider → offered a switch, NOT auto-minted', async () => {
+test('status: no netmind provider → not-connected copy', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
   mockGetProviders.mockResolvedValue({ success: true, data: { providers: { x: { source: 'user' } }, slots: {} } });
   render(<NetmindAccountPanel />);
-  const btn = await screen.findByRole('button', { name: /Use this account/ });
-  expect(mockUseSubscription).not.toHaveBeenCalled(); // don't hijack their choice
-  fireEvent.click(btn);
-  await waitFor(() => expect(mockUseSubscription).toHaveBeenCalled());
-  expect(await screen.findByText(/Running NarraNexus on your NetMind\.AI Power credits/)).toBeTruthy();
+  expect(await screen.findByText(/isn.t linked as a provider yet/)).toBeTruthy();
 });
 
-test('connect: feature flag off (403) → section hidden, no ✓/error', async () => {
+test('status: getProviders fails → not-connected (no infinite checking)', async () => {
   mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
-  mockGetProviders.mockResolvedValue({ success: true, data: { providers: {}, slots: {} } });
-  mockUseSubscription.mockRejectedValue(new Error('API error 403: Using a NetMind subscription is not enabled yet'));
+  mockGetProviders.mockRejectedValue(new Error('500'));
   render(<NetmindAccountPanel />);
-  await screen.findByText(/Free \(not subscribed\)/);
-  await waitFor(() => expect(mockUseSubscription).toHaveBeenCalled());
-  expect(screen.queryByText(/Running NarraNexus on your NetMind\.AI Power credits/)).toBeNull();
-  expect(screen.queryByText(/Retry connecting/)).toBeNull();
+  expect(await screen.findByText(/isn.t linked as a provider yet/)).toBeTruthy();
 });
 
 // --- Phase 2 balance ---------------------------------------------------------

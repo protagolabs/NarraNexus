@@ -679,10 +679,6 @@
       "notEligible": "当前无法产生付费消费（无余额 / 不可用）。",
       "hasArrears": "你有未结清的欠费。",
       "activityTitle": "最近流水",
-      "useTitle": "用此账户驱动 NarraNexus",
-      "useDesc": "用你的 NetMind.AI Power 额度跑 Agent 对话——无需粘贴 API key。",
-      "useSubscribeBtn": "使用此账户",
-      "useSubscribeOk": "已接入——现在可到「LLM Providers」选择模型。",
       "deductTitle": "扣费顺序",
       "deductOrder": "先扣订阅赠送额度 → 再扣账户余额（充值） → 两者用尽后停止付费消费。",
       "scopeNote": "这些 NetMind.AI Power 额度用于 LLM API 调用；算力（GPU）等定价另计。",
@@ -696,10 +692,9 @@
       "rechargeFailed": "支付失败或已取消。",
       "rechargeInvalidAmount": "请输入大于 0 的金额。",
       "rechargeStopWaiting": "停止等待",
-      "connectedStatus": "正在用你的 NetMind.AI Power 额度运行 NarraNexus（免费额度用完后生效）。",
-      "connecting": "正在接入你的 NetMind.AI Power 账户…",
-      "useDescSwitch": "你已配置了自己的服务商。可改为用你的 NetMind.AI Power 额度运行。",
-      "connectRetry": "重试接入"
+      "connectedManage": "已连接你的 NetMind.AI Power 账户。可在「LLM 服务商」中管理由哪个服务商驱动 NarraNexus。",
+      "checkingStatus": "正在检查你的 NetMind.AI Power 连接状态…",
+      "notConnected": "尚未将你的 NetMind.AI Power 账户接入为服务商。重新登录以自动接入，或在「LLM 服务商」中手动添加。"
     },
     "modal": {
       "title": "设置",
