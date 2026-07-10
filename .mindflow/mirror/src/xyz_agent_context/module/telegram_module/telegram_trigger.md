@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_trigger.py
 stub: false
-last_verified: 2026-05-20
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — processing_indicator migrated to the handle signature
+
+`processing_indicator` now yields a `ProcessingIndicatorHandle` (base contract
+change) instead of `None`. Telegram's signal is a continuous "typing…" that just
+stops when the run ends, so it ignores the handle's outcome — the typing pump
+logic is unchanged; it only yields a fresh handle to satisfy the base seam
+(`_build_and_run_agent` calls `handle.set_error(...)` on it).
 
 ## Why it exists
 

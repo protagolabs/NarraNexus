@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_trigger.py
 stub: false
-last_verified: 2026-05-21
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — native processing indicator (reaction)
+
+`processing_indicator` override on the base `_emoji_reaction_indicator` skeleton:
+react to the user's message with `eyes` while running, swap to
+`white_check_mark` on success / `warning` on failure. Slack keys reactions by
+(channel, ts, name), so removal needs no id — `message.message_id` IS the ts.
+Uses `SlackSDKClient.add_reaction / remove_reaction` (see [[slack_sdk_client]]);
+best-effort (needs `reactions:write`; failures swallowed by the skeleton).
 
 ## Why it exists
 

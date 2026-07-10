@@ -25,6 +25,7 @@ This is the ONLY Discord-channel file that talks to the REST API.
 from __future__ import annotations
 
 from typing import Any, Optional
+from urllib.parse import quote
 
 import aiohttp
 from loguru import logger
@@ -194,6 +195,33 @@ class DiscordSDKClient:
                 "POST", f"/channels/{channel_id}/messages", json_body=body
             )
         return last
+
+    async def add_reaction(
+        self, channel_id: str, message_id: str, emoji: str
+    ) -> None:
+        """PUT the bot's own reaction (unicode ``emoji``) on a message.
+
+        Backs the trigger's processing indicator. The emoji is URL-encoded
+        (Discord expects the raw unicode percent-encoded in the path).
+        Raises ``DiscordSDKError`` on failure so the caller can log + swallow
+        (best-effort — missing Add Reactions permission must not abort the
+        run). Discord returns 204 No Content on success.
+        """
+        enc = quote(emoji, safe="")
+        await self._request(
+            "PUT",
+            f"/channels/{channel_id}/messages/{message_id}/reactions/{enc}/@me",
+        )
+
+    async def remove_own_reaction(
+        self, channel_id: str, message_id: str, emoji: str
+    ) -> None:
+        """DELETE the bot's own reaction (unicode ``emoji``) from a message."""
+        enc = quote(emoji, safe="")
+        await self._request(
+            "DELETE",
+            f"/channels/{channel_id}/messages/{message_id}/reactions/{enc}/@me",
+        )
 
     async def get_channel_messages(
         self, channel_id: str, limit: int = 20

@@ -52,6 +52,7 @@ from xyz_agent_context.channel.channel_context_builder_base import (
 from xyz_agent_context.channel.channel_trigger_base import (
     CHANNEL_SILENT_SENTINEL,
     ChannelTriggerBase,
+    ProcessingIndicatorHandle,
 )
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
@@ -175,7 +176,7 @@ class TelegramTrigger(ChannelTriggerBase):
     @asynccontextmanager
     async def processing_indicator(  # type: ignore[override]
         self, credential: TelegramCredential, message: ParsedMessage
-    ) -> AsyncIterator[None]:
+    ) -> AsyncIterator[ProcessingIndicatorHandle]:
         """Drive a "typing..." indicator on Telegram while the agent thinks.
 
         ``sendChatAction(action="typing")`` clears after ~5s, so a
@@ -221,7 +222,10 @@ class TelegramTrigger(ChannelTriggerBase):
 
         pump_task = asyncio.create_task(_pump())
         try:
-            yield
+            # Telegram's signal is a continuous "typing…" that simply stops
+            # when the run ends, so the outcome carried by the handle is not
+            # used here — yield a fresh one to satisfy the base contract.
+            yield ProcessingIndicatorHandle()
         finally:
             stop_event.set()
             try:

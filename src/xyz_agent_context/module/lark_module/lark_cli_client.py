@@ -42,7 +42,7 @@ import tempfile
 # unintended URL path. Hard-gate the format here.
 _LARK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -193,6 +193,25 @@ def _resolve_lark_cli() -> tuple[str, tuple[str, ...]]:
         _LARK_CLI_BIN, _LARK_EXTRA_PATH = resolved, extra
         return resolved, extra
     return "lark-cli", extra
+
+
+def _extract_reaction_id(data: Any) -> str:
+    """Dig the ``reaction_id`` out of a lark-cli ``reactions create`` payload.
+
+    lark-cli may hand back the reaction record directly or wrapped in a
+    ``data`` envelope depending on the endpoint shape — check both. Returns ""
+    when not found, in which case the caller skips removal (best-effort).
+    """
+    if isinstance(data, dict):
+        rid = data.get("reaction_id")
+        if isinstance(rid, str) and rid:
+            return rid
+        inner = data.get("data")
+        if isinstance(inner, dict):
+            rid = inner.get("reaction_id")
+            if isinstance(rid, str) and rid:
+                return rid
+    return ""
 
 
 class LarkCLIClient:
@@ -540,6 +559,56 @@ class LarkCLIClient:
         elif markdown:
             args.extend(["--markdown", markdown])
         return await self._run_with_agent_id(args, agent_id)
+
+    async def add_reaction(
+        self, agent_id: str, message_id: str, emoji_type: str
+    ) -> str:
+        """Add an emoji reaction to a message; return its ``reaction_id``.
+
+        Used by ``LarkTrigger``'s processing indicator to paint a native
+        "working" signal (the keyboard ``Typing`` emoji) on the user's message and later
+        swap it for ``DONE`` / ``ERROR``. The caller treats reactions as
+        best-effort (missing ``im:message.reactions:write_only`` scope, a
+        deleted message, etc. must never abort the run), so this raises on
+        failure and lets the caller log + swallow.
+
+        Returns the ``reaction_id`` needed to remove the reaction later, or
+        "" when the id could not be parsed from the CLI payload (removal is
+        then skipped and the terminal emoji is simply added alongside).
+        """
+        if not _LARK_ID_PATTERN.match(message_id):
+            raise RuntimeError(
+                f"invalid message_id format: {message_id!r} "
+                f"(expected ^[A-Za-z0-9_-]+$)"
+            )
+        params = json.dumps({"message_id": message_id})
+        data = json.dumps({"reaction_type": {"emoji_type": emoji_type}})
+        args = ["im", "reactions", "create", "--params", params, "--data", data]
+        result = await self._run_with_agent_id(args, agent_id)
+        if not result.get("success"):
+            raise RuntimeError(result.get("error", "reaction create failed"))
+        return _extract_reaction_id(result.get("data"))
+
+    async def remove_reaction(
+        self, agent_id: str, message_id: str, reaction_id: str
+    ) -> None:
+        """Remove a previously-added reaction by its ``reaction_id``.
+
+        No-op when ``reaction_id`` is empty (the create call didn't surface
+        one). Raises on CLI failure; the caller swallows (best-effort).
+        """
+        if not reaction_id:
+            return
+        if not _LARK_ID_PATTERN.match(message_id):
+            raise RuntimeError(
+                f"invalid message_id format: {message_id!r} "
+                f"(expected ^[A-Za-z0-9_-]+$)"
+            )
+        params = json.dumps({"message_id": message_id, "reaction_id": reaction_id})
+        args = ["im", "reactions", "delete", "--params", params]
+        result = await self._run_with_agent_id(args, agent_id)
+        if not result.get("success"):
+            raise RuntimeError(result.get("error", "reaction delete failed"))
 
     async def list_chat_messages(
         self,

@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_sdk_client.py
 stub: false
-last_verified: 2026-05-22
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — reaction wrappers for the processing indicator
+
+`add_reaction(channel, timestamp, name)` / `remove_reaction(...)` thin wrappers
+over the generic `api_call("reactions.add"/"reactions.remove", ...)`. Raise
+`SlackSDKError` on a non-ok envelope so the trigger's indicator can log + swallow
+(best-effort). Consumer: [[slack_trigger]]'s `processing_indicator`.
 
 ## Why it exists
 

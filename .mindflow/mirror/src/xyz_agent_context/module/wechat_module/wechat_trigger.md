@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_trigger.py
 stub: false
-last_verified: 2026-06-25
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — no native processing indicator (capability gap)
+
+WeChat deliberately does NOT override `processing_indicator` — the iLink v1
+gateway is text-only with no typing indicator and no message reaction API, so
+there is nothing native to paint. It inherits the base no-op handle. When iLink
+grows a typing/reaction capability, add an override here (see the base
+`_emoji_reaction_indicator` skeleton used by Lark/Slack/Discord).
 
 ## Why it exists
 

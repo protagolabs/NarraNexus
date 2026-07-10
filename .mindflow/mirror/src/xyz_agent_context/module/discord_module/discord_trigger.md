@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/discord_trigger.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — native processing indicator (reaction)
+
+`processing_indicator` override on the base `_emoji_reaction_indicator` skeleton:
+react to the user's message with ⌨️ while running, swap to ✅ on success / ⚠️ on
+failure. Discord keys the bot's own reaction by the emoji itself, so removal needs
+no id. Uses `DiscordSDKClient.add_reaction / remove_own_reaction` (see
+[[discord_sdk_client]]); best-effort (needs the Add Reactions permission;
+failures swallowed by the skeleton).
 
 ## Why it exists
 

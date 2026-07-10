@@ -28,6 +28,7 @@ import json
 import re
 import threading
 import time
+from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
@@ -54,6 +55,7 @@ from xyz_agent_context.channel.channel_dedup_store import ChannelDedupStore
 from xyz_agent_context.channel.channel_trigger_base import (
     CHANNEL_SILENT_SENTINEL,
     ChannelTriggerBase,
+    ProcessingIndicatorHandle,
 )
 from xyz_agent_context.repository.channel_seen_message_repository import (
     ChannelSeenMessageRepository,
@@ -1743,14 +1745,20 @@ class LarkTrigger(ChannelTriggerBase):
             trigger_extra_data["attachments"] = [
                 a.model_dump(mode="json") for a in attachments
             ]
-        result = await collect_run(
-            runtime,
-            agent_id=agent_id,
-            user_id=owner_user_id,
-            input_content=tagged_prompt,
-            working_source=WorkingSource.LARK,
-            trigger_extra_data=trigger_extra_data,
-        )
+        # Native "working" reaction wraps the run; its teardown reads the
+        # outcome (set_error) to pick the terminal emoji (DONE / ERROR). A
+        # raise from collect_run is turned into the ERROR terminal by the
+        # shared skeleton, then propagates to the worker's outer handling.
+        async with self.processing_indicator(cred, message) as indicator:
+            result = await collect_run(
+                runtime,
+                agent_id=agent_id,
+                user_id=owner_user_id,
+                input_content=tagged_prompt,
+                working_source=WorkingSource.LARK,
+                trigger_extra_data=trigger_extra_data,
+            )
+            indicator.set_error(result.is_error)
 
         if result.is_error:
             friendly = format_lark_error_reply(result.error)
@@ -1780,6 +1788,38 @@ class LarkTrigger(ChannelTriggerBase):
         await self._cli.send_message(
             credential.agent_id, chat_id=message.chat_id, text=text
         )
+
+    @asynccontextmanager
+    async def processing_indicator(
+        self, credential: LarkCredential, message: ParsedMessage
+    ) -> AsyncIterator[ProcessingIndicatorHandle]:
+        """Native Lark "working" signal: react to the user's message with
+        the keyboard ``Typing`` emoji while the agent runs, then swap it for ``DONE`` on
+        success or ``ERROR`` on failure.
+
+        Best-effort: reactions need ``im:message.reactions:write_only`` on the
+        agent's Lark app; without it (or on any transient failure) the calls
+        are swallowed by the shared skeleton and the run is unaffected.
+        """
+        agent_id = credential.agent_id
+        message_id = message.message_id
+
+        # No message_id → nothing to react to (shouldn't happen for real
+        # inbound messages, but guard so we never fire a malformed CLI call).
+        if not message_id:
+            yield ProcessingIndicatorHandle()
+            return
+
+        async def _add(emoji: str) -> Optional[str]:
+            return await self._cli.add_reaction(agent_id, message_id, emoji)
+
+        async def _remove(token: Optional[str], _emoji: str) -> None:
+            await self._cli.remove_reaction(agent_id, message_id, token or "")
+
+        async with self._emoji_reaction_indicator(
+            add=_add, remove=_remove, working="Typing", done="DONE", error="ERROR",
+        ) as handle:
+            yield handle
 
     # ────────────────────────────────────────────────────────────────────
     # extract_output / format_error_reply overrides

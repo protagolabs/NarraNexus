@@ -194,6 +194,31 @@ class SlackSDKClient:
             return {"ok": False, "error": f"client_exception:{type(e).__name__}", "method": method}
 
     # ------------------------------------------------------------------
+    # Reactions (processing indicator)
+    # ------------------------------------------------------------------
+
+    async def add_reaction(self, channel: str, timestamp: str, name: str) -> None:
+        """reactions.add — attach emoji ``name`` to a message (channel + ts).
+
+        Backs the trigger's processing indicator. Raises ``SlackSDKError`` on
+        a non-ok envelope so the caller can log + swallow (best-effort — a
+        missing ``reactions:write`` scope must never abort the run).
+        """
+        resp = await self.api_call(
+            "reactions.add", {"channel": channel, "timestamp": timestamp, "name": name}
+        )
+        if not resp.get("ok"):
+            raise SlackSDKError(resp.get("error") or "reactions_add_failed", "reactions.add failed")
+
+    async def remove_reaction(self, channel: str, timestamp: str, name: str) -> None:
+        """reactions.remove — detach emoji ``name`` from a message."""
+        resp = await self.api_call(
+            "reactions.remove", {"channel": channel, "timestamp": timestamp, "name": name}
+        )
+        if not resp.get("ok"):
+            raise SlackSDKError(resp.get("error") or "reactions_remove_failed", "reactions.remove failed")
+
+    # ------------------------------------------------------------------
     # File ingestion (Phase 1b — attachment download)
     # ------------------------------------------------------------------
 

@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/discord_sdk_client.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — reaction methods for the processing indicator
+
+`add_reaction(channel_id, message_id, emoji)` / `remove_own_reaction(...)` via the
+REST `PUT/DELETE /channels/{ch}/messages/{msg}/reactions/{urlencoded_emoji}/@me`
+(unicode emoji percent-encoded with `urllib.parse.quote`). Raise `DiscordSDKError`
+on non-2xx so the trigger's indicator can log + swallow (best-effort). Consumer:
+[[discord_trigger]]'s `processing_indicator` (⌨️ → ✅/⚠️).
 
 > Also exposes ``create_dm_channel(user_id)`` (POST /users/@me/channels →
 > DM channel id, backs ``discord_dm``), ``list_guilds()`` and

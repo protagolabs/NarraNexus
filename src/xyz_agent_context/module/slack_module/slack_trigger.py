@@ -50,6 +50,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
@@ -66,6 +67,7 @@ from xyz_agent_context.channel.channel_context_builder_base import (
 from xyz_agent_context.channel.channel_trigger_base import (
     CHANNEL_SILENT_SENTINEL,
     ChannelTriggerBase,
+    ProcessingIndicatorHandle,
 )
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
@@ -746,6 +748,43 @@ class SlackTrigger(ChannelTriggerBase):
         await SlackSDKClient(credential.bot_token).send_message(
             message.chat_id, text, thread_ts=thread_ts
         )
+
+    @asynccontextmanager
+    async def processing_indicator(
+        self, credential: SlackCredential, message: ParsedMessage
+    ) -> AsyncIterator[ProcessingIndicatorHandle]:
+        """Native Slack "working" signal: react to the user's message with
+        ``eyes`` while the agent runs, then swap it for ``white_check_mark``
+        on success or ``warning`` on failure.
+
+        Best-effort: reactions need the ``reactions:write`` scope; without it
+        (or on any transient failure) the calls are swallowed by the shared
+        skeleton and the run is unaffected. Slack keys reactions by
+        (channel, ts, name), so removal needs no id — the emoji name suffices.
+        """
+        channel = message.chat_id
+        ts = message.message_id  # Slack message id IS the ts
+        if not ts:
+            yield ProcessingIndicatorHandle()
+            return
+
+        client = SlackSDKClient(credential.bot_token)
+
+        async def _add(name: str) -> Optional[str]:
+            await client.add_reaction(channel, ts, name)
+            return None
+
+        async def _remove(_token: Optional[str], name: str) -> None:
+            await client.remove_reaction(channel, ts, name)
+
+        async with self._emoji_reaction_indicator(
+            add=_add,
+            remove=_remove,
+            working="eyes",
+            done="white_check_mark",
+            error="warning",
+        ) as handle:
+            yield handle
 
     @staticmethod
     def _extract_slack_reply(item: dict) -> str:

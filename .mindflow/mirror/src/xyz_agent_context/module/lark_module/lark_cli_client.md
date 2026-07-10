@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_cli_client.py
 stub: false
-last_verified: 2026-05-28
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — reaction methods for the processing indicator
+
+New `add_reaction(agent_id, message_id, emoji_type) -> reaction_id` and
+`remove_reaction(agent_id, message_id, reaction_id)`, routed through the same
+per-agent `_run_with_agent_id` path as `send_message` (workspace HOME isolation,
+hydrated credential). They shell out to `lark-cli im reactions create/delete`
+(`--params`/`--data` JSON), validate `message_id` against `_LARK_ID_PATTERN`, and
+raise `RuntimeError` on CLI failure so the trigger's indicator can log + swallow
+(best-effort). `_extract_reaction_id` digs the id out of either the direct or
+`data`-wrapped payload; "" when absent → the caller skips removal.
+Consumer: [[lark_trigger]]'s `processing_indicator` (Typing → DONE/ERROR).
 
 ## 2026-05-28 — set CWD to agent workspace when spawning lark-cli (P0 fix)
 

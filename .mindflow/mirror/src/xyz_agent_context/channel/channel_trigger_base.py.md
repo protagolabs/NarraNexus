@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-08
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — outcome-aware processing indicator (native "working" signal)
+
+`processing_indicator` is no longer a no-op-only seam: it now yields a
+`ProcessingIndicatorHandle` (mutable `errored` flag, defaults to success) so an
+override can paint a platform-native "the agent is working" signal on enter and
+swap it to a done/error terminal on exit. The wrap MOVED from `_process_message`
+into `_build_and_run_agent` (around the `run_and_collect` call), which — crucially
+— also covers Lark, whose `_process_message` override never reached the base
+version, AND lets the teardown see the run outcome (`is_error`) locally:
+`indicator.set_error(result.is_error)` is stamped before the `async with` exits,
+and the `except` guard stamps `True` on a hard raise.
+
+New shared skeleton `_emoji_reaction_indicator(add, remove, working, done, error)`:
+the "reaction as indicator" lifecycle (add working → yield → remove working + add
+done/error) lives here once; Lark/Slack/Discord supply their SDK-specific
+`add`/`remove` callables (rule #3/#4 keeps the client calls in each subclass). A
+body exception marks error then re-raises (never swallows the run failure);
+`CancelledError` (BaseException) passes through cleanly while `finally` still
+tears the working reaction down. Every reaction call is best-effort — a failure
+(missing scope, network, deleted message) is logged at debug and swallowed so the
+cosmetic indicator can never abort or slow the run (rule #16: user-transparent).
+
+Only the single-message path is wrapped; `_build_and_run_agent_silent_batch`
+(group non-@ ingestion) is NOT, so silent batches never paint a reaction.
+WeChat inherits the no-op default (iLink v1 has no typing/reaction capability).
 
 ## 2026-07-08 — `pre_start(db)` hook added for the consolidated supervisor
 

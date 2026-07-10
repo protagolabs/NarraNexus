@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
@@ -53,6 +54,7 @@ from xyz_agent_context.channel.channel_context_builder_base import (
 from xyz_agent_context.channel.channel_trigger_base import (
     CHANNEL_SILENT_SENTINEL,
     ChannelTriggerBase,
+    ProcessingIndicatorHandle,
 )
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
@@ -552,6 +554,39 @@ class DiscordTrigger(ChannelTriggerBase):
         await DiscordSDKClient(credential.bot_token).send_message(
             message.chat_id, text
         )
+
+    @asynccontextmanager
+    async def processing_indicator(
+        self, credential: DiscordCredential, message: ParsedMessage
+    ) -> AsyncIterator[ProcessingIndicatorHandle]:
+        """Native Discord "working" signal: react to the user's message with a
+        keyboard emoji while the agent runs, then swap it for a check mark on
+        success or a warning on failure.
+
+        Best-effort: reactions need the Add Reactions permission; without it
+        (or on any transient failure) the calls are swallowed by the shared
+        skeleton and the run is unaffected. Discord keys the bot's own
+        reaction by the emoji itself, so removal needs no id.
+        """
+        channel_id = message.chat_id
+        message_id = message.message_id
+        if not message_id:
+            yield ProcessingIndicatorHandle()
+            return
+
+        client = DiscordSDKClient(credential.bot_token)
+
+        async def _add(emoji: str) -> Optional[str]:
+            await client.add_reaction(channel_id, message_id, emoji)
+            return None
+
+        async def _remove(_token: Optional[str], emoji: str) -> None:
+            await client.remove_own_reaction(channel_id, message_id, emoji)
+
+        async with self._emoji_reaction_indicator(
+            add=_add, remove=_remove, working="⌨️", done="✅", error="⚠️",
+        ) as handle:
+            yield handle
 
     @staticmethod
     def _extract_sent_text(item: dict) -> str:

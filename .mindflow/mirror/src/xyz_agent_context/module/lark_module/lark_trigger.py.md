@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-07-08
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — native processing indicator (emoji reaction on the user's msg)
+
+`processing_indicator` override (built on the base `_emoji_reaction_indicator`
+skeleton): react to the user's inbound message with the keyboard `Typing` emoji
+while the agent runs, then swap it for `DONE` on success / `ERROR` on failure —
+Lark's own idiom for "seen it, on it, done". `_build_and_run_agent` now wraps its
+`collect_run` in this indicator and stamps `set_error(result.is_error)`; a raise
+becomes the ERROR terminal via the skeleton, then propagates to the worker.
+
+Reactions go through `self._cli.add_reaction / remove_reaction` (see
+[[lark_cli_client]]) — the bot needs the `im:message.reactions:write_only` scope;
+without it the call raises and the skeleton swallows it (best-effort, run
+unaffected). A message with no `message_id` short-circuits to a no-op handle.
 
 ## 2026-07-08 — trigger consolidation: pre_start hook + health server moved out
 

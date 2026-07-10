@@ -41,7 +41,7 @@ import re
 import time
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, List, Optional, TYPE_CHECKING
+from typing import Any, AsyncIterator, Awaitable, Callable, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from xyz_agent_context.agent_runtime.run_collector import RunError
@@ -111,6 +111,29 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 # agent's / silent-mode choice not to speak). Shared across channels so the
 # error-fallback path can tell "agent stayed silent" from "agent replied".
 CHANNEL_SILENT_SENTINEL = "(stayed silent)"
+
+
+class ProcessingIndicatorHandle:
+    """Mutable run-outcome carrier yielded by ``processing_indicator``.
+
+    The body of the ``async with processing_indicator(...) as handle`` block
+    marks the outcome via :meth:`set_error` BEFORE the context exits; an
+    override's teardown (the ``finally`` of its context manager) reads
+    :attr:`errored` to pick the terminal signal — e.g. a "done" vs "error"
+    emoji on a reaction-based indicator.
+
+    Defaults to success (``errored=False``) so an indicator whose body never
+    marked an outcome (a clean run, or a channel that doesn't distinguish)
+    still shows a clean completion rather than a spurious error.
+    """
+
+    __slots__ = ("errored",)
+
+    def __init__(self) -> None:
+        self.errored: bool = False
+
+    def set_error(self, errored: bool) -> None:
+        self.errored = bool(errored)
 
 
 def _compute_next_backoff(
@@ -308,25 +331,103 @@ class ChannelTriggerBase(ABC):
         return None
 
     # Override hook — async context manager wrapping the actual
-    # ``_build_and_run_agent`` call. Subclasses MAY use this to drive a
-    # platform-side "processing" indicator that's visible to the human
-    # waiting on the reply:
+    # agent run inside ``_build_and_run_agent``. Subclasses MAY use this to
+    # drive a platform-native "processing" indicator that's visible to the
+    # human waiting on the reply, and to flip it to a terminal state once the
+    # run finishes:
     #
     #   - Telegram: ``sendChatAction(chat_id, action="typing")`` shows a
     #     "typing..." hint. Decays after 5s, so the override re-fires
     #     every ~4s in a background task and cancels on exit.
-    #   - Slack: ``assistant.threads.setStatus`` (assistant apps) or
-    #     ``reactions.add`` (regular channels) — TBD per channel design.
-    #   - Lark: ``bot/typing`` API — TBD.
+    #   - Lark:  emoji reaction on the user's message — the keyboard
+    #     ``Typing`` emoji while working, swapped to ``DONE`` / ``ERROR``.
+    #   - Slack: ``reactions.add`` (eyes → white_check_mark / warning).
+    #   - Discord: emoji reaction (⌨️ → ✅ / ⚠️).
     #
-    # The default returns a no-op context manager so existing channels
-    # keep working unchanged. Failures inside the override MUST NOT
-    # propagate (the indicator is cosmetic; agent execution wins).
+    # The yielded ``ProcessingIndicatorHandle`` is marked by the caller
+    # (``_build_and_run_agent``) with the run outcome via ``set_error(...)``
+    # BEFORE the context exits, so a reaction-based override can pick the
+    # right terminal emoji in its ``finally``. Reaction-capable channels
+    # should build their override on top of ``_emoji_reaction_indicator``.
+    #
+    # The default yields a no-op handle so channels that can't (WeChat iLink
+    # v1) or don't want a native indicator keep working unchanged. Failures
+    # inside an override MUST NOT propagate (the indicator is cosmetic; agent
+    # execution wins).
     @asynccontextmanager
     async def processing_indicator(
         self, credential: Any, message: ParsedMessage
-    ) -> AsyncIterator[None]:
-        yield
+    ) -> AsyncIterator[ProcessingIndicatorHandle]:
+        yield ProcessingIndicatorHandle()
+
+    @asynccontextmanager
+    async def _emoji_reaction_indicator(
+        self,
+        *,
+        add: Callable[[str], Awaitable[Optional[str]]],
+        remove: Callable[[Optional[str], str], Awaitable[None]],
+        working: str,
+        done: str,
+        error: str,
+    ) -> AsyncIterator[ProcessingIndicatorHandle]:
+        """Shared "reaction as processing indicator" skeleton.
+
+        Lifecycle: add the ``working`` reaction on enter; on exit, remove the
+        working reaction and add the terminal one (``done`` on success,
+        ``error`` when the body marked the handle via ``set_error(True)``).
+
+        The reaction-plumbing itself is channel-specific, so callers supply
+        two async callables (the SDK/CLI calls live in the subclass, honoring
+        rule #3/#4):
+
+          - ``add(emoji) -> token``: attach ``emoji`` to the user's message.
+            Returns an opaque token the channel needs to later remove that
+            reaction (e.g. Lark's ``reaction_id``), or ``None`` when removal
+            is keyed by the emoji itself (Slack/Discord).
+          - ``remove(token, emoji) -> None``: detach the working reaction,
+            using whichever of ``token`` / ``emoji`` the channel needs.
+
+        Every reaction call is best-effort: a failure (missing scope, network,
+        deleted message) is swallowed so the cosmetic indicator can never
+        abort or slow the agent run. Only the reaction calls are guarded —
+        this does NOT swallow errors from the agent run wrapped by the body.
+        """
+        handle = ProcessingIndicatorHandle()
+        working_token: Optional[str] = None
+        try:
+            working_token = await add(working)
+        except Exception as e:  # noqa: BLE001 — cosmetic, never abort the run
+            logger.debug(
+                f"{type(self).__name__}: processing-indicator add({working}) "
+                f"failed (non-fatal): {type(e).__name__}: {e}"
+            )
+        try:
+            yield handle
+        except Exception:
+            # The wrapped agent run raised (rather than yielding an ERROR
+            # result). Show the error terminal, then let the exception
+            # propagate — the indicator is cosmetic, it never swallows a run
+            # failure. (CancelledError is BaseException, not caught here, so
+            # cancellation passes through cleanly while ``finally`` still tears
+            # the working reaction down.)
+            handle.set_error(True)
+            raise
+        finally:
+            terminal = error if handle.errored else done
+            try:
+                await remove(working_token, working)
+            except Exception as e:  # noqa: BLE001 — cosmetic
+                logger.debug(
+                    f"{type(self).__name__}: processing-indicator remove("
+                    f"{working}) failed (non-fatal): {type(e).__name__}: {e}"
+                )
+            try:
+                await add(terminal)
+            except Exception as e:  # noqa: BLE001 — cosmetic
+                logger.debug(
+                    f"{type(self).__name__}: processing-indicator add({terminal}) "
+                    f"failed (non-fatal): {type(e).__name__}: {e}"
+                )
 
     # ────────────────────────────────────────────────────────────────────
     # Attachment ingestion (Phase 1a)
@@ -1077,10 +1178,14 @@ class ChannelTriggerBase(ABC):
                 details={"error": f"{type(e).__name__}: {e}"},
             )
 
-        async with self.processing_indicator(credential, message):
-            output_text = await self._build_and_run_agent(
-                credential, message, sender_name, attachments=attachments
-            )
+        # NOTE: the processing indicator (native "working" signal + terminal
+        # done/error state) is driven inside ``_build_and_run_agent``, wrapping
+        # only the agent run — so it also covers subclasses (Lark) that
+        # override ``_process_message`` and never reach this base version, and
+        # so its teardown sees the run outcome (is_error) locally.
+        output_text = await self._build_and_run_agent(
+            credential, message, sender_name, attachments=attachments
+        )
 
         try:
             await self._inbox_writer.write(
@@ -1177,31 +1282,37 @@ class ChannelTriggerBase(ABC):
                 a.model_dump(mode="json") for a in attachments
             ]
 
-        try:
-            result = await get_agent_runtime_client().run_and_collect(
-                agent_id=agent_id,
-                user_id=owner_user_id,
-                input_content=tagged_prompt,
-                working_source=self.working_source,
-                trigger_extra_data=extra_data,
-            )
-        except Exception as e:  # noqa: BLE001
-            # The runtime is DESIGNED to yield MessageType.ERROR rather than
-            # raise (see run_collector), but a defensive guard here means an
-            # unexpected crash still tells the user something failed instead of
-            # vanishing into channel silence.
-            logger.exception(
-                f"{type(self).__name__}[{agent_id}] run_and_collect raised: "
-                f"{type(e).__name__}: {e}"
-            )
-            from xyz_agent_context.agent_runtime.run_collector import RunError
-            err_text = self.format_error_reply(
-                RunError(error_type=type(e).__name__, error_message=str(e))
-            )
-            await self._send_error_fallback(
-                credential, message, err_text, already_replied=False
-            )
-            return err_text
+        # The processing indicator wraps ONLY the agent run and is told the
+        # outcome (set_error) before it tears down, so a reaction-based
+        # override can flip its "working" emoji to done/error.
+        async with self.processing_indicator(credential, message) as indicator:
+            try:
+                result = await get_agent_runtime_client().run_and_collect(
+                    agent_id=agent_id,
+                    user_id=owner_user_id,
+                    input_content=tagged_prompt,
+                    working_source=self.working_source,
+                    trigger_extra_data=extra_data,
+                )
+            except Exception as e:  # noqa: BLE001
+                # The runtime is DESIGNED to yield MessageType.ERROR rather than
+                # raise (see run_collector), but a defensive guard here means an
+                # unexpected crash still tells the user something failed instead
+                # of vanishing into channel silence.
+                indicator.set_error(True)
+                logger.exception(
+                    f"{type(self).__name__}[{agent_id}] run_and_collect raised: "
+                    f"{type(e).__name__}: {e}"
+                )
+                from xyz_agent_context.agent_runtime.run_collector import RunError
+                err_text = self.format_error_reply(
+                    RunError(error_type=type(e).__name__, error_message=str(e))
+                )
+                await self._send_error_fallback(
+                    credential, message, err_text, already_replied=False
+                )
+                return err_text
+            indicator.set_error(result.is_error)
 
         if result.is_error:
             logger.warning(
