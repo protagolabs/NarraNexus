@@ -5,7 +5,8 @@
 @description: Shared "agent reacts to the user's message" vocabulary + helpers.
 
 The unified ``react_to_user_message`` MCP tool exists on every IM channel module,
-and every IM channel's ``get_instructions`` renders the same "ack early" directive.
+and every IM channel's trigger injects the same "ack early" directive into the
+per-turn input via ``ChannelTriggerBase._early_feedback_prefix``.
 The ONLY genuinely per-channel part is the semantic→platform-token map; the tool
 body (resolve → react → best-effort envelope) and the instruction template are
 identical, so they live here — in the ``channel/`` package, a legal shared
@@ -71,14 +72,17 @@ def render_early_feedback(
     message_id: str,
     inline: bool = False,
 ) -> str:
-    """Render the generic "ack early on IM" directive for a channel's
-    ``get_instructions`` (it lands in the system-prompt Module Instructions).
+    """Render the generic "ack early on IM" directive.
+
+    Injected into the per-turn input by ``ChannelTriggerBase._early_feedback_prefix``
+    (prepended to the tagged prompt, right after the channel tag) — NOT in
+    ``get_instructions`` / the system prompt.
 
     ``tool_ref``: the react tool name to show (fully-qualified for Lark to match
     its ``mcp__lark_module__…`` convention, bare for the others), or ``None`` for
     a channel with no reaction API (WeChat) — then the ack is message-only.
-    ``inline=True`` returns a ``**Early feedback**: …`` line (Lark appends it to
-    its mode line); ``False`` returns a ``### Early feedback`` section.
+    ``inline=True`` returns a ``**Early feedback**: …`` line (used by the trigger
+    prefix); ``False`` returns a ``### Early feedback`` section.
     """
     if tool_ref:
         how = (

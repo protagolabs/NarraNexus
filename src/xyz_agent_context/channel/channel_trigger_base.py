@@ -1120,13 +1120,16 @@ class ChannelTriggerBase(ABC):
 
         Channel-agnostic: each trigger sets ``react_tool_ref`` (bare name, or
         fully-qualified for Lark, or None for a channel with no reaction API).
-        Reaction-capable channels only get the react form when the inbound
-        message id is present; message-only channels (react_tool_ref=None) get
-        the "send a quick 'on it'" form. Returns "" when nothing applies.
+        Reaction-capable channels get the react form when the inbound message id
+        is present; otherwise (missing id, or ``react_tool_ref=None``) they
+        degrade to the message-only "send a quick 'on it'" form. Always returns a
+        non-empty directive for an IM turn — never nothing.
         """
-        if self.react_tool_ref:
-            if not message.message_id:
-                return ""
+        # A react-capable channel only gets the react form when the inbound
+        # message id is present; otherwise (missing id, or no reaction API at
+        # all) degrade to the message-only "on it" ack — never emit nothing,
+        # which would defeat the point.
+        if self.react_tool_ref and message.message_id:
             return render_early_feedback(
                 tool_ref=self.react_tool_ref,
                 room_id=message.chat_id,
