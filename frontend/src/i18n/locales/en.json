@@ -1887,5 +1887,22 @@
         "validation": "After adding, the status dot validates the connection — Failed means the URL was unreachable or not a valid SSE endpoint."
       }
     }
+  },
+  "feedback": {
+    "title": "Feedback",
+    "categoryLabel": "Category",
+    "textLabel": "What went wrong / what do you wish for?",
+    "placeholder": "Tell us what disappointed you or what's missing — this goes straight to the NarraNexus team.",
+    "submit": "Send feedback",
+    "sending": "Sending…",
+    "cancel": "Cancel",
+    "close": "Close",
+    "thanks": "Thank you — your feedback reached the team.",
+    "categories": {
+      "user_dissatisfaction": "Something disappointed me",
+      "feature_gap": "Missing feature",
+      "error": "Something broke",
+      "other": "Other"
+    }
   }
 }

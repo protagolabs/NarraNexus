@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-07-03
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — footer 反馈入口
+
+footer 行（ThemeToggle/LanguageToggle 旁）新增 MessageSquarePlus 图标按钮，
+打开 [[FeedbackDialog.tsx]]。入口刻意放常驻 footer——显式反馈是 Agent 自动
+submit_feedback 的兜底通道，必须随时可达。
+
 
 ## 2026-07-03 — cloud/local mode switcher hidden
 
