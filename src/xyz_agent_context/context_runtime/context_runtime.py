@@ -101,8 +101,6 @@ class ContextRuntime:
             user_id=self.user_id,
             input_content=input_content,
             narrative_id=main_narrative_id,
-            agent_info_model_type="Claude Agent SDK",
-            model_name="sonnet-4",
             working_source=working_source
         )
         ctx_data.extra_data = ctx_data.extra_data or {}
