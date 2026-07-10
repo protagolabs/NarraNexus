@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/_wechat_mcp_tools.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — react_to_user_message tool (uniform, but unsupported)
+
+Added `react_to_user_message` so the capability is uniform across IM channels,
+but iLink v1 has no reaction API — it always returns the unsupported envelope
+(`{success:false, reason}`) and the instruction tells the agent to send a short
+`wechat_send` message instead.
 
 ## Why it exists
 

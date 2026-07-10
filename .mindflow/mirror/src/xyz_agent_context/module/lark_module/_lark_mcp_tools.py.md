@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
-last_verified: 2026-05-22
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — PR #87 review: react tool body → shared helper
+
+`react_to_user_message` now delegates to [[channel_reactions]] `best_effort_react`
+(resolve semantic→token, call the SDK, best-effort envelope + log the failure);
+only the per-platform `_LARK_REACTIONS` map stays here. The 11-name vocabulary
+lives once in `channel_reactions.REACTION_VOCABULARY`.
+
+## 2026-07-10 — react_to_user_message tool (agent-driven early feedback)
+
+New agent-facing `react_to_user_message(agent_id, room_id, message_id, emoji)`.
+`emoji` is a shared cross-channel semantic value from an 11-item "task mood" menu
+(`on_it`/`searching`/`done`/`celebrate`/`thumbs_up`/`heart`/`thanks`/`applause`/
+`hundred`/`warning`/`problem`; unknown → `on_it`) — the agent picks per task.
+Each module maps it to its platform tokens (`_LARK_REACTIONS` → Lark `emoji_type`
+keys), backed by `LarkCLIClient.add_reaction`. Best-effort: returns
+`{success:false, reason}` on any error, never raises. The full menu + the
+platform each renders lives in each channel's get_instructions.
 
 ## 2026-05-22 — add `lark_unbind` to close the bind/unbind symmetry
 

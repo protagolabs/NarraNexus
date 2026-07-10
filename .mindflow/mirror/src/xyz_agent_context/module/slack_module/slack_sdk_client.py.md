@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_sdk_client.py
 stub: false
-last_verified: 2026-05-22
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — add_reaction (backs react_to_user_message)
+
+`add_reaction(channel, timestamp, name)` — thin wrapper over
+`api_call("reactions.add", ...)`. Raises `SlackSDKError` on a non-ok envelope so
+the react tool can log + swallow (best-effort — missing `reactions:write` never
+aborts the run). Consumer: `_slack_mcp_tools.react_to_user_message`.
 
 ## Why it exists
 

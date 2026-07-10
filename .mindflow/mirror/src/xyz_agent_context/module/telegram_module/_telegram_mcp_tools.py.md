@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/_telegram_mcp_tools.py
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — PR #87 review: react tool body → shared helper
+
+`react_to_user_message` now delegates to [[channel_reactions]] `best_effort_react`;
+a small `_react` wrapper turns `set_message_reaction`'s `False` return into a raise
+so the shared helper reports it. Only `_TELEGRAM_REACTIONS` stays here (`done`
+remapped 🎉→👌 so it's distinguishable from `celebrate`).
+
+## 2026-07-10 — react_to_user_message tool (agent-driven early feedback)
+
+New `react_to_user_message(agent_id, room_id, message_id, emoji)` — shared
+semantic `emoji` mapped via `_TELEGRAM_REACTIONS` to Telegram's allowed set
+(✅ is NOT allowed → `done`=🎉), backed by `TelegramSDKClient.set_message_reaction`;
+closes the client in `finally`. Best-effort envelope, never raises.
 
 ## Why it exists
 

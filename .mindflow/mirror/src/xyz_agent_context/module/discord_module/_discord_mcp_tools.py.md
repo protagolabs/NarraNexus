@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/_discord_mcp_tools.py
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — PR #87 review: react tool body → shared helper
+
+`react_to_user_message` now delegates to [[channel_reactions]] `best_effort_react`
+(resolve semantic→token, call the SDK, best-effort envelope + log the failure);
+only the per-platform `_DISCORD_REACTIONS` map stays here.
+
+## 2026-07-10 — react_to_user_message tool (agent-driven early feedback)
+
+New `react_to_user_message(agent_id, room_id, message_id, emoji)` — shared
+semantic `emoji` mapped via `_DISCORD_REACTIONS` to unicode, backed by
+`DiscordSDKClient.add_reaction`. Best-effort envelope, never raises.
 
 ## Why it exists
 

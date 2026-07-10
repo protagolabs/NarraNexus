@@ -1735,6 +1735,9 @@ class LarkTrigger(ChannelTriggerBase):
                 if message.message_id
                 else "lark_unknown"
             ),
+            # Inbound message id, surfaced per-turn so get_instructions can tell
+            # the agent which message to react to (react_to_user_message).
+            "source_message_id": message.message_id or "",
         }
         # Phase 1c T9d: only attach when non-empty — matches base/Slack/WS
         # patterns so ChatModule's ``ctx_data.extra_data.get("attachments")``
