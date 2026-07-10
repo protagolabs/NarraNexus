@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — PR #87 review: snowflake-validate reaction ids
+
+`add_reaction` now hard-gates `channel_id`/`message_id` against `_SNOWFLAKE_RE`
+(`^\d+$`) before interpolating them into the REST URL path — same prompt-injection
+defense Lark uses via `_LARK_ID_PATTERN`; raises `DiscordSDKError` on a
+non-numeric id (the values arrive as agent tool-call args).
+
 ## 2026-07-10 — add_reaction (backs react_to_user_message)
 
 `add_reaction(channel_id, message_id, emoji)` via REST

@@ -312,3 +312,82 @@ async def test_source_message_id_in_trigger_extra_data(db_client, monkeypatch):
 
     extra = captured.get("trigger_extra_data") or {}
     assert extra.get("source_message_id") == "om_xyz"
+
+
+# ── shared render_early_feedback ─────────────────────────────────────
+
+
+def test_render_early_feedback_reaction_variant():
+    from xyz_agent_context.channel.channel_reactions import (
+        REACTION_VOCABULARY,
+        render_early_feedback,
+    )
+
+    out = render_early_feedback(
+        tool_ref="react_to_user_message", room_id="C1", message_id="m1",
+    )
+    assert 'react_to_user_message(agent_id, room_id="C1", message_id="m1"' in out
+    assert "### Early feedback" in out
+    for name in REACTION_VOCABULARY:  # the full menu is listed, one source
+        assert name in out
+
+
+def test_render_early_feedback_message_only_variant():
+    from xyz_agent_context.channel.channel_reactions import render_early_feedback
+
+    out = render_early_feedback(tool_ref=None, room_id="", message_id="")
+    assert "react_to_user_message" not in out
+    assert "emoji options" not in out
+    assert "on it, one moment" in out
+
+
+def test_render_early_feedback_inline_lark():
+    from xyz_agent_context.channel.channel_reactions import render_early_feedback
+
+    out = render_early_feedback(
+        tool_ref="mcp__lark_module__react_to_user_message",
+        room_id="oc", message_id="om", inline=True,
+    )
+    assert out.startswith("**Early feedback**:")
+    assert "### Early feedback" not in out
+
+
+class _FakeTelegramClientReject:
+    last: "_FakeTelegramClientReject | None" = None
+
+    def __init__(self, token):
+        _FakeTelegramClientReject.last = self
+        self.closed = False
+
+    async def set_message_reaction(self, chat_id, message_id, emoji):
+        return False
+
+    async def close(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_telegram_react_rejected_returns_failure(monkeypatch):
+    import xyz_agent_context.module.telegram_module._telegram_mcp_tools as m
+
+    async def _cred(_a):
+        return _Cred()
+
+    monkeypatch.setattr(m, "_get_credential", _cred)
+    monkeypatch.setattr(m, "TelegramSDKClient", _FakeTelegramClientReject)
+    react = _tools(m.register_telegram_mcp_tools)["react_to_user_message"]
+    out = await react("agent_a", "999", "7", "on_it")
+    assert out["success"] is False
+    assert _FakeTelegramClientReject.last.closed is True  # client still closed
+
+
+@pytest.mark.asyncio
+async def test_discord_sdk_add_reaction_rejects_non_snowflake():
+    from xyz_agent_context.module.discord_module.discord_sdk_client import (
+        DiscordSDKClient,
+        DiscordSDKError,
+    )
+
+    client = DiscordSDKClient("tok")
+    with pytest.raises(DiscordSDKError):
+        await client.add_reaction("not/an/id", "456", "✅")

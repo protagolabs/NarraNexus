@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — PR #87 review: early-feedback via shared render
+
+The LARK CHANNEL early-feedback line is now produced by [[channel_reactions]]
+`render_early_feedback(tool_ref="mcp__lark_module__react_to_user_message", …,
+inline=True)` instead of an inline hardcoded string — the directive + the 11-name
+menu now have one source.
+
 ## 2026-07-10 — get_instructions surfaces early-feedback directive
 
 The LARK CHANNEL mode block renders (when `source_message_id` is present) an

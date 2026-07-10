@@ -23,6 +23,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.channel.channel_reactions import render_early_feedback
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -462,16 +463,10 @@ class SlackModule(ChannelModuleBase):
             _msg_id = ctx_data.extra_data.get("source_message_id", "")
             if _msg_id:
                 _ct = ctx_data.extra_data.get("channel_tag") or {}
-                _room_id = _ct.get("room_id", "")
-                early_feedback = (
-                    "\n### Early feedback\n\n"
-                    "For any request that needs more than a one-line answer, ACK FIRST, "
-                    "THEN do the work — either react to the sender's message with "
-                    f"`react_to_user_message(agent_id, room_id=\"{_room_id}\", "
-                    f"message_id=\"{_msg_id}\", emoji=\"on_it\")`, or send a quick "
-                    "\"on it, one moment\". Skip it only for trivial one-line replies. "
-                    "(emoji options: on_it/searching/done/celebrate/thumbs_up/"
-                    "heart/thanks/applause/hundred/warning/problem)\n"
+                early_feedback = render_early_feedback(
+                    tool_ref="react_to_user_message",
+                    room_id=_ct.get("room_id", ""),
+                    message_id=_msg_id,
                 )
 
         # Operational prompt — the hot path. Keep ≤ 80 lines.

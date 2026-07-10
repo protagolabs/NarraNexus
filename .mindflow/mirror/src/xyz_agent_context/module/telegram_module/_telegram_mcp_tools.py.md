@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — PR #87 review: react tool body → shared helper
+
+`react_to_user_message` now delegates to [[channel_reactions]] `best_effort_react`;
+a small `_react` wrapper turns `set_message_reaction`'s `False` return into a raise
+so the shared helper reports it. Only `_TELEGRAM_REACTIONS` stays here (`done`
+remapped 🎉→👌 so it's distinguishable from `celebrate`).
+
 ## 2026-07-10 — react_to_user_message tool (agent-driven early feedback)
 
 New `react_to_user_message(agent_id, room_id, message_id, emoji)` — shared

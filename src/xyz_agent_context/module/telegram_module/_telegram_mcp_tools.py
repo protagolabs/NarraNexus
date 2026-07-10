@@ -22,6 +22,7 @@ from typing import Any
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
 
 from ._telegram_credential_manager import TelegramCredentialManager
@@ -36,7 +37,7 @@ from .telegram_sdk_client import TelegramSDKClient
 _TELEGRAM_REACTIONS = {
     "on_it": "👀",
     "searching": "👀",
-    "done": "🎉",
+    "done": "👌",
     "celebrate": "🎉",
     "thumbs_up": "👍",
     "heart": "❤",
@@ -154,15 +155,18 @@ def register_telegram_mcp_tools(mcp: Any) -> None:
         cred = await _get_credential(agent_id)
         if not cred:
             return {"success": False, "reason": "no_credential"}
-        tg_emoji = _TELEGRAM_REACTIONS.get(emoji, _TELEGRAM_REACTIONS["on_it"])
         client = TelegramSDKClient(cred.bot_token)
+
+        async def _react(token: str) -> None:
+            # set_message_reaction returns False (not raise) on a rejected
+            # emoji; turn that into a raise so best_effort_react reports it.
+            if not await client.set_message_reaction(room_id, message_id, token):
+                raise RuntimeError("telegram rejected the reaction")
+
         try:
-            ok = await client.set_message_reaction(room_id, message_id, tg_emoji)
-            if ok:
-                return {"success": True, "emoji": emoji}
-            return {"success": False, "reason": "telegram rejected the reaction"}
-        except Exception as e:  # noqa: BLE001 — best-effort, never break the turn
-            return {"success": False, "reason": f"{type(e).__name__}: {e}"}
+            return await best_effort_react(
+                _TELEGRAM_REACTIONS, emoji, _react, log_label=f"telegram:{agent_id}",
+            )
         finally:
             await client.close()
 

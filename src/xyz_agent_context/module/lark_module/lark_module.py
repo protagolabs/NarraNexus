@@ -19,6 +19,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.channel.channel_reactions import render_early_feedback
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -575,16 +576,11 @@ class LarkModule(ChannelModuleBase):
             _msg_id = ctx_data.extra_data.get("source_message_id", "")
             if _msg_id:
                 _ct = ctx_data.extra_data.get("channel_tag") or {}
-                _room_id = _ct.get("room_id", "")
-                mode_section += (
-                    f"**Early feedback**: for any request that needs more than a "
-                    f"one-line answer, ACK FIRST, THEN do the work — either react to "
-                    f"the sender's message with `mcp__lark_module__react_to_user_message"
-                    f"(agent_id, room_id=\"{_room_id}\", message_id=\"{_msg_id}\", "
-                    f"emoji=\"on_it\")`, or send a quick \"on it, one moment\". Skip it "
-                    f"only for trivial one-line replies. "
-                    f"(emoji options: on_it/searching/done/celebrate/thumbs_up/"
-                    f"heart/thanks/applause/hundred/warning/problem)\n"
+                mode_section += render_early_feedback(
+                    tool_ref="mcp__lark_module__react_to_user_message",
+                    room_id=_ct.get("room_id", ""),
+                    message_id=_msg_id,
+                    inline=True,
                 )
         else:
             mode_section = (

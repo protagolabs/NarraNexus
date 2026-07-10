@@ -4,6 +4,15 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — PR #87 review: is_wechat_channel gate + shared render
+
+Two review fixes: (1) the early-feedback block is now gated on
+`WorkingSource.WECHAT` (was gated only on `source_message_id`, which the base
+writes for ALL channels → a WeChat-bound agent handling a Lark turn wrongly saw
+WeChat's "reply via wechat_send" ack — a cross-channel leak). (2) It's rendered
+by the shared [[channel_reactions]] `render_early_feedback(tool_ref=None, …)`
+(message-only variant — WeChat has no reaction API).
+
 ## 2026-07-10 — get_instructions surfaces early-feedback affordance
 
 Operational prompt now includes an "Early feedback" block (when a

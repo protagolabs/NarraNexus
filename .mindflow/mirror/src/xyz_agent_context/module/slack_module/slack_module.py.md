@@ -4,6 +4,12 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — PR #87 review: early-feedback via shared render
+
+The Slack early-feedback section is now produced by [[channel_reactions]]
+`render_early_feedback(tool_ref="react_to_user_message", …)` instead of an inline
+hardcoded string.
+
 ## 2026-07-10 — get_instructions surfaces early-feedback affordance
 
 Operational prompt now includes an "Early feedback" block (when in the Slack

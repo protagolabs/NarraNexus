@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — PR #87 review: emoji_type key source
+
+The `emoji_type` keys the react tool maps to (`Typing`/`GLANCE`/`DONE`/`ERROR`/
+`CrossMark`/…) come from Lark's fixed emoji enum — authoritative list:
+https://open.larksuite.com/document/server-docs/im-v1/message-reaction/emojis-introduce
+A wrong key surfaces as a silent `{success:false}`, so keep the module's
+`_LARK_REACTIONS` map in sync with that doc.
+
 ## 2026-07-10 — add_reaction (backs react_to_user_message)
 
 New `add_reaction(agent_id, message_id, emoji_type) -> reaction_id`, routed

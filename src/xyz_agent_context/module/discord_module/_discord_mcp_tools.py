@@ -25,6 +25,7 @@ from typing import Any
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
 
 from ._discord_credential_manager import DiscordCredentialManager
@@ -115,13 +116,13 @@ def register_discord_mcp_tools(mcp: Any) -> None:
         cred = await _get_credential(agent_id)
         if not cred:
             return {"success": False, "reason": "no_credential"}
-        unicode_emoji = _DISCORD_REACTIONS.get(emoji, _DISCORD_REACTIONS["on_it"])
         client = DiscordSDKClient(cred.bot_token)
-        try:
-            await client.add_reaction(room_id, message_id, unicode_emoji)
-            return {"success": True, "emoji": emoji}
-        except Exception as e:  # noqa: BLE001 — best-effort, never break the turn
-            return {"success": False, "reason": f"{type(e).__name__}: {e}"}
+        return await best_effort_react(
+            _DISCORD_REACTIONS,
+            emoji,
+            lambda token: client.add_reaction(room_id, message_id, token),
+            log_label=f"discord:{agent_id}",
+        )
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()

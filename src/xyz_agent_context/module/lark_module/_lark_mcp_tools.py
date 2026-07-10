@@ -31,6 +31,7 @@ from typing import Any
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
 from ._lark_credential_manager import (
     LarkCredentialManager,
@@ -628,21 +629,22 @@ def register_lark_mcp_tools(mcp: Any) -> None:
 
         Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
         longer task — without sending a full message. ``message_id`` is the
-        inbound message id shown in your channel instructions; ``room_id`` is the
-        chat id. ``emoji`` is a semantic reaction name — see the channel
-        instruction for the full menu (unknown → ``on_it``).
+        inbound message id shown in your channel instructions. ``room_id`` is
+        accepted for a uniform cross-channel signature but Lark ignores it — a
+        Lark message id is globally unique. ``emoji`` is a semantic reaction name
+        — see the channel instruction for the full menu (unknown → ``on_it``).
 
         Best-effort: needs the bot's reaction scope; a failure returns
         ``{"success": false, "reason": ...}`` and never breaks your turn.
         """
         if not message_id:
             return {"success": False, "reason": "message_id is required"}
-        emoji_type = _LARK_REACTIONS.get(emoji, _LARK_REACTIONS["on_it"])
-        try:
-            reaction_id = await _cli.add_reaction(agent_id, message_id, emoji_type)
-            return {"success": True, "reaction_id": reaction_id, "emoji": emoji}
-        except Exception as e:  # noqa: BLE001 — best-effort, never break the turn
-            return {"success": False, "reason": f"{type(e).__name__}: {e}"}
+        return await best_effort_react(
+            _LARK_REACTIONS,
+            emoji,
+            lambda token: _cli.add_reaction(agent_id, message_id, token),
+            log_label=f"lark:{agent_id}",
+        )
 
     @mcp.tool()
     async def lark_setup(agent_id: str, brand: str, owner_email: str = "") -> dict:

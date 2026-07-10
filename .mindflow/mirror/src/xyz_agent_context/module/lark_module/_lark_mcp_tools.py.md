@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — PR #87 review: react tool body → shared helper
+
+`react_to_user_message` now delegates to [[channel_reactions]] `best_effort_react`
+(resolve semantic→token, call the SDK, best-effort envelope + log the failure);
+only the per-platform `_LARK_REACTIONS` map stays here. The 11-name vocabulary
+lives once in `channel_reactions.REACTION_VOCABULARY`.
+
 ## 2026-07-10 — react_to_user_message tool (agent-driven early feedback)
 
 New agent-facing `react_to_user_message(agent_id, room_id, message_id, emoji)`.
