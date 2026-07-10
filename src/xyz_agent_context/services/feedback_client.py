@@ -5,13 +5,16 @@
 @description: Fire-and-forget sender for the NarraNexus feedback intake.
 
 Every deployment form (cloud, self-hosted, local run.sh, DMG) reports to the
-same hardcoded team endpoint. Privacy contract: a report is a one-line problem
-SUMMARY plus category/severity/metadata — never conversation text, never PII;
-agent/user identifiers are hashed before they leave the process.
+same hardcoded team endpoint. What this layer enforces: agent/user identifiers
+are hashed before they leave the process, and the summary is truncated. The
+summary's CONTENT (no conversation quotes, no keys/PII) is governed by the
+callers' prompts/UI copy — it cannot be verified in code.
 
-Opt-out (decision "B", spec 2026-07-10-feedback-mechanism-design.md):
+Opt-out (decision "B", spec
+reference/self_notebook/specs/2026-07-10-feedback-mechanism-design.md):
 `NARRANEXUS_FEEDBACK_DISABLED=1` disables all sends. `NARRANEXUS_FEEDBACK_URL`
-overrides the endpoint for dev/test.
+overrides the endpoint for dev/test. Both are documented in .env.example /
+.env.cloud.example.
 
 send_feedback() must never hurt the caller: one attempt, 3 s timeout, every
 exception swallowed (DEBUG log only), returns bool for tests — callers are
@@ -94,9 +97,9 @@ async def send_feedback(
         if client is not None:
             resp = await client.post(feedback_url(), json=payload, timeout=3.0)
         else:
-            async with httpx.AsyncClient(timeout=3.0) as own:
-                resp = await own.post(feedback_url(), json=payload)
-        return resp.status_code == 204
+            async with httpx.AsyncClient() as own:
+                resp = await own.post(feedback_url(), json=payload, timeout=3.0)
+        return resp.is_success or resp.status_code == 204
     except Exception as e:  # noqa: BLE001 — reporting must never hurt the caller
         logger.debug(f"[feedback] send failed (ignored): {e}")
         return False

@@ -7,12 +7,15 @@ backend forwards to the team's feedback intake through feedback_client.
 
 Why relay instead of posting from the browser: no CORS surface on the intake,
 the NARRANEXUS_FEEDBACK_DISABLED kill switch applies server-side for the whole
-deployment, and the user_id comes from the session instead of being spoofable.
+deployment, and in cloud mode the user_id comes from the JWT session (local
+mode has no auth by design and falls back to the query param, matching every
+other local-mode route).
 
-Same privacy posture as the agent path: the user's typed text travels (they
-wrote it FOR us), identifiers are hashed by feedback_client.
+Privacy: the user's typed text travels verbatim (they wrote it FOR the team);
+identifiers are hashed by feedback_client. The send is one awaited attempt
+capped at 3 s — the dialog shows a sending state meanwhile.
 
-Spec: docs/superpowers/specs/2026-07-10-feedback-mechanism-design.md
+Spec: reference/self_notebook/specs/2026-07-10-feedback-mechanism-design.md
 """
 from __future__ import annotations
 

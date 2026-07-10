@@ -10,6 +10,10 @@ class StubResponse:
     def __init__(self, status_code=204):
         self.status_code = status_code
 
+    @property
+    def is_success(self):
+        return 200 <= self.status_code < 300
+
 
 class StubClient:
     def __init__(self, status_code=204, exc=None):
@@ -85,3 +89,35 @@ def test_exception_swallowed(monkeypatch):
     ok, _ = send(category="error", summary="x", source="agent",
                  stub=StubClient(exc=RuntimeError("boom")))
     assert ok is False  # never raises
+
+
+def test_own_client_branch(monkeypatch):
+    """The production path (no injected client) builds its own AsyncClient."""
+    monkeypatch.delenv("NARRANEXUS_FEEDBACK_DISABLED", raising=False)
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, timeout=None):
+            calls.append((url, json, timeout))
+            return StubResponse(204)
+
+    monkeypatch.setattr(fc.httpx, "AsyncClient", FakeAsyncClient)
+    ok = asyncio.run(fc.send_feedback(category="error", summary="own client path", source="agent"))
+    assert ok is True
+    assert calls[0][0] == fc.DEFAULT_FEEDBACK_URL
+    assert calls[0][2] == 3.0
+
+
+def test_delivered_accepts_any_2xx():
+    stub = StubClient(status_code=200)
+    ok, _ = send(category="error", summary="x", source="agent", stub=stub)
+    assert ok is True

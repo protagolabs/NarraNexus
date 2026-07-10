@@ -60,10 +60,11 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
     """submit_feedback — the agent's channel for telling the NarraNexus team
     something went wrong (spec 2026-07-10-feedback-mechanism-design.md).
 
-    Privacy contract is enforced here, not just in the prompt: identifiers are
-    hashed by feedback_client and only the agent-written summary travels. The
-    tool always answers ok=True — delivery is fire-and-forget and the agent
-    must not retry or dwell on it."""
+    Privacy: feedback_client enforces what it CAN (identifiers hashed, summary
+    truncated); the CONTENT of the summary — no user quotes, no keys/PII — is
+    prompt-governed (prompts.py Product Feedback Duty) and not verifiable in
+    code. The tool always answers ok=True — delivery is fire-and-forget and
+    the agent must not retry or dwell on it."""
 
     @mcp.tool(
         name="submit_feedback",
