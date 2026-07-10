@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — inject "ack early" prefix into tagged_prompt
+
+Lark fully overrides `_build_and_run_agent`, so it prepends
+`self._early_feedback_prefix(message)` to its own `tagged_prompt` (same as the
+base). Sets `react_tool_ref = "mcp__lark_module__react_to_user_message"` (Lark's
+prompts use the fully-qualified name).
+
 ## 2026-07-10 — surface source_message_id (agent-driven feedback enabler)
 
 Lark's `_build_and_run_agent` override adds `source_message_id` to

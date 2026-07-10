@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+
+The "ack early" block is no longer rendered in `get_instructions` — it moved to
+the per-turn input in the trigger (`_early_feedback_prefix`, see
+[[channel_trigger_base]]) for higher salience. `get_instructions` no longer
+imports `render_early_feedback`.
+
 ## 2026-07-10 — PR #87 review: early-feedback via shared render
 
 The LARK CHANNEL early-feedback line is now produced by [[channel_reactions]]

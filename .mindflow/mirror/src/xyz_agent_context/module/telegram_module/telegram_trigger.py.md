@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_trigger.py
 stub: false
-last_verified: 2026-05-20
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — react_tool_ref = "react_to_user_message"
+
+Sets the class attr `react_tool_ref` (bare tool name) so the base trigger's
+`_early_feedback_prefix` injects the per-turn "ack early" directive with
+Telegram's react tool. (Mirror also renamed `.md` → `.py.md` for the sync bot.)
 
 ## Why it exists
 

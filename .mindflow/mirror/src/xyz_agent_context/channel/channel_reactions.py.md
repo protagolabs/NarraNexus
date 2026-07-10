@@ -32,14 +32,16 @@ module.
   visible in logs. Telegram's tool wraps its bool-returning
   `set_message_reaction` in a coro that raises on `False` so this path reports it.
 - **`render_early_feedback(*, tool_ref, room_id, message_id, inline)`** — the
-  generic "ACK FIRST for non-trivial requests" directive for a channel's
-  `get_instructions`. `tool_ref=None` → message-only ack (WeChat, no reaction
-  API). `inline=True` → Lark's `**Early feedback**: …` line; else a
-  `### Early feedback` section. The full-qualified-vs-bare tool name is the
-  caller's choice (Lark passes `mcp__lark_module__…` to match its convention).
+  generic "ACK FIRST for non-trivial requests" directive, injected into the
+  **per-turn input** (NOT the system prompt / get_instructions) by
+  `ChannelTriggerBase._early_feedback_prefix`. `tool_ref=None` → message-only ack
+  (WeChat, no reaction API). `inline=True` → the `**Early feedback**: …` line the
+  trigger prepends; else a `### Early feedback` section. The full-qualified-vs-bare
+  tool name is the caller's choice (Lark passes `mcp__lark_module__…`).
 
 ## Consumers
 
 `_{lark,slack,discord,telegram}_mcp_tools`'s `react_to_user_message` (via
-`best_effort_react`); `{lark,slack,discord,telegram,wechat}_module.get_instructions`
-(via `render_early_feedback`).
+`best_effort_react`); `ChannelTriggerBase._early_feedback_prefix` (+ Lark
+trigger's `_build_and_run_agent` override), which prepends the "ack early"
+directive to the per-turn tagged prompt (via `render_early_feedback`).
