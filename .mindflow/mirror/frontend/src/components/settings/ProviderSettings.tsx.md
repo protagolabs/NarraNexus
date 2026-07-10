@@ -1,7 +1,15 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 ---
+
+> **Obsolete claim below (2026-07-10)**: the 2026-06-10 entry "accurate codex
+> no-provider message" describes a `CODEX_ALLOWED_PROVIDER_SOURCES` filter and a
+> "NetMind / Yunwu / OpenRouter not supported" message. That constant was
+> **removed** (see [[agentFramework]] / [[user_provider_service]] 2026-07-10) and
+> that error copy no longer lives in this component (the agent-slot editor moved
+> to [[ModelDefaultsSettings]] in #81). codex_cli now accepts any openai-protocol
+> provider — aggregators included (binding rule #15).
 
 ## 2026-07-09 (latest) — card grid + detail/add modals; global default moved out
 

@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — agent slot 去掉 codex source 过滤
+
+`agentProviders` 过滤删掉 `isCodexFramework → CODEX_ALLOWED_PROVIDER_SOURCES`
+分支(该常量已删),只留 protocol 检查。用户级默认编辑器与 per-agent 面板
+([[AgentLlmConfigPanel]])共用同一规则,一起恢复 pre-#81:codex_cli 能选任意
+openai-protocol provider(铁律 #15,见 [[user_provider_service]] /
+[[agentFramework]])。`isCodexFramework` 仍用于 framework 切换的 spinner 文案,保留;
+只删 `CODEX_ALLOWED_PROVIDER_SOURCES` import。
 
 ## 2026-07-09 — helper dropdown 放开 OAuth + 默认便宜模型
 
@@ -26,9 +35,10 @@ Edits two user-level slots and writes via the unchanged endpoints:
 switch persists immediately (it may auto-install codex + re-probe auth) and
 clears the agent provider/model on a protocol change; the two slots save
 together on "Save defaults" (writes only the changed slots). Option-building is
-shared via [[agentFramework]] (`getModelsForSlot` / `AGENT_FRAMEWORKS` /
-`CODEX_ALLOWED_PROVIDER_SOURCES`) so the choices match the per-agent panel
-([[AgentLlmConfigPanel]]) and the provider dropdowns.
+shared via [[agentFramework]] (`getModelsForSlot` / `AGENT_FRAMEWORKS`) so the
+choices match the per-agent panel ([[AgentLlmConfigPanel]]) and the provider
+dropdowns. (The codex source whitelist was dropped 2026-07-10 — agent slot is
+protocol-gated only.)
 
 Structurally close to the per-agent [[AgentLlmConfigPanel]] (agent framework +
 model + reasoning, helper model), but inline (not a modal) and writing the

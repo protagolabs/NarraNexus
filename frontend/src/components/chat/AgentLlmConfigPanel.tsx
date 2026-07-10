@@ -19,10 +19,8 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui';
 import { api } from '@/lib/api';
 import {
   AGENT_FRAMEWORKS,
-  isCodexFramework,
   getModelsForSlot,
   prettifyModel,
-  CODEX_ALLOWED_PROVIDER_SOURCES,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
   type ProviderSummary,
@@ -117,12 +115,14 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
 
   const providerList = Object.values(providers).filter((p) => p.is_active);
 
+  // Agent slot: protocol must match the framework (codex_cli → openai,
+  // claude_code → anthropic). No source filter — any openai-protocol provider
+  // (codex_oauth / user / netmind / yunwu / openrouter) can back codex; runtime
+  // Responses-API compatibility is the provider's characteristic, not gated
+  // here (binding rule #15). Mirrors backend validate_slot_binding.
   const agentProviders = providerList.filter((p) => {
     const fw = AGENT_FRAMEWORKS.find((f) => f.id === agentDraft.agent_framework);
     if (fw && p.protocol !== fw.protocol) return false;
-    if (isCodexFramework(agentDraft.agent_framework)) {
-      return CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source);
-    }
     return true;
   });
 

@@ -5,10 +5,10 @@
 @description: AgentSlotService — per-agent override CRUD + reused binding rules.
 
 The per-agent override writer must enforce the SAME provider↔slot binding
-rules as the user-level writer (via the shared ``validate_slot_binding``): a
-codex_cli agent slot only accepts codex_oauth / user providers, and the helper
-slot rejects OAuth providers. Ownership resolution and upsert/get/clear round-
-trip are covered here too.
+rules as the user-level writer (via the shared ``validate_slot_binding``): the
+codex_cli agent slot accepts ANY openai-protocol provider (only the protocol is
+gated, not the source), and the helper slot accepts OAuth providers. Ownership
+resolution and upsert/get/clear round-trip are covered here too.
 """
 from __future__ import annotations
 
@@ -107,20 +107,41 @@ async def test_clear_all_removes_both_slots():
 
 
 @pytest.mark.asyncio
-async def test_codex_framework_rejects_aggregator_source():
+async def test_codex_framework_accepts_aggregator_source():
     db = _FakeDB()
     await _owned_agent(db)
-    # An openai-PROTOCOL aggregator (passes the protocol gate) but whose
-    # SOURCE isn't codex-capable → codex rejects it on source, not protocol.
+    # An openai-PROTOCOL aggregator (source=netmind). No source gate anymore
+    # (restored pre-#81 behavior, binding rule #15): the codex agent slot
+    # accepts any openai-protocol provider. Runtime Responses-API support is
+    # the provider's concern, not policed at config time.
     await db.insert("user_providers", {
         "user_id": "u1", "provider_id": "p_nm", "name": "nm",
         "source": "netmind", "protocol": "openai", "auth_type": "api_key",
         "api_key": "sk-nm", "base_url": "https://api.netmind.ai/openai/v1",
         "models": '["gpt-5.4"]', "is_active": 1, "driver_type": "netmind",
     })
-    with pytest.raises(ValueError, match="codex"):
+    row = await AgentSlotService(db).set_agent_slot(
+        "ag1", "agent", "p_nm", "gpt-5.4", agent_framework="codex_cli",
+    )
+    assert row["provider_id"] == "p_nm"
+    assert "agent" in (await AgentSlotService(db).get_agent_slots("ag1"))
+
+
+@pytest.mark.asyncio
+async def test_codex_framework_rejects_protocol_mismatch():
+    db = _FakeDB()
+    await _owned_agent(db)
+    # The protocol gate still stands: an anthropic provider cannot back a
+    # codex_cli (openai) agent slot.
+    await db.insert("user_providers", {
+        "user_id": "u1", "provider_id": "p_anth", "name": "anth",
+        "source": "user", "protocol": "anthropic", "auth_type": "api_key",
+        "api_key": "sk-a", "base_url": "", "models": '["claude-opus-4-8"]',
+        "is_active": 1,
+    })
+    with pytest.raises(ValueError, match="protocol"):
         await AgentSlotService(db).set_agent_slot(
-            "ag1", "agent", "p_nm", "gpt-5.4", agent_framework="codex_cli",
+            "ag1", "agent", "p_anth", "claude-opus-4-8", agent_framework="codex_cli",
         )
 
 

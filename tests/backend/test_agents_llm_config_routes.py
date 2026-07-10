@@ -200,18 +200,37 @@ async def test_put_cloud_staff_gate_rejects_oauth(db_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_put_invalid_binding_400(db_client, monkeypatch):
-    """validate_slot_binding rejects a codex_cli agent slot on a third-party
-    aggregator (openai protocol but source=netmind) → 400, not a 500."""
+    """validate_slot_binding rejects a codex_cli agent slot on a protocol
+    mismatch (anthropic provider under an openai framework) → 400, not a 500."""
+    await _seed_agent(db_client)
+    await _seed_provider(db_client, "p_anth", source="user", protocol="anthropic")
+    client = _build_client(db_client, monkeypatch, viewer_id="u1")
+
+    r = client.put(
+        "/api/agents/ag1/llm-config/agent",
+        json={"provider_id": "p_anth", "model": "gpt-5.5", "agent_framework": "codex_cli"},
+    )
+    assert r.status_code == 400
+    assert await db_client.get("agent_slots", {"agent_id": "ag1"}) == []
+
+
+@pytest.mark.asyncio
+async def test_put_codex_accepts_aggregator_openai_provider(db_client, monkeypatch):
+    """A codex_cli agent slot accepts any openai-protocol provider, including a
+    third-party aggregator (source=netmind) — restored pre-#81 behavior, no
+    source gate (binding rule #15). Runtime Responses-API compatibility is the
+    provider's concern, not policed at config time."""
     await _seed_agent(db_client)
     await _seed_provider(db_client, "p_agg", source="netmind", protocol="openai")
     client = _build_client(db_client, monkeypatch, viewer_id="u1")
 
     r = client.put(
         "/api/agents/ag1/llm-config/agent",
-        json={"provider_id": "p_agg", "model": "gpt-5.5", "agent_framework": "codex_cli"},
+        json={"provider_id": "p_agg", "model": "gpt-5.4", "agent_framework": "codex_cli"},
     )
-    assert r.status_code == 400
-    assert await db_client.get("agent_slots", {"agent_id": "ag1"}) == []
+    assert r.status_code == 200
+    rows = await db_client.get("agent_slots", {"agent_id": "ag1"})
+    assert len(rows) == 1 and rows[0]["provider_id"] == "p_agg"
 
 
 @pytest.mark.asyncio

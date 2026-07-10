@@ -42,22 +42,21 @@ def _is_cloud_mode() -> bool:
     return is_cloud_mode()
 
 
-# Canonical curated model list for the codex_cli agent framework,
-# regardless of which OpenAI-protocol provider supplies the credential.
-# Codex CLI's interactive picker decides which models its subprocess
-# accepts — same set for ChatGPT-account OAuth AND paid-API-key tier
-# (verified 2026-06-02). Custom OpenAI providers used with
-# ``agent_framework=codex_cli`` must be constrained to this list too,
-# otherwise the frontend dropdown offers e.g. ``o4-mini`` which the
-# codex CLI subprocess rejects.
+# Canonical curated model list for OpenAI's OWN codex backend (the
+# ``codex_oauth`` ChatGPT-account login). Codex CLI's interactive picker
+# decides which models its subprocess accepts on api.openai.com — same set
+# for ChatGPT-account OAuth AND paid-API-key tier (verified 2026-06-02).
 #
-# Two consumers:
-#   1. ``UserProviderService.get_user_config`` overrides the stored
-#      ``models`` column on a ``codex_oauth`` row at read time, so
-#      updating the constant propagates without DB migration.
-#   2. Frontend slot dropdown filters by this list when the agent
-#      slot's ``agent_framework == "codex_cli"``, irrespective of
-#      provider source (codex_oauth, custom openai, etc.).
+# Scope is deliberately narrow: this list is the source of truth ONLY for
+# ``codex_oauth`` (OpenAI's backend gates by account tier). A third-party
+# openai-protocol provider (netmind / yunwu / openrouter / custom base_url)
+# exposes ITS OWN model catalogue and is not constrained to this list — the
+# user picks whatever that endpoint serves.
+#
+# One consumer: ``UserProviderService.get_user_config`` overrides the stored
+# ``models`` column on a ``codex_oauth`` row at read time, so updating the
+# constant propagates without a DB migration. The frontend mirrors the same
+# codex_oauth-only scoping in ``agentFramework.ts::getModelsForSlot``.
 #
 # Verified 2026-06-02 by running interactive ``codex`` and reading
 # "Select Model and Effort" menu.
@@ -79,13 +78,14 @@ def validate_slot_binding(
     Rules:
       1. Protocol — the agent slot follows the framework (claude_code →
          anthropic, codex_cli → openai); other slots keep their static
-         requirement.
-      2. codex_cli agent slot — narrowed further by SOURCE: only
-         ``codex_oauth`` (ChatGPT login → OpenAI's own backend) or ``user``
-         (Custom OpenAI, user-typed base_url) expose the Responses API codex
-         needs; third-party aggregators (netmind / yunwu / openrouter) speak
-         chat-completions only and fail in non-obvious ways.
-      3. helper_llm — ACCEPTS OAuth providers (claude_oauth / codex_oauth): a
+         requirement. This is the ONLY gate on the codex agent slot: any
+         openai-protocol provider (codex_oauth / user / netmind / yunwu /
+         openrouter) is accepted. Codex targets OpenAI's Responses API
+         (wire_api="responses"); whether a given endpoint actually serves it
+         is the provider's characteristic, not something the platform polices
+         at config time (binding rule #15). A mismatch surfaces at agent-loop
+         time — the same accepted cost as any user-chosen endpoint.
+      2. helper_llm — ACCEPTS OAuth providers (claude_oauth / codex_oauth): a
          subscription login covers both slots. The OAuth credential can't make
          DIRECT Messages / Chat-Completions calls, but the resolver routes an
          OAuth helper to a CliHelperConfig and CliHelperSDK runs the helper's
@@ -97,19 +97,6 @@ def validate_slot_binding(
         raise ValueError(
             f"Slot '{slot_name}' requires protocol {[p.value for p in required]}, "
             f"got '{prov['protocol']}'"
-        )
-
-    if (
-        slot_name == SlotName.AGENT.value
-        and agent_framework == "codex_cli"
-        and prov["source"] not in {"codex_oauth", "user"}
-    ):
-        raise ValueError(
-            f"agent slot with framework='codex_cli' accepts only "
-            f"source=codex_oauth or source=user providers; "
-            f"got source={prov['source']!r}. Third-party aggregator "
-            f"endpoints (netmind / yunwu / openrouter) don't expose "
-            f"OpenAI's Responses API and are not supported."
         )
 
     # helper_llm ACCEPTS OAuth (claude_oauth / codex_oauth) — no reject: the
