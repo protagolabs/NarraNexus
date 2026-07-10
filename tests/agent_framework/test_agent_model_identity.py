@@ -93,6 +93,29 @@ async def test_framework_only_stub_does_not_win():
 
 
 @pytest.mark.asyncio
+async def test_override_with_provider_but_null_framework_does_not_win():
+    """Regression (PR #84 review): agent_slots.agent_framework is nullable.
+    An override with a provider_id but NULL agent_framework must NOT win —
+    otherwise the driver runs the owner's framework (codex_cli) while this
+    resolver would render the override's empty framework as Claude. Must
+    fall through to the owner's user_slots, matching the dispatch-side
+    ``_resolve_agent_framework_name``."""
+    db = _FakeDB()
+    db.tables["agents"].append({"agent_id": "ag1", "created_by": "u1"})
+    db.tables["user_slots"].append({
+        "user_id": "u1", "slot_name": "agent",
+        "agent_framework": "codex_cli", "model": "gpt-5",
+    })
+    db.tables["agent_slots"].append({
+        "agent_id": "ag1", "slot_name": "agent", "provider_id": "p_x",
+        "agent_framework": None, "model": "gpt-5-override",
+    })
+    ident = await resolve_agent_model_identity("ag1", db)
+    assert ident.framework == "codex_cli"
+    assert ident.framework_display == "Codex CLI"
+
+
+@pytest.mark.asyncio
 async def test_missing_rows_default_to_claude_code_empty_model():
     db = _FakeDB()
     db.tables["agents"].append({"agent_id": "ag1", "created_by": ""})

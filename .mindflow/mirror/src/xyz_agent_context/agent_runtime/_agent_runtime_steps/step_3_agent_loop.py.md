@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — `_resolve_agent_framework_name` 收缩为委托（单一 overlay）
+
+原本这里手写了一份 agent_slots→user_slots 的 overlay。它现在**委托**给
+[[agent_model_identity.py]] 的 `resolve_agent_model_identity(...).framework`——
+同一份 overlay 既供 dispatch（选 driver）又供 prompt 的 "LLM Model" 行，二者不可能
+再不一致。（PR #84：两份手抄 overlay 的判定曾漂移——prompt 侧漏了 `agent_framework`
+非空这一条，在"有 provider 但 framework NULL"的 agent_slots 行上重新渲染出错误身份。）
+`agent_runtime → agent_framework` 是合法 import 方向（本文件早已 import 该层）。
+行为对 dispatch 不变，由 `test_resolve_agent_framework_per_agent.py` 兜底。
 
 ## 2026-07-09 — per-agent framework + owner bugfix
 

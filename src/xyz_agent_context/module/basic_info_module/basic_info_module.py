@@ -148,11 +148,13 @@ class BasicInfoModule(XYZBaseModule):
         )
 
         # 1.6. Runtime LLM identity — the agent's REAL framework + model,
-        # resolved from the same slot rows the runtime dispatches on. This
-        # replaces a formerly hardcoded "Claude Agent SDK / sonnet-4" that
-        # made every agent misreport itself. resolve_* never raises; on any
-        # failure we still set safe non-None strings so the prompt's
-        # `.format()` never renders "None".
+        # resolved from the same slot overlay the runtime dispatches on
+        # (single source of truth; `_resolve_agent_framework_name` delegates
+        # to it too). Replaces a formerly hardcoded "Claude Agent SDK /
+        # sonnet-4" that made every agent misreport itself. The resolver
+        # itself never raises; the try/except here only guards the local
+        # import + any truly unexpected error, and still sets safe non-None
+        # strings so the prompt's `.format()` never renders "None".
         try:
             from xyz_agent_context.agent_framework.agent_model_identity import (
                 resolve_agent_model_identity,

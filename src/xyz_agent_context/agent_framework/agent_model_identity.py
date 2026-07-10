@@ -19,14 +19,17 @@ Iron rule #9: this lives in the agent_framework layer, not inside a
 Module. BasicInfoModule (a Module) just calls ``resolve_agent_model_
 identity`` and renders the strings — it never learns framework names.
 
-The overlay MUST stay in lock-step with
+This is the SINGLE overlay implementation. The dispatch-side resolver
 ``agent_runtime._agent_runtime_steps.step_3_agent_loop.
-_resolve_agent_framework_name`` (the dispatch-side resolver): a per-agent
-``agent_slots`` override wins ONLY when it actually rebinds the slot
-(carries a ``provider_id``); otherwise the owner's ``user_slots`` row
-(keyed by ``agents.created_by``) is authoritative. Both the framework
-and the model are read from that SAME resolved slot row, so the
-displayed identity matches what the driver runs.
+_resolve_agent_framework_name`` delegates here (returns ``.framework``),
+so the identity shown in the prompt can never disagree with the driver
+that actually runs. The rule: a per-agent ``agent_slots`` override wins
+ONLY when it truly rebinds the slot — it carries BOTH a ``provider_id``
+AND an ``agent_framework`` (a provider-only or framework-only stub does
+NOT win, matching the config resolver, which would otherwise e.g. run
+the Codex driver against a Claude config). Otherwise the owner's
+``user_slots`` row (keyed by ``agents.created_by``) is authoritative.
+Framework and model are read from that SAME winning slot row.
 """
 from __future__ import annotations
 
@@ -71,10 +74,11 @@ async def resolve_agent_model_identity(
 ) -> AgentModelIdentity:
     """Resolve THIS agent's real (framework, model) for prompt display.
 
-    Overlay (identical to ``_resolve_agent_framework_name``):
+    Overlay (the authority ``_resolve_agent_framework_name`` delegates to):
       1. Per-agent override — ``agent_slots[agent_id, 'agent']`` wins
-         ONLY when it carries a ``provider_id`` (a framework-only stub
-         does not rebind the slot; the config resolver skips it).
+         ONLY when it carries BOTH a ``provider_id`` AND an
+         ``agent_framework`` (a provider-only or framework-only stub does
+         not rebind the slot; the config resolver skips it too).
       2. Owner default — ``user_slots[owner, 'agent']`` where
          ``owner = agents.created_by``.
 
@@ -92,7 +96,7 @@ async def resolve_agent_model_identity(
         override = await db.get_one(
             "agent_slots", {"agent_id": agent_id, "slot_name": "agent"}
         )
-        if override and override.get("provider_id"):
+        if override and override.get("provider_id") and override.get("agent_framework"):
             slot = override
         else:
             agent_row = await db.get_one("agents", {"agent_id": agent_id})

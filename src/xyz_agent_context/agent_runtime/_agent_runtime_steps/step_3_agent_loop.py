@@ -71,29 +71,19 @@ async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
     Unknown framework names are NOT silently rewritten here — they're handed to
     ``get_agent_loop_driver`` which raises ``ValueError`` so a config typo
     surfaces at the dispatch site instead of masquerading as "claude".
+
+    The overlay itself lives in ``agent_framework.agent_model_identity`` — the
+    SINGLE source of truth shared with the prompt's "LLM Model" line, so the
+    displayed identity can never disagree with the driver we dispatch. This
+    thin wrapper just projects the ``framework`` field (identity resolution
+    never raises; unknown names pass through verbatim on the ``framework``
+    field, so the registry still fails loud on typos).
     """
-    try:
-        override = await db_client.get_one(
-            "agent_slots", {"agent_id": agent_id, "slot_name": "agent"}
-        )
-        if override and override.get("provider_id") and override.get("agent_framework"):
-            return override["agent_framework"]
+    from xyz_agent_context.agent_framework.agent_model_identity import (
+        resolve_agent_model_identity,
+    )
 
-        agent_row = await db_client.get_one("agents", {"agent_id": agent_id})
-        owner = (agent_row or {}).get("created_by")
-        if not owner:
-            return "claude_code"
-        row = await db_client.get_one(
-            "user_slots", {"user_id": owner, "slot_name": "agent"}
-        )
-    except Exception as e:  # noqa: BLE001 — defensive: any DB hiccup
-        logger.warning(
-            f"[step_3] agent_framework lookup failed for agent={agent_id}: {e}; "
-            f"falling back to claude_code"
-        )
-        return "claude_code"
-
-    return (row or {}).get("agent_framework") or "claude_code"
+    return (await resolve_agent_model_identity(agent_id, db_client)).framework
 
 
 def _truncate(text: str, limit: int) -> str:

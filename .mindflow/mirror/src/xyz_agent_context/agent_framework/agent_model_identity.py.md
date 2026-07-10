@@ -20,15 +20,19 @@ stub: false
 
 ## 设计决策
 
-- **overlay 必须与 [[step_3_agent_loop.py]] 的 `_resolve_agent_framework_name`
-  完全一致**：per-agent `agent_slots` 覆盖行只有在**带 `provider_id`**（真正
-  rebind 了 slot）时才胜出，否则回退 owner（`agents.created_by`）的 `user_slots`。
-  framework 和 model **都从同一个胜出的 slot 行读**（`agent_framework` + `model`
-  两列，`schema_registry.py` 里 user_slots/agent_slots 都有），所以展示的身份
-  和 driver 真正跑的一致。
-  - 这里**故意复制**那份 overlay（~10 行）而不 import：`_resolve_agent_framework_name`
-    在 agent_runtime 层，agent_framework 反向 import 它是层级倒挂。两处都很小、
-    都有测试锁契约，改一处务必同步另一处。
+- **单一 overlay 实现**：本文件是唯一的 overlay，[[step_3_agent_loop.py]] 的
+  `_resolve_agent_framework_name` **委托**到这里（`return (await resolve_...).framework`），
+  所以 prompt 展示的身份与 dispatch 真正跑的 driver **不可能不一致**。
+  夺权规则：per-agent `agent_slots` 覆盖行只有在**同时带 `provider_id` 和
+  `agent_framework`** 时才胜出（provider-only 或 framework-only 的残行都不夺权，
+  与 config resolver 一致），否则回退 owner（`agents.created_by`）的 `user_slots`。
+  framework 和 model **都从同一个胜出的 slot 行读**（两表都有这两列）。
+  - **踩过的坑（PR #84 review）**：`agent_slots.agent_framework` 是 `nullable=True`。
+    初版判定只看 `provider_id`，漏了 `agent_framework` 非空这一条——于是"有 provider
+    但 framework 为 NULL"的行会被本 resolver 当胜出、渲染成 Claude，而 dispatch 端
+    落到 owner 框架真跑 Codex，重新制造错误身份。收敛成单一实现后此类不一致从根上消除
+    （方向也纠正了：`agent_runtime → agent_framework` 本就是合法 import 方向，step_3
+    早已 `from xyz_agent_context.agent_framework import ...`）。
 - **绝不抛异常**：任何缺行/空列/DB 故障都降级到 `(claude_code, "")`，因为它喂的是
   system-prompt 构建路径，炸了会废掉整轮。降级值仍走同一 display 映射，宁可回退成
   一个"次真实"的默认，也不输出错误品牌。
@@ -45,6 +49,7 @@ stub: false
 ## 契约测试
 
 `tests/agent_framework/test_agent_model_identity.py`：覆盖胜出 / 无覆盖回退
-user_slots / 缺 provider_id 不夺权 / 缺行→claude_code+空 model / DB 故障兜底 /
-未知名原样。与 `test_resolve_agent_framework_per_agent.py` 用同一 `_FakeDB` 模式，
-两者一起锁死 overlay 语义必须同步。
+user_slots / 缺 provider_id 不夺权 / **有 provider 但 framework NULL 不夺权**（PR #84
+回归）/ 缺行→claude_code+空 model / DB 故障兜底 / 未知名原样。
+`test_resolve_agent_framework_per_agent.py` 走委托后的 `_resolve_agent_framework_name`，
+同样锁 dispatch 端行为——两个测试测的是同一份 overlay 的两个出口。
