@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-06-23
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — FeedbackButton 挂载
+
+与 HelpButton 同点位挂载 [[FeedbackButton.tsx]]（desktop only，同一
+!isMobile 条件——移动端右下角保留给内容的理由同样适用于反馈按钮）。
+
 
 ## 2026-06-23 — TeamChatView in the main slot
 

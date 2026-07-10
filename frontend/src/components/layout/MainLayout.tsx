@@ -44,6 +44,7 @@ import {
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
+import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
@@ -347,8 +348,10 @@ export function ChatView() {
 
       {/* Hand-annotated page guide — bottom-left ?, spec §12 */}
       {/* Floating help (?) — desktop only; on mobile the bottom-right corner
-          is reserved for content and the page guide isn't tuned for touch. */}
+          is reserved for content and the page guide isn't tuned for touch.
+          Feedback stacks directly above it (same rationale + visuals). */}
       {!isMobile && <HelpButton pages={CHAT_VIEW_PAGES} />}
+      {!isMobile && <FeedbackButton />}
 
       {/* Slide-over drawer (default, unpinned) */}
       {!drawerPinned && agentId && (

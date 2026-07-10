@@ -4,6 +4,11 @@ last_verified: 2026-07-10
 stub: false
 ---
 
+## 2026-07-10 (2) — 打开入口变更
+
+打开方从 Sidebar footer 改为右下角浮动 [[FeedbackButton.tsx]]；弹窗本身不变。
+
+
 # FeedbackDialog.tsx — 手动反馈弹窗
 
 ## Why it exists
