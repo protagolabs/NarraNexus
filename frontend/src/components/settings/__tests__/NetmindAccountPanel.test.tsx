@@ -231,13 +231,18 @@ test('free × healthy: reassurance shown, ZERO spend buttons, manage link collap
   expect(screen.getByRole('button', { name: /Manage plan & credits/ })).toBeTruthy();
 });
 
-test('free × healthy: expanding Manage reveals subscribe + top-up', async () => {
+test('free × healthy: expanding Manage reveals the FULL upsell card + top-up (never bare peer buttons)', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
   fireEvent.click(await screen.findByRole('button', { name: /Manage plan & credits/ }));
-  expect(screen.getByRole('button', { name: /Subscribe to Pro/ })).toBeTruthy();
+  // the value prop must accompany the subscribe CTA even here — a bare button
+  // next to top-up tiers is the original decision-paralysis layout
+  expect(screen.getByRole('button', { name: /Upgrade to Pro/ })).toBeTruthy();
+  expect(screen.getByText(/Member pricing on popular models/)).toBeTruthy();
+  // and top-up states its differentiator: one-time, no subscription
+  expect(screen.getByText(/One-time top-up, no subscription/)).toBeTruthy();
   expect(screen.getByRole('button', { name: /^Recharge$/ })).toBeTruthy();
 });
 

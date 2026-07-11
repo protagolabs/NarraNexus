@@ -155,16 +155,11 @@ export function NetmindActionZone({
         {manageLink(t('settings.netmind.managePlan', 'Manage plan & credits'))}
         {showManage && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-[var(--text-secondary)]">
-                {t('settings.netmind.upsellName', 'Upgrade to Pro')}
-              </p>
-              <Button variant="accent" size="sm" onClick={onSubscribe} disabled={busy || polling}>
-                {busy
-                  ? t('settings.netmind.working', 'Working…')
-                  : t('settings.netmind.subscribeBtn', 'Subscribe to Pro')}
-              </Button>
-            </div>
+            {/* Same value-prop card as the low state — a bare "Subscribe"
+                button next to bare top-up tiers would recreate the original
+                two-peer-spend-buttons confusion, just one click deeper. The
+                card states WHY Pro differs from a same-priced top-up. */}
+            <NetmindUpsellCard proPlan={proPlan} onUpgrade={onSubscribe} busy={busy || polling} />
             {topUp}
             {pricingLink}
           </div>
