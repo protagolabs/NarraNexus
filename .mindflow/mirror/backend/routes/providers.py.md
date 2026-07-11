@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — use-subscription is now a thin wrapper over the provisioner
+
+The mint + dedup + onboard + orphan-cleanup + per-user lock all moved into
+[[netmind_provisioner]]'s `ensure_netmind_provider` (shared with login
+auto-register). The route now only: gates (cloud / flag / token), calls
+`ensure_netmind_provider(uid, token, activate_if_fresh=True)`, maps its outcome
+to HTTP (True→200 with the refreshed config, False→409 already-connected,
+KeyAuthError→401, KeyUpstreamError→502, ValueError→409/502/400), and runs the
+hot-reload + rearm tail. It's now mainly a fallback — every login auto-registers,
+so the frontend no longer calls it. `_use_sub_locks` was removed from this file.
 
 ## 2026-07-09 — `_is_cloud` delegates to deployment_mode
 

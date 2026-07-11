@@ -1,9 +1,61 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-06
+last_verified: 2026-07-10
 stub: false
 ---
- 
+
+## 2026-07-10 (latest) — plan × runway 重设计:吸收 QuotaPanel、渐进披露、单一主 CTA
+
+动机:两个平级花钱按钮(Subscribe/Recharge)+ 三种"钱"分居两卡让新用户决策瘫痪
+($19 订阅与 $19 充值 credit 等值,差异只在会员价+模型库,旧 UI 没说)。重构为:
+
+- **两个正交维度**:plan(free/pro_active/pro_cancelled,沿用 `resolveState`)×
+  runway(healthy/low,新纯函数 [[netmindRunway.ts]] `deriveRunway`)。
+- **QuotaPanel 已删除**,免费额度视图 + `prefer_system` 开关吸收进本卡:
+  `load()` 的 allSettled 加 `getMyQuota()` + `getPlans()`(各自独立失败隔离);
+  runway 视图渲染在 [[NetmindRunwayView]](免费额度条+赠额+余额+扣费顺序一句话+
+  「Free tier first」开关)。开关锁定规则:exhausted 时只锁 ON 方向(后端
+  "OFF is always allowed" 409 守卫的镜像)。
+- **渐进披露**:healthy 态零花钱按钮(subscribe/top-up 收进 `showManage` 展开);
+  low 态才升起唯一主动作 —— free→[[NetmindUpsellCard]](会员价+模型库价值主张,
+  价格=`monthly_grant_usd` 动态取,决策 A;充值降级为文字链接),pro→充值直出,
+  pro_cancelled→恒 Resume。
+- **文案**:去贬义(`free`/"not subscribed" 删除);扣费顺序从页脚 footer 移进
+  runway(flowFree 两池 / flowPro 三池;权威顺序待与 xiyue 核对——若不同只改这
+  两个 i18n key);页脚只剩 scopeNote + sandboxNotice。外链 `PRICING_URL` 指
+  netmind.ai/pricing(深度内容不进面板)。
+- i18n:netmind 块 +26 新 key、-5 死 key(free/proActive/validUntil/deductTitle/
+  deductOrder);`settings.quota.*` 整块删除。en/zh 59 key 齐平。
+- 测试:40 用例(适配映射 + plan×runway 矩阵 + prefer 开关 + plans 降级 +
+  toggle 双击守卫 + 未知 quota 态中性文案);测试 i18n mock 升级为支持
+  `{{var}}` 插值以断言完整文案;afterEach restoreAllMocks(confirm spy 卫生)。
+- 模块 F 状态**按信息价值分层**(同日,Owner 走查):`not_connected`(唯一
+  可行动的连接态,agent 跑不了)提到顶部状态行下方、警示色;`connected/checking`
+  (管理性确认,无需行动)留在下方安静盒子——"放心"职责归顶部 topStatus,避免
+  双绿勾叠加。topupOrLink 从只开不关改为 toggle(删 onRevealTopUp prop)。
+- UI 走查修复(同日,Owner 看真实 prod 数据后):`notEligible` 警告在低额引导
+  可见时(runway low 且非 pro_cancelled)**不再单独渲染**——eligible=false 必然
+  触发 low,引导语已用人话说了同一件事,叠加系统腔警告读起来像报错且字号不一
+  (12px vs 14px);仅 pro_cancelled(动作区谈续费不谈额度)保留。lowChoose 改
+  "余额不足";upsellGrantLine 去掉 {{period}}(与价格行重复出"每月…/月"病句)。
+- review 修复(同日):动作区抽为 [[NetmindActionZone]](面板 784→665 行);
+  togglePrefer 加 preferBusyRef 同步守卫(与 busyRef 同模式);free×low 文案
+  按 freePct===0 门控(exhaustedChoose vs 新 key lowChoose);
+  `SubscriptionPlan.features/quota_limits` 字段改可选(verbatim 代理现实)。
+
+## 2026-07-10 — 模块 F 改为「只读状态」，删掉 mint/connect 按钮
+
+云端登录已在后端自动 register NetMind provider（见 [[netmind_provisioner]] +
+[[auth]]），所以面板这里**不再 mint、不再有按钮**。原来的连接状态机
+（`connect`/`connectNetmind`/`resolveConnection`/`classifyConnectError`/
+`other_provider` 切换按钮/重试按钮）**全部删除**，换成读 `api.getProviders()` 的三态
+只读状态 `netStatus`：`connected`（存在 `source==='netmind'` 的 provider）/
+`checking` / `not_connected`。选择"由哪个 provider 驱动"归 LLM Providers 区。
+面板不再调 `api.useSubscription()`（`api.ts` 仍保留该方法，供兜底路由用）。i18n
+去掉 `useTitle/useDesc/useSubscribeBtn/useSubscribeOk/connectedStatus/connecting/
+useDescSwitch/connectRetry`，加 `connectedManage/checkingStatus/notConnected`。
+（本条取代下方 2026-07-02「Phase 5」与旧版 auto-connect 描述。）
+
 ## 2026-07-06 — recent activity collapsed by default
 
 The activity list is now behind a collapsed toggle (`showActivity`, default false):

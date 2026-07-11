@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — NetMind login auto-registers the user's provider
+
+`netmind_login`, right after issuing the app JWT + `_schedule_login_rearm`, now
+fire-and-forgets `schedule_ensure_netmind_provider(user_id, netmind_token)` (see
+[[netmind_provisioner]]). Cloud login IS NetMind login, so the user's NetMind
+provider is minted+registered automatically — no manual "use this account"
+button. Non-fatal by construction: login never blocks on or fails from NetMind
+minting; the provisioner self-guards on the feature flag and only activates slots
+when the user has no active config (register-always, activate-if-fresh).
 
 ## 2026-07-09 — agent-delete cascades agent_slots
 

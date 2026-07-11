@@ -1,10 +1,18 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: false
 ---
 
-## 2026-07-09 (latest) — new "Model Defaults" nav section
+## 2026-07-10 (latest) — Account section is now a SINGLE card
+
+`QuotaPanel` was deleted; its free-tier view + prefer_system toggle were
+absorbed INTO [[NetmindAccountPanel]] (plan × runway redesign). The `account`
+section now mounts only `<NetmindAccountPanel/>` — one card owns every
+"what are my credits / how is usage paid" concern as one runway story. Removed
+the QuotaPanel import and its `mb-4` wrapper.
+
+## 2026-07-09 — new "Model Defaults" nav section
 
 Added a `NAV_ITEMS` entry `{ id: 'modeldefaults', label: 'Model Defaults' }`
 (after `providers`) rendering [[ModelDefaultsSettings]] — the global default
