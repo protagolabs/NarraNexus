@@ -1012,11 +1012,13 @@ export interface SubscriptionPlanPrice {
   stripe_price_id: string;
 }
 
+// Verbatim NetMind proxy (like FeeInfo): no backend schema validation, so treat
+// every nested field as possibly absent at runtime and read defensively.
 export interface SubscriptionPlan {
   plan_id: string; // "free" | "pro"
   name: string;
-  quota_limits: { rpm: number };
-  features: { support: boolean; member_price: boolean };
+  quota_limits: { rpm?: number };
+  features: { support?: boolean; member_price?: boolean };
   monthly_grant_usd: number;
   prices: SubscriptionPlanPrice[];
 }

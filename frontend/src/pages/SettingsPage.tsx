@@ -14,7 +14,6 @@ import { useTranslation } from 'react-i18next';
 import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
-import { QuotaPanel } from '@/components/settings/QuotaPanel';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
@@ -337,13 +336,10 @@ export default function SettingsPage() {
             {active === 'account' && (
               <section>
                 <SectionHeader label="Account & Subscription" />
-                {/* All "what are my credits / how is usage paid" concerns live
-                    here: the platform free tier first, then the user's own
-                    NetMind.AI Power balance/subscription/top-up. Both self-gate
-                    to null when not applicable. */}
-                <div className="mb-4">
-                  <QuotaPanel />
-                </div>
+                {/* One card owns every "what are my credits / how is usage paid"
+                    concern: platform free tier, NetMind.AI Power balance,
+                    subscription, and top-up — told as one runway story. Self-gates
+                    to null in local mode. */}
                 <NetmindAccountPanel />
               </section>
             )}

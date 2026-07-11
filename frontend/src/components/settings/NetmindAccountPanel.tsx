@@ -2,63 +2,61 @@
  * @file NetmindAccountPanel.tsx
  * @author NetMind.AI
  * @date 2026-07-02
- * @description NetMind account & subscription panel.
+ * @description NetMind account & subscription panel (cloud-web only).
  *
- * Cloud-web only. Reads GET /api/billing/subscription and renders one of four
- * states (S0 hidden in local mode, S1 Free, S2 Pro active, S3 cancelled but
- * still in-period), plus the sandbox free-tier notice (module G).
+ * Single "Account & Subscription" card. Absorbs the platform free-tier view
+ * (formerly the standalone QuotaPanel) so all of "what do I have / how is usage
+ * paid" lives in one place, told as one story.
  *
- * Phase 3 adds subscription actions (module C/D): subscribe → Stripe checkout →
- * poll /me until ACTIVE; cancel (confirm) → auto-renew off; reactivate (resume
- * auto-renew). Payment return has no deterministic desktop signal, so we also
- * refresh on window focus + poll with a bounded window (C3 mitigation).
+ * Two orthogonal dimensions drive the UI:
+ *   - PLAN state (resolveState): free / pro_active / pro_cancelled — top status
+ *     line, badge, and management action (subscribe / cancel / resume).
+ *   - RUNWAY health (deriveRunway): healthy / low — whether the panel stays calm
+ *     or promotes ONE contextual action. Upsell-to-Pro appears only at
+ *     (free × low); a Pro user who is low gets top-up instead; a cancelled Pro
+ *     user always gets resume.
  *
- * Phase 4 adds top-up (module E): preset tiers (+ custom amount) → hosted
- * Stripe checkout (checkout_url) → openExternal → poll by-session until
- * succeeded/failed → refresh balance. Same bounded-poll + on-focus pattern.
+ * Progressive disclosure: in a healthy state the spend controls (subscribe /
+ * top-up) are hidden behind a "Manage" link so a fresh user is never asked to
+ * make a billing decision on day one. Charging waterfall (free tier → grant →
+ * balance; authoritative order is backend/NetMind) is stated in the runway view.
  *
- * Module F is now STATUS ONLY — no mint/connect button here. Cloud login IS
- * NetMind login, so the backend auto-registers the user's NetMind provider on
- * every login (register-always; activate-if-fresh — see netmind_provisioner).
- * This panel just reflects the result read from GET /api/providers: connected
- * (a netmind-source provider exists) or not. Choosing which provider actually
- * runs NarraNexus lives in the LLM Providers section. NetMind sits behind the
- * system free tier (prefer_system default on), so it never spends before free.
+ * Module F (which provider runs NarraNexus) is auto-registered by the backend on
+ * login, so this panel only reflects a read-only status; switching providers
+ * lives in the LLM Providers section.
  *
- * Mirrors QuotaPanel: cloud-mode gate + `return null` when not applicable.
- * Copy is fully i18n-keyed (settings.netmind.*) with English source defaults.
+ * Payment return has no deterministic desktop signal, so we refresh on window
+ * focus + poll with a bounded window (C3 mitigation). Copy is fully i18n-keyed
+ * (settings.netmind.*) with English source defaults.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { platform } from '@/lib/platform';
-import { Button } from '@/components/ui';
-import type { FeeInfo, FinanceRecord, SubscriptionMe } from '@/types';
+import type {
+  FeeInfo,
+  FinanceRecord,
+  QuotaMeResponse,
+  SubscriptionMe,
+  SubscriptionPlan,
+} from '@/types';
 import { useRuntimeStore } from '@/stores/runtimeStore';
+import { deriveRunway } from './netmindRunway';
+import { money, freeTierPctLeft, formatPeriod, formatDate } from './netmindFormat';
+import { NetmindRunwayView } from './NetmindRunwayView';
+import { NetmindActionZone } from './NetmindActionZone';
+import { NetmindTopUpControls, type RechargeState } from './NetmindTopUpControls';
 
 type PanelState = 'loading' | 'error' | 'free' | 'pro_active' | 'pro_cancelled';
 
 const POLL_INTERVAL_MS = 4000;
 const POLL_MAX_MS = 180000; // 3 min bound — never poll forever
 
-// Preset top-up tiers (USD). The API accepts any positive amount; these are a
-// NarraNexus-side convenience (module E / D-5). A custom amount overrides them.
-const RECHARGE_TIERS = [5, 10, 20, 50];
-
-type RechargeState = 'idle' | 'processing' | 'success' | 'failed';
-
 // Whether the user's NetMind account is wired in as a provider (module F).
 // Auto-registered by the backend on login, so this is a read-only status:
 // we just report what GET /api/providers shows.
 type NetmindStatus = 'checking' | 'connected' | 'not_connected';
-
-// Money strings from NetMind can carry 4 decimals ("9.9300"); show 2.
-function money(v?: string | null): string {
-  if (v == null || v === '') return '—';
-  const n = Number(v);
-  return Number.isFinite(n) ? n.toFixed(2) : '—';
-}
 
 function resolveState(me: SubscriptionMe | null): PanelState {
   if (!me) return 'error';
@@ -67,14 +65,6 @@ function resolveState(me: SubscriptionMe | null): PanelState {
   if (sub.status === 'ACTIVE' && sub.auto_renew) return 'pro_active'; // S2
   if (sub.status === 'ACTIVE' && !sub.auto_renew) return 'pro_cancelled'; // S3
   return 'free';
-}
-
-function formatDate(unixSeconds: number): string {
-  try {
-    return new Date(unixSeconds * 1000).toISOString().slice(0, 10);
-  } catch {
-    return '—';
-  }
 }
 
 function errMessage(e: unknown): string {
@@ -93,12 +83,16 @@ export function NetmindAccountPanel() {
   const [fee, setFee] = useState<FeeInfo | null>(null);
   const [feeLoaded, setFeeLoaded] = useState(false);
   const [records, setRecords] = useState<FinanceRecord[]>([]);
+  const [quota, setQuota] = useState<QuotaMeResponse | null>(null);
+  const [plans, setPlans] = useState<SubscriptionPlan[] | null>(null);
   // Top-up (module E): selected preset tier + optional custom amount override.
   const [tier, setTier] = useState<number>(10);
   const [custom, setCustom] = useState<string>('');
   const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
   const [rechargeError, setRechargeError] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false); // recent activity collapsed by default
+  const [showManage, setShowManage] = useState(false); // spend controls collapsed in healthy states
+  const [preferBusy, setPreferBusy] = useState(false); // prefer toggle in flight
   // Module F: read-only connection status (backend auto-registers on login).
   const [netStatus, setNetStatus] = useState<NetmindStatus>('checking');
   const mounted = useRef(true);
@@ -109,20 +103,24 @@ export function NetmindAccountPanel() {
   const busyRef = useRef(false);
   const pollingRef = useRef(false);
   const rechargeRef = useRef(false); // synchronous double-submit guard
+  const preferBusyRef = useRef(false); // sync guard for the prefer toggle
   // Identifies the active top-up attempt. Bumping it invalidates any in-flight
   // poll loop (used to stop waiting / supersede) so a stale loop can never
   // overwrite the UI or block a fresh attempt.
   const rechargeGenRef = useRef(0);
 
   const load = useCallback(async () => {
-    // Fetch subscription + balance concurrently; each result is handled
-    // independently so a fee-info failure never blanks the subscription status
-    // (and vice versa). Note: only a FETCH failure is isolated here — the
-    // balance render itself must stay null-safe against a partial 200 payload.
-    const [subR, feeR, recR] = await Promise.allSettled([
+    // Fetch subscription + balance + quota + plans concurrently; each result is
+    // handled independently so one failure never blanks the rest (fee failure
+    // hides the balance, quota failure hides the free-tier bar, etc.). Only a
+    // FETCH failure is isolated here — every render below must stay null-safe
+    // against a partial 200 payload.
+    const [subR, feeR, recR, quotaR, plansR] = await Promise.allSettled([
       api.getSubscription(),
       api.getFeeInfo(),
       api.getRecords(),
+      api.getMyQuota(),
+      api.getPlans(),
     ]);
     if (!mounted.current) return;
     if (subR.status === 'fulfilled') {
@@ -135,6 +133,8 @@ export function NetmindAccountPanel() {
     setFee(feeR.status === 'fulfilled' ? feeR.value.data ?? null : null);
     setFeeLoaded(true);
     setRecords(recR.status === 'fulfilled' ? recR.value.data ?? [] : []);
+    setQuota(quotaR.status === 'fulfilled' ? quotaR.value : null);
+    setPlans(plansR.status === 'fulfilled' ? plansR.value.data?.plans ?? null : null);
   }, []);
 
   // C3 mitigation: no deterministic signal when the user returns from the
@@ -229,7 +229,7 @@ export function NetmindAccountPanel() {
     // reactivate re-enables auto-renew (may trigger a charge) — confirm, since
     // its exact billing semantics are still pending NetMind confirmation.
     if (!window.confirm(t('settings.netmind.reactivateConfirm',
-      'Resume auto-renew for your Pro subscription?'))) {
+      'Resume auto-renew for your NetMind.AI Power Pro subscription?'))) {
       return;
     }
     busyRef.current = true;
@@ -273,10 +273,36 @@ export function NetmindAccountPanel() {
     };
   }, [isCloud, load, refreshNetStatus]);
 
+  // Toggle "free tier first" (formerly QuotaPanel prefer_system). The backend
+  // guards "OFF is always allowed" — turning free tier ON needs budget, OFF
+  // never does — so the RunwayView only disables the ON direction when exhausted.
+  // preferBusyRef is the synchronous double-click guard (same pattern as
+  // busyRef): two concurrent toggles could otherwise settle on whichever
+  // response lands last, opposite to the user's final intent.
+  const togglePrefer = useCallback(async () => {
+    if (preferBusyRef.current) return;
+    const cur =
+      quota && quota.enabled === true && quota.status !== 'uninitialized'
+        ? quota.prefer_system_override
+        : null;
+    if (cur === null) return;
+    preferBusyRef.current = true;
+    setPreferBusy(true);
+    try {
+      const next = await api.setQuotaPreference(!cur);
+      if (mounted.current) setQuota(next);
+    } catch {
+      // keep the previous state — the switch simply doesn't move
+    } finally {
+      preferBusyRef.current = false;
+      if (mounted.current) setPreferBusy(false);
+    }
+  }, [quota]);
+
   // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
-  // success, reload so the balance hero + activity reflect the new credit.
-  // `gen` tags this loop; if rechargeGenRef moves on (user stopped waiting or
-  // started another top-up) the loop bails without touching the UI.
+  // success, reload so the balance + activity reflect the new credit. `gen`
+  // tags this loop; if rechargeGenRef moves on (user stopped waiting or started
+  // another top-up) the loop bails without touching the UI.
   const pollRechargeStatus = useCallback(async (sessionId: string, gen: number) => {
     const deadline = Date.now() + POLL_MAX_MS;
     const current = () => mounted.current && rechargeGenRef.current === gen;
@@ -371,6 +397,28 @@ export function NetmindAccountPanel() {
     (r) => (r.status || '').toLowerCase() !== 'pending',
   );
 
+  // ── Derived view model (null-safe against partial payloads) ───────────────
+  const isPro = state === 'pro_active' || state === 'pro_cancelled';
+  const runway = deriveRunway(quota, fee);
+  const proPlan = plans?.find((p) => p.plan_id === 'pro') ?? null;
+  const period = formatPeriod(proPlan?.prices?.[0]?.period, t('settings.netmind.perMonth', 'mo'));
+  const freePct = freeTierPctLeft(quota);
+  const preferSystem =
+    quota && quota.enabled === true && quota.status !== 'uninitialized'
+      ? quota.prefer_system_override
+      : null;
+  const preferLocked = quota?.enabled === true && quota.status === 'exhausted';
+  const balanceText = feeLoaded && fee ? `$${money(fee.metrics?.free_credit)}` : '—';
+  const grantUsd = fee?.metrics?.monthly_free_credit;
+  const grantText =
+    isPro && grantUsd != null && grantUsd !== ''
+      ? t('settings.netmind.grantPerPeriod', '{{amount}} / {{period}}', {
+          amount: `$${money(grantUsd)}`,
+          period,
+        })
+      : null;
+  const showRunway = freePct !== null || (feeLoaded && !!fee);
+
   // Plan badge (top-right): reflects the NetMind.AI Power plan state.
   const planBadge = (() => {
     if (state === 'pro_active') {
@@ -397,43 +445,60 @@ export function NetmindAccountPanel() {
     return null;
   })();
 
-  // Primary action + status line, driven by the current plan state.
-  const actionButton = () => {
-    if (state === 'free') {
-      return (
-        <Button variant="accent" size="sm" onClick={handleSubscribe} disabled={busy || polling}>
-          {busy ? t('settings.netmind.working', 'Working…') : t('settings.netmind.subscribeBtn', 'Subscribe to Pro')}
-        </Button>
-      );
-    }
+  // Top-up controls (module E) — reused inside the manage disclosure and shown
+  // directly when a Pro user is low. Presentational piece lives in
+  // NetmindTopUpControls; the guarded handlers stay here.
+  const topUp = (
+    <NetmindTopUpControls
+      tier={tier}
+      custom={custom}
+      rechargeState={rechargeState}
+      rechargeError={rechargeError}
+      onSelectTier={(v) => { setTier(v); setCustom(''); }}
+      onChangeCustom={setCustom}
+      onRecharge={handleRecharge}
+      onStopWaiting={handleStopWaitingRecharge}
+    />
+  );
+
+  // Top status line (plan-aware): reassurance in a healthy state, plan status
+  // for Pro. De-negativized — Free is not framed as "not subscribed".
+  const topStatus = () => {
     if (state === 'pro_active') {
       return (
-        <Button variant="outline" size="sm" onClick={handleCancel} disabled={busy}>
-          {busy ? t('settings.netmind.working', 'Working…') : t('settings.netmind.cancelBtn', 'Cancel subscription')}
-        </Button>
+        <div>
+          <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-success)]">
+            <span aria-hidden>✓</span>
+            <span>{t('settings.netmind.readyPro', 'Pro member · active')}</span>
+          </div>
+          {me?.subscription && (
+            <div className="text-xs text-[var(--text-tertiary)] mt-0.5">
+              {t('settings.netmind.planValidUntil', 'Valid until {{date}}', {
+                date: formatDate(me.subscription.current_period_end),
+              })}
+            </div>
+          )}
+        </div>
       );
     }
-    if (state === 'pro_cancelled') {
+    if (state === 'pro_cancelled' && me?.subscription) {
       return (
-        <Button variant="accent" size="sm" onClick={handleReactivate} disabled={busy}>
-          {busy ? t('settings.netmind.working', 'Working…') : t('settings.netmind.reactivateBtn', 'Resume auto-renew')}
-        </Button>
+        <p className="text-sm font-medium text-[var(--text-primary)]">
+          {t('settings.netmind.expiresDowngrade', 'Valid until {{date}}, then downgrades to Free', {
+            date: formatDate(me.subscription.current_period_end),
+          })}
+        </p>
+      );
+    }
+    if (state === 'free' && runway === 'healthy') {
+      return (
+        <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-success)]">
+          <span aria-hidden>✓</span>
+          <span>{t('settings.netmind.readyFree', "You're all set — running on NetMind, no setup needed.")}</span>
+        </div>
       );
     }
     return null;
-  };
-
-  const statusLine = () => {
-    if (state === 'free') return t('settings.netmind.free', 'Current plan: Free (not subscribed)');
-    if (state === 'pro_active' && me?.subscription) {
-      return `${t('settings.netmind.proActive', 'Pro · active')} · ${t('settings.netmind.validUntil', 'valid until')} ${formatDate(me.subscription.current_period_end)}`;
-    }
-    if (state === 'pro_cancelled' && me?.subscription) {
-      return t('settings.netmind.expiresDowngrade', 'Valid until {{date}}, then downgrades to Free', {
-        date: formatDate(me.subscription.current_period_end),
-      });
-    }
-    return '';
   };
 
   return (
@@ -463,36 +528,65 @@ export function NetmindAccountPanel() {
 
       {state !== 'loading' && state !== 'error' && (
         <div className="px-4 py-4 space-y-4">
-          {/* Balance hero */}
-          {feeLoaded && fee && (
-            <div>
-              <div className="text-2xl font-semibold font-mono text-[var(--text-primary)] leading-none">
-                ${money(fee.metrics?.free_credit)}
-              </div>
-              <div className="mt-1 text-xs text-[var(--text-tertiary)]">
-                {t('settings.netmind.currentBalance', 'Current balance')}
-                {' · '}
-                {t('settings.netmind.monthlyGrant', 'Monthly grant')} ${money(fee.metrics?.monthly_free_credit)}
-              </div>
-              {fee.eligible === false && (
-                <div className="mt-1.5 text-xs text-[var(--color-warning)]">
-                  {t('settings.netmind.notEligible',
-                    'Cannot incur paid usage right now (no balance / not eligible).')}
-                </div>
-              )}
-              {fee.checks?.has_arrears && (
-                <div className="mt-1 text-xs text-[var(--color-error)]">
-                  {t('settings.netmind.hasArrears', 'You have outstanding arrears.')}
-                </div>
-              )}
+          {/* 1 · reassurance / plan status */}
+          {topStatus()}
+
+          {/* 1.5 · module F problem state — surfaced HIGH because it's the one
+              connection state that's actionable (agents can't run on NetMind
+              until it's fixed). The quiet "connected" confirmation stays low. */}
+          {netStatus === 'not_connected' && (
+            <div className="rounded-md bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
+              {t('settings.netmind.notConnected',
+                'Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.')}
             </div>
           )}
 
-          {/* Plan status + primary action (subscribe / cancel / resume) */}
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-[var(--text-secondary)]">{statusLine()}</p>
-            {actionButton()}
-          </div>
+          {/* 2 · runway — free tier + grant + balance + charging order + toggle */}
+          {showRunway && (
+            <NetmindRunwayView
+              freePct={freePct}
+              grantText={grantText}
+              balanceText={balanceText}
+              preferSystem={preferSystem}
+              preferLocked={preferLocked}
+              preferBusy={preferBusy}
+              onTogglePrefer={togglePrefer}
+              flowIsPro={isPro}
+            />
+          )}
+          {/* eligible=false forces runway low, and the low action zone already
+              says "you're out of credits — do X" in plain words; stacking this
+              system-toned warning on top reads like an error and duplicates the
+              prompt. Only render it when no low prompt is shown (pro_cancelled,
+              whose action zone talks about auto-renew instead). */}
+          {feeLoaded && fee?.eligible === false
+            && !(runway === 'low' && state !== 'pro_cancelled') && (
+            <div className="text-xs text-[var(--color-warning)]">
+              {t('settings.netmind.notEligible',
+                'Cannot incur paid usage right now (no balance / not eligible).')}
+            </div>
+          )}
+          {feeLoaded && fee?.checks?.has_arrears && (
+            <div className="text-xs text-[var(--color-error)]">
+              {t('settings.netmind.hasArrears', 'You have outstanding arrears.')}
+            </div>
+          )}
+
+          {/* 3 · action zone (plan × runway) */}
+          <NetmindActionZone
+            state={state}
+            runway={runway}
+            freeTierExhausted={freePct === 0}
+            busy={busy}
+            polling={polling}
+            showManage={showManage}
+            onToggleManage={() => setShowManage((v) => !v)}
+            proPlan={proPlan}
+            topUp={topUp}
+            onSubscribe={handleSubscribe}
+            onCancel={handleCancel}
+            onReactivate={handleReactivate}
+          />
           {polling && (
             <p className="text-xs text-[var(--text-tertiary)]">
               {t('settings.netmind.awaitingPayment',
@@ -501,117 +595,35 @@ export function NetmindAccountPanel() {
           )}
           {actionError && <p className="text-xs text-[var(--color-error)]">{actionError}</p>}
 
-          {/* Top-up (module E) — any Free/Pro user can add credits */}
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-[var(--text-primary)]">
-              {t('settings.netmind.rechargeTitle', 'Add credits')}
+          {/* 4 · module F — quiet administrative confirmation (connected /
+              checking). Deliberately LOW: it asks for no action, and the
+              reassurance job belongs to the top status line. The actionable
+              not_connected state renders at the top instead (1.5). */}
+          {netStatus !== 'not_connected' && (
+            <div className="rounded-md bg-[var(--bg-sunken)] p-3 space-y-1.5">
+              {netStatus === 'connected' && (
+                <div className="flex items-center gap-1.5 text-sm text-[var(--color-success)]">
+                  <span aria-hidden>✓</span>
+                  <span>
+                    {t('settings.netmind.connectedManage',
+                      'Your NetMind.AI Power account is connected. Manage which provider runs NarraNexus in LLM Providers.')}
+                  </span>
+                </div>
+              )}
+              {netStatus === 'checking' && (
+                <div className="text-sm text-[var(--text-tertiary)]">
+                  {t('settings.netmind.checkingStatus',
+                    'Checking your NetMind.AI Power connection…')}
+                </div>
+              )}
             </div>
-            <p className="text-xs text-[var(--text-tertiary)]">
-              {t('settings.netmind.rechargeDesc',
-                'Top up your NetMind.AI Power balance. Credits are kept regardless of plan.')}
-            </p>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {RECHARGE_TIERS.map((v) => {
-                const active = !custom.trim() && tier === v;
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => { setTier(v); setCustom(''); }}
-                    disabled={rechargeState === 'processing'}
-                    className={`px-3 py-1 rounded-md text-sm border transition-colors disabled:opacity-50 ${
-                      active
-                        ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-primary)]/8'
-                        : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
-                    }`}
-                  >
-                    ${v}
-                  </button>
-                );
-              })}
-              <div className="flex items-center gap-1 ml-1">
-                <span className="text-sm text-[var(--text-tertiary)]">$</span>
-                <input
-                  type="number"
-                  min="1"
-                  inputMode="decimal"
-                  value={custom}
-                  onChange={(e) => setCustom(e.target.value)}
-                  placeholder={t('settings.netmind.rechargeCustom', 'Custom')}
-                  disabled={rechargeState === 'processing'}
-                  className="w-24 px-2 py-1 rounded-md text-sm bg-[var(--bg-primary)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50"
-                />
-              </div>
-              <Button
-                variant="accent"
-                size="sm"
-                onClick={handleRecharge}
-                disabled={rechargeState === 'processing'}
-              >
-                {rechargeState === 'processing'
-                  ? t('settings.netmind.working', 'Working…')
-                  : t('settings.netmind.rechargeBtn', 'Recharge')}
-              </Button>
-            </div>
-            {rechargeState === 'processing' && (
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-xs text-[var(--text-tertiary)] flex-1">
-                  {t('settings.netmind.rechargeProcessing',
-                    'Waiting for payment… complete it in the opened window; your balance updates automatically.')}
-                </p>
-                <button
-                  type="button"
-                  onClick={handleStopWaitingRecharge}
-                  className="shrink-0 text-xs text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
-                >
-                  {t('settings.netmind.rechargeStopWaiting', 'Stop waiting')}
-                </button>
-              </div>
-            )}
-            {rechargeState === 'success' && (
-              <p className="text-xs text-[var(--color-success)]">
-                {t('settings.netmind.rechargeSuccess', 'Top-up complete — balance updated.')}
-              </p>
-            )}
-            {rechargeState === 'failed' && rechargeError && (
-              <p className="text-xs text-[var(--color-error)]">{rechargeError}</p>
-            )}
-          </div>
+          )}
 
-          {/* How this account drives NarraNexus (module F) — the backend
-              auto-registers the NetMind provider on login, so this is a
-              read-only STATUS. Managing/switching the active provider lives in
-              the LLM Providers section. */}
-          <div className="rounded-md bg-[var(--bg-sunken)] p-3 space-y-1.5">
-            {netStatus === 'connected' && (
-              <div className="flex items-center gap-1.5 text-sm text-[var(--color-success)]">
-                <span aria-hidden>✓</span>
-                <span>
-                  {t('settings.netmind.connectedManage',
-                    'Your NetMind.AI Power account is connected. Manage which provider runs NarraNexus in LLM Providers.')}
-                </span>
-              </div>
-            )}
-            {netStatus === 'checking' && (
-              <div className="text-sm text-[var(--text-tertiary)]">
-                {t('settings.netmind.checkingStatus',
-                  'Checking your NetMind.AI Power connection…')}
-              </div>
-            )}
-            {netStatus === 'not_connected' && (
-              <div className="text-sm text-[var(--text-tertiary)]">
-                {t('settings.netmind.notConnected',
-                  'Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.')}
-              </div>
-            )}
-          </div>
-
-          {/* Recent activity — collapsed by default (keeps the panel clean),
-              settled ledger only. `pending` rows are hidden: every abandoned
-              checkout (opened, not paid) leaves a pending record that only flips
-              to failed ~24h later when the Stripe session expires, so showing
-              them just piles up noise. In-progress payment is already surfaced
-              by the live "waiting" state above. */}
+          {/* 5 · recent activity — collapsed by default, settled ledger only.
+              `pending` rows are hidden: an abandoned checkout leaves a pending
+              record that only flips to failed ~24h later, so showing them piles
+              up noise; in-progress payment is already surfaced by the live
+              "waiting" state above. */}
           {settledRecords.length > 0 && (
             <div className="pt-3 border-t border-[var(--border-subtle)]">
               <button
@@ -650,13 +662,9 @@ export function NetmindAccountPanel() {
         </div>
       )}
 
-      {/* Muted footer — charging order + scope + sandbox note */}
+      {/* Muted footer — scope + sandbox note (charging order now lives in the
+          runway view, next to the balances it describes) */}
       <div className="px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[11px] text-[var(--text-tertiary)] leading-relaxed space-y-1.5">
-        <div>
-          <span className="text-[var(--text-secondary)]">{t('settings.netmind.deductTitle', 'How usage is charged')}: </span>
-          {t('settings.netmind.deductOrder',
-            'subscription grant first → then account balance (recharge) → paid usage stops when both run out.')}
-        </div>
         <div>
           {t('settings.netmind.scopeNote',
             'These NetMind.AI Power credits cover LLM API usage. Compute (GPU) and other pricing are billed separately.')}
