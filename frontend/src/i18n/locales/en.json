@@ -673,7 +673,6 @@
       "rechargeFailed": "Payment failed or was cancelled.",
       "rechargeInvalidAmount": "Enter an amount greater than 0.",
       "rechargeStopWaiting": "Stop waiting",
-      "connectedManage": "Set up — no configuration needed.",
       "checkingStatus": "Checking your NetMind.AI Power connection…",
       "netStatusError": "Couldn’t read your connection status. Refresh to retry.",
       "notConnected": "Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.",
@@ -707,7 +706,9 @@
       "upsellCardName": "NetMind Pro",
       "upsellPerkDiscount": "Up to 50% off on models like OpenAI & Anthropic",
       "upsellPerkNoFee": "No platform service fee",
-      "upsellPerkGrant": "Includes {{amount}} / month in usable balance"
+      "upsellPerkGrant": "Includes {{amount}} / month in usable balance",
+      "netDriving": "Running on your NetMind.AI Power account — no setup needed.",
+      "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults."
     },
     "modal": {
       "title": "Settings",

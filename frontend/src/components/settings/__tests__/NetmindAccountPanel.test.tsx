@@ -76,9 +76,21 @@ vi.mock('@/lib/platform', () => ({
 // NO envelope), plans (billing.py verbatim proxy, {success,data:{plans}}
 // envelope), fee-info (all-optional NetMind passthrough).
 
+// Default: NetMind is registered AND the agent slot points at it → 'driving'.
 const NETMIND_CONNECTED = {
   success: true,
-  data: { providers: { p1: { source: 'netmind' } }, slots: {} },
+  data: {
+    providers: { p1: { source: 'netmind' } },
+    slots: { agent: { config: { provider_id: 'p1' } } },
+  },
+};
+// Registered but the agent slot is the user's OWN provider → 'available'.
+const NETMIND_IDLE = {
+  success: true,
+  data: {
+    providers: { p1: { source: 'netmind' }, own: { source: 'user' } },
+    slots: { agent: { config: { provider_id: 'own' } } },
+  },
 };
 
 const PRO_PLAN = {
@@ -258,7 +270,7 @@ test('free × healthy: reassurance shown, ZERO spend buttons, manage link collap
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
   // reassurance is the connection line (netStatus-driven), not a runway claim
-  expect(await screen.findByText(/Set up — no configuration needed/)).toBeTruthy();
+  expect(await screen.findByText(/Running on your NetMind/)).toBeTruthy();
   // the core UX goal: no spend CTA anywhere until the user asks
   expect(screen.queryByRole('button', { name: /Subscribe to Pro/ })).toBeNull();
   expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
@@ -516,16 +528,27 @@ test('prefer toggle: exhausted + ON → still allowed to turn OFF', async () => 
 
 // ── module F: read-only connection status ──────────────────────────────────
 
-test('status: netmind provider present → single "set up" line (the one reassurance), no driving claim', async () => {
+test('status DRIVING: netmind is the active agent provider → green "running on NetMind" ✓', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
+  // default NETMIND_CONNECTED = agent slot points at the netmind provider
   render(<NetmindAccountPanel />);
-  // ONE clean reassurance line — no provider-switching clutter, no "running on
-  // NetMind" overclaim
-  expect(await screen.findByText(/Set up — no configuration needed/)).toBeTruthy();
-  expect(screen.queryByText(/driving provider/)).toBeNull();
-  expect(screen.queryByText(/running on NetMind/)).toBeNull();
+  expect(await screen.findByText(/Running on your NetMind/)).toBeTruthy();
+  expect(screen.queryByText(/linked but idle/)).toBeNull();
   expect(screen.queryByRole('button', { name: /Use this account/ })).toBeNull();
+});
+
+test('status AVAILABLE: netmind registered but user is on their OWN provider → NO "running" claim', async () => {
+  // the misleading case the redesign guards against: a netmind card exists
+  // (auto-registered) but the agent slot is the user's own provider
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetFeeInfo.mockResolvedValue(FEE_RICH);
+  mockGetProviders.mockResolvedValue(NETMIND_IDLE);
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText(/linked but idle/)).toBeTruthy();
+  expect(screen.getByText(/running on your own provider/)).toBeTruthy();
+  // must NOT claim it's running on NetMind, and no green reassurance ✓
+  expect(screen.queryByText(/Running on your NetMind/)).toBeNull();
 });
 
 test('status: no netmind provider → not-connected copy', async () => {
@@ -552,7 +575,7 @@ test('status: connection line sits ABOVE the runway breakdown, both states', asy
   unmount();
   mockGetProviders.mockResolvedValue(NETMIND_CONNECTED);
   render(<NetmindAccountPanel />);
-  const ok = await screen.findByText(/Set up — no configuration needed/);
+  const ok = await screen.findByText(/Running on your NetMind/);
   const tier2 = screen.getByText('Free tier');
   expect(ok.compareDocumentPosition(tier2) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
