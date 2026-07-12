@@ -672,7 +672,6 @@
       "rechargeFailed": "支付失败或已取消。",
       "rechargeInvalidAmount": "请输入大于 0 的金额。",
       "rechargeStopWaiting": "停止等待",
-      "connectedManage": "已就绪 —— 无需配置。",
       "checkingStatus": "正在检查你的 NetMind.AI Power 连接状态…",
       "netStatusError": "暂时读不到连接状态，请刷新重试。",
       "notConnected": "尚未将你的 NetMind.AI Power 账户接入为服务商。重新登录以自动接入，或在「LLM 服务商」中手动添加。",
@@ -706,7 +705,9 @@
       "upsellCardName": "NetMind Pro",
       "upsellPerkDiscount": "OpenAI、Anthropic 等模型最高 5 折",
       "upsellPerkNoFee": "零平台服务费",
-      "upsellPerkGrant": "每月含 {{amount}} 可用余额"
+      "upsellPerkGrant": "每月含 {{amount}} 可用余额",
+      "netDriving": "正在用你的 NetMind.AI Power 账户运行 —— 无需配置。",
+      "netAvailable": "你的 NetMind.AI Power 账户已接入但未启用 —— 当前由你自己的 provider 驱动。可在 Model Defaults 切换。"
     },
     "modal": {
       "title": "设置",

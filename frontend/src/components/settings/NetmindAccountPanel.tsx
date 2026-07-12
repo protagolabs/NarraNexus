@@ -57,10 +57,17 @@ const POLL_MAX_MS = 180000; // 3 min bound — never poll forever
 // Whether the user's NetMind account is wired in as a provider (module F).
 // Auto-registered by the backend on login, so this is a read-only status:
 // we just report what GET /api/providers shows.
-// 'error' = the GET /api/providers read itself failed (transient) — distinct
-// from 'not_connected' (read OK, but no netmind provider exists). They need
-// different copy: refresh vs re-login/add.
-type NetmindStatus = 'checking' | 'connected' | 'not_connected' | 'error';
+// Connection status, precise about whether NetMind is ACTUALLY driving:
+//  - 'driving'       netmind provider exists AND the agent slot resolves to it
+//                    → the "no setup needed" green ✓ is truthful.
+//  - 'available'     netmind provider exists but the agent slot is someone
+//                    else's provider → NetMind is linked-but-idle; must NOT
+//                    claim "running on NetMind" (that would mislead a user who
+//                    configured their own provider).
+//  - 'not_connected' no netmind provider (read OK) → actionable (re-login/add).
+//  - 'error'         the GET /api/providers read itself failed → transient
+//                    (refresh, NOT re-login).
+type NetmindStatus = 'checking' | 'driving' | 'available' | 'not_connected' | 'error';
 
 function resolveState(me: SubscriptionMe | null): PanelState {
   if (!me) return 'error';
@@ -261,8 +268,21 @@ export function NetmindAccountPanel() {
     try {
       const r = await api.getProviders();
       const provs = (r.data?.providers ?? {}) as Record<string, { source?: string }>;
-      const connected = Object.values(provs).some((p) => p?.source === 'netmind');
-      if (mounted.current) setNetStatus(connected ? 'connected' : 'not_connected');
+      const slots = (r.data?.slots ?? {}) as {
+        agent?: { config?: { provider_id?: string } };
+      };
+      const netmindIds = Object.entries(provs)
+        .filter(([, p]) => p?.source === 'netmind')
+        .map(([id]) => id);
+      if (!mounted.current) return;
+      if (netmindIds.length === 0) {
+        setNetStatus('not_connected');
+        return;
+      }
+      // Is NetMind the ACTIVE agent provider, or merely registered-and-idle?
+      // Only the former earns the "running on NetMind" reassurance.
+      const agentPid = slots.agent?.config?.provider_id;
+      setNetStatus(agentPid && netmindIds.includes(agentPid) ? 'driving' : 'available');
     } catch {
       // The read itself failed — transient. Report 'error' (→ "refresh"), NOT
       // 'not_connected' (→ "re-login"): re-login can't fix a network blip.
@@ -538,14 +558,25 @@ export function NetmindAccountPanel() {
   // not_connected is actionable (agents can't run on NetMind until fixed); a
   // transient fetch failure ('error') must NOT tell the user to re-login.
   const connectionStatus = () => {
-    if (netStatus === 'connected') {
+    if (netStatus === 'driving') {
       return (
         <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-success)]">
           <span aria-hidden>✓</span>
           <span>
-            {t('settings.netmind.connectedManage', 'Set up — no configuration needed.')}
+            {t('settings.netmind.netDriving',
+              'Running on your NetMind.AI Power account — no setup needed.')}
           </span>
         </div>
+      );
+    }
+    if (netStatus === 'available') {
+      // Registered but idle — the user is on their own provider. Neutral (no green
+      // ✓), and point to where they'd switch TO NetMind if they want.
+      return (
+        <p className="text-xs text-[var(--text-tertiary)]">
+          {t('settings.netmind.netAvailable',
+            'Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults.')}
+        </p>
       );
     }
     if (netStatus === 'not_connected') {

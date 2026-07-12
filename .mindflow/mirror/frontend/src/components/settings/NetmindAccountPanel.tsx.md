@@ -4,7 +4,21 @@ last_verified: 2026-07-10
 stub: false
 ---
 
-## 2026-07-11 (latest) — 顶部重排:Account 身份 + 套餐带解释 + 余额 hero + 三池诚实
+## 2026-07-11 (latest2) — 连接态区分 driving / available(修误导)
+
+Owner 在 dev 发现:`connected` 只表示"存在 netmind 卡",但云端登录自动注册,人人
+都有卡——哪怕在用自己加的 provider。此时绿 ✓"已就绪,无需配置"会让人误以为正跑在
+NetMind 上。修:`refreshNetStatus` 读 `slots.agent.config.provider_id` 是否指向
+netmind-source provider,拆成:
+- **driving**(agent 槽=netmind)→ 绿 ✓"正在用你的 NetMind.AI Power 账户运行 ——
+  无需配置"(此时声称"运行中"才属实)。
+- **available**(有 netmind 卡但 agent 槽是别的 provider)→ 中性灰字"已接入但未启用
+  —— 当前由你自己的 provider 驱动。可在 Model Defaults 切换"(不给绿 ✓、不声称运行)。
+- not_connected / error / checking 不变。
+i18n:+netDriving/netAvailable,删 connectedManage。判定用 **agent 槽**(驱动
+NarraNexus 的主 LLM);槽空/取不到 → 保守判 available(宁可不声称也不误导)。
+
+## 2026-07-11 — 顶部重排:Account 身份 + 套餐带解释 + 余额 hero + 三池诚实
 
 Owner 走查:标题叫 "Account & Subscription" 却无 Account、套餐是右上角无解释裸徽章、
 余额只是小行。重排卡片顶部:
