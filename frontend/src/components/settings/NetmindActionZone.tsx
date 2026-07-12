@@ -3,32 +3,35 @@
  * @author NetMind.AI
  * @date 2026-07-10
  * @description The plan × runway action zone of the Account & Subscription
- * panel: at most ONE promoted spend action, everything else demoted to links
- * or hidden behind a "Manage" disclosure.
+ * panel: at most ONE promoted spend action, everything else demoted.
  *
- *   pro_cancelled            → Resume auto-renew (plan-level, runway-agnostic)
- *   free × low               → Upgrade-to-Pro upsell card; top-up demoted to a link
+ *   pro_cancelled            → Resume auto-renew + "Manage balance" modal
+ *   free × low               → Upgrade-to-Pro card inline; top-up behind a link
  *   pro_active × low         → top-up promoted directly (already Pro — no upsell)
- *   free × healthy           → nothing but "Manage plan & credits ›"
- *   pro_active × healthy     → member-pricing note + "Manage subscription & balance ›"
+ *   free × healthy           → "Manage plan & credits" opens a MODAL (Pro card +
+ *                              "just top up" link) — never two peer spend buttons
+ *   pro_active × healthy     → member-pricing note + "Manage" modal (cancel + top-up)
  *
- * The "used up" copy is only claimed when the free tier is KNOWN exhausted
- * (freeTierExhausted); an unknown/disabled quota state gets neutral "running
- * low" copy instead — never assert a fact we didn't observe.
+ * The healthy-state manage action is a Dialog (mirrors LLM Providers' add-provider
+ * modal), NOT an inline disclosure, and never offers "subscribe vs recharge" as a
+ * choice: the Pro card leads, top-up is a demoted line. Owns its own open/reveal
+ * state (pure UI toggles); the panel just feeds data + guarded handlers.
  *
- * Purely presentational; guarded money handlers stay in NetmindAccountPanel.
+ * "used up" copy is only used when the free tier is KNOWN exhausted; otherwise the
+ * neutral "low on credits" copy. Purely presentational — money handlers stay in
+ * NetmindAccountPanel.
  */
 
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { platform } from '@/lib/platform';
-import { Button } from '@/components/ui';
+import { Button, Dialog, DialogContent } from '@/components/ui';
 import { NetmindUpsellCard } from './NetmindUpsellCard';
 import type { Runway } from './netmindRunway';
 import type { SubscriptionPlan } from '@/types';
 
-// Canonical NetMind pricing page — the "learn more" depth (full library,
-// benchmarks, plan comparison) that doesn't belong in the panel.
+// Canonical NetMind pricing page — the "learn more" depth that doesn't belong
+// in the panel.
 const PRICING_URL = 'https://www.netmind.ai/pricing';
 
 interface NetmindActionZoneProps {
@@ -38,8 +41,6 @@ interface NetmindActionZoneProps {
   freeTierExhausted: boolean;
   busy: boolean;
   polling: boolean;
-  showManage: boolean;
-  onToggleManage: () => void;
   proPlan: SubscriptionPlan | null;
   /** Top-up controls element (state + guards owned by the panel). */
   topUp: ReactNode;
@@ -54,8 +55,6 @@ export function NetmindActionZone({
   freeTierExhausted,
   busy,
   polling,
-  showManage,
-  onToggleManage,
   proPlan,
   topUp,
   onSubscribe,
@@ -63,9 +62,15 @@ export function NetmindActionZone({
   onReactivate,
 }: NetmindActionZoneProps) {
   const { t } = useTranslation();
+  const [manageOpen, setManageOpen] = useState(false);
+  const [showTopUp, setShowTopUp] = useState(false);
+
+  const closeManage = () => {
+    setManageOpen(false);
+    setShowTopUp(false); // reset the in-modal top-up reveal on close
+  };
 
   const openPricing = () => void platform.openExternal(PRICING_URL);
-
   const pricingLink = (
     <div className="flex justify-end">
       <button
@@ -78,38 +83,77 @@ export function NetmindActionZone({
     </div>
   );
 
-  const manageLink = (label: string) => (
+  const manageTrigger = (label: string) => (
     <div className="flex justify-end">
       <button
         type="button"
-        onClick={onToggleManage}
+        onClick={() => setManageOpen(true)}
         className="text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-        aria-expanded={showManage}
       >
         {label} ›
       </button>
     </div>
   );
 
+  // "just top up instead" — a demoted line that reveals the top-up controls in
+  // place. Shared by the free×low inline view and the free manage modal.
+  const topUpDisclosure = (
+    <>
+      <div className="text-xs text-[var(--text-tertiary)]">
+        <button
+          type="button"
+          onClick={() => setShowTopUp((v) => !v)}
+          aria-expanded={showTopUp}
+          className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline underline-offset-2"
+        >
+          {t('settings.netmind.topupOrLink', 'Just need a one-time top-up? Add credits')} ›
+        </button>
+      </div>
+      {showTopUp && topUp}
+    </>
+  );
+
+  // The plan-forward content: Pro card leads, top-up is a demoted line. NO
+  // "subscribe vs recharge" peer choice. Used inline (free×low) and in the
+  // free manage modal.
+  const planBlock = (
+    <div className="space-y-3">
+      <NetmindUpsellCard proPlan={proPlan} onUpgrade={onSubscribe} busy={busy || polling} />
+      {topUpDisclosure}
+      {pricingLink}
+    </div>
+  );
+
+  // ── pro_cancelled: resume (runway-agnostic) + manage-balance modal ─────────
   if (state === 'pro_cancelled') {
     return (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-[var(--text-secondary)]">
-            {t('settings.netmind.proMemberActive', 'Member pricing active on popular models')}
-          </p>
-          <Button variant="accent" size="sm" onClick={onReactivate} disabled={busy}>
-            {busy
-              ? t('settings.netmind.working', 'Working…')
-              : t('settings.netmind.reactivateBtn', 'Resume auto-renew')}
-          </Button>
+      <>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-[var(--text-secondary)]">
+              {t('settings.netmind.proMemberActive', 'Member pricing active on popular models')}
+            </p>
+            <Button variant="accent" size="sm" onClick={onReactivate} disabled={busy}>
+              {busy
+                ? t('settings.netmind.working', 'Working…')
+                : t('settings.netmind.reactivateBtn', 'Resume auto-renew')}
+            </Button>
+          </div>
+          {manageTrigger(t('settings.netmind.manageBalance', 'Manage balance'))}
         </div>
-        {manageLink(t('settings.netmind.manageBalance', 'Manage balance'))}
-        {showManage && topUp}
-      </div>
+        <Dialog
+          isOpen={manageOpen}
+          onClose={closeManage}
+          title={t('settings.netmind.manageBalance', 'Manage balance')}
+          size="lg"
+        >
+          <DialogContent>{topUp}</DialogContent>
+        </Dialog>
+      </>
     );
   }
 
+  // ── low (inline, urgent) ───────────────────────────────────────────────────
   if (runway === 'low') {
     if (state === 'free') {
       return (
@@ -119,19 +163,7 @@ export function NetmindActionZone({
               ? t('settings.netmind.exhaustedChoose', 'Free tier used up. To keep going:')
               : t('settings.netmind.lowChoose', "You're low on credits. To keep going:")}
           </p>
-          <NetmindUpsellCard proPlan={proPlan} onUpgrade={onSubscribe} busy={busy || polling} />
-          <div className="text-xs text-[var(--text-tertiary)]">
-            <button
-              type="button"
-              onClick={onToggleManage}
-              aria-expanded={showManage}
-              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline underline-offset-2"
-            >
-              {t('settings.netmind.topupOrLink', 'Just need a one-time top-up? Add credits')} ›
-            </button>
-          </div>
-          {showManage && topUp}
-          {pricingLink}
+          {planBlock}
         </div>
       );
     }
@@ -148,35 +180,40 @@ export function NetmindActionZone({
     );
   }
 
-  // healthy
+  // ── healthy free: calm; manage opens a modal (Pro-forward, top-up demoted) ──
   if (state === 'free') {
     return (
-      <div className="space-y-3">
-        {manageLink(t('settings.netmind.managePlan', 'Manage plan & credits'))}
-        {showManage && (
-          <div className="space-y-3">
-            {/* Same value-prop card as the low state — a bare "Subscribe"
-                button next to bare top-up tiers would recreate the original
-                two-peer-spend-buttons confusion, just one click deeper. The
-                card states WHY Pro differs from a same-priced top-up. */}
-            <NetmindUpsellCard proPlan={proPlan} onUpgrade={onSubscribe} busy={busy || polling} />
-            {topUp}
-            {pricingLink}
-          </div>
-        )}
-      </div>
+      <>
+        {manageTrigger(t('settings.netmind.managePlan', 'Manage plan & credits'))}
+        <Dialog
+          isOpen={manageOpen}
+          onClose={closeManage}
+          title={t('settings.netmind.managePlan', 'Manage plan & credits')}
+          size="lg"
+        >
+          <DialogContent>{planBlock}</DialogContent>
+        </Dialog>
+      </>
     );
   }
-  // pro_active × healthy
+
+  // ── healthy pro_active: member note + manage modal (cancel + top-up) ────────
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-1.5 text-sm text-[var(--color-success)]">
-        <span aria-hidden>✦</span>
-        <span>{t('settings.netmind.proMemberActive', 'Member pricing active on popular models')}</span>
+    <>
+      <div className="space-y-3">
+        <div className="flex items-center gap-1.5 text-sm text-[var(--color-success)]">
+          <span aria-hidden>✦</span>
+          <span>{t('settings.netmind.proMemberActive', 'Member pricing active on popular models')}</span>
+        </div>
+        {manageTrigger(t('settings.netmind.manageSubscription', 'Manage subscription & balance'))}
       </div>
-      {manageLink(t('settings.netmind.manageSubscription', 'Manage subscription & balance'))}
-      {showManage && (
-        <div className="space-y-3">
+      <Dialog
+        isOpen={manageOpen}
+        onClose={closeManage}
+        title={t('settings.netmind.manageSubscription', 'Manage subscription & balance')}
+        size="lg"
+      >
+        <DialogContent className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-[var(--text-secondary)]">
               {t('settings.netmind.cancelBtn', 'Cancel subscription')}
@@ -188,8 +225,8 @@ export function NetmindActionZone({
             </Button>
           </div>
           {topUp}
-        </div>
-      )}
-    </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

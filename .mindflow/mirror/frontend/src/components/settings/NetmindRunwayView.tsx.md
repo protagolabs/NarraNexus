@@ -13,6 +13,15 @@ stub: false
 割裂呈现。纯展示组件:数据与 toggle handler 全部由 [[NetmindAccountPanel]] 注入,
 自身零 fetch、零业务逻辑——便于面板测试直接断言文案。
 
+## 2026-07-11 — 余额移出为 hero;赠额标"已计入";单池隐藏 flow
+
+顶部重排后:**余额不再在此**(挪到面板的 balance hero,因为 `free_credit` 是
+赠额+充值合并的可花总额,是全卡锚点)。本组件只剩"池子明细":免费额度条 +
+(Pro)赠额行 + 扣费顺序 + prefer 开关。赠额行改成"本月赠额 (已计入余额) $X/月"
+—— **不是可加数字**(接口把赠额并进了 hero,单独再列一份会让用户以为能加起来花)。
+`showFlow = freePct!==null || grantText`:**单池(仅余额)时隐藏扣费顺序句**(#3,
+"你花钱会扣钱"是废话);2+ 池才显示。flowFreeNoTier key 随之删除。
+
 ## 结构
 
 免费额度行+进度条(`freePct===null` 时整行不渲染;0 显示 "Used up" 警示色)→
