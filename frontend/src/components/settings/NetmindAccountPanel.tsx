@@ -42,6 +42,7 @@ import type {
   SubscriptionPlan,
 } from '@/types';
 import { useRuntimeStore } from '@/stores/runtimeStore';
+import { useConfigStore } from '@/stores/configStore';
 import { deriveRunway } from './netmindRunway';
 import { money, freeTierPctLeft, formatPeriod, formatDate } from './netmindFormat';
 import { NetmindRunwayView } from './NetmindRunwayView';
@@ -56,7 +57,10 @@ const POLL_MAX_MS = 180000; // 3 min bound — never poll forever
 // Whether the user's NetMind account is wired in as a provider (module F).
 // Auto-registered by the backend on login, so this is a read-only status:
 // we just report what GET /api/providers shows.
-type NetmindStatus = 'checking' | 'connected' | 'not_connected';
+// 'error' = the GET /api/providers read itself failed (transient) — distinct
+// from 'not_connected' (read OK, but no netmind provider exists). They need
+// different copy: refresh vs re-login/add.
+type NetmindStatus = 'checking' | 'connected' | 'not_connected' | 'error';
 
 function resolveState(me: SubscriptionMe | null): PanelState {
   if (!me) return 'error';
@@ -75,6 +79,10 @@ export function NetmindAccountPanel() {
   const { t } = useTranslation();
   const mode = useRuntimeStore((s) => s.mode);
   const isCloud = mode === 'cloud-web';
+  // Account identity (the "Account" half of the page title) — NetMind nickname
+  // + email, so the user can see WHICH account they're logged into.
+  const displayName = useConfigStore((s) => s.displayName);
+  const email = useConfigStore((s) => s.email);
   const [me, setMe] = useState<SubscriptionMe | null>(null);
   const [state, setState] = useState<PanelState>('loading');
   const [busy, setBusy] = useState(false); // an action is in flight
@@ -91,7 +99,6 @@ export function NetmindAccountPanel() {
   const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
   const [rechargeError, setRechargeError] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false); // recent activity collapsed by default
-  const [showManage, setShowManage] = useState(false); // spend controls collapsed in healthy states
   const [preferBusy, setPreferBusy] = useState(false); // prefer toggle in flight
   // Module F: read-only connection status (backend auto-registers on login).
   const [netStatus, setNetStatus] = useState<NetmindStatus>('checking');
@@ -257,8 +264,9 @@ export function NetmindAccountPanel() {
       const connected = Object.values(provs).some((p) => p?.source === 'netmind');
       if (mounted.current) setNetStatus(connected ? 'connected' : 'not_connected');
     } catch {
-      // Couldn't read providers — report not-connected rather than spin forever.
-      if (mounted.current) setNetStatus('not_connected');
+      // The read itself failed — transient. Report 'error' (→ "refresh"), NOT
+      // 'not_connected' (→ "re-login"): re-login can't fix a network blip.
+      if (mounted.current) setNetStatus('error');
     }
   }, []);
 
@@ -408,7 +416,6 @@ export function NetmindAccountPanel() {
       ? quota.prefer_system_override
       : null;
   const preferLocked = quota?.enabled === true && quota.status === 'exhausted';
-  const balanceText = feeLoaded && fee ? `$${money(fee.metrics?.free_credit)}` : '—';
   const grantUsd = fee?.metrics?.monthly_free_credit;
   const grantText =
     isPro && grantUsd != null && grantUsd !== ''
@@ -417,7 +424,10 @@ export function NetmindAccountPanel() {
           period,
         })
       : null;
-  const showRunway = freePct !== null || (feeLoaded && !!fee);
+  // Balance is the hero (spendable free_credit = grant + recharge, per the API).
+  // Runway below shows only the pools breakdown (free tier / grant) + toggle.
+  const showBalanceHero = feeLoaded && !!fee;
+  const showRunway = freePct !== null || !!grantText || preferSystem !== null;
 
   // Plan badge (top-right): reflects the NetMind.AI Power plan state.
   const planBadge = (() => {
@@ -461,57 +471,115 @@ export function NetmindAccountPanel() {
     />
   );
 
-  // Top status line (plan-aware): reassurance in a healthy state, plan status
-  // for Pro. De-negativized — Free is not framed as "not subscribed".
-  const topStatus = () => {
+  // One-line plan explanation shown next to the badge in the plan row — so the
+  // subscription state is labelled AND explained, not a bare corner chip.
+  const planExpl = (() => {
     if (state === 'pro_active') {
-      return (
-        <div>
-          <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-success)]">
-            <span aria-hidden>✓</span>
-            <span>{t('settings.netmind.readyPro', 'Pro member · active')}</span>
-          </div>
-          {me?.subscription && (
-            <div className="text-xs text-[var(--text-tertiary)] mt-0.5">
-              {t('settings.netmind.planValidUntil', 'Valid until {{date}}', {
-                date: formatDate(me.subscription.current_period_end),
-              })}
-            </div>
-          )}
-        </div>
-      );
+      return me?.subscription
+        ? t('settings.netmind.planExplProActive', 'Member · valid until {{date}}', {
+            date: formatDate(me.subscription.current_period_end),
+          })
+        : t('settings.netmind.planExplProActive', 'Member · valid until {{date}}', { date: '—' });
     }
     if (state === 'pro_cancelled' && me?.subscription) {
-      return (
-        <p className="text-sm font-medium text-[var(--text-primary)]">
-          {t('settings.netmind.expiresDowngrade', 'Valid until {{date}}, then downgrades to Free', {
-            date: formatDate(me.subscription.current_period_end),
-          })}
-        </p>
-      );
+      return t('settings.netmind.expiresDowngrade', 'Valid until {{date}}, then downgrades to Free', {
+        date: formatDate(me.subscription.current_period_end),
+      });
     }
-    if (state === 'free' && runway === 'healthy') {
+    return t('settings.netmind.planExplFree', 'Free — usage billed from your balance.');
+  })();
+
+  // Account + plan as a labelled definition list — fills the missing "Account"
+  // (identity) and makes the plan explicit + explained.
+  const accountAndPlan = (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-2 items-baseline">
+      {email && (
+        <>
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+            {t('settings.netmind.accountLabel', 'Account')}
+          </dt>
+          <dd className="m-0 text-sm text-[var(--text-primary)] flex items-center gap-2 flex-wrap">
+            {/* Only show the nickname when it adds info — NetMind often returns
+                the email AS the displayName, which would print it twice. */}
+            {displayName && displayName !== email && <span>{displayName}</span>}
+            {displayName && displayName !== email && (
+              <span className="text-[var(--text-tertiary)]">·</span>
+            )}
+            <span className="font-mono text-xs text-[var(--text-secondary)]">{email}</span>
+          </dd>
+        </>
+      )}
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+        {t('settings.netmind.planLabel', 'Plan')}
+      </dt>
+      <dd className="m-0 flex items-center gap-2 flex-wrap">
+        {planBadge}
+        <span className="text-xs text-[var(--text-secondary)]">{planExpl}</span>
+      </dd>
+    </dl>
+  );
+
+  // Balance hero — the panel's key number. free_credit is grant + recharge
+  // combined; label reflects that when a grant exists.
+  const balanceHero = showBalanceHero ? (
+    <div>
+      <div className="text-3xl font-semibold font-mono tabular-nums text-[var(--text-primary)] leading-none tracking-tight">
+        ${money(fee!.metrics?.free_credit)}
+      </div>
+      <div className="mt-1.5 text-xs text-[var(--text-tertiary)]">
+        {grantText
+          ? t('settings.netmind.balanceUsable', 'Current usable balance')
+          : t('settings.netmind.currentBalance', 'Current balance')}
+      </div>
+    </div>
+  ) : null;
+
+  // Connection status (module F) — the ONE reassurance ✓. Four states, only
+  // not_connected is actionable (agents can't run on NetMind until fixed); a
+  // transient fetch failure ('error') must NOT tell the user to re-login.
+  const connectionStatus = () => {
+    if (netStatus === 'connected') {
       return (
         <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-success)]">
           <span aria-hidden>✓</span>
-          <span>{t('settings.netmind.readyFree', "You're all set — running on NetMind, no setup needed.")}</span>
+          <span>
+            {t('settings.netmind.connectedManage', 'Set up — no configuration needed.')}
+          </span>
         </div>
       );
     }
-    return null;
+    if (netStatus === 'not_connected') {
+      return (
+        <div className="rounded-md bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
+          {t('settings.netmind.notConnected',
+            'Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.')}
+        </div>
+      );
+    }
+    if (netStatus === 'error') {
+      return (
+        <p className="text-xs text-[var(--text-tertiary)]">
+          {t('settings.netmind.netStatusError',
+            'Couldn’t read your connection status. Refresh to retry.')}
+        </p>
+      );
+    }
+    // checking
+    return (
+      <p className="text-xs text-[var(--text-tertiary)]">
+        {t('settings.netmind.checkingStatus', 'Checking your NetMind.AI Power connection…')}
+      </p>
+    );
   };
 
   return (
     <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
-      {/* Header — product brand + plan badge */}
-      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-[var(--border-subtle)]">
-        <div>
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">NetMind.AI Power</h3>
-          <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
-            {t('settings.netmind.subtitle', 'Power plan & credits · used for your LLM API usage')}
-          </p>
-        </div>
-        {planBadge}
+      {/* Header — product brand only (plan badge moved into the plan row) */}
+      <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">NetMind.AI Power</h3>
+        <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
+          {t('settings.netmind.subtitle', 'Power plan & credits · used for your LLM API usage')}
+        </p>
       </div>
 
       {state === 'loading' && (
@@ -528,25 +596,24 @@ export function NetmindAccountPanel() {
 
       {state !== 'loading' && state !== 'error' && (
         <div className="px-4 py-4 space-y-4">
-          {/* 1 · reassurance / plan status */}
-          {topStatus()}
+          {/* 1 · account identity + plan (the two halves of the page title) */}
+          {accountAndPlan}
 
-          {/* 1.5 · module F problem state — surfaced HIGH because it's the one
-              connection state that's actionable (agents can't run on NetMind
-              until it's fixed). The quiet "connected" confirmation stays low. */}
-          {netStatus === 'not_connected' && (
-            <div className="rounded-md bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
-              {t('settings.netmind.notConnected',
-                'Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.')}
-            </div>
-          )}
+          <div className="border-t border-[var(--border-subtle)]" />
 
-          {/* 2 · runway — free tier + grant + balance + charging order + toggle */}
+          {/* 2 · balance hero — the key number (grant + recharge combined) */}
+          {balanceHero}
+
+          {/* 3 · connection status — the single reassurance ✓, gated on the real
+              netStatus. */}
+          {connectionStatus()}
+
+          {/* 4 · runway — pools breakdown (free tier / grant) + charging order +
+              toggle. Balance itself is the hero above, not here. */}
           {showRunway && (
             <NetmindRunwayView
               freePct={freePct}
               grantText={grantText}
-              balanceText={balanceText}
               preferSystem={preferSystem}
               preferLocked={preferLocked}
               preferBusy={preferBusy}
@@ -579,8 +646,6 @@ export function NetmindAccountPanel() {
             freeTierExhausted={freePct === 0}
             busy={busy}
             polling={polling}
-            showManage={showManage}
-            onToggleManage={() => setShowManage((v) => !v)}
             proPlan={proPlan}
             topUp={topUp}
             onSubscribe={handleSubscribe}
@@ -595,31 +660,7 @@ export function NetmindAccountPanel() {
           )}
           {actionError && <p className="text-xs text-[var(--color-error)]">{actionError}</p>}
 
-          {/* 4 · module F — quiet administrative confirmation (connected /
-              checking). Deliberately LOW: it asks for no action, and the
-              reassurance job belongs to the top status line. The actionable
-              not_connected state renders at the top instead (1.5). */}
-          {netStatus !== 'not_connected' && (
-            <div className="rounded-md bg-[var(--bg-sunken)] p-3 space-y-1.5">
-              {netStatus === 'connected' && (
-                <div className="flex items-center gap-1.5 text-sm text-[var(--color-success)]">
-                  <span aria-hidden>✓</span>
-                  <span>
-                    {t('settings.netmind.connectedManage',
-                      'Your NetMind.AI Power account is connected. Manage which provider runs NarraNexus in LLM Providers.')}
-                  </span>
-                </div>
-              )}
-              {netStatus === 'checking' && (
-                <div className="text-sm text-[var(--text-tertiary)]">
-                  {t('settings.netmind.checkingStatus',
-                    'Checking your NetMind.AI Power connection…')}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 5 · recent activity — collapsed by default, settled ledger only.
+          {/* 4 · recent activity — collapsed by default, settled ledger only.
               `pending` rows are hidden: an abandoned checkout leaves a pending
               record that only flips to failed ~24h later, so showing them piles
               up noise; in-progress payment is already surfaced by the live

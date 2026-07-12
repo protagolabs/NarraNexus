@@ -1,10 +1,16 @@
 ---
 code_file: frontend/src/components/settings/NetmindTopUpControls.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-11
 stub: false
 ---
 
 # NetmindTopUpControls.tsx — 充值("Add credits")控件
+
+## 2026-07-11 — rechargeDesc 措辞:强调"一次性、无需订阅"
+
+`rechargeDesc` 内联默认从"Top up your … balance. Credits are kept…"改为
+"One-time top-up, no subscription. …"——在管理弹窗里 Pro 卡和充值并列时,这句
+点明充值相对订阅的差异(一次性、不绑订阅)。纯文案,渲染/行为不变。
 
 ## 为什么存在
 

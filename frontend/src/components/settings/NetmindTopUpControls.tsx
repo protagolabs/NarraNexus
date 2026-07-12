@@ -49,7 +49,7 @@ export function NetmindTopUpControls({
       </div>
       <p className="text-xs text-[var(--text-tertiary)]">
         {t('settings.netmind.rechargeDesc',
-          'Top up your NetMind.AI Power balance. Credits are kept regardless of plan.')}
+          'One-time top-up, no subscription. Credits are kept regardless of plan.')}
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
         {RECHARGE_TIERS.map((v) => {

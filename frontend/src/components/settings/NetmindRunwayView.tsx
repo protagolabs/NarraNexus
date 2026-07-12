@@ -2,11 +2,12 @@
  * @file NetmindRunwayView.tsx
  * @author NetMind.AI
  * @date 2026-07-10
- * @description "Runway" block for the Account & Subscription panel: one unified
- * view of what the user has to spend — platform free tier + (Pro) monthly grant
- * + balance — plus the charging-order line and the "free tier first" toggle
- * (formerly QuotaPanel's prefer_system). Purely presentational; the panel owns
- * the data and the toggle handler.
+ * @description "Runway" breakdown for the Account & Subscription panel: the
+ * pools BELOW the balance hero — platform free tier (bar) + (Pro) monthly grant
+ * (shown as "included in balance", NOT an additive number) — plus the
+ * charging-order line and the "free tier first" toggle (formerly QuotaPanel's
+ * prefer_system). The spendable balance itself is the hero in the panel, not
+ * here. Purely presentational; the panel owns the data and the toggle handler.
  */
 
 import { useTranslation } from 'react-i18next';
@@ -16,8 +17,6 @@ interface NetmindRunwayViewProps {
   freePct: number | null;
   /** Pre-formatted monthly grant (e.g. "$19.00 / mo"), or null when not Pro. */
   grantText: string | null;
-  /** Pre-formatted spendable balance (e.g. "$9.93"). */
-  balanceText: string;
   /** prefer_system state, or null to hide the toggle (feature off / no quota). */
   preferSystem: boolean | null;
   /** True when the toggle may not be turned back ON (free tier exhausted). */
@@ -45,7 +44,6 @@ function Row({ label, value, warn }: { label: string; value: string; warn?: bool
 export function NetmindRunwayView({
   freePct,
   grantText,
-  balanceText,
   preferSystem,
   preferLocked,
   preferBusy,
@@ -54,6 +52,9 @@ export function NetmindRunwayView({
 }: NetmindRunwayViewProps) {
   const { t } = useTranslation();
   const exhausted = freePct === 0;
+  // Flow line only makes sense with ≥2 pools (free tier and/or grant, alongside
+  // the balance hero). A single balance pool → hide it (#3: no trivial sentence).
+  const showFlow = freePct !== null || !!grantText;
 
   return (
     <div className="space-y-2.5">
@@ -87,26 +88,35 @@ export function NetmindRunwayView({
         </div>
       )}
 
+      {/* Grant is NOT a separate spendable number — the API folds it into the
+          balance hero (free_credit). Show it as an informational "included"
+          line so the user never adds it on top of the hero. */}
       {grantText && (
-        <Row label={t('settings.netmind.monthlyGrant', 'Monthly grant')} value={grantText} />
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-[var(--text-secondary)]">
+            {t('settings.netmind.monthlyGrant', 'Monthly grant')}{' '}
+            <span className="text-xs text-[var(--text-tertiary)]">
+              {t('settings.netmind.grantIncluded', '(included in balance)')}
+            </span>
+          </span>
+          <span className="tabular-nums text-[var(--text-secondary)]">{grantText}</span>
+        </div>
       )}
-      <Row label={t('settings.netmind.currentBalance', 'Current balance')} value={balanceText} />
 
-      {/* Charging-order line adapts to what's actually on screen: never claim
-          "free tier first" when there is no free-tier bar (feature off /
-          unknown) — don't describe a pool the user can't see. */}
-      <p className="text-xs text-[var(--text-tertiary)]">
-        {freePct !== null
-          ? flowIsPro
-            ? t('settings.netmind.flowPro',
-                'Usage draws the free tier first, then your monthly grant, then your balance.')
-            : t('settings.netmind.flowFree',
-                'Usage draws the free tier first, then your balance.')
-          : flowIsPro
-            ? t('settings.netmind.flowProNoTier',
-                'Usage draws your monthly grant first, then your balance.')
-            : t('settings.netmind.flowFreeNoTier', 'Usage draws from your balance.')}
-      </p>
+      {/* Charging-order line — only with ≥2 pools; never claim "free tier first"
+          when there is no free-tier bar on screen. */}
+      {showFlow && (
+        <p className="text-xs text-[var(--text-tertiary)]">
+          {freePct !== null
+            ? flowIsPro
+              ? t('settings.netmind.flowPro',
+                  'Usage draws the free tier first, then your monthly grant, then your balance.')
+              : t('settings.netmind.flowFree',
+                  'Usage draws the free tier first, then your balance.')
+            : t('settings.netmind.flowProNoTier',
+                'Usage draws your monthly grant first, then your balance.')}
+        </p>
+      )}
 
       {preferSystem !== null && (
         <div className="flex items-start justify-between gap-3 pt-2.5 border-t border-[var(--border-subtle)]">

@@ -30,6 +30,13 @@ vi.mock('@/stores/runtimeStore', () => ({
   useRuntimeStore: (sel: (s: { mode: string }) => unknown) => sel({ mode: mockMode }),
 }));
 
+let mockEmail = '';
+let mockDisplayName = '';
+vi.mock('@/stores/configStore', () => ({
+  useConfigStore: (sel: (s: { email: string; displayName: string }) => unknown) =>
+    sel({ email: mockEmail, displayName: mockDisplayName }),
+}));
+
 const mockGetSubscription = vi.fn();
 const mockGetFeeInfo = vi.fn();
 const mockGetRecords = vi.fn();
@@ -138,6 +145,8 @@ afterEach(() => {
 
 beforeEach(() => {
   mockMode = 'cloud-web';
+  mockEmail = '';
+  mockDisplayName = '';
   mockGetSubscription.mockReset();
   mockGetFeeInfo.mockReset();
   mockGetFeeInfo.mockRejectedValue(new Error('no fee')); // default: balance hidden unless a test opts in
@@ -173,6 +182,30 @@ test('S0: local mode renders nothing', () => {
   expect(container.firstChild).toBeNull();
 });
 
+test('account row: hidden when no email; shown once when displayName equals email', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  // no email → account row absent entirely
+  const { unmount } = render(<NetmindAccountPanel />);
+  await screen.findByText('NetMind.AI Power');
+  expect(screen.queryByText('Account')).toBeNull();
+  unmount();
+  // NetMind returns email AS displayName → must NOT print the email twice
+  mockEmail = 'chen.tong@protagolabs.com';
+  mockDisplayName = 'chen.tong@protagolabs.com';
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText('Account')).toBeTruthy();
+  expect(screen.getAllByText('chen.tong@protagolabs.com')).toHaveLength(1);
+});
+
+test('account row: distinct nickname shows "name · email"', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockEmail = 'chen.tong@protagolabs.com';
+  mockDisplayName = 'Tong Chen';
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText('Tong Chen')).toBeTruthy();
+  expect(screen.getByText('chen.tong@protagolabs.com')).toBeTruthy();
+});
+
 test('S1: free plan (subscription null) → Free badge, no negative copy', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   render(<NetmindAccountPanel />);
@@ -183,8 +216,9 @@ test('S1: free plan (subscription null) → Free badge, no negative copy', async
 test('S2: pro active (auto_renew on) → Pro member status + valid-until', async () => {
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/Pro member · active/)).toBeTruthy();
-  expect(screen.getByText(/Valid until \d{4}-\d{2}-\d{2}/)).toBeTruthy();
+  // plan row: badge "Pro" + explanation with validity (the single ✓ is the
+  // connection line, not the plan row)
+  expect(await screen.findByText(/Member · valid until \d{4}-\d{2}-\d{2}/)).toBeTruthy();
 });
 
 test('S3: pro cancelled but in-period → downgrade copy + Resume button', async () => {
@@ -223,7 +257,8 @@ test('free × healthy: reassurance shown, ZERO spend buttons, manage link collap
   mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/You're all set — running on NetMind/)).toBeTruthy();
+  // reassurance is the connection line (netStatus-driven), not a runway claim
+  expect(await screen.findByText(/Set up — no configuration needed/)).toBeTruthy();
   // the core UX goal: no spend CTA anywhere until the user asks
   expect(screen.queryByRole('button', { name: /Subscribe to Pro/ })).toBeNull();
   expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
@@ -231,13 +266,20 @@ test('free × healthy: reassurance shown, ZERO spend buttons, manage link collap
   expect(screen.getByRole('button', { name: /Manage plan & credits/ })).toBeTruthy();
 });
 
-test('free × healthy: expanding Manage reveals subscribe + top-up', async () => {
+test('free × healthy: Manage opens a MODAL — Pro card leads, top-up demoted to a link (no peer choice)', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
+  // closed by default — no Pro card, no top-up in the DOM yet
+  expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
   fireEvent.click(await screen.findByRole('button', { name: /Manage plan & credits/ }));
-  expect(screen.getByRole('button', { name: /Subscribe to Pro/ })).toBeTruthy();
+  // modal shows the Pro value card as the lead action…
+  expect(screen.getByRole('button', { name: /Upgrade to Pro/ })).toBeTruthy();
+  expect(screen.getByText(/Up to 50% off/)).toBeTruthy();
+  // …with top-up NOT presented as a peer button — it's a demoted link first
+  expect(screen.queryByRole('button', { name: /^Recharge$/ })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Just need a one-time top-up/ }));
   expect(screen.getByRole('button', { name: /^Recharge$/ })).toBeTruthy();
 });
 
@@ -249,10 +291,10 @@ test('free × low: ONE promoted action — upsell card with value prop + dynamic
   mockGetFeeInfo.mockResolvedValue(FEE_POOR);
   render(<NetmindAccountPanel />);
   expect(await screen.findByText(/Free tier used up. To keep going:/)).toBeTruthy();
-  // value prop leads — the ONLY differentiator vs a same-priced top-up
-  expect(screen.getByText(/Member pricing on popular models/)).toBeTruthy();
-  expect(screen.getByText(/full 100\+ model library/)).toBeTruthy();
-  // price/grant pulled from getPlans (monthly_grant_usd=19, period=month→mo)
+  // real plan value leads — the true differentiators vs a same-priced top-up
+  expect(screen.getByText(/Up to 50% off on models like OpenAI/)).toBeTruthy();
+  expect(screen.getByText(/No platform service fee/)).toBeTruthy();
+  // price pulled from getPlans (monthly_grant_usd=19, period=month→mo)
   expect(screen.getAllByText(/\$19\.00 \/ mo/).length).toBeGreaterThan(0);
   expect(screen.getByRole('button', { name: /Upgrade to Pro/ })).toBeTruthy();
   // top-up demoted to a link, not a peer button
@@ -293,8 +335,8 @@ test('pro × healthy: member-pricing note, cancel hidden behind Manage', async (
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   mockGetFeeInfo.mockResolvedValue(FEE_RICH); // balance $12.50 ≥ buffer → healthy
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/Pro member · active/)).toBeTruthy();
-  expect(screen.getByText(/Member pricing active on popular models/)).toBeTruthy();
+  expect(await screen.findByText(/Member · valid until/)).toBeTruthy();
+  expect(screen.getByText(/Member pricing active/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: /Cancel subscription/ })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /Manage subscription & balance/ }));
   expect(screen.getByRole('button', { name: /Cancel subscription/ })).toBeTruthy();
@@ -352,15 +394,15 @@ test('runway: free-tier bar shows the more depleted side (62% left) + tiered flo
   expect(screen.getByText(/free tier first, then your balance\./)).toBeTruthy();
 });
 
-test('runway: no free-tier bar → flow line never claims "free tier first"', async () => {
-  // quota feature off → no bar on screen; the copy must not describe a pool
-  // the user can't see.
+test('runway: single pool (only balance) → NO flow line at all (#3)', async () => {
+  // quota off + free → the ONLY pool is the balance; the charging-order sentence
+  // would be trivial, so it's hidden entirely.
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText('Current balance')).toBeTruthy();
+  expect(await screen.findByText('Current balance')).toBeTruthy(); // balance hero
   expect(screen.getByText('$12.50')).toBeTruthy();
-  expect(screen.getByText('Usage draws from your balance.')).toBeTruthy();
+  expect(screen.queryByText(/Usage draws/)).toBeNull(); // no flow sentence
   expect(screen.queryByText(/free tier first/)).toBeNull();
 });
 
@@ -474,10 +516,15 @@ test('prefer toggle: exhausted + ON → still allowed to turn OFF', async () => 
 
 // ── module F: read-only connection status ──────────────────────────────────
 
-test('status: netmind provider present → ✓ connected, no connect button', async () => {
+test('status: netmind provider present → single "set up" line (the one reassurance), no driving claim', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/account is connected/)).toBeTruthy();
+  // ONE clean reassurance line — no provider-switching clutter, no "running on
+  // NetMind" overclaim
+  expect(await screen.findByText(/Set up — no configuration needed/)).toBeTruthy();
+  expect(screen.queryByText(/driving provider/)).toBeNull();
+  expect(screen.queryByText(/running on NetMind/)).toBeNull();
   expect(screen.queryByRole('button', { name: /Use this account/ })).toBeNull();
 });
 
@@ -491,33 +538,32 @@ test('status: no netmind provider → not-connected copy', async () => {
   expect(await screen.findByText(/isn.t linked as a provider yet/)).toBeTruthy();
 });
 
-test('status: not_connected surfaces ABOVE the runway; connected stays below', async () => {
-  // not_connected is the only actionable connection state → promoted high
+test('status: connection line sits ABOVE the runway breakdown, both states', async () => {
+  // order is account/plan → balance hero → connection → runway; assert the
+  // connection line precedes the runway's "Free tier" row in both states
   mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
-  mockGetProviders.mockResolvedValue({
-    success: true,
-    data: { providers: {}, slots: {} },
-  });
+  mockGetProviders.mockResolvedValue({ success: true, data: { providers: {}, slots: {} } });
   const { unmount } = render(<NetmindAccountPanel />);
   const warn = await screen.findByText(/isn.t linked as a provider yet/);
-  const balance = screen.getByText('Current balance');
-  // warning precedes the balance row in DOM order
-  expect(warn.compareDocumentPosition(balance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const tier = screen.getByText('Free tier');
+  expect(warn.compareDocumentPosition(tier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   unmount();
-  // connected confirmation renders after the balance row (quiet, low)
   mockGetProviders.mockResolvedValue(NETMIND_CONNECTED);
   render(<NetmindAccountPanel />);
-  const ok = await screen.findByText(/account is connected/);
-  const balance2 = screen.getByText('Current balance');
-  expect(balance2.compareDocumentPosition(ok) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const ok = await screen.findByText(/Set up — no configuration needed/);
+  const tier2 = screen.getByText('Free tier');
+  expect(ok.compareDocumentPosition(tier2) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
-test('status: getProviders fails → not-connected (no infinite checking)', async () => {
+test('status: getProviders FAILS → transient error copy (refresh), NOT re-login advice', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetProviders.mockRejectedValue(new Error('500'));
   render(<NetmindAccountPanel />);
-  expect(await screen.findByText(/isn.t linked as a provider yet/)).toBeTruthy();
+  expect(await screen.findByText(/Couldn.t read your connection status/)).toBeTruthy();
+  // must not mislead into re-logging for a network blip
+  expect(screen.queryByText(/isn.t linked as a provider yet/)).toBeNull();
 });
 
 // ── recent activity (settled ledger, collapsed by default) ─────────────────

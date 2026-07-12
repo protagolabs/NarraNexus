@@ -4,7 +4,32 @@ last_verified: 2026-07-10
 stub: false
 ---
 
-## 2026-07-10 (latest) — plan × runway 重设计:吸收 QuotaPanel、渐进披露、单一主 CTA
+## 2026-07-11 (latest) — 顶部重排:Account 身份 + 套餐带解释 + 余额 hero + 三池诚实
+
+Owner 走查:标题叫 "Account & Subscription" 却无 Account、套餐是右上角无解释裸徽章、
+余额只是小行。重排卡片顶部:
+- **账号行**(补 Account):`displayName · email`(读 [[configStore]]),email 空则隐藏。
+  也是"$5 进哪个账号"困惑的解药。
+- **套餐行**:定义列表 `套餐: [徽章] + planExpl` —— Free"免费版·用量按余额扣费" /
+  Pro"会员·有效至X"(planExplProActive)/ 取消"到期后降级"(expiresDowngrade)。
+  徽章从 header 右上角移进此行;topStatus() 删除。
+- **余额 hero**:`free_credit` 放大成锚点(34px);label 按有无赠额切
+  balanceUsable/currentBalance。
+- **三池诚实呈现**:接口把套餐赠额+充值合并进 `free_credit`,只有平台免费额度独立。
+  故 hero=合并余额(池2+3),[[NetmindRunwayView]] 只显示免费额度条 + 赠额行
+  (标"已计入余额",非可加数字);**不摆三个独立可花数字**(避免用户以为能加起来花)。
+  余额行从 RunwayView 移到 hero;单池(仅余额)时 flow line 隐藏(#3)。
+- **连接行**:去掉"切换驱动服务商"指引(#1),只留"已就绪,无需配置";位置在余额
+  hero 之下、runway 之上。
+- **Pro 套餐真实文案**([[NetmindUpsellCard]]):卡名"NetMind Pro" + $19/月 +
+  "OpenAI、Anthropic 等模型最高5折" + "零平台服务费" + "每月19万Credits(≈$19)"。
+  删旧的"热门模型5折/100+模型库/Includes...credits"。文案非 API,plan 变动需手改。
+- i18n:+account/plan/balance/upsell 等键,删 readyPro/planValidUntil/upsellPerk
+  Member/Library/GrantLine/flowFreeNoTier;en/zh 65 齐平。
+- **待确认**(记入清单):`free_credit` 是否真含未用完的月度赠额(NetMind 侧行为),
+  与扣费顺序一起等 xiyue 核对。
+
+## 2026-07-10 — plan × runway 重设计:吸收 QuotaPanel、渐进披露、单一主 CTA
 
 动机:两个平级花钱按钮(Subscribe/Recharge)+ 三种"钱"分居两卡让新用户决策瘫痪
 ($19 订阅与 $19 充值 credit 等值,差异只在会员价+模型库,旧 UI 没说)。重构为:
@@ -31,8 +56,17 @@ stub: false
   `{{var}}` 插值以断言完整文案;afterEach restoreAllMocks(confirm spy 卫生)。
 - 模块 F 状态**按信息价值分层**(同日,Owner 走查):`not_connected`(唯一
   可行动的连接态,agent 跑不了)提到顶部状态行下方、警示色;`connected/checking`
-  (管理性确认,无需行动)留在下方安静盒子——"放心"职责归顶部 topStatus,避免
-  双绿勾叠加。topupOrLink 从只开不关改为 toggle(删 onRevealTopUp prop)。
+  (管理性确认,无需行动)留在下方——"放心"职责归顶部 topStatus,避免双绿勾叠加。
+- 连接信息**彻底收敛成一条**(Owner 走查定案):删掉 `topStatus` 里的 `readyFree`
+  "正在用 NetMind 运行"(它按 runway 门控、且 C 场景会误称在用 NetMind);连接
+  信息只剩 `connectionStatus()` **一处**,由真实 `netStatus` 驱动,是全卡**唯一
+  的绿 ✓**。四态:connected=绿✓"已就绪,无需配置·去 LLM 服务商切换驱动服务商"
+  (不声称在用谁)/ checking=灰 / **error=灰"暂时读不到,请刷新"** / not_connected=
+  警示。`topStatus` 只剩套餐(Pro 用中性文字"Pro member · valid until X",无 ✓,
+  避免与连接 ✓ 撞第二个绿勾;Free 不显示,徽章足够)。连接行移到卡顶(runway 之上)。
+- **error 从 not_connected 拆出**(review):getProviders 请求失败 = 瞬态 → 提示
+  刷新,不再误导"重新登录"(重登修不了网络抖动);读到了但无 netmind 卡才是
+  not_connected → 才提示重登/手动添加。i18n:+netStatusError、-readyFree。topupOrLink 从只开不关改为 toggle(删 onRevealTopUp prop)。
 - UI 走查修复(同日,Owner 看真实 prod 数据后):`notEligible` 警告在低额引导
   可见时(runway low 且非 pro_cancelled)**不再单独渲染**——eligible=false 必然
   触发 low,引导语已用人话说了同一件事,叠加系统腔警告读起来像报错且字号不一
