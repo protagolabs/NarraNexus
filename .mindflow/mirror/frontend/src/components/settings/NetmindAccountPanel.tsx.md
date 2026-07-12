@@ -4,7 +4,14 @@ last_verified: 2026-07-10
 stub: false
 ---
 
-## 2026-07-11 (latest2) — 连接态区分 driving / available(修误导)
+## 2026-07-12 (latest) — 连接行归入身份组(修版式拥挤)
+
+连接行原在"余额 hero 与 runway 之间",available 变小字后紧贴"免费额度"行,拥挤。
+改为三段分组:**身份组**(账号 + 套餐 + 连接状态)→ 分隔线 → **金额组**(余额 hero
++ runway 明细连成一片)→ 动作(管理)。连接状态是"我是谁/怎么接入"的一部分,归身份组;
+金额块不再被打断。注:本地 quota 关时 runway 整体隐藏,该相邻只在 dev(quota 开)出现。
+
+## 2026-07-11 — 连接态区分 driving / available(修误导)
 
 Owner 在 dev 发现:`connected` 只表示"存在 netmind 卡",但云端登录自动注册,人人
 都有卡——哪怕在用自己加的 provider。此时绿 ✓"已就绪,无需配置"会让人误以为正跑在

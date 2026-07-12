@@ -627,19 +627,20 @@ export function NetmindAccountPanel() {
 
       {state !== 'loading' && state !== 'error' && (
         <div className="px-4 py-4 space-y-4">
-          {/* 1 · account identity + plan (the two halves of the page title) */}
+          {/* 1 · identity/setup group: account + plan + connection status. These
+              answer "who am I / how am I set up"; keeping the connection line
+              here (not wedged above the runway) stops the small 'available'
+              variant from crowding the free-tier row, and reads as a status
+              summary. */}
           {accountAndPlan}
+          {connectionStatus()}
 
           <div className="border-t border-[var(--border-subtle)]" />
 
-          {/* 2 · balance hero — the key number (grant + recharge combined) */}
+          {/* 2 · money block: balance hero + runway breakdown, uninterrupted. */}
           {balanceHero}
 
-          {/* 3 · connection status — the single reassurance ✓, gated on the real
-              netStatus. */}
-          {connectionStatus()}
-
-          {/* 4 · runway — pools breakdown (free tier / grant) + charging order +
+          {/* 3 · runway — pools breakdown (free tier / grant) + charging order +
               toggle. Balance itself is the hero above, not here. */}
           {showRunway && (
             <NetmindRunwayView
