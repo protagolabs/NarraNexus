@@ -565,7 +565,20 @@
       "rename": "重命名",
       "setPrivate": "设为私有",
       "setPublic": "设为公开",
+      "clearData": "清理数据",
       "delete": "删除"
+    },
+    "clearAgentData": {
+      "title": "清理数据 · {{name}}",
+      "subtitle": "选择要清理的内容，操作不可恢复。",
+      "optConversations": "删除聊天记录",
+      "optConversationsDesc": "对话历史、Narrative 以及逐轮轨迹。",
+      "optMemory": "删除记忆",
+      "optMemoryDesc": "智能体学到的内容——人物、事实、观察与关系。",
+      "keepNote": "保留：人设、渠道绑定（飞书等）与账号。",
+      "cancel": "取消",
+      "confirm": "清理",
+      "toastDiskWarn": "数据已清理，但有 {{count}} 个磁盘文件未能删除，请查看日志。"
     },
     "agentsHeaderMenu": {
       "menu": "智能体菜单",

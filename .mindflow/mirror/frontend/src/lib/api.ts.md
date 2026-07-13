@@ -4,6 +4,13 @@ last_verified: 2026-07-10
 stub: false
 ---
 
+## 2026-07-10 — clearHistory gains scope flags
+
+`clearHistory(agentId, { conversations, memory })` now sends
+`?conversations=&memory=` (default both true) to
+`DELETE /api/agents/{id}/history`, driving the scoped wipe. Response type
+extended in [[api.ts]] (types) with per-target counts + `disk_errors`.
+
 ## 2026-07-10 — submitFeedback()
 
 `submitFeedback(category, text)` → POST /api/feedback。返回 {ok, delivered}；

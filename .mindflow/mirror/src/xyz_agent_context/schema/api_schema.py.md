@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-06-16
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — ClearHistoryResponse expanded for the scoped wipe
+
+`ClearHistoryResponse` gained `scopes` + per-target counts (event_stream,
+chat_memory, chat_instances, agent_messages, memory_rows, artifacts), disk
+booleans and `disk_errors[]` — a projection of `WipeResult` from
+[[wipe_service.py]]. Kept `success` True once the DB commits even if disk
+deletes partially fail; `disk_errors` surfaces those.
 
 ## 2026-06-11 — identity fields dropped from request models
 

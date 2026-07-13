@@ -96,6 +96,11 @@ interface ChatState {
   agentSessions: Record<string, AgentChatState>;
   activeAgentId: string;
 
+  // Bumped to force ChatPanel to re-fetch server-side history (e.g. after a
+  // data wipe clears conversations — the panel holds its own loaded history
+  // and would otherwise keep showing stale messages until an agent switch).
+  historyRefreshTick: number;
+
   // Notification state
   completedAgentIds: string[];
   toastQueue: ToastItem[];
@@ -130,6 +135,8 @@ interface ChatState {
   processMessage: (agentId: string, message: RuntimeMessage) => void;
   clearAgent: (agentId: string) => void;
   clearAll: () => void;
+  /** Force any mounted ChatPanel to reload its server history. */
+  requestHistoryRefresh: () => void;
 
   // Notification actions
   dismissToast: (agentId: string) => void;
@@ -195,6 +202,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
     // Multi-agent state
     agentSessions: {},
     activeAgentId: '',
+    historyRefreshTick: 0,
     completedAgentIds: [],
     toastQueue: [],
 
@@ -717,6 +725,11 @@ export const useChatStore = create<ChatState>((_set, get) => {
         completedAgentIds: [],
         toastQueue: [],
       });
+    },
+
+    // Force mounted ChatPanel(s) to reload server history (post-wipe refresh).
+    requestHistoryRefresh: () => {
+      set((state) => ({ historyRefreshTick: state.historyRefreshTick + 1 }));
     },
 
     // Notification actions

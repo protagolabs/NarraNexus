@@ -8,7 +8,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import {
   LogOut,
-  Trash2,
   ChevronLeft,
   ChevronRight,
   Sliders,
@@ -25,7 +24,6 @@ import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
 import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore, useUIStore } from '@/stores';
-import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 // v2.2 G1: prefetch the lazy DashboardPage chunk on hover/focus so click
@@ -63,7 +61,7 @@ export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { userId, displayName, agentId, logout } = useConfigStore();
+  const { userId, displayName, logout } = useConfigStore();
   // user_id is an opaque NetMind userSystemCode (32-hex) in cloud mode, not
   // human-readable. Show the NetMind nickname when we have it; fall back to
   // user_id (local mode, where it IS the chosen username).
@@ -152,29 +150,6 @@ export function Sidebar() {
     if (!ok) return;
     wipeAllSessionData();
     window.location.href = '/login';
-  };
-
-  const handleClearHistory = async () => {
-    const ok = await confirm({
-      title: t('layout.sidebar.clearHistoryConfirmTitle'),
-      message: t('layout.sidebar.clearHistoryConfirmMessage'),
-      confirmText: t('layout.sidebar.clearHistoryConfirmAction'),
-      danger: true,
-    });
-    if (!ok) return;
-
-    if (agentId) {
-      try {
-        const result = await api.clearHistory(agentId);
-        if (!result.success) {
-          console.error('Failed to clear history:', result.error);
-        }
-      } catch (err) {
-        console.error('Error clearing history from database:', err);
-      }
-    }
-
-    clearChat();
   };
 
   return (
@@ -468,15 +443,6 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleClearHistory}
-              className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
-            >
-              <Trash2 className="w-4 h-4" />
-              {t('sidebar.clearHistory')}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
               onClick={handleLogout}
               className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
@@ -505,15 +471,6 @@ export function Sidebar() {
           </>
         ) : (
           <div className="flex flex-col items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleClearHistory}
-              title={t('sidebar.clearHistory')}
-              className={NAV_ITEM_DANGER}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
             <Button
               variant="ghost"
               size="icon"

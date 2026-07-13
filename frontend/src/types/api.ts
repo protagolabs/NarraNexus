@@ -137,9 +137,21 @@ export interface AwarenessResponse extends ApiResponse {
 
 // Clear history types
 export interface ClearHistoryResponse extends ApiResponse {
+  scopes: string[];
   narrative_ids_deleted: string[];
   narratives_count: number;
   events_count: number;
+  event_stream_count: number;
+  chat_memory_count: number;
+  chat_instances_count: number;
+  agent_messages_count: number;
+  bus_messages_count: number;
+  memory_rows_count: number;
+  artifacts_count: number;
+  disk_markdown_removed: boolean;
+  disk_trajectories_removed: boolean;
+  session_removed: boolean;
+  disk_errors: string[];
 }
 
 // Social Network types

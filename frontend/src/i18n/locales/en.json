@@ -565,7 +565,20 @@
       "rename": "Rename",
       "setPrivate": "Set to Private",
       "setPublic": "Set to Public",
+      "clearData": "Clear data",
       "delete": "Delete"
+    },
+    "clearAgentData": {
+      "title": "Clear data · {{name}}",
+      "subtitle": "Choose what to clear. This cannot be undone.",
+      "optConversations": "Delete chat history",
+      "optConversationsDesc": "Conversations, narratives and turn-by-turn trajectories.",
+      "optMemory": "Delete memory",
+      "optMemoryDesc": "What the agent learned — people, facts, observations and relationships.",
+      "keepNote": "Kept: persona, channel bindings (Lark, etc.) and account.",
+      "cancel": "Cancel",
+      "confirm": "Clear",
+      "toastDiskWarn": "Data cleared, but {{count}} on-disk file(s) could not be removed. Check the logs."
     },
     "agentsHeaderMenu": {
       "menu": "Agents menu",

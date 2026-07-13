@@ -4,6 +4,14 @@ last_verified: 2026-07-10
 stub: false
 ---
 
+## 2026-07-10 (4) — footer "clear history" button removed
+
+The footer 🗑️ "clear history" button (active-agent scope) is gone, along with
+`handleClearHistory` and the now-unused `api` / `Trash2` / `agentId` refs.
+Clearing moved to the per-agent ⋮ menu as a scoped multi-select wipe
+([[AgentRowMenu.tsx]] → [[ClearAgentDataDialog.tsx]]); the old button was also
+ineffective (DB-only, never cleared the on-disk narratives/trajectories).
+
 ## 2026-07-10 (3) — footer 反馈入口改为移动端专属
 
 桌面端入口已是右下角浮动 [[FeedbackButton.tsx]]；footer 这个入口用
