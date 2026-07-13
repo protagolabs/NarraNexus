@@ -26,8 +26,11 @@ Uses the same get_db_client-wired fixtures as test_roundtrip.py.
 from __future__ import annotations
 
 import base64
+import io
 import json
 import sys
+import tarfile
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -125,6 +128,7 @@ async def test_full_copy_skill_lands_in_skill_dir_with_credentials(db_client, tm
             "agent_id": aid, "skill_name": "arena", "skill_dir": "arena",
             "install_method": "full_copy",
         }],
+        include_skill_secrets=True,  # carry the credential to assert it lands right
     )
     await build_bundle(uid, selection, bundle)
     pre = await preflight(bundle, uid)
@@ -150,3 +154,95 @@ async def test_full_copy_skill_lands_in_skill_dir_with_credentials(db_client, tm
     # (3) .skill_meta.json env_config preserved (not clobbered by _save_skill_meta).
     meta = json.loads((arena / ".skill_meta.json").read_text())
     assert meta.get("env_config", {}).get("ARENA_API_KEY"), "env_config was wiped on install"
+
+
+def _full_copy_names(bundle: Path, aid: str, skill_dir: str) -> list[str]:
+    """Filenames inside the full_copy archive for a skill."""
+    with zipfile.ZipFile(bundle) as z:
+        ref = f"skills/{aid}/{skill_dir}-full.zip"
+        with zipfile.ZipFile(io.BytesIO(z.read(ref))) as inner:
+            return inner.namelist()
+
+
+def _manifest(bundle: Path) -> dict:
+    with zipfile.ZipFile(bundle) as z:
+        return json.loads(z.read("manifest.json"))
+
+
+async def test_dir_fix_holds_without_secrets(db_client, tmp_workspace_root, tmp_path):
+    """Track A (correct dir name) is independent of Track B: even with secrets
+    scrubbed, the skill still lands in exactly skills/arena/ (no tmp stray)."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+
+    aid, uid = "agent_skill0002", "test_user"
+    await _seed_agent(db_client, aid, "SkillAgent2", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+
+    bundle = tmp_path / "b.nxbundle"
+    await build_bundle(uid, ExportSelection(
+        agent_ids=[aid],
+        skill_methods=[{"agent_id": aid, "skill_name": "arena", "skill_dir": "arena",
+                        "install_method": "full_copy"}],
+        # include_skill_secrets defaults False → scrub
+    ), bundle)
+    pre = await preflight(bundle, uid)
+    await confirm(pre["preflight_token"], uid)
+
+    new_aid = next(a["agent_id"] for a in await db_client.get("agents", {"created_by": uid})
+                   if a["agent_id"] != aid)
+    skills_root = agent_workspace_path(new_aid, uid, base=str(tmp_workspace_root)) / "skills"
+    assert sorted(p.name for p in skills_root.iterdir() if p.is_dir()) == ["arena"]
+    # secret scrubbed → no credential file, env_config blanked
+    assert not (skills_root / "arena" / "credentials.json").exists()
+    meta = json.loads((skills_root / "arena" / ".skill_meta.json").read_text())
+    assert meta.get("env_config", {}).get("ARENA_API_KEY", "") == ""
+
+
+async def test_skill_secrets_scrubbed_on_export_by_default(db_client, tmp_workspace_root, tmp_path):
+    """Default export scrubs skill secrets from BOTH the full_copy archive and
+    the workspace snapshot; manifest reflects it."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+
+    aid, uid = "agent_skill0003", "test_user"
+    await _seed_agent(db_client, aid, "SkillAgent3", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+
+    bundle = tmp_path / "b.nxbundle"
+    await build_bundle(uid, ExportSelection(
+        agent_ids=[aid],
+        skill_methods=[{"agent_id": aid, "skill_name": "arena", "skill_dir": "arena",
+                        "install_method": "full_copy"}],
+    ), bundle)
+
+    # full_copy archive: no credentials.json (sensitive filter)
+    names = _full_copy_names(bundle, aid, "arena")
+    assert "credentials.json" not in names
+    assert "SKILL.md" in names  # structure kept
+    m = _manifest(bundle)
+    assert m.get("contains_skill_secrets") is False
+    assert "skill_secrets" in m.get("stripped", [])
+
+
+async def test_skill_secrets_kept_when_opted_in(db_client, tmp_workspace_root, tmp_path):
+    """Opting in carries the credential file + marks the manifest."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+
+    aid, uid = "agent_skill0004", "test_user"
+    await _seed_agent(db_client, aid, "SkillAgent4", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+
+    bundle = tmp_path / "b.nxbundle"
+    await build_bundle(uid, ExportSelection(
+        agent_ids=[aid],
+        skill_methods=[{"agent_id": aid, "skill_name": "arena", "skill_dir": "arena",
+                        "install_method": "full_copy"}],
+        include_skill_secrets=True,
+    ), bundle)
+
+    names = _full_copy_names(bundle, aid, "arena")
+    assert "credentials.json" in names
+    m = _manifest(bundle)
+    assert m.get("contains_skill_secrets") is True
+    assert "skill_secrets" not in m.get("stripped", [])

@@ -1351,8 +1351,8 @@
       "bundleNotesPlaceholderTeam": "My team",
       "bundleNotesPlaceholderDesc": "Describe what this team does…",
       "includeChatLabel": "Include chat history (events + messages). Disable for templates with privacy concerns.",
-      "includeChannelCredentialsLabel": "Include IM channel credentials (Lark / Slack / Telegram / WeChat / Discord)",
-      "channelCredentialsWarning": "The bundle will contain near-plaintext (base64) bot secrets. Anyone with the file can take over these bots — do not share it. Imported credentials arrive disabled and must be manually activated in the target environment.",
+      "includeChannelCredentialsLabel": "Full mode — include credentials (IM channels + skill secrets)",
+      "channelCredentialsWarning": "The bundle will contain near-plaintext (base64) secrets: IM bot credentials AND skill auth (env_config + skill credential files). Anyone with the file can take over these bots/skills — do not share it. Imported channel credentials arrive disabled and must be manually activated; skill secrets are restored in place.",
       "cancel": "Cancel",
       "reviewExport": "Review & Export",
       "tabs": {

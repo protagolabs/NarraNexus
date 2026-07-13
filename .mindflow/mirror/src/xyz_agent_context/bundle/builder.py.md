@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — opt-in skill secrets (scrub by default)
+
+`ExportSelection.include_skill_secrets` (default False, the 'full mode' companion of include_channel_credentials). When OFF: the workspace packer blanks each `.skill_meta.json`'s `env_config` VALUES (via `bundle/skill_secrets.py`) and `_zip_dir` sensitive-filters the full_copy archive (drops credentials.json etc. + scrubs meta) — so no skill secret leaves silently. When ON: both ride along + `contains_secrets` is set. Manifest gains `contains_skill_secrets`; `stripped` lists `skill_secrets` when not opted in.
 
 ## 2026-07-10 — opt-in IM channel credential export
 
