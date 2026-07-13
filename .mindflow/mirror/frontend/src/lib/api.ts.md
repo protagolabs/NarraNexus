@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — channel set-active methods
+
+Added `set{Lark,Slack,Telegram,WeChat,Discord}Active(agentId, active)` → `POST /api/<ch>/set-active`, flipping a bound credential's active flag without a re-bind (used to activate bundle-imported inactive channels).
 
 ## 2026-07-10 — clearHistory gains scope flags
 

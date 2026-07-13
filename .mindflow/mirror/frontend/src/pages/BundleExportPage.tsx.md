@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/pages/BundleExportPage.tsx
-last_verified: 2026-05-15
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — opt-in channel-credential export
+
+Added an opt-in `include_channel_credentials` checkbox + a strong plaintext-secret warning. Off by default; when on, the request ships IM channel credentials so a migrated agent's channels work without re-binding.
 
 # BundleExportPage.tsx — Export wizard (subproject 2 §8.13)
 
