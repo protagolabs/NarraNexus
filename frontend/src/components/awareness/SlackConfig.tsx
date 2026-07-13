@@ -247,6 +247,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     if (!mountedRef.current) return;
     if (res.success) {
       await fetchCredential();
+      onBindStateChange?.();  // refresh the parent list's status badge
     } else {
       setError(res.error || '');
     }
@@ -261,7 +262,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           Slack
         </CardTitle>
         <button
-          onClick={() => fetchCredential()}
+          onClick={() => { fetchCredential(); onBindStateChange?.(); }}
           disabled={loading}
           className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title={t('awareness.common.refresh')}

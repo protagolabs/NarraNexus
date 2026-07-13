@@ -156,6 +156,8 @@ async def test_default_export_excludes_credentials(db_client, tmp_workspace_root
     assert _read_member(bundle, f"agents/{aid}/channel_credentials.json") is None
     manifest = json.loads(_read_member(bundle, "manifest.json"))
     assert manifest.get("contains_channel_credentials") is False
+    # Not opted in → the preview correctly lists channel credentials as stripped.
+    assert "im_channel_credentials" in manifest.get("stripped", [])
 
 
 async def test_optin_export_includes_credentials(db_client, tmp_workspace_root, tmp_path):
@@ -180,6 +182,9 @@ async def test_optin_export_includes_credentials(db_client, tmp_workspace_root, 
 
     manifest = json.loads(_read_member(bundle, "manifest.json"))
     assert manifest.get("contains_channel_credentials") is True
+    # Preview must NOT claim channel credentials were stripped when they shipped.
+    assert "im_channel_credentials" not in manifest.get("stripped", [])
+    assert "user_providers" in manifest.get("stripped", [])  # providers never travel
 
 
 async def test_import_forces_inactive_and_remaps_agent(db_client, tmp_workspace_root, tmp_path):

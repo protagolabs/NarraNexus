@@ -21,7 +21,14 @@ decision is therefore now: **stripped by default, shipped on opt-in.** `agent_id
 is kept verbatim in the exported rows (import remaps it via STRUCTURED_ID_FIELDS);
 everything else is IM-side and preserved. On import each row lands INACTIVE.
 Also removed a dead contradictory `lark_trigger_audit` entry that sat in BOTH
-`AGENT_SCOPED_TABLES` and `STRIPPED_TABLES`. Tests:
+`AGENT_SCOPED_TABLES` and `STRIPPED_TABLES`.
+
+The manifest `stripped` list (shown verbatim in the import preview's "not present
+in bundle" section) is now DYNAMIC: `im_channel_credentials` is listed only when
+the user did NOT opt in — otherwise the preview would contradict the shipped
+`channel_credentials.json`. `api_keys` / `user_password_hash` / `user_providers`
+stay always-stripped (the old hardcoded `lark_oauth` label was renamed to
+`im_channel_credentials`, since it now covers all six channels). Tests:
 `tests/bundle/test_channel_credentials.py`.
 
 ## 2026-06-09 — manifest stamps the live app version

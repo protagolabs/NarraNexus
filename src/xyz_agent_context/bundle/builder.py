@@ -266,7 +266,15 @@ async def build_bundle(
     # looks like "1234 warnings 你完了".
     info: List[str] = []
     info_counters: Dict[str, int] = {"skipped_external_edge": 0}
-    stripped_lists = ["api_keys", "lark_oauth", "user_password_hash", "user_providers"]
+    # Manifest `stripped` list — surfaced verbatim in the import preview's
+    # "not present in bundle" section, so it MUST reflect what actually left.
+    # api_keys / password hashes / LLM providers are always stripped. IM channel
+    # credentials are stripped ONLY when the user did not opt in — otherwise they
+    # ride along (see channel_credentials.json + contains_channel_credentials),
+    # and listing them as "stripped" would contradict the preview.
+    stripped_lists = ["api_keys", "user_password_hash", "user_providers"]
+    if not selection.include_channel_credentials:
+        stripped_lists.append("im_channel_credentials")
     # Count of IM channel credential rows shipped (opt-in). Drives the manifest
     # `contains_channel_credentials` flag so the import wizard can warn.
     channel_cred_count = 0

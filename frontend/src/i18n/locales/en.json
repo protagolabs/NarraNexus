@@ -160,6 +160,7 @@
       "connectedCount": "{{connected}}/{{total}} connected",
       "manage": "Manage",
       "connectedBadge": "✓ connected",
+      "inactiveBadge": "bound · inactive (enable to connect)",
       "notBound": "not bound",
       "refreshStatus": "Refresh status"
     },
@@ -1329,6 +1330,8 @@
         "mcpHints": "{{count}} external MCP URLs suggested — review below",
         "channelCredentialsImported": "{{count}} IM channel credential(s) imported — inactive, awaiting activation",
         "channelCredentialsSkipped": "{{count}} channel credential(s) skipped (bot already bound here)",
+        "configureLlmTitle": "Configure the LLM before use",
+        "configureLlmHint": "Imported agents do NOT carry their LLM provider/framework configuration (credentials never travel in a bundle). Until you set it, an imported agent falls back to a system default that may be incompatible with its tools — it will fail to reply, especially over IM channels (web chat only masks it with a stub fallback). Open each imported agent's Settings → LLM and bind a provider + framework before using it.",
         "activateChannelsTitle": "Activate imported channels",
         "activateChannelsHint": "Imported IM channel credentials are DISABLED so they don't fight the source environment for the single connection each bot allows. Open each channel under the agent's Settings and enable it — but only after confirming the source environment is no longer connected.",
         "warnings": "{{count}} warnings (see details)",

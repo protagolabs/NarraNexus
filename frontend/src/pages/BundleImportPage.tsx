@@ -431,6 +431,14 @@ function DonePanel({
           {result.warnings.length > 0 && <li className="text-[var(--color-yellow-500)]">{t('pages.bundleImport.done.warnings', { count: result.warnings.length })}</li>}
         </ul>
       </div>
+      {result.agents_created > 0 && (
+        <div className="border border-[var(--color-yellow-500)]/50 bg-[var(--color-yellow-500)]/5 p-4">
+          <div className="text-xs font-mono uppercase mb-2 text-[var(--color-yellow-500)] flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" /> {t('pages.bundleImport.done.configureLlmTitle')}
+          </div>
+          <div className="text-xs text-[var(--text-secondary)]">{t('pages.bundleImport.done.configureLlmHint')}</div>
+        </div>
+      )}
       {(result.channel_credentials_imported || 0) > 0 && (
         <div className="border border-[var(--color-yellow-500)]/40 bg-[var(--color-yellow-500)]/5 p-4">
           <div className="text-xs font-mono uppercase mb-2 text-[var(--text-secondary)]">{t('pages.bundleImport.done.activateChannelsTitle')}</div>
