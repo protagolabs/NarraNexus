@@ -459,18 +459,20 @@ wheels = [
 
 [[package]]
 name = "claude-agent-sdk"
-version = "0.1.43"
+version = "0.2.116"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "mcp" },
+    { name = "sniffio" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a2/02/129412a3751f6719799d484f6029794d497bc2c22ca8998c7a2f2a47cc0e/claude_agent_sdk-0.1.43.tar.gz", hash = "sha256:611bbb8bf923455bba5e8bd1cc00f3ea382b6673fa62e73f88bdb7ef0def9222", size = 62440, upload-time = "2026-02-25T06:48:52.981Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/50/79/b0f01a18bb119e595cc1e66d4adbe39bb09879a570e54793c222a142b662/claude_agent_sdk-0.2.116.tar.gz", hash = "sha256:37d6c9d98960c7ea41d1a7fd3331ad0b1bef68e559ed9cc5ccf9d00ae68adfcd", size = 268648, upload-time = "2026-07-11T01:04:47.192Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d9/7d/cdeef70d7b4d9c5da15fe6aa25e2734f4ea96be5ba1d713d6b8111f055cb/claude_agent_sdk-0.1.43-py3-none-macosx_11_0_arm64.whl", hash = "sha256:4a2dd200241ae2378407302eb3654482dd7dd17a81a7f8d0746699cf9f6c327b", size = 55655645, upload-time = "2026-02-25T06:48:40.219Z" },
-    { url = "https://files.pythonhosted.org/packages/67/1f/ceb2dc7cd9c61cbbfacf0af3d75414e6a19f6ac4615a0bc7b9461d133a34/claude_agent_sdk-0.1.43-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:4b7cd2bd2152d623cb23bfc368b5580bc02acb46fc9d80d24868c026fb22b9ac", size = 70636550, upload-time = "2026-02-25T06:48:43.492Z" },
-    { url = "https://files.pythonhosted.org/packages/e3/79/83b30d2dcc983df37504a09cf5c8c1f63d467c4fb48cf93ade4cb04042f6/claude_agent_sdk-0.1.43-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:0a471da0ec027e26aa1d3ff16e8649df2b05a9886db83f19e6c6e121dd9b587d", size = 71239009, upload-time = "2026-02-25T06:48:46.968Z" },
-    { url = "https://files.pythonhosted.org/packages/a2/a9/800923904ce96952931042e7de23b4ed2740139043df0dadff2fc35ae459/claude_agent_sdk-0.1.43-py3-none-win_amd64.whl", hash = "sha256:2277b466b5b6a7a9c4ac014d9e44e2fec65f72ed8c7a22a4645233686c3950c0", size = 73332716, upload-time = "2026-02-25T06:48:50.649Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/cd/2ed6eaee9e5fa1a13d91d1ccbb9f09a3b53379acd55b3ccb9d6c94378a3f/claude_agent_sdk-0.2.116-py3-none-macosx_11_0_arm64.whl", hash = "sha256:9ea5ababb44afdcc7e33b857ca3ad5008f906c30052aa2d957dacfa7f70ead9f", size = 71529658, upload-time = "2026-07-11T01:04:51.792Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/5a/28cefff3eacb8ba8a2caf2a8e7c944faca8c253157cc5aa207d87964c5cb/claude_agent_sdk-0.2.116-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:93c1f60ed1e4d73dc13f2c714bbe1be43798d9bb4067a6d563358c397b300801", size = 75044679, upload-time = "2026-07-11T01:04:56.414Z" },
+    { url = "https://files.pythonhosted.org/packages/72/e8/6663bd715b1822db87a560aa04ddc51a1e36bbfb076441d96b3af827e572/claude_agent_sdk-0.2.116-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:e130166e5b1054b4e3741d957fd6759546fa657fa765385955a9ef12fdc545f9", size = 80070001, upload-time = "2026-07-11T01:05:01.862Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/a2/305b81ee541ff1323920809803695c0294584f30b7e451a290213f53f4d7/claude_agent_sdk-0.2.116-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:d5e420912378cf66a90cf898bdd4567cc8f994308bd8011d7bd71968066f3894", size = 81082600, upload-time = "2026-07-11T01:05:06.688Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/cb/c492bf6d973837f00894604f2e0ad3b216a03163dc204bff14b3e7e596f0/claude_agent_sdk-0.2.116-py3-none-win_amd64.whl", hash = "sha256:fb8dbc73f52d103e08b30fe865199ea1d89e7b2197652a19a97a15b040cf685b", size = 80616940, upload-time = "2026-07-11T01:05:12.229Z" },
 ]
 
 [[package]]
@@ -2573,8 +2575,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography", marker = "sys_platform != 'darwin'" },
-    { name = "jeepney", marker = "sys_platform != 'darwin'" },
+    { name = "cryptography" },
+    { name = "jeepney" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [
@@ -3024,7 +3026,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20.0" },
     { name = "anthropic", specifier = ">=0.72.0" },
     { name = "bcrypt", specifier = ">=5.0.0" },
-    { name = "claude-agent-sdk", specifier = "~=0.1.43" },
+    { name = "claude-agent-sdk", specifier = "~=0.2.116" },
     { name = "croniter", specifier = ">=6.0.0" },
     { name = "ddgs", specifier = ">=9.0.0" },
     { name = "discord-py", specifier = ">=2.4.0" },
