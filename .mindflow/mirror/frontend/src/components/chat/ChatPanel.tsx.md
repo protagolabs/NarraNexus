@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — ARTIFACT_TOOL_BASE_NAMES gains `office_render`
+
+`ARTIFACT_TOOL_BASE_NAMES` is now `['register_artifact', 'office_render']`.
+OfficeModule's `office_render` ([[_office_mcp_tools]]) registers Office
+artifacts through the **shared** [[registration]] service — NOT via the
+`register_artifact` MCP tool — but it still needs to be recognised here so the
+panel's live artifact discovery picks up the new tab mid-run. For that,
+`office_render` returns `artifact_id` at the top level of its `tool_output`
+(same contract the matcher relies on for `register_artifact`). If either MCP
+tool is renamed, this constant must move in lockstep (the reciprocal coupling
+note lives on [[_office_mcp_tools]] and [[artifact_tool]]).
 
 ## 2026-07-10 — history reload reacts to wipe
 

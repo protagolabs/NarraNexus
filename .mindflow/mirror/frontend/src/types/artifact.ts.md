@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/types/artifact.ts
-last_verified: 2026-05-14
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — ArtifactKind gains 3 Office OOXML kinds
+
+The `ArtifactKind` string union gained the three Office mime literals (Word
+`…wordprocessingml.document`, Excel `…spreadsheetml.sheet`, PowerPoint
+`…presentationml.presentation`), mirroring the backend [[artifact_schema]]
+`ArtifactKind` `Literal`. They dispatch to [[OfficeRenderer]] via
+[[ArtifactRenderer]]. Keep this union in lockstep with the backend literal —
+they are added together, per the design note below ("Seven mime-like values…"
+is now ten).
 
 ## 2026-05-14 — pointer model (versioning dropped, rawUrl helper removed)
 

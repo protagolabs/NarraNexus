@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/__init__.py
-last_verified: 2026-06-22
+last_verified: 2026-07-13
 ---
 
+> 2026-07-13：`OfficeModule` 加入 MODULE_MAP / `__all__`（capability module，
+> 用 OfficeCLI 创建/读/改 Word/Excel/PowerPoint 并渲染为 artifact 预览；MCP
+> port 7810，见 [[office_module]] 与 [[module_runner]]）。
+>
 > 2026-06-22：`NarramessengerModule` 加入 MODULE_MAP / `__all__`（capability
 > module，NarraMessenger gateway-poll IM channel）。
 >

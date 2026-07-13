@@ -38,6 +38,7 @@ from xyz_agent_context.module.chat_module.chat_module import ChatModule
 from xyz_agent_context.module.social_network_module.social_network_module import SocialNetworkModule
 from xyz_agent_context.module.job_module.job_module import JobModule
 from xyz_agent_context.module.skill_module.skill_module import SkillModule
+from xyz_agent_context.module.office_module.office_module import OfficeModule
 from xyz_agent_context.module.message_bus_module.message_bus_module import MessageBusModule
 from xyz_agent_context.module.lark_module.lark_module import LarkModule
 from xyz_agent_context.module.slack_module.slack_module import SlackModule
@@ -56,6 +57,7 @@ MODULE_MAP = {
     "SocialNetworkModule": SocialNetworkModule,
     "JobModule": JobModule,
     "SkillModule": SkillModule,
+    "OfficeModule": OfficeModule,
     "MessageBusModule": MessageBusModule,
     "LarkModule": LarkModule,
     "SlackModule": SlackModule,
@@ -125,6 +127,7 @@ __all__ = [
     "SocialNetworkModule",
     "JobModule",
     "SkillModule",
+    "OfficeModule",
     "MessageBusModule",
     "LarkModule",
     "SlackModule",

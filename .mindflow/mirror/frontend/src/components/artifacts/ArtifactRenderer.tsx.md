@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactRenderer.tsx
-last_verified: 2026-05-14
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — dispatch the 3 Office kinds to OfficeRenderer
+
+`RENDERER_BY_KIND` now maps the three Office OOXML kinds (Word / Excel /
+PowerPoint — see [[artifact]] union) to the new lazy [[OfficeRenderer]]. Same
+lazy-import + closed-union pattern as the other renderers; a kind with no entry
+still soft-degrades to the "Unsupported artifact kind" fallback described below.
 
 ## 2026-05-14 — drop `version` prop from RendererComponent
 

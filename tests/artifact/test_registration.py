@@ -1,8 +1,11 @@
 """
-@file_name: test_artifact_runner.py
+@file_name: test_registration.py
 @author: Bin Liang
 @date: 2026-05-08
-@description: TDD tests for the pointer-model artifact_runner.register_artifact.
+@description: TDD tests for the pointer-model registration.register_artifact.
+
+Moved 2026-07-13 from tests/common_tools_module/test_artifact_runner.py when the
+registration core was promoted to the shared xyz_agent_context.artifact package.
 
 Tests cover:
 - register_artifact happy path: validates the entry inside the workspace,
@@ -21,8 +24,16 @@ import os
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import artifact_runner
+from xyz_agent_context.artifact import registration
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
+# The agent/user under test. Workspace paths are derived from
+# ``agent_workspace_relpath`` (not hardcoded) so this suite stays correct
+# across layout flips (flat ``{agent}_{user}`` → nested ``{user}/{agent}``).
+_AGENT_ID = "agent_x"
+_USER_ID = "user_y"
+_REL = agent_workspace_relpath(_AGENT_ID, _USER_ID)
 
 
 @pytest.fixture
@@ -35,8 +46,8 @@ async def env(db_client, monkeypatch, tmp_path):
     # Create the per-agent workspace and a sample artifact subdirectory with
     # an entry file inside it. This mimics what the agent's Write tool would
     # have done before the register call.
-    workspace = base / "agent_x_user_y"
-    workspace.mkdir()
+    workspace = base / _REL
+    workspace.mkdir(parents=True)
     (workspace / "report").mkdir()
     entry = workspace / "report" / "index.html"
     entry.write_text("<p>hi</p>", encoding="utf-8")
@@ -56,7 +67,7 @@ async def test_register_happy_path_writes_row_no_copy(env):
     repo: ArtifactRepository = env["repo"]
     entry = env["entry"]
 
-    result = await artifact_runner.register_artifact(
+    result = await registration.register_artifact(
         repo=repo,
         agent_id="agent_x", user_id="user_y", session_id="sess_1",
         kind="text/html",
@@ -73,7 +84,7 @@ async def test_register_happy_path_writes_row_no_copy(env):
     row = await repo.get_by_id(result.artifact_id)
     assert row is not None
     # file_path is the entry, relative to base_working_path.
-    assert row.file_path == "agent_x_user_y/report/index.html"
+    assert row.file_path == f"{_REL}/report/index.html"
     assert row.size_bytes == os.path.getsize(entry)
 
     # The runner never copies — the entry file is the same inode the agent wrote.
@@ -84,7 +95,7 @@ async def test_register_happy_path_writes_row_no_copy(env):
 async def test_register_with_workspace_relative_path(env):
     """entry_path may be absolute OR workspace-relative."""
     repo: ArtifactRepository = env["repo"]
-    result = await artifact_runner.register_artifact(
+    result = await registration.register_artifact(
         repo=repo,
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html",
@@ -93,7 +104,7 @@ async def test_register_with_workspace_relative_path(env):
     )
     row = await repo.get_by_id(result.artifact_id)
     assert row is not None
-    assert row.file_path == "agent_x_user_y/report/index.html"
+    assert row.file_path == f"{_REL}/report/index.html"
 
 
 @pytest.mark.asyncio
@@ -107,7 +118,7 @@ async def test_register_accepts_entry_at_workspace_root_single_file(env):
     other = env["workspace"] / "unrelated.txt"
     other.write_text("not part of any artifact" * 100, encoding="utf-8")
 
-    result = await artifact_runner.register_artifact(
+    result = await registration.register_artifact(
         repo=repo,
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(flat),
@@ -115,7 +126,7 @@ async def test_register_accepts_entry_at_workspace_root_single_file(env):
     )
     row = await repo.get_by_id(result.artifact_id)
     assert row is not None
-    assert row.file_path == "agent_x_user_y/report.html"
+    assert row.file_path == f"{_REL}/report.html"
     # Critical: size accounts ONLY for the entry — never sums siblings at the
     # workspace root (else unrelated.txt would inflate the quota).
     assert row.size_bytes == flat.stat().st_size
@@ -125,8 +136,8 @@ async def test_register_accepts_entry_at_workspace_root_single_file(env):
 @pytest.mark.asyncio
 async def test_register_rejects_path_outside_workspace(env):
     repo: ArtifactRepository = env["repo"]
-    with pytest.raises(artifact_runner.ArtifactPathEscape):
-        await artifact_runner.register_artifact(
+    with pytest.raises(registration.ArtifactPathEscape):
+        await registration.register_artifact(
             repo=repo,
             agent_id="agent_x", user_id="user_y", session_id="s",
             kind="text/html", entry_path="/etc/passwd",
@@ -137,14 +148,34 @@ async def test_register_rejects_path_outside_workspace(env):
 @pytest.mark.asyncio
 async def test_register_rejects_invalid_kind(env):
     repo: ArtifactRepository = env["repo"]
-    with pytest.raises(artifact_runner.ArtifactError):
-        await artifact_runner.register_artifact(
+    with pytest.raises(registration.ArtifactError):
+        await registration.register_artifact(
             repo=repo,
             agent_id="agent_x", user_id="user_y", session_id="s",
             kind="application/octet-stream",
             entry_path=str(env["entry"]),
             title="t", description=None, target_artifact_id=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_register_accepts_office_kind(env):
+    """The three Office kinds are valid; the entry pointer is the original
+    .docx/.xlsx/.pptx so 'download original' resolves off the entry."""
+    repo: ArtifactRepository = env["repo"]
+    (env["workspace"] / "deck").mkdir()
+    pptx = env["workspace"] / "deck" / "slides.pptx"
+    pptx.write_bytes(b"PK\x03\x04 fake pptx bytes")
+    result = await registration.register_artifact(
+        repo=repo,
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        entry_path=str(pptx),
+        title="Q4 deck", description=None, target_artifact_id=None,
+    )
+    row = await repo.get_by_id(result.artifact_id)
+    assert row is not None
+    assert row.file_path == f"{_REL}/deck/slides.pptx"
 
 
 @pytest.mark.asyncio
@@ -156,7 +187,7 @@ async def test_size_is_recursive_dir_size(env):
     (root / "style.css").write_text("body{font:1em sans-serif}", encoding="utf-8")
     (root / "data.json").write_text('{"x":1}', encoding="utf-8")
 
-    result = await artifact_runner.register_artifact(
+    result = await registration.register_artifact(
         repo=repo,
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(env["entry"]),
@@ -175,7 +206,7 @@ async def test_size_is_recursive_dir_size(env):
 @pytest.mark.asyncio
 async def test_target_artifact_id_updates_in_place(env):
     repo: ArtifactRepository = env["repo"]
-    r1 = await artifact_runner.register_artifact(
+    r1 = await registration.register_artifact(
         repo=repo,
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(env["entry"]),
@@ -187,7 +218,7 @@ async def test_target_artifact_id_updates_in_place(env):
     entry2 = env["workspace"] / "report2" / "index.html"
     entry2.write_text("<p>v2</p>", encoding="utf-8")
 
-    r2 = await artifact_runner.register_artifact(
+    r2 = await registration.register_artifact(
         repo=repo,
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(entry2),
@@ -196,14 +227,14 @@ async def test_target_artifact_id_updates_in_place(env):
     assert r2.artifact_id == r1.artifact_id
     row = await repo.get_by_id(r1.artifact_id)
     assert row is not None
-    assert row.file_path == "agent_x_user_y/report2/index.html"
+    assert row.file_path == f"{_REL}/report2/index.html"
     assert row.title == "v2"
 
 
 @pytest.mark.asyncio
 async def test_target_artifact_id_kind_mismatch_raises(env):
     repo: ArtifactRepository = env["repo"]
-    r1 = await artifact_runner.register_artifact(
+    r1 = await registration.register_artifact(
         repo=repo,
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(env["entry"]),
@@ -212,8 +243,8 @@ async def test_target_artifact_id_kind_mismatch_raises(env):
     (env["workspace"] / "csvdir").mkdir()
     csv = env["workspace"] / "csvdir" / "data.csv"
     csv.write_text("a,b\n1,2\n", encoding="utf-8")
-    with pytest.raises(artifact_runner.ArtifactKindMismatch):
-        await artifact_runner.register_artifact(
+    with pytest.raises(registration.ArtifactKindMismatch):
+        await registration.register_artifact(
             repo=repo,
             agent_id="agent_x", user_id="user_y", session_id=None,
             kind="text/csv", entry_path=str(csv),
@@ -224,8 +255,8 @@ async def test_target_artifact_id_kind_mismatch_raises(env):
 @pytest.mark.asyncio
 async def test_target_artifact_id_not_found_raises(env):
     repo: ArtifactRepository = env["repo"]
-    with pytest.raises(artifact_runner.ArtifactNotFound):
-        await artifact_runner.register_artifact(
+    with pytest.raises(registration.ArtifactNotFound):
+        await registration.register_artifact(
             repo=repo,
             agent_id="agent_x", user_id="user_y", session_id=None,
             kind="text/html", entry_path=str(env["entry"]),
@@ -238,7 +269,7 @@ async def test_register_without_session_auto_pins(env):
     """session_id=None → pinned=True so the artifact appears in list_pinned
     rather than being invisible (session list filter rejects pinned=0)."""
     repo: ArtifactRepository = env["repo"]
-    result = await artifact_runner.register_artifact(
+    result = await registration.register_artifact(
         repo=repo,
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(env["entry"]),

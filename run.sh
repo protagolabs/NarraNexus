@@ -180,6 +180,44 @@ check_deps() {
     echo ""
   }
 
+  # Install or update officecli (optional — only needed for OfficeModule, i.e.
+  # creating/previewing Word/Excel/PowerPoint files). Same soft-fail contract as
+  # lark-cli: a slow/blocked registry never wedges startup; Office features
+  # degrade gracefully while the rest of NarraNexus runs. `npm install -g`
+  # triggers officecli's postinstall which downloads the platform native binary.
+  _OFFICE_CLI_MIN="1.0.135"
+  _OFFICE_CLI_TIMEOUT=120
+
+  _try_install_officecli() {
+    local action="$1"  # "Installing" or "Updating" (pre-capitalized for bash 3.2)
+    echo -e "${Y}${action} officecli (timeout ${_OFFICE_CLI_TIMEOUT}s)...${R}"
+    (npm install -g @officecli/officecli) &
+    local npm_pid=$!
+    local elapsed=0
+    while kill -0 "$npm_pid" 2>/dev/null; do
+      if [ "$elapsed" -ge "$_OFFICE_CLI_TIMEOUT" ]; then
+        echo -e "${RED}npm install hung > ${_OFFICE_CLI_TIMEOUT}s — killing.${R}"
+        kill -9 "$npm_pid" 2>/dev/null
+        wait "$npm_pid" 2>/dev/null
+        return 124
+      fi
+      sleep 1
+      elapsed=$((elapsed + 1))
+    done
+    wait "$npm_pid"
+    return $?
+  }
+
+  _warn_office_skipped() {
+    echo -e "${Y}⚠ officecli not available — Word/Excel/PowerPoint features will be disabled.${R}"
+    echo "  Common causes + fixes:"
+    echo "    • Slow registry (China users): npm config set registry https://registry.npmmirror.com"
+    echo "    • Permission denied: use nvm (https://github.com/nvm-sh/nvm) or sudo"
+    echo "    • Network blocked: check your connection to registry.npmjs.org"
+    echo "  Then retry: npm install -g @officecli/officecli"
+    echo ""
+  }
+
   # Install Claude Code CLI (@anthropic-ai/claude-code). HARD dependency:
   # claude_agent_sdk spawns this binary every chat turn, so if it's absent
   # the agent loop fails immediately. Unlike lark-cli we do not degrade
@@ -254,6 +292,28 @@ check_deps() {
     _npm_prefix=$(npm config get prefix 2>/dev/null || echo "")
     if [ -n "$_npm_prefix" ] && [ -x "$_npm_prefix/bin/lark-cli" ]; then
       echo -e "${Y}lark-cli installed at $_npm_prefix/bin but missing from \$PATH.${R}"
+      echo "  Add to your shell rc: export PATH=\"$_npm_prefix/bin:\$PATH\""
+      echo ""
+    fi
+  fi
+
+  if ! command -v officecli &>/dev/null; then
+    if ! _try_install_officecli "Installing"; then
+      _warn_office_skipped
+    fi
+  else
+    _office_ver=$(officecli --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0")
+    if [ "$(printf '%s\n' "${_OFFICE_CLI_MIN}" "$_office_ver" | sort -V | head -1)" != "${_OFFICE_CLI_MIN}" ]; then
+      if ! _try_install_officecli "Updating"; then
+        echo -e "${Y}⚠ officecli update failed; continuing with ${_office_ver}.${R}"
+      fi
+    fi
+  fi
+
+  if ! command -v officecli &>/dev/null; then
+    _npm_prefix=$(npm config get prefix 2>/dev/null || echo "")
+    if [ -n "$_npm_prefix" ] && [ -x "$_npm_prefix/bin/officecli" ]; then
+      echo -e "${Y}officecli installed at $_npm_prefix/bin but missing from \$PATH.${R}"
       echo "  Add to your shell rc: export PATH=\"$_npm_prefix/bin:\$PATH\""
       echo ""
     fi

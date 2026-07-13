@@ -21,6 +21,7 @@ const CsvRenderer = lazy(() => import('./renderers/CsvRenderer'));
 const ImageRenderer = lazy(() => import('./renderers/ImageRenderer'));
 const MarkdownRenderer = lazy(() => import('./renderers/MarkdownRenderer'));
 const PdfRenderer = lazy(() => import('./renderers/PdfRenderer'));
+const OfficeRenderer = lazy(() => import('./renderers/OfficeRenderer'));
 
 type RendererComponent = React.LazyExoticComponent<
   React.ComponentType<{ artifact: Artifact }>
@@ -36,6 +37,10 @@ const RENDERER_BY_KIND: Record<ArtifactKind, RendererComponent> = {
   // PDF: dedicated PdfRenderer uses <object> instead of the sandboxed iframe
   // to avoid breaking Firefox PDF.js (needs same-origin XHR) and WKWebView.
   'application/pdf': PdfRenderer,
+  // Office: OfficeRenderer loads the OfficeCLI-generated sibling HTML preview.
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': OfficeRenderer,
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': OfficeRenderer,
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': OfficeRenderer,
 };
 
 interface Props {

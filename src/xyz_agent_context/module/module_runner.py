@@ -106,6 +106,7 @@ CORE_MCP_MODULES = [
     "CommonToolsModule",    # port: 7807
     "BasicInfoModule",      # port: 7808 (narrative-awareness tools — Fix #2 P3)
     "GeneralMemoryModule",  # port: 7809 (remember / grep_memory tools)
+    "OfficeModule",         # port: 7810 (office_cli / office_render tools)
     "MessageBusModule",     # port: 7820
 ]
 CORE_MODULE_PORTS = {
@@ -117,6 +118,7 @@ CORE_MODULE_PORTS = {
     "CommonToolsModule": 7807,
     "BasicInfoModule": 7808,
     "GeneralMemoryModule": 7809,
+    "OfficeModule": 7810,
     "MessageBusModule": 7820,
 }
 

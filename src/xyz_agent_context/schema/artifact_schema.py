@@ -31,6 +31,12 @@ ArtifactKind = Literal[
     "image/png",
     "image/jpeg",
     "application/pdf",
+    # Office documents — entry pointer is the original .docx / .xlsx / .pptx
+    # (so "download original" works); the panel renders an OfficeCLI-generated
+    # sibling HTML preview. See OfficeModule + OfficeRenderer.tsx.
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ]
 
 

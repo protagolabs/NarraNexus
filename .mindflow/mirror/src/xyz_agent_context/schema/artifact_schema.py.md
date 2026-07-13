@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-05-14
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — ArtifactKind gains 3 Office OOXML kinds
+
+`ArtifactKind` now also lists the three Office mime literals — Word
+(`…wordprocessingml.document`), Excel (`…spreadsheetml.sheet`), PowerPoint
+(`…presentationml.presentation`). For these kinds the **entry pointer is the
+original .docx/.xlsx/.pptx file** (so "download original" works off the entry),
+and the panel renders an OfficeCLI-generated **sibling** HTML preview (see
+[[OfficeRenderer]] / [[officecli_client]]). The literal must stay in sync across
+four places: the frontend [[artifact]] type union, [[registration]]'s
+`ALL_KINDS`, [[agents_artifacts]]'s `_KIND_EXTENSIONS` (heal-by-extension), and
+this file. "7 predefined kinds" below is now **ten** — the whitelist principle
+(every kind needs a matching frontend renderer) is unchanged.
 
 ## 2026-05-14 — pointer model: versioning dropped
 

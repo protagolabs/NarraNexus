@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/bootstrap/profiles.py
-last_verified: 2026-06-16
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — welcome-artifact registration uses the shared registration service
+
+`_create_welcome_artifact` now imports `from xyz_agent_context.artifact import
+registration` (was `common_tools_module._common_tools_impl.artifact_runner`).
+The registration core was promoted to the shared `xyz_agent_context/artifact/`
+package ([[registration]]); **behaviour is unchanged**. Mentions of
+`artifact_runner.register_artifact` below now mean `registration.register_artifact`.
 
 # profiles.py — bootstrap as a pluggable profile (not one hard-coded set)
 

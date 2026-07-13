@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py
-last_verified: 2026-05-20
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — now a thin wrapper over the SHARED registration service
+
+The registration core was **promoted out of common_tools** to the shared
+`xyz_agent_context/artifact/` package ([[registration]]) so OfficeModule, the
+backend routes, and bootstrap can register artifacts without cross-importing
+this Module's private impl (binding rule #3). This tool now imports
+`from xyz_agent_context.artifact import registration` and delegates to it — it
+is a thin MCP wrapper (resolve DB client → build repo → call
+`registration.register_artifact` → catch structured exceptions → return an
+LLM-readable dict). The **external behaviour of the `register_artifact` MCP tool
+is unchanged**. Every mention of `artifact_runner` in the entries below now
+refers to [[registration]]; the "Depends on" note has moved from `artifact_runner`
+to the shared service.
 
 ## 2026-05-20 — quota wording purged (v1.7.0 removal cleanup)
 

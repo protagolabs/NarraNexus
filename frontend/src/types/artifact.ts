@@ -22,7 +22,13 @@ export type ArtifactKind =
   | 'text/markdown'
   | 'image/png'
   | 'image/jpeg'
-  | 'application/pdf';
+  | 'application/pdf'
+  // Office documents — entry pointer is the original .docx/.xlsx/.pptx (so the
+  // download menu grabs the real file); OfficeRenderer shows the sibling HTML
+  // preview OfficeModule generated via OfficeCLI.
+  | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  | 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
 export interface Artifact {
   artifact_id: string;

@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-06-17
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — OfficeModule joins CORE MCP modules (port 7810)
+
+`OfficeModule` added to `CORE_MCP_MODULES` + `CORE_MODULE_PORTS` (**7810**) so
+the mcp runner stands up its SSE server (the `office_cli` / `office_render`
+tools — see [[office_module]]). This file's `CORE_MODULE_PORTS` is the **real
+source of truth** for core-module ports; the CLAUDE.md port table is stale and
+owner-only. 7810 = next free slot. As always the number here must match
+`self.port` inside [[office_module]] (the "port set in two places" footgun).
 
 ## 2026-06-17 — `_serve_one_mcp` 同端口同时挂 SSE + streamable HTTP
 

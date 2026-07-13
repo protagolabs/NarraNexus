@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/bundle/id_schema.py
-last_verified: 2026-05-15
+last_verified: 2026-07-13
 stub: false
 ---
+
+> 2026-07-13：源码里 `art_` kind 的注释从 `artifact_runner.py` 改为
+> `artifact.registration`（registration core 已提升为共享包 [[registration]]）。
+> `art_[0-9a-f]{8,16}` 正则与 8/12-hex 覆盖逻辑不变。
 
 # id_schema.py — ID Rewrite Layer 1 (PRD §8.11)
 

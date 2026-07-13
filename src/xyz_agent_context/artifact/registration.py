@@ -1,5 +1,5 @@
 """
-@file_name: artifact_runner.py
+@file_name: registration.py
 @author: Bin Liang
 @date: 2026-05-08
 @description: DB orchestration for register_artifact (pointer model).
@@ -12,6 +12,12 @@ it validates the path, computes the artifact root directory size, and writes
 An artifact = an entry file + the directory it lives in (the "artifact root").
 The whole root directory is served by the backend, so a multi-file HTML app can
 reference sibling assets (css/js/json/images).
+
+This module is SHARED infrastructure (lives under `xyz_agent_context/artifact/`,
+not inside any Module). It was moved out of `common_tools_module/_common_tools_impl/`
+on 2026-07-13 so any caller — the common_tools MCP tool, OfficeModule's preview
+flow, bootstrap welcome artifacts, and the backend routes — can register a
+pointer without cross-importing another Module's private impl (binding rule #3).
 
 Public function:
 - register_artifact(repo, agent_id, user_id, session_id, kind, entry_path,
@@ -55,6 +61,12 @@ ALL_KINDS = frozenset(
         "image/png",
         "image/jpeg",
         "application/pdf",
+        # Office documents (rendered in the panel via an OfficeCLI-generated
+        # sibling HTML preview; the entry file itself is the original .docx /
+        # .xlsx / .pptx, so "download original" works off the entry pointer).
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     }
 )
 
@@ -63,7 +75,7 @@ ALL_KINDS = frozenset(
 
 
 class ArtifactError(Exception):
-    """Base class for artifact_runner errors. The .code attribute maps to HTTP status."""
+    """Base class for artifact registration errors. The .code attribute maps to HTTP status."""
 
     code: int = 400
 
@@ -177,7 +189,7 @@ async def register_artifact(
     Register a pointer to an entry file the agent wrote in its workspace.
 
     Workflow:
-    1. Validate kind is one of the 7 allowed kinds.
+    1. Validate kind is one of the allowed kinds.
     2. Resolve + validate the entry path (inside workspace, is a file).
     3. Compute size: entry-file size if entry sits at the workspace root
        (single-file artifact), else recursive size of `dirname(entry)`
@@ -197,7 +209,7 @@ async def register_artifact(
         agent_id: Agent that owns the artifact.
         user_id: User that triggered the registration.
         session_id: Session context; None means agent-scoped (auto-pinned).
-        kind: One of the 7 ArtifactKind literals.
+        kind: One of the ArtifactKind literals.
         entry_path: Absolute or workspace-relative path to the entry file.
         title: Human-readable title (truncated to 200 chars).
         description: Optional freeform description.
@@ -217,7 +229,9 @@ async def register_artifact(
         raise ArtifactError(
             f"register_artifact does not accept kind={kind!r}. Valid kinds are: "
             f"text/html, application/vnd.echarts+json, text/markdown, text/csv, "
-            f"image/png, image/jpeg, application/pdf."
+            f"image/png, image/jpeg, application/pdf, and the three Office kinds "
+            f"(…wordprocessingml.document, …spreadsheetml.sheet, "
+            f"…presentationml.presentation)."
         )
 
     abs_entry, artifact_root = _resolve_entry(agent_id, user_id, entry_path)

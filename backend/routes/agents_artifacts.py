@@ -31,7 +31,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import artifact_runner
+from xyz_agent_context.artifact import registration
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema import Artifact
 from xyz_agent_context.settings import settings
@@ -50,6 +50,9 @@ _KIND_EXTENSIONS: dict[str, tuple[str, ...]] = {
     "image/png": (".png",),
     "image/jpeg": (".jpg", ".jpeg"),
     "application/pdf": (".pdf",),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (".docx",),
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": (".xlsx",),
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": (".pptx",),
 }
 
 # How many candidate files to surface when the auto-recover heuristic
@@ -166,7 +169,7 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
     Manually register a workspace file as an artifact.
 
     Powers the "register as artifact" action in the workspace tree viewer.
-    Delegates to the same `artifact_runner.register_artifact` the MCP tool
+    Delegates to the same `registration.register_artifact` the MCP tool
     uses, so validation and path-confinement rules are identical.
 
     `file_path` may be absolute or workspace-relative; it must be inside the
@@ -179,7 +182,7 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
     db = await get_db_client()
     repo = ArtifactRepository(db)
     try:
-        result = await artifact_runner.register_artifact(
+        result = await registration.register_artifact(
             repo=repo,
             agent_id=agent_id,
             user_id=user_id,
@@ -190,7 +193,7 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
             description=body.description,
             target_artifact_id=body.target_artifact_id,
         )
-    except artifact_runner.ArtifactError as e:
+    except registration.ArtifactError as e:
         raise HTTPException(status_code=e.code, detail=str(e))
 
     art = await repo.get_by_id(result.artifact_id)
@@ -273,7 +276,7 @@ async def heal_artifact(
        - >1 candidates → recovered=False, list returned, "multiple
          matches — pick one to register" (frontend renders modal).
 
-    All registrations go through `artifact_runner.register_artifact` with
+    All registrations go through `registration.register_artifact` with
     `target_artifact_id=artifact_id` so kind/path/sanity-cap rules stay
     identical to the MCP tool and manual-register flows.
     """
@@ -313,7 +316,7 @@ async def heal_artifact(
     # 2. User explicitly picked a candidate from the modal.
     if body.entry_path:
         try:
-            result = await artifact_runner.register_artifact(
+            result = await registration.register_artifact(
                 repo=repo,
                 agent_id=agent_id,
                 user_id=user_id,
@@ -324,7 +327,7 @@ async def heal_artifact(
                 description=art.description,
                 target_artifact_id=artifact_id,
             )
-        except artifact_runner.ArtifactError as e:
+        except registration.ArtifactError as e:
             raise HTTPException(status_code=e.code, detail=str(e))
         healed = await repo.get_by_id(result.artifact_id)
         return HealResponse(
@@ -338,7 +341,7 @@ async def heal_artifact(
     if len(candidates) == 1:
         only = candidates[0]
         try:
-            result = await artifact_runner.register_artifact(
+            result = await registration.register_artifact(
                 repo=repo,
                 agent_id=agent_id,
                 user_id=user_id,
@@ -349,7 +352,7 @@ async def heal_artifact(
                 description=art.description,
                 target_artifact_id=artifact_id,
             )
-        except artifact_runner.ArtifactError as e:
+        except registration.ArtifactError as e:
             logger.warning(
                 f"heal_artifact: single-candidate register failed for "
                 f"{artifact_id}: {e}"

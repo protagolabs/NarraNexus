@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/bootstrap/welcome_templates.py
-last_verified: 2026-06-16
+last_verified: 2026-07-13
 stub: false
 ---
+
+> 2026-07-13：docstring 里的 pointer-model 引用从 `artifact_runner` 改为
+> `artifact.registration`（registration core 已提升为共享包 [[registration]]）。
+> "Rendered into" 一节里的 `artifact_runner.register_artifact` 现指
+> `registration.register_artifact`；模板内容与行为不变。
 
 # welcome_templates.py — the bilingual first-run "welcome" artifact
 

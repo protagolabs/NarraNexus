@@ -1,8 +1,26 @@
 ---
 code_file: backend/routes/agents_artifacts.py
-last_verified: 2026-05-20
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Office kinds in heal + registration import moved to shared layer
+
+Two changes, both behaviour-preserving:
+
+- `_KIND_EXTENSIONS` gained `.docx` / `.xlsx` / `.pptx` (mapped to the three
+  Office OOXML kinds), so the heal-by-extension workspace scan can auto-recover
+  a broken Office artifact pointer the same way it recovers html/csv/… ones.
+  Must stay in sync with [[artifact_schema]] `ArtifactKind` and [[registration]]
+  `ALL_KINDS`.
+- The registration core import moved: this router now imports
+  `from xyz_agent_context.artifact import registration` (referenced in code as
+  `registration.register_artifact`) instead of the old
+  `common_tools_module._common_tools_impl.artifact_runner`. The runner was
+  **promoted** to the shared `xyz_agent_context/artifact/` package
+  ([[registration]]); the route's manual-register + heal paths are otherwise
+  unchanged. References to `artifact_runner` in the older changelog entries
+  below now mean [[registration]].
 
 ## 2026-05-20 — stale "quota" wording removed
 

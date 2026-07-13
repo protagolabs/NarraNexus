@@ -52,8 +52,13 @@ import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
 //
 // Pointer model (2026-05-14): the single tool is `register_artifact`; the
 // older `create_artifact` / `upload_artifact_file` names are gone — see the
-// artifact_runner + artifact_tool mirror md files.
-const ARTIFACT_TOOL_BASE_NAMES = ['register_artifact'];
+// artifact.registration + artifact_tool mirror md files.
+//
+// `office_render` (OfficeModule) also emits an `artifact_id` in its tool_output
+// — it registers an Office artifact through the shared registration service
+// rather than the register_artifact tool, so it must be listed here for the
+// panel to discover the new tab live.
+const ARTIFACT_TOOL_BASE_NAMES = ['register_artifact', 'office_render'];
 
 function isArtifactToolName(toolName: string): boolean {
   return ARTIFACT_TOOL_BASE_NAMES.some(
