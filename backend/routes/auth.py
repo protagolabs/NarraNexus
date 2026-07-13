@@ -64,6 +64,7 @@ from backend.auth import (
     _is_cloud_mode,
     resolve_current_user_id,
 )
+from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
 from xyz_agent_context.settings import settings as app_settings
@@ -156,7 +157,9 @@ def _get_netmind_auth_client():
 async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     """Log in with a NetMind account token ("passport for visa" exchange).
 
-    Cloud mode only. The frontend obtains a NetMind loginToken (embedded
+    Available wherever Power login is enabled — always on the cloud server,
+    and on a local deployment that opted in (NARRANEXUS_ENABLE_POWER_LOGIN).
+    The frontend obtains a NetMind loginToken (embedded
     login form / OAuth popup / ?token= URL pass-through from netmind.ai
     or Arena), we verify it once against NetMind's auth API, lazily
     upsert the local user (user_id = NetMind userSystemCode) and issue
@@ -172,7 +175,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         NetmindUpstreamError,
     )
 
-    if not _is_cloud_mode():
+    if not is_power_login_enabled():
         raise HTTPException(status_code=404, detail="Not available in local mode")
 
     try:

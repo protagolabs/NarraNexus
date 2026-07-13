@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — use-subscription reachability moved to power axis
+
+The `use_subscription` route's "not available" gate changed from
+`is_cloud_mode()` to `is_power_login_enabled()` ([[deployment_mode]]), so a local
+deployment that opted into Power login can hit it too. The
+`settings.netmind_use_subscription_enabled` feature-flag gate is unchanged.
+**`_is_cloud()` (line ~128) and its OAuth-card/staff uses are untouched** — those
+are the multi-tenant authz boundary, not a Power capability.
 
 ## 2026-07-10 — use-subscription is now a thin wrapper over the provisioner
 

@@ -1111,6 +1111,8 @@
       "localAccess": "Local · Access",
       "cloudMode": "Cloud mode",
       "signInWithNetmind": "Sign in with your NetMind.AI account",
+      "tabLocal": "Local account",
+      "tabPower": "Power account",
       "migrationNoticeHeading": "We've reorganized our account system.",
       "migrationNoticeBody": "Your data has been migrated to the account under the email you used to receive your invite code. To sign in, please reset your password for that email first (use “Forgot password?” below). For any other questions, contact our team at",
       "emailLabel": "Email",

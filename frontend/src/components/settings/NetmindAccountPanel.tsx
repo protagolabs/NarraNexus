@@ -41,7 +41,6 @@ import type {
   SubscriptionMe,
   SubscriptionPlan,
 } from '@/types';
-import { useRuntimeStore } from '@/stores/runtimeStore';
 import { useConfigStore } from '@/stores/configStore';
 import { deriveRunway } from './netmindRunway';
 import { money, freeTierPctLeft, formatPeriod, formatDate } from './netmindFormat';
@@ -84,8 +83,11 @@ function errMessage(e: unknown): string {
 
 export function NetmindAccountPanel() {
   const { t } = useTranslation();
-  const mode = useRuntimeStore((s) => s.mode);
-  const isCloud = mode === 'cloud-web';
+  // This panel is a NetMind ("Power") account feature. Gate on whether THIS
+  // session is a Power account (holds a NetMind loginToken) rather than on the
+  // deployment mode, so it shows for a Power user on a local dual-mode install
+  // and stays hidden for a pure-local username user.
+  const isPowerUser = !!useConfigStore((s) => s.netmindToken);
   // Account identity (the "Account" half of the page title) — NetMind nickname
   // + email, so the user can see WHICH account they're logged into.
   const displayName = useConfigStore((s) => s.displayName);
@@ -155,11 +157,11 @@ export function NetmindAccountPanel() {
   // external Stripe window (esp. desktop). Refresh whenever the tab regains
   // focus so a completed payment reflects without a manual reload.
   useEffect(() => {
-    if (!isCloud) return;
+    if (!isPowerUser) return;
     const onFocus = () => void load();
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [isCloud, load]);
+  }, [isPowerUser, load]);
 
   // Poll /me until the subscription flips to ACTIVE (bounded), used after
   // subscribe kicks off an external payment.
@@ -292,14 +294,14 @@ export function NetmindAccountPanel() {
 
   useEffect(() => {
     mounted.current = true;
-    if (isCloud) {
+    if (isPowerUser) {
       void load();
       void refreshNetStatus();
     }
     return () => {
       mounted.current = false;
     };
-  }, [isCloud, load, refreshNetStatus]);
+  }, [isPowerUser, load, refreshNetStatus]);
 
   // Toggle "free tier first" (formerly QuotaPanel prefer_system). The backend
   // guards "OFF is always allowed" — turning free tier ON needs budget, OFF
@@ -417,7 +419,7 @@ export function NetmindAccountPanel() {
     setRechargeError(null);
   }, []);
 
-  if (!isCloud) return null; // S0
+  if (!isPowerUser) return null; // S0
 
   // Activity shows settled entries only — drop `pending` (abandoned checkouts
   // linger as pending until the Stripe session expires ~24h later).

@@ -29,7 +29,10 @@ from xyz_agent_context.schema.provider_schema import (
     SlotName,
     SLOT_REQUIRED_PROTOCOLS,
 )
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from xyz_agent_context.utils.deployment_mode import (
+    is_cloud_mode,
+    is_power_login_enabled,
+)
 
 router = APIRouter()
 
@@ -339,7 +342,8 @@ async def use_subscription(request: Request):
     register the dual netmind provider, activating slots only if the user has no
     active config). Idempotent: a second call when already connected returns 409.
     Note: this is now mainly a fallback — every NetMind login auto-registers via
-    the same service, so the frontend no longer needs to call this. Cloud-only;
+    the same service, so the frontend no longer needs to call this. Available
+    wherever Power login is enabled (cloud OR a local opt-in deployment); further
     gated by ``settings.netmind_use_subscription_enabled``.
     """
     from xyz_agent_context.settings import settings
@@ -352,7 +356,7 @@ async def use_subscription(request: Request):
     )
 
     uid = _get_user_id(request)
-    if not is_cloud_mode():
+    if not is_power_login_enabled():
         raise HTTPException(status_code=404, detail="Not available in local mode")
     if not settings.netmind_use_subscription_enabled:
         raise HTTPException(

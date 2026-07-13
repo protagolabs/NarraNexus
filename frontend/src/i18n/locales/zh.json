@@ -1110,6 +1110,8 @@
       "localAccess": "本地 · 接入",
       "cloudMode": "云端模式",
       "signInWithNetmind": "使用 NetMind.AI 账号登录",
+      "tabLocal": "本地账号",
+      "tabPower": "Power 账号",
       "migrationNoticeHeading": "我们重新整理了账号系统。",
       "migrationNoticeBody": "你的数据已迁移到你接收邀请码时所用邮箱对应的账号下。登录前，请先为该邮箱重置密码（点击下方“忘记密码？”）。如有其他疑问，请联系我们的团队：",
       "emailLabel": "邮箱",

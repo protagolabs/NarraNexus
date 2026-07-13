@@ -63,6 +63,12 @@ pub fn run() {
             commands::auth::cancel_claude_login,
             commands::auth::get_claude_login_status,
             commands::deep_link::consume_pending_deep_link,
+            // Desktop NetMind ("Power") OAuth: opens auth.html in a child
+            // webview and bridges its postMessage result back to the main
+            // window (browser popup + postMessage doesn't work in WKWebView).
+            // See commands/netmind_oauth.rs.
+            commands::netmind_oauth::open_netmind_oauth,
+            commands::netmind_oauth::take_netmind_oauth_result,
             // Unified auto-updater (Owner spec 2026-05-27). One state
             // machine, three UI entry points (startup hook below, tray
             // menu, Settings button) all kick the same pipeline; every

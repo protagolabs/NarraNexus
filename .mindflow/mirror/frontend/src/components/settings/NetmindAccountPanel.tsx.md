@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — 门禁改挂 per-user Power 信号(本地双模式)
+
+面板可见性从 `mode === 'cloud-web'` 改成 `isPowerUser = !!configStore.netmindToken`
+—— 即"本会话是不是 Power 账号"(持有 NetMind loginToken),而非部署模式。于是本地
+双模式下 Power 用户能看到面板,纯本地用户名用户看不到(返回 null)。`useRuntimeStore`
+import 已移除。S0 测试相应从 `mode='local'` 改成 `netmindToken=''`。
 
 ## 2026-07-12 (latest) — 连接行归入身份组(修版式拥挤)
 

@@ -55,10 +55,21 @@ def _stub_db(monkeypatch, *, existing):
     monkeypatch.setattr(db_factory, "get_db_client", _get_db_client)
 
 
-def test_404_in_local_mode(make_client):
+def test_404_when_power_login_disabled(make_client):
+    # Local install with no NARRANEXUS_ENABLE_POWER_LOGIN opt-in.
     client = make_client(cloud=False, enabled=True)
     r = client.post("/api/providers/use-subscription", headers={**USER, **TOK})
     assert r.status_code == 404
+
+
+def test_reachable_in_local_when_power_login_enabled(make_client, monkeypatch):
+    # Dual-mode: a local deployment that opted into Power login passes the 404
+    # gate. No X-Netmind-Token here -> 401 proves we got past the 404 + feature
+    # gates (i.e. the route is reachable in local mode).
+    monkeypatch.setenv("NARRANEXUS_ENABLE_POWER_LOGIN", "true")
+    client = make_client(cloud=False, enabled=True)
+    r = client.post("/api/providers/use-subscription", headers=USER)
+    assert r.status_code == 401
 
 
 def test_403_when_feature_disabled(make_client):
