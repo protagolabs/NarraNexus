@@ -2,6 +2,12 @@
   "language": {
     "name": "Language"
   },
+  "channelActiveToggle": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "enable": "Enable",
+    "disable": "Disable"
+  },
   "sidebar": {
     "chats": "Chats",
     "teams": "Teams",
@@ -154,6 +160,7 @@
       "connectedCount": "{{connected}}/{{total}} connected",
       "manage": "Manage",
       "connectedBadge": "✓ connected",
+      "inactiveBadge": "bound · inactive (enable to connect)",
       "notBound": "not bound",
       "refreshStatus": "Refresh status"
     },
@@ -1302,6 +1309,8 @@
         "mcpHintsLine": "{{count}} suggested external MCP URLs (you'll be asked to confirm each)",
         "nameClashesTitle": "Name clashes (auto-renamed)",
         "nameClashLine": "\"{{name}}\" — {{count}} existing agent(s) with same name",
+        "credentialClashesTitle": "Channel credentials already bound here (will be skipped)",
+        "credentialClashLine": "{{channel}} — {{identity}} is already bound in this environment; the imported credential will be skipped, not overwritten",
         "warningsTitle": "Bundle warnings",
         "infoTitle": "Info (expected, no action needed)",
         "strippedTitle": "Stripped (not present in bundle)",
@@ -1319,6 +1328,12 @@
         "skillsImported": "{{count}} skills",
         "skillsCredsSuffix": "(some may need re-study or new credentials)",
         "mcpHints": "{{count}} external MCP URLs suggested — review below",
+        "channelCredentialsImported": "{{count}} IM channel credential(s) imported — inactive, awaiting activation",
+        "channelCredentialsSkipped": "{{count}} channel credential(s) skipped (bot already bound here)",
+        "configureLlmTitle": "Configure the LLM before use",
+        "configureLlmHint": "Imported agents do NOT carry their LLM provider/framework configuration (credentials never travel in a bundle). Until you set it, an imported agent falls back to a system default that may be incompatible with its tools — it will fail to reply, especially over IM channels (web chat only masks it with a stub fallback). Open each imported agent's Settings → LLM and bind a provider + framework before using it.",
+        "activateChannelsTitle": "Activate imported channels",
+        "activateChannelsHint": "Imported IM channel credentials are DISABLED so they don't fight the source environment for the single connection each bot allows. Open each channel under the agent's Settings and enable it — but only after confirming the source environment is no longer connected.",
         "warnings": "{{count}} warnings (see details)",
         "suggestedMcpTitle": "Suggested external MCP URLs",
         "mcpNotAutoInstalled": "These are not auto-installed. Add them under each agent's Settings → MCPs if you trust them.",
@@ -1336,6 +1351,8 @@
       "bundleNotesPlaceholderTeam": "My team",
       "bundleNotesPlaceholderDesc": "Describe what this team does…",
       "includeChatLabel": "Include chat history (events + messages). Disable for templates with privacy concerns.",
+      "includeChannelCredentialsLabel": "Include IM channel credentials (Lark / Slack / Telegram / WeChat / Discord)",
+      "channelCredentialsWarning": "The bundle will contain near-plaintext (base64) bot secrets. Anyone with the file can take over these bots — do not share it. Imported credentials arrive disabled and must be manually activated in the target environment.",
       "cancel": "Cancel",
       "reviewExport": "Review & Export",
       "tabs": {

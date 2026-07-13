@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Set
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
+from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .security import (
     bytes_sha256,
     file_sha256,
@@ -62,7 +63,9 @@ AGENT_SCOPED_TABLES = [
     "instance_jobs",
     "instance_artifacts",
     "module_report_memory",
-    "lark_trigger_audit",
+    # NB: `lark_trigger_audit` used to be listed here AND in STRIPPED_TABLES —
+    # a contradiction. It is user/sender-id bearing and never exported; the
+    # duplicate entry was dead + misleading, removed 2026-07-10.
 ]
 
 # Tables keyed by instance_id (filter via instance closure).
@@ -75,7 +78,10 @@ INSTANCE_SCOPED_TABLES = [
     "instance_json_format_memory_chat",
 ]
 
-# Tables to skip (credentials).
+# Tables to skip (credentials). NB: `lark_credentials` is skipped BY DEFAULT
+# but shipped when ExportSelection.include_channel_credentials is set (opt-in) —
+# see the per-agent channel_credentials.json export. The other user-scoped
+# tables here are never exported.
 STRIPPED_TABLES = {
     "lark_credentials",
     "user_providers",
@@ -178,6 +184,7 @@ class ExportSelection:
         bus_channel_selection: Optional[List[str]] = None,
         mcp_selection: Optional[Dict[str, List[str]]] = None,
         artifact_selection: Optional[Dict[str, List[str]]] = None,
+        include_channel_credentials: bool = False,
     ):
         self.agent_ids = agent_ids
         self.team_id = team_id
@@ -222,6 +229,14 @@ class ExportSelection:
         # files travel inside workspace.tar.gz regardless of this allowlist;
         # deselecting an artifact just drops the DB pointer row from the bundle.
         self.artifact_selection = artifact_selection
+        # Opt-in: ship the IM channel credentials (Lark/Slack/Telegram/WeChat/
+        # Discord/NarraMessenger) so a migrated agent's channels can be
+        # re-activated in the new environment WITHOUT re-binding. Default OFF —
+        # credentials are near-plaintext (base64) secrets. When on, the export
+        # carries the six credential tables and the import lands them INACTIVE
+        # (user must manually activate to claim the single WS slot). See
+        # channel_credential_tables.py + the design doc.
+        self.include_channel_credentials = include_channel_credentials
 
 
 async def build_bundle(
@@ -252,7 +267,18 @@ async def build_bundle(
     # looks like "1234 warnings 你完了".
     info: List[str] = []
     info_counters: Dict[str, int] = {"skipped_external_edge": 0}
-    stripped_lists = ["api_keys", "lark_oauth", "user_password_hash", "user_providers"]
+    # Manifest `stripped` list — surfaced verbatim in the import preview's
+    # "not present in bundle" section, so it MUST reflect what actually left.
+    # api_keys / password hashes / LLM providers are always stripped. IM channel
+    # credentials are stripped ONLY when the user did not opt in — otherwise they
+    # ride along (see channel_credentials.json + contains_channel_credentials),
+    # and listing them as "stripped" would contradict the preview.
+    stripped_lists = ["api_keys", "user_password_hash", "user_providers"]
+    if not selection.include_channel_credentials:
+        stripped_lists.append("im_channel_credentials")
+    # Count of IM channel credential rows shipped (opt-in). Drives the manifest
+    # `contains_channel_credentials` flag so the import wizard can warn.
+    channel_cred_count = 0
 
     # 2. Find all instance_ids belonging to closure agents
     instance_ids: Set[str] = set()
@@ -454,6 +480,27 @@ async def build_bundle(
                            indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
+
+            # IM channel credentials (opt-in — see include_channel_credentials).
+            # Grouped by table so the importer knows the destination of each row.
+            # These are near-plaintext secrets; they only leave the machine when
+            # the user explicitly opts in. agent_id is kept verbatim (import
+            # remaps it via STRUCTURED_ID_FIELDS); everything else is IM-side and
+            # preserved. On import each row lands INACTIVE.
+            if selection.include_channel_credentials:
+                cred_by_table: Dict[str, List[dict]] = {}
+                for cred_table in CHANNEL_CREDENTIAL_TABLES:
+                    rows = await db.get(cred_table, {"agent_id": aid})
+                    if not rows:
+                        continue
+                    cred_by_table[cred_table] = [
+                        _scrub_user_id(dict(r), user_id, cred_table) for r in rows
+                    ]
+                    channel_cred_count += len(rows)
+                (agent_dir / "channel_credentials.json").write_text(
+                    json.dumps(cred_by_table, indent=2, ensure_ascii=False, default=str),
+                    encoding="utf-8",
+                )
 
             # Per-instance memory family — keyed by instance_id.
             #
@@ -843,6 +890,10 @@ async def build_bundle(
             "skills": skills_summary,
             "mcp_hints_count": len(mcp_rows),
             "artifacts_count": sum(s.get("artifacts", 0) for s in agents_summary),
+            # True iff the export carried ≥1 IM channel credential (opt-in). The
+            # import wizard surfaces a "this bundle contains live secrets" notice
+            # and lands every credential inactive.
+            "contains_channel_credentials": channel_cred_count > 0,
             "stripped": stripped_lists,
             "warnings": warnings,
             "info": info,

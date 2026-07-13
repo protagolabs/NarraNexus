@@ -104,6 +104,11 @@ export interface BundleExportRequest {
   // Per-agent artifact allowlist; omit/null = include all
   // (workspace files always travel inside workspace.tar.gz regardless)
   artifact_selection?: Record<string, string[]> | null;
+  // Opt-in: ship IM channel credentials (Lark/Slack/Telegram/WeChat/Discord/
+  // NarraMessenger) so channels can be re-activated in the target env without
+  // re-binding. Default false — near-plaintext secrets. Imported creds land
+  // inactive; the user activates them in the new environment.
+  include_channel_credentials?: boolean;
 }
 
 // ----- Bundle export previews (wizard helpers) -----
@@ -136,6 +141,9 @@ export interface BundlePreflightResponse {
   manifest: BundleManifest;
   name_clashes: { agent_id_in_bundle: string; agent_name: string; existing_count: number }[];
   team_clash?: { name: string; existing_count: number } | null;
+  // Opt-in credential bundles: a bot-identity already bound in this
+  // environment. Such credentials are SKIPPED (not overwritten) on confirm.
+  credential_clashes?: { agent_id_in_bundle: string; table: string; identity: Record<string, string> }[];
   warnings: string[];
 }
 
@@ -149,6 +157,8 @@ export interface BundleManifest {
   agents_summary: any[];
   skills: any[];
   mcp_hints_count?: number;
+  // True iff the bundle carries ≥1 IM channel credential (opt-in export).
+  contains_channel_credentials?: boolean;
   stripped: string[];
   warnings: string[];
   // Non-actionable expected events (e.g. closure-dropped external edges).
@@ -177,6 +187,10 @@ export interface BundleConfirmResponse {
   // Added in bundle format 1.1
   artifacts_created?: number;
   mcp_urls_created?: number;
+  // Opt-in IM channel credentials: imported = landed inactive (await manual
+  // activation); skipped = a same-bot binding already existed in this env.
+  channel_credentials_imported?: number;
+  channel_credentials_skipped_conflict?: number;
   warnings: string[];
 }
 
