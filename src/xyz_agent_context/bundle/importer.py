@@ -1292,7 +1292,11 @@ async def _confirm_inner(
                 first_aid = target_aids[0]
                 if cached_dir is None:
                     sm = SkillModule(agent_id=first_aid, user_id=user_id)
-                    info = await asyncio.to_thread(sm.install_skill, zip_path)
+                    # Pin the dest folder to the bundle's known skill_dir so it
+                    # isn't re-derived (wrongly) from SKILL.md frontmatter.
+                    info = await asyncio.to_thread(
+                        sm.install_skill, zip_path, target_dir_name=s.get("skill_dir")
+                    )
                     cached_dir = Path(info.path)
                     if key:
                         install_cache[key] = cached_dir
@@ -1329,7 +1333,13 @@ async def _confirm_inner(
                 await asyncio.to_thread(shutil.copy2, zip_path, tgt)
                 for new_aid in target_aids:
                     sm = SkillModule(agent_id=new_aid, user_id=user_id)
-                    await asyncio.to_thread(sm.install_skill, zip_path)
+                    # Pin the dest folder to the bundle's known skill_dir so the
+                    # full_copy overwrites skills/<skill_dir>/ (restoring the
+                    # credential the workspace snapshot had stripped) instead of
+                    # landing in a temp-derived name.
+                    await asyncio.to_thread(
+                        sm.install_skill, zip_path, target_dir_name=s.get("skill_dir")
+                    )
                 await register_archive(
                     user_id=user_id,
                     skill_name=skill_name,

@@ -508,15 +508,30 @@ class SkillModule(XYZBaseModule):
         source_url: Optional[str] = None,
         source_type: str = "unknown"
     ) -> None:
-        """Save Skill metadata to .skill_meta.json"""
-        meta_data = {
+        """Save Skill metadata to .skill_meta.json.
+
+        Preserves any metadata that travelled with the skill (``env_config`` /
+        ``study_result`` / ``requires`` from a bundle full_copy archive) —
+        only the provenance fields are (re)written here. A fresh install (github
+        clone / plain zip with no meta) has nothing to preserve, so this is a
+        no-op merge for those paths.
+        """
+        meta_file = skill_dir / ".skill_meta.json"
+        meta_data: dict = {}
+        if meta_file.exists():
+            try:
+                meta_data = json.loads(meta_file.read_text(encoding='utf-8'))
+                if not isinstance(meta_data, dict):
+                    meta_data = {}
+            except Exception:
+                meta_data = {}
+        meta_data.update({
             "source_url": source_url,
             "source_type": source_type,
             "installed_at": datetime.now().isoformat(),
-        }
-        meta_file = skill_dir / ".skill_meta.json"
+        })
         try:
-            meta_file.write_text(json.dumps(meta_data, indent=2), encoding='utf-8')
+            meta_file.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False), encoding='utf-8')
             logger.debug(f"Saved skill metadata to {meta_file}")
         except Exception as e:
             logger.warning(f"Failed to save skill metadata: {e}")
@@ -747,8 +762,17 @@ class SkillModule(XYZBaseModule):
 
         return skills
 
-    def install_skill(self, zip_file_path: Path) -> SkillInfo:
-        """Install Skill from zip file"""
+    def install_skill(self, zip_file_path: Path, target_dir_name: Optional[str] = None) -> SkillInfo:
+        """Install Skill from zip file.
+
+        ``target_dir_name`` pins the destination folder name under ``skills/``.
+        Bundle import passes the manifest's known ``skill_dir`` here so a
+        full_copy skill lands in ``skills/<skill_dir>/`` and overwrites the
+        workspace-snapshot copy — instead of being re-derived from the SKILL.md
+        frontmatter ``name``, which falls back to the extraction temp-dir
+        basename when the SKILL.md has no frontmatter (which used to leave a
+        stray ``skills/tmpXXXX/`` disjoint from the real skill dir).
+        """
         if not self.skills_dir:
             raise ValueError("skills_dir is not configured (user_id is required)")
 
@@ -772,8 +796,9 @@ class SkillModule(XYZBaseModule):
             skill_md = skill_root / "SKILL.md"
             info = self._parse_skill_md(skill_md)
 
-            # Move to target directory
-            safe_skill_name = sanitize_filename(info.name, label="skill name")
+            # Move to target directory. An explicit target_dir_name (the bundle's
+            # known skill_dir) wins over the SKILL.md-derived name.
+            safe_skill_name = sanitize_filename(target_dir_name or info.name, label="skill name")
             target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
             if target_dir.exists():
                 shutil.rmtree(target_dir)
