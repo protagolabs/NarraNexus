@@ -45,7 +45,12 @@ class _CredTableSpec(TypedDict):
 CHANNEL_CREDENTIAL_TABLES: Dict[str, _CredTableSpec] = {
     "lark_credentials": {
         "active_col": "is_active",
-        "identity_cols": ["profile_name"],
+        # app_id is the Lark app = the real bot identity that owns the single WS
+        # slot, matching the other channels' bot-identity keys. (NOT profile_name:
+        # that is build_profile_name(agent_name, agent_id) — agent-derived and
+        # preserved verbatim on import, so it never matches in the target env and
+        # the clash check would be a silent no-op.)
+        "identity_cols": ["app_id"],
     },
     "channel_slack_credentials": {
         "active_col": "enabled",

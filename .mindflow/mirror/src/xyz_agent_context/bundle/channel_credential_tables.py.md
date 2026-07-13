@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/bundle/channel_credential_tables.py
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Lark identity key fixed to app_id
+
+Lark's `identity_cols` was `["profile_name"]`, which is wrong: `profile_name` is
+`build_profile_name(agent_name, agent_id)` — agent-derived and preserved verbatim on
+import, so it never matches in the target env → the clash check was a silent no-op.
+Changed to `["app_id"]` (the Lark app = the real bot identity that owns the single WS
+slot, matching the other channels' `team_id`/`bot_user_id`). Test:
+`tests/bundle/test_channel_credentials.py::test_lark_clash_keys_on_app_id_not_profile_name`.
 
 # channel_credential_tables.py — single source of truth for IM credential bundling
 

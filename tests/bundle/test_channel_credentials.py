@@ -92,10 +92,11 @@ async def _seed_agent(db, agent_id: str, agent_name: str, user_id: str = "test_u
     })
 
 
-async def _seed_lark_cred(db, agent_id: str, profile_name: str, is_active: int = 1):
+async def _seed_lark_cred(db, agent_id: str, profile_name: str, is_active: int = 1,
+                          app_id: str | None = None):
     await db.insert("lark_credentials", {
         "agent_id": agent_id,
-        "app_id": f"cli_{agent_id}",
+        "app_id": app_id or f"cli_{agent_id}",
         "app_secret_ref": "ref_xxx",
         "app_secret_encrypted": "c2VjcmV0",  # base64("secret")
         "brand": "lark",
@@ -263,4 +264,39 @@ async def test_credential_clash_is_skipped(db_client, tmp_workspace_root, tmp_pa
     rows = await db_client.get("channel_slack_credentials", {})
     assert len(rows) == 1
     assert rows[0]["agent_id"] == aid
+    assert summary.get("channel_credentials_skipped_conflict", 0) == 1
+
+
+async def test_lark_clash_keys_on_app_id_not_profile_name(db_client, tmp_workspace_root, tmp_path):
+    """Lark's bot identity is app_id, NOT the agent-derived profile_name. A bundle
+    carrying app_id X must be detected as a clash when X is already bound in the
+    target env under a DIFFERENT profile_name — the exact case profile_name missed.
+    """
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+
+    SHARED_APP = "cli_shared_app"
+    src, uid = "agent_larksrc01", "test_user"
+    await _seed_agent(db_client, src, "Lark Src", uid)
+    await _seed_lark_cred(db_client, src, profile_name="prof_src", app_id=SHARED_APP)
+
+    bundle = tmp_path / "b.nxbundle"
+    await build_bundle(
+        uid, ExportSelection(agent_ids=[src], include_channel_credentials=True), bundle
+    )
+
+    # Free prof_src so ONLY app_id (not profile_name) can match in the target env,
+    # then bind the same Lark app under a different agent + profile.
+    await db_client.delete("lark_credentials", {"agent_id": src})
+    other = "agent_larkother1"
+    await _seed_agent(db_client, other, "Lark Other", uid)
+    await _seed_lark_cred(db_client, other, profile_name="prof_other", app_id=SHARED_APP)
+
+    pre = await preflight(bundle, uid)
+    assert pre.get("credential_clashes")  # app_id match → surfaced
+    summary = await confirm(pre["preflight_token"], uid)
+
+    # The same Lark app is not double-bound: only the existing (other) row remains.
+    rows = await db_client.get("lark_credentials", {})
+    assert [r["agent_id"] for r in rows] == [other]
     assert summary.get("channel_credentials_skipped_conflict", 0) == 1

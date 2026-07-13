@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Set
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
+from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .security import (
     bytes_sha256,
     file_sha256,
@@ -487,9 +488,6 @@ async def build_bundle(
             # remaps it via STRUCTURED_ID_FIELDS); everything else is IM-side and
             # preserved. On import each row lands INACTIVE.
             if selection.include_channel_credentials:
-                from xyz_agent_context.bundle.channel_credential_tables import (
-                    CHANNEL_CREDENTIAL_TABLES,
-                )
                 cred_by_table: Dict[str, List[dict]] = {}
                 for cred_table in CHANNEL_CREDENTIAL_TABLES:
                     rows = await db.get(cred_table, {"agent_id": aid})
