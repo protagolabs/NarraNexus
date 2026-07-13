@@ -7,6 +7,7 @@
 
 
 import asyncio
+import json
 from contextlib import suppress
 from pathlib import Path
 
@@ -29,40 +30,34 @@ except ImportError:
     from _tool_policy_guard import build_tool_policy_guard
 
 
-def _stage_claude_oauth_from_keychain(config_dir: str | Path) -> bool:
-    """macOS: materialize the Claude Code OAuth credential from the login
-    Keychain into the isolated CONFIG_DIR as ``.credentials.json`` (0600).
+def _oauth_expires_at(blob: str) -> float | None:
+    """Epoch-ms ``claudeAiOauth.expiresAt`` from a Claude Code credentials JSON
+    blob, or None when the blob is unparseable / the field is absent.
 
-    Returns True when the isolated credential is present (already staged, or
-    exported now), False when the Keychain has no entry / the export failed (the
-    caller then emits the login hint). macOS-only — the caller gates on
-    ``sys.platform == "darwin"``; on Linux/cloud the host credential FILE exists
-    so this path is never reached.
-
-    Why it's needed: on macOS the OAuth token lives in the Keychain, not in
-    ~/.claude/.credentials.json, so there's no file for the file-copy path to
-    stage; and because CLAUDE_CONFIG_DIR is explicitly set (for #76's isolation)
-    the CLI reads a file and ignores the Keychain. Exporting the Keychain item
-    into the isolated dir bridges the two. The token is the user's own, on their
-    own machine, written 0600 — same exposure class as Codex's plaintext
-    ~/.codex/auth.json and claude-on-Linux's .credentials.json.
-
-    Stage-ONCE (not newest-wins): the Keychain item carries no mtime to compare,
-    and re-exporting every spawn would clobber a token the isolated file-mode CLI
-    refreshed in place (re-injecting an already-consumed refresh token → logout,
-    the failure #76's newest-wins avoids). So export ONLY when the isolated file
-    is missing. COST: after a fresh ``claude login`` (updates the Keychain) the
-    stale isolated copy is not refreshed — delete the isolated dir
-    (``settings.claude_oauth_config_path``) to re-stage. Accepted, mirrors the
-    one-way host→isolated staging of the file path.
+    This is the freshness key the Keychain staging compares on. NEVER logs
+    ``blob`` — it carries the OAuth access + refresh tokens.
     """
-    import os
-    import subprocess
+    try:
+        oauth = json.loads(blob).get("claudeAiOauth")
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not isinstance(oauth, dict):
+        return None
+    exp = oauth.get("expiresAt")
+    return float(exp) if isinstance(exp, (int, float)) else None
 
-    dest_dir = Path(config_dir)
-    dest = dest_dir / ".credentials.json"
-    if dest.is_file():
-        return True  # already staged — preserve any in-place CLI refresh
+
+def _read_keychain_blob() -> str | None:
+    """macOS: the raw Claude Code OAuth blob from the login Keychain, or None
+    when there is no entry / the read fails.
+
+    On macOS ``claude login`` writes the OAuth token to the login Keychain
+    (service ``Claude Code-credentials``), NOT to ``~/.claude/.credentials.json``
+    — so this is the source of truth the user's own ``claude`` reads. Isolated
+    as a seam so tests can stub it. NEVER logs the returned blob — it carries
+    the OAuth access + refresh tokens.
+    """
+    import subprocess
 
     try:
         proc = subprocess.run(
@@ -72,10 +67,45 @@ def _stage_claude_oauth_from_keychain(config_dir: str | Path) -> bool:
         )
     except Exception as e:  # noqa: BLE001 — Keychain read is best-effort
         logger.warning(f"[ClaudeAgentSDK] macOS Keychain read failed: {e}")
-        return False
+        return None
     blob = (proc.stdout or "").strip()
     if proc.returncode != 0 or not blob:
-        return False  # no Keychain entry → caller emits the 'run claude login' hint
+        return None  # no Keychain entry (e.g. logged out)
+    return blob
+
+
+def _stage_blob_newest_wins(
+    config_dir: str | Path, blob: str, *, sourced_from: str
+) -> None:
+    """Atomically stage ``blob`` as ``.credentials.json`` (0600) in the isolated
+    dir, newest-wins by the token's own ``claudeAiOauth.expiresAt``.
+
+    Used for the macOS Keychain source, whose items carry no mtime to compare —
+    so we compare the credential payload instead. Re-stage ONLY when ``blob`` is
+    strictly newer than the already-staged copy; this makes a fresh
+    ``claude login`` propagate automatically while preserving a token the
+    isolated file-mode CLI refreshed in place (its staged ``expiresAt`` is >=
+    the source copy → keep it, and never re-inject an already-consumed refresh
+    token, the logout #76's newest-wins avoids). An unparseable ``blob``
+    (no ``expiresAt``) never clobbers a good staged file.
+    """
+    import os
+
+    dest_dir = Path(config_dir)
+    dest = dest_dir / ".credentials.json"
+    new_exp = _oauth_expires_at(blob)
+
+    if dest.is_file():
+        try:
+            staged_blob = dest.read_text(encoding="utf-8")
+        except OSError:
+            staged_blob = None  # unreadable staged file → re-stage from source
+        if staged_blob is not None:
+            staged_exp = _oauth_expires_at(staged_blob)
+            # Keep the staged copy unless the source is strictly newer.
+            # Unparseable source (new_exp is None) → never clobber a good file.
+            if new_exp is None or (staged_exp is not None and staged_exp >= new_exp):
+                return
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     tmp = dest_dir / f".credentials.json.{os.getpid()}.tmp"
@@ -88,10 +118,9 @@ def _stage_claude_oauth_from_keychain(config_dir: str | Path) -> bool:
         with suppress(OSError):
             tmp.unlink()
     logger.info(
-        f"[ClaudeAgentSDK] staged Claude OAuth credential from macOS Keychain "
+        f"[ClaudeAgentSDK] staged Claude OAuth credential (source: {sourced_from}) "
         f"→ {dest} (0600)"
     )
-    return True
 
 
 def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
@@ -110,18 +139,31 @@ def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
     ``Path``); it is the same dir ``ClaudeConfig.to_cli_env`` puts in
     ``CLAUDE_CONFIG_DIR`` for the OAuth branch.
 
-    newest-wins: copy the host credential in only when it is newer than the
-    already-staged copy (or the staged copy is missing). This propagates a
-    fresh ``claude auth login`` while NOT clobbering a token the CLI refreshed
-    in-place inside the isolated dir — clobbering it would break rotating
-    refresh tokens (the host copy still carries the already-consumed one).
+    Source precedence — macOS vs Linux/cloud:
+      * **macOS**: the login **Keychain** is Claude Code's source of truth
+        (``claude login`` writes there; the user's own ``claude`` reads there).
+        A ``~/.claude/.credentials.json`` on macOS is a STALE relic from an
+        older CLI. The Keychain is therefore preferred WHENEVER it has an entry;
+        the host file is used only as a fallback when the Keychain is empty.
+        2026-07-12 incident: the old code preferred the host file whenever it
+        existed, so an expired Jun-25 relic shadowed a freshly-logged-in
+        Keychain token — the isolated CLI read the expired file and reported
+        "Not logged in · Please run /login" on every turn.
+      * **Linux/cloud**: there is no Keychain; the host file is the only source.
+        Behavior there is byte-identical to #76 (copy2, newest-wins by mtime).
 
-    KNOWN COST (host may be logged out): this stages one-way host → isolated
-    dir. If the isolated CLI refreshes the OAuth token in place, the host
-    ``~/.claude/.credentials.json`` keeps the now-rotated refresh token and the
-    user's own interactive ``claude`` gets logged out once its access token
-    expires. Accepted tradeoff, matching Codex's one-way ``_stage_codex_oauth_
-    credentials``; there is no write-back. See the mirror md for the rationale.
+    newest-wins: stage a source only when it is newer than the already-staged
+    copy. This propagates a fresh ``claude login`` while NOT clobbering a token
+    the CLI refreshed in-place inside the isolated dir — clobbering it would
+    break rotating refresh tokens (the source still carries the consumed one).
+    Keychain freshness is compared by the token's ``expiresAt``; host-file
+    freshness by mtime.
+
+    KNOWN COST (host may be logged out): this stages one-way source → isolated
+    dir. If the isolated CLI refreshes the OAuth token in place, the source
+    keeps the now-rotated refresh token and the user's own interactive
+    ``claude`` gets logged out once its access token expires. Accepted tradeoff,
+    matching Codex's one-way ``_stage_codex_oauth_credentials``; no write-back.
     """
     import os
     import shutil
@@ -133,21 +175,22 @@ def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
     )
 
     source = resolve_claude_credentials_path(CLAUDE_CLI_CREDENTIALS_REF)
-    if source is None or not source.is_file():
-        # macOS: Claude Code stores the OAuth token in the login KEYCHAIN, not
-        # in ~/.claude/.credentials.json — so there is no host FILE to copy, yet
-        # an explicitly-set CLAUDE_CONFIG_DIR (this isolated dir) makes the CLI
-        # read a file and ignore the Keychain → "Not logged in". Materialize the
-        # Keychain credential into the isolated dir so the CLI authenticates
-        # while #76's settings.json / .claude.json isolation is preserved.
-        # darwin-ONLY: `security` is macOS; on Linux/cloud the file above exists
-        # so this branch is never reached and behavior is byte-identical to #76.
-        if sys.platform == "darwin" and _stage_claude_oauth_from_keychain(config_dir):
+
+    if sys.platform == "darwin":
+        # Keychain first — it is the source of truth on macOS and must not be
+        # shadowed by a stale host-file relic. Fall through to the host file
+        # only when the Keychain has no entry (e.g. a legacy CLI that wrote a
+        # file instead). darwin-ONLY: on Linux/cloud there is no Keychain.
+        kc_blob = _read_keychain_blob()
+        if kc_blob is not None:
+            _stage_blob_newest_wins(config_dir, kc_blob, sourced_from="macOS Keychain")
             return
+
+    if source is None or not source.is_file():
         logger.warning(
             f"[ClaudeAgentSDK] OAuth credential not found at "
             f"{source or '~/.claude/.credentials.json'}; the agent_loop CLI "
-            "may prompt for login or fail auth. Run 'claude auth login' or "
+            "may prompt for login or fail auth. Run 'claude login' or "
             "sign in from Settings → Providers."
         )
         return
