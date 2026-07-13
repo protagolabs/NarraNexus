@@ -28,6 +28,7 @@ import {
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
+import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { SlackCredentialData } from '@/types';
 
 import type { ChannelConfigProps } from './IMChannelsSection';
@@ -234,6 +235,20 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       setError(e instanceof Error ? e.message : t('awareness.slack.errUnbind'));
     } finally {
       if (mountedRef.current) setUnbindLoading(false);
+    }
+  };
+
+  // Activate/deactivate without re-binding — turns a bundle-imported (inactive)
+  // credential live (or the reverse) so the trigger's watcher claims/releases
+  // the bot's single connection slot.
+  const handleToggleActive = async (next: boolean) => {
+    if (!agentId) return;
+    const res = await api.setSlackActive(agentId, next);
+    if (!mountedRef.current) return;
+    if (res.success) {
+      await fetchCredential();
+    } else {
+      setError(res.error || '');
     }
   };
 
@@ -472,6 +487,10 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               </Button>
             </div>
           </div>
+        )}
+
+        {credential && (
+          <ChannelActiveToggle active={!!credential.enabled} onToggle={handleToggleActive} />
         )}
       </CardContent>
     </Card>

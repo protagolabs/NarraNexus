@@ -88,6 +88,11 @@ class ExportRequest(BaseModel):
     # Per-agent artifact allowlist; None = include all. Underlying files always
     # travel with workspace.tar.gz; this filters only the DB pointer rows.
     artifact_selection: Optional[Dict[str, List[str]]] = None
+    # Opt-in: ship IM channel credentials (Lark/Slack/Telegram/WeChat/Discord/
+    # NarraMessenger) so channels can be re-activated in the target env without
+    # re-binding. Default OFF — these are near-plaintext secrets. Imported creds
+    # land INACTIVE; the user activates them in the new environment.
+    include_channel_credentials: bool = False
 
 
 @router.post("/export")
@@ -134,6 +139,7 @@ async def export_bundle(payload: ExportRequest, request: Request):
         bus_channel_selection=payload.bus_channel_selection,
         mcp_selection=payload.mcp_selection,
         artifact_selection=payload.artifact_selection,
+        include_channel_credentials=payload.include_channel_credentials,
     )
 
     try:

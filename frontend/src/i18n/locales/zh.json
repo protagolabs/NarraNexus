@@ -2,6 +2,12 @@
   "language": {
     "name": "语言"
   },
+  "channelActiveToggle": {
+    "active": "已启用",
+    "inactive": "已停用",
+    "enable": "启用",
+    "disable": "停用"
+  },
   "sidebar": {
     "chats": "对话",
     "teams": "团队",
@@ -1301,6 +1307,8 @@
         "mcpHintsLine": "{{count}} 个建议的外部 MCP URL（将逐个请你确认）",
         "nameClashesTitle": "名称冲突（已自动重命名）",
         "nameClashLine": "“{{name}}”——有 {{count}} 个同名的现有智能体",
+        "credentialClashesTitle": "此环境已绑定的频道凭据（将跳过）",
+        "credentialClashLine": "{{channel}} —— {{identity}} 已在此环境绑定；导入的凭据将被跳过，不会覆盖已有绑定",
         "warningsTitle": "捆绑包警告",
         "infoTitle": "信息（预期内，无需操作）",
         "strippedTitle": "已剥离（捆绑包中不包含）",
@@ -1318,6 +1326,10 @@
         "skillsImported": "{{count}} 项技能",
         "skillsCredsSuffix": "（部分可能需要重新学习或新的凭据）",
         "mcpHints": "已建议 {{count}} 个外部 MCP URL——请在下方查看",
+        "channelCredentialsImported": "已导入 {{count}} 个 IM 频道凭据——处于停用状态，等待激活",
+        "channelCredentialsSkipped": "已跳过 {{count}} 个频道凭据（该 bot 已在此环境绑定）",
+        "activateChannelsTitle": "激活导入的频道",
+        "activateChannelsHint": "导入的 IM 频道凭据默认停用，以免和源环境争抢每个 bot 仅有的一条连接。请到各智能体的 设置 中逐个开启——但务必先确认源环境已断开连接。",
         "warnings": "{{count}} 条警告（详见详情）",
         "suggestedMcpTitle": "建议的外部 MCP URL",
         "mcpNotAutoInstalled": "这些不会自动安装。如果你信任它们，可在各智能体的 设置 → MCP 中添加。",
@@ -1335,6 +1347,8 @@
       "bundleNotesPlaceholderTeam": "我的团队",
       "bundleNotesPlaceholderDesc": "描述这个团队的作用…",
       "includeChatLabel": "包含聊天记录（事件 + 消息）。对涉及隐私的模板请关闭。",
+      "includeChannelCredentialsLabel": "包含 IM 频道凭据（飞书 / Slack / Telegram / 微信 / Discord）",
+      "channelCredentialsWarning": "捆绑包中将包含近乎明文（base64）的 bot 密钥。任何拿到该文件的人都能接管这些 bot——请勿外传。导入的凭据默认停用，需在目标环境手动激活。",
       "cancel": "取消",
       "reviewExport": "审阅并导出",
       "tabs": {

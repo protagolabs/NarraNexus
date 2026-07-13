@@ -13,6 +13,7 @@ import { MessageSquare, Link, Unlink, ExternalLink, Loader2, CheckCircle, AlertC
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
+import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { LarkCredentialData, LarkErrorDetail, LarkBindWarning } from '@/types';
 
 // App ID validation regex — matches the `cli_<16+ alphanumeric>` pattern
@@ -235,6 +236,20 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       if (mountedRef.current) setError(e instanceof Error ? e.message : t('awareness.lark.errUnbind'));
     } finally {
       if (mountedRef.current) setActionLoading(false);
+    }
+  };
+
+  // Activate/deactivate without re-binding — turns a bundle-imported (inactive)
+  // credential live (or the reverse). Flipping is_active is what makes the
+  // trigger's watcher claim / release this app's single Lark WS slot.
+  const handleToggleActive = async (next: boolean) => {
+    if (!agentId) return;
+    const res = await api.setLarkActive(agentId, next);
+    if (!mountedRef.current) return;
+    if (res.success) {
+      await fetchCredential();
+    } else {
+      setError(res.error || t('awareness.lark.errUnbind'));
     }
   };
 
@@ -599,6 +614,10 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               <Unlink className="w-4 h-4 mr-2" /> {t('awareness.lark.unbindRebindCorrect')}
             </Button>
           </div>
+        )}
+
+        {credential && (
+          <ChannelActiveToggle active={!!credential.is_active} onToggle={handleToggleActive} />
         )}
       </CardContent>
     </Card>

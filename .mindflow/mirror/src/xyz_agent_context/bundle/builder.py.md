@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-06-09
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — opt-in IM channel credential export
+
+`ExportSelection.include_channel_credentials` (default False) makes the
+per-agent loop also emit `agents/<aid>/channel_credentials.json` — the closure's
+rows from the six credential tables (lark + channel_{slack,telegram,wechat,
+discord,narramessenger}), grouped by table. `manifest.contains_channel_credentials`
+flags it so the import wizard warns. The table list is the shared single source
+of truth `bundle/channel_credential_tables.py::CHANNEL_CREDENTIAL_TABLES`.
+
+**Important**: `STRIPPED_TABLES` / `AGENT_SCOPED_TABLES` / `INSTANCE_SCOPED_TABLES`
+are DEAD constants (documentation only — zero references; the real export is the
+explicit `db.get` calls). So credential "stripping" was always by-omission, not by
+that set — the opt-in export just adds the reads. The mirror's older "凭证一律剥离"
+decision is therefore now: **stripped by default, shipped on opt-in.** `agent_id`
+is kept verbatim in the exported rows (import remaps it via STRUCTURED_ID_FIELDS);
+everything else is IM-side and preserved. On import each row lands INACTIVE.
+Also removed a dead contradictory `lark_trigger_audit` entry that sat in BOTH
+`AGENT_SCOPED_TABLES` and `STRIPPED_TABLES`. Tests:
+`tests/bundle/test_channel_credentials.py`.
 
 ## 2026-06-09 — manifest stamps the live app version
 

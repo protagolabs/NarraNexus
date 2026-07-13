@@ -29,6 +29,7 @@ import {
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
+import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { DiscordCredentialData } from '@/types';
 
 import type { ChannelConfigProps } from './IMChannelsSection';
@@ -160,6 +161,20 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       setError(e instanceof Error ? e.message : t('awareness.discord.errUnbind'));
     } finally {
       if (mountedRef.current) setUnbindLoading(false);
+    }
+  };
+
+  // Activate/deactivate without re-binding — turns a bundle-imported (inactive)
+  // credential live (or the reverse) so the trigger's watcher claims/releases
+  // the bot's single connection slot.
+  const handleToggleActive = async (next: boolean) => {
+    if (!agentId) return;
+    const res = await api.setDiscordActive(agentId, next);
+    if (!mountedRef.current) return;
+    if (res.success) {
+      await fetchCredential();
+    } else {
+      setError(res.error || '');
     }
   };
 
@@ -360,6 +375,10 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               </Button>
             </div>
           </div>
+        )}
+
+        {credential && (
+          <ChannelActiveToggle active={!!credential.enabled} onToggle={handleToggleActive} />
         )}
       </CardContent>
     </Card>

@@ -1215,6 +1215,15 @@ class ApiClient {
     });
   }
 
+  // Activate/deactivate a bound channel credential (flip is_active/enabled)
+  // without re-binding. Used to turn a bundle-imported (inactive) channel live.
+  async setLarkActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/lark/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
+    });
+  }
+
   // Slack Integration API
   async getSlackCredential(agentId: string): Promise<SlackCredentialResponse> {
     return this.request<SlackCredentialResponse>(`/api/slack/credential?agent_id=${encodeURIComponent(agentId)}`);
@@ -1248,6 +1257,13 @@ class ApiClient {
     return this.request<ApiResponse>('/api/slack/unbind', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async setSlackActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/slack/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
     });
   }
 
@@ -1285,6 +1301,13 @@ class ApiClient {
     });
   }
 
+  async setTelegramActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/telegram/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
+    });
+  }
+
   // WeChat (iLink) Integration API — QR-scan bind flow (no token paste).
   async getWeChatCredential(agentId: string): Promise<WeChatCredentialResponse> {
     return this.request<WeChatCredentialResponse>(`/api/wechat/credential?agent_id=${encodeURIComponent(agentId)}`);
@@ -1313,6 +1336,13 @@ class ApiClient {
     return this.request<ApiResponse>('/api/wechat/unbind', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async setWeChatActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/wechat/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
     });
   }
 
@@ -1365,6 +1395,13 @@ class ApiClient {
     return this.request<ApiResponse>('/api/discord/unbind', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async setDiscordActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/discord/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
     });
   }
 

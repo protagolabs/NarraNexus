@@ -37,6 +37,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardHeader, CardTitle, CardContent, Button, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
+import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { WeChatCredentialData } from '@/types';
 
 import type { ChannelConfigProps } from './IMChannelsSection';
@@ -189,6 +190,20 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     }
   };
 
+  // Activate/deactivate without re-binding — turns a bundle-imported (inactive)
+  // credential live (or the reverse) so the trigger's watcher claims/releases
+  // the bot's single connection slot.
+  const handleToggleActive = async (next: boolean) => {
+    if (!agentId) return;
+    const res = await api.setWeChatActive(agentId, next);
+    if (!mountedRef.current) return;
+    if (res.success) {
+      await fetchCredential();
+    } else {
+      setError(res.error || '');
+    }
+  };
+
   return (
     <Card>
       {confirmDialog}
@@ -319,6 +334,10 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               </Button>
             </div>
           </div>
+        )}
+
+        {credential && (
+          <ChannelActiveToggle active={!!credential.enabled} onToggle={handleToggleActive} />
         )}
       </CardContent>
     </Card>
