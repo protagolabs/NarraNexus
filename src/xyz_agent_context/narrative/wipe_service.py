@@ -149,7 +149,12 @@ async def wipe_agent_data(
     if clear_memory:
         result.scopes.append("memory")
 
-    narrative_ids = await _resolve_user_narrative_ids(db_client, agent_id, user_id)
+    # Only the conversations scope needs the narrative list; skip the query
+    # entirely for a memory-only wipe.
+    narrative_ids = (
+        await _resolve_user_narrative_ids(db_client, agent_id, user_id)
+        if clear_conversations else []
+    )
     result.narrative_ids = narrative_ids
 
     # Collect event ids up front (needed to clear event_stream after events go).

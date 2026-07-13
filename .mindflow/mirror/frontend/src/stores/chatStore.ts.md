@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-06-10
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — historyRefreshTick / requestHistoryRefresh
+
+Added a global `historyRefreshTick` counter + `requestHistoryRefresh()` action.
+`clearAgent` drops an agent's in-memory session, but [[ChatPanel.tsx]] holds
+its OWN server-fetched history and only reloads on agent switch — so after a
+data wipe ([[wipe_service.py]] / [[AgentList.tsx]]) it kept showing stale
+messages. Bumping the tick makes ChatPanel re-fetch (now-empty) history
+immediately. Deliberately a single global counter (not per-agent): a wipe is
+rare and only the mounted panel reacts, so the extra generality isn't worth it.
 
 ## 2026-06-10 — run_started 帧驱动 bookmarkStore.onRunStart
 

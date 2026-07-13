@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-09
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — history reload reacts to wipe
+
+The history-load effect now also depends on `chatStore.historyRefreshTick`
+(see [[chatStore.ts]]), so a data wipe ([[AgentList.tsx]]) forces an immediate
+re-fetch — otherwise the locally-cached `historyMessages` only reloaded on
+agent switch and the panel showed stale (already-deleted) messages. The poll
+loop can't cover this: it early-returns when the server returns zero messages,
+so it never clears a now-empty history on its own.
 
 ## 2026-07-09 — hosts the per-agent model/framework panel
 

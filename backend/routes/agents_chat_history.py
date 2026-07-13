@@ -322,10 +322,8 @@ async def clear_conversation_history(
     db_client = await get_db_client()
 
     # Ownership: 404 masks both "no such agent" and "not yours".
-    owner_row = await db_client.execute(
-        "SELECT created_by FROM agents WHERE agent_id=%s LIMIT 1", (agent_id,)
-    )
-    if not owner_row or owner_row[0]["created_by"] != user_id:
+    agent_row = await db_client.get_one("agents", {"agent_id": agent_id})
+    if not agent_row or agent_row.get("created_by") != user_id:
         raise HTTPException(status_code=404, detail="Agent not found")
 
     logger.info(
