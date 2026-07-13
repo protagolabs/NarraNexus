@@ -109,6 +109,11 @@ export interface BundleExportRequest {
   // re-binding. Default false — near-plaintext secrets. Imported creds land
   // inactive; the user activates them in the new environment.
   include_channel_credentials?: boolean;
+  // Opt-in: ship skill secrets (.skill_meta.json env_config + full_copy secret
+  // files) so migrated skills work without re-auth. Default false — scrubbed on
+  // export otherwise. Set together with include_channel_credentials by the
+  // "full mode" export checkbox.
+  include_skill_secrets?: boolean;
 }
 
 // ----- Bundle export previews (wizard helpers) -----
@@ -159,6 +164,8 @@ export interface BundleManifest {
   mcp_hints_count?: number;
   // True iff the bundle carries ≥1 IM channel credential (opt-in export).
   contains_channel_credentials?: boolean;
+  // True iff the bundle carries skill secrets (opt-in export).
+  contains_skill_secrets?: boolean;
   stripped: string[];
   warnings: string[];
   // Non-actionable expected events (e.g. closure-dropped external edges).

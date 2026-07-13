@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — skill install to the known skill_dir
+
+The full_copy + zip skill-install branches pass the manifest's `skill_dir` as `install_skill(..., target_dir_name=)`, so a full_copy overwrites `skills/<skill_dir>/` (restoring the credential the workspace snapshot stripped) instead of landing in a temp-derived name. Fixes the arena double-dir bug.
 
 ## 2026-07-10 — opt-in IM channel credential import (force-inactive + clash skip)
 

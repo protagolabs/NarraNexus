@@ -1350,8 +1350,8 @@
       "bundleNotesPlaceholderTeam": "我的团队",
       "bundleNotesPlaceholderDesc": "描述这个团队的作用…",
       "includeChatLabel": "包含聊天记录（事件 + 消息）。对涉及隐私的模板请关闭。",
-      "includeChannelCredentialsLabel": "包含 IM 频道凭据（飞书 / Slack / Telegram / 微信 / Discord）",
-      "channelCredentialsWarning": "捆绑包中将包含近乎明文（base64）的 bot 密钥。任何拿到该文件的人都能接管这些 bot——请勿外传。导入的凭据默认停用，需在目标环境手动激活。",
+      "includeChannelCredentialsLabel": "完整模式 — 包含凭据（IM 频道 + skill 密钥）",
+      "channelCredentialsWarning": "捆绑包中将包含近乎明文（base64）的密钥：IM bot 凭据 + skill 认证（env_config + skill 凭据文件）。任何拿到该文件的人都能接管这些 bot/skill——请勿外传。导入的频道凭据默认停用、需手动激活；skill 密钥则原地还原。",
       "cancel": "取消",
       "reviewExport": "审阅并导出",
       "tabs": {

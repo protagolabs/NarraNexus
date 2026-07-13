@@ -860,7 +860,9 @@ export default function BundleExportPage() {
         social_entity_selection: social,
         workspace_excludes: excludes,
         include_chat_history: includeChat,
+        // One "full mode" opt-in carries both channel credentials and skill secrets.
         include_channel_credentials: includeChannelCredentials,
+        include_skill_secrets: includeChannelCredentials,
         // Full mode user has already accepted "ship credentials" semantics by
         // picking that mode; auto-flag so they don't have to confirm twice.
         accept_sensitive_zips: mode === 'full' ? true : acceptSensitiveZips,

@@ -4,6 +4,10 @@ last_verified: 2026-07-13
 stub: false
 ---
 
+## 2026-07-13 — skill-secret bundle types
+
+`BundleExportRequest.include_skill_secrets` and `BundleManifest.contains_skill_secrets`.
+
 ## 2026-07-13 — bundle credential types
 
 `BundleExportRequest.include_channel_credentials`, `BundlePreflightResponse.credential_clashes`, `BundleManifest.contains_channel_credentials`, and confirm counters `channel_credentials_imported` / `channel_credentials_skipped_conflict`.

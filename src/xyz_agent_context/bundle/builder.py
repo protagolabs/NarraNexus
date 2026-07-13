@@ -185,6 +185,7 @@ class ExportSelection:
         mcp_selection: Optional[Dict[str, List[str]]] = None,
         artifact_selection: Optional[Dict[str, List[str]]] = None,
         include_channel_credentials: bool = False,
+        include_skill_secrets: bool = False,
     ):
         self.agent_ids = agent_ids
         self.team_id = team_id
@@ -237,6 +238,13 @@ class ExportSelection:
         # (user must manually activate to claim the single WS slot). See
         # channel_credential_tables.py + the design doc.
         self.include_channel_credentials = include_channel_credentials
+        # Opt-in (the "full mode" companion to include_channel_credentials): ship
+        # skill secrets so a migrated agent's skills work without re-auth. Default
+        # OFF — when off, per-skill `.skill_meta.json` env_config values are
+        # scrubbed from the workspace snapshot AND full_copy skill archives are
+        # sensitive-filtered, so no skill secret leaves silently. When on, both
+        # ride along (base64 / raw files) and the export warns.
+        self.include_skill_secrets = include_skill_secrets
 
 
 async def build_bundle(
@@ -276,6 +284,8 @@ async def build_bundle(
     stripped_lists = ["api_keys", "user_password_hash", "user_providers"]
     if not selection.include_channel_credentials:
         stripped_lists.append("im_channel_credentials")
+    if not selection.include_skill_secrets:
+        stripped_lists.append("skill_secrets")
     # Count of IM channel credential rows shipped (opt-in). Drives the manifest
     # `contains_channel_credentials` flag so the import wizard can warn.
     channel_cred_count = 0
@@ -623,8 +633,11 @@ async def build_bundle(
             )
 
             # workspace tar.gz
-            ws_path = await _pack_workspace(aid, user_id, agent_dir,
-                                            excludes=selection.workspace_excludes.get(aid, []))
+            ws_path = await _pack_workspace(
+                aid, user_id, agent_dir,
+                excludes=selection.workspace_excludes.get(aid, []),
+                scrub_skill_secrets=not selection.include_skill_secrets,
+            )
             agents_summary.append({
                 "agent_id": aid,
                 "agent_name": agent_row["agent_name"],
@@ -667,7 +680,7 @@ async def build_bundle(
                 # Always emit dir for the importer's reconstruction.
                 "skill_dir": skill_dir,
                 "install_method": method,
-                "contains_secrets": method == "full_copy",
+                "contains_secrets": method == "full_copy" and selection.include_skill_secrets,
             }
             if method == "url":
                 entry["source_url"] = cfg.get("source_url")
@@ -713,7 +726,10 @@ async def build_bundle(
                 per_agent_dir = skills_dir / agent_id
                 per_agent_dir.mkdir(parents=True, exist_ok=True)
                 tgt_zip = per_agent_dir / f"{skill_dir}-full.zip"
-                await asyncio.to_thread(_zip_dir, src_dir, tgt_zip)
+                await asyncio.to_thread(
+                    _zip_dir, src_dir, tgt_zip,
+                    not selection.include_skill_secrets,
+                )
                 entry["archive_ref"] = f"skills/{agent_id}/{skill_dir}-full.zip"
                 entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
             elif method == "builtin":
@@ -894,6 +910,9 @@ async def build_bundle(
             # import wizard surfaces a "this bundle contains live secrets" notice
             # and lands every credential inactive.
             "contains_channel_credentials": channel_cred_count > 0,
+            # True iff the export opted into skill secrets (env_config + full_copy
+            # secret files travel). When False they were scrubbed on export.
+            "contains_skill_secrets": selection.include_skill_secrets,
             "stripped": stripped_lists,
             "warnings": warnings,
             "info": info,
@@ -1003,6 +1022,7 @@ async def _pack_workspace(
     user_id: str,
     agent_dir: Path,
     excludes: List[str],
+    scrub_skill_secrets: bool = False,
 ) -> Optional[Path]:
     """Tar.gz agent's workspace dir to agent_dir/workspace.tar.gz; respects sensitive-pattern filter.
     The tarfile compression itself is offloaded to a worker thread so the main
@@ -1030,10 +1050,14 @@ async def _pack_workspace(
     out = agent_dir / "workspace.tar.gz"
     excl_set = set(excludes or [])
 
-    return await asyncio.to_thread(_pack_workspace_sync, src, out, excl_set, user_id)
+    return await asyncio.to_thread(
+        _pack_workspace_sync, src, out, excl_set, user_id, scrub_skill_secrets
+    )
 
 
-def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "") -> Path:
+def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "",
+                         scrub_skill_secrets: bool = False) -> Path:
+    from xyz_agent_context.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
     text_extensions = {".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".csv", ".log"}
     placeholder = "<original_owner>"
     # Memory cap on per-file user_id rewrite. Files larger than this are
@@ -1061,9 +1085,9 @@ def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "")
         return tarinfo
 
     with tarfile.open(out, "w:gz") as tar:
-        # If we need to scrub user_id from text files, walk manually so we can
-        # rewrite their bytes before adding to tar. Otherwise, fast path.
-        if user_id:
+        # If we need to rewrite file bytes before adding (user_id scrub and/or
+        # skill env_config scrub), walk manually. Otherwise, fast path.
+        if user_id or scrub_skill_secrets:
             for root, dirs, files in os.walk(src):
                 for fn in files:
                     full = Path(root) / fn
@@ -1087,8 +1111,17 @@ def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "")
                             except (OSError, UnicodeDecodeError):
                                 tar.add(full, arcname=arcname, filter=filter_func)
                                 continue
-                            if user_id in content:
+                            original = content
+                            # Skill secrets: blank .skill_meta.json env_config
+                            # values when the export didn't opt into them.
+                            if scrub_skill_secrets and fn == SKILL_META_FILENAME:
+                                scrubbed = scrub_skill_meta(content)
+                                if scrubbed is not None:
+                                    content = scrubbed
+                            # user_id → owner placeholder.
+                            if user_id and user_id in content:
                                 content = content.replace(user_id, placeholder)
+                            if content != original:
                                 data = content.encode("utf-8")
                                 ti = tarfile.TarInfo(name=arcname)
                                 ti.size = len(data)
@@ -1127,14 +1160,28 @@ async def _find_skill_dir(
     return None
 
 
-def _zip_dir(src: Path, dst: Path) -> None:
+def _zip_dir(src: Path, dst: Path, scrub_secrets: bool = False) -> None:
     """Synchronous zip writer. Callers in async context MUST wrap in
-    asyncio.to_thread() — zip compression is CPU-bound and blocks the event loop."""
+    asyncio.to_thread() — zip compression is CPU-bound and blocks the event loop.
+
+    ``scrub_secrets=True`` (full_copy without include_skill_secrets): drop
+    sensitive files (credentials.json / *_token* / .env …) and blank the
+    ``env_config`` values inside ``.skill_meta.json``, so a full_copy skill does
+    not leak secrets when the exporter didn't opt in."""
+    from xyz_agent_context.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, _, files in os.walk(src):
             for fn in files:
                 full = Path(root) / fn
                 rel = full.relative_to(src)
+                if scrub_secrets:
+                    if is_sensitive_path(str(rel).replace("\\", "/")):
+                        continue
+                    if fn == SKILL_META_FILENAME:
+                        scrubbed = scrub_skill_meta(full.read_text(encoding="utf-8"))
+                        if scrubbed is not None:
+                            zf.writestr(str(rel), scrubbed)
+                            continue
                 zf.write(full, arcname=str(rel))
 
 

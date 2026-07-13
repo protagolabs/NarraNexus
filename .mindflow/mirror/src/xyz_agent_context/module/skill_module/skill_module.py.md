@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-05-27
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — install_skill target_dir_name + meta preservation
+
+`install_skill(zip, target_dir_name=None)` — bundle import pins the dest folder to the manifest's known `skill_dir` instead of re-deriving it from SKILL.md frontmatter (which fell back to the extraction temp-dir basename for a frontmatter-less SKILL.md, leaving a stray `skills/tmpXXXX/`). And `_save_skill_meta` now MERGES onto the existing `.skill_meta.json` (keeps `env_config` / `study_result` / `requires` that travelled with a full_copy) instead of overwriting from scratch. Test: `tests/bundle/test_skill_import.py`.
 
 # skill_module.py — SkillModule 主体
 
