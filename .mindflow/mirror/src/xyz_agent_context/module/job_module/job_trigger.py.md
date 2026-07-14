@@ -1,7 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-05-22
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — auth failures are recoverable, not terminal + zombie self-heal
+
+Incident: a daily cron job hit "Claude API authentication failed", which
+`_is_no_quota_failure` did NOT match, so it took the transient path
+(COOLING → after `_MAX_CONSECUTIVE_FAILURES` → terminal **FAILED**). FAILED has
+no recovery scan, so the job stayed dead even after the owner fixed auth.
+
+Fix 1 — new `_is_auth_failure(result)` (error_type `auth_expired` /
+`AuthenticationError` / … or message markers like "authentication failed",
+"not logged in", "401"). `_finalize_job_execution` now routes
+`_is_no_quota_failure(result) OR _is_auth_failure(result)` to
+`PAUSED_NO_QUOTA` — the "provider/credentials unusable" pause — so the readiness
+backstop (`_resume_eligible_no_quota_jobs`, 15min) revives it once auth works.
+Auth failures therefore NEVER reach terminal FAILED. (Conceptually
+`PAUSED_NO_QUOTA` now means "provider config OR credentials unusable"; the
+`error_message` carries the specific reason. The enum value is unchanged — no
+DB semantics change.)
+
+Fix 3 — new `_heal_unscheduled_active_jobs()`, run in the same 15min backstop
+gate. It finds ACTIVE scheduled/ongoing jobs with a NULL `next_run_time` (which
+`get_due_jobs`, `WHERE next_run_time <= now`, can never select → "active but
+never runs") and recomputes `next_run`. Belt-and-suspenders behind the
+reactivation fix in `job_service.update_job`. Repo query:
+`get_active_scheduled_jobs_missing_next_run`.
 
 ## 2026-06-01 — edge recovery backstop + long-running diagnostic (batch ②b)
 
