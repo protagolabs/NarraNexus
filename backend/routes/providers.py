@@ -114,6 +114,20 @@ def _get_user_id(request: Request) -> str:
     return uid
 
 
+async def _resume_agent_circuit_breakers(uid: str) -> None:
+    """Auto-resume the user's auth/quota-paused agents after they reconfigure
+    a provider (added/onboarded a key, connected a subscription, changed a
+    slot). Mirrors the ``schedule_user_no_quota_rearm`` edge-recovery already
+    fired on these paths. Best-effort — never fails the reconfigure."""
+    try:
+        from xyz_agent_context.agent_framework.agent_circuit_breaker import (
+            reset_for_owner,
+        )
+        await reset_for_owner(uid)
+    except Exception as e:  # noqa: BLE001 — recovery is best-effort
+        logger.warning(f"[providers] agent circuit-breaker resume failed for {uid}: {e}")
+
+
 # Card types that authenticate via a SHARED CLI credential file
 # (~/.claude/.credentials.json, ~/.codex/auth.json) staged from a single
 # staff `claude login` / `codex login`. The cloud image runs one `app`
@@ -268,6 +282,7 @@ async def add_provider(req: AddProviderRequest, request: Request):
             schedule_user_no_quota_rearm,
         )
         schedule_user_no_quota_rearm(uid)
+        await _resume_agent_circuit_breakers(uid)
 
         return {"success": True, "provider_ids": new_ids, "data": _config_to_response(config)}
     except ValueError as e:
@@ -322,6 +337,7 @@ async def onboard(req: OnboardRequest, request: Request):
         schedule_user_no_quota_rearm,
     )
     schedule_user_no_quota_rearm(uid)
+    await _resume_agent_circuit_breakers(uid)
 
     return {
         "success": True,
@@ -411,6 +427,7 @@ async def use_subscription(request: Request):
         schedule_user_no_quota_rearm,
     )
     schedule_user_no_quota_rearm(uid)
+    await _resume_agent_circuit_breakers(uid)
 
     service = await _get_service()
     config = await service.get_user_config(uid)
@@ -556,6 +573,7 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
             schedule_user_no_quota_rearm,
         )
         schedule_user_no_quota_rearm(uid)
+        await _resume_agent_circuit_breakers(uid)
 
         return {"success": True, "data": _config_to_response(config), "validation_errors": errors}
     except ValueError as e:

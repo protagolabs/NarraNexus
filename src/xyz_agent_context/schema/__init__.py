@@ -61,6 +61,15 @@ from .job_schema import (
     TriggerConfig,
 )
 
+# ===== Agent Circuit-Breaker Schema (real-time dialogue layer) =====
+from .agent_circuit_breaker_schema import (
+    CbStatus,
+    PausedReason,
+    ErrorCategory,
+    PAUSING_CATEGORIES,
+    AgentCircuitBreaker,
+)
+
 # ===== Inbox Schema (belongs to ChatModule) =====
 from .inbox_schema import (
     InboxMessageType,
@@ -288,6 +297,13 @@ __all__ = [
     "JobStatus",
     "JobModel",
     "TriggerConfig",
+
+    # Agent Circuit-Breaker Schema
+    "CbStatus",
+    "PausedReason",
+    "ErrorCategory",
+    "PAUSING_CATEGORIES",
+    "AgentCircuitBreaker",
 
     # Inbox Schema (belongs to ChatModule)
     "InboxMessageType",

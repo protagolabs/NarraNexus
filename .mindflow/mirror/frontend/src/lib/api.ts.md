@@ -4,6 +4,11 @@ last_verified: 2026-07-13
 stub: false
 ---
 
+## 2026-07-13 — Agent 实时层熔断器接入
+
+新增 `getAgentCircuitBreaker(agentId)` / `resetAgentCircuitBreaker(agentId)`，打 `/api/agents/{id}/circuit-breaker[/reset]`（mirror getBusFailures/retryBusFailure）。
+
+
 ## 2026-07-13 — channel set-active methods
 
 Added `set{Lark,Slack,Telegram,WeChat,Discord}Active(agentId, active)` → `POST /api/<ch>/set-active`, flipping a bound credential's active flag without a re-bind (used to activate bundle-imported inactive channels).

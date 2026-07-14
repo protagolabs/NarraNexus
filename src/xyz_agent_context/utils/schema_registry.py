@@ -437,6 +437,40 @@ _register(
     )
 )
 
+# 11b. instance_agent_circuit_breaker
+# Real-time-layer Agent circuit-breaker state (2026-07-13). Independent table
+# keyed by agent_id — NOT columns on `agents`. Records consecutive real-time
+# turn failures so a broken agent (dead key / exhausted balance) stops being
+# re-triggered. auto_migrate is additive; this lands as a fresh table.
+# (铁律 #14/#15: only FAILED turns accrue here; it gates SCHEDULING of new
+# turns, never caps or cancels a running agent_loop.)
+_register(
+    TableDef(
+        name="instance_agent_circuit_breaker",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("cb_status", "TEXT", "VARCHAR(32)", nullable=False, default="'active'"),
+            Column("consecutive_failure_count", "INTEGER", "INT", nullable=False, default="0"),
+            # The category the current failure streak belongs to (auth / quota
+            # / transient / business). A category change resets the streak, so
+            # "3 consecutive auth failures" cannot be diluted by a transient
+            # blip. NULL when there is no active streak.
+            Column("failure_category", "TEXT", "VARCHAR(32)"),
+            Column("cooldown_until", "TEXT", "DATETIME(6)"),
+            Column("paused_reason", "TEXT", "VARCHAR(32)"),
+            Column("paused_at", "TEXT", "DATETIME(6)"),
+            Column("last_error", "TEXT", "TEXT"),  # already redacted at write time
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("uk_agent_cb_agent_id", ["agent_id"], unique=True),
+            Index("idx_agent_cb_status", ["cb_status"]),
+        ],
+    )
+)
+
 # 12. instance_narrative_links
 _register(
     TableDef(

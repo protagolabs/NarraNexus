@@ -113,6 +113,18 @@ export interface BusFailuresResponse extends ApiResponse {
   failures: BusFailureItem[];
 }
 
+// Real-time-layer Agent circuit-breaker status (agents_circuit_breaker.py).
+export type CircuitBreakerStatus = 'active' | 'cooling' | 'paused';
+
+export interface AgentCircuitBreakerResponse extends ApiResponse {
+  agent_id: string;
+  cb_status: CircuitBreakerStatus;
+  paused_reason: 'auth' | 'quota' | null;
+  consecutive_failure_count: number;
+  cooldown_until: string | null;
+  last_error: string | null;
+}
+
 export interface NoticeItem {
   message_id: string;
   message_type: string;
