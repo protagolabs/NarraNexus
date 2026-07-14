@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-10
+last_verified: 2026-07-14
 stub: false
 ---
+
+## 2026-07-14 — [SYSPROMPT-BREAKDOWN] 诊断日志（system-prompt-growth 事故取证）
+
+`build_complete_system_prompt` 现在在 return 前打一条 INFO
+`[SYSPROMPT-BREAKDOWN] agent=… total=… | parts: security/temporal/narrative/modules/bootstrap=各字节 | narrative: nar_summary_chars/nar_dynamic_entries | top_modules: 最大 5 个模块指令`。
+纯诊断、不改行为。**动机**：观测到 system prompt 逐轮增长(app ~100k、dev ~115k 上限
+`MAX_SYSTEM_PROMPT_LENGTH`),逼近上限后历史被驱逐、agent(含原生 opus)停止调
+`send_message_to_user_directly`。此前每 Part 字节只在 `logger.debug`(生产 INFO 级看不到)。
+新增纯静态 helper `_log_system_prompt_breakdown`(可单测,见
+`tests/context_runtime/test_system_prompt_breakdown.py`)。narrative 的 `current_summary`
+字节 + `dynamic_summary` 条数是增长头号嫌疑,单独打出来量化。
 
 ## 2026-07-10 — 移除写死的假模型身份（改由 BasicInfoModule 动态填）
 
