@@ -321,6 +321,13 @@ class ContextRuntime:
         prompt_parts = []
         narrative_service = NarrativeService(self.agent_id)
 
+        # Per-Part byte accounting for the [SYSPROMPT-BREAKDOWN] diagnostic
+        # (system-prompt-growth incident, 2026-07). Populated as each Part is
+        # appended; emitted as one INFO line before return so every round's
+        # composition is greppable without a debug build.
+        part_sizes: Dict[str, int] = {}
+        narrative_meta: Dict[str, int] = {}
+
         # ========================================================================
         # Part -1: Security iron rules (FIRST — highest priority) — CLOUD ONLY.
         # Hard prohibition on reading anything outside the agent's own
@@ -334,6 +341,7 @@ class ContextRuntime:
         from xyz_agent_context.utils.deployment_mode import get_deployment_mode
         if get_deployment_mode() == "cloud":
             prompt_parts.append(SECURITY_IRON_RULES)
+            part_sizes["security"] = len(SECURITY_IRON_RULES)
 
         # ========================================================================
         # Part 0: User Temporal Context (v2 timezone protocol, 2026-04-21)
@@ -344,6 +352,7 @@ class ContextRuntime:
             temporal_block = await self._build_user_temporal_block(ctx_data.user_id)
             if temporal_block:
                 prompt_parts.append(temporal_block)
+                part_sizes["temporal"] = len(temporal_block)
                 logger.debug(f"        Added User Temporal Context: {len(temporal_block)} chars")
         except Exception as e:
             logger.warning(f"        Failed to build User Temporal Context: {e}")
@@ -355,6 +364,19 @@ class ContextRuntime:
             main_narrative = narrative_list[0]
             narrative_prompt = await narrative_service.combine_main_narrative_prompt(main_narrative)
             prompt_parts.append(narrative_prompt)
+            part_sizes["narrative"] = len(narrative_prompt)
+            # current_summary (LLM-regenerated each turn) and the dynamic_summary
+            # entry list are the prime suspects for per-turn prompt growth —
+            # surface both so the growth source is measurable per round.
+            try:
+                narrative_meta["nar_summary_chars"] = len(
+                    getattr(main_narrative.narrative_info, "current_summary", "") or ""
+                )
+                narrative_meta["nar_dynamic_entries"] = len(
+                    getattr(main_narrative, "dynamic_summary", []) or []
+                )
+            except Exception:  # noqa: BLE001 — diagnostics must never break a turn
+                pass
             logger.debug(f"        Added Narrative prompt: {len(narrative_prompt)} chars")
 
         # ========================================================================
@@ -363,6 +385,7 @@ class ContextRuntime:
         if module_instructions_list:
             module_prompt = await self._build_module_instructions_prompt(module_instructions_list)
             prompt_parts.append(module_prompt)
+            part_sizes["modules"] = len(module_prompt)
             logger.debug(f"        Added Module Instructions: {len(module_prompt)} chars")
 
         # ========================================================================
@@ -420,6 +443,7 @@ class ContextRuntime:
                     else:
                         prompt_parts.append(BOOTSTRAP_INJECTION_PROMPT)
                         ctx_data.bootstrap_active = True
+                        part_sizes["bootstrap"] = len(BOOTSTRAP_INJECTION_PROMPT)
                         logger.debug("        Added Bootstrap injection (file-read approach)")
         except Exception as e:
             logger.warning(f"        Failed to inject Bootstrap: {e}")
@@ -427,7 +451,90 @@ class ContextRuntime:
         # Combine all parts
         full_prompt = "\n\n".join(prompt_parts)
         logger.debug(f"      build_complete_system_prompt() completed: {len(full_prompt)} total chars")
+        self._log_system_prompt_breakdown(
+            self.agent_id, len(full_prompt), part_sizes, module_instructions_list, narrative_meta
+        )
+        self._maybe_dump_system_prompt(self.agent_id, full_prompt, part_sizes, module_instructions_list)
         return full_prompt.strip()
+
+    @staticmethod
+    def _maybe_dump_system_prompt(
+        agent_id: str,
+        full_prompt: str,
+        part_sizes: Dict[str, int],
+        module_instructions_list: List[ModuleInstructions],
+    ) -> None:
+        """TEMPORARY (debug/system-prompt-part-breakdown branch only): when
+        ``NARRA_SYSPROMPT_DUMP_DIR`` is set, write the full system prompt of
+        every round to a file so its exact content is inspectable while
+        chasing the system-prompt-growth incident (2026-07). Off unless the
+        env var is set — never runs in normal operation. Each dump is prefixed
+        with a per-Part + per-module size header so a directory of dumps can be
+        diffed round-to-round to see what grew. Failures never break a turn.
+        """
+        import os
+        dump_dir = os.environ.get("NARRA_SYSPROMPT_DUMP_DIR")
+        if not dump_dir:
+            return
+        try:
+            import time
+            os.makedirs(dump_dir, exist_ok=True)
+            stamp = f"{time.time_ns()}"
+            fname = os.path.join(dump_dir, f"{agent_id}_{len(full_prompt)}_{stamp}.txt")
+            header_parts = " ".join(f"{k}={v}" for k, v in sorted(part_sizes.items()))
+            header_mods = " ".join(
+                f"{mi.name}={len(mi.instruction or '')}"
+                for mi in sorted(module_instructions_list, key=lambda m: len(m.instruction or ''), reverse=True)
+            )
+            header = (
+                f"# agent={agent_id} total={len(full_prompt)}\n"
+                f"# parts: {header_parts}\n"
+                f"# modules: {header_mods}\n"
+                f"{'=' * 80}\n"
+            )
+            with open(fname, "w", encoding="utf-8") as f:
+                f.write(header + full_prompt)
+        except Exception as e:  # noqa: BLE001 — dump is diagnostic; never break a turn
+            logger.warning(f"[SYSPROMPT-DUMP] failed: {e}")
+
+    @staticmethod
+    def _log_system_prompt_breakdown(
+        agent_id: str,
+        total_chars: int,
+        part_sizes: Dict[str, int],
+        module_instructions_list: List[ModuleInstructions],
+        narrative_meta: Dict[str, int],
+    ) -> None:
+        """Emit one INFO line decomposing the system prompt into its Parts, the
+        five largest module-instruction contributors, and the Narrative's
+        growth-prone sub-fields (current_summary length, dynamic_summary entry
+        count).
+
+        Diagnostic for the system-prompt-growth incident (2026-07): the prompt
+        drifts toward the 115K ceiling (MAX_SYSTEM_PROMPT_LENGTH) and, once the
+        reply instruction is diluted / history is evicted, the agent stops
+        calling send_message_to_user_directly. Logging every round's
+        composition makes the growth source greppable in production without a
+        debug build. Pure/static so it is unit-testable in isolation.
+        """
+        parts_str = " ".join(
+            f"{name}={part_sizes.get(name, 0)}"
+            for name in ("security", "temporal", "narrative", "modules", "bootstrap")
+        )
+        # ALL module instruction sizes (desc) — not just the top few — so the
+        # per-turn grower (a module whose get_instructions embeds accumulating
+        # ctx_data) is identifiable by diffing this list across rounds.
+        module_sizes = sorted(
+            ((mi.name, len(mi.instruction or "")) for mi in module_instructions_list),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )
+        modules_str = " ".join(f"{name}={size}" for name, size in module_sizes)
+        nar_str = " ".join(f"{k}={v}" for k, v in narrative_meta.items()) or "n/a"
+        logger.info(
+            f"[SYSPROMPT-BREAKDOWN] agent={agent_id} total={total_chars} | "
+            f"parts: {parts_str} | narrative: {nar_str} | modules: {modules_str}"
+        )
 
     async def _build_user_temporal_block(self, user_id: Optional[str]) -> str:
         """
