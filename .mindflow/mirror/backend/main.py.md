@@ -1,6 +1,6 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
 
@@ -225,3 +225,7 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 直接改中间件注册顺序（比如把 CORSMiddleware 移到 auth_middleware 之后）会修复"CORS 先执行"的直觉期望，但如果同时删掉 `auth_middleware` 里的 OPTIONS 放行逻辑，结果是一样的——auth 先跑，preflight 被 401。两个地方必须同步考虑。
 
 在 `lifespan` 里 yield 之后报错（比如 `close_db_client` 抛出异常），uvicorn 会打印错误但不会阻止进程退出，这是正常的关闭行为，不是 bug。
+
+## 2026-07-13 — office-watch 路由
+
+注册了 office 实时预览的两个 router:`office_watch_router`(挂 `/api`,authed:`/office-watch/open`)和 `office_watch_public_router`(挂 `/api/public`,token 鉴权:`/office-watch-proxy/{token}/{port}/{path}`)。见 `backend/routes/office_watch_proxy.py.md`。

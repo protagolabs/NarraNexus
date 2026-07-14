@@ -378,7 +378,8 @@
       "dropFiles": "Déposez les fichiers ici",
       "dragFiles": "Glissez les fichiers ici ou",
       "browse": "parcourir",
-      "empty": "L'espace de travail est vide"
+      "empty": "L'espace de travail est vide",
+      "kindOffice": "Document Office (en direct)"
     }
   },
   "dashboard": {
@@ -1755,6 +1756,7 @@
       "env": "Env",
       "enable": "Activer",
       "disable": "Désactiver",
+      "builtin": "Intégré",
       "remove": "Supprimer"
     },
     "install": {
@@ -1821,5 +1823,14 @@
         "validation": "Après l'ajout, le point de statut valide la connexion — Échec signifie que l'URL était inaccessible ou n'était pas un point de terminaison SSE valide."
       }
     }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "Fermer l'aperçu",
+    "desktopUnsupported": "L'aperçu en direct n'est pas encore disponible dans l'application de bureau.",
+    "desktopHint": "Ouvrez NarraNexus dans un navigateur pour voir l'aperçu en direct du document.",
+    "loading": "Ouverture de l'aperçu en direct…",
+    "loadError": "Impossible d'ouvrir l'aperçu en direct.",
+    "livePreview": "Aperçu en direct"
   }
 }

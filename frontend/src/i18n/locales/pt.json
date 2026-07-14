@@ -378,7 +378,8 @@
       "dropFiles": "Solte os arquivos aqui",
       "dragFiles": "Arraste os arquivos aqui ou",
       "browse": "navegar",
-      "empty": "O espaço de trabalho está vazio"
+      "empty": "O espaço de trabalho está vazio",
+      "kindOffice": "Documento do Office (ao vivo)"
     }
   },
   "dashboard": {
@@ -1755,6 +1756,7 @@
       "env": "Env",
       "enable": "Ativar",
       "disable": "Desativar",
+      "builtin": "Integrado",
       "remove": "Remover"
     },
     "install": {
@@ -1821,5 +1823,14 @@
         "validation": "Após adicionar, o indicador de status valida a conexão — Com falha significa que a URL estava inacessível ou não era um endpoint SSE válido."
       }
     }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "Fechar pré-visualização",
+    "desktopUnsupported": "A pré-visualização ao vivo ainda não está disponível no aplicativo de desktop.",
+    "desktopHint": "Abra o NarraNexus em um navegador para ver a pré-visualização ao vivo do documento.",
+    "loading": "Abrindo a pré-visualização ao vivo…",
+    "loadError": "Não foi possível abrir a pré-visualização ao vivo.",
+    "livePreview": "Pré-visualização ao vivo"
   }
 }

@@ -51,6 +51,7 @@ def tmp_workspace_root(tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     from xyz_agent_context.settings import settings as core_settings
+
     monkeypatch.setattr(core_settings, "base_working_path", str(ws))
     monkeypatch.setenv("HOME", str(fake_home))
     return ws
@@ -59,11 +60,14 @@ def tmp_workspace_root(tmp_path, monkeypatch):
 @pytest.fixture
 async def db_client(tmp_db_path, monkeypatch):
     from xyz_agent_context.settings import settings as core_settings
+
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
     from xyz_agent_context.utils import db_factory
+
     db_factory._clients_by_loop.clear()
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.utils.schema_registry import auto_migrate
+
     db = await get_db_client()
     await auto_migrate(db._backend)
     yield db
@@ -72,20 +76,32 @@ async def db_client(tmp_db_path, monkeypatch):
 
 async def _seed_agent(db, agent_id, agent_name, user_id="test_user"):
     if not await db.get_one("users", {"user_id": user_id}):
-        await db.insert("users", {
-            "user_id": user_id, "user_type": "local", "role": "user",
-            "display_name": "Test User",
-        })
-    await db.insert("agents", {
-        "agent_id": agent_id, "agent_name": agent_name, "created_by": user_id,
-        "agent_description": "d", "agent_type": "default",
-    })
+        await db.insert(
+            "users",
+            {
+                "user_id": user_id,
+                "user_type": "local",
+                "role": "user",
+                "display_name": "Test User",
+            },
+        )
+    await db.insert(
+        "agents",
+        {
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "created_by": user_id,
+            "agent_description": "d",
+            "agent_type": "default",
+        },
+    )
 
 
 def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
     """Create skills/<skill_dir>/ with a NO-frontmatter SKILL.md (like arena),
     a credentials.json (a sensitive file), and a .skill_meta.json with env_config."""
     from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+
     skills = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     skills.mkdir(parents=True, exist_ok=True)
     # No `---` frontmatter → install_skill can't derive a name from it.
@@ -98,12 +114,14 @@ def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: s
         encoding="utf-8",
     )
     (skills / ".skill_meta.json").write_text(
-        json.dumps({
-            "source_type": "zip",
-            "requires": {"env": ["ARENA_API_KEY"], "bins": []},
-            "env_config": {"ARENA_API_KEY": base64.b64encode(b"SECRET_ARENA_KEY").decode()},
-            "study_result": "learned arena",
-        }),
+        json.dumps(
+            {
+                "source_type": "zip",
+                "requires": {"env": ["ARENA_API_KEY"], "bins": []},
+                "env_config": {"ARENA_API_KEY": base64.b64encode(b"SECRET_ARENA_KEY").decode()},
+                "study_result": "learned arena",
+            }
+        ),
         encoding="utf-8",
     )
     return skills
@@ -124,10 +142,14 @@ async def test_full_copy_skill_lands_in_skill_dir_with_credentials(db_client, tm
     bundle = tmp_path / "b.nxbundle"
     selection = ExportSelection(
         agent_ids=[aid],
-        skill_methods=[{
-            "agent_id": aid, "skill_name": "arena", "skill_dir": "arena",
-            "install_method": "full_copy",
-        }],
+        skill_methods=[
+            {
+                "agent_id": aid,
+                "skill_name": "arena",
+                "skill_dir": "arena",
+                "install_method": "full_copy",
+            }
+        ],
         include_skill_secrets=True,  # carry the credential to assert it lands right
     )
     await build_bundle(uid, selection, bundle)
@@ -181,17 +203,21 @@ async def test_dir_fix_holds_without_secrets(db_client, tmp_workspace_root, tmp_
     _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
 
     bundle = tmp_path / "b.nxbundle"
-    await build_bundle(uid, ExportSelection(
-        agent_ids=[aid],
-        skill_methods=[{"agent_id": aid, "skill_name": "arena", "skill_dir": "arena",
-                        "install_method": "full_copy"}],
-        # include_skill_secrets defaults False → scrub
-    ), bundle)
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena", "skill_dir": "arena", "install_method": "full_copy"}
+            ],
+            # include_skill_secrets defaults False → scrub
+        ),
+        bundle,
+    )
     pre = await preflight(bundle, uid)
     await confirm(pre["preflight_token"], uid)
 
-    new_aid = next(a["agent_id"] for a in await db_client.get("agents", {"created_by": uid})
-                   if a["agent_id"] != aid)
+    new_aid = next(a["agent_id"] for a in await db_client.get("agents", {"created_by": uid}) if a["agent_id"] != aid)
     skills_root = agent_workspace_path(new_aid, uid, base=str(tmp_workspace_root)) / "skills"
     assert sorted(p.name for p in skills_root.iterdir() if p.is_dir()) == ["arena"]
     # secret scrubbed → no credential file, env_config blanked
@@ -210,11 +236,16 @@ async def test_skill_secrets_scrubbed_on_export_by_default(db_client, tmp_worksp
     _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
 
     bundle = tmp_path / "b.nxbundle"
-    await build_bundle(uid, ExportSelection(
-        agent_ids=[aid],
-        skill_methods=[{"agent_id": aid, "skill_name": "arena", "skill_dir": "arena",
-                        "install_method": "full_copy"}],
-    ), bundle)
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena", "skill_dir": "arena", "install_method": "full_copy"}
+            ],
+        ),
+        bundle,
+    )
 
     # full_copy archive: no credentials.json (sensitive filter)
     names = _full_copy_names(bundle, aid, "arena")
@@ -234,15 +265,71 @@ async def test_skill_secrets_kept_when_opted_in(db_client, tmp_workspace_root, t
     _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
 
     bundle = tmp_path / "b.nxbundle"
-    await build_bundle(uid, ExportSelection(
-        agent_ids=[aid],
-        skill_methods=[{"agent_id": aid, "skill_name": "arena", "skill_dir": "arena",
-                        "install_method": "full_copy"}],
-        include_skill_secrets=True,
-    ), bundle)
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena", "skill_dir": "arena", "install_method": "full_copy"}
+            ],
+            include_skill_secrets=True,
+        ),
+        bundle,
+    )
 
     names = _full_copy_names(bundle, aid, "arena")
     assert "credentials.json" in names
     m = _manifest(bundle)
     assert m.get("contains_skill_secrets") is True
     assert "skill_secrets" not in m.get("stripped", [])
+
+
+def _seed_builtin_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
+    """Create a built-in skill dir (`.skill_meta.json` builtin: true) on disk."""
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+
+    skills = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
+    skills.mkdir(parents=True, exist_ok=True)
+    (skills / "SKILL.md").write_text(f"---\nname: {skill_dir}\n---\n", encoding="utf-8")
+    (skills / ".skill_meta.json").write_text(json.dumps({"source_type": "builtin", "builtin": True}), encoding="utf-8")
+    return skills
+
+
+async def test_builtin_skill_forced_to_builtin_method_despite_full_copy_request(
+    db_client, tmp_workspace_root, tmp_path
+):
+    """A client asking for full_copy/zip on a built-in must NOT ship it as user
+    data. The server-side guard detects the built-in on disk and downgrades it
+    to the payload-less `builtin` method: the manifest records install_method
+    'builtin' with no archive_ref, and the bundle carries no skill archive.
+    """
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+
+    aid, uid = "agent_builtin01", "test_user"
+    await _seed_agent(db_client, aid, "BuiltinAgent", uid)
+    _seed_builtin_skill_on_disk(tmp_workspace_root, aid, uid, "officecli")
+
+    bundle = tmp_path / "b.nxbundle"
+    # Client (bypassed frontend / bug) explicitly requests full_copy for a builtin.
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "officecli", "skill_dir": "officecli", "install_method": "full_copy"}
+            ],
+            include_skill_secrets=True,
+        ),
+        bundle,
+    )
+
+    m = _manifest(bundle)
+    entries = [s for s in m.get("skills", []) if s.get("name") == "officecli"]
+    assert len(entries) == 1, f"expected one officecli entry, got {entries}"
+    entry = entries[0]
+    # Guard forced it onto the builtin path — no user-data payload.
+    assert entry.get("install_method") == "builtin"
+    assert "archive_ref" not in entry
+    # And no skill archive for it travelled inside the bundle.
+    with zipfile.ZipFile(bundle) as z:
+        assert not any(n.startswith("skills/") and "officecli" in n and n.endswith(".zip") for n in z.namelist())

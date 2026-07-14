@@ -37,6 +37,7 @@ from .security import (
     is_volume_path,
     scan_zip_for_sensitive,
 )
+from .skill_secrets import dir_is_builtin as _dir_is_builtin
 
 
 BUNDLE_FORMAT_VERSION = "1.1"
@@ -48,6 +49,7 @@ def _current_app_version() -> str:
     literal). Sourced from the package __version__ (= pyproject [project].version)."""
     try:
         from xyz_agent_context import __version__
+
         return __version__
     except Exception:  # noqa: BLE001 — never let version lookup break an export
         return "0.0.0+unknown"
@@ -328,8 +330,12 @@ async def build_bundle(
                     if inst and inst.get("agent_id") == aid:
                         awareness_rows.append(r)
             (agent_dir / "awareness.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id, "instance_awareness") for r in awareness_rows],
-                           indent=2, ensure_ascii=False, default=str),
+                json.dumps(
+                    [_scrub_user_id(dict(r), user_id, "instance_awareness") for r in awareness_rows],
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str,
+                ),
                 encoding="utf-8",
             )
 
@@ -338,11 +344,7 @@ async def build_bundle(
             narratives_dir = agent_dir / "narratives"
             narratives_dir.mkdir(parents=True, exist_ok=True)
             n_rows = await db.get("narratives", {"agent_id": aid})
-            allowed_nars = (
-                selection.narrative_selection.get(aid)
-                if selection.narrative_selection
-                else None
-            )
+            allowed_nars = selection.narrative_selection.get(aid) if selection.narrative_selection else None
             for n in n_rows:
                 if allowed_nars is not None and n["narrative_id"] not in allowed_nars:
                     continue
@@ -354,14 +356,14 @@ async def build_bundle(
                 # exact list and rationale. The narrative skeleton
                 # remains so jobs / instance_narrative_links still
                 # resolve on import; only chat content is dropped.
-                n_for_export = (
-                    n
-                    if selection.include_chat_history
-                    else _scrub_narrative_chat_content(n)
-                )
+                n_for_export = n if selection.include_chat_history else _scrub_narrative_chat_content(n)
                 (ndir / "narrative.json").write_text(
-                    json.dumps(_scrub_user_id(dict(n_for_export), user_id, "narratives"),
-                               indent=2, ensure_ascii=False, default=str),
+                    json.dumps(
+                        _scrub_user_id(dict(n_for_export), user_id, "narratives"),
+                        indent=2,
+                        ensure_ascii=False,
+                        default=str,
+                    ),
                     encoding="utf-8",
                 )
                 if selection.include_chat_history:
@@ -407,8 +409,9 @@ async def build_bundle(
                 kdir = instances_dir / klass
                 kdir.mkdir(parents=True, exist_ok=True)
                 (kdir / f"{r['instance_id']}.json").write_text(
-                    json.dumps(_scrub_user_id(dict(r), user_id, "module_instances"),
-                               indent=2, ensure_ascii=False, default=str),
+                    json.dumps(
+                        _scrub_user_id(dict(r), user_id, "module_instances"), indent=2, ensure_ascii=False, default=str
+                    ),
                     encoding="utf-8",
                 )
 
@@ -418,6 +421,7 @@ async def build_bundle(
             # has always carried (content + closure/selection logic preserved;
             # only the underlying storage moved).
             from xyz_agent_context.repository import SocialNetworkRepository
+
             social_repo = SocialNetworkRepository(db)
             social_entities_for_agent = []
             for iid in agent_instance_ids:
@@ -434,16 +438,22 @@ async def build_bundle(
                         continue
                     social_entities_for_agent.append(_entity_to_flat(e))
             (agent_dir / "social_entities.json").write_text(
-                json.dumps([_scrub_user_id(r, user_id, "social_entities") for r in social_entities_for_agent],
-                           indent=2, ensure_ascii=False, default=str),
+                json.dumps(
+                    [_scrub_user_id(r, user_id, "social_entities") for r in social_entities_for_agent],
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str,
+                ),
                 encoding="utf-8",
             )
 
             # agent_messages
             msg_rows = await db.get("agent_messages", {"agent_id": aid}) if selection.include_chat_history else []
             (agent_dir / "agent_messages.jsonl").write_text(
-                "\n".join(json.dumps(_scrub_user_id(dict(r), user_id, "agent_messages"),
-                                     ensure_ascii=False, default=str) for r in msg_rows),
+                "\n".join(
+                    json.dumps(_scrub_user_id(dict(r), user_id, "agent_messages"), ensure_ascii=False, default=str)
+                    for r in msg_rows
+                ),
                 encoding="utf-8",
             )
 
@@ -453,10 +463,7 @@ async def build_bundle(
             # narrative that doesn't exist in the bundle, leaving a
             # dangling FK on import).
             # P7: also honor explicit per-agent job_selection allowlist.
-            allowed_jobs = (
-                set(selection.job_selection.get(aid, []))
-                if selection.job_selection else None
-            )
+            allowed_jobs = set(selection.job_selection.get(aid, [])) if selection.job_selection else None
             job_rows_raw = await db.get("instance_jobs", {"agent_id": aid})
             kept_jobs = []
             dropped_orphan_jobs = 0
@@ -476,8 +483,12 @@ async def build_bundle(
                     "narrative was not selected (auto-cascade)"
                 )
             (agent_dir / "jobs.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id, "instance_jobs") for r in kept_jobs],
-                           indent=2, ensure_ascii=False, default=str),
+                json.dumps(
+                    [_scrub_user_id(dict(r), user_id, "instance_jobs") for r in kept_jobs],
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str,
+                ),
                 encoding="utf-8",
             )
 
@@ -486,8 +497,12 @@ async def build_bundle(
             for iid in agent_instance_ids:
                 nl_rows.extend(await db.get("instance_narrative_links", {"instance_id": iid}))
             (agent_dir / "instance_narrative_links.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id, "instance_narrative_links") for r in nl_rows],
-                           indent=2, ensure_ascii=False, default=str),
+                json.dumps(
+                    [_scrub_user_id(dict(r), user_id, "instance_narrative_links") for r in nl_rows],
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str,
+                ),
                 encoding="utf-8",
             )
 
@@ -503,9 +518,7 @@ async def build_bundle(
                     rows = await db.get(cred_table, {"agent_id": aid})
                     if not rows:
                         continue
-                    cred_by_table[cred_table] = [
-                        _scrub_user_id(dict(r), user_id, cred_table) for r in rows
-                    ]
+                    cred_by_table[cred_table] = [_scrub_user_id(dict(r), user_id, cred_table) for r in rows]
                     channel_cred_count += len(rows)
                 (agent_dir / "channel_credentials.json").write_text(
                     json.dumps(cred_by_table, indent=2, ensure_ascii=False, default=str),
@@ -556,8 +569,12 @@ async def build_bundle(
                 else:
                     mem_rows = []
                 (agent_dir / f"{memory_table}.json").write_text(
-                    json.dumps([_scrub_user_id(dict(r), user_id, memory_table) for r in mem_rows],
-                               indent=2, ensure_ascii=False, default=str),
+                    json.dumps(
+                        [_scrub_user_id(dict(r), user_id, memory_table) for r in mem_rows],
+                        indent=2,
+                        ensure_ascii=False,
+                        default=str,
+                    ),
                     encoding="utf-8",
                 )
 
@@ -569,14 +586,16 @@ async def build_bundle(
             if selection.include_chat_history:
                 mrm_rows = []
                 for nrec in n_rows:
-                    mrm_rows.extend(
-                        await db.get("module_report_memory", {"narrative_id": nrec["narrative_id"]})
-                    )
+                    mrm_rows.extend(await db.get("module_report_memory", {"narrative_id": nrec["narrative_id"]}))
             else:
                 mrm_rows = []
             (agent_dir / "module_report_memory.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id, "module_report_memory") for r in mrm_rows],
-                           indent=2, ensure_ascii=False, default=str),
+                json.dumps(
+                    [_scrub_user_id(dict(r), user_id, "module_report_memory") for r in mrm_rows],
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str,
+                ),
                 encoding="utf-8",
             )
 
@@ -590,11 +609,11 @@ async def build_bundle(
             # artifact_selection semantics: None = include all (matches social /
             # narrative defaults); per-agent allowlist filters by artifact_id.
             allowed_artifacts = (
-                set(selection.artifact_selection.get(aid, []))
-                if selection.artifact_selection is not None else None
+                set(selection.artifact_selection.get(aid, [])) if selection.artifact_selection is not None else None
             )
             art_rows_raw = await db.get("instance_artifacts", {"agent_id": aid})
             from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
             ws_prefix = f"{agent_workspace_relpath(aid, user_id)}/"
             legacy_flat_prefix = f"{aid}_{user_id}/"
             legacy_ws_prefix = f"{aid}_user_{user_id}/"
@@ -612,18 +631,17 @@ async def build_bundle(
                 raw = dict(r)
                 fp = raw.get("file_path") or ""
                 if fp.startswith(ws_prefix):
-                    raw["file_path"] = fp[len(ws_prefix):]
+                    raw["file_path"] = fp[len(ws_prefix) :]
                 elif fp.startswith(legacy_flat_prefix):
-                    raw["file_path"] = fp[len(legacy_flat_prefix):]
+                    raw["file_path"] = fp[len(legacy_flat_prefix) :]
                 elif fp.startswith(legacy_ws_prefix):
-                    raw["file_path"] = fp[len(legacy_ws_prefix):]
+                    raw["file_path"] = fp[len(legacy_ws_prefix) :]
                 elif fp:
                     # Out-of-workspace pointer — should never happen under the
                     # pointer model, but if it does we keep the value verbatim
                     # and warn so the importer (and the user) can investigate.
                     warnings.append(
-                        f"artifact {r.get('artifact_id')}: file_path outside agent "
-                        "workspace, exported verbatim"
+                        f"artifact {r.get('artifact_id')}: file_path outside agent workspace, exported verbatim"
                     )
                 rec = _scrub_user_id(raw, user_id, "instance_artifacts")
                 artifact_rows_out.append(rec)
@@ -634,20 +652,24 @@ async def build_bundle(
 
             # workspace tar.gz
             ws_path = await _pack_workspace(
-                aid, user_id, agent_dir,
+                aid,
+                user_id,
+                agent_dir,
                 excludes=selection.workspace_excludes.get(aid, []),
                 scrub_skill_secrets=not selection.include_skill_secrets,
             )
-            agents_summary.append({
-                "agent_id": aid,
-                "agent_name": agent_row["agent_name"],
-                "narratives": len(n_rows),
-                "instances": len(agent_instance_ids),
-                "social_entities": len(social_entities_for_agent),
-                "artifacts": len(artifact_rows_out),
-                "workspace_size_bytes": ws_path.stat().st_size if ws_path else 0,
-                "workspace_path": "workspace.tar.gz" if ws_path else None,
-            })
+            agents_summary.append(
+                {
+                    "agent_id": aid,
+                    "agent_name": agent_row["agent_name"],
+                    "narratives": len(n_rows),
+                    "instances": len(agent_instance_ids),
+                    "social_entities": len(social_entities_for_agent),
+                    "artifacts": len(artifact_rows_out),
+                    "workspace_size_bytes": ws_path.stat().st_size if ws_path else 0,
+                    "workspace_path": "workspace.tar.gz" if ws_path else None,
+                }
+            )
 
         # ---- skills (per-(agent, skill) export) ----
         skills_dir = tmpdir / "skills"
@@ -660,7 +682,7 @@ async def build_bundle(
         # point to it. Full-copy is always per-agent (different .skill_meta).
         copied_zip_ref: Dict[str, str] = {}  # skill_name → archive_ref already copied
 
-        for cfg in (selection.skill_methods or []):
+        for cfg in selection.skill_methods or []:
             agent_id = cfg.get("agent_id")
             skill_name = cfg.get("skill_name")
             # `skill_dir` is the filesystem-unique dir name within the agent's
@@ -670,10 +692,23 @@ async def build_bundle(
             skill_dir = cfg.get("skill_dir") or skill_name
             method = cfg.get("install_method")
             if not agent_id or agent_id not in closure_set:
-                warnings.append(
-                    f"skill {skill_name}: agent {agent_id} not in closure, skipping"
-                )
+                warnings.append(f"skill {skill_name}: agent {agent_id} not in closure, skipping")
                 continue
+            # Server-side built-in guard. The workspace-tar path already strips
+            # built-in skills via `_builtin_skill_relpaths`, but this explicit
+            # skill_methods path is driven by the client's `install_method`. A
+            # bypassed/buggy frontend could request `zip`/`full_copy` for a
+            # built-in and ship it as user data inside `archive_ref`. Built-ins
+            # ship with the app and re-materialize on the target, so we detect
+            # them on disk here and force them onto the `builtin` (no-payload)
+            # path regardless of what the client asked for.
+            if method in ("zip", "full_copy"):
+                on_disk = await _find_skill_dir({agent_id}, user_id, skill_name, skill_dir)
+                if on_disk and _dir_is_builtin(on_disk):
+                    warnings.append(
+                        f"skill {skill_name} on {agent_id}: built-in, forced to 'builtin' method (not exported as user data)"
+                    )
+                    method = "builtin"
             entry: Dict[str, Any] = {
                 "agent_id": agent_id,
                 "name": skill_name,
@@ -727,7 +762,9 @@ async def build_bundle(
                 per_agent_dir.mkdir(parents=True, exist_ok=True)
                 tgt_zip = per_agent_dir / f"{skill_dir}-full.zip"
                 await asyncio.to_thread(
-                    _zip_dir, src_dir, tgt_zip,
+                    _zip_dir,
+                    src_dir,
+                    tgt_zip,
                     not selection.include_skill_secrets,
                 )
                 entry["archive_ref"] = f"skills/{agent_id}/{skill_dir}-full.zip"
@@ -747,9 +784,7 @@ async def build_bundle(
                 # before we ship a bundle that contains user secrets.
                 raise SensitiveZipDetected(zip_secrets_warnings)
             for w in zip_secrets_warnings:
-                warnings.append(
-                    f"sensitive_files_in_zip: {w['skill']} -> {','.join(w['hits'][:5])}"
-                )
+                warnings.append(f"sensitive_files_in_zip: {w['skill']} -> {','.join(w['hits'][:5])}")
 
         # ---- README.md (Bundle Notes / team intro) ----
         if selection.team_intro_md.strip():
@@ -774,17 +809,19 @@ async def build_bundle(
             for r in rows:
                 if r.get("mcp_id") not in chosen_ids:
                     continue
-                mcp_rows.append({
-                    "mcp_id": r.get("mcp_id"),
-                    "agent_id": aid,
-                    "name": r["name"],
-                    "url": r["url"],
-                    "description": r.get("description"),
-                    "is_enabled": int(r.get("is_enabled") or 0),
-                    # metadata may contain non-secret hints (display name, version);
-                    # we ship it as-is. Use _scrub_user_id only via string columns.
-                    "metadata": r.get("metadata"),
-                })
+                mcp_rows.append(
+                    {
+                        "mcp_id": r.get("mcp_id"),
+                        "agent_id": aid,
+                        "name": r["name"],
+                        "url": r["url"],
+                        "description": r.get("description"),
+                        "is_enabled": int(r.get("is_enabled") or 0),
+                        # metadata may contain non-secret hints (display name, version);
+                        # we ship it as-is. Use _scrub_user_id only via string columns.
+                        "metadata": r.get("metadata"),
+                    }
+                )
         (tmpdir / "mcp_hints.json").write_text(
             json.dumps(mcp_rows, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
         )
@@ -817,9 +854,7 @@ async def build_bundle(
         )
         # User-provided allowlist (channel_ids). None = include all.
         channel_allowlist: Optional[Set[str]] = (
-            set(selection.bus_channel_selection)
-            if selection.bus_channel_selection is not None
-            else None
+            set(selection.bus_channel_selection) if selection.bus_channel_selection is not None else None
         )
         kept_channel_ids: Set[str] = set()
         for ch in owned_chs:
@@ -843,12 +878,17 @@ async def build_bundle(
             if row:
                 bus_agent_registry.append(_scrub_user_id(dict(row), user_id, "bus_agent_registry"))
         (tmpdir / "bus.json").write_text(
-            json.dumps({
-                "channels": bus_channels,
-                "members": bus_channel_members,
-                "messages": bus_messages,
-                "registry": bus_agent_registry,
-            }, indent=2, ensure_ascii=False, default=str),
+            json.dumps(
+                {
+                    "channels": bus_channels,
+                    "members": bus_channel_members,
+                    "messages": bus_messages,
+                    "registry": bus_agent_registry,
+                },
+                indent=2,
+                ensure_ascii=False,
+                default=str,
+            ),
             encoding="utf-8",
         )
 
@@ -922,9 +962,7 @@ async def build_bundle(
         # Compute integrity sha256 over all non-manifest files (sorted) — heavy I/O,
         # offloaded to a worker thread so we don't block the event loop while
         # hashing large workspaces.
-        manifest["integrity_sha256"] = await asyncio.to_thread(
-            _compute_integrity_sha256, tmpdir
-        )
+        manifest["integrity_sha256"] = await asyncio.to_thread(_compute_integrity_sha256, tmpdir)
 
         (tmpdir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False, default=str),
@@ -982,6 +1020,7 @@ def _scrub_user_id(row: dict, user_id: str, table: Optional[str] = None) -> dict
     leave them untouched.
     """
     from xyz_agent_context.bundle.id_field_map import STRUCTURED_ID_FIELDS
+
     id_cols: set = set()
     if table:
         id_cols = set(STRUCTURED_ID_FIELDS.get(table, {}).keys())
@@ -1036,12 +1075,14 @@ async def _pack_workspace(
     # comes from attachment_storage.get_workspace_path() and step_3_agent_loop.py.
     # Legacy `_user_<user_id>` infix kept as fallback for old install state.
     from xyz_agent_context.settings import settings as core_settings
+
     base = Path(core_settings.base_working_path)
     from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
     candidates = [
-        base / agent_workspace_relpath(agent_id, user_id),   # canonical (current layout)
-        base / f"{agent_id}_{user_id}",            # legacy flat (pre-nested migration)
-        base / f"{agent_id}_user_{user_id}",       # legacy _user_ infix
+        base / agent_workspace_relpath(agent_id, user_id),  # canonical (current layout)
+        base / f"{agent_id}_{user_id}",  # legacy flat (pre-nested migration)
+        base / f"{agent_id}_user_{user_id}",  # legacy _user_ infix
     ]
     src = next((c for c in candidates if c.is_dir()), None)
     if not src:
@@ -1050,14 +1091,32 @@ async def _pack_workspace(
     out = agent_dir / "workspace.tar.gz"
     excl_set = set(excludes or [])
 
-    return await asyncio.to_thread(
-        _pack_workspace_sync, src, out, excl_set, user_id, scrub_skill_secrets
-    )
+    return await asyncio.to_thread(_pack_workspace_sync, src, out, excl_set, user_id, scrub_skill_secrets)
 
 
-def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "",
-                         scrub_skill_secrets: bool = False) -> Path:
+def _builtin_skill_relpaths(src: Path) -> set:
+    """Return workspace-relative roots of built-in skill dirs under `skills/`.
+
+    A skill dir is built-in when its `.skill_meta.json` has `builtin: true`.
+    These ship with the app and are excluded from workspace exports.
+    """
+    roots: set = set()
+    skills_dir = src / "skills"
+    if not skills_dir.is_dir():
+        return roots
+    for d in skills_dir.iterdir():
+        if not d.is_dir() or d.name.startswith("."):
+            continue
+        if _dir_is_builtin(d):
+            roots.add(f"skills/{d.name}")
+    return roots
+
+
+def _pack_workspace_sync(
+    src: Path, out: Path, excl_set: set, user_id: str = "", scrub_skill_secrets: bool = False
+) -> Path:
     from xyz_agent_context.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
+
     text_extensions = {".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".csv", ".log"}
     placeholder = "<original_owner>"
     # Memory cap on per-file user_id rewrite. Files larger than this are
@@ -1065,6 +1124,13 @@ def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "",
     # rewrite still covers awareness markdown / notes / chat logs but skips
     # giant log files / dumps that would balloon RAM during export.
     text_rewrite_max_bytes = 5 * 1024 * 1024
+
+    # Built-in skills ship with the app and are re-materialized on the target;
+    # they must not travel inside the exported workspace tar as user data.
+    builtin_skill_roots = _builtin_skill_relpaths(src)
+
+    def _is_builtin_skill_path(name: str) -> bool:
+        return any(name == root or name.startswith(root + "/") for root in builtin_skill_roots)
 
     def filter_func(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
         name = tarinfo.name
@@ -1075,6 +1141,9 @@ def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "",
             return None
         # user explicit excludes
         if name in excl_set:
+            return None
+        # built-in skills (shipped with the app, not user data)
+        if _is_builtin_skill_path(name):
             return None
         # sensitive default-skip
         if is_sensitive_path(name):
@@ -1094,6 +1163,8 @@ def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "",
                     rel_to_src = full.relative_to(src)
                     rel_str = str(rel_to_src).replace("\\", "/")
                     if rel_str in excl_set:
+                        continue
+                    if _is_builtin_skill_path(rel_str):
                         continue
                     if is_sensitive_path(rel_str) or is_volume_path(rel_str):
                         continue
@@ -1145,14 +1216,16 @@ async def _find_skill_dir(
     (frontmatter, can duplicate). Falls back to skill_name when callers
     don't yet pass skill_dir (legacy / pre-fix-for-duplicate-name)."""
     from xyz_agent_context.settings import settings as core_settings
+
     base = Path(core_settings.base_working_path)
     dir_name = skill_dir or skill_name
     for aid in agent_ids:
         from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
         candidates = [
-            base / agent_workspace_relpath(aid, user_id) / "skills" / dir_name,   # canonical (current layout)
-            base / f"{aid}_{user_id}" / "skills" / dir_name,              # legacy flat
-            base / f"{aid}_user_{user_id}" / "skills" / dir_name,         # legacy _user_ infix
+            base / agent_workspace_relpath(aid, user_id) / "skills" / dir_name,  # canonical (current layout)
+            base / f"{aid}_{user_id}" / "skills" / dir_name,  # legacy flat
+            base / f"{aid}_user_{user_id}" / "skills" / dir_name,  # legacy _user_ infix
         ]
         for c in candidates:
             if c.is_dir():
@@ -1169,6 +1242,7 @@ def _zip_dir(src: Path, dst: Path, scrub_secrets: bool = False) -> None:
     ``env_config`` values inside ``.skill_meta.json``, so a full_copy skill does
     not leak secrets when the exporter didn't opt in."""
     from xyz_agent_context.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
+
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, _, files in os.walk(src):
             for fn in files:
@@ -1188,9 +1262,7 @@ def _zip_dir(src: Path, dst: Path, scrub_secrets: bool = False) -> None:
 def _compute_integrity_sha256(tmpdir: Path) -> str:
     """Walk tmpdir, sha256 each non-manifest file, fold into a single digest.
     Sync — caller wraps in asyncio.to_thread()."""
-    all_paths = sorted(
-        [p for p in tmpdir.rglob("*") if p.is_file() and p.name != "manifest.json"]
-    )
+    all_paths = sorted([p for p in tmpdir.rglob("*") if p.is_file() and p.name != "manifest.json"])
     h = io.BytesIO()
     for p in all_paths:
         h.write(str(p.relative_to(tmpdir)).encode("utf-8"))

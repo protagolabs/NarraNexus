@@ -385,7 +385,8 @@
       "dropFiles": "Drop files here",
       "dragFiles": "Drag files here or",
       "browse": "browse",
-      "empty": "Workspace is empty"
+      "empty": "Workspace is empty",
+      "kindOffice": "Office document (live)"
     }
   },
   "dashboard": {
@@ -1868,6 +1869,7 @@
       "env": "Env",
       "enable": "Enable",
       "disable": "Disable",
+      "builtin": "Built-in",
       "remove": "Remove"
     },
     "install": {
@@ -1951,5 +1953,14 @@
       "error": "Something broke",
       "other": "Other"
     }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "Close preview",
+    "desktopUnsupported": "Live preview is not yet available in the desktop app.",
+    "desktopHint": "Open NarraNexus in a browser to see the live document preview.",
+    "loading": "Opening live preview…",
+    "loadError": "Could not open the live preview.",
+    "livePreview": "Live preview"
   }
 }

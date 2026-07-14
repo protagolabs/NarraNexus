@@ -378,7 +378,8 @@
       "dropFiles": "ここにファイルをドロップ",
       "dragFiles": "ここにファイルをドラッグするか",
       "browse": "参照",
-      "empty": "ワークスペースは空です"
+      "empty": "ワークスペースは空です",
+      "kindOffice": "Office ドキュメント(ライブ)"
     }
   },
   "dashboard": {
@@ -1754,6 +1755,7 @@
       "env": "環境変数",
       "enable": "有効化",
       "disable": "無効化",
+      "builtin": "組み込み",
       "remove": "削除"
     },
     "install": {
@@ -1820,5 +1822,14 @@
         "validation": "追加後、ステータスドットが接続を検証します — 「失敗」は URL に到達できなかったか、有効な SSE エンドポイントでなかったことを意味します。"
       }
     }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "プレビューを閉じる",
+    "desktopUnsupported": "デスクトップアプリではライブプレビューはまだ利用できません。",
+    "desktopHint": "ブラウザで NarraNexus を開くとライブプレビューを表示できます。",
+    "loading": "ライブプレビューを開いています…",
+    "loadError": "ライブプレビューを開けませんでした。",
+    "livePreview": "ライブプレビュー"
   }
 }

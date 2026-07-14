@@ -26,9 +26,28 @@ each own their concrete gating.)
 """
 
 import json
+from pathlib import Path
 from typing import Optional
 
 SKILL_META_FILENAME = ".skill_meta.json"
+
+
+def dir_is_builtin(skill_dir: Path) -> bool:
+    """True if a skill directory is a built-in (shipped with the app).
+
+    Built-in skills are re-materialized from the repo on every run and tagged
+    ``builtin: true`` in their ``.skill_meta.json``, so they must never be
+    treated as user data to back up or export. Single source of truth for both
+    the backup path (``skill_backup``) and the export builder; ``skill_module``
+    imports it too so the flag semantics can't drift across the three callers.
+    """
+    meta_file = skill_dir / SKILL_META_FILENAME
+    if not meta_file.exists():
+        return False
+    try:
+        return bool(json.loads(meta_file.read_text(encoding="utf-8")).get("builtin"))
+    except Exception:
+        return False
 
 
 def scrub_skill_meta(raw: str) -> Optional[str]:

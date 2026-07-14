@@ -46,6 +46,17 @@ pub fn run() {
         // second-launch URL into the live process so this callback sees it
         // — see Cargo.toml.
         .plugin(tauri_plugin_deep_link::init())
+        // `officewatch://` custom scheme — serves the live Office-preview watch
+        // page + its sub-resources by proxying the local backend through Rust,
+        // dodging WKWebView's mixed-content block on http://localhost from the
+        // https webview origin. See commands/office_watch_scheme.rs for why a
+        // custom scheme (not the artifact blob path) is required here.
+        .register_asynchronous_uri_scheme_protocol("officewatch", |_ctx, request, responder| {
+            tauri::async_runtime::spawn(async move {
+                let response = commands::office_watch_scheme::handle(request).await;
+                responder.respond(response);
+            });
+        })
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::service::get_service_status,
