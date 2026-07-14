@@ -82,6 +82,37 @@ class AgentRunRequest(BaseModel):
     run_id: Optional[str] = None
 
 
+def _circuit_open_frame(cb_reason: Optional[str]) -> dict:
+    """Build the WS error frame shown when the Agent circuit-breaker skips a
+    fresh run. ``cb_reason`` is ``should_skip``'s reason
+    ("paused:auth" / "paused:quota" / "cooling"). Pure — unit-tested."""
+    reason = cb_reason or ""
+    if reason.startswith("paused:quota"):
+        msg = (
+            "This agent is paused after repeated quota/balance failures. "
+            "Top up or reassign the Agent slot's provider, then resume the "
+            "agent in Settings."
+        )
+    elif reason.startswith("paused"):
+        msg = (
+            "This agent is paused after repeated authentication failures. "
+            "Re-authenticate (codex/claude login) or assign a working API-key "
+            "provider to the Agent slot, then resume the agent in Settings."
+        )
+    else:  # cooling
+        msg = (
+            "This agent recently failed and is briefly cooling down before it "
+            "will accept new messages. Please try again shortly."
+        )
+    return {
+        "type": "error",
+        "error_message": msg,
+        "error_type": "agent_circuit_open",
+        "severity": "fatal",
+        "cb_reason": cb_reason,
+    }
+
+
 async def _handle_reconnect(
     websocket: WebSocket,
     *,
@@ -548,6 +579,18 @@ async def websocket_agent_run(websocket: WebSocket):
                 "error_message": "agent_id and input_content are required for fresh runs",
                 "error_type": "ValidationError",
             })
+            await websocket.close()
+            return
+
+        # Circuit-breaker skip-gate: if this agent's real-time turns are
+        # paused (dead key / quota) or still cooling from recent failures,
+        # do NOT start a run that would just fail again and burn resources.
+        # Tell the user why instead of silently 401ing. Fail-open — a breaker
+        # read error never blocks a turn.
+        from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+        cb_skip, cb_reason = await should_skip(request.agent_id)
+        if cb_skip:
+            await websocket.send_json(_circuit_open_frame(cb_reason))
             await websocket.close()
             return
 

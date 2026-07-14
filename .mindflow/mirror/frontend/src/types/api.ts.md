@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: true
 ---
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+新增 `CircuitBreakerStatus` 与 `AgentCircuitBreakerResponse` 类型（熔断状态查询响应）。
+
 
 ## 2026-07-10 — ClearHistoryResponse expanded
 
