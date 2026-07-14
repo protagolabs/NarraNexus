@@ -1017,13 +1017,23 @@ The task was executed but produced no text output.
                 )
                 return
 
-            # Success: clear any prior transient-failure backoff state before the
-            # normal complete/reschedule branching below.
-            if (job.consecutive_failure_count or 0) > 0 or job.cooldown_until is not None:
+            # Success: clear any prior transient-failure backoff state AND the
+            # stale error banner before the normal complete/reschedule branching
+            # below. last_error drives the frontend's ERROR panel, so a run that
+            # now succeeds must wipe the old message — otherwise a month-old
+            # "authentication failed" clings to a healthy job (incident
+            # 2026-07-13). Guarded so a clean job isn't written needlessly.
+            if (
+                (job.consecutive_failure_count or 0) > 0
+                or job.cooldown_until is not None
+                or job.paused_reason
+                or job.last_error
+            ):
                 await repo.update_job(job.job_id, {
                     "consecutive_failure_count": 0,
                     "cooldown_until": None,
                     "paused_reason": None,
+                    "last_error": None,
                 })
 
             # Handle based on job type

@@ -21,6 +21,12 @@ Auth failures therefore NEVER reach terminal FAILED. (Conceptually
 `error_message` carries the specific reason. The enum value is unchanged — no
 DB semantics change.)
 
+Also: the success branch now clears `last_error` (plus the backoff fields)
+whenever a run succeeds — `last_error` drives the frontend ERROR panel, so a
+run that now succeeds must wipe the old message or a stale "authentication
+failed" clings to a healthy job. The clear is guarded (only writes when there's
+something to clear).
+
 Fix 3 — new `_heal_unscheduled_active_jobs()`, run in the same 15min backstop
 gate. It finds ACTIVE scheduled/ongoing jobs with a NULL `next_run_time` (which
 `get_due_jobs`, `WHERE next_run_time <= now`, can never select → "active but

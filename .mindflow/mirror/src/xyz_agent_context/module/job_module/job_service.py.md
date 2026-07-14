@@ -13,8 +13,9 @@ poller 的 `get_due_jobs`（`next_run_time <= now`）永远选不到它，看似
 
 现在 `update_job` 里:当 `status` 目标是 ACTIVE 且调用方没显式给 `next_run_time` 时，
 用 job 自身的 `trigger_config` 重算 `next_run`（ONE_OFF 除外），并清空
-`paused_reason`/`consecutive_failure_count`/`cooldown_until`，让复活的 job 干净重排。
-配套:`JobRepository.update_job_fields` 的 `allowed_fields` 白名单已加入这三个恢复字段
+`paused_reason`/`consecutive_failure_count`/`cooldown_until`/`last_error`，让复活的
+job 干净重排（`last_error` 驱动前端 ERROR 面板,不清会残留旧报错）。配套:
+`JobRepository.update_job_fields` 的 `allowed_fields` 白名单已加入这四个恢复字段
 （否则会被静默过滤掉）。
 
 # job_service.py — Job 统一创建服务

@@ -7,8 +7,9 @@ stub: false
 ## 2026-07-13 — 恢复字段进白名单 + 未调度僵尸查询
 
 `update_job_fields` 的 `allowed_fields` 白名单新增 `paused_reason` /
-`consecutive_failure_count` / `cooldown_until`——`job_service.update_job` 复活 job
-时要能清掉这三个恢复态,不加白名单会被静默过滤(事故 2026-07-13)。
+`consecutive_failure_count` / `cooldown_until` / `last_error`——`job_service.update_job`
+复活 job 时要能清掉这些恢复态(含驱动前端 ERROR 面板的 `last_error`),不加白名单会被
+静默过滤(事故 2026-07-13)。
 
 新增 `get_active_scheduled_jobs_missing_next_run()`:查 `status=active 且
 next_run_time IS NULL 且 job_type IN (scheduled, ongoing)` 的僵尸 job(ONE_OFF 排除,

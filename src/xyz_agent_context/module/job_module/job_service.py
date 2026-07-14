@@ -666,6 +666,9 @@ class JobInstanceService:
                     updates["paused_reason"] = None
                     updates["consecutive_failure_count"] = 0
                     updates["cooldown_until"] = None
+                    # Wipe the stale error banner too — a revived job is not
+                    # currently erroring; last_error drives the UI ERROR panel.
+                    updates["last_error"] = None
 
             # If related_entity_id was updated, need diff sync
             if "related_entity_id" in updates and agent_id:

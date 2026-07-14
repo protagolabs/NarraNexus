@@ -611,8 +611,10 @@ class JobRepository(BaseRepository[JobModel]):
             'trigger_config', 'job_type',
             # Recovery/backoff state — reactivation (job_service.update_job) must
             # be able to clear these so a revived job starts fresh instead of
-            # inheriting a stale pause/failure count (incident 2026-07-13).
+            # inheriting a stale pause/failure count + error banner (incident
+            # 2026-07-13).
             'paused_reason', 'consecutive_failure_count', 'cooldown_until',
+            'last_error',
         }
 
         # Filter out disallowed fields

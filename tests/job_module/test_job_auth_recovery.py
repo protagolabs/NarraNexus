@@ -111,10 +111,11 @@ async def test_repeated_auth_failures_never_escalate_to_failed(db_client):
 async def test_reactivating_zombie_recomputes_next_run_and_clears_failure(db_client):
     from xyz_agent_context.module.job_module.job_service import JobInstanceService
 
-    # Zombie: active but next_run NULL, stale pause/failure state.
+    # Zombie: active but next_run NULL, stale pause/failure state + error banner.
     await _insert_job(
         db_client, "job_z1", status="active",
         paused_reason="repeated_failure", consecutive_failure_count=8,
+        last_error="Claude API authentication failed. Please check your API key.",
     )
     svc = JobInstanceService(db_client)
     await svc.update_job("job_z1", {"status": JobStatus.ACTIVE}, agent_id="agent_1")
@@ -123,6 +124,26 @@ async def test_reactivating_zombie_recomputes_next_run_and_clears_failure(db_cli
     assert row["next_run_time"] is not None            # recomputed → schedulable again
     assert row["paused_reason"] in (None, "")          # cleared
     assert (row["consecutive_failure_count"] or 0) == 0
+    assert row["last_error"] in (None, "")             # stale ERROR banner wiped
+
+
+@pytest.mark.asyncio
+async def test_success_clears_stale_last_error(db_client):
+    """A run that now succeeds must wipe the old error banner — otherwise a
+    month-old 'authentication failed' clings to a healthy job in the UI."""
+    repo = JobRepository(db_client)
+    await _insert_job(
+        db_client, "job_e1", status="active",
+        last_error="Claude API authentication failed. Please check your API key.",
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await repo.get_job("job_e1")
+
+    await trigger._finalize_job_execution(job, {"success": True, "event_id": None, "content": "ok"})
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_e1"})
+    assert row["last_error"] in (None, "")
+    assert row["status"] == JobStatus.ACTIVE.value
 
 
 # ── Fix 3: poller self-heals active + NULL next_run zombies ────────────────────
