@@ -290,6 +290,12 @@ class MessageBusTrigger:
         # (NOT acked), so they are handled once it resumes. This is what
         # frees the bus from re-triggering a broken agent every poll. Checked
         # before the semaphore so a paused agent doesn't hold a slot.
+        #
+        # Accepted trade-off: while an agent stays paused (owner hasn't fixed
+        # the key yet), its channel backlog accumulates and is drained in one
+        # burst on resume. That's intended — dropping/ack'ing messages for a
+        # temporarily-broken agent would be silent data loss; the backlog
+        # converges once the owner reconfigures and the breaker re-arms.
         from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
         cb_skip, cb_reason = await should_skip(agent_id)
         if cb_skip:

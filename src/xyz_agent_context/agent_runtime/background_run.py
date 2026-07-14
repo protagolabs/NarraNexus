@@ -623,6 +623,15 @@ class BackgroundRun:
                 # CANCELLED wrote error_message, so a FAILED run left no
                 # error on the events row — the cause was lost. redact_secrets
                 # keeps a leaked key out of a place the owner can read.
+                #
+                # NOTE (deliberate asymmetry): a fatal-completed run
+                # (STATE_COMPLETED + _had_fatal_error, e.g. dead key/quota that
+                # ends the generator naturally) does NOT get error_message here.
+                # That row's state is `completed`, and reconnect consumers read
+                # error_message off the events row — stamping an error on a
+                # completed run would surface a spurious failure. The cause is
+                # not lost: it's already an `error` stream row AND recorded in
+                # the circuit-breaker's last_error.
                 from xyz_agent_context.agent_framework.llm_failure import redact_secrets
                 if self._last_error_message:
                     updates["error_message"] = redact_secrets(self._last_error_message)

@@ -44,11 +44,10 @@ async def _resolve_viewer_id(request: Request) -> str:
 
 
 async def _require_owned_agent(db, agent_id: str, viewer_id: str) -> None:
-    owner_row = await db.execute(
-        "SELECT created_by FROM agents WHERE agent_id=%s LIMIT 1",
-        (agent_id,),
-    )
-    if not owner_row or owner_row[0]["created_by"] != viewer_id:
+    # Use the dialect-safe helper (matching agent_circuit_breaker._resolve_owner)
+    # rather than hand-rolled SQL — 404 masks "no such agent" and "not yours".
+    row = await db.get_one("agents", {"agent_id": agent_id})
+    if not row or row.get("created_by") != viewer_id:
         raise HTTPException(status_code=404, detail="Agent not found")
 
 
