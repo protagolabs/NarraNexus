@@ -112,6 +112,50 @@ async def test_quota_pauses_with_quota_reason(db_client):
 
 
 @pytest.mark.asyncio
+async def test_self_serviceable_does_not_advance_breaker(db_client):
+    """A deterministic self-serviceable failure (context window too small /
+    no credits / bad model id) must NOT cool or pause. Waiting won't fix it,
+    and a cooldown would block the CORRECTED retry after the user switches
+    models — punishing them for following the actionable error (binding rule
+    #14/#15). No row is created → should_skip stays open."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "ag_ss"
+    # config_actionable marker + context-window message → skipped entirely
+    await record_failure(
+        aid, "config_actionable",
+        "the selected model's context window is too small; must be <= 32769",
+        db=db_client,
+    )
+    assert await repo.get(aid) is None  # no cooling/pause row created
+    # raw-exception form (class name + message-only signal) also skipped
+    await record_failure(
+        aid, "ContextWindowExceededError", "inputs 75307 > 32769", db=db_client,
+    )
+    assert await repo.get(aid) is None
+    assert await should_skip(aid, db=db_client) == (False, None)
+
+
+@pytest.mark.asyncio
+async def test_self_serviceable_leaves_prior_streak_intact(db_client):
+    """A self-serviceable failure mid-streak must not reset or advance an
+    unrelated (transient) streak — the breaker simply stays out."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "ag_mix"
+    await record_failure(aid, "TimeoutError", "timeout", db=db_client)
+    await record_failure(aid, "TimeoutError", "timeout", db=db_client)
+    before = await repo.get(aid)
+    assert before.consecutive_failure_count == 2
+    # self-serviceable error in between — breaker untouched
+    await record_failure(
+        aid, "config_actionable",
+        "the model's maximum context length is 8192 tokens", db=db_client,
+    )
+    after = await repo.get(aid)
+    assert after.consecutive_failure_count == 2  # unchanged
+    assert after.failure_category == before.failure_category
+
+
+@pytest.mark.asyncio
 async def test_transient_never_pauses_and_backoff_grows(db_client):
     repo = AgentCircuitBreakerRepository(db_client)
     aid = "ag_trans"

@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-07-12
+last_verified: 2026-07-14
 stub: false
 ---
+
+## 2026-07-14 — inline `AssistantMessage.error` 把 CLI stderr 折进错误事件（病A / "黑盒" P1）
+
+`AssistantMessage.error` 是**只有 6 个值的枚举**（auth/billing/rate_limit/
+invalid_request/server_error/unknown）。真正的 provider 原因——例如 litellm
+`ContextWindowExceededError: inputs 75307 > 32769`——被 CLI 压成这个枚举，
+数字只活在 **CLI stderr** 里。原本 inline error 分支只 `logger.error` 打日志，
+让 `output_transfer` 输出干巴巴的 `Claude API error: unknown`，真相丢失。
+
+现在:inline error 分支里，当 `cli_stderr_lines` 非空，改为 yield
+`_inline_assistant_error_event(message.error, cli_stderr_lines)` 并 `continue`
+（跳过 output_transfer 的枚举事件）。该 helper 保留 `error_type`=枚举原值、把
+stderr 尾部折进 `error_message`——复用 `_zero_output_error_event` 的
+`_stderr_tail_detail` 共享写法。这样下游
+`llm_failure.classify_self_serviceable` 能从 message 文本认出 context-window /
+余额 / 模型错误。stderr 为空时不加东西，让 output_transfer 的枚举事件照常走
+（有些 inline error 的 stderr 本就是空的）。
 
 ## 2026-07-12 — macOS 上**陈旧 host 文件遮蔽 Keychain**:凭据来源改为 Keychain 优先
 

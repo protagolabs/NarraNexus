@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm_failure.py
-last_verified: 2026-07-07
+last_verified: 2026-07-14
 stub: false
 ---
 # llm_failure.py — LLM 失败的统一分类 + 密钥脱敏
@@ -19,6 +19,31 @@ stub: false
   `Bearer ...`）并截断。不是安全边界，只覆盖 SDK 常见回显形态。
 
 分类读原文、脱敏产出展示文——两者刻意分开：分类必须看未脱敏的文本。
+
+### 2026-07-14 · 确定性自助类失败分类器（"黑盒" P1）
+
+新增第三类判断：`classify_self_serviceable(error_type, error_message) ->
+reason|None`。区别于 auth（凭据失效，走 re-login）和瞬时抖动（重试即可），
+这类是**同配置每轮必复现、只能由用户改配置**的确定性失败——context window
+太小 / 余额不足 / 模型 ID 无效。之所以放这里：它和 `is_credential_error`
+同源（都是读原始错误串分类），且需要被 `response_processor`（inline 错误路径）
+和 `step_3_agent_loop`（raw-exception 路径）**共用而不产生循环导入**（同
+`AUTH_EXPIRED_ERROR_TYPE` 放 schema 层的理由）。
+
+- **双通道判断**：先精确匹配 error TYPE（异常类名 `ContextWindowExceededError`
+  / SDK 枚举 `billing_error`），再对 `type + "\n" + message` 做子串匹配
+  （`context window` / `must be <=` / `insufficient balance` / `does not exist`
+  等）。这样即使 SDK 把 type 压成 `unknown`，也能从折进 message 的 stderr 里
+  认出真相——这正是配合 `xyz_claude_agent_sdk._inline_assistant_error_event`
+  把 stderr 折进 error_message 后能生效的前提。
+- **正向识别**：只认已知形态，残余"我们自己的 bug / 无法归因"桶保持不动。
+- `self_serviceable_user_message(reason, raw_detail)`：组合每类的**可操作**
+  引导文案 + 脱敏后的 provider 原文（保留 token 数字），供两条错误路径共用。
+  文案只是信息告知（铁律 #15），不 force-stop、不判定模型、不替用户换模型。
+
+下游把这类错误标成 `severity=fatal` + `error_type=config_actionable`，
+`step_3` 据此 **skip 掉 helper-LLM 兜底**（否则兜底会用一条正常样子的回复
+掩盖掉可修复的真相——就是这条 P1 的根因）。
 
 ## 下游
 
