@@ -14,6 +14,8 @@ import { netmindPost } from './request';
 import { baseRequestParams } from './constants';
 import { getNetmindConfig } from '@/lib/runtimeConfig';
 import { isTauri, openNetmindOAuth, takeNetmindOAuthResult } from '@/lib/tauri';
+import { encryptPassword, generateRandomString } from './crypto';
+import type { AuthBindInfo, NetmindUser } from './types';
 
 /** Decode a bridged OAuth payload — the Rust side may hand back either the
  * URI-encoded fragment (opener-shim path) or a plain JSON string (URL-match
@@ -33,8 +35,6 @@ function decodeOAuthPayload(
     return null;
   }
 }
-import { encryptPassword, generateRandomString } from './crypto';
-import type { AuthBindInfo, NetmindUser } from './types';
 
 type OAuthType = 'GOOGLE' | 'MICROSOFT' | 'GITHUB';
 
