@@ -35,7 +35,10 @@ from pydantic import BaseModel, Field
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
+from xyz_agent_context.utils.deployment_mode import (
+    is_cloud_mode,
+    is_power_login_enabled,
+)
 from xyz_agent_context.services.power_account import is_power_account
 from xyz_agent_context.services.netmind_billing_client import (
     BillingAuthError,
@@ -67,18 +70,28 @@ def _require_power_login_enabled() -> None:
 
 
 async def _require_power_account(request: Request) -> str:
-    """Resolve the caller and require they be a NetMind ("Power") account.
+    """Resolve the caller and require billing be available to them.
 
-    Raises 401 if unauthenticated (no identity on the request), else 404 if the
-    resolved user is a pure-local username user. Returns the user_id so callers
-    can chain the NetMind-token extraction. This replaces the old cloud-mode
-    gate on every user-scoped billing endpoint: the axis that matters is "is
-    THIS user a Power account", not "is this the cloud server".
+    Raises 401 if unauthenticated (no identity on the request). Otherwise
+    reachable when EITHER:
+      - this is the multi-tenant cloud server (``is_cloud_mode()``) — preserves
+        the pre-existing cloud behavior exactly (every authenticated user could
+        reach billing; a non-NetMind user still 401s later for lack of the
+        X-Netmind-Token, so nothing new leaks), OR
+      - the resolved user is a NetMind ("Power") account (``is_power_account``)
+        — the new local dual-mode path.
+    A pure-local username user on a local install gets a clean 404.
+
+    The cloud short-circuit is deliberate: gating cloud purely on
+    ``user_type == "individual"`` would newly 404 any non-individual cloud row
+    (staff / legacy), a behavior regression flagged in review. Keeping
+    ``is_cloud_mode()`` here restores the old cloud semantics while still adding
+    the per-user local path.
     """
     uid = await resolve_current_user_id(request)
-    if not await is_power_account(uid):
-        raise HTTPException(status_code=404, detail="Not available for this account")
-    return uid
+    if is_cloud_mode() or await is_power_account(uid):
+        return uid
+    raise HTTPException(status_code=404, detail="Not available for this account")
 
 
 def _require_netmind_token(request: Request) -> str:
