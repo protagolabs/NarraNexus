@@ -28,6 +28,8 @@ last_verified: 2026-07-13
 
 **扫描包含无 SKILL.md 的目录**：`_scan_skills()` 不只扫描有 `SKILL.md` 的标准技能目录，也扫描只有 `.skill_meta.json` 的目录（Agent 自行创建的技能）。这支持了 Agent 自主学习和创建新技能的场景，而不仅限于从 ClawHub 安装的标准技能。
 
+**内置技能物化（`_materialize_builtin_skills`）**：把 `BUILTIN_SKILLS_DIR`（`= Path(__file__).parent / "builtin_skills"`）里的 vendored 技能 `copytree` 到 workspace `skills/<name>/`，`.skill_meta.json` 打 `builtin: true`（`source_type="builtin"`）。**两个触发入口**：`hook_data_gathering` 顶部（运行时）和 `list_skills` 顶部（读时）。为什么两处都要——物化只在 `hook_data_gathering` 会导致「新建、从未运行的 agent」打开 Skills 面板看不到内置技能（`GET /api/skills` → `list_skills` → `_scan_skills` 不物化）；所以 `list_skills` 也物化一次，保证 API/UI 首次即可见。副作用刻意不放在 `_scan_skills`（保持 scan 纯只读，它被 backup 等多处调用）。幂等性判据是 **disable-aware**：`skills/<name>/` 或 `skills/.disabled/<name>/` 任一存在即跳过——否则用户禁用（move 到 `.disabled/`）后每轮被复活。`_scan_skills` / `_parse_skill_md` 都从 `.skill_meta.json` 回填 `SkillInfo.builtin`。`remove_skill` 对内置技能抛 `ValueError`（`_dir_is_builtin` 同时查 live 与 `.disabled/` 目录），路由层 `routes/skills.py` 把它翻成 400。首个内置技能是 `officecli`，其二进制由 shell/构建层预装进 PATH（见 `_overview.md`）。
+
 **install_skill 的拒因消息必须具体可操作**：每个 ValueError 都必须告诉用户「哪里出了问题 + 应该怎么改」。例如 SKILL.md 缺失时不能只说 "SKILL.md not found"，要补上「放在 zip 根目录或者唯一的顶层子文件夹下」；超出文件数限制时要带上实际 count 和上限；超出大小时要带上 MB 单位的上限。原因：这条消息会经由 `routes/skills.py` 透传给前端的错误提示，是用户唯一能看到的反馈，不能让他们去翻 Network 才知道为什么失败。配套的服务端日志在 `routes/skills.py` 的 `_reject()` 里——拒绝点统一打 `WARNING`，留下 prod 排查的 breadcrumb。
 
 ## Gotcha / 边界情况

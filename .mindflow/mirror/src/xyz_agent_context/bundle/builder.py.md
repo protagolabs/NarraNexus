@@ -184,3 +184,7 @@ mcp_hints.json                        ← 1.1+: opt-in by mcp_selection
 - 大 bundle（GB 级）会让 tmpdir 装不下。`MAX_BUNDLE_BYTES = 500MB` 强制上限，超出报错。
 - `_scrub_user_id` 是浅扫描列名，**不**深入 JSON 字段值；JSON 里嵌的 user_id 不会被替换。这是 v1 简化，敏感场景要重写。
 - `ExportSelection.skill_methods` dict 缺某个 skill 的条目时，那个 skill 不进 bundle —— frontend 必须保证传齐。
+
+## 2026-07-10 — workspace tar 排除内置技能
+
+- `_pack_workspace_sync` 通过 `_builtin_skill_relpaths(src)` 求出 `skills/<name>` 为 `builtin:true` 的目录集，在 fast-path 的 `filter_func` 和 user_id 改写的 manual-walk 两条路径都跳过它们——否则内置技能字节会混进 `workspace.tar.gz`（`skill_methods` 排除不了这条，因为 workspace tar 独立打包整个目录）。

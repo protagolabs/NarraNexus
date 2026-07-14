@@ -378,7 +378,8 @@
       "dropFiles": "Dateien hier ablegen",
       "dragFiles": "Dateien hierher ziehen oder",
       "browse": "durchsuchen",
-      "empty": "Workspace ist leer"
+      "empty": "Workspace ist leer",
+      "kindOffice": "Office-Dokument (Live)"
     }
   },
   "dashboard": {
@@ -1755,6 +1756,7 @@
       "env": "Env",
       "enable": "Aktivieren",
       "disable": "Deaktivieren",
+      "builtin": "Integriert",
       "remove": "Entfernen"
     },
     "install": {
@@ -1821,5 +1823,14 @@
         "validation": "Nach dem Hinzufügen validiert der Statuspunkt die Verbindung — Fehlgeschlagen bedeutet, dass die URL nicht erreichbar oder kein gültiger SSE-Endpunkt war."
       }
     }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "Vorschau schließen",
+    "desktopUnsupported": "Live-Vorschau ist in der Desktop-App noch nicht verfügbar.",
+    "desktopHint": "Öffnen Sie NarraNexus im Browser, um die Live-Dokumentvorschau zu sehen.",
+    "loading": "Live-Vorschau wird geöffnet…",
+    "loadError": "Live-Vorschau konnte nicht geöffnet werden.",
+    "livePreview": "Live-Vorschau"
   }
 }
