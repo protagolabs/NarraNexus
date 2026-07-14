@@ -23,26 +23,26 @@ vi.mock('@/lib/runtimeConfig', () => ({
 import { LoginPage } from '../LoginPage';
 
 describe('LoginPage local dual-mode', () => {
-  test('local + Power available: tabs shown, username form by default (NetMind hidden)', () => {
+  test('local + Power available: tabs shown, Power form by default (recommended)', () => {
     powerAvailable.mockReturnValue(true);
     render(<MemoryRouter><LoginPage /></MemoryRouter>);
     // both tabs present
     expect(screen.getByRole('tab', { name: /local/i })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /power/i })).toBeTruthy();
-    // default tab = local → username visible, NetMind form NOT stacked below
-    expect(screen.getByPlaceholderText('your_username')).toBeTruthy();
-    expect(screen.queryByLabelText(/email/i)).toBeNull();
-    expect(screen.queryByRole('button', { name: /google/i })).toBeNull();
-  });
-
-  test('local + Power available: switching to Power tab reveals the NetMind form', () => {
-    powerAvailable.mockReturnValue(true);
-    render(<MemoryRouter><LoginPage /></MemoryRouter>);
-    fireEvent.click(screen.getByRole('tab', { name: /power/i }));
+    // default tab = power → NetMind form visible, username form NOT shown
     expect(screen.getByLabelText(/email/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /google/i })).toBeTruthy();
-    // username form is now hidden
     expect(screen.queryByPlaceholderText('your_username')).toBeNull();
+  });
+
+  test('local + Power available: switching to Local tab reveals the username form', () => {
+    powerAvailable.mockReturnValue(true);
+    render(<MemoryRouter><LoginPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('tab', { name: /local/i }));
+    expect(screen.getByPlaceholderText('your_username')).toBeTruthy();
+    // NetMind form is now hidden
+    expect(screen.queryByLabelText(/email/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /google/i })).toBeNull();
   });
 
   test('local + Power NOT available: username only, no tabs, no NetMind form', () => {

@@ -40,7 +40,8 @@ export function LoginPage() {
   const [showForgot, setShowForgot] = useState(false);
   // Which login method the local dual-mode page is showing. Only meaningful when
   // both are available (see showTabs below); forced-cloud / pure-local ignore it.
-  const [authTab, setAuthTab] = useState<'local' | 'power'>('local');
+  // Defaults to 'power' — it's the recommended method (free credits, no setup).
+  const [authTab, setAuthTab] = useState<'local' | 'power'>('power');
 
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -171,7 +172,7 @@ export function LoginPage() {
               setAuthTab(key);
               setError('');
             }}
-            className="h-9 rounded-[6px] text-sm font-medium transition-colors"
+            className="h-9 rounded-[6px] text-sm font-medium transition-colors inline-flex items-center justify-center gap-1.5"
             style={
               active
                 ? { background: 'var(--nm-card)', color: 'var(--nm-ink)', boxShadow: '0 1px 2px rgba(0,0,0,0.08)' }
@@ -179,15 +180,38 @@ export function LoginPage() {
             }
           >
             {label}
+            {key === 'power' && (
+              <span
+                className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide leading-none"
+                style={{ background: 'var(--accent-primary)', color: 'var(--nm-paper)' }}
+              >
+                {t('pages.login.recommended', 'Recommended')}
+              </span>
+            )}
           </button>
         );
       })}
     </div>
   );
 
+  // Short caption explaining what each login method is (dual-mode clarity).
+  const methodDesc = (text: string) => (
+    <p
+      className="text-xs leading-relaxed rounded-lg p-3"
+      style={{
+        color: 'var(--nm-ink70)',
+        background: 'var(--nm-raised)',
+        border: '1px solid var(--nm-hairline)',
+      }}
+    >
+      {text}
+    </p>
+  );
+
   // Pure-local username form. Always shown outside forced-cloud mode.
   const localBlock = (
     <div className="space-y-5 mt-6">
+      {methodDesc(t('pages.login.localDesc'))}
       <FormField label={t('pages.login.userIdLabel')}>
         <TextInput
           type="text"
@@ -246,6 +270,9 @@ export function LoginPage() {
   // about migrating legacy cloud accounts, irrelevant to a local dual-mode user).
   const netmindBlock = (withNotice: boolean) => (
     <div className="space-y-5 mt-6">
+      {/* Power value-prop — shown in the local dual-mode tab (forced-cloud
+          already has its own heading + migration notice). */}
+      {!withNotice && methodDesc(t('pages.login.powerDesc'))}
       {withNotice && (
         <div
           className="rounded-xl p-3 text-xs leading-relaxed"

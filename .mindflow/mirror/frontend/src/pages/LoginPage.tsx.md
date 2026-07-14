@@ -4,6 +4,23 @@ last_verified: 2026-07-13
 stub: false
 ---
 
+## 2026-07-14 — recommend Power: default tab + "推荐" badge
+
+Power is nudged as the recommended method: `authTab` now defaults to `'power'`
+(so the local dual-mode page opens on the Power form), and the Power tab carries
+a small accent "推荐 / Recommended" badge (`pages.login.recommended`, en+zh).
+Dual-mode tests updated to reflect the Power-first default.
+
+## 2026-07-14 — per-method descriptions on the login tabs
+
+Each block now leads with a `methodDesc(...)` caption (boxed muted text) so the
+two tabs are distinguishable: `localBlock` shows `pages.login.localDesc` (local =
+data stays local, bring-your-own API key); `netmindBlock` shows
+`pages.login.powerDesc` (Power = free credits, run models with no key setup, can
+top up) — but only when `!withNotice`, i.e. the local dual-mode Power tab, since
+forced-cloud already has its own heading + migration notice. i18n keys added to
+en + zh (other locales fall back to en).
+
 ## 2026-07-13 — local dual-mode: username + Power login via a top tab switch
 
 The old strict either/or (`isCloudMode ? NetMind form : username form`) now has
