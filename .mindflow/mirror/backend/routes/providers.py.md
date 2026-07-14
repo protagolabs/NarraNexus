@@ -4,10 +4,18 @@ last_verified: 2026-07-13
 stub: false
 ---
 
+## 2026-07-13 — use-subscription reachability moved to power axis
+
+The `use_subscription` route's "not available" gate changed from
+`is_cloud_mode()` to `is_power_login_enabled()` ([[deployment_mode]]), so a local
+deployment that opted into Power login can hit it too. The
+`settings.netmind_use_subscription_enabled` feature-flag gate is unchanged.
+**`_is_cloud()` (line ~128) and its OAuth-card/staff uses are untouched** — those
+are the multi-tenant authz boundary, not a Power capability.
+
 ## 2026-07-13 — Agent 实时层熔断器接入
 
 在 4 个『用户重新可运行』边缘（add_provider/onboard/use_subscription/set_slot，紧挨既有 `schedule_user_no_quota_rearm(uid)`）新增 `await _resume_agent_circuit_breakers(uid)` → `agent_circuit_breaker.reset_for_owner`：换 key/充值/换 slot 后自动解除该 owner 的 auth/quota 暂停（transient 冷却不动）。best-effort，绝不弄挂重配。
-
 
 ## 2026-07-10 — use-subscription is now a thin wrapper over the provisioner
 

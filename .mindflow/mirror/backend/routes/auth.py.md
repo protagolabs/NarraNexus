@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — netmind-login 门禁改挂 power 轴（本地双模式登录）
+
+`netmind_login` 的可达性从 `_is_cloud_mode()` 改成 `is_power_login_enabled()`
+（[[deployment_mode]]），于是本地部署开启 `NARRANEXUS_ENABLE_POWER_LOGIN` 后
+也能用 NetMind(Power)账号登录,与纯本地用户名登录并存,用户自选。到达 handler
+后 line ~235 的 `schedule_ensure_netmind_provider`（见 [[netmind_provisioner]]）
+照旧触发,本地也会自动铸 Power provider + slot。**注意:`login()`（用户名登录）
+与 `create_user()` 仍挂 `_is_cloud_mode()`**——它们表达"云端禁用用户名/建号"这一
+安全语义,本地双模式必须保留,不能改成 power 轴。
 
 ## 2026-07-10 — NetMind login auto-registers the user's provider
 

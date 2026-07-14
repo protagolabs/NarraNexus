@@ -1,7 +1,13 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-06-16
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — register open_netmind_oauth command
+
+Added `commands::netmind_oauth::open_netmind_oauth` to the `invoke_handler` — the
+desktop NetMind ("Power") OAuth bridge ([[netmind_oauth.rs]]). No other wiring
+here (it creates its own child webview + uses the existing `Emitter`).
 
 ## 2026-05-22 — auto-update startup check
 

@@ -25,16 +25,16 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-let mockMode = 'cloud-web';
-vi.mock('@/stores/runtimeStore', () => ({
-  useRuntimeStore: (sel: (s: { mode: string }) => unknown) => sel({ mode: mockMode }),
-}));
-
 let mockEmail = '';
 let mockDisplayName = '';
+// The panel now gates on whether THIS session is a Power account (holds a
+// NetMind loginToken), not on the deployment mode. Default truthy so the
+// behavior tests render; the S0 test clears it.
+let mockNetmindToken = 'tok';
 vi.mock('@/stores/configStore', () => ({
-  useConfigStore: (sel: (s: { email: string; displayName: string }) => unknown) =>
-    sel({ email: mockEmail, displayName: mockDisplayName }),
+  useConfigStore: (
+    sel: (s: { email: string; displayName: string; netmindToken: string }) => unknown,
+  ) => sel({ email: mockEmail, displayName: mockDisplayName, netmindToken: mockNetmindToken }),
 }));
 
 const mockGetSubscription = vi.fn();
@@ -156,7 +156,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  mockMode = 'cloud-web';
+  mockNetmindToken = 'tok';
   mockEmail = '';
   mockDisplayName = '';
   mockGetSubscription.mockReset();
@@ -188,8 +188,8 @@ async function openTopUp() {
 
 // ── S0 / plan states / error ────────────────────────────────────────────────
 
-test('S0: local mode renders nothing', () => {
-  mockMode = 'local';
+test('S0: non-Power session (no NetMind token) renders nothing', () => {
+  mockNetmindToken = '';
   const { container } = render(<NetmindAccountPanel />);
   expect(container.firstChild).toBeNull();
 });

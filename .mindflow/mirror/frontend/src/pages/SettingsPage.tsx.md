@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Account nav gate: cloudOnly → powerOnly (per-user)
+
+The "Account & Subscription" nav item's `cloudOnly`/`mode==='cloud-web'` gate
+became `powerOnly`/`hasPower = !!configStore.netmindToken`, so it shows for a
+NetMind (Power) account on a local dual-mode install and hides for a pure-local
+username user. `useRuntimeStore` import replaced by `useConfigStore`. Mirrors the
+same per-user signal [[NetmindAccountPanel.tsx]] self-gates on.
 
 ## 2026-07-10 (latest) — Account section is now a SINGLE card
 

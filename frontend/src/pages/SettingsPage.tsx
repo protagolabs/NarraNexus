@@ -20,7 +20,7 @@ import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
-import { useRuntimeStore } from '@/stores/runtimeStore';
+import { useConfigStore } from '@/stores/configStore';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -255,21 +255,24 @@ function ProvidersSection() {
 
 // Left-nav items (master). Each maps to one content panel (detail).
 // ``desktopOnly`` items (App updates) only appear in the Tauri build.
-// ``cloudOnly`` items (Account & Subscription) only appear in cloud-web —
-// the account/billing panels are NetMind cloud features and render nothing
-// locally, so the nav entry would otherwise open a blank pane.
+// ``powerOnly`` items (Account & Subscription) only appear for a NetMind
+// ("Power") account session — the account/billing panels are NetMind features
+// and render nothing for a pure-local username user, so the nav entry would
+// otherwise open a blank pane. Keyed on the per-user signal (a held NetMind
+// loginToken), NOT the deployment mode, so it shows for a Power user on a local
+// dual-mode install.
 interface NavItem {
   id: string;
   label: string;
   icon: typeof Cpu;
   desktopOnly?: boolean;
-  cloudOnly?: boolean;
+  powerOnly?: boolean;
 }
 
-// Account first in cloud: a cloud user's home question is "what are my credits /
+// Account first for a Power user: their home question is "what are my credits /
 // plan", so billing leads; bring-your-own provider config follows.
 const NAV_ITEMS: NavItem[] = [
-  { id: 'account', label: 'Account & Subscription', icon: CreditCard, cloudOnly: true },
+  { id: 'account', label: 'Account & Subscription', icon: CreditCard, powerOnly: true },
   { id: 'providers', label: 'LLM Providers', icon: Cpu },
   { id: 'modeldefaults', label: 'Model Defaults', icon: SlidersHorizontal },
   { id: 'bundle', label: 'Bundle', icon: Package },
@@ -279,9 +282,9 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export default function SettingsPage() {
-  const isCloud = useRuntimeStore((s) => s.mode) === 'cloud-web';
+  const hasPower = !!useConfigStore((s) => s.netmindToken);
   const items = NAV_ITEMS.filter(
-    (it) => (!it.desktopOnly || isTauri()) && (!it.cloudOnly || isCloud),
+    (it) => (!it.desktopOnly || isTauri()) && (!it.powerOnly || hasPower),
   );
   const [active, setActive] = useState(items[0]?.id ?? 'providers');
 
@@ -339,7 +342,7 @@ export default function SettingsPage() {
                 {/* One card owns every "what are my credits / how is usage paid"
                     concern: platform free tier, NetMind.AI Power balance,
                     subscription, and top-up — told as one runway story. Self-gates
-                    to null in local mode. */}
+                    to null unless this session is a NetMind (Power) account. */}
                 <NetmindAccountPanel />
               </section>
             )}
