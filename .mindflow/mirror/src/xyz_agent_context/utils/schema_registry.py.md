@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-07-09
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+注册新表 `instance_agent_circuit_breaker`（实时层 Agent 熔断状态，键 agent_id，双方言，additive auto_migrate 落为新表）。列：cb_status/consecutive_failure_count/failure_category/cooldown_until/paused_reason/paused_at/last_error/时间戳。
+
 
 ## 2026-07-09 — agent_slots (per-agent LLM slot overrides)
 

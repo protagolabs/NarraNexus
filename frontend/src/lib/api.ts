@@ -9,6 +9,7 @@ import type {
   CancelJobResponse,
   AgentInboxListResponse,
   BusFailuresResponse,
+  AgentCircuitBreakerResponse,
   MarkReadResponse,
   NoticesResponse,
   AwarenessResponse,
@@ -287,6 +288,21 @@ class ApiClient {
   async retryBusFailure(agentId: string, messageId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/bus-failures/${encodeURIComponent(messageId)}/retry`,
+      { method: 'POST' }
+    );
+  }
+
+  // Real-time-layer circuit-breaker: read status + manual "Resume".
+  async getAgentCircuitBreaker(agentId: string): Promise<AgentCircuitBreakerResponse> {
+    return this.request<AgentCircuitBreakerResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/circuit-breaker`
+    );
+  }
+
+  /** Manually clear a paused agent back to active so its next turn runs. */
+  async resetAgentCircuitBreaker(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/circuit-breaker/reset`,
       { method: 'POST' }
     );
   }

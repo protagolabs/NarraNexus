@@ -1,9 +1,15 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-06-17
+last_verified: 2026-07-13
 stub: false
 ---
 # schema/__init__.py — schema 包的集中导出门面
+
+## 2026-07-13 — 导出 Agent 熔断器 schema
+
+新增 re-export：`CbStatus` / `PausedReason` / `ErrorCategory` / `PAUSING_CATEGORIES` /
+`AgentCircuitBreaker`（来自 `agent_circuit_breaker_schema.py`），并补进 `__all__`。纯导出
+改动,无 schema 形状变化。见 [`agent_circuit_breaker_schema.py`](agent_circuit_breaker_schema.py.md)。
 
 ## 为什么存在
 
