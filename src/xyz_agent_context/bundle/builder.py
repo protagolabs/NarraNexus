@@ -37,6 +37,7 @@ from .security import (
     is_volume_path,
     scan_zip_for_sensitive,
 )
+from .skill_secrets import dir_is_builtin as _dir_is_builtin
 
 
 BUNDLE_FORMAT_VERSION = "1.1"
@@ -517,9 +518,7 @@ async def build_bundle(
                     rows = await db.get(cred_table, {"agent_id": aid})
                     if not rows:
                         continue
-                    cred_by_table[cred_table] = [
-                        _scrub_user_id(dict(r), user_id, cred_table) for r in rows
-                    ]
+                    cred_by_table[cred_table] = [_scrub_user_id(dict(r), user_id, cred_table) for r in rows]
                     channel_cred_count += len(rows)
                 (agent_dir / "channel_credentials.json").write_text(
                     json.dumps(cred_by_table, indent=2, ensure_ascii=False, default=str),
@@ -653,20 +652,24 @@ async def build_bundle(
 
             # workspace tar.gz
             ws_path = await _pack_workspace(
-                aid, user_id, agent_dir,
+                aid,
+                user_id,
+                agent_dir,
                 excludes=selection.workspace_excludes.get(aid, []),
                 scrub_skill_secrets=not selection.include_skill_secrets,
             )
-            agents_summary.append({
-                "agent_id": aid,
-                "agent_name": agent_row["agent_name"],
-                "narratives": len(n_rows),
-                "instances": len(agent_instance_ids),
-                "social_entities": len(social_entities_for_agent),
-                "artifacts": len(artifact_rows_out),
-                "workspace_size_bytes": ws_path.stat().st_size if ws_path else 0,
-                "workspace_path": "workspace.tar.gz" if ws_path else None,
-            })
+            agents_summary.append(
+                {
+                    "agent_id": aid,
+                    "agent_name": agent_row["agent_name"],
+                    "narratives": len(n_rows),
+                    "instances": len(agent_instance_ids),
+                    "social_entities": len(social_entities_for_agent),
+                    "artifacts": len(artifact_rows_out),
+                    "workspace_size_bytes": ws_path.stat().st_size if ws_path else 0,
+                    "workspace_path": "workspace.tar.gz" if ws_path else None,
+                }
+            )
 
         # ---- skills (per-(agent, skill) export) ----
         skills_dir = tmpdir / "skills"
@@ -691,6 +694,21 @@ async def build_bundle(
             if not agent_id or agent_id not in closure_set:
                 warnings.append(f"skill {skill_name}: agent {agent_id} not in closure, skipping")
                 continue
+            # Server-side built-in guard. The workspace-tar path already strips
+            # built-in skills via `_builtin_skill_relpaths`, but this explicit
+            # skill_methods path is driven by the client's `install_method`. A
+            # bypassed/buggy frontend could request `zip`/`full_copy` for a
+            # built-in and ship it as user data inside `archive_ref`. Built-ins
+            # ship with the app and re-materialize on the target, so we detect
+            # them on disk here and force them onto the `builtin` (no-payload)
+            # path regardless of what the client asked for.
+            if method in ("zip", "full_copy"):
+                on_disk = await _find_skill_dir({agent_id}, user_id, skill_name, skill_dir)
+                if on_disk and _dir_is_builtin(on_disk):
+                    warnings.append(
+                        f"skill {skill_name} on {agent_id}: built-in, forced to 'builtin' method (not exported as user data)"
+                    )
+                    method = "builtin"
             entry: Dict[str, Any] = {
                 "agent_id": agent_id,
                 "name": skill_name,
@@ -744,7 +762,9 @@ async def build_bundle(
                 per_agent_dir.mkdir(parents=True, exist_ok=True)
                 tgt_zip = per_agent_dir / f"{skill_dir}-full.zip"
                 await asyncio.to_thread(
-                    _zip_dir, src_dir, tgt_zip,
+                    _zip_dir,
+                    src_dir,
+                    tgt_zip,
                     not selection.include_skill_secrets,
                 )
                 entry["archive_ref"] = f"skills/{agent_id}/{skill_dir}-full.zip"
@@ -1071,9 +1091,7 @@ async def _pack_workspace(
     out = agent_dir / "workspace.tar.gz"
     excl_set = set(excludes or [])
 
-    return await asyncio.to_thread(
-        _pack_workspace_sync, src, out, excl_set, user_id, scrub_skill_secrets
-    )
+    return await asyncio.to_thread(_pack_workspace_sync, src, out, excl_set, user_id, scrub_skill_secrets)
 
 
 def _builtin_skill_relpaths(src: Path) -> set:
@@ -1089,20 +1107,16 @@ def _builtin_skill_relpaths(src: Path) -> set:
     for d in skills_dir.iterdir():
         if not d.is_dir() or d.name.startswith("."):
             continue
-        meta = d / ".skill_meta.json"
-        if not meta.exists():
-            continue
-        try:
-            if json.loads(meta.read_text(encoding="utf-8")).get("builtin"):
-                roots.add(f"skills/{d.name}")
-        except Exception:
-            continue
+        if _dir_is_builtin(d):
+            roots.add(f"skills/{d.name}")
     return roots
 
 
-def _pack_workspace_sync(src: Path, out: Path, excl_set: set, user_id: str = "",
-                         scrub_skill_secrets: bool = False) -> Path:
+def _pack_workspace_sync(
+    src: Path, out: Path, excl_set: set, user_id: str = "", scrub_skill_secrets: bool = False
+) -> Path:
     from xyz_agent_context.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
+
     text_extensions = {".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".csv", ".log"}
     placeholder = "<original_owner>"
     # Memory cap on per-file user_id rewrite. Files larger than this are
@@ -1228,6 +1242,7 @@ def _zip_dir(src: Path, dst: Path, scrub_secrets: bool = False) -> None:
     ``env_config`` values inside ``.skill_meta.json``, so a full_copy skill does
     not leak secrets when the exporter didn't opt in."""
     from xyz_agent_context.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
+
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, _, files in os.walk(src):
             for fn in files:

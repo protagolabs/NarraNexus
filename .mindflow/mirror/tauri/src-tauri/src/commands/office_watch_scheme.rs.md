@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/commands/office_watch_scheme.rs
-last_verified: 2026-07-13
+last_verified: 2026-07-14
 stub: false
 ---
 
@@ -27,8 +27,12 @@ stub: false
   GET 永远渲染当前文档)。这是"稳妥版"取舍:每次内容变化刷新一次(轮询节奏),非逐帧丝滑。
 - **URL 映射**:`officewatch://localhost/api/public/office-watch-proxy/{token}/{port}/...` 1:1 映到
   `http://localhost:8000/api/public/office-watch-proxy/...`。取 `uri.path()+query` 拼到 BACKEND。
-- **SSRF 护栏**:只代理 `/api/public/office-watch-proxy/` 前缀,其它一律 403。token 即鉴权(后端
-  `open` 铸,放在路径里),和浏览器完全一致;只打 loopback :8000。
+- **SSRF 护栏(两段)**:`path` 后面会**原样**拼进 `format!("{BACKEND}{path}")`,所以先做两道检查再放行。
+  ①**先拒 `..` 点段**(`path.split('/').any(|seg| seg == "..")`)——若某平台 webview 不为自定义 scheme
+  归一化点段,`/api/public/office-watch-proxy/../../secret` 可能通过前缀检查却落到任意后端路由;按
+  段切分只拦 `..` 段、不误伤合法含点文件名。②**再查前缀**:只代理
+  `/api/public/office-watch-proxy/`,其它一律 403。token 即鉴权(后端 `open` 铸,放在路径里),和浏览器
+  完全一致;只打 loopback :8000。
 - **CORS**:iframe 用 `sandbox="allow-scripts"`(不透明源),它对 `officewatch://` 的请求是跨源 →
   和浏览器代理一样加 `Access-Control-Allow-Origin: *`(auth 是路径里的 token,不是 cookie)。
 
@@ -49,3 +53,8 @@ stub: false
   一起改。
 - 桌面无 SSE → `OfficeWatchViewer` 里 `lastContentSseAt` 恒为 0 → 每次 mtime 前进都会重载(这正是
   桌面期望的行为,不是 bug)。
+- **`build()` 不允许 panic**:异步 scheme handler 里若 `Response::builder().body()` 返回 `Err`
+  (上游 Content-Type 带非法头字节),旧代码 `.expect()` 会 panic;tokio 会**静默吞掉**该 task →
+  `responder.respond` 永不调用 → webview 无超时地挂起、无可见错误。现在唯一由调用方控制的头
+  (Content-Type)先用 `HeaderValue::from_str` 预校验,失败退回 `application/octet-stream`,其余头是
+  静态常量、status 恒为合法 u16 → builder 必成功,`.expect` 永不触发。

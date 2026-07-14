@@ -364,14 +364,30 @@ class SkillModule(XYZBaseModule):
             if not src.is_dir() or src.name.startswith("."):
                 continue
             name = src.name
-            if (self.skills_dir / name).exists() or (disabled_dir / name).exists():
+            dest = self.skills_dir / name
+            if dest.exists() or (disabled_dir / name).exists():
                 # Already materialized, or intentionally disabled by the user.
                 continue
             try:
                 self.skills_dir.mkdir(parents=True, exist_ok=True)
-                dest = self.skills_dir / name
-                shutil.copytree(src, dest)
-                self._write_builtin_meta(dest)
+                # Stage into a unique temp dir, then atomically rename into
+                # place. Two concurrent runs (threads sharing this workspace, or
+                # separate processes) could both pass the exists() check above;
+                # a direct copytree to `dest` would then race and the loser would
+                # raise FileExistsError — swallowed as a warning, masking the
+                # race. mkdtemp gives each racer a private staging dir, and
+                # os.rename onto an already-placed `dest` fails cleanly so the
+                # loser simply discards its copy. Result is materialize-once with
+                # no spurious warning.
+                staging = Path(tempfile.mkdtemp(prefix=f".materialize.{name}.", dir=self.skills_dir))
+                shutil.copytree(src, staging, dirs_exist_ok=True)
+                self._write_builtin_meta(staging)
+                try:
+                    os.rename(staging, dest)
+                except OSError:
+                    # Another run won the race and placed `dest` first.
+                    shutil.rmtree(staging, ignore_errors=True)
+                    continue
                 logger.info(f"Materialized built-in skill '{name}' into {dest}")
             except Exception as e:
                 logger.warning(f"Failed to materialize built-in skill '{name}': {e}")
@@ -588,12 +604,7 @@ class SkillModule(XYZBaseModule):
             **study_fields,
         )
 
-    def _save_skill_meta(
-        self,
-        skill_dir: Path,
-        source_url: Optional[str] = None,
-        source_type: str = "unknown"
-    ) -> None:
+    def _save_skill_meta(self, skill_dir: Path, source_url: Optional[str] = None, source_type: str = "unknown") -> None:
         """Save Skill metadata to .skill_meta.json.
 
         Preserves any metadata that travelled with the skill (``env_config`` /
@@ -606,18 +617,20 @@ class SkillModule(XYZBaseModule):
         meta_data: dict = {}
         if meta_file.exists():
             try:
-                meta_data = json.loads(meta_file.read_text(encoding='utf-8'))
+                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
                 if not isinstance(meta_data, dict):
                     meta_data = {}
             except Exception:
                 meta_data = {}
-        meta_data.update({
-            "source_url": source_url,
-            "source_type": source_type,
-            "installed_at": datetime.now().isoformat(),
-        })
+        meta_data.update(
+            {
+                "source_url": source_url,
+                "source_type": source_type,
+                "installed_at": datetime.now().isoformat(),
+            }
+        )
         try:
-            meta_file.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False), encoding='utf-8')
+            meta_file.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False), encoding="utf-8")
             logger.debug(f"Saved skill metadata to {meta_file}")
         except Exception as e:
             logger.warning(f"Failed to save skill metadata: {e}")
@@ -1034,14 +1047,15 @@ class SkillModule(XYZBaseModule):
 
     @staticmethod
     def _dir_is_builtin(skill_dir: Path) -> bool:
-        """True if a skill directory is a built-in (per its .skill_meta.json)."""
-        meta_file = skill_dir / ".skill_meta.json"
-        if not meta_file.exists():
-            return False
-        try:
-            return bool(json.loads(meta_file.read_text(encoding="utf-8")).get("builtin"))
-        except Exception:
-            return False
+        """True if a skill directory is a built-in (per its .skill_meta.json).
+
+        Thin delegate to the single source of truth in ``bundle.skill_secrets``
+        so the built-in flag semantics stay identical across the module, the
+        backup path, and the export builder.
+        """
+        from xyz_agent_context.bundle.skill_secrets import dir_is_builtin
+
+        return dir_is_builtin(skill_dir)
 
     def remove_skill(self, skill_name: str) -> bool:
         """Remove a Skill.

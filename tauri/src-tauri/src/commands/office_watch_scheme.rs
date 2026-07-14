@@ -48,7 +48,17 @@ pub async fn handle(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     let uri = request.uri();
     let path = uri.path();
 
-    // SSRF guard: refuse anything but the token-authed public proxy path.
+    // SSRF guard, part 1: reject dot-segments BEFORE the prefix check. `path`
+    // is later concatenated verbatim into the backend URL, so a webview that
+    // does not normalize `..` for a custom scheme could otherwise let
+    // `/api/public/office-watch-proxy/../../secret` satisfy `starts_with` yet
+    // resolve to an arbitrary backend route. Splitting on '/' catches `..` in
+    // any segment without rejecting legitimate names that merely contain dots.
+    if path.split('/').any(|seg| seg == "..") {
+        return build(403, "text/plain", b"forbidden".to_vec());
+    }
+
+    // SSRF guard, part 2: refuse anything but the token-authed public proxy path.
     if !path.starts_with(ALLOWED_PREFIX) {
         return build(403, "text/plain", b"forbidden".to_vec());
     }
@@ -94,11 +104,20 @@ pub async fn handle(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
 /// to `officewatch://` are cross-origin — mirror the browser proxy and allow
 /// them with a permissive CORS header (auth is the token in the path).
 fn build(status: u16, content_type: &str, body: Vec<u8>) -> Response<Cow<'static, [u8]>> {
+    // Guard the one caller-controlled header: an upstream Content-Type carrying
+    // bytes illegal in a header value would make `body()` return Err, and the
+    // old `.expect()` would panic. Inside an async custom-scheme handler tokio
+    // silently drops the panicking task, so `responder.respond` is never called
+    // and the webview hangs with no error. Pre-validate the value and fall back
+    // to a safe static one so every header is known-good and `.expect` on a
+    // fully-validated builder can never fire.
+    let ct = reqwest::header::HeaderValue::from_str(content_type)
+        .unwrap_or_else(|_| reqwest::header::HeaderValue::from_static("application/octet-stream"));
     Response::builder()
         .status(status)
-        .header("Content-Type", content_type)
+        .header("Content-Type", ct)
         .header("Access-Control-Allow-Origin", "*")
         .header("Cache-Control", "no-store")
         .body(Cow::Owned(body))
-        .expect("failed to build officewatch response")
+        .expect("response with pre-validated headers is always buildable")
 }

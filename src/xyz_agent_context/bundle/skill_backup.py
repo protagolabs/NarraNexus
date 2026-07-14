@@ -8,7 +8,6 @@ Subproject 2 §8.12.2 ~ §8.12.5.
 """
 
 import io
-import json
 import shutil
 import zipfile
 from pathlib import Path
@@ -21,27 +20,13 @@ from loguru import logger
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.repository import SkillArchiveRepository
 from .security import bytes_sha256, file_sha256
+from .skill_secrets import dir_is_builtin as _dir_is_builtin
 
 
 SKILL_ARCHIVES_ROOT = Path.home() / ".nexusagent" / "skill_archives"
 # SINGLE-WORKER ASSUMPTION: archive_path columns are absolute local fs paths.
 # Multi-pod scale needs shared volume or object-store URLs — see
 # .mindflow/project/references/scaling_assumptions.md §2.
-
-
-def _dir_is_builtin(skill_dir: Path) -> bool:
-    """True if a skill directory is a built-in (shipped with the app).
-
-    Built-in skills are materialized from the repo on every run, so they must
-    never be treated as user data to back up or export.
-    """
-    meta_file = skill_dir / ".skill_meta.json"
-    if not meta_file.exists():
-        return False
-    try:
-        return bool(json.loads(meta_file.read_text(encoding="utf-8")).get("builtin"))
-    except Exception:
-        return False
 
 
 def _user_archive_dir(user_id: str) -> Path:
