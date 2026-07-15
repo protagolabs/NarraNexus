@@ -287,6 +287,15 @@ def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str
     return {"effort": effort}
 
 
+def _stderr_tail_detail(cli_stderr_lines: list[str] | None) -> str:
+    """Return the trailing CLI stderr as a `` \\n\\nCLI stderr:\\n...`` suffix,
+    or ``""`` when there is none. Shared by the zero-output and inline-error
+    event builders so both fold the SAME diagnostic tail into
+    ``error_message`` for downstream classification."""
+    stderr = "\n".join((cli_stderr_lines or [])[-30:]).strip()
+    return f"\n\nCLI stderr:\n{stderr}" if stderr else ""
+
+
 def _zero_output_error_event(cli_stderr_lines: list[str]) -> dict:
     """Build a ``response.error`` event for a run where the Claude CLI
     yielded zero messages.
@@ -303,15 +312,46 @@ def _zero_output_error_event(cli_stderr_lines: list[str]) -> dict:
     error. The base sentence is kept auth-phrase-free on purpose so it can't
     false-positive the classifier when stderr is empty.
     """
-    stderr = "\n".join((cli_stderr_lines or [])[-30:]).strip()
-    detail = f"\n\nCLI stderr:\n{stderr}" if stderr else ""
     return {
         "type": "raw_response_event",
         "data": {
             "type": "response.error",
             "error_type": "no_output",
             "error_message": (
-                "The coding agent produced no output (0 messages)." + detail
+                "The coding agent produced no output (0 messages)."
+                + _stderr_tail_detail(cli_stderr_lines)
+            ),
+        },
+    }
+
+
+def _inline_assistant_error_event(
+    message_error: Any, cli_stderr_lines: list[str] | None
+) -> dict:
+    """Build a ``response.error`` event for an inline ``AssistantMessage.error``,
+    folding the CLI stderr tail into ``error_message``.
+
+    ``AssistantMessage.error`` is a 6-value enum (auth/billing/rate_limit/
+    invalid_request/server_error/unknown). The real provider cause — e.g.
+    ``litellm.ContextWindowExceededError: inputs 75307 > 32769`` — is collapsed
+    to that enum by the CLI, and the numbers survive ONLY in CLI stderr. Left
+    alone, output_transfer emits just ``Claude API error: unknown`` and the
+    truth is lost (the "black box" P1). We keep ``error_type`` = the enum (so
+    the classifier can still key on it) and append the stderr tail so
+    ``classify_self_serviceable`` can recognise a context-window / balance /
+    model error from the message text. Only used when stderr is non-empty;
+    with empty stderr there is nothing to add and output_transfer's plain
+    enum event stands.
+    """
+    enum = str(message_error)
+    return {
+        "type": "raw_response_event",
+        "data": {
+            "type": "response.error",
+            "error_type": enum,
+            "error_message": (
+                f"Claude API error: {enum}"
+                + _stderr_tail_detail(cli_stderr_lines)
             ),
         },
     }
@@ -864,6 +904,20 @@ class ClaudeAgentSDK:
                         )
                     except Exception:
                         pass
+
+                    # Surface the real provider cause: when CLI stderr carries
+                    # it (e.g. litellm ContextWindowExceededError token counts),
+                    # fold it into the error event ourselves. output_transfer
+                    # only sees the collapsed enum and would emit a black-box
+                    # "Claude API error: unknown"; here we have stderr in hand,
+                    # so downstream classify_self_serviceable can recover the
+                    # truth. With empty stderr we add nothing and let
+                    # output_transfer's plain enum event stand.
+                    if cli_stderr_lines:
+                        yield _inline_assistant_error_event(
+                            message.error, cli_stderr_lines
+                        )
+                        continue
 
                 # output_transfer 返回事件列表（一条消息可能产生多个事件）
                 events = output_transfer(message, transfer_type="claude_agent_sdk", streaming=streaming)

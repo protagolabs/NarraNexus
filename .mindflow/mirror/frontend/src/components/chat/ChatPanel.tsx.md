@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — pass `actionReason` into MessageBubble props
+
+The `TimelineItem` → `MessageBubble` prop mapping now forwards `actionReason`
+alongside `isError`/`warnings`. Without it, a `config_actionable` failure lost
+its reason on this last hop and the bubble fell back to the generic "Run
+failed" popover instead of the actionable "what you can do" panel. See the
+upstream carry in [[buildTimeline.ts]].
 
 ## 2026-07-10 — history reload reacts to wipe
 

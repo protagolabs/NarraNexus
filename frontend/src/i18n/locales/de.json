@@ -130,7 +130,14 @@
       "titleFailed": "Ausführung fehlgeschlagen",
       "titleRecovered": "Mit Fehlern abgeschlossen",
       "situationFailed": "Bei dieser Ausführung trat ein Fehler auf und der Agent konnte nicht normal antworten. Details:",
-      "situationRecovered": "Der Agent hat geantwortet, aber während der Ausführung traten Fehler auf. Details:"
+      "situationRecovered": "Der Agent hat geantwortet, aber während der Ausführung traten Fehler auf. Details:",
+      "titleActionable": "Aktion erforderlich",
+      "action": {
+        "context_window": "Das Kontextfenster des gewählten Modells ist für diesen Agent zu klein. Wählen Sie in den Einstellungen ein Modell mit größerem Kontextfenster und senden Sie erneut.",
+        "insufficient_balance": "Der Modellanbieter meldet unzureichendes Guthaben oder Kontingent. Laden Sie in den Einstellungen auf oder wechseln Sie den Anbieter und senden Sie erneut.",
+        "model_not_found": "Die konfigurierte Modell-ID wurde vom Anbieter abgelehnt (nicht gefunden oder ungültig). Wählen Sie in den Einstellungen ein gültiges Modell und senden Sie erneut.",
+        "generic": "Dieser Durchlauf konnte wegen eines in den Einstellungen behebbaren Konfigurationsproblems nicht ausgeführt werden. Beheben und erneut senden."
+      }
     }
   },
   "awareness": {

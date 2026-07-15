@@ -41,6 +41,7 @@ from typing import Optional, Tuple
 from loguru import logger
 
 from xyz_agent_context.agent_framework.llm_failure import (
+    classify_self_serviceable,
     is_credential_error,
     redact_secrets,
 )
@@ -182,6 +183,22 @@ async def record_failure(
     Callers MUST treat this as best-effort (wrap in try/except) — a breaker
     write must never break turn finalization.
     """
+    # Deterministic, user-self-serviceable failures (context window too small,
+    # no credits, bad model id) must NOT advance the breaker. They don't heal
+    # by waiting, so a cooldown would only block the CORRECTED retry after the
+    # user switches models — punishing them for doing exactly what the
+    # actionable error told them (binding rule #14/#15: never be the
+    # interruption source). They're also not a provider-hammering risk (the
+    # provider rejects them instantly). The turn already surfaced an actionable
+    # error; the breaker stays out entirely — no cool, no pause, no counter
+    # change (an unrelated prior streak is left intact).
+    if classify_self_serviceable(error_type, error_message) is not None:
+        logger.debug(
+            f"[agent-cb] agent {agent_id} self-serviceable failure "
+            f"({error_type}) — breaker not advanced"
+        )
+        return
+
     db = db or await get_db_client()
     repo = AgentCircuitBreakerRepository(db)
     category = classify_agent_error(error_type, error_message)

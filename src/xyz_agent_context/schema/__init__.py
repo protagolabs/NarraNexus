@@ -51,6 +51,7 @@ from .runtime_message import (
     ErrorMessage,
     # Constants
     AUTH_EXPIRED_ERROR_TYPE,
+    SELF_SERVICEABLE_ERROR_TYPE,
 )
 
 # ===== Job Schema =====

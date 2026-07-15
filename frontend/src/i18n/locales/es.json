@@ -130,7 +130,14 @@
       "titleFailed": "La ejecución falló",
       "titleRecovered": "Finalizado con errores",
       "situationFailed": "Esta ejecución tuvo un error y el agente no pudo responder con normalidad. Detalles:",
-      "situationRecovered": "El agente respondió, pero ocurrieron errores durante la ejecución. Detalles:"
+      "situationRecovered": "El agente respondió, pero ocurrieron errores durante la ejecución. Detalles:",
+      "titleActionable": "Acción necesaria",
+      "action": {
+        "context_window": "La ventana de contexto del modelo seleccionado es demasiado pequeña para este agente. Cambia a un modelo con mayor ventana de contexto en Ajustes y vuelve a enviar.",
+        "insufficient_balance": "El proveedor del modelo informa saldo o cuota insuficiente. Recarga o cambia de proveedor en Ajustes y vuelve a enviar.",
+        "model_not_found": "El proveedor rechazó el id del modelo configurado (no encontrado o inválido). Elige un modelo válido en Ajustes y vuelve a enviar.",
+        "generic": "Este turno no pudo ejecutarse por un problema de configuración que puedes corregir en Ajustes. Corrígelo y vuelve a enviar."
+      }
     }
   },
   "awareness": {

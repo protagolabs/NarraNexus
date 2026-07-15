@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/agent_circuit_breaker.py
-last_verified: 2026-07-13
+last_verified: 2026-07-14
 stub: false
 ---
+
+## 2026-07-14 — 确定性自助类失败**不进熔断器**（"黑盒" P1 的连带修复）
+
+`record_failure` 顶部新增早退:`classify_self_serviceable(error_type,
+error_message)` 命中(context window 太小 / 余额不足 / 模型 ID 无效)则**直接
+return，不动任何熔断状态**（不 cool、不 pause、不改计数）。
+
+**为什么**:这类错误不会靠等待自愈——只有用户改配置(换更大上下文的模型)
+才好。而 `record_failure` 的既有逻辑是"除 auth/quota 外一切失败都进 COOLING
+退避(60s→120s→240s…)"。"黑盒" P1 把 context-window 从 `recoverable`(不记
+失败、被兜底掩盖)改成 `fatal`(记失败)后,连续几次就把 agent 冷却住了——
+**用户按提示换成大模型后的那次重试反而被冷却挡在门外**(实测复现:换到
+deepseek-v4-pro 仍报 "cooling down, try again shortly")。这违反铁律
+#14/#15(平台不能成为中断源)。且这类是**瞬时拒绝的 400**,不是"把挣扎中的
+provider 打垮"的 DoS 风险,熔断器本就不该管。
+
+早退用 `classify_self_serviceable`(双通道)而非只认 `config_actionable`
+标记,因为 message_bus 路径只传 `str(e)` 原文——两条路径都能命中。留下的
+无关既有 streak 不受影响(早退在任何读写之前)。
+
 # agent_circuit_breaker.py — 实时层 Agent 熔断器（核心服务）
 
 ## 为什么存在

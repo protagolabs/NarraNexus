@@ -1022,6 +1022,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   timeline: item.timeline,
                   isError: item.isError,
                   warnings: item.warnings,
+                  actionReason: item.actionReason,
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
