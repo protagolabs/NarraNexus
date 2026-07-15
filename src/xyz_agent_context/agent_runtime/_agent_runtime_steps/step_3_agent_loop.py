@@ -729,7 +729,7 @@ async def step_3_agent_loop(
     )
     substeps.append(
         f"[3.2] ✓ Context build complete: {len(context.messages)} messages, "
-        f"{len(context.mcp_urls)} MCP servers"
+        f"{len(context.mcp_servers)} MCP servers"
     )
     logger.debug("ContextRuntime execution completed")
 
@@ -743,12 +743,12 @@ async def step_3_agent_loop(
 
     # ------------- 3.3: Extract messages and MCP URLs -------------
     messages = context.messages
-    ctx.mcp_urls.update(context.mcp_urls)
+    ctx.mcp_servers.update(context.mcp_servers)
     substeps.append(
-        f"[3.3] ✓ Extraction complete: {len(messages)} messages, {len(ctx.mcp_urls)} MCP servers"
+        f"[3.3] ✓ Extraction complete: {len(messages)} messages, {len(ctx.mcp_servers)} MCP servers"
     )
     logger.debug(f"context.messages count={len(messages)}")
-    logger.debug(f"context.mcp_urls={list(ctx.mcp_urls.keys())}")
+    logger.debug(f"context.mcp_servers={list(ctx.mcp_servers.keys())}")
     yield ProgressMessage(
         step="3",
         title="Execute Agent Loop",
@@ -838,7 +838,7 @@ async def step_3_agent_loop(
     try:
         async for response in driver.agent_loop(
             messages=messages,
-            mcp_server_urls=ctx.mcp_urls,
+            mcp_servers=ctx.mcp_servers,
             extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
         ):
@@ -1026,7 +1026,7 @@ async def step_3_agent_loop(
         details={
             "response_count": state.response_count,
             "output_length": len(state.final_output),
-            "mcp_servers": list(ctx.mcp_urls.keys())
+            "mcp_servers": list(ctx.mcp_servers.keys())
         },
         substeps=substeps
     )

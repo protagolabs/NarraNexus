@@ -1814,6 +1814,10 @@
       "delete": "Supprimer",
       "namePlaceholder": "Nom du MCP",
       "urlPlaceholder": "URL SSE (ex. : https://your-host/sse)",
+      "headerKeyPlaceholder": "Nom de l'en-tête (ex. Authorization)",
+      "headerValuePlaceholder": "Valeur de l'en-tête (ex. Bearer <token>)",
+      "addHeader": "Ajouter un en-tête",
+      "removeHeader": "Supprimer l'en-tête",
       "add": "Ajouter",
       "cancel": "Annuler",
       "deleteTitle": "Supprimer le MCP",
@@ -1826,7 +1830,7 @@
         "endpoint": "Doit être un point de terminaison SSE distant via http(s) — se terminant généralement par /sse.",
         "reachable": "Le serveur doit pouvoir atteindre l'URL (hôte public ou un hôte auquel cette machine peut se connecter).",
         "noStdio": "Les MCP locaux stdio / npx ne sont pas pris en charge ici — uniquement les serveurs SSE basés sur une URL.",
-        "apiKey": "S'il nécessite une clé API, placez-la dans l'URL ou les en-têtes attendus par votre MCP ; nous nous connectons de manière anonyme.",
+        "apiKey": "Si une clé API est requise, ajoutez-la comme en-tête de requête (ex. Authorization: Bearer <token>) — les en-têtes sont envoyés à chaque connexion.",
         "validation": "Après l'ajout, le point de statut valide la connexion — Échec signifie que l'URL était inaccessible ou n'était pas un point de terminaison SSE valide."
       }
     }

@@ -1814,6 +1814,10 @@
       "delete": "Löschen",
       "namePlaceholder": "MCP-Name",
       "urlPlaceholder": "SSE-URL (z. B. https://your-host/sse)",
+      "headerKeyPlaceholder": "Header-Name (z. B. Authorization)",
+      "headerValuePlaceholder": "Header-Wert (z. B. Bearer <token>)",
+      "addHeader": "Request-Header hinzufügen",
+      "removeHeader": "Header entfernen",
       "add": "Hinzufügen",
       "cancel": "Abbrechen",
       "deleteTitle": "MCP löschen",
@@ -1826,7 +1830,7 @@
         "endpoint": "Muss ein entfernter SSE-Endpunkt über http(s) sein — endet üblicherweise auf /sse.",
         "reachable": "Der Server muss die URL erreichen können (öffentlicher Host oder einer, mit dem sich dieser Rechner verbinden kann).",
         "noStdio": "Lokale stdio- / npx-MCPs werden hier nicht unterstützt — nur URL-basierte SSE-Server.",
-        "apiKey": "Wenn ein API-Schlüssel benötigt wird, geben Sie ihn in die URL oder die von Ihrem MCP erwarteten Header ein; wir verbinden uns anonym.",
+        "apiKey": "Wenn ein API-Schlüssel benötigt wird, füge ihn als Request-Header hinzu (z. B. Authorization: Bearer <token>) — Header werden bei jeder Verbindung gesendet.",
         "validation": "Nach dem Hinzufügen validiert der Statuspunkt die Verbindung — Fehlgeschlagen bedeutet, dass die URL nicht erreichbar oder kein gültiger SSE-Endpunkt war."
       }
     }

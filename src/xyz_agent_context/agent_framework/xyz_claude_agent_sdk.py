@@ -392,6 +392,23 @@ async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float
         return None
 
 
+def _build_claude_mcp_config(
+    mcp_servers: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Convert ``{name: {"url", "headers"?}}`` specs to SDK SSE configs.
+
+    Module-internal servers carry only ``url``; user-configured external
+    servers may add ``headers`` (secret values — never log them here).
+    """
+    config: dict[str, dict[str, Any]] = {}
+    for name, spec in mcp_servers.items():
+        entry: dict[str, Any] = {"type": "sse", "url": spec["url"]}
+        if spec.get("headers"):
+            entry["headers"] = spec["headers"]
+        config[name] = entry
+    return config
+
+
 class ClaudeAgentSDK:
     def __init__(self, working_path: str = "./"):
         self.working_path = working_path
@@ -401,17 +418,17 @@ class ClaudeAgentSDK:
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
-        mcp_server_urls: dict[str, str],  # Corrected type annotation: should be a dict, not a list
+        mcp_servers: dict[str, dict[str, Any]],  # {name: {"url": str, "headers": {str: str}?}}
         streaming: bool = True,  # Whether to use streaming output
         extra_env: dict[str, str] | None = None,  # Additional env vars (e.g., skill-configured API keys)
         cancellation: Any | None = None,  # CancellationToken for cooperative cancellation
         **kwargs: Any,
         ) -> AsyncGenerator[dict[str, Any], None]:
 
-        # Step 0-1: Convert mcp_server_urls to claude_agent_mcp_dict
-        claude_agent_mcp_dict = {
-            mcp_server_url[0]: {"type": "sse", "url": mcp_server_url[1]} for mcp_server_url in mcp_server_urls.items()
-        }
+        # Step 0-1: Convert mcp_servers specs to the SDK's McpSSEServerConfig
+        # shape. "headers" (user-configured auth, e.g. Authorization bearer
+        # tokens) rides through verbatim — the SDK sends them on connect.
+        claude_agent_mcp_dict = _build_claude_mcp_config(mcp_servers)
         
         # Step 0-2: Build system prompt. Currently the Claude Agent SDK does not support multi-turn conversations,
         # so we need to manually append the conversation history to the system prompt.

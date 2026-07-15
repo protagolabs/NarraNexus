@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-07-08
+last_verified: 2026-07-15
 ---
+
+## 2026-07-15 — MCP headers 的 codex 支持（仅 Bearer）
+
+codex 配置表达不了任意 HTTP 头，只支持 `bearer_token_env_var`。新增
+`codex_mcp_bearer_env()`：从 spec headers 抽 `Authorization: Bearer <tok>` →
+`NARRANEXUS_MCP_BEARER_<NAME>` env（token 走子进程 env，不进 argv/config
+overrides）；`_build_codex_config_overrides` 相应发出
+`mcp_servers.<name>.bearer_token_env_var=...`。非 Bearer 头记 warning（只打键名）
+跳过。`agent_loop` 签名与 claude 驱动对齐为 `mcp_servers` spec dict。
 
 ## 2026-07-08 — per-run CODEX_HOME tempdir: ignore_cleanup_errors=True
 

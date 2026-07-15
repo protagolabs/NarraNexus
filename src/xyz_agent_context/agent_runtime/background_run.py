@@ -488,7 +488,7 @@ class BackgroundRun:
         user_id: str,
         input_content: str,
         working_source: Any,
-        pass_mcp_urls: Optional[dict] = None,
+        pass_mcp_servers: Optional[dict] = None,
         trigger_extra_data: Optional[dict] = None,
     ) -> None:
         """Own AgentRuntime lifecycle + consume run() to completion +
@@ -524,7 +524,7 @@ class BackgroundRun:
                         user_id=user_id,
                         input_content=input_content,
                         working_source=working_source,
-                        pass_mcp_urls=pass_mcp_urls or {},
+                        pass_mcp_servers=pass_mcp_servers or {},
                         cancellation=self.cancellation,
                         trigger_extra_data=trigger_extra_data or {},
                     ):

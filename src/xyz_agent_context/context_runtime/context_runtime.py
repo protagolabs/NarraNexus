@@ -53,7 +53,7 @@ class ContextRuntime:
     3. Each Module performs data_gathering (expanding ContextData)
     4. Extract historical information from Narrative/Events
     5. Build system prompt (sort module instructions)
-    6. Build the final messages and mcp_urls
+    6. Build the final messages and mcp_servers
     """
 
     # Maximum characters per single message (prevents a single overly long message from consuming too much Context)
@@ -157,13 +157,13 @@ class ContextRuntime:
 
         # Step 5: Build input for Agent Framework
         logger.info("    │ Step 2: Building input for Agent Framework")
-        messages, mcp_urls = await self.build_input_for_framework(
+        messages, mcp_servers = await self.build_input_for_framework(
             messages, system_prompt, active_instances, ctx_data
         )
-        logger.info(f"    │ ✅ Framework input built: {len(messages)} messages, {len(mcp_urls)} MCP servers")
+        logger.info(f"    │ ✅ Framework input built: {len(messages)} messages, {len(mcp_servers)} MCP servers")
 
         logger.info("    └─ ContextRuntime.run() completed")
-        return ContextRuntimeOutput(messages=messages, mcp_urls=mcp_urls, ctx_data=ctx_data)
+        return ContextRuntimeOutput(messages=messages, mcp_servers=mcp_servers, ctx_data=ctx_data)
 
 
     async def build_module_instructions(
@@ -630,9 +630,9 @@ class ContextRuntime:
             ctx_data: Context data (containing chat_history populated by ChatModule)
 
         Returns:
-            (messages, mcp_urls)
+            (messages, mcp_servers)
             - messages: Complete messages list including system prompt and historical messages
-            - mcp_urls: Dictionary of {module_name: mcp_url}
+            - mcp_servers: Dictionary of {server_name: {"url": str, "headers": {str: str}?}}
 
         Note (after 2025-12-09 refactoring):
         - Chat history preferentially uses ctx_data.chat_history (provided by ChatModule via EventMemoryModule)
@@ -739,7 +739,7 @@ class ContextRuntime:
 
         # Step 2: Collect all Module MCP URLs (deduplicated by module_class)
         logger.debug("        Step 2: Collecting MCP URLs from instances (deduped by module_class)")
-        mcp_urls = {}
+        mcp_servers = {}
         seen_module_classes = set()
         collected_count = 0
 
@@ -748,7 +748,7 @@ class ContextRuntime:
                 logger.debug(f"          Getting MCP config from {inst.module_class} ({inst.instance_id})")
                 mcp_config = await inst.module.get_mcp_config()
                 if mcp_config and mcp_config.server_url:
-                    mcp_urls[mcp_config.server_name] = mcp_config.server_url
+                    mcp_servers[mcp_config.server_name] = {"url": mcp_config.server_url}
                     collected_count += 1
                     logger.debug(f"          ✓ Added MCP: {mcp_config.server_name} -> {mcp_config.server_url}")
                 elif mcp_config:
@@ -757,8 +757,8 @@ class ContextRuntime:
 
         logger.debug(f"        Collected {collected_count} MCP URLs from {len(active_instances)} instances (deduped by module_class)")
 
-        logger.debug(f"      build_input_for_framework() completed: {len(final_messages)} messages, {len(mcp_urls)} MCP URLs")
-        return final_messages, mcp_urls
+        logger.debug(f"      build_input_for_framework() completed: {len(final_messages)} messages, {len(mcp_servers)} MCP servers")
+        return final_messages, mcp_servers
 
     @staticmethod
     def _format_timeline_tag(meta: Dict[str, Any]) -> str:

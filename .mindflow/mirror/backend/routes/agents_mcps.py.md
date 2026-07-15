@@ -1,10 +1,21 @@
 ---
 code_file: backend/routes/agents_mcps.py
-last_verified: 2026-04-10
+last_verified: 2026-07-15
 stub: false
 ---
 
 # agents_mcps.py — MCP URL 管理与连接验证路由
+
+## 2026-07-15 — headers 透传 + 掩码回显 + 修复 update 的 TypeError
+
+- Create/Update 请求体接受 `headers`（dict）；Update 语义=字段出现即整组覆盖
+  （`model_fields_set` 判别），字段缺席不动。
+- 读接口一律经 `_masked_headers()` 掩码（`v[:6]…v[-4:]`，短值全 `****`）——
+  明文 token 绝不出现在 GET 响应里。
+- validate 端点把存储的 headers 传给 `validate_mcp_sse_connection`。
+- 顺手修复既有 bug：原 PUT 路由用 `name=/url=` kwargs 调
+  `repo.update_mcp(mcp_id, updates: Dict)`，必然 TypeError——现在先组 updates
+  dict 再调用（前端 enable/disable toggle 此前实际是坏的）。
 
 ## 为什么存在
 

@@ -39,14 +39,34 @@ from xyz_agent_context.schema import (
 router = APIRouter()
 
 
+def _mask_header_value(value: str) -> str:
+    """Mask a header value for API responses (secrets never leave the backend).
+
+    Long values keep a short prefix/suffix so the user can recognize which
+    credential is stored (same spirit as showing an API key's last 4 chars);
+    short values are fully masked.
+    """
+    if len(value) > 14:
+        return f"{value[:6]}…{value[-4:]}"
+    return "****"
+
+
+def _masked_headers(headers: dict | None) -> dict | None:
+    """Return a copy of headers with every value masked, or None."""
+    if not headers:
+        return None
+    return {k: _mask_header_value(v) for k, v in headers.items()}
+
+
 def _mcp_to_info(mcp: MCPUrl) -> MCPInfo:
-    """Convert MCPUrl data model to MCPInfo response model"""
+    """Convert MCPUrl data model to MCPInfo response model (headers masked)"""
     return MCPInfo(
         mcp_id=mcp.mcp_id,
         agent_id=mcp.agent_id,
         user_id=mcp.user_id,
         name=mcp.name,
         url=mcp.url,
+        headers=_masked_headers(mcp.headers),
         description=mcp.description,
         is_enabled=mcp.is_enabled,
         connection_status=mcp.connection_status,
@@ -111,6 +131,7 @@ async def create_mcp(
             mcp_id=mcp_id,
             name=payload.name,
             url=payload.url,
+            headers=payload.headers or None,
             description=payload.description,
             is_enabled=payload.is_enabled
         )
@@ -153,13 +174,23 @@ async def update_mcp_endpoint(
         if payload.url and not payload.url.startswith(("http://", "https://")):
             return MCPResponse(success=False, error="URL must start with http:// or https://")
 
-        await repo.update_mcp(
-            mcp_id=mcp_id,
-            name=payload.name,
-            url=payload.url,
-            description=payload.description,
-            is_enabled=payload.is_enabled
-        )
+        # Build the column updates dict explicitly: update_mcp() takes a dict
+        # (the old kwargs call was a latent TypeError). Only fields the client
+        # actually sent are written; for headers, "field present" (even {})
+        # replaces the whole set — see MCPUpdateRequest docstring.
+        updates: dict = {}
+        if payload.name is not None:
+            updates["name"] = payload.name
+        if payload.url is not None:
+            updates["url"] = payload.url
+        if payload.description is not None:
+            updates["description"] = payload.description
+        if payload.is_enabled is not None:
+            updates["is_enabled"] = payload.is_enabled
+        if "headers" in payload.model_fields_set:
+            updates["headers"] = payload.headers or None
+        if updates:
+            await repo.update_mcp(mcp_id, updates)
 
         updated_mcp = await repo.get_mcp(mcp_id)
 
@@ -230,7 +261,9 @@ async def validate_mcp_endpoint(
                 error="MCP does not belong to this agent+user"
             )
 
-        connected, error = await validate_mcp_sse_connection(existing_mcp.url)
+        connected, error = await validate_mcp_sse_connection(
+            existing_mcp.url, headers=existing_mcp.headers
+        )
 
         status = "connected" if connected else "failed"
         await repo.update_connection_status(mcp_id=mcp_id, status=status, error=error)
@@ -267,7 +300,7 @@ async def validate_all_mcps_endpoint(
             )
 
         async def validate_single(mcp: MCPUrl) -> MCPValidateResponse:
-            connected, error = await validate_mcp_sse_connection(mcp.url)
+            connected, error = await validate_mcp_sse_connection(mcp.url, headers=mcp.headers)
             status = "connected" if connected else "failed"
             await repo.update_connection_status(
                 mcp_id=mcp.mcp_id, status=status, error=error

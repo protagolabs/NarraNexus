@@ -1,10 +1,19 @@
 ---
 code_file: src/xyz_agent_context/repository/mcp_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-07-15
 stub: false
 ---
 
 # mcp_repository.py
+
+## 2026-07-15 — MCP 自定义请求头(headers 列)
+
+`mcp_urls` 表新增 `headers` JSON 列（`_json_fields` 注册），承载用户配置的
+鉴权头（如 `Authorization: Bearer <token>`，需求来自 toms 的 web3 MCP）。
+`add_mcp()` 接受 `headers`；`update_mcp()` 的 JSON 序列化循环同时覆盖
+metadata 和 headers。`validate_mcp_sse_connection(url, headers=None)` 把自定义
+头合并进 SSE 校验请求（叠在 Accept/Cache-Control 基线之上）——带鉴权的端点
+不再必然 401。**headers 值是密钥：任何日志只打键名，绝不打值。**
 
 ## Why it exists
 

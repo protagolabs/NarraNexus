@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-07-13
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — 用户 MCP 装配为 spec 形状（headers 随行）
+
+DB 加载后组 `{name: {"url", "headers"?}}` 传 `pass_mcp_servers`（原
+`pass_mcp_urls` 扁平 url dict）。日志只打服务名/数量，不打 headers 值。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 
