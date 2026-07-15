@@ -1763,16 +1763,18 @@ class LarkTrigger(ChannelTriggerBase):
             friendly = format_lark_error_reply(result.error)
             logger.warning(
                 f"LarkTrigger [{cred.profile_name}] runtime error "
-                f"({result.error.error_type}): {result.error.error_message}"
+                f"({result.error.error_type}, severity={result.error.severity}): "
+                f"{result.error.error_message}"
             )
-            # Route through the shared error-fallback so Lark also skips the
-            # channel send when the agent already replied before failing
-            # (no double-message), consistent with every other channel.
-            sent = self.extract_output(result, message, cred)
-            already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
-            await self._send_error_fallback(
-                cred, message, friendly, already_replied=already_replied
-            )
+            # Only surface FATAL failures to Lark, and skip when the agent
+            # already replied before crashing — same gating as the base
+            # (see channel_trigger_base._build_and_run_agent).
+            if result.has_fatal:
+                sent = self.extract_output(result, message, cred)
+                already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
+                await self._send_error_fallback(
+                    cred, message, friendly, already_replied=already_replied
+                )
             return friendly
 
         # Happy path: scrape the text the agent itself sent via
