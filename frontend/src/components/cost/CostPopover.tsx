@@ -27,8 +27,8 @@ function formatTokens(n: number): string {
 }
 
 /** Short model name for display (drop date suffixes) */
-function shortModelName(model: string): string {
-  if (model === 'claude-code') return 'Claude Code';
+function shortModelName(model: string, genericUsageLabel: string): string {
+  if (model === 'claude-code') return genericUsageLabel;
   return model.replace(/-\d{4}-?\d{2}-?\d{2}$/, '').replace(/-\d{8}$/, '');
 }
 
@@ -60,7 +60,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
           {models.map(([model, data]) => (
             <div key={model} className="flex items-center justify-between text-xs">
               <span className="text-[var(--text-secondary)] truncate max-w-[140px]" title={model}>
-                {shortModelName(model)}
+                {shortModelName(model, t('cost.popover.modelUsage'))}
               </span>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[var(--text-tertiary)]">

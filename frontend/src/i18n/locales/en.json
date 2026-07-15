@@ -1212,6 +1212,7 @@
   "cost": {
     "popover": {
       "triggerTitle": "Token usage — click for details",
+      "modelUsage": "Model usage",
       "inOut": "{{in}} in / {{out}} out",
       "byModel": "By Model",
       "daily": "Daily",

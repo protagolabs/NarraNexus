@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/cost/CostPopover.tsx
-last_verified: 2026-04-10
+last_verified: 2026-07-15
 ---
 
 # CostPopover.tsx — Token usage popover in the top navbar
@@ -31,6 +31,11 @@ API call that most sessions never need.
 already cached in preloadStore and shared with other panels. The popover
 doesn't own a separate query — it calls `refreshCost` to invalidate and
 re-fetch the shared cache.
+
+**Provider-neutral fallback:** `claude-code` is an internal aggregation label
+used when the SDK does not expose the actual model name. The UI displays it
+through `cost.popover.modelUsage` instead of presenting a specific provider
+or framework brand. Concrete model IDs continue to use their model names.
 
 ## Gotchas
 

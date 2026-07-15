@@ -1212,6 +1212,7 @@
   "cost": {
     "popover": {
       "triggerTitle": "Token 用量——点击查看详情",
+      "modelUsage": "模型用量",
       "inOut": "输入 {{in}} / 输出 {{out}}",
       "byModel": "按模型",
       "daily": "每日",
