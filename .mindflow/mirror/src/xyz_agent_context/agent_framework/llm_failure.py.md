@@ -1,9 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm_failure.py
-last_verified: 2026-07-14
+last_verified: 2026-07-15
 stub: false
 ---
 # llm_failure.py — LLM 失败的统一分类 + 密钥脱敏
+
+## 2026-07-15 — 收紧 self-serviceable markers（PR #110 review）
+
+marker 支持两种形态:纯子串,或 AND-组（`tuple[str,...]`，全部命中才算）。
+收紧两处过宽子串——`402` → `402 payment`（token 计数里常有裸 402）;
+`does not exist` → `("model", "does not exist")`（文件/会话也会"not exist"，
+必须与 `model` 共现）。动机:自助类误判现在**代价更高**——不仅把该轮标
+fatal，还让熔断器早退跳过（见 [[agent_circuit_breaker.py]]），可能掩盖真正
+需要熔断保护的 provider 故障。matcher 抽成 `_marker_hit(marker, hay)`。
 
 ## 为什么存在
 

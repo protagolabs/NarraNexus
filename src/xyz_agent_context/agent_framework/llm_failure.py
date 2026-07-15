@@ -121,7 +121,15 @@ _CONTEXT_WINDOW_MARKERS: tuple[str, ...] = (
     "reduce the length",
     "must be <=",  # litellm: "inputs tokens ... must be <= N"
 )
-_INSUFFICIENT_BALANCE_MARKERS: tuple[str, ...] = (
+# A marker is either a plain substring, or a tuple of substrings that must
+# ALL be present (an AND-group) — used to keep an over-broad phrase from
+# false-positiving on unrelated errors. A false positive is costly here: it
+# both mislabels the turn fatal AND makes the circuit breaker skip it (see
+# agent_circuit_breaker.record_failure), so a real provider fault needing
+# breaker protection could be masked. Hence the deliberately narrow phrasing.
+Marker = Union[str, tuple[str, ...]]
+
+_INSUFFICIENT_BALANCE_MARKERS: tuple[Marker, ...] = (
     "insufficient balance",
     "insufficient_quota",
     "insufficient funds",
@@ -129,23 +137,34 @@ _INSUFFICIENT_BALANCE_MARKERS: tuple[str, ...] = (
     "not enough balance",
     "exceeded your current quota",
     "payment required",
-    "402",
+    "402 payment",  # narrowed from bare "402" (token counts etc. contain 402)
 )
-_MODEL_NOT_FOUND_MARKERS: tuple[str, ...] = (
+_MODEL_NOT_FOUND_MARKERS: tuple[Marker, ...] = (
     "model not found",
     "model_not_found",
-    "does not exist",
     "no such model",
     "unknown model",
     "invalid model",
+    # "does not exist" is too broad alone (a file/conversation can "not
+    # exist"); require "model" to co-occur — OpenAI's "The model `x` does not
+    # exist or you do not have access to it."
+    ("model", "does not exist"),
 )
 
 # (reason, markers) in priority order — checked top-to-bottom.
-_SELF_SERVICEABLE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+_SELF_SERVICEABLE_MARKERS: tuple[tuple[str, tuple[Marker, ...]], ...] = (
     (SELF_SERVICEABLE_REASON_CONTEXT_WINDOW, _CONTEXT_WINDOW_MARKERS),
     (SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE, _INSUFFICIENT_BALANCE_MARKERS),
     (SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND, _MODEL_NOT_FOUND_MARKERS),
 )
+
+
+def _marker_hit(marker: Marker, hay: str) -> bool:
+    """True if ``marker`` matches ``hay``: a plain substring, or an AND-group
+    (tuple) whose every substring is present."""
+    if isinstance(marker, tuple):
+        return all(part in hay for part in marker)
+    return marker in hay
 
 
 def classify_self_serviceable(
@@ -166,7 +185,7 @@ def classify_self_serviceable(
     if not hay.strip():
         return None
     for reason, markers in _SELF_SERVICEABLE_MARKERS:
-        if any(m in hay for m in markers):
+        if any(_marker_hit(m, hay) for m in markers):
             return reason
     return None
 

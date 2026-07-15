@@ -905,8 +905,8 @@ class ClaudeAgentSDK:
                     except Exception:
                         pass
 
-                    # 病A: when CLI stderr carries the real provider cause
-                    # (e.g. litellm ContextWindowExceededError token counts),
+                    # Surface the real provider cause: when CLI stderr carries
+                    # it (e.g. litellm ContextWindowExceededError token counts),
                     # fold it into the error event ourselves. output_transfer
                     # only sees the collapsed enum and would emit a black-box
                     # "Claude API error: unknown"; here we have stderr in hand,

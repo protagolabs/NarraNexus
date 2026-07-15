@@ -438,7 +438,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           {/* Message content. NB: an isError bubble already carries a solid
               red background + white text on the container (see style above),
               so we must NOT re-tint the text red here — red-on-red renders as
-              an empty red box (the "大红框里什么都没有" report). Let it inherit
+              an empty red box (the message text vanishes). Let it inherit
               the container's white. */}
           <div className="text-sm break-words leading-relaxed">
             {isUser ? (

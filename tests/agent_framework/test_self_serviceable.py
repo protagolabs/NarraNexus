@@ -64,6 +64,13 @@ def test_self_serviceable_is_classified(error_type, error_message, expected):
         # generic / our-own bug — the residual BUSINESS bucket, untouched
         ("Exception", "some unexpected internal error"),
         ("unknown", "Claude API error: unknown"),
+        # narrowed markers must NOT false-positive (a false hit here would also
+        # make the circuit breaker skip a real fault):
+        # - "does not exist" without "model" (a file / conversation)
+        ("NotFoundError", "The conversation does not exist"),
+        ("unknown", "file does not exist on disk"),
+        # - a bare "402" inside token counts, not a payment error
+        ("unknown", "sequence length 402 exceeds nothing in particular"),
     ],
 )
 def test_non_self_serviceable_is_not_classified(error_type, error_message):
