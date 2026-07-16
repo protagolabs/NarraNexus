@@ -80,8 +80,20 @@ Two layers, deliberately different (see the two mirror mds for detail):
   skip set — reconfiguring a key DOES change config, which readiness observes, so
   they keep the existing time-based recovery.
 
-  Consequence (accepted, since we can't detect top-ups): a balance-dead job does
-  NOT auto-resume on a pure top-up — the user must reconfigure the provider in
-  Settings (or manually resume). This is a **recoverability + genuine stop**, not
-  a periodic "probe" (an earlier draft's ~15-min-probe framing was wrong — it
-  would have replaced dev's "8 tries then FAILED" with unbounded re-arming).
+  **How a top-up IS detected:** the edge path (`rearm_user_no_quota_jobs`, fired
+  on every login + on provider save) runs `ProviderReadiness.validate`, which for
+  a NetMind user does a LIVE `/chat/completions`. `_interpret_test_response` was
+  fixed (PR #116 review) so a self-serviceable 400/404 body (NetMind's
+  `balance not enough`, model-not-found, context) is reported as **not ready**
+  (via the shared `classify_self_serviceable`) instead of the old
+  "400 = auth passed = reachable". So: still-broke → live test says not-ready →
+  job stays paused (NO wasted run); after a top-up → live test 200 → resumed. Net
+  recovery = **auto, on the next login after top-up** (or on provider save), and
+  accurate. This is a genuine stop + accurate recovery — not a blind periodic
+  probe (an earlier draft's ~15-min-probe framing was wrong; it would have
+  replaced dev's "8 tries then FAILED" with unbounded re-arming).
+
+  Onboarding is unaffected by the `_interpret_test_response` change — it only
+  hard-rejects on auth phrases (401/403/"invalid api key"); a balance-dead key
+  still onboards "unverified". The "test connection" button now shows the real
+  cause ("insufficient balance") instead of a misleading "OK".

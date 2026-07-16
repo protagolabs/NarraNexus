@@ -93,20 +93,6 @@ from xyz_agent_context.agent_framework.llm_failure import (
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
 )
-
-# paused_reason values whose fix the readiness backstop CANNOT observe. A
-# balance top-up leaves the config unchanged (and we can't pre-check balance —
-# no login JWT stored); a too-small context window or bad model id only clears
-# when the user changes the slot config. So the TIME-BASED backstop must NOT
-# blind-probe these (that was a retry storm — it re-armed every cycle into the
-# same wall). They resume ONLY on a real edge: provider/slot reconfigure
-# (rearm_user_no_quota_jobs) or a manual action. Auth/legacy-quota pauses are
-# NOT here — reconfiguring a key changes config, which readiness DOES observe.
-_EDGE_ONLY_RESUME_REASONS: frozenset = frozenset({
-    SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
-    SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
-    SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
-})
 from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
 from zoneinfo import ZoneInfo
 from datetime import timedelta, timezone
@@ -139,6 +125,23 @@ _NO_QUOTA_ERROR_MARKERS = (
     "no provider configured",
     "system free tier",
 )
+
+
+# paused_reason values whose fix the TIME-BASED backstop CANNOT observe. A
+# balance top-up leaves the config unchanged (and we can't pre-check balance —
+# no login JWT stored); a too-small context window or bad model id only clears
+# when the user changes the slot config. So `_resume_eligible_no_quota_jobs`
+# (which gates on static config-completeness, not a live test) must NOT
+# blind-probe these — re-arming them every cycle IS the retry storm. They resume
+# only on a real edge: `rearm_user_no_quota_jobs` (login / provider save), whose
+# LIVE provider test actually observes whether the condition cleared, or a manual
+# action. Auth / legacy-quota pauses are NOT here — reconfiguring a key changes
+# config, which the static readiness check DOES observe.
+_EDGE_ONLY_RESUME_REASONS: frozenset[str] = frozenset({
+    SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+    SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
+    SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
+})
 
 
 def _is_no_quota_failure(result: Dict[str, Any]) -> bool:

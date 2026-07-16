@@ -18,8 +18,11 @@ last_verified: 2026-07-16
   边缘恢复**:provider/slot 重配(`rearm_user_no_quota_jobs`,清 paused_reason)或手动。
 - auth / 遗留 quota **不在**该集合:重配 key 会改配置,readiness 能观察到,保持原有兜底恢复。
 
-要点:我们**检测不到充值**(不存登录 JWT、无法预检余额),所以"充值即自动恢复"做不到;
-余额 job 的恢复语义是"**重配 provider 时恢复**"。这是**可恢复性 + 真止损**,不是"15 分钟探测"。
+恢复语义(PR #116 review 后完善):边缘路径 `rearm_user_no_quota_jobs`(每次登录 + provider
+保存都触发)走 `ProviderReadiness.validate` 的**实测**;`provider_registry._interpret_test_response`
+已修——余额/模型/上下文的 400/404 不再被当"auth 通过=可达",而是复用 `classify_self_serviceable`
+判为**not ready**。于是:仍没钱 → 实测 not-ready → job 保持暂停(**不白跑一次**);充值后 →
+实测 200 → 恢复。所以**充值后下次登录即自动恢复且准确**,是"真止损 + 准确恢复",不是"15 分钟盲探"。
 裸 429/限流仍是 transient。差异见 `.mindflow/project/references/netmind_billing.md`。
 
 ## 2026-07-13 — auth failures are recoverable, not terminal + zombie self-heal
