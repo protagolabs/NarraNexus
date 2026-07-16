@@ -187,6 +187,32 @@ def _config_to_response(config: LLMConfig) -> dict:
     return {"version": config.version, "providers": providers, "slots": slots}
 
 
+async def _attach_netmind_accounts(uid: str, data: dict) -> dict:
+    """Attach the captured NetMind account email to each provider dict so
+    Settings → Providers can show WHICH account each key belongs to (upstream
+    incident: several keys from one broke account, topped up the wrong one).
+    Best-effort — a lookup failure just omits the field. The account is stored
+    on ``user_providers`` at key-mint time (netmind_provisioner)."""
+    try:
+        from xyz_agent_context.utils.db_factory import get_db_client
+        db = await get_db_client()
+        rows = await db.get(
+            "user_providers", filters={"user_id": uid, "source": "netmind"}
+        )
+        by_pid = {
+            r["provider_id"]: r.get("netmind_account_email")
+            for r in (rows or [])
+            if r.get("provider_id")
+        }
+        for pid, prov in data.get("providers", {}).items():
+            email = by_pid.get(pid)
+            if email:
+                prov["netmind_account_email"] = email
+    except Exception as e:  # noqa: BLE001 — display enrichment is best-effort
+        logger.warning(f"[providers] netmind account attach failed for {uid}: {e}")
+    return data
+
+
 async def _run_json_subprocess(args: list[str], timeout: float) -> dict | None:
     """Run a short CLI probe without blocking the FastAPI event loop."""
     import asyncio
@@ -230,7 +256,8 @@ async def get_providers(request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
     config = await service.get_user_config(uid)
-    return {"success": True, "data": _config_to_response(config)}
+    data = await _attach_netmind_accounts(uid, _config_to_response(config))
+    return {"success": True, "data": data}
 
 
 @router.post("")

@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-07-15
+last_verified: 2026-07-16
 stub: false
 ---
+
+## 2026-07-16 — user_providers 加 netmind_account_id / netmind_account_email
+
+两列 additive、nullable:铸 NetMind key 时(netmind_provisioner)捕获的账户身份
+(user_system_code + email),供 Settings 显示"该充哪个账户"。非 NetMind 行与旧行留 NULL。
+非密——绝不存登录 JWT。见 `netmind_provisioner.py.md` 与
+`.mindflow/project/references/netmind_billing.md`。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

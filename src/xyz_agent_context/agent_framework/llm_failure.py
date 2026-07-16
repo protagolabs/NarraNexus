@@ -135,6 +135,8 @@ _INSUFFICIENT_BALANCE_MARKERS: tuple[Marker, ...] = (
     "insufficient funds",
     "insufficient credit",
     "not enough balance",
+    "balance not enough",  # NetMind 400 literal (word order differs from above)
+    "credit balance is too low",  # Anthropic: "Your credit balance is too low..."
     "exceeded your current quota",
     "payment required",
     "402 payment",  # narrowed from bare "402" (token counts etc. contain 402)
@@ -218,8 +220,10 @@ SELF_SERVICEABLE_USER_MESSAGE: dict[str, str] = {
     ),
     SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE: (
         "This turn could not run: the model provider reports insufficient "
-        "balance / quota. Top up or switch the provider for this Agent slot "
-        "in Settings, then send the message again."
+        "balance / quota. Top up or switch the provider for this Agent slot in "
+        "Settings → Providers, which shows which account each key belongs to "
+        "(so you top up the right one). A top-up can take a few minutes to take "
+        "effect, then send the message again."
     ),
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND: (
         "This turn could not run: the configured model id was rejected by the "

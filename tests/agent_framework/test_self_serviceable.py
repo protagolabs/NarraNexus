@@ -37,10 +37,15 @@ from xyz_agent_context.agent_framework.llm_failure import (
         ),
         ("unknown", "This model's maximum context length is 8192 tokens", SELF_SERVICEABLE_REASON_CONTEXT_WINDOW),
         ("invalid_request", "context_length_exceeded", SELF_SERVICEABLE_REASON_CONTEXT_WINDOW),
-        # insufficient balance / credits
+        # insufficient balance / credits (across providers + the exact upstream
+        # incident literals: NetMind "balance not enough" (400) / "Insufficient
+        # Balance" (402), Anthropic "credit balance is too low")
         ("billing_error", "", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
         ("unknown", "You have insufficient balance to use this model", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
         ("unknown", "402 Payment Required", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
+        ("unknown", "Error code: 402 - Insufficient Balance", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
+        ("unknown", "balance not enough", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
+        ("unknown", "Your credit balance is too low to access the Claude API", SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE),
         # bad / missing model id
         ("unknown", "The model `gpt-nope` does not exist", SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND),
         ("unknown", "model_not_found", SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND),
