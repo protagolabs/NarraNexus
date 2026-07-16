@@ -7,16 +7,19 @@ last_verified: 2026-07-16
 ## 2026-07-16 — `get_updates`/`send_message` now check `errcode`, not just `ret`
 
 Root cause of the "silent long-poll death" incident (2026-07-06, dev+prod:
-dev stuck 34h, a prod bot silent from 7/3). A DEAD iLink session is signalled
-by `getupdates` as **HTTP 200 `{"errcode":-14,"errmsg":"session timeout"}`** —
-via `errcode`, NOT `ret` (captured live with a credential-free probe against
-`ilinkai.weixin.qq.com`; also confirmed iLink exposes NO liveness endpoint —
-every `get_bot_info`/`status`/`heartbeat`/… candidate 404s). The old check was
-`ret = data.get("ret", 0); if ret != 0` — the errcode packet has no `ret`, so
-`ret` defaulted to 0, the dead session read as a `ret=0`/empty poll, and it was
-indistinguishable from an idle account → the bot went silent with zero error.
-The tests had baked in the wrong schema (`{"ret":1001}`), never validated
-against the live error shape.
+dev stuck 34h, a prod bot silent from 7/3). **Verified live (2026-07-16)**
+against real prod sessions — `getupdates` carries **no `ret` field at all**:
+- healthy: `{"msgs":[…], "sync_buf":…, "get_updates_buf":…}`
+- dead session: `HTTP 200 {"errcode":-14,"errmsg":"session timeout"}`
+
+The old check was `ret = data.get("ret", 0); if ret != 0` — since `ret` is
+NEVER present it always defaulted to 0, so the check **could never fire**. Any
+session death (an `errcode` packet with no `msgs`) read as an empty idle poll →
+the bot went silent, indistinguishable from "nobody messaged" (zero transport
+error). iLink also exposes NO liveness endpoint (probed — every
+`get_bot_info`/`status`/`heartbeat`/… candidate 404s, same as a bogus path).
+The tests had baked in a **fabricated** `{"ret":0}` / `{"ret":1001}` schema —
+precisely what masked the bug; both fixtures corrected to the live shape.
 
 Both call sites now compute `code = data.get("ret", 0) or data.get("errcode", 0)`
 and raise `WeChatSDKError(code, source, errmsg)` on non-zero — turning the

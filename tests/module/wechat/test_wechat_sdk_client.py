@@ -48,8 +48,13 @@ def _client_with(handler) -> WeChatSDKClient:
 async def test_get_updates_returns_payload_and_advances():
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/ilink/bot/getupdates"
-        # octet-stream content-type but JSON body is the documented quirk.
-        return httpx.Response(200, json={"ret": 0, "get_updates_buf": "c2", "msgs": []})
+        # Real healthy schema (captured live 2026-07-16 from 3 prod sessions):
+        # {msgs, sync_buf, get_updates_buf} — there is NO `ret` field (errors
+        # come as {errcode, errmsg}). The old fabricated `{"ret":0,...}` fixture
+        # is exactly what masked the silent-death bug — kept faithful now.
+        return httpx.Response(
+            200, json={"msgs": [], "sync_buf": "s2", "get_updates_buf": "c2"}
+        )
 
     c = _client_with(handler)
     data = await c.get_updates("c1")

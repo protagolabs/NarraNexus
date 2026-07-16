@@ -192,14 +192,15 @@ class WeChatSDKClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        # iLink signals a DEAD session on getupdates via a non-zero ``errcode``
-        # — observed live: HTTP 200 {"errcode":-14,"errmsg":"session timeout"} —
-        # NOT ``ret``. Checking only ``ret`` let a dead session slip through as
-        # ret=0/empty, indistinguishable from an idle account: the "silent
-        # death" incident (2026-07-06, dev+prod). Check BOTH fields; either
-        # non-zero → raise so the trigger disables the credential (via
-        # is_permanent_auth_failure) instead of polling a corpse forever.
-        code = data.get("ret", 0) or data.get("errcode", 0)
+        # getupdates responses carry NO ``ret`` field — verified live
+        # (2026-07-16): healthy = {msgs, sync_buf, get_updates_buf}, error =
+        # {"errcode":-14,"errmsg":"session timeout"}. The old ``ret`` check
+        # therefore NEVER fired (``ret`` always absent → 0), so a dead session
+        # slipped through as an empty poll, indistinguishable from an idle
+        # account — the "silent death" incident (2026-07-06, dev+prod). Read
+        # ``errcode`` (keep ``ret`` as belt-and-suspenders); non-zero → raise so
+        # the trigger disables the credential instead of polling a corpse.
+        code = data.get("errcode", 0) or data.get("ret", 0)
         if code != 0:
             raise WeChatSDKError(code, "updates", data.get("errmsg", ""))
         return data
