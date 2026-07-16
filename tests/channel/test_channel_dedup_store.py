@@ -97,9 +97,17 @@ async def test_classify_db_layer_partitions_by_agent_id(db_client):
     assert a["accept"] is True and a["layer"] == "db_new"
     assert b["accept"] is True and b["layer"] == "db_new"
 
-    # Same agent replaying the same id is still deduped (regression guard).
-    c = await store.classify(msg_id, create_time_ms=0, agent_id="agent_alice")
-    assert c["accept"] is False
+    # Same agent replaying the same id must STILL dedup at the DURABLE layer
+    # (the composite key must keep hitting the UNIQUE index). Use a fresh
+    # store so Layer 2's in-memory cache is cold and cannot short-circuit —
+    # otherwise this assertion would pass via memory_dedup even if the DB
+    # layer were keyed wrong (the hole the first draft of this test had).
+    store_restarted = ChannelDedupStore("narramessenger", repo=repo)
+    c = await store_restarted.classify(msg_id, create_time_ms=0, agent_id="agent_alice")
+    assert c == {"accept": False, "layer": "db_dedup"}
+    # And the OTHER agent's id is still distinct across the "restart".
+    d = await store_restarted.classify(msg_id, create_time_ms=0, agent_id="agent_bob")
+    assert d == {"accept": False, "layer": "db_dedup"}
 
 
 @pytest.mark.asyncio

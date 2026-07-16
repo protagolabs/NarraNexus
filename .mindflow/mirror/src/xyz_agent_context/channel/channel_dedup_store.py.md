@@ -30,8 +30,26 @@ Fix: reuse the Layer 2 `cache_key` (already agent-partitioned) as
 the argument to `repo.mark_seen`. Schema (`channel_seen_messages`,
 `message_id VARCHAR(128)`) accommodates the composite string —
 `f"{agent_id}:{message_id}"` is ~70 chars — so no migration and no
-new UNIQUE index. Same-agent replay of the same id is still deduped
-(regression test guards it). Fail-open on Layer 3 I/O is preserved.
+new UNIQUE index. Fail-open on Layer 3 I/O is preserved.
+
+`ChannelSeenMessageRepository.mark_seen`'s param was renamed
+`message_id` → `dedup_key` and its docstrings now state **the caller
+owns the key namespace**: multi-agent channels MUST pass
+`f"{agent_id}:{message_id}"`, single-tenant callers (Lark, via
+`ChannelDedupStore` with empty `agent_id`) pass a bare id. So the
+physical `message_id` column now legitimately holds two shapes —
+composite for Matrix/base, bare for Lark — partitioned harmlessly by
+the `channel` column. The rename is the guardrail: a future Layer-3
+caller reading the old "keyed on (channel, message_id)" contract
+would have passed a bare id and re-opened this exact bug.
+
+Regression test note: the same-agent-replay guard MUST use a FRESH
+store (cold Layer 2) reusing the same repo — the first draft asserted
+on the same store instance, so Layer 2's `memory_dedup` short-circuited
+before Layer 3 was ever reached and the assertion would have passed
+even against the un-fixed bare-id code. `test_classify_db_layer_
+partitions_by_agent_id` now spins up `store_restarted` to actually
+exercise the durable composite-key dedup.
 
 Session log: `drafts/logs/narra_guide_v12_incident_2026_07_14.md`
 covers the wider Matrix-side incident; this fix is the client-side

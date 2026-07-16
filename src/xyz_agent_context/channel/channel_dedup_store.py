@@ -131,12 +131,16 @@ class ChannelDedupStore:
         Plus optional diagnostic keys (``age_min`` for historic,
         ``error`` for db_fail_open).
 
-        ``agent_id`` partitions the in-memory hot cache: two agents in
-        different workspaces (e.g. two Slack binds in the same process)
-        could otherwise collide on a ``client_msg_id`` and silently drop
-        one agent's message because the other's already-seen entry is
-        cached. Defaults to "" for the no-multi-tenant case to keep
-        old callers working — the trigger base always passes it.
+        ``agent_id`` partitions BOTH the in-memory hot cache (Layer 2) and
+        the durable DB gate (Layer 3): two agents can receive the SAME
+        platform id (two Slack binds colliding on a ``client_msg_id``; a
+        Matrix room event fanned out to every member agent's client) and
+        must each be processed. Without partitioning, whichever agent's
+        call landed first would mark the id seen and silently drop every
+        other agent's copy. The composite key ``f"{agent_id}:{message_id}"``
+        is used for both layers (Layer 3 via ``repo.mark_seen``). Defaults
+        to "" for the no-multi-tenant case to keep old callers working —
+        the trigger base always passes it.
         """
         # Layer 1: historic-replay filter. Only applies when we know both
         # the event timestamp and the baseline.
