@@ -102,6 +102,21 @@ async def test_get_mcps_by_agent_user_carries_headers(db_client):
 
 
 @pytest.mark.asyncio
+async def test_update_mcp_does_not_mutate_caller_dict(db_client):
+    repo = MCPRepository(db_client)
+    await repo.add_mcp(
+        agent_id="agent_1",
+        user_id="user_1",
+        mcp_id="mcp_mut1",
+        name="web3",
+        url="http://frps.example.com:6027/sse",
+    )
+    updates = {"headers": {"X-Api-Key": "k"}}
+    await repo.update_mcp("mcp_mut1", updates)
+    assert updates["headers"] == {"X-Api-Key": "k"}  # still a dict, not JSON text
+
+
+@pytest.mark.asyncio
 async def test_validate_connection_sends_custom_headers(monkeypatch):
     """validate_mcp_sse_connection must merge custom headers into the
     streaming request (on top of the SSE Accept/Cache-Control baseline)."""
@@ -189,3 +204,51 @@ async def test_validate_connection_anonymous_without_headers(monkeypatch):
     ok, _ = await validate_mcp_sse_connection("http://localhost:7801/sse")
     assert ok is True
     assert set(captured["headers"].keys()) == {"Accept", "Cache-Control"}
+
+
+@pytest.mark.asyncio
+async def test_validate_connection_baseline_accept_wins_over_user_header(monkeypatch):
+    """A user-supplied Accept must not evict the SSE baseline — validation
+    asserts a text/event-stream response, so overriding Accept would fail a
+    healthy endpoint."""
+    import httpx
+
+    captured: dict = {}
+
+    class _FakeStreamResponse:
+        status_code = 200
+        headers = {"content-type": "text/event-stream"}
+
+        async def aiter_bytes(self):
+            yield b"data: ok\n\n"
+
+    class _FakeStreamCtx:
+        async def __aenter__(self):
+            return _FakeStreamResponse()
+
+        async def __aexit__(self, *args):
+            return False
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def stream(self, method, url, headers=None):
+            captured["headers"] = headers
+            return _FakeStreamCtx()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    ok, _ = await validate_mcp_sse_connection(
+        "http://localhost:7801/sse",
+        headers={"Accept": "application/json", "Authorization": "Bearer t"},
+    )
+    assert ok is True
+    assert captured["headers"]["Accept"] == "text/event-stream"
+    assert captured["headers"]["Authorization"] == "Bearer t"

@@ -101,7 +101,8 @@ class MCPRepository(BaseRepository[MCPUrl]):
         """Update MCP information"""
         logger.debug(f"    → MCPRepository.update_mcp({mcp_id})")
 
-        # Serialize JSON fields
+        # Serialize JSON fields on a copy — never mutate the caller's dict.
+        updates = dict(updates)
         for json_field in ("metadata", "headers"):
             if json_field in updates and updates[json_field] is not None and not isinstance(updates[json_field], str):
                 updates[json_field] = json.dumps(updates[json_field], ensure_ascii=False)
@@ -227,12 +228,14 @@ async def validate_mcp_sse_connection(
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(timeout, connect=5.0)
         ) as client:
-            request_headers = {
+            # Custom headers first, SSE baseline last: the code below asserts
+            # the response is text/event-stream, so a user-supplied Accept
+            # override would make a perfectly healthy endpoint fail validation.
+            request_headers = dict(headers) if headers else {}
+            request_headers.update({
                 "Accept": "text/event-stream",
                 "Cache-Control": "no-cache",
-            }
-            if headers:
-                request_headers.update(headers)
+            })
             async with client.stream(
                 "GET",
                 url,

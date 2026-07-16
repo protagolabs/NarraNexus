@@ -71,7 +71,23 @@ def test_claude_mcp_config_omits_headers_key_for_internal_servers():
 
 def test_codex_bearer_env_extracts_token():
     env = codex_mcp_bearer_env(SPECS)
-    assert env == {"NARRANEXUS_MCP_BEARER_WEB3": "secret-token-1234567890"}
+    assert len(env) == 1
+    (name, token), = env.items()
+    assert name.startswith("NARRANEXUS_MCP_BEARER_WEB3_")
+    assert token == "secret-token-1234567890"
+
+
+def test_codex_bearer_env_names_do_not_collide_across_similar_server_names():
+    """"shop-api" and "shop_api" sanitize to the same skeleton; without the
+    hash suffix they would share one env var and A's token would be sent to
+    B's endpoint."""
+    specs = {
+        "shop-api": {"url": "http://a/sse", "headers": {"Authorization": "Bearer tok-A"}},
+        "shop_api": {"url": "http://b/sse", "headers": {"Authorization": "Bearer tok-B"}},
+    }
+    env = codex_mcp_bearer_env(specs)
+    assert len(env) == 2
+    assert set(env.values()) == {"tok-A", "tok-B"}
 
 
 def test_codex_bearer_env_skips_non_bearer_headers():
@@ -88,7 +104,7 @@ def test_codex_overrides_emit_bearer_token_env_var():
         permissions=None,
     )
     joined = "\n".join(result)
-    assert 'mcp_servers.web3.bearer_token_env_var="NARRANEXUS_MCP_BEARER_WEB3"' in joined
+    assert 'mcp_servers.web3.bearer_token_env_var="NARRANEXUS_MCP_BEARER_WEB3_' in joined
     # The token value itself must NOT appear in config overrides (argv).
     assert "secret-token-1234567890" not in joined
     # Internal server gets a URL entry but no bearer var.
@@ -116,10 +132,17 @@ def test_agent_loop_request_carries_mcp_specs_with_headers():
 # API masking
 # ---------------------------------------------------------------------------
 
-def test_mask_header_value_keeps_recognizable_edges():
+def test_mask_header_value_keeps_scheme_only():
     masked = _mask_header_value("Bearer secret-token-1234567890")
-    assert masked == "Bearer…7890"
+    assert masked == "Bearer ****7890"
     assert "secret-token" not in masked
+
+
+def test_mask_header_value_hides_prefix_of_schemeless_secrets():
+    # "sk-live-…" has no auth scheme — its prefix IS the secret.
+    masked = _mask_header_value("sk-live-abcdef0123456789")
+    assert masked == "****6789"
+    assert "sk-liv" not in masked
 
 
 def test_mask_header_value_fully_masks_short_values():

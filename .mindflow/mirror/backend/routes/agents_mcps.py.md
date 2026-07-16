@@ -1,10 +1,15 @@
 ---
 code_file: backend/routes/agents_mcps.py
-last_verified: 2026-07-15
+last_verified: 2026-07-16
 stub: false
 ---
 
 # agents_mcps.py — MCP URL 管理与连接验证路由
+
+## 2026-07-16 — 掩码只保留空格分隔的 auth scheme 前缀(review #111 🟢)
+
+原 `v[:6]` 前缀对 `X-API-Key: sk-live-…` 这类无 scheme 值会露出真实密钥前缀。
+现在仅当值形如 `<Alpha> <rest>`(Bearer/Basic…)保留 scheme,其余只留末 4 位。
 
 ## 2026-07-15 — headers 透传 + 掩码回显 + 修复 update 的 TypeError
 

@@ -191,13 +191,22 @@ def _mcp_bearer_env_var(server_name: str, headers: dict | None) -> str | None:
     subprocess env and sends ``Authorization: Bearer <token>``). Non-bearer
     or non-Authorization headers are reported by ``codex_mcp_bearer_env``
     with a warning (keys only — values are secrets).
+
+    The name carries a hash suffix of the EXACT server name because the
+    sanitizer collapses distinct names ("shop-api" / "shop_api" / "shop api")
+    onto the same alnum skeleton — without the suffix, two such servers would
+    share one env var and server A's bearer token would be sent to server B
+    (same trap executor_spec.safe_container_name guards in the deploy repo).
     """
     if not headers:
         return None
     auth = headers.get("Authorization") or headers.get("authorization")
     if isinstance(auth, str) and auth.startswith("Bearer "):
+        import hashlib
+
         sanitized = "".join(c if c.isalnum() else "_" for c in server_name).upper()
-        return f"NARRANEXUS_MCP_BEARER_{sanitized}"
+        digest = hashlib.sha1(server_name.encode("utf-8")).hexdigest()[:8].upper()
+        return f"NARRANEXUS_MCP_BEARER_{sanitized}_{digest}"
     return None
 
 

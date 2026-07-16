@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-07-15
+last_verified: 2026-07-16
 ---
+
+## 2026-07-16 — bearer env 变量名加名字哈希后缀(review #111 🟡)
+
+sanitizer 会把 `shop-api`/`shop_api`/`shop api` 压成同一骨架,两个各带 Bearer 的
+MCP 会共用一个 env 变量 → A 的 token 发给 B 的端点(凭据串门)。修法与部署仓
+`executor_spec.safe_container_name` 同一套路:`NARRANEXUS_MCP_BEARER_<SKELETON>_<sha1[:8]>`。
 
 ## 2026-07-15 — MCP headers 的 codex 支持（仅 Bearer）
 

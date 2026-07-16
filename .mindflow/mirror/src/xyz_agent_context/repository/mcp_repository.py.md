@@ -1,10 +1,16 @@
 ---
 code_file: src/xyz_agent_context/repository/mcp_repository.py
-last_verified: 2026-07-15
+last_verified: 2026-07-16
 stub: false
 ---
 
 # mcp_repository.py
+
+## 2026-07-16 — update_mcp 拷贝入参;校验基线 Accept 后置(review #111 🟢×2)
+
+`update_mcp()` 先 `dict(updates)` 再 JSON 序列化,不再改写调用方 dict。
+`validate_mcp_sse_connection` 改为用户头在前、SSE 基线(Accept/Cache-Control)
+后置覆盖——用户填 `Accept: application/json` 不再让健康端点校验误判失败。
 
 ## 2026-07-15 — MCP 自定义请求头(headers 列)
 

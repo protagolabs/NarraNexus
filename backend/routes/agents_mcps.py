@@ -42,13 +42,17 @@ router = APIRouter()
 def _mask_header_value(value: str) -> str:
     """Mask a header value for API responses (secrets never leave the backend).
 
-    Long values keep a short prefix/suffix so the user can recognize which
-    credential is stored (same spirit as showing an API key's last 4 chars);
-    short values are fully masked.
+    Only a space-delimited auth scheme prefix ("Bearer", "Basic", …) is kept
+    readable — for scheme-less values ("X-API-Key: sk-live-…") the leading
+    characters ARE the secret, so everything but the last 4 chars is masked.
+    Short values are masked entirely.
     """
-    if len(value) > 14:
-        return f"{value[:6]}…{value[-4:]}"
-    return "****"
+    if len(value) <= 14:
+        return "****"
+    scheme, sep, rest = value.partition(" ")
+    if sep and rest and scheme.isalpha():
+        return f"{scheme} ****{rest[-4:]}"
+    return f"****{value[-4:]}"
 
 
 def _masked_headers(headers: dict | None) -> dict | None:
