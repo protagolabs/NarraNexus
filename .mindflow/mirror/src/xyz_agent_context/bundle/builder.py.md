@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-07-14
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — mcp_hints 安全不变式：headers 绝不出境
+
+`mcp_urls` 新增 `headers` 列（Authorization token 等密钥）。mcp_hints.json 的
+字段选择保持显式白名单，**headers 永不加入**——bundle 会离开作者账号，收件人
+自己配置凭据。代码内已加 SECURITY INVARIANT 注释锁死。
 
 ## 2026-07-13 — opt-in skill secrets (scrub by default)
 

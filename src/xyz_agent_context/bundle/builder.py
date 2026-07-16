@@ -819,6 +819,10 @@ async def build_bundle(
                         "is_enabled": int(r.get("is_enabled") or 0),
                         # metadata may contain non-secret hints (display name, version);
                         # we ship it as-is. Use _scrub_user_id only via string columns.
+                        # SECURITY INVARIANT: the "headers" column (Authorization
+                        # bearer tokens etc.) must NEVER be added here — bundles
+                        # leave the author's account; recipients configure their
+                        # own credentials.
                         "metadata": r.get("metadata"),
                     }
                 )

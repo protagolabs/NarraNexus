@@ -1926,6 +1926,10 @@
       "delete": "删除",
       "namePlaceholder": "MCP 名称",
       "urlPlaceholder": "SSE 链接（例如 https://your-host/sse）",
+      "headerKeyPlaceholder": "请求头名称（如 Authorization）",
+      "headerValuePlaceholder": "请求头的值（如 Bearer <token>）",
+      "addHeader": "添加请求头",
+      "removeHeader": "删除请求头",
       "add": "添加",
       "cancel": "取消",
       "deleteTitle": "删除 MCP",
@@ -1938,7 +1942,7 @@
         "endpoint": "必须是基于 http(s) 的远程 SSE 端点 — 通常以 /sse 结尾。",
         "reachable": "服务器必须能够访问该链接（公网主机或本机可连接的主机）。",
         "noStdio": "此处不支持本地 stdio / npx MCP — 仅支持基于 URL 的 SSE 服务器。",
-        "apiKey": "如果需要 API 密钥，请按 MCP 的要求放入链接或请求头中；我们以匿名方式连接。",
+        "apiKey": "如果需要 API 密钥，请在下方添加请求头（如 Authorization: Bearer <token>）——每次连接都会携带。",
         "validation": "添加后，状态指示点会校验连接 — “失败”表示该链接无法访问或不是有效的 SSE 端点。"
       }
     }

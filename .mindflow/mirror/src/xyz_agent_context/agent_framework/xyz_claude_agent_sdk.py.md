@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-07-14
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — MCP spec 带自定义 headers（`_build_claude_mcp_config`）
+
+`agent_loop` 第二参数改为 `mcp_servers: {name: {"url", "headers"?}}`。新增模块级
+`_build_claude_mcp_config()`：spec → `McpSSEServerConfig`，有 headers 才带
+`headers` 键（SDK 0.1.43 起原生支持，连接时随请求发送）。模块内部 MCP 不带
+headers，行为不变。headers 值是密钥，函数内不打日志。
 
 ## 2026-07-14 — inline `AssistantMessage.error` 把 CLI stderr 折进错误事件（病A / "黑盒" P1）
 

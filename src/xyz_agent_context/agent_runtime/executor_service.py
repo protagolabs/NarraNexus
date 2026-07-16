@@ -185,7 +185,7 @@ async def agent_loop(request: Request) -> StreamingResponse:
         try:
             async for event in driver.agent_loop(
                 messages=body["messages"],
-                mcp_server_urls=body.get("mcp_server_urls") or {},
+                mcp_servers=body.get("mcp_servers") or {},
                 streaming=bool(body.get("streaming", True)),
                 extra_env=body.get("extra_env") or None,
                 cancellation=None,  # cancellation = orchestrator aborts the stream

@@ -193,15 +193,19 @@ async def _run_skill_study(
     skill_module = _get_skill_module(agent_id, user_id)
 
     try:
-        # Load MCP URLs (same logic as websocket.py)
-        mcp_urls = {}
+        # Load user-configured MCP servers (same logic as websocket.py)
+        mcp_servers = {}
         try:
             db_client = await get_db_client()
             mcp_repo = MCPRepository(db_client)
             mcps = await mcp_repo.get_mcps_by_agent_user(agent_id=agent_id, user_id=user_id, is_enabled=True)
-            mcp_urls = {mcp.name: mcp.url for mcp in mcps}
+            for mcp in mcps:
+                spec = {"url": mcp.url}
+                if mcp.headers:
+                    spec["headers"] = mcp.headers
+                mcp_servers[mcp.name] = spec
         except Exception as e:
-            logger.warning(f"Failed to load MCP URLs for skill study: {e}")
+            logger.warning(f"Failed to load MCP servers for skill study: {e}")
 
         # Run AgentRuntime — agent is expected to call skill_save_study_summary MCP tool
         async with AgentRuntime() as runtime:
@@ -210,7 +214,7 @@ async def _run_skill_study(
                 user_id=user_id,
                 input_content=input_content,
                 working_source=WorkingSource.SKILL_STUDY,
-                pass_mcp_urls=mcp_urls,
+                pass_mcp_servers=mcp_servers,
             ):
                 pass  # Just consume the stream; agent writes summary via MCP tool
 

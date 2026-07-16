@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-14
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — `build_input_for_framework` 返回 MCP spec dict
+
+返回值第二项从 `{name: url}` 改为 `{name: {"url": url}}`（模块内部 MCP 无
+headers）；用户外部 MCP 的 headers 由 backend 装配层（websocket/skills）注入
+`pass_mcp_servers`。命名统一 `mcp_servers`。
 
 ## 2026-07-14 — [SYSPROMPT-BREAKDOWN] 诊断日志（system-prompt-growth 事故取证）
 

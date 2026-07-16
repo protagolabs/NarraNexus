@@ -233,6 +233,9 @@ _register(
             Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
             Column("name", "TEXT", "VARCHAR(255)", nullable=False),
             Column("url", "TEXT", "VARCHAR(1024)", nullable=False),
+            # JSON object {header_name: value}; holds secrets (Authorization
+            # bearer tokens) — NEVER shipped in bundle exports, masked in API.
+            Column("headers", "TEXT", "MEDIUMTEXT"),
             Column("description", "TEXT", "VARCHAR(512)"),
             Column("is_enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
             Column("connection_status", "TEXT", "VARCHAR(32)"),

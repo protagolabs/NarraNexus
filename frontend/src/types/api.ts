@@ -486,6 +486,8 @@ export interface MCPInfo {
   user_id: string;
   name: string;
   url: string;
+  /** Masked header values (e.g. "Bearer…7890") — plaintext never leaves the backend. */
+  headers?: Record<string, string> | null;
   description?: string;
   is_enabled: boolean;
   connection_status?: 'connected' | 'failed' | 'unknown' | null;
@@ -503,6 +505,8 @@ export interface MCPListResponse extends ApiResponse {
 export interface MCPCreateRequest {
   name: string;
   url: string;
+  /** Custom HTTP headers sent on every request to this MCP (e.g. Authorization). */
+  headers?: Record<string, string>;
   description?: string;
   is_enabled?: boolean;
 }
@@ -510,6 +514,8 @@ export interface MCPCreateRequest {
 export interface MCPUpdateRequest {
   name?: string;
   url?: string;
+  /** Present (even {}) replaces the whole header set; absent leaves it unchanged. */
+  headers?: Record<string, string>;
   description?: string;
   is_enabled?: boolean;
 }

@@ -622,8 +622,10 @@ async def websocket_agent_run(websocket: WebSocket):
             ),
         )
 
-        # Load MCP URLs from database for this agent+user
-        mcp_urls = {}
+        # Load user-configured MCP servers from database for this agent+user.
+        # Spec shape {name: {"url", "headers"?}} — headers carry secrets
+        # (Authorization tokens): log names/counts only, never values.
+        mcp_servers = {}
         try:
             db_client = await get_db_client()
             mcp_repo = MCPRepository(db_client)
@@ -633,11 +635,14 @@ async def websocket_agent_run(websocket: WebSocket):
                 is_enabled=True
             )
             for mcp in mcps:
-                mcp_urls[mcp.name] = mcp.url
-            if mcp_urls:
-                logger.info(f"Loaded {len(mcp_urls)} MCP servers: {list(mcp_urls.keys())}")
+                spec = {"url": mcp.url}
+                if mcp.headers:
+                    spec["headers"] = mcp.headers
+                mcp_servers[mcp.name] = spec
+            if mcp_servers:
+                logger.info(f"Loaded {len(mcp_servers)} MCP servers: {list(mcp_servers.keys())}")
         except Exception as e:
-            logger.warning(f"Failed to load MCP URLs: {e}")
+            logger.warning(f"Failed to load MCP servers: {e}")
 
         # ---- Shared cancellation token ----
         # Bound to the BackgroundRun, NOT to this WS task. WS disconnect
@@ -707,7 +712,7 @@ async def websocket_agent_run(websocket: WebSocket):
                 user_id=request.user_id,
                 input_content=request.input_content or "",
                 working_source=working_source,
-                pass_mcp_urls=mcp_urls,
+                pass_mcp_servers=mcp_servers,
                 trigger_extra_data={
                     "trigger_id": f"ws_{_session_id[:8]}",
                     # The logged-in sender's NarraNexus user_id. agent_runtime
