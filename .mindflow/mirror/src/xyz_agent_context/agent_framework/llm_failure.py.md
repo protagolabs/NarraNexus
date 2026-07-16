@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm_failure.py
-last_verified: 2026-07-15
+last_verified: 2026-07-16
 stub: false
 ---
+
+## 2026-07-16 — 补 Anthropic 余额 marker + 余额文案指向 Settings→Providers
+
+两处:
+1. `_INSUFFICIENT_BALANCE_MARKERS` 补两个字面 marker:`"credit balance is too low"`(Anthropic)
+   与 `"balance not enough"`(NetMind 400 的字面串——注意与既有 `"not enough balance"` 词序不同,
+   之前漏检)。两者之前都不被任一 marker 命中 → Anthropic/NetMind-400 余额错既不被实时层当自助类、
+   也不被 Job 层暂停。additive,把上游事故的字面串(`Insufficient Balance` 402 / `balance not
+   enough` 400)钉死。
+2. `SELF_SERVICEABLE_USER_MESSAGE[INSUFFICIENT_BALANCE]` 文案增强:指引去 Settings → Providers
+   (现在显示每把 key 属于哪个 NetMind 账户),提醒充值约几分钟生效。
+
+配合 `classify_self_serviceable` 被 Job 层复用(job_trigger)以暂停余额死掉的后台 job。
+
 # llm_failure.py — LLM 失败的统一分类 + 密钥脱敏
 
 ## 2026-07-15 — 收紧 self-serviceable markers（PR #110 review）

@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/services/netmind_provisioner.py
-last_verified: 2026-07-10
+last_verified: 2026-07-16
 stub: false
 ---
+
+## 2026-07-16 — 铸 key 时捕获 NetMind 账户身份
+
+`ensure_netmind_provider` 在 `onboard_one_key` 成功后,用手上的登录 JWT 调
+`NetmindAuthClient().verify_token(token)` 拿到 `user_system_code` + email,写进
+`user_providers.netmind_account_id/email`(该用户所有 `source='netmind'` 行——onboard
+可能建 anthropic+openai 双 linked 行)。**只存非密的账户 id/email,绝不存 JWT。**
+best-effort:捕获失败绝不让 provisioning 失败(key 已铸+已 onboard),账户留 NULL。
+
+为什么:key→账户链原本在铸 key 处就断了(minted key 不透明、不带账户),导致用户分不清
+几把 key 属于哪个账户、充错账户。现在 Settings→Providers 能显示每把 key 的账户邮箱。见
+`.mindflow/project/references/netmind_billing.md`。
 
 # netmind_provisioner.py — 登录即自动注册 NetMind provider（register/activate 分离）
 

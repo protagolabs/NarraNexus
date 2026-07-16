@@ -112,6 +112,8 @@ async def ensure_netmind_provider(
                 inference_base=settings.netmind_inference_base,
                 activate=activate,
             )
+            # Capture WHICH NetMind account this key belongs to (best-effort).
+            await _capture_netmind_account(db, user_id, token)
             logger.info(
                 f"[netmind-provisioner] registered netmind provider for "
                 f"{user_id} (activate={activate})"
@@ -122,6 +124,40 @@ async def ensure_netmind_provider(
             # never raises) then re-raise the original error.
             await key_client.delete_key(token, minted.token_id)
             raise
+
+
+async def _capture_netmind_account(db, user_id: str, token: str) -> None:
+    """Stamp WHICH NetMind account the just-minted key belongs to onto the
+    user's ``source='netmind'`` provider rows, so Settings can show it and a
+    user with several keys from one broke account tops up the right one
+    (upstream incident).
+
+    The login JWT is in hand here — ``verify_token`` → ``user_system_code`` +
+    email — but we store ONLY the non-secret account id/email, never the JWT.
+    Best-effort: a capture failure must never fail provisioning (the key is
+    already minted + onboarded). ``onboard_one_key`` may create dual linked rows
+    (anthropic+openai), so this stamps ALL of the user's netmind rows.
+    """
+    try:
+        from xyz_agent_context.services.netmind_auth_client import NetmindAuthClient
+        who = await NetmindAuthClient().verify_token(token)
+        await db.update(
+            "user_providers",
+            {"user_id": user_id, "source": "netmind"},
+            {
+                "netmind_account_id": who.user_system_code,
+                "netmind_account_email": who.email,
+            },
+        )
+        logger.info(
+            f"[netmind-provisioner] captured netmind account for {user_id} "
+            f"(account={who.user_system_code})"
+        )
+    except Exception as e:  # noqa: BLE001 — capture is best-effort
+        logger.warning(
+            f"[netmind-provisioner] account capture failed for {user_id} "
+            f"(provisioning still succeeded): {e}"
+        )
 
 
 def schedule_ensure_netmind_provider(user_id: str, netmind_token: str) -> None:

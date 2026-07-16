@@ -1,7 +1,21 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-07-13
+last_verified: 2026-07-16
 ---
+
+## 2026-07-16 — 后台 job 在"自助类"失败上暂停(余额不足风暴修复)
+
+`_is_no_quota_failure` 现在复用 `agent_framework.llm_failure.classify_self_serviceable`
+(#110 的检测器,leaf util,非跨模块依赖——铁律 #3):任何**确定性自助类**失败
+(余额/配额不足、上下文窗口过小、模型不存在)→ 返回 True → `PAUSED_NO_QUOTA`。
+
+根因(上游事故):余额死掉的 job,`_NO_QUOTA_ERROR_MARKERS` 认不出 `402/insufficient
+balance`,被当普通瞬时错 → COOLING → 每轮 re-arm → 又失败……9 用户/14 天/390 条无意义
+重试。后台 job 没有交互用户去读"可操作提示"(实时层的做法),所以停掉风暴的唯一办法是
+**暂停**。恢复复用现成的边缘(`rearm_user_no_quota_jobs`)+ 15 分钟兜底
+(`_resume_eligible_no_quota_jobs`)——充值/重配后 readiness 检查翻回 ACTIVE,成功则清零、
+仍无余额则再暂停(这就是 ~15 分钟探测,未另加探测器)。裸 429/限流仍是 transient,不暂停。
+与实时层的差异见 `.mindflow/project/references/netmind_billing.md`。
 
 ## 2026-07-13 — auth failures are recoverable, not terminal + zombie self-heal
 

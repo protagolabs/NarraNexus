@@ -724,6 +724,13 @@ _register(
             Column("owner_user_id", "TEXT", "VARCHAR(64)"),
             Column("billing_policy", "TEXT", "VARCHAR(32)", default="'user_pays'"),
             Column("auth_ref", "TEXT", "VARCHAR(512)"),
+            # 2026-07-16: NetMind account identity captured at key-mint time
+            # (verify_token → user_system_code + email). Lets Settings show WHICH
+            # account each key belongs to, so a user with several keys from one
+            # broke account tops up the right one (upstream incident). Additive,
+            # nullable — non-NetMind rows and pre-existing rows stay NULL.
+            Column("netmind_account_id", "TEXT", "VARCHAR(64)"),
+            Column("netmind_account_email", "TEXT", "VARCHAR(255)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

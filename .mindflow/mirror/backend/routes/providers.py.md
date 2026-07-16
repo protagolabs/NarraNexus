@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-13
+last_verified: 2026-07-16
 stub: false
 ---
+
+## 2026-07-16 — GET /api/providers 附上 NetMind 账户邮箱
+
+新增 `_attach_netmind_accounts(uid, data)`:在 `_config_to_response` 之后,从
+`user_providers`(source='netmind')按 provider_id 读出 `netmind_account_email` 合并进每个
+provider dict,供 Settings 显示"该 key 属于哪个账户"。在 API 边界做的定向增强,避免把新列
+一路穿过 LLMConfig 模型。best-effort——查不到就省略该字段。
 
 ## 2026-07-13 — use-subscription reachability moved to power axis
 

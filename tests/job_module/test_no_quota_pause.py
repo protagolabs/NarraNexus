@@ -59,6 +59,31 @@ def test_is_no_quota_failure_false_for_success_and_transient():
     assert not _is_no_quota_failure({"success": False, "error_type": "ConnectionError", "error": "boom"})
 
 
+def test_is_no_quota_failure_by_self_serviceable():
+    """A background job must pause (not storm-retry) on any deterministic
+    self-serviceable failure — provider-agnostic balance/quota, context-window,
+    model-not-found (reuses #110's classify_self_serviceable). This is the
+    upstream 390-retry-storm fix."""
+    # balance / quota, across providers
+    assert _is_no_quota_failure({"success": False, "error": "Error code: 402 - Insufficient Balance"})
+    assert _is_no_quota_failure({"success": False, "error": "insufficient_quota"})
+    assert _is_no_quota_failure({"success": False, "error": "Your credit balance is too low to access the Claude API"})
+    assert _is_no_quota_failure({"success": False, "error": "You exceeded your current quota, please check your plan and billing"})
+    # context window too small
+    assert _is_no_quota_failure({"success": False, "error": "This model's maximum context length is 8192 tokens"})
+    # model not found
+    assert _is_no_quota_failure({"success": False, "error": "The model `x` does not exist or you do not have access to it"})
+    # exact SDK enum type still routes
+    assert _is_no_quota_failure({"success": False, "error_type": "billing_error", "error": ""})
+
+
+def test_is_no_quota_failure_false_for_bare_rate_limit():
+    """A bare 429 / rate-limit is TRANSIENT (self-heals) — must NOT pause, or a
+    momentary rate-limit would wrongly park the job as no-quota."""
+    assert not _is_no_quota_failure({"success": False, "error": "429 Too Many Requests"})
+    assert not _is_no_quota_failure({"success": False, "error_type": "RateLimitError", "error": "rate limit exceeded"})
+
+
 # ── pause path ────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -76,6 +101,26 @@ async def test_finalize_pauses_on_quota_failure(db_client):
     })
 
     row = await db_client.get_one("instance_jobs", {"job_id": "job_q1"})
+    assert row["status"] == JobStatus.PAUSED_NO_QUOTA.value
+
+
+@pytest.mark.asyncio
+async def test_finalize_pauses_on_balance_failure(db_client):
+    """The upstream incident: a background job whose provider reports insufficient
+    balance must PAUSE (not cycle COOLING/re-arm forever)."""
+    repo = JobRepository(db_client)
+    await _insert_job(db_client, "job_bal")
+    trigger = JobTrigger(database_client=db_client)
+    job = await repo.get_job("job_bal")
+
+    await trigger._finalize_job_execution(job, {
+        "success": False,
+        "error_type": "APIStatusError",
+        "error": "Error code: 402 - {'error': 'Insufficient Balance'}",
+        "event_id": None,
+    })
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_bal"})
     assert row["status"] == JobStatus.PAUSED_NO_QUOTA.value
 
 

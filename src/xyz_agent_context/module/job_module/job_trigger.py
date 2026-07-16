@@ -83,6 +83,11 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client, utc_now, form
 # Repository
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.services.service_audit import ServiceAuditor
+# Leaf shared util (the real-time circuit-breaker imports the same) — NOT a
+# cross-module dependency (binding rule #3). Reused so the Job layer recognises
+# the SAME deterministic, won't-heal-by-waiting failures (#110) that the
+# real-time layer already treats as self-serviceable.
+from xyz_agent_context.agent_framework.llm_failure import classify_self_serviceable
 from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
 from zoneinfo import ZoneInfo
 from datetime import timedelta, timezone
@@ -118,12 +123,26 @@ _NO_QUOTA_ERROR_MARKERS = (
 
 
 def _is_no_quota_failure(result: Dict[str, Any]) -> bool:
-    """True when a failed job result is a quota/provider-config exhaustion that
-    won't fix itself by waiting — pause instead of reschedule."""
+    """True when a failed job result won't fix itself by waiting — pause
+    (PAUSED_NO_QUOTA) instead of rescheduling.
+
+    Covers three groups:
+    1. quota/provider-config exhaustion by error TYPE (`_NO_QUOTA_ERROR_TYPES`);
+    2. any deterministic SELF-SERVICEABLE failure — insufficient balance/quota,
+       context window too small, model-not-found (#110's `classify_self_serviceable`,
+       reused so both layers agree). For a BACKGROUND job there is no interactive
+       user to read a per-turn message, so the only way to stop the retry storm
+       (9 users / 14 days / 390 retries, upstream incident) is to PAUSE — it
+       auto-resumes via the existing edge + 15-min backstop once the owner tops
+       up / reconfigures;
+    3. legacy message-substring quota markers (`_NO_QUOTA_ERROR_MARKERS`).
+    """
     if result.get("success", True):
         return False
     et = result.get("error_type")
     if et and et in _NO_QUOTA_ERROR_TYPES:
+        return True
+    if classify_self_serviceable(et, result.get("error")) is not None:
         return True
     msg = (result.get("error") or "").lower()
     return any(m in msg for m in _NO_QUOTA_ERROR_MARKERS)
