@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/main.tsx
-last_verified: 2026-06-16
+last_verified: 2026-07-16
 stub: false
 ---
+
+## 2026-07-16 — Clarity cloud tracking wire-up
+
+`initClarity()` (from `lib/clarity`) runs once at boot, immediately after
+`installExternalLinkInterceptor()`. It is a no-op unless `isForcedCloud()`
+is true, so desktop and local self-host builds never load the Microsoft
+Clarity snippet. See [[clarity]] for the rationale.
 
 ## 2026-06-16 — inbound entry capture moved pre-render
 

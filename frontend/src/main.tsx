@@ -11,6 +11,7 @@ import {
     installManyfoldFragmentHashListener
 } from './lib/manyfoldFragmentAuth'
 import { installExternalLinkInterceptor } from './lib/externalLinkInterceptor'
+import { initClarity } from './lib/clarity'
 import { captureInboundEntry } from './lib/netmindAuth/tokenInbound'
 
 // Run BEFORE the first render so the App tree never observes a
@@ -30,6 +31,11 @@ captureInboundEntry()
 // In a regular browser this returns a no-op uninstaller so nothing changes.
 // See lib/externalLinkInterceptor.ts for the rationale.
 installExternalLinkInterceptor()
+
+// Cloud-only: load the Microsoft Clarity tracking snippet. No-op on
+// desktop (Tauri) and local self-host builds — isForcedCloud() is false
+// there. See lib/clarity.ts for the rationale.
+initClarity()
 
 const queryClient = new QueryClient({
   defaultOptions: {
