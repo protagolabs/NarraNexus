@@ -78,6 +78,26 @@ async def test_get_updates_raises_on_app_level_ret():
 
 
 @pytest.mark.asyncio
+async def test_get_updates_raises_on_errcode_session_timeout():
+    """The real iLink error schema (captured live 2026-07-06): a dead session
+    comes back as HTTP 200 ``{"errcode":-14,"errmsg":"session timeout"}`` — via
+    ``errcode``, NOT ``ret``. The old code only checked ``ret`` (defaults to 0),
+    so a dead session slipped through as an idle empty poll → silent death.
+    get_updates must raise on a non-zero ``errcode`` too."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"errcode": -14, "errmsg": "session timeout"})
+
+    c = _client_with(handler)
+    with pytest.raises(WeChatSDKError) as exc_info:
+        await c.get_updates("c1")
+    err = exc_info.value
+    assert err.ret == -14
+    assert err.source == "updates"        # → is_permanent_auth_failure → disable
+    assert "session timeout" in str(err)  # errmsg carried through
+    await c.aclose()
+
+
+@pytest.mark.asyncio
 async def test_send_message_chunks_long_text():
     seen: list[str] = []
 

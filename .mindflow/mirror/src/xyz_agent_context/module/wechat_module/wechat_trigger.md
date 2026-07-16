@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_trigger.py
 stub: false
-last_verified: 2026-06-25
+last_verified: 2026-07-16
 ---
+
+## 2026-07-16 — inline watchdog for silent long-poll death (no extra task)
+
+Belt-and-suspenders for the 2026-07-06 silent-death incident, on top of the
+SDK `errcode` fix (see [[wechat_sdk_client.py]]). iLink has NO liveness
+endpoint (probed — all candidates 404), and beyond the `errcode` case a session
+can wedge with NO signal at all: either the getupdates request hangs (a
+keepalive-fed stall defeats httpx's read timeout) or it keeps returning
+`ret=0`/empty on a dead session. `connect()` now guards both, **inline in the
+single poll loop**:
+
+- `getupdates` wrapped in `asyncio.wait_for(..., GETUPDATES_HARD_TIMEOUT_SECONDS
+  =60s)` — a hung request is force-terminated and the client reconnected.
+- a `last_inbound` timer: no real message for `WATCHDOG_NO_INBOUND_SECONDS=300s`
+  → proactive reconnect (harmless on a genuinely idle account — fresh long-poll,
+  same cursor). Reset on reconnect to avoid a tight loop.
+
+Reconnect = close the wedged client + open a fresh one **in place**, staying in
+the one `connect()` loop → there is always exactly ONE getupdates in flight per
+credential. A separate watchdog task poking the loop would risk double-poll /
+races; deliberately avoided (single-process invariant). Each watchdog reconnect
+writes an `EVENT_TRANSPORT_DISCONNECTED` audit row (`by=watchdog`) + a WARNING,
+so repeated reconnects are observable (incident lesson #4/#5 — L2/L3 signal per
+subscriber). The errcode-death path still raises → base disables; the watchdog
+only handles the no-signal cases. Tests: `test_watchdog_reconnects_on_hung_
+getupdates`, `test_watchdog_reconnects_on_no_inbound`,
+`test_healthy_updates_do_not_reconnect`.
 
 ## Why it exists
 
