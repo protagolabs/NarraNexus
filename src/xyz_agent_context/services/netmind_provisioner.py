@@ -95,6 +95,14 @@ async def ensure_netmind_provider(
             "user_providers", {"user_id": user_id, "source": "netmind"}
         )
         if existing:
+            # Backfill the account id/email for pre-existing rows that never had
+            # it captured (rows minted before this feature, incl. the incident
+            # users). Runs on the next login of an existing user — the whole
+            # point is to reach the people who ALREADY have a netmind key, not
+            # only brand-new ones. Only touches rows still missing it, so it's a
+            # one-time cost. Best-effort; never fails the login path.
+            if not existing.get("netmind_account_id"):
+                await _capture_netmind_account(db, user_id, token)
             return False
 
         minted = await key_client.create_key(token)  # KeyAuthError / KeyUpstreamError

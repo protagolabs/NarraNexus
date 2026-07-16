@@ -179,6 +179,69 @@ async def test_resume_flips_paused_to_active_when_user_can_run(db_client, monkey
 
 
 @pytest.mark.asyncio
+async def test_finalize_balance_pause_records_reason(db_client):
+    """The pause must record WHY (insufficient_balance) so the resume path can
+    tell a readiness-observable fix from one it can't (balance top-up)."""
+    repo = JobRepository(db_client)
+    await _insert_job(db_client, "job_reason")
+    trigger = JobTrigger(database_client=db_client)
+    job = await repo.get_job("job_reason")
+
+    await trigger._finalize_job_execution(job, {
+        "success": False,
+        "error_type": "APIStatusError",
+        "error": "Error code: 402 - Insufficient Balance",
+        "event_id": None,
+    })
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_reason"})
+    assert row["status"] == JobStatus.PAUSED_NO_QUOTA.value
+    assert row["paused_reason"] == "insufficient_balance"
+
+
+@pytest.mark.asyncio
+async def test_backstop_does_not_blind_probe_balance_pause(db_client, monkeypatch):
+    """Time backstop must NOT re-arm a balance/self-serviceable pause even when
+    the user 'can run' (config complete) — readiness can't see a top-up, so
+    re-arming is the retry storm. These resume only on the edge."""
+    repo = JobRepository(db_client)
+    await _insert_job(db_client, "job_bal_paused", status=JobStatus.PAUSED_NO_QUOTA.value)
+    await db_client.update("instance_jobs", {"job_id": "job_bal_paused"},
+                           {"paused_reason": "insufficient_balance"})
+    trigger = JobTrigger(database_client=db_client)
+
+    async def _can_run(_uid):
+        return True  # balance-0 user still reads config-complete
+    monkeypatch.setattr(trigger, "_user_can_run", _can_run)
+
+    resumed = await trigger._resume_eligible_no_quota_jobs()
+    assert resumed == 0
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_bal_paused"})
+    assert row["status"] == JobStatus.PAUSED_NO_QUOTA.value  # still paused
+
+
+@pytest.mark.asyncio
+async def test_backstop_still_resumes_quota_pause(db_client, monkeypatch):
+    """Non-self-serviceable reasons (legacy quota / auth) still resume via the
+    time backstop — reconfiguring a provider changes config, which readiness
+    DOES observe. (Guards that the skip is narrow.)"""
+    repo = JobRepository(db_client)
+    await _insert_job(db_client, "job_quota_paused", status=JobStatus.PAUSED_NO_QUOTA.value)
+    await db_client.update("instance_jobs", {"job_id": "job_quota_paused"},
+                           {"paused_reason": "no_quota"})
+    trigger = JobTrigger(database_client=db_client)
+
+    async def _can_run(_uid):
+        return True
+    monkeypatch.setattr(trigger, "_user_can_run", _can_run)
+
+    resumed = await trigger._resume_eligible_no_quota_jobs()
+    assert resumed == 1
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_quota_paused"})
+    assert row["status"] == JobStatus.ACTIVE.value
+
+
+@pytest.mark.asyncio
 async def test_resume_leaves_paused_when_user_still_cannot_run(db_client, monkeypatch):
     repo = JobRepository(db_client)
     await _insert_job(db_client, "job_r2", status=JobStatus.PAUSED_NO_QUOTA.value)

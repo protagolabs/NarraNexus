@@ -87,7 +87,26 @@ from xyz_agent_context.services.service_audit import ServiceAuditor
 # cross-module dependency (binding rule #3). Reused so the Job layer recognises
 # the SAME deterministic, won't-heal-by-waiting failures (#110) that the
 # real-time layer already treats as self-serviceable.
-from xyz_agent_context.agent_framework.llm_failure import classify_self_serviceable
+from xyz_agent_context.agent_framework.llm_failure import (
+    classify_self_serviceable,
+    SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+    SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
+    SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
+)
+
+# paused_reason values whose fix the readiness backstop CANNOT observe. A
+# balance top-up leaves the config unchanged (and we can't pre-check balance —
+# no login JWT stored); a too-small context window or bad model id only clears
+# when the user changes the slot config. So the TIME-BASED backstop must NOT
+# blind-probe these (that was a retry storm — it re-armed every cycle into the
+# same wall). They resume ONLY on a real edge: provider/slot reconfigure
+# (rearm_user_no_quota_jobs) or a manual action. Auth/legacy-quota pauses are
+# NOT here — reconfiguring a key changes config, which readiness DOES observe.
+_EDGE_ONLY_RESUME_REASONS: frozenset = frozenset({
+    SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+    SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
+    SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
+})
 from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
 from zoneinfo import ZoneInfo
 from datetime import timedelta, timezone
@@ -552,6 +571,13 @@ class JobTrigger:
                 return 0
             resumed = 0
             for job in paused:
+                # Do NOT blind-probe reasons whose fix readiness can't observe
+                # (balance top-up / model / context). Re-arming them every cycle
+                # is exactly the retry storm — a balance-0 user reads as
+                # config-complete → "can run" → re-arm → re-fail → forever. These
+                # resume only on a real edge (rearm_user_no_quota_jobs) or manual.
+                if job.paused_reason in _EDGE_ONLY_RESUME_REASONS:
+                    continue
                 exec_uid = job.related_entity_id or job.user_id
                 if not exec_uid or not await self._user_can_run(exec_uid):
                     continue
@@ -977,15 +1003,31 @@ The task was executed but produced no text output.
             # when quota is restored or a provider is configured. Transient
             # failures fall through to the normal reschedule path below.
             if _is_no_quota_failure(result) or _is_auth_failure(result):
-                await repo.update_job_status(
-                    job_id=job.job_id,
-                    status=JobStatus.PAUSED_NO_QUOTA,
-                    error_message=result.get("error"),
+                # Record WHY we paused so the resume path can tell apart a fix
+                # readiness can observe (auth/quota → config change) from one it
+                # cannot (balance top-up / model / context — see
+                # _EDGE_ONLY_RESUME_REASONS). Without this the backstop blind-
+                # probes and re-arms every cycle into the same wall.
+                ss_reason = classify_self_serviceable(
+                    result.get("error_type"), result.get("error")
                 )
+                if ss_reason is not None:
+                    pause_reason = ss_reason
+                elif _is_auth_failure(result):
+                    pause_reason = "auth"
+                else:
+                    pause_reason = "no_quota"
+                await repo.update_job(job.job_id, {
+                    "status": JobStatus.PAUSED_NO_QUOTA.value,
+                    "paused_reason": pause_reason,
+                    "paused_at": now,
+                    "last_error": result.get("error"),
+                })
                 if job.instance_id:
                     await self._update_instance_failed(job.instance_id)
                 logger.warning(
-                    f"Job {job.job_id} paused (provider/credentials unusable): "
+                    f"Job {job.job_id} paused (provider/credentials unusable, "
+                    f"reason={pause_reason}): "
                     f"{result.get('error_type') or result.get('error')}"
                 )
                 return

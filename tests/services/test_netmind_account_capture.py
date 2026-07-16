@@ -52,6 +52,44 @@ async def test_capture_stamps_all_netmind_rows(db_client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_existing_user_backfilled_on_login(db_client, monkeypatch):
+    """The target population (users who ALREADY have a netmind key, incl. the
+    incident users) is reached via the early-return path: on their next login,
+    ensure_netmind_provider backfills a NULL account WITHOUT minting a new key."""
+    # Pre-existing netmind row with no account captured (pre-feature mint).
+    await _seed(db_client, "p_old")
+
+    from xyz_agent_context.settings import settings
+    monkeypatch.setattr(settings, "netmind_use_subscription_enabled", True, raising=False)
+
+    async def fake_db():
+        return db_client
+    monkeypatch.setattr("xyz_agent_context.utils.db_factory.get_db_client", fake_db)
+
+    async def fake_verify(self, token):
+        return NetmindUser(user_system_code="acct_old", email="carol@example.com")
+    monkeypatch.setattr(
+        "xyz_agent_context.services.netmind_auth_client.NetmindAuthClient.verify_token",
+        fake_verify,
+    )
+
+    # Minting must NOT happen on the existing path — guard it.
+    async def _boom_mint(self, *a, **k):
+        raise AssertionError("create_key must not run for an existing user")
+    monkeypatch.setattr(
+        "xyz_agent_context.services.netmind_key_client.NetmindKeyClient.create_key",
+        _boom_mint,
+    )
+
+    result = await prov.ensure_netmind_provider("u1", "Bearer jwt-token")
+    assert result is False  # no-op provisioning (already had a provider)
+
+    row = await db_client.get_one("user_providers", {"provider_id": "p_old"})
+    assert row["netmind_account_id"] == "acct_old"
+    assert row["netmind_account_email"] == "carol@example.com"
+
+
+@pytest.mark.asyncio
 async def test_capture_best_effort_on_verify_failure(db_client, monkeypatch):
     await _seed(db_client, "p1")
 

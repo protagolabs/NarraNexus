@@ -22,12 +22,16 @@ made several keys from ONE broke account, couldn't tell them apart in the UI,
 and topped up a different account — still broke.
 
 **Fix (2026-07)**: at mint time (we still hold the JWT), `ensure_netmind_provider`
-now `verify_token`s and stamps `user_providers.netmind_account_id` +
+`verify_token`s and stamps `user_providers.netmind_account_id` +
 `netmind_account_email` on the user's NetMind rows (additive, nullable columns).
 `GET /api/providers` attaches the email per provider, and Settings → Providers
 displays "NetMind account: <email>" so the user tops up the RIGHT account.
-Capture is best-effort — a failure never fails provisioning (account stays NULL,
-shown as absent); existing pre-fix rows stay NULL until the next login/reconfigure.
+Capture is best-effort — a failure never fails provisioning (account stays NULL).
+**Existing users are reached via the early-return (dedup) path**: on their next
+login, `ensure_netmind_provider` sees the existing row, and if
+`netmind_account_id` is NULL it backfills it (without minting a new key) — so the
+people who ALREADY have a key (incl. the incident users) get labelled too, not
+only brand-new ones.
 
 ## Why there is no pre-call balance check
 
@@ -57,10 +61,27 @@ Two layers, deliberately different (see the two mirror mds for detail):
   up (binding rule #14/#15). This is #110's shipped decision; we keep it.
 - **Job layer** (`job_trigger._is_no_quota_failure`): **pauses** — a background
   job has no interactive reader, so the only way to stop the retry storm (the
-  9-user / 14-day / 390-retry incident) is `PAUSED_NO_QUOTA`. It **reuses the same
-  `classify_self_serviceable`** (single source of truth), and auto-resumes via
-  the existing edge recovery (`rearm_user_no_quota_jobs` on provider save) + the
-  15-min backstop scan (`_resume_eligible_no_quota_jobs`) — once the owner tops
-  up / reconfigures, the readiness check flips it back to ACTIVE, and either the
-  run succeeds or (still no balance) it re-pauses. That backstop IS the ~15-min
-  probe; no separate probe was added.
+  9-user / 14-day / 390-retry incident) is `PAUSED_NO_QUOTA`. It reuses the same
+  `classify_self_serviceable` (single source of truth) and records a
+  `paused_reason`.
+
+  **Recovery is reason-split — this is the crux.** The time-based backstop
+  (`_resume_eligible_no_quota_jobs`) resumes on a readiness check
+  (`_user_can_run` = config completeness), which **cannot observe a balance
+  top-up** (topping up leaves the config unchanged; we can't pre-check balance —
+  no stored JWT). So a balance-0 user reads as "config complete → can run", and
+  blindly re-arming that job every cycle IS the storm (re-arm → re-fail →
+  re-pause, forever). Therefore the backstop **skips**
+  `_EDGE_ONLY_RESUME_REASONS` (`insufficient_balance` / `context_window` /
+  `model_not_found`) — their fix is only visible as a config change. Those
+  resume **only on a real edge**: a provider/slot reconfigure fires
+  `rearm_user_no_quota_jobs` (which resumes ALL reasons + clears
+  `paused_reason`), or a manual action. Auth / legacy-quota pauses are NOT in the
+  skip set — reconfiguring a key DOES change config, which readiness observes, so
+  they keep the existing time-based recovery.
+
+  Consequence (accepted, since we can't detect top-ups): a balance-dead job does
+  NOT auto-resume on a pure top-up — the user must reconfigure the provider in
+  Settings (or manually resume). This is a **recoverability + genuine stop**, not
+  a periodic "probe" (an earlier draft's ~15-min-probe framing was wrong — it
+  would have replaced dev's "8 tries then FAILED" with unbounded re-arming).

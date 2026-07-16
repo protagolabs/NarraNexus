@@ -3,19 +3,24 @@ code_file: src/xyz_agent_context/module/job_module/job_trigger.py
 last_verified: 2026-07-16
 ---
 
-## 2026-07-16 — 后台 job 在"自助类"失败上暂停(余额不足风暴修复)
+## 2026-07-16 — 后台 job 在"自助类"失败上暂停 + paused_reason 分流恢复
 
-`_is_no_quota_failure` 现在复用 `agent_framework.llm_failure.classify_self_serviceable`
-(#110 的检测器,leaf util,非跨模块依赖——铁律 #3):任何**确定性自助类**失败
-(余额/配额不足、上下文窗口过小、模型不存在)→ 返回 True → `PAUSED_NO_QUOTA`。
+`_is_no_quota_failure` 复用 `agent_framework.llm_failure.classify_self_serviceable`
+(#110 检测器,leaf util,非跨模块依赖——铁律 #3):任何**确定性自助类**失败
+(余额/配额不足、上下文窗口过小、模型不存在)→ True → `PAUSED_NO_QUOTA`。
 
-根因(上游事故):余额死掉的 job,`_NO_QUOTA_ERROR_MARKERS` 认不出 `402/insufficient
-balance`,被当普通瞬时错 → COOLING → 每轮 re-arm → 又失败……9 用户/14 天/390 条无意义
-重试。后台 job 没有交互用户去读"可操作提示"(实时层的做法),所以停掉风暴的唯一办法是
-**暂停**。恢复复用现成的边缘(`rearm_user_no_quota_jobs`)+ 15 分钟兜底
-(`_resume_eligible_no_quota_jobs`)——充值/重配后 readiness 检查翻回 ACTIVE,成功则清零、
-仍无余额则再暂停(这就是 ~15 分钟探测,未另加探测器)。裸 429/限流仍是 transient,不暂停。
-与实时层的差异见 `.mindflow/project/references/netmind_billing.md`。
+**pause 写 `paused_reason`**(用 classify 结果 / `auth` / `no_quota`),因为**恢复必须分流**:
+- 时间兜底 `_resume_eligible_no_quota_jobs` 靠 `_user_can_run`(=配置完整性,**看不到余额**)。
+  余额=0 的用户配置是完整的 → 会被判"可运行" → 若盲目 re-arm,就是每轮翻回→再失败→再暂停的
+  **重试风暴**(这正是我第一版的 bug:把 dev 的"8 次后 FAILED 终止"改成了"永久探")。
+- 所以兜底**跳过** `_EDGE_ONLY_RESUME_REASONS`(insufficient_balance / context_window /
+  model_not_found)——这些的修复 readiness 观察不到(充值不改配置、换模型才改),**只在真实
+  边缘恢复**:provider/slot 重配(`rearm_user_no_quota_jobs`,清 paused_reason)或手动。
+- auth / 遗留 quota **不在**该集合:重配 key 会改配置,readiness 能观察到,保持原有兜底恢复。
+
+要点:我们**检测不到充值**(不存登录 JWT、无法预检余额),所以"充值即自动恢复"做不到;
+余额 job 的恢复语义是"**重配 provider 时恢复**"。这是**可恢复性 + 真止损**,不是"15 分钟探测"。
+裸 429/限流仍是 transient。差异见 `.mindflow/project/references/netmind_billing.md`。
 
 ## 2026-07-13 — auth failures are recoverable, not terminal + zombie self-heal
 
