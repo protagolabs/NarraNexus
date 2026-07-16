@@ -44,36 +44,15 @@ def _cred() -> WeChatCredential:
     return WeChatCredential(agent_id="agent_x", bot_token="tok", base_url="http://x")
 
 
-async def _drive_until(trig, reconnected, *, timeout=2.0):
-    """Run connect() as a task, wait for the reconnect signal, then stop it."""
-    async def _drive():
-        async for _ in trig.connect(_cred()):
-            pass
-    t = asyncio.create_task(_drive())
-    try:
-        await asyncio.wait_for(reconnected.wait(), timeout=timeout)
-    finally:
-        trig.running = False
-        t.cancel()
-        try:
-            await t
-        except asyncio.CancelledError:
-            pass
-
-
 @pytest.mark.asyncio
-async def test_watchdog_reconnects_on_hung_getupdates(monkeypatch):
-    """hop1 hang: a getupdates that never returns within the hard timeout is
-    force-terminated and the client is reconnected in place — no exception
-    escapes, and a fresh client is created (single loop, no second task)."""
-    created: list[int] = []
-    reconnected = asyncio.Event()
-
+async def test_hung_getupdates_raises_transient_stall(monkeypatch):
+    """A getupdates that never returns within the hard timeout is surfaced as a
+    TRANSIENT WeChatSDKError(source="stall") — so the base reconnects (its
+    backoff + paired transport audit), NOT disable. connect() does not reconnect
+    in place (that would lose backoff + emit an orphan DISCONNECTED)."""
     class _FakeClient:
         def __init__(self, *_a):
-            created.append(1)
-            if len(created) >= 2:
-                reconnected.set()  # a reconnect (2nd client) happened
+            pass
 
         async def get_updates(self, cursor):
             await asyncio.sleep(30)  # hang far past the hard timeout
@@ -86,27 +65,25 @@ async def test_watchdog_reconnects_on_hung_getupdates(monkeypatch):
     trig.running = True
     trig.GETUPDATES_HARD_TIMEOUT_SECONDS = 0.05
 
-    await _drive_until(trig, reconnected)
-    assert len(created) >= 2  # reconnected at least once
+    with pytest.raises(WeChatSDKError) as ei:
+        async for _ in trig.connect(_cred()):
+            pass
+    assert ei.value.source == "stall"
+    assert trig.is_permanent_auth_failure(ei.value) is False  # reconnect, not disable
 
 
 @pytest.mark.asyncio
-async def test_watchdog_reconnects_on_no_inbound(monkeypatch):
-    """silent-empty: repeated ret=0/empty polls past the no-inbound window
-    trigger a proactive reconnect (the case where a dead session returns no
-    error field at all)."""
+async def test_idle_account_does_not_raise_or_reconnect(monkeypatch):
+    """A quiet account (empty polls) is NORMAL — no raise, no reconnect, no
+    audit noise. The client is created exactly once."""
     created: list[int] = []
-    reconnected = asyncio.Event()
 
     class _FakeClient:
         def __init__(self, *_a):
             created.append(1)
-            if len(created) >= 2:
-                reconnected.set()
 
         async def get_updates(self, cursor):
-            await asyncio.sleep(0.01)  # let idle time accrue deterministically
-            return {"ret": 0, "get_updates_buf": "c", "msgs": []}
+            return {"msgs": [], "sync_buf": "s", "get_updates_buf": "c"}
 
         async def aclose(self):
             pass
@@ -114,26 +91,35 @@ async def test_watchdog_reconnects_on_no_inbound(monkeypatch):
     monkeypatch.setattr(_wt, "WeChatSDKClient", _FakeClient)
     trig = WeChatTrigger()
     trig.running = True
-    trig.WATCHDOG_NO_INBOUND_SECONDS = 0.0  # any elapsed idle → reconnect
     trig.POLL_IDLE_SLEEP_SECONDS = 0.0
 
-    await _drive_until(trig, reconnected)
-    assert len(created) >= 2
+    async def _drive():
+        async for _ in trig.connect(_cred()):
+            pass
+    t = asyncio.create_task(_drive())
+    await asyncio.sleep(0.1)  # many empty polls
+    trig.running = False
+    t.cancel()
+    try:
+        await t
+    except asyncio.CancelledError:
+        pass
+    assert len(created) == 1  # never reconnected on idle
 
 
 @pytest.mark.asyncio
-async def test_healthy_updates_do_not_reconnect(monkeypatch):
-    """A steady stream of real messages must NOT trip the watchdog — the
-    client is created exactly once and messages flow through."""
+async def test_healthy_updates_flow_single_client(monkeypatch):
+    """Real messages flow through; the client is created exactly once (no
+    reconnect churn). Uses the real getupdates schema (no `ret`)."""
     created: list[int] = []
-    got: list[str] = []
+    got: list[dict] = []
 
     class _FakeClient:
         def __init__(self, *_a):
             created.append(1)
 
         async def get_updates(self, cursor):
-            return {"ret": 0, "get_updates_buf": "c", "msgs": [{"from_user_id": "u", "n": len(got)}]}
+            return {"msgs": [{"from_user_id": "u"}], "sync_buf": "s", "get_updates_buf": "c"}
 
         async def aclose(self):
             pass
@@ -149,5 +135,5 @@ async def test_healthy_updates_do_not_reconnect(monkeypatch):
                 trig.running = False
                 break
     await asyncio.wait_for(_drive(), timeout=2.0)
-    assert len(created) == 1  # never reconnected
+    assert len(created) == 1
     assert len(got) >= 3

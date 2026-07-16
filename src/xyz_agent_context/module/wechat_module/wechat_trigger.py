@@ -13,8 +13,9 @@ the base class. The agent replies by calling the ``wechat_send`` MCP tool;
 WeChat-specific concerns handled here:
   - **Cursor, not offset**: iLink returns ``get_updates_buf`` (an opaque cursor)
     instead of a numeric update_id. Advance it after each batch.
-  - **App-level failures**: ``get_updates`` raises on ``ret != 0`` (session
-    expired / bad token) so the base class backs off + reconnects.
+  - **App-level failures**: ``get_updates`` raises on a non-zero ``errcode``
+    (iLink's session-death signal — responses carry no ``ret`` field) so the
+    base class disables the credential.
   - **First-DM owner claim**: the owner's wxid is opaque until they DM the
     freshly bound account (bind is owner-initiated from the panel, but the
     wxid isn't known then) — the first inbound DM claims owner (CAS).
@@ -28,9 +29,6 @@ from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
 
-from xyz_agent_context.channel.channel_audit_events import (
-    EVENT_TRANSPORT_DISCONNECTED,
-)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
@@ -66,20 +64,16 @@ class WeChatTrigger(ChannelTriggerBase):
     # Idle wake-up so ``self.running`` is checked even when the bot is quiet.
     POLL_IDLE_SLEEP_SECONDS = 0.5
 
-    # Watchdog against SILENT long-poll death (2026-07-06 incident). iLink has
-    # NO liveness endpoint (probed — every candidate 404s), so we detect a
-    # wedged session two ways, both INLINE in the single connect() loop (no
-    # extra task/process → exactly one getupdates in flight per credential):
-    #  - hop1 hang: a getupdates that doesn't return within
-    #    GETUPDATES_HARD_TIMEOUT_SECONDS (server holds ~35s; a keepalive-fed
-    #    stall can defeat httpx's read timeout) → force a fresh connection.
-    #  - silent-empty: no inbound for WATCHDOG_NO_INBOUND_SECONDS while the
-    #    session keeps returning ret=0/empty with NO error field → proactive
-    #    reconnect. Harmless on a genuinely idle account (fresh long-poll, same
-    #    cursor). The SDK's errcode fix catches the case where iLink DOES
-    #    signal death; this catches the case where it says nothing at all.
+    # Hard cap on a single getupdates. The server holds it ~35s; a wedged
+    # long-poll — a keepalive-fed stall that defeats httpx's read timeout —
+    # would otherwise hang forever with NO transport error (part of the
+    # 2026-07-06 silent-death incident). On timeout connect() raises a transient
+    # error so the BASE's _subscribe_loop reconnects (its backoff + paired
+    # transport audit) — we do not hand-roll a reconnect. A dead SESSION is
+    # caught earlier by get_updates' errcode check → disable. (No idle-based
+    # watchdog: a quiet personal account is normal, and with no iLink liveness
+    # endpoint an idle timer can't tell idle from dead without false alarms.)
     GETUPDATES_HARD_TIMEOUT_SECONDS = 60.0
-    WATCHDOG_NO_INBOUND_SECONDS = 300.0
 
     def __init__(self, max_workers: int = 3):
         super().__init__(
@@ -116,14 +110,15 @@ class WeChatTrigger(ChannelTriggerBase):
         return credential.agent_id
 
     def is_permanent_auth_failure(self, exc: BaseException) -> bool:  # type: ignore[override]
-        # A getupdates ``ret != 0`` means the iLink session is expired / the
-        # token is bad — reconnecting can never recover it. Treat it as terminal
-        # so the base class disables the credential and the loop exits, instead
-        # of reconnecting against a dead session every 120s forever (the
-        # zombie-reconnect incident class — CLAUDE.md lesson #1). A send-side
-        # ``ret != 0`` is per-message (stale context_token) and never reaches
-        # the connect loop; transient network errors are not WeChatSDKError and
-        # so keep retrying under the default backoff.
+        # A getupdates ``errcode != 0`` (source="updates") means the iLink
+        # session is expired / the token is bad — reconnecting can never recover
+        # it. Treat it as terminal so the base disables the credential and the
+        # loop exits, instead of reconnecting against a dead session every 120s
+        # forever (the zombie-reconnect incident class — CLAUDE.md lesson #1). A
+        # send-side error is per-message (stale context_token) and never reaches
+        # the connect loop; a ``source="stall"`` (wedged long-poll) is transient
+        # → reconnect, not disable; other transient network errors are not
+        # WeChatSDKError and keep retrying under the base backoff.
         return isinstance(exc, WeChatSDKError) and exc.source == "updates"
 
     async def disable_credential(self, credential: WeChatCredential) -> None:  # type: ignore[override]
@@ -134,86 +129,60 @@ class WeChatTrigger(ChannelTriggerBase):
     async def connect(self, credential: WeChatCredential) -> AsyncIterator[dict]:
         """Long-poll loop. Yields raw iLink message dicts.
 
-        Error handling is layered:
-          - ``get_updates`` raises ``WeChatSDKError(source="updates")`` on a
-            non-zero ``ret``/``errcode`` (session expired / bad token) → the
-            base disables the credential (``is_permanent_auth_failure``).
-          - Two inline watchdogs cover the SILENT failures iLink does NOT
-            report (it has no liveness endpoint): a hard per-poll timeout for a
-            wedged request, and a no-inbound timer for a silently-dead session
-            that keeps returning ret=0/empty. Both reconnect IN-PLACE (close +
-            re-open the client) inside this one loop, so there is always exactly
-            ONE getupdates in flight per credential — never a second loop/task.
+        Two failure modes are handled; both let the BASE run recovery — this
+        method never hand-rolls a reconnect:
+          - **Dead session** — ``get_updates`` raises
+            ``WeChatSDKError(source="updates")`` on a non-zero ``errcode``
+            (iLink's session-death signal — see [[wechat_sdk_client.py]]) →
+            ``is_permanent_auth_failure`` → the base disables the credential.
+          - **Wedged long-poll** — a getupdates that doesn't return within
+            ``GETUPDATES_HARD_TIMEOUT_SECONDS`` (a keepalive-fed stall defeats
+            httpx's read timeout — no transport error, hangs forever). We raise
+            a TRANSIENT ``WeChatSDKError(source="stall")``; ``source != "updates"``
+            so it's NOT a permanent auth failure → the base's ``_subscribe_loop``
+            reconnects with its own backoff + paired transport audit. We do NOT
+            reconnect in-place (that would lose the backoff and emit an orphan
+            DISCONNECTED with no paired CONNECTED).
 
-        The cursor advances per batch; an in-flight crash replays the batch
-        (the base dedup store catches double-delivery on the happy path).
+        A quiet account is NOT a failure: a personal WeChat account idle for
+        minutes is normal, and — with no iLink liveness endpoint — a no-inbound
+        timer can't tell "idle" from "dead" without crying wolf on every healthy
+        quiet account (destroying the audit signal). The ``errcode`` check is the
+        death signal; there is deliberately no idle-based reconnect.
+
+        The cursor advances per batch (``self._cursors[key]``); an in-flight
+        crash replays the batch (base dedup catches the double-delivery).
         """
         client = WeChatSDKClient(credential.bot_token, credential.base_url)
         key = self._subscriber_key(credential)
         self._sdk_clients[key] = client
         cursor = self._cursors.get(key, "")
-        loop = asyncio.get_running_loop()
-        last_inbound = loop.time()
         logger.info(f"[wechat:{credential.agent_id}] long-poll started")
         try:
             while self.running:
-                reconnect_reason = ""
                 try:
                     data = await asyncio.wait_for(
                         client.get_updates(cursor),
                         timeout=self.GETUPDATES_HARD_TIMEOUT_SECONDS,
                     )
-                except asyncio.TimeoutError:
-                    # hop1 hang: a single getupdates didn't return within the
-                    # hard cap — the connection is wedged with no transport
-                    # error. Force a fresh one.
-                    reconnect_reason = (
+                except asyncio.TimeoutError as e:
+                    # Wedged long-poll → transient error so the base reconnects
+                    # (backoff + paired audit), not a disable.
+                    raise WeChatSDKError(
+                        -1,
+                        "stall",
                         f"getupdates hung "
-                        f">{self.GETUPDATES_HARD_TIMEOUT_SECONDS:.0f}s"
-                    )
-                else:
-                    cursor = data.get("get_updates_buf", cursor)
-                    self._cursors[key] = cursor
-                    msgs = data.get("msgs") or []
-                    if msgs:
-                        last_inbound = loop.time()
-                        for msg in msgs:
-                            if not self.running:
-                                break
-                            yield msg
-                    else:
-                        idle = loop.time() - last_inbound
-                        if idle > self.WATCHDOG_NO_INBOUND_SECONDS:
-                            reconnect_reason = (
-                                f"no inbound for {idle:.0f}s "
-                                f"(>{self.WATCHDOG_NO_INBOUND_SECONDS:.0f}s "
-                                f"watchdog — suspected silent session death)"
-                            )
-                            last_inbound = loop.time()  # reset; avoid tight-loop
-                        else:
-                            await asyncio.sleep(self.POLL_IDLE_SLEEP_SECONDS)
-
-                if reconnect_reason:
-                    logger.warning(
-                        f"[wechat:{credential.agent_id}] watchdog reconnect — "
-                        f"{reconnect_reason}"
-                    )
-                    await self._audit(
-                        EVENT_TRANSPORT_DISCONNECTED,
-                        agent_id=credential.agent_id,
-                        details={"reason": reconnect_reason, "by": "watchdog"},
-                    )
-                    # In-place reconnect: close the wedged client, open a fresh
-                    # one. Still one loop, one client — single-process invariant
-                    # preserved.
-                    try:
-                        await asyncio.wait_for(client.aclose(), timeout=3.0)
-                    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
-                        pass
-                    client = WeChatSDKClient(
-                        credential.bot_token, credential.base_url
-                    )
-                    self._sdk_clients[key] = client
+                        f">{self.GETUPDATES_HARD_TIMEOUT_SECONDS:.0f}s — reconnecting",
+                    ) from e
+                cursor = data.get("get_updates_buf", cursor)
+                self._cursors[key] = cursor
+                msgs = data.get("msgs") or []
+                for msg in msgs:
+                    if not self.running:
+                        break
+                    yield msg
+                if not msgs:
+                    await asyncio.sleep(self.POLL_IDLE_SLEEP_SECONDS)
         finally:
             try:
                 await asyncio.wait_for(client.aclose(), timeout=3.0)

@@ -4,32 +4,34 @@ stub: false
 last_verified: 2026-07-16
 ---
 
-## 2026-07-16 — inline watchdog for silent long-poll death (no extra task)
+## 2026-07-16 — hard-timeout on getupdates; recovery via the base, not in-place
 
-Belt-and-suspenders for the 2026-07-06 silent-death incident, on top of the
-SDK `errcode` fix (see [[wechat_sdk_client.py]]). iLink has NO liveness
-endpoint (probed — all candidates 404), and beyond the `errcode` case a session
-can wedge with NO signal at all: either the getupdates request hangs (a
-keepalive-fed stall defeats httpx's read timeout) or it keeps returning
-`ret=0`/empty on a dead session. `connect()` now guards both, **inline in the
-single poll loop**:
+Belt-and-suspenders for the 2026-07-06 silent-death incident, on top of the SDK
+`errcode` fix (see [[wechat_sdk_client.py]]) — which is the real death signal.
+The only residual failure the errcode check can't see is a **wedged long-poll**:
+a getupdates that hangs forever because a keepalive-fed stall defeats httpx's
+read timeout (no transport error). `connect()` wraps getupdates in
+`asyncio.wait_for(GETUPDATES_HARD_TIMEOUT_SECONDS=60s)`; on timeout it raises a
+**transient** `WeChatSDKError(source="stall")`.
 
-- `getupdates` wrapped in `asyncio.wait_for(..., GETUPDATES_HARD_TIMEOUT_SECONDS
-  =60s)` — a hung request is force-terminated and the client reconnected.
-- a `last_inbound` timer: no real message for `WATCHDOG_NO_INBOUND_SECONDS=300s`
-  → proactive reconnect (harmless on a genuinely idle account — fresh long-poll,
-  same cursor). Reset on reconnect to avoid a tight loop.
+**Recovery is the base's job, not ours** (review PR round). `source != "updates"`
+→ `is_permanent_auth_failure` is False → the base's `_subscribe_loop` reconnects
+with its own backoff + paired `transport_connected`/`disconnected` audit. The
+earlier draft hand-rolled an in-place reconnect (close+reopen the client inside
+the loop) — that lost the base backoff and emitted an orphan `DISCONNECTED` with
+no paired `CONNECTED`, skewing the audit chain. Removed.
 
-Reconnect = close the wedged client + open a fresh one **in place**, staying in
-the one `connect()` loop → there is always exactly ONE getupdates in flight per
-credential. A separate watchdog task poking the loop would risk double-poll /
-races; deliberately avoided (single-process invariant). Each watchdog reconnect
-writes an `EVENT_TRANSPORT_DISCONNECTED` audit row (`by=watchdog`) + a WARNING,
-so repeated reconnects are observable (incident lesson #4/#5 — L2/L3 signal per
-subscriber). The errcode-death path still raises → base disables; the watchdog
-only handles the no-signal cases. Tests: `test_watchdog_reconnects_on_hung_
-getupdates`, `test_watchdog_reconnects_on_no_inbound`,
-`test_healthy_updates_do_not_reconnect`.
+**No idle-based reconnect.** The earlier draft also reconnected after 300s of no
+inbound. But a quiet personal account is normal, and with no iLink liveness
+endpoint a no-inbound timer can't tell idle from dead — it fired on every
+healthy quiet account (~288 WARN+DISCONNECTED rows/day/account, all crying
+"suspected silent session death"), which DESTROYS the very signal the incident
+lessons (#4/#5) rely on. Deleted entirely: the `errcode` check is the death
+signal; idle is not a failure. Constant `WATCHDOG_NO_INBOUND_SECONDS` gone.
+
+Tests: `test_hung_getupdates_raises_transient_stall` (raises stall, not
+permanent), `test_idle_account_does_not_raise_or_reconnect`,
+`test_healthy_updates_flow_single_client`.
 
 ## Why it exists
 
@@ -56,14 +58,14 @@ mirrors ``telegram_trigger.py``.
   opaque cursor string. ``connect`` reads it out of each batch and
   stores it in ``self._cursors[key]`` (per-agent). There is no integer
   arithmetic; the cursor is whatever iLink last handed back.
-- **``connect`` raises on app-level failure (``ret != 0``).** A response
-  can be HTTP 200 but carry ``ret != 0`` in its JSON body = an
-  application-level failure (expired session / bad token). The SDK's
-  ``get_updates`` raises ``WeChatSDKError(source="updates")`` on that
-  condition; ``connect`` lets it propagate (its ``finally`` only closes
-  the client, it doesn't swallow) so the base class runs recovery. There
-  is intentionally **no manual retry here** — the base owns recovery,
-  same as Telegram.
+- **``connect`` raises on app-level failure (a non-zero ``errcode``).** A
+  response can be HTTP 200 but carry ``errcode != 0`` = an application-level
+  failure (expired session / bad token). (Verified 2026-07-16: getupdates
+  carries no ``ret`` at all — see the top note + [[wechat_sdk_client.py]].) The
+  SDK's ``get_updates`` raises ``WeChatSDKError(source="updates")`` on that
+  condition; ``connect`` lets it propagate (its ``finally`` only closes the
+  client) so the base class runs recovery. There is intentionally **no manual
+  retry here** — the base owns recovery, same as Telegram.
 - **``is_permanent_auth_failure`` stops the zombie-reconnect.** Overrides
   the base hook to return True for ``WeChatSDKError(source="updates")`` —
   a dead/expired iLink session that reconnecting can never recover. On

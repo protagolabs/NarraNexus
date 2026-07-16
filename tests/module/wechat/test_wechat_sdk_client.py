@@ -71,14 +71,14 @@ async def test_get_updates_raises_on_app_level_ret():
     with pytest.raises(WeChatSDKError) as exc_info:
         await c.get_updates("c1")
     err = exc_info.value
-    assert err.ret == 1001
+    assert err.code == 1001
     # source="updates" is what the trigger keys on to treat a dead session as a
     # PERMANENT auth failure (disable the credential) rather than reconnecting
     # forever — a getupdates ret!=0 means session expired / bad token.
     assert err.source == "updates"
     # Still a RuntimeError subclass so existing message-based callers hold.
     assert isinstance(err, RuntimeError)
-    assert "ret=1001" in str(err)
+    assert "code=1001" in str(err)
     await c.aclose()
 
 
@@ -96,7 +96,7 @@ async def test_get_updates_raises_on_errcode_session_timeout():
     with pytest.raises(WeChatSDKError) as exc_info:
         await c.get_updates("c1")
     err = exc_info.value
-    assert err.ret == -14
+    assert err.code == -14
     assert err.source == "updates"        # → is_permanent_auth_failure → disable
     assert "session timeout" in str(err)  # errmsg carried through
     await c.aclose()
