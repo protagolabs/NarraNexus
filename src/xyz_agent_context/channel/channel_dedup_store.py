@@ -189,10 +189,16 @@ class ChannelDedupStore:
             }
 
         # Layer 3: durable DB. Skipped only when no repo is wired (tests
-        # may run without one).
+        # may run without one). Use the same ``cache_key`` (agent-partitioned)
+        # as Layer 2 — the DB dedup MUST partition by agent_id too. Matrix
+        # fanout means N room members' clients all sync-pull the SAME
+        # ``event_id``; keying the durable dedup on bare ``message_id`` lets
+        # whichever client's sync happens to land first drop everyone else's
+        # copy as ``db_dedup`` and their ``_process_message`` never fires —
+        # the group-room silent-loss bug fixed 2026-07-16 (see mirror md).
         if self._repo is not None:
             try:
-                newly_inserted = await self._repo.mark_seen(message_id)
+                newly_inserted = await self._repo.mark_seen(cache_key)
                 return {
                     "accept": bool(newly_inserted),
                     "layer": "db_new" if newly_inserted else "db_dedup",
