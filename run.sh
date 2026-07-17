@@ -303,8 +303,18 @@ check_deps() {
   # deps), so we follow the uv pattern: curl the right per-OS/arch asset to
   # ~/.local/bin (already on PATH via the uv export above). Graceful-degrade:
   # if it fails the platform still works, only Office-document skills are off.
-  # Version pinned; bump in lockstep with docker/Dockerfile.manyfold and
-  # scripts/build-desktop.sh.
+  # Version pinned. officecli ships from FOUR independent places and they must
+  # agree — bump all of them together:
+  #   run.sh (here)                      local run
+  #   scripts/build-desktop.sh           the macOS app bundle
+  #   deploy: docker/Dockerfile.python   cloud backend + workers
+  #   deploy: docker/Dockerfile.executor cloud agent  <- the one that matters
+  #                                      for the builtin skill; missed once and
+  #                                      the cloud feature shipped dead (v1.9.0)
+  # The last two live in the NarraNexus-deploy repo, which gates the four pins
+  # in scripts/check_executor_clis.sh (a prerequisite of `make app-build`).
+  # (This list previously named docker/Dockerfile.manyfold, which does not
+  # exist, and omitted both cloud images entirely.)
   _OFFICECLI_VERSION="v1.0.135"
 
   _try_install_officecli() {

@@ -319,8 +319,18 @@ done
 # docx/xlsx/pptx). Unlike claude/lark-cli it's a GitHub-Releases self-contained
 # binary (embedded .NET), not an npm package, so we curl the target-arch asset
 # straight into $NODE_DIR/bin/ — already on the runtime PATH via
-# state.rs::resolve_bundled_node_bins(). Version pinned; bump in lockstep with
-# docker/Dockerfile.manyfold and run.sh (_try_install_officecli).
+# state.rs::resolve_bundled_node_bins(). Version pinned. officecli ships from
+# FOUR independent places and they must agree — bump all of them together:
+#   scripts/build-desktop.sh (here)    the macOS app bundle
+#   run.sh (_try_install_officecli)    local run
+#   deploy: docker/Dockerfile.python   cloud backend + workers
+#   deploy: docker/Dockerfile.executor cloud agent  <- the one that matters for
+#                                      the builtin skill; missed once and the
+#                                      cloud feature shipped dead (v1.9.0)
+# The last two live in the NarraNexus-deploy repo, which gates the four pins in
+# scripts/check_executor_clis.sh (a prerequisite of `make app-build`).
+# (This list previously named docker/Dockerfile.manyfold, which does not exist,
+# and omitted both cloud images entirely.)
 # Escape hatch: SKIP_OFFICECLI=1 skips this step (offline builds).
 OFFICECLI_VERSION="${OFFICECLI_VERSION:-v1.0.135}"
 if [ "${SKIP_OFFICECLI:-0}" = "1" ]; then
