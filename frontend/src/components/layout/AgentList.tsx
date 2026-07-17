@@ -7,7 +7,7 @@
  * indicators and completion badges support multi-agent concurrent chat.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -26,6 +26,7 @@ import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
 import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
+import { sortAgentsByActivity } from './agentGroupUtils';
 import { ClearAgentDataDialog } from './ClearAgentDataDialog';
 import { AgentsHeaderMenu } from './AgentsHeaderMenu';
 import { CreateMenu } from './CreateMenu';
@@ -186,6 +187,21 @@ export function AgentList({ collapsed }: AgentListProps) {
   };
 
   const getIsStreaming = (aid: string) => isAgentStreaming(aid);
+
+  /**
+   * Agents ordered so the most-recently-active conversation floats to the top
+   * ("recently chatted agent auto-pins"). The activity time blends the
+   * server's last assistant reply with the freshest LOCAL session message, so
+   * an agent jumps to the top the instant you talk to it — before the next
+   * /api/auth/agents refresh. Recomputes when the list or any session changes.
+   */
+  const sortedAgents = useMemo(
+    () =>
+      sortAgentsByActivity(rawAgents, (aid) =>
+        latestMessageMs(agentSessions[aid]?.messages ?? []),
+      ),
+    [rawAgents, agentSessions],
+  );
 
   // Fetch agents on mount
   useEffect(() => {
@@ -669,7 +685,7 @@ export function AgentList({ collapsed }: AgentListProps) {
                     teamId={null}
                     teamName=""
                     teamColor={null}
-                    agents={rawAgents}
+                    agents={sortedAgents}
                     agentId={agentId}
                     activeTeamChatId={activeTeamChatId}
                     collapsed={false}
