@@ -1,14 +1,24 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-13
+last_verified: 2026-07-16
 stub: false
 ---
+
+## 2026-07-16 — manyfold_sync router + config-change webhook middleware
+
+`ENABLE_MANYFOLD_API=1` 块内新增 `manyfold_sync_router`（`GET
+/manyfold/jobs`、`GET /manyfold/channels`）和
+`config_change_webhook_middleware` 注册。middleware 故意放在该块**最后**
+注册：Starlette LIFO 下它成为最外层，观察到最终 status code；它只在
+response 侧行动（job/channel/provider 路由的 2xx 写请求后 fire-and-forget
+webhook），对 OPTIONS/401 完全透明，所以不触碰 auth/CORS 的 LIFO 陷阱。
+无 `MANYFOLD_SYNC_WEBHOOK_*` env 时 middleware 是纯透传。见
+backend/routes/manyfold_sync.py.md。
 
 ## 2026-07-10 — feedback_router 注册
 
 `backend.routes.feedback` 挂在 `/api`（完整路径 POST /api/feedback）。web UI
 反馈弹窗的服务端中继——不让浏览器直连团队接收端（CORS/杀开关/身份可信）。
-
 
 ## 2026-07-02 — billing_router 注册
 

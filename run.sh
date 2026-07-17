@@ -406,8 +406,14 @@ run_container_mode() {
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.module_runner mcp &
   # 3. Module poller
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.services.module_poller &
-  # 4. Job trigger
-  "$SCRIPT_DIR/.venv/bin/python3" src/xyz_agent_context/module/job_module/job_trigger.py &
+  # 4. Job trigger — skipped when the hosting platform owns scheduling
+  #    (NEXUS_EXTERNAL_TRIGGERS=1, e.g. Manyfold mirrors jobs into its own
+  #    scheduler and drives them via /v1/chat/completions run-job turns).
+  if [ "${NEXUS_EXTERNAL_TRIGGERS:-}" != "1" ]; then
+    "$SCRIPT_DIR/.venv/bin/python3" src/xyz_agent_context/module/job_module/job_trigger.py &
+  else
+    echo "NEXUS_EXTERNAL_TRIGGERS=1 — job_trigger not started (platform-managed scheduling)"
+  fi
   # 5. Message bus trigger
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.message_bus.message_bus_trigger &
   # 5b. Consolidated IM channel triggers (Lark / Slack / Telegram / Discord /
@@ -416,7 +422,15 @@ run_container_mode() {
   #     channel no-ops when nothing is bound, so launching all is safe.
   #     message_bus_trigger deliberately defers IM channels to this supervisor,
   #     so without it inbound IM messages are never received (issue #54).
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_channel_triggers &
+  #    Skipped when the hosting platform owns the IM connections
+  #    (NEXUS_EXTERNAL_TRIGGERS=1) — a second consumer of the same bot would
+  #    fight the platform's (Telegram getUpdates vs webhook 409, duplicate
+  #    Discord gateway deliveries).
+  if [ "${NEXUS_EXTERNAL_TRIGGERS:-}" != "1" ]; then
+    "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_channel_triggers &
+  else
+    echo "NEXUS_EXTERNAL_TRIGGERS=1 — channel triggers not started (platform-managed IM)"
+  fi
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
   exec "$SCRIPT_DIR/.venv/bin/python3" -m uvicorn backend.main:app \
