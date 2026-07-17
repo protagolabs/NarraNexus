@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-07-15
+last_verified: 2026-07-16
 stub: false
 ---
+
+## 2026-07-16 — run-job 控制消息短路（Manyfold managed triggers）
+
+在 `_extract_user_input` 之后、BackgroundRun 创建之前加了一个 dispatch：
+若整条输入严格匹配 `[[nx:run_job <job_id> v1]]`（manyfold_sync.py 的
+`parse_run_job_control`），不再起 agent run，改走 `_run_job_completion`
+→ `execute_job_once`（复用 JobTrigger 执行体）。流式分支每 15s 发空
+content 心跳 chunk 防中间层断链；客户端断开不 cancel job task
+（铁律 #14，asyncio.shield + done-callback 收异常）。带任何多余文字的
+输入不匹配、照常走 agent run。背景见 manyfold_sync.py.md。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

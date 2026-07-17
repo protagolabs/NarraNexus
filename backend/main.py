@@ -441,11 +441,20 @@ if os.environ.get("ENABLE_MANYFOLD_API", "").strip() in ("1", "true", "yes"):
         router as manyfold_diagnostics_router,
     )
     from backend.routes.manyfold_files import router as manyfold_files_router
-
+    from backend.routes.manyfold_sync import (
+        config_change_webhook_middleware,
+        router as manyfold_sync_router,
+    )
     app.include_router(openai_compat_router, tags=["ManyfoldOpenAI"])
     app.include_router(manyfold_agents_router, tags=["ManyfoldAgents"])
     app.include_router(manyfold_diagnostics_router, tags=["ManyfoldDiagnostics"])
     app.include_router(manyfold_files_router, tags=["ManyfoldFiles"])
+    app.include_router(manyfold_sync_router, tags=["ManyfoldSync"])
+    # Registered last → runs outermost (Starlette LIFO), so it observes the
+    # final status code and stays transparent for OPTIONS/non-2xx. It only
+    # acts on the response side; the webhook itself no-ops without the
+    # MANYFOLD_SYNC_WEBHOOK_* env.
+    app.middleware("http")(config_change_webhook_middleware)
     logger.info("Manyfold API enabled: /v1/chat/completions + /manyfold/* registered")
 else:
     logger.info("Manyfold API disabled (ENABLE_MANYFOLD_API not set)")
