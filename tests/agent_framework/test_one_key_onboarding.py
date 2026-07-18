@@ -318,7 +318,7 @@ async def test_set_slot_helper_accepts_anthropic_provider():
     _, new_ids = await svc.add_provider(
         user_id="u1", card_type="anthropic", api_key="sk-ant-x",
     )
-    config = await svc.set_slot("u1", "helper_llm", new_ids[0], "claude-haiku-4-5")
+    config = await svc.set_slot("u1", "helper_llm", new_ids[0], "claude-haiku-4-5", actor_is_staff=None)
     assert config.slots["helper_llm"].provider_id == new_ids[0]
 
 
@@ -332,7 +332,7 @@ async def test_set_slot_helper_accepts_oauth_providers():
     _, claude_ids = await svc.add_provider(user_id="u1", card_type="claude_oauth")
 
     # Re-assigning an OAuth provider to the helper slot must NOT raise.
-    cfg = await svc.set_slot("u1", "helper_llm", claude_ids[0], "haiku")
+    cfg = await svc.set_slot("u1", "helper_llm", claude_ids[0], "haiku", actor_is_staff=None)
     assert cfg.slots["helper_llm"].provider_id == claude_ids[0]
 
 
@@ -343,7 +343,7 @@ async def test_set_slot_helper_still_accepts_openai_provider():
     _, new_ids = await svc.add_provider(
         user_id="u1", card_type="openai", api_key="sk-x",
     )
-    config = await svc.set_slot("u1", "helper_llm", new_ids[0], "gpt-5.4-mini")
+    config = await svc.set_slot("u1", "helper_llm", new_ids[0], "gpt-5.4-mini", actor_is_staff=None)
     assert config.slots["helper_llm"].provider_id == new_ids[0]
 
 
@@ -359,8 +359,8 @@ async def test_resolver_builds_anthropic_helper_config():
         user_id="u1", card_type="anthropic", api_key="sk-ant-x",
     )
     pid = new_ids[0]
-    await svc.set_slot("u1", "agent", pid, "claude-opus-4-8")
-    await svc.set_slot("u1", "helper_llm", pid, "claude-haiku-4-5")
+    await svc.set_slot("u1", "agent", pid, "claude-opus-4-8", actor_is_staff=None)
+    await svc.set_slot("u1", "helper_llm", pid, "claude-haiku-4-5", actor_is_staff=None)
 
     cfg = await resolve_user_runtime_llm_configs("u1", db)
 
@@ -381,8 +381,8 @@ async def test_resolver_keeps_openai_helper_path_unchanged():
     _, oai_ids = await svc.add_provider(
         user_id="u1", card_type="openai", api_key="sk-oai",
     )
-    await svc.set_slot("u1", "agent", anth_ids[0], "claude-opus-4-8")
-    await svc.set_slot("u1", "helper_llm", oai_ids[0], "gpt-5.4-mini")
+    await svc.set_slot("u1", "agent", anth_ids[0], "claude-opus-4-8", actor_is_staff=None)
+    await svc.set_slot("u1", "helper_llm", oai_ids[0], "gpt-5.4-mini", actor_is_staff=None)
 
     cfg = await resolve_user_runtime_llm_configs("u1", db)
 
@@ -606,6 +606,7 @@ async def test_resolver_threads_reasoning_params_into_codex():
     await svc.set_slot(
         "u1", "agent", pid, "gpt-5.5",
         thinking="on", reasoning_effort="high",
+        actor_is_staff=None,
     )
 
     cfg = await resolve_user_runtime_llm_configs("u1", db)
@@ -625,6 +626,7 @@ async def test_resolver_threads_reasoning_params_into_claude():
     await svc.set_slot(
         "u1", "agent", pid, "claude-opus-4-8",
         thinking="off", reasoning_effort="max",
+        actor_is_staff=None,
     )
 
     cfg = await resolve_user_runtime_llm_configs("u1", db)

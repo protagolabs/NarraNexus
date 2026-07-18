@@ -18,6 +18,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowRight, CheckCircle2, ExternalLink, KeyRound, Loader2 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
 import { PaperCard, FormField, TextInput } from '@/components/nm';
@@ -85,6 +86,7 @@ interface OneKeyOnboardProps {
 }
 
 export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
+  const { t } = useTranslation();
   const [providerType, setProviderType] = useState<OnboardProviderType>('anthropic');
   const [apiKey, setApiKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -283,7 +285,9 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
             />
             <div>
               <div className="font-medium">
-                {done.activated ? 'You’re all set' : 'Key saved'}
+                {done.activated
+                  ? 'You’re all set'
+                  : t('settings.provider.oneKeySaved', 'Key saved')}
               </div>
               {done.activated ? (
                 <div className="text-xs mt-0.5" style={{ color: 'var(--nm-ink70)' }}>
@@ -293,9 +297,10 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
                 </div>
               ) : (
                 <div className="text-xs mt-0.5" style={{ color: 'var(--nm-ink70)' }}>
-                  The cloud version keeps running on your NetMind account — this
-                  key wasn&rsquo;t activated here. To run models on your own keys,
-                  use the local desktop version.
+                  {t(
+                    'settings.provider.oneKeyRegisterOnly',
+                    "The cloud version keeps running on your NetMind account — this key wasn't activated here. To run models on your own keys, use the local desktop version.",
+                  )}
                 </div>
               )}
               {done.keyCheck.startsWith('unverified') && (

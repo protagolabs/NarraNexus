@@ -776,6 +776,8 @@
       "analyticsDesc": "允许 NarraNexus 收集匿名使用数据以改进产品。绝不收集任何对话内容。"
     },
     "provider": {
+      "oneKeySaved": "Key 已保存",
+      "oneKeyRegisterOnly": "云端版本将继续使用你的 NetMind 账户运行——这把 key 未在此激活。想用自己的 key 运行模型，请使用本地桌面版。",
       "presetNetmindDesc": "一个密钥同时覆盖 Anthropic 和 OpenAI 端点",
       "presetProxyDesc": "代理官方 Claude 和 OpenAI API",
       "slotAgentDesc": "主对话（Anthropic）",

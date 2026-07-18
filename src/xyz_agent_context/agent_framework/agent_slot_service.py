@@ -72,7 +72,8 @@ class AgentSlotService:
         thinking: str = "",
         reasoning_effort: str = "",
         agent_framework: Optional[str] = None,
-        actor_is_staff: Optional[bool] = None,
+        *,
+        actor_is_staff: Optional[bool],
     ) -> dict:
         """Upsert a per-agent override for ``slot_name``.
 
@@ -84,10 +85,12 @@ class AgentSlotService:
         framework being pinned; if omitted it defaults to the owner's current
         framework. Validation reuses ``validate_slot_binding``.
 
-        ``actor_is_staff``: the caller's role for the cloud netmind-only
-        policy (see cloud_policy) — a non-staff cloud caller may only bind
-        NetMind-source providers and may not pin a framework that differs
-        from the owner default. ``None`` = trusted internal caller. Raises
+        ``actor_is_staff`` (required keyword): the caller's role for the
+        cloud netmind-only policy (see cloud_policy) — a non-staff cloud
+        caller may only bind NetMind-source providers and may not pin a
+        framework that differs from the owner default. A trusted internal
+        caller must write ``actor_is_staff=None`` EXPLICITLY (deliberately
+        no default — a bypass has to be visible at the call site). Raises
         ``CloudPolicyViolation`` (→ 403 at the route) on a violation.
         """
         if slot_name not in [s.value for s in SlotName]:

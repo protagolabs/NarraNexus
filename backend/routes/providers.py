@@ -315,7 +315,13 @@ async def add_provider(req: AddProviderRequest, request: Request):
                         match_pid = pid
                         break
                 if match_pid:
-                    config = await service.set_slot(uid, slot_name, match_pid, slot_def.model)
+                    # Real role, not a bypass: this loop only runs when the
+                    # policy is inactive (guard above), and if that guard ever
+                    # moves, the service still enforces — defense in depth.
+                    config = await service.set_slot(
+                        uid, slot_name, match_pid, slot_def.model,
+                        actor_is_staff=_is_staff(request),
+                    )
 
         # Hot-reload for current process (local mode)
         try:

@@ -777,6 +777,8 @@
       "analyticsDesc": "Allow NarraNexus to collect anonymous usage data to improve the product. No conversation content is ever collected."
     },
     "provider": {
+      "oneKeySaved": "Key saved",
+      "oneKeyRegisterOnly": "The cloud version keeps running on your NetMind account — this key wasn't activated here. To run models on your own keys, use the local desktop version.",
       "presetNetmindDesc": "One key covers both Anthropic & OpenAI endpoints",
       "presetProxyDesc": "Proxies official Claude & OpenAI APIs",
       "slotAgentDesc": "Main dialogue (Anthropic)",

@@ -444,7 +444,9 @@ async def _clone_provider_setup(db, *, src_user_id: str, dst_user_id: str) -> No
 
     pid_remap: dict[str, str] = {}
     for prov in src_providers:
-        old_pid = prov.get("provider_id")
+        # str-normalized on BOTH sides (write here, read in the slot loop
+        # below) so the remap lookup never misses on a type mismatch.
+        old_pid = str(prov.get("provider_id") or "")
         if prov.get("name") in existing_dst_provider_names:
             continue
         new_pid = f"prov_{secrets.token_hex(4)}"

@@ -73,8 +73,11 @@ def ensure_slot_provider_allowed(
 
     ``actor_is_staff=None`` means a trusted internal caller (onboard,
     OAuth auto-bind, provisioner) whose policy decision was already made
-    upstream — no check. ``prov=None`` (row not found) also passes: the
-    writer owns its own not-found error.
+    upstream — no check. Both slot writers take ``actor_is_staff`` as a
+    REQUIRED keyword, so ``None`` is always an explicit, reviewable choice
+    at the call site — a new caller cannot bypass the policy by simply
+    forgetting the parameter. ``prov=None`` (row not found) also passes:
+    the writer owns its own not-found error.
     """
     if actor_is_staff is None or prov is None:
         return

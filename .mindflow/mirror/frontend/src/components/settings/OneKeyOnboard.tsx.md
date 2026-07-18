@@ -3,6 +3,12 @@ code_file: frontend/src/components/settings/OneKeyOnboard.tsx
 last_verified: 2026-07-17
 stub: false
 ---
+## 2026-07-18 (PR review) — register-only 文案接 i18n
+
+register-only 分支的标题/正文改走 `settings.provider.oneKeySaved` /
+`oneKeyRegisterOnly`（en/zh 已补，本文件首次引入 useTranslation）——这是面向
+云端用户的策略解释，不该只有英文。其余文案维持文件原有的硬编码英文风格。
+
 ## 2026-07-17 — 成功面板区分 activated / register-only
 
 onboard 响应新增 `activated`（见 [[user_provider_service]]）：云端非 staff 时
