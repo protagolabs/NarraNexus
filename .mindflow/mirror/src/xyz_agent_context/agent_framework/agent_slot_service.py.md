@@ -6,8 +6,10 @@ stub: false
 
 ## 2026-07-18 — `actor_is_staff` 参数：netmind-only + 框架钉选双门禁
 
-`set_agent_slot(..., actor_is_staff: Optional[bool] = None)`（None = 受信
-内部调用方，不检查）。两条 [[cloud_policy]] 规则在此强制，均抛
+`set_agent_slot(..., *, actor_is_staff: Optional[bool])`——**keyword-only
+必填，刻意无默认值**（静默 bypass 正是 manyfold 缺口的成因；漏传参数 =
+`TypeError`，不是悄悄放行）。`None`（**调用点必须显式写出**）= 受信内部
+调用方，不检查。两条 [[cloud_policy]] 规则在此强制，均抛
 `CloudPolicyViolation`（路由映射 403）：
 
 1. **provider 来源**：prov 加载后 `ensure_slot_provider_allowed`——云端非

@@ -6,13 +6,15 @@ stub: false
 
 ## 2026-07-18 — set_slot 新增 `actor_is_staff` 参数（云端 netmind-only 下沉）
 
-`set_slot(..., actor_is_staff: Optional[bool] = None)`：prov 行加载后调
-[[cloud_policy]] 的 `ensure_slot_provider_allowed`，违规抛
-`CloudPolicyViolation`（路由映射 403）。`None`（默认）= 受信内部调用方
-（onboard 的槽位绑定、OAuth 卡自动补槽、provisioner）不检查——它们的策略
-决定在上游：云端非 staff 的 onboard 根本走不到 set_slot（activate=False），
-OAuth 添加在路由层就已 staff-only。此前该检查在路由层做，多一次 prov 查询
-且与 per-agent 写入器不共真源（review 修复）。
+`set_slot(..., *, actor_is_staff: Optional[bool])`——**keyword-only 必填，
+刻意无默认值**：静默 bypass 正是 manyfold 缺口的成因，新调用方漏传参数会
+直接 `TypeError` 而不是悄悄绕过策略。prov 行加载后调 [[cloud_policy]] 的
+`ensure_slot_provider_allowed`，违规抛 `CloudPolicyViolation`（路由映射
+403）。`None`（**调用点必须显式写出**）= 受信内部调用方（onboard 的槽位
+绑定、OAuth 卡自动补槽、provisioner）不检查——它们的策略决定在上游：云端
+非 staff 的 onboard 根本走不到 set_slot（activate=False），OAuth 添加在
+路由层就已 staff-only。此前该检查在路由层做，多一次 prov 查询且与
+per-agent 写入器不共真源（review 修复；必填化为同日二次 review 加固）。
 
 ## 2026-07-17 — onboard meta 增加 `activated` 布尔
 
