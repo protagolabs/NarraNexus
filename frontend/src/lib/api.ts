@@ -1049,6 +1049,10 @@ class ApiClient {
     /** "ok" | "unverified (<reason>)" — live key probe result. A
      * definitively bad key never reaches success (400 instead). */
     key_check?: string;
+    /** False = register-only: the key was saved but framework/slots were NOT
+     * rewired (cloud non-staff — slots stay on NetMind). The UI must not
+     * claim "you're now running on <model>" in that case. */
+    activated?: boolean;
     /** Set when the user already has a provider of this (aggregator) type.
      * The UI confirms and re-sends with replace=true to rotate the key. */
     needs_replace?: boolean;

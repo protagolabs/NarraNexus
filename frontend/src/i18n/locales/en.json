@@ -777,6 +777,8 @@
       "analyticsDesc": "Allow NarraNexus to collect anonymous usage data to improve the product. No conversation content is ever collected."
     },
     "provider": {
+      "oneKeySaved": "Key saved",
+      "oneKeyRegisterOnly": "The cloud version keeps running on your NetMind account — this key wasn't activated here. To run models on your own keys, use the local desktop version.",
       "presetNetmindDesc": "One key covers both Anthropic & OpenAI endpoints",
       "presetProxyDesc": "Proxies official Claude & OpenAI APIs",
       "slotAgentDesc": "Main dialogue (Anthropic)",
@@ -1219,6 +1221,12 @@
         "label": "Manage agents · batch",
         "hint": "Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them.",
         "openButton": "Open batch manager…"
+      },
+      "modelDefaults": {
+        "cloudNetmindOnlyNote": "The cloud version runs on your NetMind account — models from your own API keys are not available here.",
+        "cloudNetmindOnlyLink": "Download the local desktop version to use your own keys →",
+        "cloudFrameworkLocked": "Switching the agent framework is available in the local desktop version only.",
+        "cloudFrameworkLockedTitle": "Desktop version only"
       },
       "updates": {
         "label": "App updates",
