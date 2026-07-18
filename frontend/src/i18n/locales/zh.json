@@ -1219,6 +1219,12 @@
         "hint": "批量选择智能体进行删除，或批量从团队中添加/移除。导入了不想保留的捆绑包后很有用——按“来自捆绑包”筛选即可找到它们。",
         "openButton": "打开批量管理器…"
       },
+      "modelDefaults": {
+        "cloudNetmindOnlyNote": "当前云端版本使用你的 NetMind 账户运行——这里不能使用你自己 API key 的模型。",
+        "cloudNetmindOnlyLink": "想体验请下载本地桌面版 →",
+        "cloudFrameworkLocked": "切换 agent 框架仅本地桌面版可用。",
+        "cloudFrameworkLockedTitle": "仅本地桌面版可用"
+      },
       "updates": {
         "label": "应用更新",
         "hint": "检查并安装最新的 NarraNexus 桌面版本。更新经过签名、在后台下载，并在重启时应用。",

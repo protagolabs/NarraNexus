@@ -770,3 +770,24 @@ def test_inference_base_override_only_applies_to_netmind():
     }
     assert "netmind" not in rows["openai"]["base_url"]
     assert rows["openai"]["base_url"] == "https://api.yunwuai.cloud/v1"
+
+
+@pytest.mark.asyncio
+async def test_onboard_meta_reports_activated_flag():
+    """meta["activated"] tells the UI whether slots/framework were wired
+    (True) or the key was register-only (False — e.g. cloud non-staff,
+    where slots stay on NetMind)."""
+    db = _FakeDB()
+    svc = UserProviderService(db)
+
+    _, _, meta = await svc.onboard_one_key("u1", "sk-ant-abc123")
+    assert meta["activated"] is True
+
+    db2 = _FakeDB()
+    svc2 = UserProviderService(db2)
+    config, new_ids, meta2 = await svc2.onboard_one_key(
+        "u1", "sk-ant-def456", activate=False
+    )
+    assert meta2["activated"] is False
+    assert new_ids  # the provider itself WAS registered
+    assert "agent" not in config.slots  # ...but nothing was bound

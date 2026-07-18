@@ -90,11 +90,15 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   // Success summary from the onboard response; cleared on next input.
+  // activated=false = register-only (cloud non-staff): the key was saved but
+  // framework/slots stay on NetMind, so the panel must not claim "you're now
+  // running on <model>".
   const [done, setDone] = useState<{
     agentModel: string;
     helperModel: string;
     framework: string;
     keyCheck: string;
+    activated: boolean;
   } | null>(null);
 
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -115,6 +119,7 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
       helperModel: res.helper_model ?? '',
       framework: res.agent_framework ?? '',
       keyCheck: res.key_check ?? '',
+      activated: res.activated !== false,
     });
     onComplete();
   };
@@ -277,12 +282,22 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
               style={{ color: 'var(--color-success, #16a34a)' }}
             />
             <div>
-              <div className="font-medium">You&rsquo;re all set</div>
-              <div className="text-xs mt-0.5" style={{ color: 'var(--nm-ink70)' }}>
-                Agent: {done.agentModel}
-                {done.framework ? ` (${done.framework === 'codex_cli' ? 'Codex CLI' : 'Claude Code'})` : ''}
-                {' · '}Helper: {done.helperModel}
+              <div className="font-medium">
+                {done.activated ? 'You’re all set' : 'Key saved'}
               </div>
+              {done.activated ? (
+                <div className="text-xs mt-0.5" style={{ color: 'var(--nm-ink70)' }}>
+                  Agent: {done.agentModel}
+                  {done.framework ? ` (${done.framework === 'codex_cli' ? 'Codex CLI' : 'Claude Code'})` : ''}
+                  {' · '}Helper: {done.helperModel}
+                </div>
+              ) : (
+                <div className="text-xs mt-0.5" style={{ color: 'var(--nm-ink70)' }}>
+                  The cloud version keeps running on your NetMind account — this
+                  key wasn&rsquo;t activated here. To run models on your own keys,
+                  use the local desktop version.
+                </div>
+              )}
               {done.keyCheck.startsWith('unverified') && (
                 <div className="text-xs mt-1" style={{ color: 'var(--color-warning, #b45309)' }}>
                   Key saved but could not be verified ({done.keyCheck.replace(/^unverified \(|\)$/g, '')}) —

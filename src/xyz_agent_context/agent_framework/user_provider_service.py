@@ -22,6 +22,9 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import ValidationError
 
+from xyz_agent_context.agent_framework.cloud_policy import (
+    ensure_slot_provider_allowed,
+)
 from xyz_agent_context.schema.provider_schema import (
     AuthType,
     LLMConfig,
@@ -467,11 +470,18 @@ class UserProviderService:
         model: str,
         thinking: str = "",
         reasoning_effort: str = "",
+        actor_is_staff: Optional[bool] = None,
     ) -> LLMConfig:
         """Assign a provider + model (+ neutral reasoning params) to a slot.
 
         PUT semantics: every call writes the FULL param set. Omitted params
         reset to "" (auto) — the UI always sends the current dropdown values.
+
+        ``actor_is_staff``: the caller's role for the cloud netmind-only
+        policy (see cloud_policy). Routes pass the real role; internal
+        callers (onboard, OAuth auto-bind) leave the default ``None`` =
+        policy already decided upstream. Raises ``CloudPolicyViolation``
+        (→ 403 at the route) on a forbidden binding.
         """
         # Validate slot name
         if slot_name not in [s.value for s in SlotName]:
@@ -497,6 +507,9 @@ class UserProviderService:
         prov = await self.db.get_one("user_providers", {"user_id": user_id, "provider_id": provider_id})
         if not prov:
             raise ValueError(f"Provider {provider_id} not found for user {user_id}")
+
+        # Cloud netmind-only policy (single source of truth: cloud_policy).
+        ensure_slot_provider_allowed(prov, actor_is_staff)
 
         # Validate the provider↔slot binding (protocol / codex-source /
         # helper-OAuth). The agent slot is framework-dependent, so resolve the
@@ -672,6 +685,9 @@ class UserProviderService:
             "agent_model": agent_model,
             "helper_model": helper_model,
             "key_check": key_check,
+            # False = register-only (framework/slots untouched) — the UI must
+            # not claim "you're now running on <model>" in that case.
+            "activated": activate,
         }
         return config, new_ids, meta
 

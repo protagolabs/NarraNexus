@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-07-10
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — set_slot 新增 `actor_is_staff` 参数（云端 netmind-only 下沉）
+
+`set_slot(..., actor_is_staff: Optional[bool] = None)`：prov 行加载后调
+[[cloud_policy]] 的 `ensure_slot_provider_allowed`，违规抛
+`CloudPolicyViolation`（路由映射 403）。`None`（默认）= 受信内部调用方
+（onboard 的槽位绑定、OAuth 卡自动补槽、provisioner）不检查——它们的策略
+决定在上游：云端非 staff 的 onboard 根本走不到 set_slot（activate=False），
+OAuth 添加在路由层就已 staff-only。此前该检查在路由层做，多一次 prov 查询
+且与 per-agent 写入器不共真源（review 修复）。
+
+## 2026-07-17 — onboard meta 增加 `activated` 布尔
+
+`onboard_one_key` 的返回 meta 多一个 `"activated": activate`：False =
+register-only（key 已存、framework/槽位未动），UI 据此**不得**宣称"你已运行在
+X 模型上"（OneKeyOnboard 的成功面板改显示 "Key saved" + 指向本地版）。动因：
+云端 netmind-only 策略下 /onboard 路由对非 staff 传 activate=False（见
+[[providers]] 2026-07-17），旧 meta 仍带 agent_model 等字段会误导前端。
+needs_replace 早退分支不带它（UI 先分支 needs_replace）。
 
 ## 2026-07-10 — `onboard_one_key` 新增 `activate` 参数（register/activate 分离）
 

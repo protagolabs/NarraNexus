@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-13
+last_verified: 2026-07-17
 stub: false
 ---
+
+## 2026-07-17 — onboard 返回类型加 `activated?: boolean`
+
+对应后端 onboard meta 的新字段（云端 netmind-only 下非 staff 的 onboard 是
+register-only，activated=false）。仅类型声明，运行时无变化；消费方
+[[OneKeyOnboard]]。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 

@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/settings/OneKeyOnboard.tsx
-last_verified: 2026-07-07
+last_verified: 2026-07-17
 stub: false
 ---
+## 2026-07-17 — 成功面板区分 activated / register-only
+
+onboard 响应新增 `activated`（见 [[user_provider_service]]）：云端非 staff 时
+后端只存 key 不动槽位。done state 增加 `activated`（`res.activated !== false`，
+旧响应无字段视为已激活）；`activated=false` 时成功面板标题变 "Key saved"，
+正文说明云端继续跑在 NetMind 账户上、想用自有 key 请用本地桌面版——**不再**
+显示 "Agent: X · Helper: Y"（那些字段描述的是未发生的绑定）。文案硬编码英文
+（本文件无 i18n，保持文件风格）。
+
 ## 2026-06-10 (4th pass) — success panel + key verification feedback
 
 The card now shows an explicit success panel (role=status) built from
