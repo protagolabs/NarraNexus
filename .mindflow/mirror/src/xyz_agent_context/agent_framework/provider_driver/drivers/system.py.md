@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/drivers/system.py
-last_verified: 2026-06-10
+last_verified: 2026-07-18
 stub: false
 ---
+## 2026-07-18 — 模块 docstring 门禁描述更新（行为不变）
+
+门禁第 2 条从"用户已 opt-in（prefer_system_override）"改写为"quota 行存在
+即授予"——该列自 2026-07-18 起仅是通知闩锁（[[provider_resolver]]），本
+驱动的注册/解析逻辑本就不读它，纯文档修正。
+
 ## 2026-06-10 — build_anthropic_helper_config
 
 Implements the new helper-slot builder for anthropic-protocol rows
