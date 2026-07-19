@@ -9,10 +9,10 @@ every cloud user a starter budget. It's gated by:
 
 1. ``is_cloud_mode()`` — local DMG / `bash run.sh` never registers
    this driver and never reads its row.
-2. ``user_quotas.prefer_system_override`` — the user has opted in to
-   the free tier. (During the migration window, the resolver still
-   checks this flag in addition to the slot binding so the legacy
-   semantic survives.)
+2. a ``user_quotas`` row exists — the row IS the free-tier grant.
+   (Free-tier-first is platform behavior since 2026-07-18; the old
+   ``prefer_system_override`` opt-in column survives only as the
+   exhaustion-notice latch, see provider_resolver.)
 
 When a SystemDriver-backed slot completes an LLM call,
 :meth:`on_call_completed` debits the user's ``user_quotas`` row via

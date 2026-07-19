@@ -1468,13 +1468,6 @@ class ApiClient {
     return this.request<QuotaMeResponse>('/api/quota/me');
   }
 
-  async setQuotaPreference(preferSystemOverride: boolean): Promise<QuotaMeResponse> {
-    return this.request<QuotaMeResponse>('/api/quota/me/preference', {
-      method: 'PATCH',
-      body: JSON.stringify({ prefer_system_override: preferSystemOverride }),
-    });
-  }
-
   // =========================================================================
   // NetMind billing / subscription (Phase 1)
   // The user's NetMind loginToken lives in configStore.netmindToken and is

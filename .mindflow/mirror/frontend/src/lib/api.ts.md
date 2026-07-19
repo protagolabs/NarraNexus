@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-17
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — 删 setQuotaPreference
+
+免费额度偏好删除（后端 PATCH /api/quota/me/preference 端点同批移除）：
+`setQuotaPreference` 方法删除，mock（lib/mock/index.ts）里的 stub 一并删。
+quota 相关只剩 `getMyQuota`。
 
 ## 2026-07-17 — onboard 返回类型加 `activated?: boolean`
 

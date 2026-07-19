@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-07-09
+last_verified: 2026-07-18
 ---
+
+## 2026-07-18 — 免费额度优先成为平台行为（用户偏好删除，决策树无状态化）
+
+Owner 决策：用户不再能选择"用不用免费额度"。classify 的决策树从"读偏好分流"
+简化为纯状态判断：**有 quota 行且有余量 → SYSTEM_OK；耗尽 + 有自有 key →
+USER_OK；耗尽 + 无 key → QUOTA_EXCEEDED；无 quota 行 → 只走自有 key**。
+连带变化：
+
+- `prefer_system_override` 列**重定义为耗尽通知闩锁**（armed=1/fired=0）：
+  耗尽首跑 CAS 1→0 发一次"已切到你自己的 key"通知（#48 去重保留）；下次
+  有余量的运行 0→1 重新武装（`quota_svc.rearm_switch_notice`，仅 0→1 边沿
+  写库）。**补充额度后自动回到免费额度**——旧闩锁语义下要手动重开，现在不用。
+  **rearm 是 best-effort**（review 修复 2026-07-18）：它落在 SYSTEM_OK 成功
+  路径上，装饰性写入抛异常绝不能挡有余量的运行——try/except + warning，与
+  classify"不抛异常"契约及本文件其他 DB 调用的兜底模式一致；回归测试
+  `test_rearm_failure_never_blocks_a_budgeted_run`。rearm 故意非 CAS（幂等
+  无副作用；若将来挂副作用需先加 CAS，见 quota_service docstring）。
+- `FREE_TIER_EXHAUSTED` 判定 + `FreeTierExhaustedError`
+  （错误码 FREE_TIER_EXHAUSTED_DISABLE_TOGGLE）删除——#48 后本就是死分支，
+  文案还在指引用户关一个已不存在的开关。`NoProviderConfiguredError` 的
+  用户文案与 docstring 同步去开关化（review 二轮抓出："enable 'Use free
+  quota'"指向死路），现为"Add a provider in Settings to continue."。
+- "opt-out 必须被尊重"的旧不变量作废；"无 quota 行绝不隐式授予免费额度"
+  （无界负债守卫）**保留**。
 
 ## 2026-07-09 — resolve_and_set 串 cli_helper(订阅覆盖 helper)
 

@@ -441,10 +441,6 @@ export const mockApi = {
   async getMyQuota(): Promise<QuotaMeResponse> {
     return ok({ enabled: false });
   },
-  async setQuotaPreference(): Promise<QuotaMeResponse> {
-    return ok({ enabled: false });
-  },
-
   /* ─ Lark (stub) ─ */
   async getLarkCredential(): Promise<LarkCredentialResponse> {
     return ok({ success: true, data: null });
