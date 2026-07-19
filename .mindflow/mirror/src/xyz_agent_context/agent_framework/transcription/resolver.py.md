@@ -4,6 +4,14 @@ last_verified: 2026-07-18
 stub: false
 ---
 
+## 2026-07-18 (review 二轮加固) — 门禁叠加预算检查
+
+`_user_has_free_tier` 从"行存在即 True"改为"行存在 **且** `qs.check()` 有
+余量"。动因：STT 走 system-default NetMind 凭证时**不从 user_quotas 扣费**，
+旧实现下耗尽账号可无限烧运营方 STT key，而同一用户的 LLM 路径已被
+QUOTA_EXCEEDED 挡住——两条路必须共享同一预算裁决。测试
+`test_exhausted_quota_gets_no_system_default` 钉住。
+
 ## 2026-07-18 — Tier 5 门禁从"偏好开关"改为"是否授予了免费额度"
 
 `_user_opted_in_to_free_tier` 改名 `_user_has_free_tier`，判断从

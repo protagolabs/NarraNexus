@@ -22,7 +22,9 @@ USER_OK；耗尽 + 无 key → QUOTA_EXCEEDED；无 quota 行 → 只走自有 k
   无副作用；若将来挂副作用需先加 CAS，见 quota_service docstring）。
 - `FREE_TIER_EXHAUSTED` 判定 + `FreeTierExhaustedError`
   （错误码 FREE_TIER_EXHAUSTED_DISABLE_TOGGLE）删除——#48 后本就是死分支，
-  文案还在指引用户关一个已不存在的开关。
+  文案还在指引用户关一个已不存在的开关。`NoProviderConfiguredError` 的
+  用户文案与 docstring 同步去开关化（review 二轮抓出："enable 'Use free
+  quota'"指向死路），现为"Add a provider in Settings to continue."。
 - "opt-out 必须被尊重"的旧不变量作废；"无 quota 行绝不隐式授予免费额度"
   （无界负债守卫）**保留**。
 

@@ -11,7 +11,9 @@ stub: false
 耗尽 + 自有 key → user（一次性通知经闩锁去重）；耗尽无 key →
 SystemDefaultUnavailable；**无 quota 行** → 严格自有 key。行为变化在
 [[provider_resolver]]（本文件只是文档同步）。下文旧条目中按偏好分流的叙述
-自此为历史记录。
+自此为历史记录。review 二轮补扫：`LLMConfigNotConfigured` docstring 与
+resolve 处两条行内注释的"opted out / explicit choice / switch back to the
+free tier"措辞一并去开关化。
 
 ## 2026-07-09 — _ConfigHolder.cli_helper property(代理无回退兜底)
 

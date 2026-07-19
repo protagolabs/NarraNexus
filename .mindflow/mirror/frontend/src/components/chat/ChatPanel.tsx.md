@@ -9,7 +9,9 @@ stub: false
 后端 transcription 枚举改名的前端半边（[[service|transcription/service]]）：
 402-录音兜底分支设置的 reason 字符串、弹窗分支判断、以及文案——旧文案第二
 条"Re-enable 'Use free quota' in Settings → Quota"指向已删除的开关，整条
-删除，只留"加 OpenAI/NetMind key"一条路径。
+删除，只留"加 OpenAI/NetMind key"一条路径。review 二轮：删剩单项的 `<ul>`
+铺平成一句话；402 兜底分支的注释("opted out"/"toggle flipped")一并去
+开关化。
 
 ## 2026-07-15 — pass `actionReason` into MessageBubble props
 

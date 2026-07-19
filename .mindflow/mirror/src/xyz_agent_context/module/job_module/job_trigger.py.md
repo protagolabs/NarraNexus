@@ -120,10 +120,13 @@ Fix: `_user_can_run` now delegates to `provider_resolver.classify_provider_for_u
 (→ `ProviderResolver.classify` → `ProviderAvailability`) and returns
 `is_runnable(verdict)`. The resume gate, the HTTP path (`resolve`) and — by
 construction — the runtime now share ONE classifier, so they cannot drift again.
-For the regression case the verdict is `FREE_TIER_EXHAUSTED` → `is_runnable` is
-False → the job stays `PAUSED_NO_QUOTA` until the user tops up / configures a
-provider / disables the toggle. On any classifier error the gate is
-conservatively False (don't resume into an unknown state).
+For the regression case the verdict was `FREE_TIER_EXHAUSTED` → `is_runnable`
+False → the job stayed `PAUSED_NO_QUOTA` until the user acted. **(历史语义：
+该判定已于 2026-07-18 删除,同场景现判 USER_OK 直接恢复;护栏测试
+test_user_can_run_uses_classifier.py 曾因引用已删枚举被 except 吞掉而空转
+——PR #121 review 抓出,已改写为钉"委托本身"+ 各现存判定,elricwan 场景
+改断言 runnable。)** On any classifier error the gate is conservatively
+False (don't resume into an unknown state).
 
 铁律 #15 still honoured: opted-out own-provider users pass via `USER_OK`; the
 platform never overrides the user's choice — it only stops resuming a job into a

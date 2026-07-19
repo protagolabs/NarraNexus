@@ -734,13 +734,13 @@ class LLMResolverError(RuntimeError):
 
 
 class LLMConfigNotConfigured(LLMResolverError):
-    """Raised when a user has opted out of the system-default free tier
-    and their own provider/slot configuration is missing or broken.
+    """Raised when a user has no free-tier grant (no quota row) and their
+    own provider/slot configuration is missing or broken.
 
-    No silent fallback to the system free tier here — the user made an
-    explicit choice in Settings, and we honour it. The error message
-    tells them exactly what to fix (add provider, assign slot) or how
-    to switch back to the free tier.
+    No silent fallback to the system free tier here — the quota row IS
+    the grant (implicit-grant liability guard; the old opt-out preference
+    was removed 2026-07-18). The error message tells them exactly what to
+    fix (add provider, assign slot).
     """
 
 
@@ -903,11 +903,11 @@ async def get_user_runtime_llm_configs(
     try:
         resolved = await resolver.resolve(user_id, agent_id=agent_id)
     except NoProviderConfiguredError as e:
-        # Opted out but own config missing/broken — same UX the strict
-        # own-config path raised before.
+        # No free-tier grant + own config missing/broken — same UX the
+        # strict own-config path raised before.
         raise LLMConfigNotConfigured(str(e)) from e
     except ProviderResolverError as e:
-        # Opted in, free tier gone, no own provider (QuotaExceededError), plus
+        # Free tier gone, no own provider (QuotaExceededError), plus
         # any other gate. Keep the SystemDefaultUnavailable *type* so triggers
         # that string-match the class name (job_trigger, lark_trigger) are
         # unaffected by the convergence.

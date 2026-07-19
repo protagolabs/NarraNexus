@@ -205,17 +205,20 @@ async def resolve_candidates(user_id: Optional[str]) -> List[TranscriptionCreden
 
 async def _user_has_free_tier(user_id: str) -> bool:
     """True iff this user was granted a cloud free tier (a quota row
-    exists) AND the feature is enabled at the deployment level.
+    exists), the grant still has budget, AND the feature is enabled at
+    the deployment level.
 
     Defaults to ``False`` on any error path — grant by exception is the
     unsafe direction for a feature that costs the operator money.
 
     NOTE: deliberately does NOT read ``prefer_system_override`` — since
     2026-07-18 that column is only the exhaustion-notice dedup latch
-    (see provider_resolver), not a user preference. Gating on it here
-    would wrongly deny STT to users mid-exhaustion-cycle after a
-    replenish. The no-row guard is the real boundary: no grant, no
-    operator-billed routing.
+    (see provider_resolver), not a user preference. The two REAL
+    boundaries are the row (no grant → no operator-billed routing) and
+    the budget (review 2026-07-18: STT usage doesn't deduct from
+    user_quotas, so without the ``check`` an exhausted account could
+    burn the operator's NetMind STT key indefinitely while its LLM path
+    is already blocked — the two paths must share one budget verdict).
     """
     try:
         from xyz_agent_context.agent_framework.quota_service import QuotaService
@@ -235,7 +238,9 @@ async def _user_has_free_tier(user_id: str) -> bool:
             return False
 
         quota = await qs.get(user_id)
-        return quota is not None
+        if quota is None:
+            return False
+        return await qs.check(user_id)
     except Exception as e:
         logger.debug(f"transcription resolver: free-tier grant check failed: {e}")
         return False

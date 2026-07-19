@@ -280,12 +280,11 @@ AUTH_EXEMPT_PREFIXES = (
 # Prefixes that STILL require JWT auth but must SKIP the provider_resolver
 # quota gate. These routes are pure configuration / self-service CRUD and
 # do not spend quota. Without this list, a user whose free tier is
-# exhausted cannot add a provider or toggle the "Use free quota" switch
-# off — the middleware 402s them before they ever reach the handler,
-# creating a dead-end the user cannot escape.
+# exhausted cannot add or fix a provider — the middleware 402s them before
+# they ever reach the handler, creating a dead-end the user cannot escape.
 QUOTA_BYPASS_PREFIXES = (
     "/api/providers",  # add / remove / edit provider, set slot model
-    "/api/quota",      # read own quota, flip prefer_system_override
+    "/api/quota",      # read own quota (GET /me)
     "/api/admin",      # staff operations (grant, init)
     "/api/auth",       # login / register / me / logout
     # `/api/transcription/availability` is a pure capability probe — it

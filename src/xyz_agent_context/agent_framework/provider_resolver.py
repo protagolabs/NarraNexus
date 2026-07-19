@@ -129,16 +129,16 @@ class QuotaExceededError(ProviderResolverError):
 
 
 class NoProviderConfiguredError(ProviderResolverError):
-    """Opted out of the free tier but own provider is missing or incomplete.
-    No silent fallback to the free tier — the user's opt-out must stand."""
+    """No free tier was ever granted (no quota row) and the own provider is
+    missing or incomplete. No silent fallback to the free tier — the row IS
+    the grant (implicit-grant liability guard)."""
 
     error_code = "NO_PROVIDER_CONFIGURED"
 
     def __init__(self, user_id: str):
         super().__init__(
             user_id,
-            "No provider configured. Add a provider in Settings, or enable "
-            "'Use free quota' to use the free tier.",
+            "No provider configured. Add a provider in Settings to continue.",
         )
 
 

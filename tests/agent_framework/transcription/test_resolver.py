@@ -96,6 +96,7 @@ def _patch_free_tier(
     *,
     system_enabled: bool = True,
     quota_pref: bool | None = True,
+    has_budget: bool = True,
 ):
     """Stub the free-tier grant gate.
 
@@ -103,7 +104,8 @@ def _patch_free_tier(
     answers True (cloud-mode + SYSTEM_DEFAULT_LLM_ENABLED). ``quota_pref``
     sets the row's ``prefer_system_override`` (the exhaustion-notice latch —
     must NOT affect routing since 2026-07-18); ``None`` means "no quota row
-    for this user" (= no grant, the only thing that denies the system tier).
+    for this user". The gate denies the system tier on no-row OR no-budget
+    (``has_budget`` — STT shares the LLM path's budget verdict).
     """
     fake_sys = MagicMock()
     fake_sys.is_enabled.return_value = system_enabled
@@ -115,6 +117,7 @@ def _patch_free_tier(
     fake_quota_row = None if quota_pref is None else MagicMock(prefer_system_override=quota_pref)
     fake_qs = MagicMock()
     fake_qs.get = AsyncMock(return_value=fake_quota_row)
+    fake_qs.check = AsyncMock(return_value=has_budget)
     monkeypatch.setattr(
         "xyz_agent_context.agent_framework.quota_service.QuotaService.default",
         classmethod(lambda cls: fake_qs),
@@ -417,6 +420,25 @@ async def test_fired_latch_own_providers_rank_first(monkeypatch):
     assert creds[0].api_key == "user-openai"
     assert creds[0].is_system_free_tier is False
     assert creds[1].is_system_free_tier is True
+
+
+@pytest.mark.asyncio
+async def test_exhausted_quota_gets_no_system_default(monkeypatch):
+    """Row exists but the budget is gone → NO operator-billed STT. STT usage
+    doesn't deduct from user_quotas, so without this gate an exhausted
+    account could burn the operator's NetMind STT key indefinitely while
+    its LLM path is already blocked (review 2026-07-18) — the two paths
+    must share one budget verdict."""
+    _patch_user_providers(monkeypatch)
+    _patch_local_mode(monkeypatch, is_cloud=True)
+    _patch_free_tier(monkeypatch, quota_pref=True, has_budget=False)
+    _patch_settings(
+        monkeypatch,
+        system_default_netmind_api_key="sys-netmind-key",
+        public_base_url="https://my-deploy.example.com",
+    )
+    creds = await R.resolve_candidates(user_id="u1")
+    assert creds == []
 
 
 @pytest.mark.asyncio
