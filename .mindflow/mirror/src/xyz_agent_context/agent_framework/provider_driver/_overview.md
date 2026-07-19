@@ -63,8 +63,10 @@ file path, system-pool quota deduction — lives inside the Driver.
   ``owner_user_id IS NULL`` so any user can opt in via slot binding.
 * Per-slot system override (mixing "agent on system, embedding on
   user") is naturally supported by the slot→card model but the
-  Settings UI hasn't shipped it yet; ``prefer_system_override`` is
-  still the legacy switch.
+  Settings UI hasn't shipped it. ``prefer_system_override`` is no
+  longer a switch at all — since 2026-07-18 it is only the
+  exhaustion-notice latch (see [[provider_resolver]]); free-tier-first
+  is platform behavior.
 * Sync-from-catalog (catalog evolves, append new models to user.models)
   is intentionally NOT auto-triggered by self-heal. It must remain
   user-initiated to respect deliberate deletions.

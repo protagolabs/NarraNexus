@@ -659,7 +659,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           const msg = String((e as Error)?.message ?? e);
           if (msg.includes('402') && (opts?.source === 'recording')) {
             setTranscriptionAvailable(false);
-            setTranscriptionReason('free_tier_opted_out');
+            setTranscriptionReason('free_tier_not_granted');
             setVoiceUnavailableDialogOpen(true);
           }
         } finally {
@@ -1366,14 +1366,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               <Mic className="w-4 h-4 text-[var(--text-secondary)]" />
             </div>
             <div className="flex-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-              {transcriptionReason === 'free_tier_opted_out' ? (
+              {transcriptionReason === 'free_tier_not_granted' ? (
                 <>
                   <p>
-                    Voice input is unavailable. You've turned off "Use free quota" and haven't configured your own transcription provider. Either path will enable it:
+                    Voice input is unavailable. Your account has no platform free tier and no transcription provider of its own. To enable it:
                   </p>
                   <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
                     <li>Add an OpenAI or NetMind API key in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span></li>
-                    <li>Re-enable "Use free quota" in <span className="font-mono text-[var(--text-primary)]">Settings → Quota</span></li>
                   </ul>
                 </>
               ) : transcriptionReason === 'none_openai_only' ? (

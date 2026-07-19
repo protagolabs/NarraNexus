@@ -827,23 +827,25 @@ async def get_user_llm_configs(
     Thin wrapper over :func:`get_user_runtime_llm_configs`, which routes the
     decision through the single ``ProviderResolver`` tree. Decision summary:
 
-      1. ``prefer_system_override = True`` + budget → system free tier
-         (tags ``provider_source="system"`` so cost_tracker deducts quota).
-      2. ``prefer_system_override = True`` + exhausted + complete own provider
-         → auto-switch to the user's own key (#48); the free-tier preference
-         is flipped off and a one-time notice is surfaced.
-      3. ``prefer_system_override = True`` + exhausted + no own provider →
+      1. free tier granted + budget → system free tier (tags
+         ``provider_source="system"`` so cost_tracker deducts quota).
+         Free-tier-first is platform behavior — the old prefer_system
+         toggle was removed 2026-07-18.
+      2. free tier exhausted + complete own provider → the user's own key
+         takes over immediately (#48); a one-time notice is surfaced
+         (deduped via the repurposed prefer_system_override latch).
+      3. free tier exhausted + no own provider →
          ``SystemDefaultUnavailable`` (add a provider / ask for more quota).
-      4. ``prefer_system_override = False`` (or no quota row) → strictly the
-         user's own providers; if misconfigured → ``LLMConfigNotConfigured``.
+      4. no quota row (no free tier granted) → strictly the user's own
+         providers; if misconfigured → ``LLMConfigNotConfigured``.
 
     QuotaService is lazily bootstrapped via ``_ensure_quota_service``, so every
     entry point (backend.main, job_trigger, bus_trigger, run_lark_trigger,
     standalone MCP runner) works without calling ``bootstrap_quota_subsystem``.
 
     Raises:
-        SystemDefaultUnavailable: opted in, free tier gone, no own provider.
-        LLMConfigNotConfigured: opted out but own config missing/incomplete.
+        SystemDefaultUnavailable: free tier gone, no own provider.
+        LLMConfigNotConfigured: no free tier, own config missing/incomplete.
     """
     cfg = await get_user_runtime_llm_configs(user_id, agent_id=agent_id)
     return cfg.claude, cfg.openai

@@ -1,7 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-07-16
+last_verified: 2026-07-18
 ---
+
+## 2026-07-18 — _user_can_run docstring 随偏好删除微调（行为不变）
+
+免费额度偏好删除（[[provider_resolver]]）后 `_user_can_run` 的 docstring 更新
+措辞——网关继续委托统一 classifier，行为零变化。注意下方 2026-06-01 条目是
+**历史事故记录**：其中 `prefer_system_override`（当年是用户偏好）与
+`FREE_TIER_EXHAUSTED`（判定已删）描述的是当时语义；现行判定里对应场景直接
+返回 USER_OK（耗尽 + 自有 key 自动切换，job 不再卡 PAUSED）。
 
 ## 2026-07-16 — 后台 job 在"自助类"失败上暂停 + paused_reason 分流恢复
 

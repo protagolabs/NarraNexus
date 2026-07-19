@@ -1,8 +1,47 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 (同日三改) — Pro 套餐额度"溢出水箱"拆分（Owner 设计）
+
+NetMind 的 `free_credit` 合并了充值 + **跨周期累积**的套餐赠额（dev 实测：
+subscription_credit 56.98 ≈ 3 期 × $19 − 用量；充值 $10 剩 9.93 也在
+free_credit 里，`balance.usd` 恒 0 另有他用）。Owner 的溢出模型让进度条在
+累积制下成立：
+
+- 本周期水箱 = `min(subscription_credit, grantPerCycle)` → 条（每期赠额到账
+  自动回 100%）；溢出 = 超出部分 → 并进余额 hero。
+- hero = `(free_credit − subscription_credit) + overflow`，i18n 标签
+  `ownBalance`（"你的余额（充值 + 往期套餐结余）"）。
+- **分母用 `proPlan.monthly_grant_usd`**（=19，upsell 卡同源）——**不能用**
+  `metrics.monthly_free_credit`（dev 返回 0.50 与真实 $19/期对不上，语义
+  存疑，见 types/api.ts 注释 + self_notebook todo）。
+- **Pro 顶替免费额度**：subSplit 激活时 freePct/freeTierExhausted 强制关闭，
+  套餐条占据免费额度条的位置（纯显示——后端仍先扣免费 token 池，用户看到
+  的只是"还没开始花钱"）。旧"本月赠送"行仅在无 subscription_credit 的旧
+  API 上保留（回退路径，hero 回退为合并值，绝不出负数）。
+- deriveRunway 健康度**继续用合并 free_credit**（= 总可花，upsell 时机最准）。
+
+测试 +5：满箱/半箱/0%（条保留 + "下周期刷新"注）/旧 API 回退/非 Pro 忽略。
+
+## 2026-07-18 (同日二改) — freePct 派生逻辑：耗尽 → null + freeTierExhausted
+
+免费额度是一次性发放无刷新（见 [[NetmindRunwayView]] 同日条目），耗尽后不再
+渲染 0% 条：`freePctRaw === 0` → `freeTierExhausted=true`、`freePct=null`；
+`showRunway` 增补 `|| freeTierExhausted`（否则无赠额的 Free 用户耗尽后整个
+runway 区消失，连说明行都没了）。ActionZone 的 `freeTierExhausted` prop 改用
+同一派生值（原来是 `freePct === 0`）。
+
+## 2026-07-18 — prefer 开关整体删除（免费额度优先=平台行为）
+
+`togglePrefer` handler、`preferBusy` state、`preferBusyRef` 同步守卫、
+`preferSystem/preferLocked` 派生值全部删除；`showRunway` 不再含
+`preferSystem !== null` 项；[[NetmindRunwayView]] 的四个开关 props 随之消失。
+api.setQuotaPreference（前端方法 + mock）同日删除（后端端点已移除）。旧条目
+里关于 prefer 开关/锁定规则/402 死循环的叙述自此为历史记录。测试删 4 个
+toggle 用例、加 1 个"runway 无 switch"用例。
 
 ## 2026-07-13 — 门禁改挂 per-user Power 信号(本地双模式)
 

@@ -292,9 +292,9 @@ QUOTA_BYPASS_PREFIXES = (
     # has no LLM cost, and the frontend uses it to decide whether the
     # mic button records on click or opens a "configure a provider"
     # dialog. Without this bypass, the very state we want to surface
-    # (user opted out of free tier without configuring their own
-    # provider) gets a 402 from the resolver instead of an actionable
-    # `{available: false, reason: "free_tier_opted_out"}` response.
+    # (user with no free-tier grant and no own transcription provider)
+    # gets a 402 from the resolver instead of an actionable
+    # `{available: false, reason: "free_tier_not_granted"}` response.
     "/api/transcription",
     # `/api/billing/*` proxies the user's NetMind subscription/balance. A
     # quota-exhausted user is EXACTLY who needs to reach the "upgrade to Pro"

@@ -108,7 +108,6 @@ export function NetmindAccountPanel() {
   const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
   const [rechargeError, setRechargeError] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false); // recent activity collapsed by default
-  const [preferBusy, setPreferBusy] = useState(false); // prefer toggle in flight
   // Module F: read-only connection status (backend auto-registers on login).
   const [netStatus, setNetStatus] = useState<NetmindStatus>('checking');
   const mounted = useRef(true);
@@ -119,7 +118,6 @@ export function NetmindAccountPanel() {
   const busyRef = useRef(false);
   const pollingRef = useRef(false);
   const rechargeRef = useRef(false); // synchronous double-submit guard
-  const preferBusyRef = useRef(false); // sync guard for the prefer toggle
   // Identifies the active top-up attempt. Bumping it invalidates any in-flight
   // poll loop (used to stop waiting / supersede) so a stale loop can never
   // overwrite the UI or block a fresh attempt.
@@ -303,32 +301,6 @@ export function NetmindAccountPanel() {
     };
   }, [isPowerUser, load, refreshNetStatus]);
 
-  // Toggle "free tier first" (formerly QuotaPanel prefer_system). The backend
-  // guards "OFF is always allowed" — turning free tier ON needs budget, OFF
-  // never does — so the RunwayView only disables the ON direction when exhausted.
-  // preferBusyRef is the synchronous double-click guard (same pattern as
-  // busyRef): two concurrent toggles could otherwise settle on whichever
-  // response lands last, opposite to the user's final intent.
-  const togglePrefer = useCallback(async () => {
-    if (preferBusyRef.current) return;
-    const cur =
-      quota && quota.enabled === true && quota.status !== 'uninitialized'
-        ? quota.prefer_system_override
-        : null;
-    if (cur === null) return;
-    preferBusyRef.current = true;
-    setPreferBusy(true);
-    try {
-      const next = await api.setQuotaPreference(!cur);
-      if (mounted.current) setQuota(next);
-    } catch {
-      // keep the previous state — the switch simply doesn't move
-    } finally {
-      preferBusyRef.current = false;
-      if (mounted.current) setPreferBusy(false);
-    }
-  }, [quota]);
-
   // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
   // success, reload so the balance + activity reflect the new credit. `gen`
   // tags this loop; if rechargeGenRef moves on (user stopped waiting or started
@@ -432,24 +404,66 @@ export function NetmindAccountPanel() {
   const runway = deriveRunway(quota, fee);
   const proPlan = plans?.find((p) => p.plan_id === 'pro') ?? null;
   const period = formatPeriod(proPlan?.prices?.[0]?.period, t('settings.netmind.perMonth', 'mo'));
-  const freePct = freeTierPctLeft(quota);
-  const preferSystem =
-    quota && quota.enabled === true && quota.status !== 'uninitialized'
-      ? quota.prefer_system_override
-      : null;
-  const preferLocked = quota?.enabled === true && quota.status === 'exhausted';
+  // ── Pro subscription-credit split (the "overflow tank" model) ────────────
+  // NetMind's free_credit merges recharge + accumulated subscription grants;
+  // subscription_credit lists the grant part separately (grants ACCUMULATE
+  // across cycles — dev-verified). The panel splits the display:
+  //   this cycle's tank = min(subscription_credit, grantPerCycle) → % bar
+  //   overflow (older cycles' leftover) + recharge → the balance hero
+  // Denominator is proPlan.monthly_grant_usd — NOT metrics.monthly_free_credit,
+  // which returned 0.50 on dev against a real $19/cycle grant (semantics
+  // unverified, see types/api.ts). Split only engages when every input is a
+  // finite number; otherwise the pre-split display below stays (never a
+  // negative or blank hero on an older API).
+  const subCreditNum = Number(fee?.metrics?.subscription_credit);
+  const freeCreditNum = Number(fee?.metrics?.free_credit);
+  const grantPerCycle = Number(proPlan?.monthly_grant_usd);
+  // isPro deliberately includes pro_cancelled: a cancelled-but-active sub
+  // still holds its subscription_credit until the period ends, so the split
+  // must keep rendering. Don't narrow this to pro_active for UI reasons.
+  const subSplit =
+    isPro &&
+    fee?.metrics?.subscription_credit != null &&
+    Number.isFinite(subCreditNum) &&
+    Number.isFinite(freeCreditNum) &&
+    Number.isFinite(grantPerCycle) &&
+    grantPerCycle > 0;
+  const subCycleRemaining = subSplit ? Math.min(subCreditNum, grantPerCycle) : 0;
+  const subOverflow = subSplit ? Math.max(0, subCreditNum - grantPerCycle) : 0;
+  const subPct = subSplit
+    ? Math.max(0, Math.min(100, Math.floor((subCycleRemaining / grantPerCycle) * 100)))
+    : null;
+  // Own spendable money: recharge + overflow from earlier cycles.
+  const heroValue = subSplit
+    ? Math.max(0, freeCreditNum - subCreditNum) + subOverflow
+    : fee?.metrics?.free_credit;
+
+  // The free tier is a ONE-TIME registration grant — no periodic refresh
+  // (staff can top it up manually, nothing else). Once used up, a permanent
+  // 0% warning bar is dead weight, so the bar collapses to a single
+  // explanatory line (freeTierExhausted → RunwayView note) and the flow
+  // copy switches via freePct=null. For a Pro user with the split active,
+  // the plan-credit bar REPLACES the free-tier display entirely (Owner call
+  // 2026-07-18) — display only, the backend still drains the free tier
+  // first, which just reads as "nothing is being spent yet".
+  const freePctRaw = freeTierPctLeft(quota);
+  const freeTierExhausted = !subSplit && freePctRaw === 0;
+  const freePct = subSplit || freePctRaw === 0 ? null : freePctRaw;
   const grantUsd = fee?.metrics?.monthly_free_credit;
+  // Legacy grant line — only for Pro accounts on an API without
+  // subscription_credit (the bar replaces it once the split engages).
   const grantText =
-    isPro && grantUsd != null && grantUsd !== ''
+    isPro && !subSplit && grantUsd != null && grantUsd !== ''
       ? t('settings.netmind.grantPerPeriod', '{{amount}} / {{period}}', {
           amount: `$${money(grantUsd)}`,
           period,
         })
       : null;
-  // Balance is the hero (spendable free_credit = grant + recharge, per the API).
-  // Runway below shows only the pools breakdown (free tier / grant) + toggle.
+  // Balance is the hero (with the split: recharge + overflow; without:
+  // NetMind's merged free_credit). Runway below shows the pools breakdown.
   const showBalanceHero = feeLoaded && !!fee;
-  const showRunway = freePct !== null || !!grantText || preferSystem !== null;
+  const showRunway =
+    freePct !== null || !!grantText || freeTierExhausted || subPct !== null;
 
   // Plan badge (top-right): reflects the NetMind.AI Power plan state.
   const planBadge = (() => {
@@ -546,12 +560,14 @@ export function NetmindAccountPanel() {
   const balanceHero = showBalanceHero ? (
     <div>
       <div className="text-3xl font-semibold font-mono tabular-nums text-[var(--text-primary)] leading-none tracking-tight">
-        ${money(fee!.metrics?.free_credit)}
+        ${money(heroValue)}
       </div>
       <div className="mt-1.5 text-xs text-[var(--text-tertiary)]">
-        {grantText
-          ? t('settings.netmind.balanceUsable', 'Current usable balance')
-          : t('settings.netmind.currentBalance', 'Current balance')}
+        {subSplit
+          ? t('settings.netmind.ownBalance', 'Your balance (top-ups + carried-over plan credit)')
+          : grantText
+            ? t('settings.netmind.balanceUsable', 'Current usable balance')
+            : t('settings.netmind.currentBalance', 'Current balance')}
       </div>
     </div>
   ) : null;
@@ -642,16 +658,15 @@ export function NetmindAccountPanel() {
           {/* 2 · money block: balance hero + runway breakdown, uninterrupted. */}
           {balanceHero}
 
-          {/* 3 · runway — pools breakdown (free tier / grant) + charging order +
-              toggle. Balance itself is the hero above, not here. */}
+          {/* 3 · runway — pools breakdown (free tier / grant) + charging
+              order. Balance itself is the hero above, not here. The free
+              tier is always drawn first (platform behavior, no toggle). */}
           {showRunway && (
             <NetmindRunwayView
               freePct={freePct}
               grantText={grantText}
-              preferSystem={preferSystem}
-              preferLocked={preferLocked}
-              preferBusy={preferBusy}
-              onTogglePrefer={togglePrefer}
+              freeTierExhausted={freeTierExhausted}
+              subPct={subPct}
               flowIsPro={isPro}
             />
           )}
@@ -677,7 +692,7 @@ export function NetmindAccountPanel() {
           <NetmindActionZone
             state={state}
             runway={runway}
-            freeTierExhausted={freePct === 0}
+            freeTierExhausted={freeTierExhausted}
             busy={busy}
             polling={polling}
             proPlan={proPlan}

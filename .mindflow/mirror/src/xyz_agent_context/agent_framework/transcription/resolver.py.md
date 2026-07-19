@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/transcription/resolver.py
-last_verified: 2026-05-07
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — Tier 5 门禁从"偏好开关"改为"是否授予了免费额度"
+
+`_user_opted_in_to_free_tier` 改名 `_user_has_free_tier`，判断从
+`quota.prefer_system_override`（已重定义为耗尽通知闩锁，见
+[[provider_resolver]]）改为 **quota 行是否存在**（行即授予）。这是免费额度
+偏好删除时差点漏掉的消费者——留着旧判断会让闩锁 fired 的用户被错误地拒掉
+STT 免费层。下文 (c) 一段的旧描述自此为历史记录；"无 quota 行不隐式计费
+运营方"的守卫保留。
 
 # resolver.py — ordered candidate list for transcription
 
