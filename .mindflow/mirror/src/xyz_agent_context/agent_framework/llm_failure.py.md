@@ -4,14 +4,21 @@ last_verified: 2026-07-20
 stub: false
 ---
 
-## 2026-07-20 — 余额文案补「订阅 NetMind.AI 套餐」
+## 2026-07-20 — 本文案保持 provider 中立（一度加过 NetMind 特化，已回退）
 
-`SELF_SERVICEABLE_USER_MESSAGE[INSUFFICIENT_BALANCE]` 增加订阅这条出路。背景：
-`NETMIND_USE_SUBSCRIPTION_ENABLED` 在 prod 打开后，登录会自动在用户自己的
-NetMind 账户下生成 key 并绑槽位，于是出现「有 key、但从没订阅过、账户零余额」
-的用户。对他们只说"充值或切换 provider"不完整——订阅套餐同样能解决。
+`SELF_SERVICEABLE_USER_MESSAGE[INSUFFICIENT_BALANCE]` 曾短暂加上「订阅
+NetMind.AI 套餐」，随 review 意见回退。
 
-只改文案，marker 与分类逻辑未动（余额检测走的是上游原始报错串，不是这条文案）。
+原因：**这条文案是 provider 无关的通用文案** —— DeepSeek 402、OpenAI
+`insufficient_quota`、Anthropic credit-balance 都会命中它（测试均有覆盖）。对一个
+DeepSeek 余额耗尽的用户推荐"订阅 NetMind.AI"，是无效噪音。
+
+NetMind 特化的引导改放在 [[provider_resolver]] 的 `QuotaExceededError`：那条路径
+是免费额度专属，按构造就是云端 + NetMind 语境，在那里点名 NetMind 永远成立。
+
+**若将来要在这里按 provider 分别渲染**，需要把 provider 类型透传进
+`self_serviceable_user_message`（调用点两处：`response_processor` 与
+`step_3_agent_loop`），那是结构改动而非文案改动，别顺手做。
 
 ## 2026-07-16 — 补 Anthropic 余额 marker + 余额文案指向 Settings→Providers
 
