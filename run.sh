@@ -298,6 +298,64 @@ check_deps() {
     fi
   fi
 
+  # Install narra-cli (@narra-im/narra-cli) — the NarraMessenger MCP tools spawn
+  # it for outbound send/query/media/speech/explore. Installed LOCALLY (never
+  # -g): the upstream runtime guide rejects global installs for cloud / sandbox /
+  # CI / multi-tenant runtimes. We pin the install prefix to $NARRA_CLI_HOME and
+  # export NARRA_CLI_BIN so narra_cli_client.py resolves it deterministically.
+  # Track latest (unpinned at install) so the local binary stays in step with
+  # the live runtime guide the agent reads (see the design doc). Graceful
+  # degrade: if install fails, NarraMessenger receive still works (Matrix /sync);
+  # only CLI-backed send/query degrades.
+  #
+  # NOTE — cloud parity: the agent-executor image that actually runs agents
+  # lives in the NarraNexus-deploy repo (docker/Dockerfile.executor), NOT here.
+  # It MUST install narra-cli the same way or cloud NarraMessenger send ships
+  # dead (same class as the officecli v1.9.0 miss below).
+  _NARRA_CLI_HOME="${NARRA_CLI_HOME:-$SCRIPT_DIR/.narra-cli}"
+  _NARRA_CLI_TIMEOUT=120
+  export NARRA_CLI_BIN="$_NARRA_CLI_HOME/node_modules/.bin/narra-cli"
+
+  _try_install_narra_cli() {
+    local action="$1"  # "Installing" (pre-capitalized — bash 3.2 lacks ${var^})
+    echo -e "${Y}${action} narra-cli (timeout ${_NARRA_CLI_TIMEOUT}s)...${R}"
+    mkdir -p "$_NARRA_CLI_HOME"
+    (npm install --prefix "$_NARRA_CLI_HOME" @narra-im/narra-cli) &
+    local npm_pid=$!
+    local elapsed=0
+    while kill -0 "$npm_pid" 2>/dev/null; do
+      if [ "$elapsed" -ge "$_NARRA_CLI_TIMEOUT" ]; then
+        echo -e "${RED}npm install hung > ${_NARRA_CLI_TIMEOUT}s — killing.${R}"
+        kill -9 "$npm_pid" 2>/dev/null
+        wait "$npm_pid" 2>/dev/null
+        return 124
+      fi
+      sleep 1
+      elapsed=$((elapsed + 1))
+    done
+    wait "$npm_pid"
+    return $?
+  }
+
+  if [ ! -x "$NARRA_CLI_BIN" ]; then
+    if ! _try_install_narra_cli "Installing"; then
+      echo -e "${Y}⚠ narra-cli not available — NarraMessenger CLI send/query features will be disabled (receive via Matrix /sync still works).${R}"
+      echo "  Retry: npm install --prefix \"$_NARRA_CLI_HOME\" @narra-im/narra-cli"
+      echo ""
+    fi
+  fi
+
+  # Optional endpoint config. narra-cli defaults to https://api.netmind.chat
+  # (prod), so prod needs nothing. Point a non-prod box at its backend by
+  # exporting NARRA_BACKEND_ENDPOINT (e.g. https://api-test.netmind.chat).
+  # Global config (single backend per deployment); data commands read it via
+  # ~/.narra-cli/config.json.
+  if [ -x "$NARRA_CLI_BIN" ] && [ -n "${NARRA_BACKEND_ENDPOINT:-}" ]; then
+    "$NARRA_CLI_BIN" configure --endpoint "$NARRA_BACKEND_ENDPOINT" >/dev/null 2>&1 \
+      && echo -e "${Y}narra-cli endpoint → ${NARRA_BACKEND_ENDPOINT}${R}" \
+      || echo -e "${Y}⚠ narra-cli configure failed; using default endpoint.${R}"
+  fi
+
   # Install OfficeCLI (optional — powers the built-in `officecli` skill for
   # docx/xlsx/pptx). GitHub-Releases self-contained binary (embedded .NET, no
   # deps), so we follow the uv pattern: curl the right per-OS/arch asset to

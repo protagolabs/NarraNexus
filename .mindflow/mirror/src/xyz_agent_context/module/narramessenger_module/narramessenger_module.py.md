@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-20
 ---
+
+## 2026-07-20 — `_CLI_CAPABILITY` instruction block
+
+``get_instructions`` now injects a ``### Reading room context — narra_cli``
+block (``_CLI_CAPABILITY``) between ``_BEHAVIOUR`` and ``_IRON_RULES``. It tells
+the agent to use ``narra_cli`` for roster / history / attachments / speech /
+status and ``narra_guide()`` for the reference, and states that sending stays on
+``narra_reply`` / ``narra_send`` / ``narra_send_media`` (``im send`` unavailable
+via ``narra_cli``). Companion to the [[_narramessenger_mcp_tools]] passthrough
+work (2026-07-20). Reply/proactive/media guidance unchanged.
 
 ## 2026-07-03 — Matrix-native send + stale-prompt sweep
 

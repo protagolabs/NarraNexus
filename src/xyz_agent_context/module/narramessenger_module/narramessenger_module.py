@@ -141,6 +141,21 @@ _BEHAVIOUR = """\
    file back, put it in your workspace and call `narra_send_media`.
 """
 
+_CLI_CAPABILITY = """\
+### Reading room context — `narra_cli`
+
+For anything beyond replying/sending, call `narra_cli(command="...")`. The
+platform injects your agent token per call — NEVER pass `--token` / `--token-file`.
+  - who's here:      `room info --room-id <id> --members`
+  - your rooms:      `room list`
+  - history/search:  `im messages --room-id <id> --limit 50` (+ `--keyword` / `--start` / `--end`)
+  - fetch a file:    `im attachments download --room-id <id> --event-id <e> --output ./f`
+  - speech:          `speech transcribe --input ./a.wav` / `speech synthesize --text "..." --out ./r.wav`
+Call `narra_guide()` for the full command reference, or `<domain> --help` for one.
+(Sending stays on `narra_reply` / `narra_send` / `narra_send_media` — `im send`
+is not available via `narra_cli`.)
+"""
+
 _IRON_RULES = """\
 ### Iron rules
 
@@ -253,6 +268,7 @@ class NarramessengerModule(ChannelModuleBase):
             f"{trust_block}\n\n"
             f"{action_block}\n"
             f"{_BEHAVIOUR}\n"
+            f"{_CLI_CAPABILITY}\n"
             f"{_IRON_RULES}"
         )
 
