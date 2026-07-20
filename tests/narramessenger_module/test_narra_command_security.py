@@ -57,14 +57,13 @@ def test_im_send_blocked_but_im_messages_allowed():
     assert validate_command("im attachments download --event-id e --output ./x")[0] is True
 
 
-def test_explore_gated_to_official_agents():
-    cmd = "explore publish --markdown hello"
-    # Non-official: blocked.
-    ok, _ = validate_command(cmd, is_official=False)
-    assert ok is False
-    # Official: allowed.
-    ok, _ = validate_command(cmd, is_official=True)
+def test_explore_passes_whitelist_backend_enforces_official():
+    # explore is NOT gated client-side — it passes our whitelist, and the
+    # backend returns `official-agent-required` for a non-official agent.
+    ok, reason = validate_command("explore publish --markdown hello")
     assert ok is True
+    assert reason == ""
+    assert sanitize_command("explore list --limit 20")[0] == "explore"
 
 
 def test_empty_command_blocked():

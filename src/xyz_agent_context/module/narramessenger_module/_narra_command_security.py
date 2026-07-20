@@ -33,11 +33,17 @@ from typing import Tuple
 
 # Allowed top-level command domains (first token of a narra-cli command).
 # Derived from the runtime guide's command surface.
+#
+# ``explore`` is allowed here and its official-agents-only policy is enforced
+# SERVER-SIDE: a non-official agent gets an ``official-agent-required`` JSON
+# error from the backend. We deliberately do NOT gate it client-side — we have
+# no reliable client-side signal of official status, and a client gate would
+# only block everyone (and hide the informative backend error).
 ALLOWED_DOMAINS = {
     "room",
     "im",
     "speech",
-    "explore",   # gated to official agents — see validate_command
+    "explore",
     "status",
     "help",
 }
@@ -84,17 +90,18 @@ def _expand_escapes(value: str) -> str:
     return value
 
 
-def validate_command(command: str, *, is_official: bool = False) -> Tuple[bool, str]:
+def validate_command(command: str) -> Tuple[bool, str]:
     """Validate a narra-cli command string.
 
     Args:
         command: the raw command (without the ``narra-cli`` prefix), e.g.
-            ``im send --room-id !r:h --text hi``.
-        is_official: whether this agent is a Narra "official" agent (only such
-            agents may use the ``explore`` timeline domain).
+            ``im messages --room-id !r:h --limit 20``.
 
     Returns:
         ``(True, "")`` if allowed, else ``(False, reason)``.
+
+    Note: ``explore`` passes here; its official-agent restriction is enforced
+    server-side (``official-agent-required``), not by this whitelist.
     """
     if not command or not command.strip():
         return False, "Empty command"
@@ -126,16 +133,10 @@ def validate_command(command: str, *, is_official: bool = False) -> Tuple[bool, 
             f"Allowed: {', '.join(sorted(ALLOWED_DOMAINS))}"
         )
 
-    # explore is official-agents-only.
-    if domain == "explore" and not is_official:
-        return False, (
-            "'explore' (public timeline) is available to official agents only"
-        )
-
     return True, ""
 
 
-def sanitize_command(command: str, *, is_official: bool = False) -> list[str]:
+def sanitize_command(command: str) -> list[str]:
     """Validate, then parse a command string into a safe argv list.
 
     ``shlex.split`` (proper quote handling) + ``\\n\\t\\r`` escape expansion, then
@@ -145,7 +146,7 @@ def sanitize_command(command: str, *, is_official: bool = False) -> list[str]:
     Raises:
         ValueError: if the command is blocked, or shlex cannot parse it.
     """
-    allowed, reason = validate_command(command, is_official=is_official)
+    allowed, reason = validate_command(command)
     if not allowed:
         raise ValueError(reason)
 

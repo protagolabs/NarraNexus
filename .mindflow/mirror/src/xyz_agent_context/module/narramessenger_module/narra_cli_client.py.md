@@ -24,11 +24,18 @@ client heavy.
 
 - **Binary resolution (lark #53 class).** A stripped MCP-subprocess PATH
   cannot see a locally-installed CLI or its ``env node`` shebang.
-  ``_resolve_narra_cli`` resolves an absolute path from ``NARRA_CLI_BIN``
-  (exported by run.sh / set as ENV in Docker) → PATH → node-bin
-  discovery, memoising on success and rebuilding the child PATH. When
-  nothing resolves it returns the bare name WITHOUT memoising, so a
-  mid-session install re-discovers it.
+  ``_resolve_narra_cli`` resolves an absolute path in this order:
+  ``NARRA_CLI_BIN`` (exported by run.sh / ENV in Docker) → our **managed
+  install** dirs (``~/.narranexus/narra-cli`` for run.sh,
+  ``/opt/narra-cli`` for Docker) → PATH → node-bin discovery. Managed
+  installs are checked **before** PATH on purpose: a stale global
+  ``narra-cli`` (an old ``npm i -g``) must not shadow the version we
+  install and track. run.sh installs under ``~/.narranexus`` (not the
+  repo tree) precisely so this dir — which is in the resolver's list —
+  is found in BOTH run modes, including the 4-terminal ``make dev-mcp``
+  path that never sees run.sh's ``NARRA_CLI_BIN`` export. Memoises on
+  success; returns the bare name WITHOUT memoising when nothing resolves,
+  so a mid-session install re-discovers it.
 - **Token injection is the load-bearing security decision.** narra-cli
   accepts the bearer ONLY via ``--token`` / ``--token-file`` (verified
   against v1.1.0 source: ``command-utils.js::requireToken`` — no env, no

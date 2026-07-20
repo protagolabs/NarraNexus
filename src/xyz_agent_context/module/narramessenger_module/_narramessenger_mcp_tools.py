@@ -211,9 +211,9 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
         """
         if not command or not command.strip():
             return {"success": False, "error": "command is required"}
-        # explore is official-agents-only; no official flag is wired on the
-        # credential yet, so it stays gated off (is_official defaults False).
-        # Wire this through when an official-agent marker lands.
+        # explore's official-agents-only policy is enforced server-side
+        # (`official-agent-required`), not by our whitelist — see
+        # _narra_command_security.
         ok, reason = validate_command(command)
         if not ok:
             return {"success": False, "error": "blocked", "message": reason}

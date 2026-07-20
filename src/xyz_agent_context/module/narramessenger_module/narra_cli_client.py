@@ -46,6 +46,13 @@ from loguru import logger
 _NARRA_CLI_BIN: Optional[str] = None
 _NARRA_EXTRA_PATH: Optional[tuple[str, ...]] = None
 
+# Locations WE install narra-cli to (run.sh → ~/.narranexus, Docker → /opt).
+# Checked before PATH so a stale global install can never shadow ours.
+_MANAGED_INSTALL_BINS: tuple[str, ...] = (
+    str(Path.home() / ".narranexus" / "narra-cli" / "node_modules" / ".bin" / "narra-cli"),
+    "/opt/narra-cli/node_modules/.bin/narra-cli",
+)
+
 
 def _discover_node_bin_dirs() -> tuple[str, ...]:
     """Best-effort dirs holding the local narra-cli bin + the node binary."""
@@ -90,6 +97,15 @@ def _resolve_narra_cli() -> tuple[str, tuple[str, ...]]:
         _NARRA_CLI_BIN = env_bin
         _NARRA_EXTRA_PATH = (str(Path(env_bin).resolve().parent),)
         return _NARRA_CLI_BIN, _NARRA_EXTRA_PATH
+
+    # Our MANAGED install locations (run.sh → ~/.narranexus, Docker → /opt)
+    # take precedence over PATH: a stale global ``narra-cli`` (e.g. an old
+    # ``npm i -g``) must NOT shadow the version we install and track.
+    for managed in _MANAGED_INSTALL_BINS:
+        if os.path.isfile(managed) and os.access(managed, os.X_OK):
+            _NARRA_CLI_BIN = managed
+            _NARRA_EXTRA_PATH = (str(Path(managed).resolve().parent),)
+            return _NARRA_CLI_BIN, _NARRA_EXTRA_PATH
 
     on_path = shutil.which("narra-cli")
     if on_path:

@@ -303,24 +303,34 @@ check_deps() {
   # -g): the upstream runtime guide rejects global installs for cloud / sandbox /
   # CI / multi-tenant runtimes. We pin the install prefix to $NARRA_CLI_HOME and
   # export NARRA_CLI_BIN so narra_cli_client.py resolves it deterministically.
-  # Track latest (unpinned at install) so the local binary stays in step with
-  # the live runtime guide the agent reads (see the design doc). Graceful
-  # degrade: if install fails, NarraMessenger receive still works (Matrix /sync);
-  # only CLI-backed send/query degrades.
+  # VERSION IS PINNED (not track-latest): narra-cli is a thin client to narra's
+  # OWN evolving hosted backend (unlike lark-cli → stable public OpenAPI), so it
+  # is claude-code-like — pin + deliberate bump, for reproducibility (every user
+  # gets the same validated binary) and no client-ahead-of-backend skew. The CLI
+  # barely moves (npm has ~4 releases); bump _NARRA_CLI_VERSION here + Dockerfile
+  # + DMG build + the cloud executor image together when narra ships a new CLI
+  # you have validated against the hosted backend. Graceful degrade: if install
+  # fails, NarraMessenger receive still works (Matrix /sync); only CLI-backed
+  # send/query degrades.
   #
   # NOTE — cloud parity: the agent-executor image that actually runs agents
   # lives in the NarraNexus-deploy repo (docker/Dockerfile.executor), NOT here.
   # It MUST install narra-cli the same way or cloud NarraMessenger send ships
   # dead (same class as the officecli v1.9.0 miss below).
-  _NARRA_CLI_HOME="${NARRA_CLI_HOME:-$SCRIPT_DIR/.narra-cli}"
+  # Install under ~/.narranexus (NOT the repo tree): narra_cli_client's
+  # resolver lists this dir in _discover_node_bin_dirs, so the MCP process
+  # finds it in BOTH run modes — `bash run.sh` (env-exported) and the
+  # 4-terminal `make dev-mcp` path (which never sees run.sh's export).
+  _NARRA_CLI_HOME="${NARRA_CLI_HOME:-$HOME/.narranexus/narra-cli}"
+  _NARRA_CLI_VERSION="1.1.0"
   _NARRA_CLI_TIMEOUT=120
   export NARRA_CLI_BIN="$_NARRA_CLI_HOME/node_modules/.bin/narra-cli"
 
   _try_install_narra_cli() {
-    local action="$1"  # "Installing" (pre-capitalized — bash 3.2 lacks ${var^})
-    echo -e "${Y}${action} narra-cli (timeout ${_NARRA_CLI_TIMEOUT}s)...${R}"
+    local action="$1"  # "Installing" / "Updating" (bash 3.2 lacks ${var^})
+    echo -e "${Y}${action} narra-cli@${_NARRA_CLI_VERSION} (timeout ${_NARRA_CLI_TIMEOUT}s)...${R}"
     mkdir -p "$_NARRA_CLI_HOME"
-    (npm install --prefix "$_NARRA_CLI_HOME" @narra-im/narra-cli) &
+    (npm install --prefix "$_NARRA_CLI_HOME" "@narra-im/narra-cli@${_NARRA_CLI_VERSION}") &
     local npm_pid=$!
     local elapsed=0
     while kill -0 "$npm_pid" 2>/dev/null; do
@@ -337,10 +347,14 @@ check_deps() {
     return $?
   }
 
-  if [ ! -x "$NARRA_CLI_BIN" ]; then
+  # Install when missing OR when the installed version != the pin (so a bump of
+  # _NARRA_CLI_VERSION takes effect on the next start — same pattern as officecli).
+  _narra_installed_ver=""
+  [ -x "$NARRA_CLI_BIN" ] && _narra_installed_ver=$("$NARRA_CLI_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  if [ "$_narra_installed_ver" != "$_NARRA_CLI_VERSION" ]; then
     if ! _try_install_narra_cli "Installing"; then
       echo -e "${Y}⚠ narra-cli not available — NarraMessenger CLI send/query features will be disabled (receive via Matrix /sync still works).${R}"
-      echo "  Retry: npm install --prefix \"$_NARRA_CLI_HOME\" @narra-im/narra-cli"
+      echo "  Retry: npm install --prefix \"$_NARRA_CLI_HOME\" @narra-im/narra-cli@${_NARRA_CLI_VERSION}"
       echo ""
     fi
   fi
@@ -354,6 +368,18 @@ check_deps() {
     "$NARRA_CLI_BIN" configure --endpoint "$NARRA_BACKEND_ENDPOINT" >/dev/null 2>&1 \
       && echo -e "${Y}narra-cli endpoint → ${NARRA_BACKEND_ENDPOINT}${R}" \
       || echo -e "${Y}⚠ narra-cli configure failed; using default endpoint.${R}"
+  fi
+
+  # Compat preflight (token-free): `doctor` checks the CLI install + local
+  # config + endpoint reachability. A clear WARNING here surfaces a
+  # CLI<->backend/endpoint skew instead of it failing silently at agent time.
+  # Non-fatal — never wedge startup on it.
+  if [ -x "$NARRA_CLI_BIN" ]; then
+    if "$NARRA_CLI_BIN" doctor >/dev/null 2>&1; then
+      echo -e "${Y}narra-cli doctor OK (v${_NARRA_CLI_VERSION}).${R}"
+    else
+      echo -e "${Y}⚠ narra-cli doctor reported an issue (CLI/endpoint compat?) — NarraMessenger CLI ops may fail. Run: ${NARRA_CLI_BIN} doctor${R}"
+    fi
   fi
 
   # Install OfficeCLI (optional — powers the built-in `officecli` skill for

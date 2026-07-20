@@ -34,10 +34,13 @@ short and hand-auditable.
   injects the bearer per call (see [[narra_cli_client]]); an agent
   supplying its own is either overriding our injection or probing for a
   readable path — always rejected.
-- **``explore`` is official-agents-only.** Gated behind ``is_official``
-  (default False). No official-agent marker is wired on the credential
-  yet, so explore is currently blocked for everyone — safe default;
-  wire ``is_official`` through when such a marker exists.
+- **``explore`` passes the whitelist; official-only is enforced
+  SERVER-SIDE.** The runtime guide states a non-official agent gets an
+  ``official-agent-required`` JSON error from the backend. We deliberately
+  do NOT gate ``explore`` client-side: there is no reliable client-side
+  signal of official status, and a client gate would only block everyone
+  (and hide the informative backend error). An earlier ``is_official``
+  param was removed 2026-07-20 for exactly this reason.
 - **``shlex.split`` + ``shell=False`` argv is the real injection defense,
   NOT a shell-metachar denylist.** Under ``execve`` the metachars are
   literal; a denylist would only break legitimate content ("S&P 500",

@@ -129,6 +129,25 @@ async def test_error_envelope_normalized(monkeypatch):
     assert out["error"] == "agent-room-access-denied"
 
 
+def test_managed_install_beats_stale_global_on_path(monkeypatch):
+    # A stale global `narra-cli` on PATH must NOT shadow our managed install.
+    monkeypatch.delenv("NARRA_CLI_BIN", raising=False)
+    ncc._NARRA_CLI_BIN = None
+    managed = ncc._MANAGED_INSTALL_BINS[0]
+    monkeypatch.setattr(ncc.os.path, "isfile", lambda p: p == managed)
+    monkeypatch.setattr(ncc.os, "access", lambda p, m: p == managed)
+    called = {"which": False}
+
+    def fake_which(_name):
+        called["which"] = True
+        return "/opt/homebrew/bin/narra-cli"  # the stale global
+
+    monkeypatch.setattr(ncc.shutil, "which", fake_which)
+    resolved, _extra = ncc._resolve_narra_cli()
+    assert resolved == managed
+    assert called["which"] is False  # never fell through to PATH
+
+
 def test_resolve_prefers_env_override(monkeypatch):
     monkeypatch.setenv("NARRA_CLI_BIN", "/custom/narra-cli")
     ncc._NARRA_CLI_BIN = None
