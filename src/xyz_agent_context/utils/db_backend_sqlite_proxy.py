@@ -43,6 +43,11 @@ class SQLiteProxyBackend(DatabaseBackend):
         self._proxy_url = proxy_url.rstrip("/")
         self._timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
+        # Token of the transaction this backend currently holds (None = no
+        # open transaction). Threaded onto every write so the proxy admits it
+        # as the transaction owner's write; other clients' writes block. See
+        # sqlite_proxy_server.py's Transaction State section.
+        self._txn_id: Optional[str] = None
 
     # ===== Properties =====
 
@@ -138,6 +143,7 @@ class SQLiteProxyBackend(DatabaseBackend):
         return await self._post("/execute", {
             "query": query,
             "params": [_prepare_value(p) for p in params] if params else None,
+            "txn_id": self._txn_id,
         })
 
     async def execute_write(
@@ -149,6 +155,7 @@ class SQLiteProxyBackend(DatabaseBackend):
         return await self._post("/execute_write", {
             "query": query,
             "params": [_prepare_value(p) for p in params] if params else None,
+            "txn_id": self._txn_id,
         })
 
     # ===== CRUD Operations =====
@@ -205,6 +212,7 @@ class SQLiteProxyBackend(DatabaseBackend):
         return await self._post("/insert", {
             "table": table,
             "data": _prepare_data(data),
+            "txn_id": self._txn_id,
         })
 
     async def update(
@@ -218,6 +226,7 @@ class SQLiteProxyBackend(DatabaseBackend):
             "table": table,
             "filters": _prepare_filters(filters),
             "data": _prepare_data(data),
+            "txn_id": self._txn_id,
         })
 
     async def delete(
@@ -229,6 +238,7 @@ class SQLiteProxyBackend(DatabaseBackend):
         return await self._post("/delete", {
             "table": table,
             "filters": _prepare_filters(filters),
+            "txn_id": self._txn_id,
         })
 
     async def upsert(
@@ -242,21 +252,33 @@ class SQLiteProxyBackend(DatabaseBackend):
             "table": table,
             "data": _prepare_data(data),
             "id_field": id_field,
+            "txn_id": self._txn_id,
         })
 
     # ===== Transaction Support =====
 
     async def begin_transaction(self) -> None:
-        """Begin a transaction on the proxy."""
-        await self._post("/transaction/begin", {})
+        """Begin a transaction on the proxy and capture its token.
+
+        The proxy issues a `txn_id`; every subsequent write on this backend
+        carries it so the proxy admits it as the transaction owner's write.
+        """
+        data = await self._post("/transaction/begin", {})
+        self._txn_id = (data or {}).get("txn_id")
 
     async def commit(self) -> None:
-        """Commit the transaction on the proxy."""
-        await self._post("/transaction/commit", {})
+        """Commit the transaction on the proxy, releasing the token."""
+        try:
+            await self._post("/transaction/commit", {"txn_id": self._txn_id})
+        finally:
+            self._txn_id = None
 
     async def rollback(self) -> None:
-        """Rollback the transaction on the proxy."""
-        await self._post("/transaction/rollback", {})
+        """Rollback the transaction on the proxy, releasing the token."""
+        try:
+            await self._post("/transaction/rollback", {"txn_id": self._txn_id})
+        finally:
+            self._txn_id = None
 
 
 # =============================================================================
