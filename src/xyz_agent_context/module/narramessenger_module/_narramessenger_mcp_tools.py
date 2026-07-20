@@ -18,33 +18,35 @@ Tools exposed:
     repo then ``room_send``s an ``m.image`` / ``m.file`` / … event.
   - narra_bind(agent_id, bind_command)         — bind this agent to NarraMessenger
     from a pasted bind link (drives the bind + writes the credential).
-  - narra_status(agent_id)                     — sanitised binding status + live
-    ``/status`` check.
-  - narra_room_members(agent_id, room_id)      — live roster fetch via
-    ``GET /_matrix/client/v3/rooms/{room_id}/joined_members``. Kept as a
-    tool (not baked into prompt) so the agent only pays for the roster
-    when it actually needs to know "who's in this room" — the vast
-    majority of turns don't. Added 2026-07-02 alongside the Direct
-    Matrix migration.
+  - narra_cli(agent_id, command)               — PASSTHROUGH to the local
+    ``narra-cli`` binary for query/context ops: room list/info(+members),
+    im messages (history/search), im attachments download, speech,
+    status. The platform injects the agent token per call; do NOT pass
+    ``--token*``. ``im send`` is blocked here (use the dedicated send tools).
 
-Outbound is Matrix-native (``room_send`` / media upload, see ``_matrix_send``),
-NOT the Gateway ``/chat/send`` — the transport is Matrix now, and ``/chat/send``
-can carry neither media nor (future) progressive ``m.replace`` streaming.
+Transport split (transitional):
+  - **Send / reply** stay Matrix-native (``narra_reply`` / ``narra_send`` /
+    ``narra_send_media``, see ``_matrix_send``) — the Gateway ``/chat/send`` is
+    gone, and the reply marker enables (future) progressive ``m.replace``.
+  - **Query / status / roster / history / speech** go through ``narra_cli``
+    (bearer via the narra-cli proxy). This replaced the old
+    ``narra_status`` + ``narra_room_members`` tools (removed 2026-07-20).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import aiohttp
 from loguru import logger
 
 from xyz_agent_context.module.base import XYZBaseModule
 
 from ._matrix_send import MatrixSendError, matrix_room_send, send_media_impl
-from ._narramessenger_client import NarramessengerAPIError, NarramessengerClient
+from ._narra_command_security import sanitize_command
+from ._narra_guide import fetch_guide
 from ._narramessenger_credential_manager import NarramessengerCredentialManager
 from ._narramessenger_service import do_bind
+from .narra_cli_client import run_narra_cli
 
 
 async def _get_credential(agent_id: str):
@@ -186,103 +188,60 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
-    async def narra_status(agent_id: str) -> dict:
-        """Return sanitised NarraMessenger binding status (NO bearer token),
-        plus a live ``/status`` check of the backend."""
-        cred = await _get_credential(agent_id)
-        if not cred:
-            return {"success": True, "data": None, "bound": False}
+    async def narra_cli(agent_id: str, command: str) -> dict:
+        """Run a narra-cli command for query / context / status ops.
 
-        live: dict[str, Any]
-        client = NarramessengerClient(cred.bearer_token, cred.backend_base_url)
+        Use this to READ NarraMessenger state — NOT to send (reply with
+        ``narra_reply``; send proactively with ``narra_send`` /
+        ``narra_send_media``). The platform injects your agent token per
+        call; do NOT pass ``--token`` / ``--token-file``.
+
+        Common commands (drop the ``narra-cli`` prefix):
+          - ``room list`` / ``room info --room-id <id> --members``
+          - ``im messages --room-id <id> --limit 50`` (history / search:
+            add ``--keyword`` / ``--start`` / ``--end`` / ``--dir``)
+          - ``im attachments download --room-id <id> --event-id <e> --output ./f``
+          - ``speech transcribe --input ./a.wav`` / ``speech synthesize --text ...``
+          - ``status``
+        Call ``narra_guide(agent_id)`` for the full command reference, or
+        ``<domain> --help`` for one command.
+
+        Returns ``{"success": true, "data": ...}`` or
+        ``{"success": false, "error": ...}``.
+        """
+        if not command or not command.strip():
+            return {"success": False, "error": "command is required"}
+        # explore's official-agents-only policy is enforced server-side
+        # (`official-agent-required`), not by our whitelist — see
+        # _narra_command_security.
+        # sanitize_command validates (whitelist / blocked flags / domain) AND
+        # parses in one pass; a rejected or unparseable command raises ValueError.
         try:
-            live = await client.status()
-        except NarramessengerAPIError as e:
-            live = {"error": e.code, "status": e.status}
-        finally:
-            await client.close()
-
-        public = cred.to_public_dict()
-        public["bound"] = True
-        public["live_check"] = live
-        return {"success": True, "data": public}
+            args = sanitize_command(command)
+        except ValueError as e:
+            return {"success": False, "error": "invalid_command", "message": str(e)}
+        db = await XYZBaseModule.get_mcp_db_client()
+        return await run_narra_cli(agent_id, args, db=db)
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
-    async def narra_room_members(agent_id: str, room_id: str) -> dict:
-        """List the joined members of a NarraMessenger room.
+    async def narra_guide(agent_id: str) -> dict:
+        """Return the narra-cli command reference (fetched live from Narra).
 
-        Live GET to the Matrix homeserver's
-        ``/_matrix/client/v3/rooms/{room_id}/joined_members`` endpoint,
-        using the Matrix access token stored on the credential (NOT the
-        Narra bearer — Matrix rejects the Narra bearer with
-        ``M_UNKNOWN_TOKEN``).
+        Call this before driving ``narra_cli`` for a domain you haven't used
+        this session — it is the authoritative, up-to-date list of commands and
+        flags. If the live doc can't be reached you still get a bundled snapshot;
+        ``narra_cli("<domain> --help")`` is always available too.
 
-        Use this when you need to know WHO is in a group room — e.g. to
-        @-mention someone specific, to answer "who's in this room?", or
-        to plan a message to a particular subset of members. This is
-        NOT auto-injected into every turn's prompt (would cost too many
-        tokens on large groups); the agent calls it on demand.
-
-        Returns:
-            {"ok": true, "members": [
-                {"user_id": "@alice:h", "display_name": "Alice",
-                 "avatar_url": "mxc://..."},
-                ...
-            ]}
-            or {"ok": false, "error": <code>}.
+        Returns ``{"success": true, "guide": "<markdown>"}``.
         """
-        if not room_id:
-            return {"ok": False, "error": "room_id is required"}
-
         cred = await _get_credential(agent_id)
-        if not cred:
-            return {"ok": False, "error": "no_credential",
-                    "hint": "no NarraMessenger binding for this agent"}
-        if not cred.matrix_access_token or not cred.matrix_homeserver_url:
-            return {"ok": False, "error": "no_matrix_credentials",
-                    "hint": "credential is not on the Matrix transport"}
-
-        url = (
-            f"{cred.matrix_homeserver_url.rstrip('/')}"
-            f"/_matrix/client/v3/rooms/{room_id}/joined_members"
-        )
-        headers = {"Authorization": f"Bearer {cred.matrix_access_token}"}
-        timeout = aiohttp.ClientTimeout(total=10.0)
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, headers=headers) as resp:
-                    if resp.status < 200 or resp.status >= 300:
-                        # Matrix errors surface with a JSON body carrying
-                        # `errcode`; propagate for observability.
-                        try:
-                            body = await resp.json()
-                        except Exception:  # noqa: BLE001
-                            body = {}
-                        return {
-                            "ok": False,
-                            "error": body.get("errcode") or f"http_{resp.status}",
-                            "message": body.get("error") or "",
-                        }
-                    data = await resp.json()
-        except (aiohttp.ClientError, TimeoutError) as e:
-            return {"ok": False, "error": "transport_error",
-                    "message": f"{type(e).__name__}: {e}"}
-
-        # Matrix returns {"joined": {mxid: {display_name, avatar_url}}}
-        joined = data.get("joined") or {}
-        members = [
-            {
-                "user_id": mxid,
-                "display_name": info.get("display_name") or mxid,
-                "avatar_url": info.get("avatar_url") or "",
-            }
-            for mxid, info in joined.items()
-        ]
-        return {"ok": True, "members": members, "count": len(members)}
+        base = getattr(cred, "backend_base_url", "") if cred else ""
+        guide = await fetch_guide(base)
+        return {"success": True, "guide": guide}
 
     logger.info(
         "NarraMessenger MCP tools registered: "
-        "narra_reply, narra_progress, narra_send, narra_send_media, "
-        "narra_bind, narra_status, narra_room_members"
+        "narra_reply, narra_send, narra_send_media, narra_bind, "
+        "narra_cli, narra_guide"
     )
