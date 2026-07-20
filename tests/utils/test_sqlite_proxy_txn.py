@@ -27,6 +27,7 @@ or lifespan is needed.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import time
 
 import httpx
@@ -34,6 +35,7 @@ import pytest
 import pytest_asyncio
 
 from xyz_agent_context.utils import sqlite_proxy_server as proxy
+from xyz_agent_context.utils import db_backend_sqlite_proxy as proxy_client_mod
 from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
 from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
 
@@ -109,6 +111,9 @@ async def test_foreign_write_is_blocked_then_proceeds(proxy_client):
     """P1 regression: a write without the active txn_id must WAIT for the
     transaction to end — it must not execute (fold) while the txn is open."""
     txn_id = await _begin(proxy_client)
+    # Deterministic: the slot is claimed and the gate is closed.
+    assert proxy._active_txn == txn_id
+    assert proxy._txn_done is not None and not proxy._txn_done.is_set()
 
     # A different "process" writes with no token — must block.
     foreign = asyncio.ensure_future(
@@ -127,7 +132,7 @@ async def test_foreign_write_is_blocked_then_proceeds(proxy_client):
 
 
 @pytest.mark.asyncio
-async def test_watchdog_reaps_abandoned_txn(proxy_client, monkeypatch):
+async def test_watchdog_reaps_abandoned_txn(proxy_client):
     """P4 regression: an abandoned transaction past its deadline is
     force-rolled-back by the reaper, unblocking subsequent writes."""
     txn_id = await _begin(proxy_client)
@@ -146,12 +151,12 @@ async def test_watchdog_reaps_abandoned_txn(proxy_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_client_threads_txn_id(monkeypatch):
-    """Client side: begin stores the txn_id, writes carry it, commit clears it."""
+    """Client side: begin sets the context token, writes carry it, commit clears it."""
     backend = SQLiteProxyBackend("http://unused")
     calls: list[tuple[str, dict]] = []
 
     async def fake_post(path, payload):
-        calls.append((path, payload))
+        calls.append((path, dict(payload)))
         if path == "/transaction/begin":
             return {"txn_id": "ptxn_test"}
         return 0
@@ -159,7 +164,7 @@ async def test_client_threads_txn_id(monkeypatch):
     monkeypatch.setattr(backend, "_post", fake_post)
 
     await backend.begin_transaction()
-    assert backend._txn_id == "ptxn_test"
+    assert proxy_client_mod._current_txn.get() == "ptxn_test"
 
     await backend.insert("t", {"name": "x"})
     insert_path, insert_payload = calls[-1]
@@ -170,4 +175,59 @@ async def test_client_threads_txn_id(monkeypatch):
     commit_path, commit_payload = calls[-1]
     assert commit_path == "/transaction/commit"
     assert commit_payload["txn_id"] == "ptxn_test"
-    assert backend._txn_id is None
+    assert proxy_client_mod._current_txn.get() is None
+
+
+@pytest.mark.asyncio
+async def test_txn_token_is_context_scoped(monkeypatch):
+    """Issue-2 regression: an independent request (a separate asyncio Task with
+    its own context) must NOT inherit an open transaction's token — otherwise
+    its write would be admitted as the holder's and folded into the transaction.
+    The token lives in a ContextVar, not on the shared per-loop backend instance."""
+    backend = SQLiteProxyBackend("http://unused")
+    seen: list[tuple[str, dict]] = []
+
+    async def fake_post(path, payload):
+        seen.append((path, dict(payload)))
+        return {"txn_id": "ptxn_ctx"} if path == "/transaction/begin" else 0
+
+    monkeypatch.setattr(backend, "_post", fake_post)
+
+    # Snapshot a context from BEFORE any transaction — this is what an
+    # independent, concurrently-arriving request task would run under.
+    independent_ctx = contextvars.copy_context()
+
+    await backend.begin_transaction()  # sets the token in THIS task's context
+    assert proxy_client_mod._current_txn.get() == "ptxn_ctx"
+
+    async def independent_write():
+        await backend.insert("t", {"name": "other"})
+
+    task = asyncio.create_task(independent_write(), context=independent_ctx)
+    await task
+
+    other = next(p for path, p in seen if path == "/insert")
+    assert other["txn_id"] is None, "independent task must not inherit the txn token"
+
+    await backend.rollback()
+    assert proxy_client_mod._current_txn.get() is None
+
+
+@pytest.mark.asyncio
+async def test_raw_execute_write_is_gated(proxy_client):
+    """Issue-1 regression: a write routed through /execute (raw UPDATE with
+    fetch=True, as ModulePoller issues) must block during an open transaction
+    rather than fold into it — /execute is gated like the write endpoints."""
+    txn_id = await _begin(proxy_client)
+
+    foreign = asyncio.ensure_future(
+        proxy_client.post("/execute", json={"query": "UPDATE t SET name='z' WHERE 1=1"})
+    )
+    done, pending = await asyncio.wait({foreign}, timeout=0.3)
+    assert foreign in pending, "raw /execute write should be blocked during an open txn"
+
+    resp = await proxy_client.post("/transaction/commit", json={"txn_id": txn_id})
+    assert resp.json()["success"]
+
+    resp = await foreign
+    assert resp.json()["success"]

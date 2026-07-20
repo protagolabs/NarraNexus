@@ -133,8 +133,12 @@ def _get_backend() -> SQLiteBackend:
 # never be folded in. A watchdog force-rolls-back a transaction whose deadline
 # has passed, so a dead client can no longer poison the connection.
 
-_TXN_TIMEOUT: float = 30.0      # seconds a transaction may stay open before reaping
-_WATCH_INTERVAL: float = 5.0    # seconds between watchdog passes
+# Kept well BELOW the client httpx timeout (db_backend_sqlite_proxy.py, 30s):
+# an abandoned transaction must be reaped before a write blocked behind it
+# hits its own ReadTimeout, so the freed write can still complete. Overridable
+# via env for deployments with unusually long legitimate transactions.
+_TXN_TIMEOUT: float = float(os.environ.get("SQLITE_PROXY_TXN_TIMEOUT", "10.0"))
+_WATCH_INTERVAL: float = float(os.environ.get("SQLITE_PROXY_TXN_WATCH_INTERVAL", "2.0"))
 
 _active_txn: Optional[str] = None
 _txn_deadline: float = 0.0
@@ -288,6 +292,13 @@ async def health():
 async def execute(req: ExecuteRequest):
     backend = _get_backend()
     try:
+        # /execute carries raw SQL that MAY be a write (a caller passing an
+        # UPDATE/DELETE with fetch=True routes here — e.g. ModulePoller, a
+        # separate process). We cannot cheaply prove it read-only, so gate it
+        # like the write endpoints; otherwise a non-holder process's write
+        # would fold into an open transaction. Cost: raw SELECTs serialize
+        # during a (short) transaction — an accepted trade to close the hole.
+        await _await_txn_turn(req.txn_id)
         query = _mysql_to_sqlite_sql(req.query)
         params = tuple(req.params) if req.params else None
         rows = await backend.execute(query, params)
