@@ -41,7 +41,8 @@ async def test_narra_cli_blocked_command_short_circuits(monkeypatch):
 
     out = await narra_cli("agent_x", "configure --endpoint http://evil.test")
     assert out["success"] is False
-    assert out["error"] == "blocked"
+    assert out["error"] == "invalid_command"  # sanitize raised before spawning
+    assert "configure" in out["message"]      # the block reason is preserved
     assert called["n"] == 0  # never reached run_narra_cli / spawned anything
 
 

@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-07-20
 ---
 
+## 2026-07-20 (review round 2) — default timeout 60s → 120s
+
+Large `im attachments download` / long `speech synthesize` can exceed 60s;
+`NarraCliClient.run` + `run_narra_cli` default `timeout` bumped to 120s. Known
+follow-up (not done — parity with lark): `_agent_user_id_cache` is unbounded /
+never invalidated, same as `lark_cli_client`.
+
 ## 2026-07-20 — review fixes: envelope trusts exit code; dead field/param dropped
 
 - ``_parse_envelope`` now takes the subprocess **exit code**. A file-writing

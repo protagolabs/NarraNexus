@@ -91,10 +91,19 @@ def test_sanitize_shlex_splits_quoted():
     assert args == ["im", "messages", "--room-id", "!r:h", "--keyword", "hello world"]
 
 
-def test_sanitize_expands_escapes():
-    # LLMs write \n meaning newline; shlex keeps it literal, so we expand.
+def test_sanitize_expands_escapes_in_text_flags_only():
+    # A text flag's value: \n -> real newline (LLMs write \n meaning newline).
+    args = sanitize_command('speech synthesize --text "a\\nb" --out ./r.wav')
+    assert args[args.index("--text") + 1] == "a\nb"
+
+
+def test_sanitize_does_not_touch_non_text_values():
+    # Paths / search terms / regexes must keep literal backslash sequences —
+    # only text flags are expanded.
     args = sanitize_command('im messages --room-id !r:h --keyword "a\\nb"')
-    assert args[-1] == "a\nb"
+    assert args[-1] == "a\\nb"  # keyword value untouched
+    args2 = sanitize_command('speech synthesize --text "x" --out "./a\\nb.wav"')
+    assert args2[-1] == "./a\\nb.wav"  # path untouched
 
 
 def test_message_content_with_shell_metachars_not_rejected():

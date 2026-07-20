@@ -42,7 +42,7 @@ from loguru import logger
 from xyz_agent_context.module.base import XYZBaseModule
 
 from ._matrix_send import MatrixSendError, matrix_room_send, send_media_impl
-from ._narra_command_security import sanitize_command, validate_command
+from ._narra_command_security import sanitize_command
 from ._narra_guide import fetch_guide
 from ._narramessenger_credential_manager import NarramessengerCredentialManager
 from ._narramessenger_service import do_bind
@@ -214,9 +214,8 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
         # explore's official-agents-only policy is enforced server-side
         # (`official-agent-required`), not by our whitelist — see
         # _narra_command_security.
-        ok, reason = validate_command(command)
-        if not ok:
-            return {"success": False, "error": "blocked", "message": reason}
+        # sanitize_command validates (whitelist / blocked flags / domain) AND
+        # parses in one pass; a rejected or unparseable command raises ValueError.
         try:
             args = sanitize_command(command)
         except ValueError as e:

@@ -47,6 +47,11 @@ short and hand-auditable.
   check still saw ``im``. ``validate_command`` now ``shlex.split``s once and
   matches blocked patterns against **leading tokens** — whitespace-robust, and
   quotes are respected so whitespace inside a quoted arg survives.
+- **Escape expansion is scoped to text-value flags (2026-07-20 review fix).**
+  ``\n``/``\t``/``\r`` are expanded ONLY in the value of ``--text`` / ``--markdown``
+  (``_TEXT_VALUE_FLAGS``) — never in paths (``--out``/``--output``/``--input``),
+  search terms (``--keyword``), or ids, where a literal backslash sequence must
+  survive. Was applied to every token, which would silently rewrite a path.
 - **``shlex.split`` + ``shell=False`` argv is the real injection defense,
   NOT a shell-metachar denylist.** Under ``execve`` the metachars are
   literal; a denylist would only break legitimate content ("S&P 500",

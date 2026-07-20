@@ -172,7 +172,7 @@ class NarraCliClient:
         command_args: list[str],
         *,
         cwd: Path | str | None = None,
-        timeout: float = 60.0,
+        timeout: float = 120.0,
     ) -> dict:
         """Spawn narra-cli with ``command_args`` + injected ``--token-file``.
 
@@ -270,7 +270,7 @@ async def run_narra_cli(
     command_args: list[str],
     *,
     db,
-    timeout: float = 60.0,
+    timeout: float = 120.0,
 ) -> dict:
     """Resolve the agent's bearer + workspace, then run a narra-cli command.
 

@@ -4,6 +4,17 @@ stub: false
 last_verified: 2026-07-20
 ---
 
+## 2026-07-20 (review) — orphan client deleted; single validate pass
+
+- Removing `narra_status` left `_narramessenger_client.py` (`NarramessengerClient`)
+  with **zero importers** (`do_bind` uses aiohttp directly) — the source file and
+  its mirror md were deleted (铁律 #2/#8); its markdown-fetch overlapped the new
+  [[_narra_guide]] anyway.
+- `narra_cli` no longer calls `validate_command` then `sanitize_command`
+  (double validation). It calls `sanitize_command` only — which validates AND
+  parses in one pass and raises `ValueError` on a blocked/unparseable command
+  (surfaced as `error: "invalid_command"`, reason in `message`).
+
 ## 2026-07-20 — `narra_cli` passthrough + `narra_guide`; `narra_status` / `narra_room_members` removed
 
 Shifted the query/context surface from hand-wrapped Matrix-direct tools to a

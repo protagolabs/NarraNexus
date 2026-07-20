@@ -147,27 +147,35 @@ check_deps() {
   _LARK_CLI_MIN="1.0.12"
   _LARK_CLI_TIMEOUT=120
 
-  _try_install_lark_cli() {
-    local action="$1"  # "Installing" or "Updating" (display label, pre-capitalized
-    # — avoids bash 3.2 lacking ${var^})
-    echo -e "${Y}${action} lark-cli (timeout ${_LARK_CLI_TIMEOUT}s)...${R}"
-    # Use a subshell + background + wait-with-timeout pattern. `timeout`
-    # isn't on stock macOS; this works everywhere with just sh primitives.
-    (npm install -g @larksuite/cli) &
-    local npm_pid=$!
-    local elapsed=0
-    while kill -0 "$npm_pid" 2>/dev/null; do
-      if [ "$elapsed" -ge "$_LARK_CLI_TIMEOUT" ]; then
-        echo -e "${RED}npm install hung > ${_LARK_CLI_TIMEOUT}s — killing.${R}"
-        kill -9 "$npm_pid" 2>/dev/null
-        wait "$npm_pid" 2>/dev/null
+  # Run a command in the background with a hard timeout. `timeout(1)` isn't on
+  # stock macOS, so this uses only shell primitives. Returns the command's exit
+  # code, or 124 if it was killed for exceeding <timeout>s. Single source of
+  # truth for every install/preflight step below (was copy-pasted 4×).
+  # Usage: _run_with_timeout <timeout_s> <label> <cmd> [args...]
+  _run_with_timeout() {
+    local _to="$1"; local _label="$2"; shift 2
+    "$@" &
+    local _pid=$!
+    local _el=0
+    while kill -0 "$_pid" 2>/dev/null; do
+      if [ "$_el" -ge "$_to" ]; then
+        echo -e "${RED}${_label} hung > ${_to}s — killing.${R}"
+        kill -9 "$_pid" 2>/dev/null
+        wait "$_pid" 2>/dev/null
         return 124
       fi
       sleep 1
-      elapsed=$((elapsed + 1))
+      _el=$((_el + 1))
     done
-    wait "$npm_pid"
+    wait "$_pid"
     return $?
+  }
+
+  _try_install_lark_cli() {
+    local action="$1"  # "Installing" / "Updating" (bash 3.2 lacks ${var^})
+    echo -e "${Y}${action} lark-cli (timeout ${_LARK_CLI_TIMEOUT}s)...${R}"
+    _run_with_timeout "$_LARK_CLI_TIMEOUT" "npm install lark-cli" \
+      npm install -g @larksuite/cli
   }
 
   _warn_lark_skipped() {
@@ -189,21 +197,8 @@ check_deps() {
   _try_install_claude_cli() {
     local action="$1"
     echo -e "${Y}${action} @anthropic-ai/claude-code (timeout ${_CLAUDE_CLI_TIMEOUT}s)...${R}"
-    (npm install -g @anthropic-ai/claude-code) &
-    local npm_pid=$!
-    local elapsed=0
-    while kill -0 "$npm_pid" 2>/dev/null; do
-      if [ "$elapsed" -ge "$_CLAUDE_CLI_TIMEOUT" ]; then
-        echo -e "${RED}npm install hung > ${_CLAUDE_CLI_TIMEOUT}s — killing.${R}"
-        kill -9 "$npm_pid" 2>/dev/null
-        wait "$npm_pid" 2>/dev/null
-        return 124
-      fi
-      sleep 1
-      elapsed=$((elapsed + 1))
-    done
-    wait "$npm_pid"
-    return $?
+    _run_with_timeout "$_CLAUDE_CLI_TIMEOUT" "npm install claude-code" \
+      npm install -g @anthropic-ai/claude-code
   }
 
   if ! command -v claude &>/dev/null; then
@@ -272,21 +267,9 @@ check_deps() {
 
   _try_install_lark_skills() {
     echo -e "${Y}Installing Lark CLI Skills (timeout ${_LARK_SKILLS_TIMEOUT}s)...${R}"
-    (HOME="$HOME" npx skills add larksuite/cli -y -g 2>&1 | tail -3) &
-    local npx_pid=$!
-    local elapsed=0
-    while kill -0 "$npx_pid" 2>/dev/null; do
-      if [ "$elapsed" -ge "$_LARK_SKILLS_TIMEOUT" ]; then
-        echo -e "${RED}npx skills install hung > ${_LARK_SKILLS_TIMEOUT}s — killing.${R}"
-        kill -9 "$npx_pid" 2>/dev/null
-        wait "$npx_pid" 2>/dev/null
-        return 124
-      fi
-      sleep 1
-      elapsed=$((elapsed + 1))
-    done
-    wait "$npx_pid"
-    return $?
+    # bash -c preserves the pipe-to-tail (helper runs a single command).
+    _run_with_timeout "$_LARK_SKILLS_TIMEOUT" "npx skills add" \
+      bash -c 'HOME="$HOME" npx skills add larksuite/cli -y -g 2>&1 | tail -3'
   }
 
   if ! ls ~/.agents/skills/lark-shared/SKILL.md &>/dev/null 2>&1 \
@@ -298,25 +281,30 @@ check_deps() {
     fi
   fi
 
-  # Install narra-cli (@narra-im/narra-cli) — the NarraMessenger MCP tools spawn
-  # it for outbound send/query/media/speech/explore. Installed LOCALLY (never
-  # -g): the upstream runtime guide rejects global installs for cloud / sandbox /
-  # CI / multi-tenant runtimes. We pin the install prefix to $NARRA_CLI_HOME and
-  # export NARRA_CLI_BIN so narra_cli_client.py resolves it deterministically.
+  # Install narra-cli (@narra-im/narra-cli) — the NarraMessenger MCP tool
+  # `narra_cli` spawns it (via narra_cli_client.py) for outbound
+  # query/context/speech/explore. Installed LOCALLY here (a per-prefix install,
+  # not -g): the upstream runtime guide rejects global installs for local dev.
+  # (In a controlled BUILD image `-g` is fine and is what the deploy images do —
+  # see the cloud-parity note below.) We pin the install prefix to
+  # $NARRA_CLI_HOME and export NARRA_CLI_BIN so narra_cli_client.py resolves it
+  # deterministically.
   # VERSION IS PINNED (not track-latest): narra-cli is a thin client to narra's
   # OWN evolving hosted backend (unlike lark-cli → stable public OpenAPI), so it
   # is claude-code-like — pin + deliberate bump, for reproducibility (every user
   # gets the same validated binary) and no client-ahead-of-backend skew. The CLI
   # barely moves (npm has ~4 releases); bump _NARRA_CLI_VERSION here + Dockerfile
-  # + DMG build + the cloud executor image together when narra ships a new CLI
-  # you have validated against the hosted backend. Graceful degrade: if install
+  # + the DMG bundle + the cloud image together when narra ships a new CLI you
+  # have validated against the hosted backend. Graceful degrade: if install
   # fails, NarraMessenger receive still works (Matrix /sync); only CLI-backed
-  # send/query degrades.
+  # query degrades.
   #
-  # NOTE — cloud parity: the agent-executor image that actually runs agents
-  # lives in the NarraNexus-deploy repo (docker/Dockerfile.executor), NOT here.
-  # It MUST install narra-cli the same way or cloud NarraMessenger send ships
-  # dead (same class as the officecli v1.9.0 miss below).
+  # NOTE — cloud parity: `narra_cli` runs in the MCP container, so the cloud
+  # image that needs narra-cli is the MCP/backend image
+  # (NarraNexus-deploy/docker/Dockerfile.python), NOT the executor image (the
+  # executor never shells narra-cli, same as lark-cli). Installed there in
+  # deploy commit 4007ca5 (dev) / 4b32444 (main). Missing it there ships cloud
+  # NarraMessenger `narra_cli` dead (same class as the officecli v1.9.0 miss).
   # Install under ~/.narranexus (NOT the repo tree): narra_cli_client's
   # resolver lists this dir in _discover_node_bin_dirs, so the MCP process
   # finds it in BOTH run modes — `bash run.sh` (env-exported) and the
@@ -330,21 +318,8 @@ check_deps() {
     local action="$1"  # "Installing" / "Updating" (bash 3.2 lacks ${var^})
     echo -e "${Y}${action} narra-cli@${_NARRA_CLI_VERSION} (timeout ${_NARRA_CLI_TIMEOUT}s)...${R}"
     mkdir -p "$_NARRA_CLI_HOME"
-    (npm install --prefix "$_NARRA_CLI_HOME" "@narra-im/narra-cli@${_NARRA_CLI_VERSION}") &
-    local npm_pid=$!
-    local elapsed=0
-    while kill -0 "$npm_pid" 2>/dev/null; do
-      if [ "$elapsed" -ge "$_NARRA_CLI_TIMEOUT" ]; then
-        echo -e "${RED}npm install hung > ${_NARRA_CLI_TIMEOUT}s — killing.${R}"
-        kill -9 "$npm_pid" 2>/dev/null
-        wait "$npm_pid" 2>/dev/null
-        return 124
-      fi
-      sleep 1
-      elapsed=$((elapsed + 1))
-    done
-    wait "$npm_pid"
-    return $?
+    _run_with_timeout "$_NARRA_CLI_TIMEOUT" "npm install narra-cli" \
+      npm install --prefix "$_NARRA_CLI_HOME" "@narra-im/narra-cli@${_NARRA_CLI_VERSION}"
   }
 
   # Install when missing OR when the installed version != the pin (so a bump of
@@ -370,15 +345,16 @@ check_deps() {
       || echo -e "${Y}⚠ narra-cli configure failed; using default endpoint.${R}"
   fi
 
-  # Compat preflight (token-free): `doctor` checks the CLI install + local
-  # config + endpoint reachability. A clear WARNING here surfaces a
-  # CLI<->backend/endpoint skew instead of it failing silently at agent time.
-  # Non-fatal — never wedge startup on it.
+  # Compat preflight: `doctor` checks the CLI install + local config + endpoint
+  # reachability. It makes a NETWORK call, so it MUST run under the timeout guard
+  # (a DNS blackhole / dead endpoint would otherwise hang startup forever — the
+  # very "never wedge startup" the comment promised). 15s cap, non-fatal: a
+  # timeout (124) or any non-zero just surfaces a WARNING.
   if [ -x "$NARRA_CLI_BIN" ]; then
-    if "$NARRA_CLI_BIN" doctor >/dev/null 2>&1; then
+    if _run_with_timeout 15 "narra-cli doctor" "$NARRA_CLI_BIN" doctor >/dev/null 2>&1; then
       echo -e "${Y}narra-cli doctor OK (v${_NARRA_CLI_VERSION}).${R}"
     else
-      echo -e "${Y}⚠ narra-cli doctor reported an issue (CLI/endpoint compat?) — NarraMessenger CLI ops may fail. Run: ${NARRA_CLI_BIN} doctor${R}"
+      echo -e "${Y}⚠ narra-cli doctor failed/timed out (CLI/endpoint compat?) — NarraMessenger CLI ops may fail. Run: ${NARRA_CLI_BIN} doctor${R}"
     fi
   fi
 

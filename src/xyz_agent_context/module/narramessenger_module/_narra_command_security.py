@@ -77,17 +77,39 @@ _ESCAPE_MAP = {
 }
 
 
-def _expand_escapes(value: str) -> str:
-    """Convert literal ``\\n`` / ``\\t`` / ``\\r`` to real chars.
+# Flags whose VALUE is free-form user-facing text, where an LLM-written ``\n``
+# is meant as a real newline. Escape expansion is scoped to these only — never
+# to paths (``--out`` / ``--output`` / ``--input``) or search terms
+# (``--keyword``), where a literal backslash sequence must survive untouched.
+_TEXT_VALUE_FLAGS = {"--text", "--markdown"}
 
-    LLMs compose command strings and naturally write ``\\n`` to mean a newline,
-    but ``shlex.split`` preserves the backslash literally — so ``--text "a\\nb"``
-    would reach narra-cli as the 4-char string ``a\\nb`` and render a literal
-    ``\\n`` instead of a line break.
-    """
+
+def _expand_escapes(value: str) -> str:
+    """Convert literal ``\\n`` / ``\\t`` / ``\\r`` to real chars."""
     for esc, real in _ESCAPE_MAP.items():
         value = value.replace(esc, real)
     return value
+
+
+def _expand_text_flag_escapes(args: list[str]) -> list[str]:
+    """Expand escapes only in the values of text-bearing flags.
+
+    LLMs write ``--text "a\\nb"`` meaning a newline, but ``shlex.split`` keeps the
+    backslash literal. We expand the value that follows a text flag (and the
+    ``--text=...`` inline form), leaving every other token — paths, regexes,
+    ids — byte-for-byte intact.
+    """
+    out: list[str] = []
+    for i, a in enumerate(args):
+        prev = args[i - 1] if i > 0 else ""
+        if prev in _TEXT_VALUE_FLAGS:
+            out.append(_expand_escapes(a))
+        elif "=" in a and a.split("=", 1)[0] in _TEXT_VALUE_FLAGS:
+            key, val = a.split("=", 1)
+            out.append(f"{key}={_expand_escapes(val)}")
+        else:
+            out.append(a)
+    return out
 
 
 def validate_command(command: str) -> Tuple[bool, str]:
@@ -166,4 +188,4 @@ def sanitize_command(command: str) -> list[str]:
     except ValueError as e:
         raise ValueError(f"Failed to parse command: {e}")
 
-    return [_expand_escapes(a) for a in args]
+    return _expand_text_flag_escapes(args)
