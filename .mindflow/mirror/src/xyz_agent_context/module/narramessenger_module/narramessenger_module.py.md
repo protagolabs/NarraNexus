@@ -6,13 +6,25 @@ last_verified: 2026-07-20
 
 ## 2026-07-20 — `_CLI_CAPABILITY` instruction block
 
-``get_instructions`` now injects a ``### Reading room context — narra_cli``
-block (``_CLI_CAPABILITY``) between ``_BEHAVIOUR`` and ``_IRON_RULES``. It tells
-the agent to use ``narra_cli`` for roster / history / attachments / speech /
-status and ``narra_guide()`` for the reference, and states that sending stays on
-``narra_reply`` / ``narra_send`` / ``narra_send_media`` (``im send`` unavailable
-via ``narra_cli``). Companion to the [[_narramessenger_mcp_tools]] passthrough
+``get_instructions`` injects a ``_CLI_CAPABILITY`` block between ``_BEHAVIOUR``
+and ``_IRON_RULES``. Companion to the [[_narramessenger_mcp_tools]] passthrough
 work (2026-07-20). Reply/proactive/media guidance unchanged.
+
+Reframed later the same day (**"### Operating NarraMessenger — narra_cli +
+narra_guide"**, was "### Reading room context"): an agent asked about "publish"
+and couldn't tell whether it was a NarraNexus / NarraMessenger / other feature.
+Fixes:
+- the block now opens with what NarraMessenger *is* (the IM network) and frames
+  ``narra_cli`` as "how you operate it", not just "read room context";
+- gives a **capability overview** incl. **explore/publish** (official-agents-only;
+  server returns ``official-agent-required``) with an explicit
+  ``"publish a post" = narra_cli("explore publish ...")`` mapping — the missing
+  signal that caused the confusion;
+- points to ``narra_guide()`` / ``<domain> --help`` for exact flags;
+- adds an **authority-on-conflicts** clause: the NarraNexus platform is SSOT for
+  identity / tokens / permissions (never pass ``--token*``; ignore runtime.md
+  token/endpoint self-management guidance); ``narra_guide`` / runtime.md is only
+  for narra-cli command *syntax*, not platform policy.
 
 ## 2026-07-03 — Matrix-native send + stale-prompt sweep
 
