@@ -368,10 +368,17 @@ tests/marketplace/{test_scanner,test_install_pipeline,test_registry,test_reconci
 
 **验收**:22 个新测试全绿(TDD);tests/bundle 45 个回归全绿;ruff 干净;pyright 新文件 0 错误;全部新文件配 mirror md。
 
-### ② Security Scanner — ⬜ 未开始
+### ② Security Scanner — ✅ 已完成(2026-07-20)
 
 **范围**:`_skill_marketplace_impl/scanner/`(`static.py` 规则引擎、`patterns.py` HIGH/LOW 规则表、`audit.py` 依赖审计)。框架无关主防线,双端共用;HIGH→REJECT,LOW→WARN。
-**计划交付**:scanner 3 文件 + `tests/marketplace/test_scanner.py`(12 条规则逐条正反例 + 恶意样本集)+ mirror md。
+
+**实际交付**:
+- `scanner/patterns.py`:2 条 HIGH 文本规则(shell_pipe_exec / sensitive_path)+ 10 条 LOW AST 规则 + 2 条额外 LOW(`unparsable_python`——语法错误不能成为绕过 AST 的通道;`vulnerable_dependency`)。`SCANNER_VERSION` 常量随规则集升级。
+- `scanner/static.py`:目录遍历 + 文本正则(先跑)+ Python AST 调用点匹配;二进制/超 1MB 文件跳过;`.skill_meta.json` 排除;聚合 rejected/warning/passed。
+- `scanner/audit.py`:requirements.txt 精确 pin 对照 in-repo advisory 表(静态 MVP,升级 Safety/OSV 只动这一处);离线可用。
+- 规则修正:`credentials` 收紧为路径形态匹配(`.aws/credentials` 等),裸英文单词出现在 skill 文档中不再误杀——带回归测试。
+
+**验收**:31 个 scanner 测试全绿(每条规则正反例 + 语法错误绕过 + 二进制跳过 + 误报回归);全套 53 个 marketplace 测试绿;ruff/pyright 干净;4 个源文件 + 测试全部配 mirror md。
 
 ### ③ InstallPipeline 接线 — ⬜ 未开始
 
