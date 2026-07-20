@@ -32,6 +32,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui';
 import { api } from '@/lib/api';
 import { platform } from '@/lib/platform';
 import type {
@@ -43,7 +44,14 @@ import type {
 } from '@/types';
 import { useConfigStore } from '@/stores/configStore';
 import { deriveRunway } from './netmindRunway';
-import { money, freeTierPctLeft, formatPeriod, formatDate } from './netmindFormat';
+import {
+  money,
+  freeTierPctLeft,
+  freeTierTokensLeft,
+  formatTokens,
+  formatPeriod,
+  formatDate,
+} from './netmindFormat';
 import { NetmindRunwayView } from './NetmindRunwayView';
 import { NetmindActionZone } from './NetmindActionZone';
 import { NetmindTopUpControls, type RechargeState } from './NetmindTopUpControls';
@@ -108,6 +116,8 @@ export function NetmindAccountPanel() {
   const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
   const [rechargeError, setRechargeError] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false); // recent activity collapsed by default
+  const [linkBusy, setLinkBusy] = useState(false); // use-subscription link in flight
+  const [linkError, setLinkError] = useState<string | null>(null);
   // Module F: read-only connection status (backend auto-registers on login).
   const [netStatus, setNetStatus] = useState<NetmindStatus>('checking');
   const mounted = useRef(true);
@@ -118,6 +128,9 @@ export function NetmindAccountPanel() {
   const busyRef = useRef(false);
   const pollingRef = useRef(false);
   const rechargeRef = useRef(false); // synchronous double-submit guard
+  const linkBusyRef = useRef(false); // sync guard for the use-subscription link
+  // Latest linkNetmind, readable from callbacks declared before it (TDZ).
+  const linkNetmindRef = useRef<(() => Promise<void>) | null>(null);
   // Identifies the active top-up attempt. Bumping it invalidates any in-flight
   // poll loop (used to stop waiting / supersede) so a stale loop can never
   // overwrite the UI or block a fresh attempt.
@@ -180,6 +193,10 @@ export function NetmindAccountPanel() {
             setMe(data);
             setState(resolveState(data));
             becameActive = true;
+            // Best-effort auto-link right after the payment lands: the user
+            // just paid — this is the worst moment to ask them to sign out
+            // and back in. Idempotent (409 = already linked).
+            void linkNetmindRef.current?.();
             return;
           }
         } catch {
@@ -289,6 +306,40 @@ export function NetmindAccountPanel() {
       if (mounted.current) setNetStatus('error');
     }
   }, []);
+
+  // Link the NetMind account as a provider via POST /providers/use-subscription.
+  // First frontend caller of this endpoint (2026-07-20) — previously the ONLY
+  // link path was a re-login, which stranded always-signed-in users whose
+  // login predated the auto-provision flag (or whose login-time mint failed).
+  // 409 = already linked, which is success for our purposes. linkNetmindRef
+  // lets pollUntilActive (declared earlier) fire this after a subscription
+  // payment lands without a TDZ/ordering hazard.
+  const linkNetmind = useCallback(async () => {
+    if (linkBusyRef.current) return;
+    linkBusyRef.current = true;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await api.useSubscription();
+    } catch (e) {
+      const msg = errMessage(e);
+      if (!msg.includes('409')) {
+        if (mounted.current) {
+          setLinkError(msg);
+          setLinkBusy(false);
+        }
+        linkBusyRef.current = false;
+        return;
+      }
+    }
+    await refreshNetStatus();
+    linkBusyRef.current = false;
+    if (mounted.current) setLinkBusy(false);
+  }, [refreshNetStatus]);
+
+  useEffect(() => {
+    linkNetmindRef.current = linkNetmind;
+  }, [linkNetmind]);
 
   useEffect(() => {
     mounted.current = true;
@@ -449,6 +500,16 @@ export function NetmindAccountPanel() {
   const freePctRaw = freeTierPctLeft(quota);
   const freeTierExhausted = !subSplit && freePctRaw === 0;
   const freePct = subSplit || freePctRaw === 0 ? null : freePctRaw;
+  // Row value in tokens ("3.9M tokens left"), same more-depleted dimension
+  // as the bar width — a percentage told users nothing about how much a
+  // "percent" actually buys. Remaining only (Owner call: remaining/total
+  // reads too dense); the bar carries the proportion context.
+  const freeTokens = freePct !== null ? freeTierTokensLeft(quota) : null;
+  const freeTokensText = freeTokens
+    ? t('settings.netmind.freeTierTokensLeft', '{{remaining}} tokens left', {
+        remaining: formatTokens(freeTokens.remaining),
+      })
+    : null;
   const grantUsd = fee?.metrics?.monthly_free_credit;
   // Legacy grant line — only for Pro accounts on an API without
   // subscription_credit (the bar replaces it once the split engages).
@@ -598,10 +659,33 @@ export function NetmindAccountPanel() {
       );
     }
     if (netStatus === 'not_connected') {
+      // Actionable: the link button calls POST /providers/use-subscription —
+      // no more "sign out and back in" busywork (that path still works and
+      // stays as the login-time auto-heal, this is just the in-session exit).
       return (
-        <div className="rounded-md bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
-          {t('settings.netmind.notConnected',
-            'Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.')}
+        <div className="rounded-md bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)] space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="m-0">
+              {t('settings.netmind.notConnected',
+                'Your NetMind.AI Power account isn’t linked as a provider yet.')}
+            </p>
+            <Button
+              size="sm"
+              variant="accent"
+              onClick={linkNetmind}
+              disabled={linkBusy}
+              className="shrink-0"
+            >
+              {linkBusy
+                ? t('settings.netmind.working', 'Working…')
+                : t('settings.netmind.linkNow', 'Link it now')}
+            </Button>
+          </div>
+          {linkError && (
+            <p className="m-0 text-xs">
+              {t('settings.netmind.linkFailed', 'Linking failed:')} {linkError}
+            </p>
+          )}
         </div>
       );
     }
@@ -664,6 +748,7 @@ export function NetmindAccountPanel() {
           {showRunway && (
             <NetmindRunwayView
               freePct={freePct}
+              freeTokensText={freeTokensText}
               grantText={grantText}
               freeTierExhausted={freeTierExhausted}
               subPct={subPct}

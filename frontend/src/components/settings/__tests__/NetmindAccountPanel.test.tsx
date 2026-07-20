@@ -49,6 +49,7 @@ const mockReactivate = vi.fn();
 const mockRecharge = vi.fn();
 const mockRechargeStatus = vi.fn();
 const mockGetProviders = vi.fn();
+const mockUseSubscription = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
@@ -62,6 +63,7 @@ vi.mock('@/lib/api', () => ({
     recharge: (...a: unknown[]) => mockRecharge(...a),
     rechargeStatus: (...a: unknown[]) => mockRechargeStatus(...a),
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
+    useSubscription: (...a: unknown[]) => mockUseSubscription(...a),
   },
 }));
 
@@ -173,6 +175,7 @@ beforeEach(() => {
   mockRecharge.mockReset();
   mockRechargeStatus.mockReset();
   mockGetProviders.mockReset();
+  mockUseSubscription.mockReset();
   mockGetProviders.mockResolvedValue(NETMIND_CONNECTED); // default: already connected
   mockOpenExternal.mockReset();
   mockOpenExternal.mockResolvedValue(undefined); // re-prime after restoreAllMocks
@@ -408,13 +411,17 @@ test('S3: resume button → confirm true → api.reactivateSubscription', async 
 
 // ── runway view: free-tier bar / balance / grant / flow line / toggle ───────
 
-test('runway: free-tier bar shows the more depleted side (62% left) + tiered flow line', async () => {
+test('runway: free-tier row shows tokens of the more depleted side, bar keeps the pct', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
   expect(await screen.findByText('Free tier')).toBeTruthy();
-  expect(screen.getByText('62% left')).toBeTruthy();
+  // input is the more depleted dimension (62% vs 79%): 124k remaining.
+  // Remaining only — the bar carries the proportion (Owner: "/total" too dense).
+  expect(screen.getByText('124K tokens left')).toBeTruthy();
+  // The bar width still reflects the percentage of the same dimension.
+  expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('62');
   // free-tier bar visible → the flow line may mention it
   expect(screen.getByText(/free tier first, then your balance\./)).toBeTruthy();
 });
@@ -635,7 +642,7 @@ test('status AVAILABLE: netmind registered but user is on their OWN provider →
   expect(screen.queryByText(/Running on your NetMind/)).toBeNull();
 });
 
-test('status: no netmind provider → not-connected copy', async () => {
+test('status: no netmind provider → not-connected copy + Link it now button', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetProviders.mockResolvedValue({
     success: true,
@@ -643,6 +650,68 @@ test('status: no netmind provider → not-connected copy', async () => {
   });
   render(<NetmindAccountPanel />);
   expect(await screen.findByText(/isn.t linked as a provider yet/)).toBeTruthy();
+  // Actionable in-session exit — no more "sign out and back in" copy.
+  expect(screen.getByRole('button', { name: /Link it now/ })).toBeTruthy();
+  expect(screen.queryByText(/[Ss]ign out and back in/)).toBeNull();
+});
+
+test('link now: click → POST use-subscription → status flips to driving', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetProviders.mockResolvedValue({
+    success: true,
+    data: { providers: { x: { source: 'user' } }, slots: {} },
+  });
+  mockUseSubscription.mockResolvedValue({ success: true, provider_ids: ['p_nm'] });
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Link it now/ });
+  // After the link succeeds, the providers re-read shows the netmind card.
+  mockGetProviders.mockResolvedValue(NETMIND_CONNECTED);
+  fireEvent.click(btn);
+  await waitFor(() => expect(mockUseSubscription).toHaveBeenCalledTimes(1));
+  expect(await screen.findByText(/Running on your NetMind/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Link it now/ })).toBeNull();
+});
+
+test('link now: 409 already-linked counts as success (status refreshes)', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetProviders.mockResolvedValue({
+    success: true,
+    data: { providers: { x: { source: 'user' } }, slots: {} },
+  });
+  mockUseSubscription.mockRejectedValue(new Error('API error: 409 Conflict'));
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Link it now/ });
+  mockGetProviders.mockResolvedValue(NETMIND_CONNECTED);
+  fireEvent.click(btn);
+  expect(await screen.findByText(/Running on your NetMind/)).toBeTruthy();
+});
+
+test('link now: hard failure → error line, still not connected', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetProviders.mockResolvedValue({
+    success: true,
+    data: { providers: { x: { source: 'user' } }, slots: {} },
+  });
+  mockUseSubscription.mockRejectedValue(new Error('API error: 502 Bad Gateway'));
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Link it now/ }));
+  expect(await screen.findByText(/Linking failed:/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Link it now/ })).toBeTruthy();
+});
+
+test('subscribe payment lands → auto-link fires (no sign-out required)', async () => {
+  // free × low promotes the upsell; complete the checkout and the poll's
+  // ACTIVE result must trigger the best-effort use-subscription call.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetMyQuota.mockResolvedValue(QUOTA_EXHAUSTED);
+  mockGetFeeInfo.mockResolvedValue(FEE_POOR);
+  mockSubscribe.mockResolvedValue({ success: true, data: { checkout_url: 'https://stripe/x' } });
+  mockUseSubscription.mockResolvedValue({ success: true });
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Pro/ }));
+  // First poll tick returns ACTIVE.
+  mockGetSubscription.mockResolvedValue(PRO_SUB(true));
+  await waitFor(() => expect(mockUseSubscription).toHaveBeenCalledTimes(1), { timeout: 5000 });
 });
 
 test('status: connection line sits ABOVE the runway breakdown, both states', async () => {

@@ -723,7 +723,7 @@
       "rechargeStopWaiting": "Stop waiting",
       "checkingStatus": "Checking your NetMind.AI Power connection…",
       "netStatusError": "Couldn’t read your connection status. Refresh to retry.",
-      "notConnected": "Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.",
+      "notConnected": "Your NetMind.AI Power account isn’t linked as a provider yet.",
       "managePlan": "Manage plan & credits",
       "manageSubscription": "Manage subscription & balance",
       "manageBalance": "Manage balance",
@@ -758,7 +758,10 @@
       "upsellPerkNoFee": "No platform service fee",
       "upsellPerkGrant": "Includes {{amount}} / month in usable balance",
       "netDriving": "Running on your NetMind.AI Power account — no setup needed.",
-      "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults."
+      "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults.",
+      "linkNow": "Link it now",
+      "linkFailed": "Linking failed:",
+      "freeTierTokensLeft": "{{remaining}} tokens left"
     },
     "modal": {
       "title": "Settings",

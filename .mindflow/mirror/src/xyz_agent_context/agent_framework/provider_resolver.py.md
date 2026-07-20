@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-07-20
 ---
 
+## 2026-07-20 (续) — 文案"退出重登"改为"Settings → Account 里接入"
+
+use-subscription 有了第一个前端调用方（[[NetmindAccountPanel]] 的
+Link it now 按钮 + 订阅支付后自动接入），"then sign out and back in"引导
+随之改为指向面板按钮；load-bearing 注释第 2 条同步（"no frontend calls"
+已不成立）。**前缀 "Free quota exhausted." 原样保留**（job_trigger 第三层
+探测契约，test_no_quota_pause 钉住，改后实跑确认仍绿）。
+
 ## 2026-07-20 — QuotaExceededError 文案补「订阅 NetMind.AI 套餐」
 
 `NETMIND_USE_SUBSCRIPTION_ENABLED` 于 2026-07-20 在 prod 打开后，登录会自动在

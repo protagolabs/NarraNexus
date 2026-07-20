@@ -400,8 +400,8 @@ function App() {
           role="alert"
         >
           Free-tier quota exhausted. Open Settings → Providers to add your own
-          API key — or subscribe to a NetMind.AI plan, then sign out and back
-          in to link it. (click to dismiss)
+          API key — or subscribe to a NetMind.AI plan and link it in Settings →
+          Account &amp; Subscription. (click to dismiss)
         </div>
       )}
       {sessionExpired && (

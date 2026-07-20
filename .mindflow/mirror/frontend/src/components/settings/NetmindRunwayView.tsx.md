@@ -4,6 +4,12 @@ last_verified: 2026-07-18
 stub: false
 ---
 
+## 2026-07-20 — 免费额度行值改 token 格式（freeTokensText）
+
+新 prop `freeTokensText`：行值显示"剩余 3.9M / 4.5M tokens"（[[netmindFormat]]
+的 freeTierTokensLeft，与条宽同维度），null 时回退旧的百分比串。条宽仍由
+freePct 驱动。套餐额度条不变（美元池，百分比语义自洽）。
+
 ## 2026-07-18 (同日三改) — 新增套餐额度条（subPct，Pro 溢出模型）
 
 新 prop `subPct: number | null`：Pro 拆分激活时渲染「套餐额度」条（复用免费
