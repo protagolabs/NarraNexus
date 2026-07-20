@@ -527,6 +527,7 @@ class SkillModule(XYZBaseModule):
 
         # Extract fields from meta_data
         source_url = meta_data.get("source_url")
+        source_type = meta_data.get("source_type")
         installed_at = meta_data.get("installed_at")
         builtin = bool(meta_data.get("builtin", False))
         study_fields = {
@@ -590,6 +591,7 @@ class SkillModule(XYZBaseModule):
                             version=meta.get("version"),
                             author=meta.get("author"),
                             source_url=source_url,
+                            source_type=source_type,
                             installed_at=installed_at,
                             requires_env=requires_env,
                             requires_bins=requires_bins,
@@ -612,6 +614,7 @@ class SkillModule(XYZBaseModule):
             path=str(skill_dir),
             builtin=builtin,
             source_url=source_url,
+            source_type=source_type,
             installed_at=installed_at,
             requires_env=requires_env,
             requires_bins=requires_bins,

@@ -48,6 +48,10 @@ import type {
   SkillListResponse,
   SkillOperationResponse,
   SkillStudyResponse,
+  MarketplaceSearchResponse,
+  MarketplaceSkillDetail,
+  MarketplaceInstallResponse,
+  SkillUpdateInfo,
   CostResponse,
   SkillEnvConfigResponse,
   DashboardResponse,
@@ -951,6 +955,58 @@ class ApiClient {
     return this.request<SkillOperationResponse>(
       `/api/skills/${encodeURIComponent(skillName)}/enable?${params}`,
       { method: 'PUT' }
+    );
+  }
+
+  // Skill Marketplace API — /api/marketplace/skills/* (read endpoints are
+  // public; agent_id-scoped calls carry identity headers like the rest).
+  async searchMarketplaceSkills(params: {
+    q?: string;
+    category?: string;
+    capability?: string;
+    sort?: 'downloads' | 'published' | 'name';
+    page?: number;
+    limit?: number;
+    agentId?: string;
+  }): Promise<MarketplaceSearchResponse> {
+    const search = new URLSearchParams();
+    if (params.q) search.set('q', params.q);
+    if (params.category) search.set('category', params.category);
+    if (params.capability) search.set('capability', params.capability);
+    if (params.sort) search.set('sort', params.sort);
+    if (params.page) search.set('page', String(params.page));
+    if (params.limit) search.set('limit', String(params.limit));
+    if (params.agentId) search.set('agent_id', params.agentId);
+    return this.request<MarketplaceSearchResponse>(
+      `/api/marketplace/skills/search?${search}`
+    );
+  }
+
+  async getMarketplaceSkillDetail(skillId: string): Promise<MarketplaceSkillDetail> {
+    return this.request<MarketplaceSkillDetail>(
+      `/api/marketplace/skills/${encodeURIComponent(skillId)}`
+    );
+  }
+
+  async installMarketplaceSkill(
+    skillId: string,
+    agentId: string,
+    version?: string
+  ): Promise<MarketplaceInstallResponse> {
+    return this.request<MarketplaceInstallResponse>(
+      `/api/marketplace/skills/${encodeURIComponent(skillId)}/install`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, ...(version ? { version } : {}) }),
+      }
+    );
+  }
+
+  async checkSkillUpdates(agentId: string): Promise<{ updates: SkillUpdateInfo[] }> {
+    const params = new URLSearchParams({ agent_id: agentId });
+    return this.request<{ updates: SkillUpdateInfo[] }>(
+      `/api/marketplace/skills/updates?${params}`
     );
   }
 

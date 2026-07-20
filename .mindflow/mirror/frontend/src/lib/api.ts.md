@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-18
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — Skill Marketplace 四调用(stage 7)
+
+`searchMarketplaceSkills` / `getMarketplaceSkillDetail` /
+`installMarketplaceSkill`(POST JSON,409=已安装,直接抛带 detail 的
+Error 由 Browser 展示)/ `checkSkillUpdates`。挂 `/api/marketplace/skills/*`
+前缀;读端点公开、agent 相关调用带身份头,复用 this.request。
+
 
 ## 2026-07-18 — 删 setQuotaPreference
 

@@ -1880,7 +1880,8 @@
     "actionBar": {
       "github": "GitHub",
       "zip": "Zip",
-      "showDisabled": "显示已禁用"
+      "showDisabled": "显示已禁用",
+      "marketplace": "技能市场"
     },
     "error": {
       "title": "错误",
@@ -1976,6 +1977,22 @@
         "apiKey": "如果需要 API 密钥，请在下方添加请求头（如 Authorization: Bearer <token>）——每次连接都会携带。",
         "validation": "添加后，状态指示点会校验连接 — “失败”表示该链接无法访问或不是有效的 SSE 端点。"
       }
+    },
+    "marketplace": {
+      "title": "技能市场",
+      "searchPlaceholder": "搜索技能…",
+      "empty": "没有找到技能",
+      "unavailable": "技能市场暂时不可用,请检查网络后重试。",
+      "install": "安装",
+      "installed": "已安装",
+      "updateAvailable": "可更新",
+      "downloads": "{{count}} 次下载",
+      "scanLabel": "安全扫描",
+      "lowIssues": "{{count}} 个低风险项",
+      "capabilities": "能力标签",
+      "configKeys": "配置项",
+      "versions": "版本历史",
+      "close": "关闭"
     }
   },
   "feedback": {

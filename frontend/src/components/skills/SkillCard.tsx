@@ -80,6 +80,11 @@ export function SkillCard({
                   {t('skills.card.builtin')}
                 </span>
               )}
+              {!skill.builtin && skill.source_type && (
+                <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
+                  {skill.source_type}
+                </span>
+              )}
             </div>
           </div>
 

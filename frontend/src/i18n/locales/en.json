@@ -1881,7 +1881,8 @@
     "actionBar": {
       "github": "GitHub",
       "zip": "Zip",
-      "showDisabled": "Show disabled"
+      "showDisabled": "Show disabled",
+      "marketplace": "Marketplace"
     },
     "error": {
       "title": "Error",
@@ -1977,6 +1978,22 @@
         "apiKey": "If it needs an API key, add it as a request header (e.g. Authorization: Bearer <token>) — headers are sent on every connection.",
         "validation": "After adding, the status dot validates the connection — Failed means the URL was unreachable or not a valid SSE endpoint."
       }
+    },
+    "marketplace": {
+      "title": "Skill Marketplace",
+      "searchPlaceholder": "Search skills…",
+      "empty": "No skills found",
+      "unavailable": "Marketplace is unavailable right now. Check your connection and try again.",
+      "install": "Install",
+      "installed": "Installed",
+      "updateAvailable": "Update",
+      "downloads": "{{count}} downloads",
+      "scanLabel": "Security scan",
+      "lowIssues": "{{count}} low-risk finding(s)",
+      "capabilities": "Capabilities",
+      "configKeys": "Config keys",
+      "versions": "Versions",
+      "close": "Close"
     }
   },
   "feedback": {

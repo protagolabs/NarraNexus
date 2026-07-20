@@ -417,15 +417,27 @@ tests/marketplace/{test_scanner,test_install_pipeline,test_registry,test_reconci
 
 **④⑤⑥ 合并验收**:tests/marketplace 84 个全绿(registry 8 + api 7 + reconciler 7 + 既有 62);全量套件 2832 passed 零回归;ruff 干净;pyright 新文件 0 错误。
 
-### ⑦ 前端 — ⬜ 未开始
+### ⑦ 前端 — ✅ 已完成(2026-07-21)
 
-**范围**:`components/skills/marketplace/{MarketplaceBrowser,SkillDetailSheet}.tsx`、`hooks/useSkillMarketplace.ts`、`lib/api.ts` 五调用、`types/skills.ts` 扩展、`SkillsPanel.tsx` 入口 + Source 列 + 状态徽标(含 Unmanaged)。
-**计划交付**:组件 + vitest 测试,沿用 SkillsPanel.studyStatus.test 模式。
+**实际交付**:
+- `components/skills/marketplace/MarketplaceBrowser.tsx`(搜索 300ms debounce、卡片带扫描徽标/下载量/installed/update 标记、安装按钮、离线 unavailable 态)+ `SkillDetailSheet.tsx`(描述/capabilities/config keys 预览/扫描结果/版本历史/安装)。
+- `hooks/useSkillMarketplace.ts`(search/detail/install/updates,install 同时失效 skills 与 marketplace 两个 query key)。
+- `lib/api.ts` 四调用;`types/skills.ts` 新增 marketplace 类型 + `SkillInfo.source_type`(后端 `_parse_skill_md` 回填,配套 `skill_schema.py` 加字段)。
+- `SkillsPanel.tsx` action bar 加「Marketplace」按钮;`SkillCard.tsx` 显示 Source 徽标。
+- i18n:en + zh 全套 key(其余 8 语言走 fallbackLng=en,后续补翻译)。
+- 与计划的差异:**Unmanaged 徽标推迟**——它需要列表接口暴露审计状态(fs 列表实时算 content_hash 太贵),留给后续把 `/api/skills` 响应拼上审计状态时一并做。
 
-### ⑧ MVP Skills + 双模式验收 — ⬜ 未开始
+**验收**:`tsc -b` 干净;新改文件 eslint 0 错误(仓库存量 77 个 error 与本次无关);vitest 全量 555 passed(含 5 个新 MarketplaceBrowser 测试)。
 
-**范围**:5 个首批 skill(multimodal-fallback / web-search-fallback / file-converter / markdown-exporter / error-handler,清单待同事 wiki 消化后可调)发布上架;DMG 与 `bash run.sh` 各跑一遍 搜索→安装→重启生效→卸载(铁律 #7)。
-**计划交付**:skill 包 + 发布记录 + 双模式验收记录。
+### ⑧ MVP Skills + 双模式验收 — 🔶 部分完成(2026-07-21,剩余项见下)
+
+**已交付**:
+- `scripts/publish_skill.py` 发布 CLI(zip 或目录一键发布,422 时打印完整扫描报告,可进 CI;exit code 区分 rejected/error)。
+
+**剩余项(需要 Owner/人工推进,代码侧已就绪)**:
+1. **技能清单锁定**——等同事 wiki(NarraNexus Potential Skills)消化结论,再写 5 个 SKILL.md + manifest;
+2. **S3 bucket + IAM**——dev server(PRD comment 有机器信息)创建 bucket 并给 cloud 部署注入 `SKILL_S3_BUCKET`(未配则自动落本机 marketplace_store,单机可先跑通);同时注入 `MARKETPLACE_PUBLISH_TOKEN` 与 `SKILL_SECRETS_KEY`;
+3. **双模式手工验收**(铁律 #7)——DMG 与 `bash run.sh` 各跑:Marketplace 搜索→安装→重启生效→配置→卸载 + Agent 侧 `skill_install` 一次。
 
 ---
 
