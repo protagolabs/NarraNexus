@@ -1,104 +1,46 @@
-"""Unit tests for the narra_guide live-fetch layer.
+"""Unit tests for the curated narra_guide reference.
 
-Pins the four guardrails: URL is DERIVED from the credential's backend_base_url
-(never hardcoded test/prod), the doc is cached in-process (not re-fetched every
-call), and a fetch failure falls back to the bundled snapshot rather than
-leaving the agent blind.
+narra_guide serves a STATIC, platform-adapted command reference (not narra's
+live runtime.md, whose install/configure/token instructions caused an agent to
+try setting up narra-cli itself and fail on sandbox chmod). These tests pin the
+load-bearing invariants: it tells the agent narra-cli is platform-provided (no
+install/configure/token), points at `--help` for exact flags, and does NOT carry
+the harmful setup instructions.
 """
-import pytest
-
 from xyz_agent_context.module.narramessenger_module import _narra_guide as ncg
 
 
-@pytest.fixture(autouse=True)
-def _clear_cache():
-    ncg._cache.clear()
-    yield
-    ncg._cache.clear()
+def test_guide_returns_curated_reference():
+    g = ncg.get_guide()
+    assert g and "narra_cli" in g
+    # Covers the real command surface.
+    for token in ("room list", "im messages", "explore publish", "speech", "status"):
+        assert token in g, token
 
 
-async def test_url_derived_from_backend_base_url(monkeypatch):
-    seen = {}
-
-    async def fake_get(url):
-        seen["url"] = url
-        return "# live guide"
-
-    monkeypatch.setattr(ncg, "_http_get", fake_get)
-    out = await ncg.fetch_guide("https://api-test.netmind.chat")
-    assert seen["url"] == "https://api-test.netmind.chat/api/agent-guide/narra-runtime.md"
-    assert out == "# live guide"
-
-    out2 = await ncg.fetch_guide("https://api.netmind.chat")
-    assert seen["url"] == "https://api.netmind.chat/api/agent-guide/narra-runtime.md"
+def test_guide_states_platform_provides_narra_cli():
+    g = ncg.get_guide().lower()
+    # The invariant that stops the agent from setting narra-cli up itself.
+    assert "platform" in g
+    assert "--help" in g  # live-flag escape hatch is advertised
+    # Never pass a token yourself.
+    assert "token" in g
 
 
-async def test_trailing_slash_normalized(monkeypatch):
-    seen = {}
-
-    async def fake_get(url):
-        seen["url"] = url
-        return "x"
-
-    monkeypatch.setattr(ncg, "_http_get", fake_get)
-    await ncg.fetch_guide("https://api.netmind.chat/")
-    assert "//api/agent-guide" not in seen["url"]
-
-
-async def test_cache_avoids_second_fetch(monkeypatch):
-    calls = {"n": 0}
-
-    async def fake_get(url):
-        calls["n"] += 1
-        return "# guide"
-
-    monkeypatch.setattr(ncg, "_http_get", fake_get)
-    monkeypatch.setattr(ncg, "_now", lambda: 1000.0)
-    await ncg.fetch_guide("https://api.netmind.chat")
-    await ncg.fetch_guide("https://api.netmind.chat")
-    assert calls["n"] == 1  # second call served from cache
+def test_guide_is_curated_not_raw_runtime_md():
+    # It must be OUR curated doc (strong platform banner), not narra's raw
+    # runtime.md. The banner may NAME npm/configure/token to FORBID them; what
+    # must be absent is the actual install RECIPE — markers that only appear in a
+    # real install command, never in a prohibition.
+    g = ncg.get_guide()
+    assert "PLATFORM PROVIDES" in g          # our curated banner
+    assert "@narra-im" not in g              # the npm package spec (install recipe)
+    assert "./node_modules/.bin" not in g    # the run-it-yourself path (recipe)
 
 
-async def test_cache_expires_after_ttl(monkeypatch):
-    calls = {"n": 0}
-
-    async def fake_get(url):
-        calls["n"] += 1
-        return "# guide"
-
-    monkeypatch.setattr(ncg, "_http_get", fake_get)
-    t = {"v": 1000.0}
-    monkeypatch.setattr(ncg, "_now", lambda: t["v"])
-    await ncg.fetch_guide("https://api.netmind.chat")
-    t["v"] = 1000.0 + ncg._CACHE_TTL_SECONDS + 1
-    await ncg.fetch_guide("https://api.netmind.chat")
-    assert calls["n"] == 2  # refetched after TTL
-
-
-async def test_fetch_failure_falls_back_to_snapshot(monkeypatch):
-    async def boom(url):
-        raise RuntimeError("network down")
-
-    monkeypatch.setattr(ncg, "_http_get", boom)
-    out = await ncg.fetch_guide("https://api.netmind.chat")
-    # Bundled snapshot is non-empty and mentions narra-cli.
-    assert out
-    assert "narra-cli" in out.lower()
-
-
-async def test_stale_cache_preferred_over_snapshot_on_failure(monkeypatch):
-    async def once_then_fail(url):
-        once_then_fail.n = getattr(once_then_fail, "n", 0) + 1
-        if once_then_fail.n == 1:
-            return "# fresh live doc"
-        raise RuntimeError("down")
-
-    monkeypatch.setattr(ncg, "_http_get", once_then_fail)
-    t = {"v": 1000.0}
-    monkeypatch.setattr(ncg, "_now", lambda: t["v"])
-    first = await ncg.fetch_guide("https://api.netmind.chat")
-    assert first == "# fresh live doc"
-    # TTL expires; next fetch fails → serve the stale live copy, not the snapshot.
-    t["v"] = 1000.0 + ncg._CACHE_TTL_SECONDS + 1
-    second = await ncg.fetch_guide("https://api.netmind.chat")
-    assert second == "# fresh live doc"
+def test_builtin_fallback_when_resource_missing(monkeypatch, tmp_path):
+    # If the resource file is unreadable, the built-in still keeps the invariant.
+    monkeypatch.setattr(ncg, "_CURATED_PATH", tmp_path / "does-not-exist.md")
+    g = ncg.get_guide()
+    assert "narra_cli" in g
+    assert "do NOT install" in g or "do not install" in g.lower()
