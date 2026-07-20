@@ -36,6 +36,8 @@ dependencies = [
     "numpy>=1.26.0",
     "httpx[socks]",
     "bcrypt>=5.0.0",
+    # Fernet encryption for skill env_config secrets (skill marketplace).
+    "cryptography>=42.0.0",
     "pyjwt>=2.10.1",
     "lark-oapi>=1.4.0,<2.0.0",
     "slack-sdk>=3.27.0",

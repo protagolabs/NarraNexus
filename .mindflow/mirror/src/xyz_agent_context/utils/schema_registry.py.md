@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-07-16
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — Skill Marketplace: 4 new tables
+
+Registered `skill_catalog` (cloud-authoritative marketplace directory, one
+row per skill_id × version, UNIQUE(skill_id, version)), `skill_installations`
+(per-workspace audit follower of the filesystem skill state,
+UNIQUE(agent_id, user_id, skill_id) — note the triple: workspaces are
+`{agent_id}_{user_id}`), `skill_scan_results` (append-only scan runs,
+non-unique (skill_id, version) index on purpose — latest row by id wins),
+and `team_skill_policies` (placeholder; Team Recommended phase adds logic).
+
+All four exist (empty) on desktop deployments because auto_migrate is
+unconditional; only the cloud instance writes catalog/scan rows. Purely
+additive. Spec:
+`reference/self_notebook/specs/2026-07-20-skill-marketplace-tech-design-v1.1.md` §3.
 
 ## 2026-07-16 — user_providers 加 netmind_account_id / netmind_account_email
 

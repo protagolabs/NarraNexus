@@ -1425,6 +1425,110 @@ _register(
 )
 
 # ----------------------------------------------------------------------------
+# Skill Marketplace (spec: 2026-07-20-skill-marketplace-tech-design-v1.1.md)
+#
+# skill_catalog / skill_scan_results are written only by the cloud registry
+# instance; they exist (empty) on desktop deployments because auto_migrate
+# is unconditional. skill_installations is written on both sides and is an
+# AUDIT FOLLOWER of the filesystem truth (skills/ + .skill_meta.json) — the
+# reconciler only ever updates rows, never touches user files.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="skill_catalog",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("skill_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("version", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("name", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("description", "TEXT", "TEXT"),
+            Column("author_json", "TEXT", "TEXT"),
+            Column("license", "TEXT", "VARCHAR(64)"),
+            Column("category", "TEXT", "VARCHAR(32)"),
+            Column("capabilities_json", "TEXT", "TEXT"),
+            Column("tags_json", "TEXT", "TEXT"),
+            Column("config_schema_json", "TEXT", "MEDIUMTEXT"),
+            Column("dependencies_json", "TEXT", "TEXT"),
+            Column("compatibility_json", "TEXT", "TEXT"),
+            Column("s3_key", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("package_hash", "TEXT", "VARCHAR(80)", nullable=False),
+            Column("publisher", "TEXT", "VARCHAR(128)"),
+            Column("scan_status", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("status", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("downloads", "INTEGER", "BIGINT", nullable=False, default="0"),
+            Column("avg_rating", "REAL", "DECIMAL(3,2)"),
+            Column("published_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_skill_catalog_id_ver", ["skill_id", "version"], unique=True),
+            Index("idx_skill_catalog_category", ["category"]),
+            Index("idx_skill_catalog_status", ["status"]),
+        ],
+    )
+)
+
+_register(
+    TableDef(
+        name="skill_installations",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("skill_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("version", "TEXT", "VARCHAR(32)"),
+            Column("source_type", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("source_url", "TEXT", "VARCHAR(1024)"),
+            Column("package_hash", "TEXT", "VARCHAR(80)"),
+            Column("status", "TEXT", "VARCHAR(24)", nullable=False),
+            Column("last_event", "TEXT", "VARCHAR(24)"),
+            Column("installed_at", "TEXT", "DATETIME(6)"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_skill_inst_agent_user_skill", ["agent_id", "user_id", "skill_id"], unique=True),
+            Index("idx_skill_inst_user", ["user_id"]),
+        ],
+    )
+)
+
+_register(
+    TableDef(
+        name="skill_scan_results",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("skill_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("version", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("status", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("high_issues", "INTEGER", "INT", nullable=False, default="0"),
+            Column("low_issues", "INTEGER", "INT", nullable=False, default="0"),
+            Column("issues_json", "TEXT", "MEDIUMTEXT"),
+            Column("scanner_version", "TEXT", "VARCHAR(16)"),
+            Column("scanned_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_skill_scan_id_ver", ["skill_id", "version"])],
+    )
+)
+
+# Placeholder registration (Team Recommended phase implements the logic).
+_register(
+    TableDef(
+        name="team_skill_policies",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("skill_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("policy_type", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_team_skill_policy", ["team_id", "skill_id"], unique=True),
+        ],
+    )
+)
+
+# ----------------------------------------------------------------------------
 # channel_trigger_audit — multi-channel lifecycle audit (Phase 1 / IM abstraction)
 #
 # Generic version of `lark_trigger_audit` with an additional `channel` column
