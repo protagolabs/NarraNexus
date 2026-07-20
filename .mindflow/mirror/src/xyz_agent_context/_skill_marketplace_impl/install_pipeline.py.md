@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/_skill_marketplace_impl/install_pipeline.py
-last_verified: 2026-07-20
+last_verified: 2026-07-21
 stub: false
 ---
 
@@ -43,3 +43,12 @@ auto-migration" from Phase 2 comment #3.
 - `install_from_zip` re-extracts nothing: staging IS the only extraction;
   `install_from_dir` moves the staged tree. Both entrances clean their temp
   dir in `finally` (move makes `exists()` False on success).
+
+## 2026-07-21 — marketplace 源接入(stage 4)
+
+新增 `install_from_marketplace(skill_id, version, marketplace_source)`:
+下载 → **hash 实时校验**(与 catalog 记录不符即中止,防篡改)→ 依赖递归安装
+(深度 ≤3、环检测)→ `_install_staged(skip_scan=True)`(发布时已扫过,装机
+只验 hash 不重扫)→ source.record_install 计数。mode 决策(Local vs Remote
+source)由 skill_marketplace_service 统一传入;`_default_marketplace_source`
+仅作直接调用时的兜底。

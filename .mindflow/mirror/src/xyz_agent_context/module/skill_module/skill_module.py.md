@@ -3,6 +3,14 @@ code_file: src/xyz_agent_context/module/skill_module/skill_module.py
 last_verified: 2026-07-20
 ---
 
+## 2026-07-21 — SKILL_MANAGEMENT_RULES 追加进双模式 prompt(stage 5)
+
+新常量 `SKILL_MANAGEMENT_RULES` 同文追加到 CLOUD/LOCAL 两个 workspace-rules
+块(铁律 #7):禁止 Agent 手工 mkdir/rm/cp/mv 操作 `skills/` 下的技能目录,
+必须走 `skill_search_marketplace` / `skill_install` / `skill_uninstall` 三个
+MCP 工具(工具背后是 InstallPipeline)。这是「磁盘↔审计 DB 一致性」三道防线
+中的 prompt 防线;兜底是 services/skill_sync_service.py 对账器。
+
 ## 2026-07-20 — install 原语拆分 + env_config 换 Fernet(Skill Marketplace stage 3)
 
 安装流程拆成三个公开原语,老 API 行为不变、全量测试零回归:

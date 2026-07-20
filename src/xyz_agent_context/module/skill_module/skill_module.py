@@ -114,6 +114,21 @@ WORKSPACE_RULES_LOCAL = (
 )
 
 
+# Appended to BOTH deployment variants (rule #7: the two run modes must
+# behave identically). Keeps skill state changes on the managed path so the
+# audit DB and the filesystem cannot drift by agent action.
+SKILL_MANAGEMENT_RULES = (
+    "- **Never create, delete, or modify skill directories under `skills/` "
+    "by hand** (no `mkdir`/`rm`/`cp`/`mv` on skill folders). To install, "
+    "uninstall, or update a skill, always use the dedicated tools: "
+    "`skill_search_marketplace`, `skill_install`, `skill_uninstall`. "
+    "Hand-edited skill state is flagged as unmanaged and may be ignored."
+)
+
+WORKSPACE_RULES_CLOUD = WORKSPACE_RULES_CLOUD + "\n" + SKILL_MANAGEMENT_RULES
+WORKSPACE_RULES_LOCAL = WORKSPACE_RULES_LOCAL + "\n" + SKILL_MANAGEMENT_RULES
+
+
 def _resolve_workspace_rules(ctx_data: "ContextData") -> str:
     """Pick the cloud or local workspace-rules block for the current run.
 

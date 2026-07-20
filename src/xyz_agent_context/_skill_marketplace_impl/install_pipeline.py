@@ -137,6 +137,77 @@ class InstallPipeline:
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
+    async def install_from_marketplace(
+        self,
+        skill_id: str,
+        version: Optional[str] = None,
+        marketplace_source=None,
+        _dep_chain: Optional[set] = None,
+    ) -> InstallResult:
+        """Install from the marketplace registry (hash-verified, no re-scan —
+        the package was scanned at publish time). Missing manifest
+        dependencies are installed recursively from the marketplace first.
+        """
+        source = marketplace_source or self._default_marketplace_source()
+        dep_chain = _dep_chain or set()
+        if skill_id in dep_chain:
+            raise ValueError(f"Circular skill dependency detected at '{skill_id}'")
+        dep_chain = dep_chain | {skill_id}
+        if len(dep_chain) > 4:
+            raise ValueError("Skill dependency chain exceeds the depth limit (3)")
+
+        temp_dir = Path(tempfile.mkdtemp())
+        try:
+            zip_path, entry = await source.resolve_and_download(skill_id, temp_dir, version)
+
+            actual_hash = _sha256_file(zip_path)
+            if entry.package_hash and actual_hash != entry.package_hash:
+                raise ValueError(
+                    f"Package hash mismatch for '{skill_id}' — the artifact does not "
+                    "match the registry record (possible tampering). Install aborted."
+                )
+
+            skill_root = self.skill_module.extract_skill_package(zip_path, temp_dir / "staged")
+
+            # Recursive dependency install (marketplace source only).
+            manifest = self._read_manifest(skill_root)
+            installed = {s.name for s in self.skill_module.list_skills(include_disabled=True)}
+            for dep in sorted((manifest or {}).get("dependencies") or {}):
+                if dep not in installed:
+                    await self.install_from_marketplace(
+                        dep, marketplace_source=source, _dep_chain=dep_chain
+                    )
+
+            result = await self._install_staged(
+                skill_root,
+                source_type="marketplace",
+                source_url=None,
+                package_hash=actual_hash,
+                skip_scan=True,
+            )
+            if result.status == "installed":
+                try:
+                    await source.record_install(entry)
+                except Exception as exc:
+                    logger.debug(f"Download-counter update failed for '{skill_id}': {exc}")
+            return result
+        finally:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+
+    def _default_marketplace_source(self):
+        from xyz_agent_context.utils.deployment_mode import get_deployment_mode
+
+        from .registry import LocalMarketplaceSource, RegistryService, RemoteMarketplaceSource
+
+        if get_deployment_mode() == "cloud":
+            if self._db_client is None:
+                raise ValueError(
+                    "Marketplace install on cloud requires a db_client for the registry"
+                )
+            return LocalMarketplaceSource(RegistryService(self._db_client))
+        return RemoteMarketplaceSource()
+
     async def uninstall(self, skill_name: str) -> bool:
         """Remove a skill and record the uninstall in the audit trail.
 
@@ -157,6 +228,7 @@ class InstallPipeline:
         package_hash: Optional[str],
         original_zip_path: Optional[Path] = None,
         branch: Optional[str] = None,
+        skip_scan: bool = False,
     ) -> InstallResult:
         from xyz_agent_context.utils.file_safety import sanitize_filename
 
@@ -167,15 +239,19 @@ class InstallPipeline:
         # conflict check must look up the same name.
         incoming_name = sanitize_filename(incoming.name, label="skill name")
 
-        # Step 4.5 — security scan gate (unvetted sources: zip/github/url).
-        report = scan_skill_dir(skill_root)
-        if report.status == "rejected":
-            rules = sorted({i.rule for i in report.issues if i.severity == "high"})
-            raise ValueError(
-                f"Security scan rejected this skill package ({', '.join(rules)}). "
-                "See the scan report for the offending files."
-            )
-        warnings = [i.to_dict() for i in report.issues]
+        # Step 4.5 — security scan gate. Unvetted sources (zip/github/url)
+        # are scanned here; marketplace packages were scanned at publish time
+        # and are hash-verified instead (skip_scan=True).
+        warnings: List[Dict[str, Any]] = []
+        if not skip_scan:
+            report = scan_skill_dir(skill_root)
+            if report.status == "rejected":
+                rules = sorted({i.rule for i in report.issues if i.severity == "high"})
+                raise ValueError(
+                    f"Security scan rejected this skill package ({', '.join(rules)}). "
+                    "See the scan report for the offending files."
+                )
+            warnings = [i.to_dict() for i in report.issues]
 
         # Step 1 — resolve dependencies (must already be installed).
         self._check_dependencies(manifest)

@@ -265,10 +265,35 @@ async def lifespan(app: FastAPI):
     if app.state.executor_reaper_task is not None:
         logger.info("Executor idle-cull reaper started")
 
+    # Skill reconciler — keeps the skill_installations audit table following
+    # the filesystem truth (users can hand-edit skills/; the DB heals).
+    # Startup pass + periodic loop; only ever writes DB, never user files.
+    from xyz_agent_context.services.skill_sync_service import SkillSyncService
+
+    import asyncio as _asyncio
+
+    skill_sync = SkillSyncService(db)
+    try:
+        await skill_sync.reconcile_all()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[skill-sync] startup pass failed: {e}")
+    app.state.skill_sync_task = _asyncio.create_task(skill_sync.run_forever())
+    app.state.skill_sync_task.add_done_callback(
+        lambda t: (
+            logger.warning(f"[skill-sync] loop exited: {t.exception()}")
+            if not t.cancelled() and t.exception() is not None
+            else None
+        )
+    )
+    logger.info("Skill reconciler started")
+
     yield
 
     # Shutdown
     logger.info("Shutting down FastAPI application...")
+    skill_sync_task = getattr(app.state, "skill_sync_task", None)
+    if skill_sync_task is not None:
+        skill_sync_task.cancel()
     reaper_task = getattr(app.state, "executor_reaper_task", None)
     if reaper_task is not None:
         reaper_task.cancel()
@@ -328,6 +353,7 @@ from backend.routes.users_artifacts import router as users_artifacts_router
 from backend.routes.jobs import router as jobs_router
 from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
+from backend.routes.marketplace_skills import router as marketplace_skills_router
 from backend.routes.home_assistant import router as home_assistant_router
 from backend.routes.providers import router as providers_router
 from backend.routes.inbox import router as inbox_router
@@ -368,6 +394,11 @@ app.include_router(office_watch_public_router, prefix="/api/public", tags=["Offi
 app.include_router(users_artifacts_router, prefix="/api/users", tags=["Artifacts"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
+# /api/marketplace is one namespace, split by object: skills/* here;
+# teams/* is reserved for the Team/Agent bundle marketplace.
+app.include_router(
+    marketplace_skills_router, prefix="/api/marketplace/skills", tags=["SkillMarketplace"]
+)
 app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["HomeAssistant"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])

@@ -392,20 +392,30 @@ tests/marketplace/{test_scanner,test_install_pipeline,test_registry,test_reconci
 
 **验收**:11 个 pipeline 测试 + **全量套件 2812 passed / 0 fail 零回归**;ruff 干净;pyright 新文件 0 错误(所touch旧文件存在 9 个改动前已有的类型噪音,未引入新错误);mirror md 同步(skill_module.py.md / skills.py.md 加dated entry)。
 
-### ④ Registry + S3 — ⬜ 未开始
+### ④ Registry + S3 — ✅ 已完成(2026-07-21)
 
-**范围**:`_skill_marketplace_impl/registry.py`(cloud catalog 查询/Publish 流水线 + 桌面 RegistryClient)、`artifact_store.py`(S3 封装,boto3 仅此一处;+boto3 依赖)。
-**计划交付**:2 文件 + `tests/marketplace/test_registry.py` + S3 bucket/IAM 配置说明(dev server 见 PRD comment)。
+**实际交付**:
+- `artifact_store.py`:S3(`SKILL_S3_BUCKET`/`SKILL_S3_PREFIX`/`SKILL_S3_REGION` env)+ LocalArtifactStore 双实现,boto3 仅此一处、懒加载;key 逃逸防护。**注意:cloud 部署要配 `SKILL_S3_BUCKET` + IAM;未配则回退本机 marketplace_store 目录(单机可用)。**
+- `registry.py`:Publish 流水线(extract 复用 zip 安全检查 → manifest 校验/合成、version 必填 → 扫描 Gate(`PublishRejectedError` 带完整报告)→ artifact+manifest 上传 → catalog+scan 行);search/detail/check_updates/download_to;`LocalMarketplaceSource`(cloud)与 `RemoteMarketplaceSource`(桌面 → cloud API,信任 `X-Skill-Version`/`X-Package-Hash` 响应头)。
+- InstallPipeline 新增 `install_from_marketplace`:下载 → **hash 实时校验防篡改** → 依赖递归安装(深度≤3+环检测)→ skip_scan 安装(发布时已扫)→ 下载计数。
+- 删除 S3 index 文件的决策落地:DB catalog 是唯一目录真相。
 
-### ⑤ API + MCP 工具 — ⬜ 未开始
+### ⑤ API + MCP 工具 — ✅ 已完成(2026-07-21)
 
-**范围**:`backend/routes/marketplace_skills.py`(`/api/marketplace/skills/*` 五端点)+ `skill_marketplace_service.py` 协议层;`_skill_mcp_tools.py` +3 工具(search/install/uninstall);`skill_module.py` WORKSPACE_RULES 增加"禁手工动 skills/"条款(双模式同文)。
-**计划交付**:路由 + service + MCP + `tests/marketplace/test_api.py`。
+**实际交付**:
+- `skill_marketplace_service.py`:协议层唯一门面;**cloud/desktop 分流决策只在这一处**(cloud→本地 DB registry,desktop→cloud API);installed/update_available 注入按磁盘真相(SkillModule + meta)。
+- `backend/routes/marketplace_skills.py` 挂 `/api/marketplace/skills/*`(teams/* 预留):search / updates(agent 模式+批量 skills= 模式)/ {id} detail / {id}/download(带版本与 hash 头,服务端计数)/ {id}/install(409 SKILL_ALREADY_INSTALLED)/ publish(`MARKETPLACE_PUBLISH_TOKEN` 门禁,422 带 scan_report)。读端点公开(包注册表语义),写端点走 auth。
+- `_skill_mcp_tools.py` +3 工具:`skill_search_marketplace` / `skill_install`(marketplace id 或 GitHub URL 双路)/ `skill_uninstall`;离线返回明确不可用消息,不抛异常打断 agent loop。
+- `skill_module.py` 新增 `SKILL_MANAGEMENT_RULES` 同文追加进 CLOUD/LOCAL 双 prompt(铁律 #7):禁手工动 `skills/`,必须走三个工具。
 
-### ⑥ 对账器 — ⬜ 未开始
+### ⑥ 对账器 — ✅ 已完成(2026-07-21)
 
-**范围**:`services/skill_sync_service.py`(启动 + 30min 定时 + 装后增量;四种漂移分支 manual/external_removed/modified/disabled;disk wins,只写 DB)。
-**计划交付**:service + `tests/marketplace/test_reconciler.py`(真实文件系统 fixture)。
+**实际交付**:
+- `services/skill_sync_service.py`:五种漂移分支(manual 补录/external_removed/modified(content_hash)/disabled/restored),幂等,**只写 DB 永不动用户文件**(有专门的不变量测试);`reconcile_all` 按 nested `{user}/{agent}` 布局遍历。
+- 接线:backend lifespan 启动先跑一遍 + `run_forever` 循环(`SKILL_SYNC_INTERVAL_SECONDS` 默认 1800,0 关闭),shutdown cancel + done-callback 记录异常退出。两种运行模式共用同一 lifespan(铁律 #7)。
+- 与计划的差异:未做"每次安装后增量对账"——InstallPipeline 自己写审计行,增量对账冗余;enable/disable 的 UI 路径靠周期对账收敛(DB 仅审计用途,滞后 ≤ interval 可接受)。
+
+**④⑤⑥ 合并验收**:tests/marketplace 84 个全绿(registry 8 + api 7 + reconciler 7 + 既有 62);全量套件 2832 passed 零回归;ruff 干净;pyright 新文件 0 错误。
 
 ### ⑦ 前端 — ⬜ 未开始
 

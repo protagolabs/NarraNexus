@@ -1,8 +1,17 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-13
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — Skill Marketplace 路由挂载 + 对账器 lifespan 任务(stage 5/6)
+
+挂载 `marketplace_skills_router` 于 `/api/marketplace/skills`(marketplace
+命名空间按对象拆分;`/api/marketplace/teams/*` 预留给 bundle 分享)。lifespan
+新增 SkillSyncService:启动先跑一遍 reconcile_all,再起 run_forever 循环任务
+(`SKILL_SYNC_INTERVAL_SECONDS`,默认 1800,0 关闭),shutdown cancel;
+done-callback 记录非预期退出(fire-and-forget 教训 #2)。
+
 
 ## 2026-07-10 — feedback_router 注册
 
