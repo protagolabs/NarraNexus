@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm_failure.py
-last_verified: 2026-07-16
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — 余额文案补「订阅 NetMind.AI 套餐」
+
+`SELF_SERVICEABLE_USER_MESSAGE[INSUFFICIENT_BALANCE]` 增加订阅这条出路。背景：
+`NETMIND_USE_SUBSCRIPTION_ENABLED` 在 prod 打开后，登录会自动在用户自己的
+NetMind 账户下生成 key 并绑槽位，于是出现「有 key、但从没订阅过、账户零余额」
+的用户。对他们只说"充值或切换 provider"不完整——订阅套餐同样能解决。
+
+只改文案，marker 与分类逻辑未动（余额检测走的是上游原始报错串，不是这条文案）。
 
 ## 2026-07-16 — 补 Anthropic 余额 marker + 余额文案指向 Settings→Providers
 

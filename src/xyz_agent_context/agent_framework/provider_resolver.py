@@ -122,9 +122,14 @@ class QuotaExceededError(ProviderResolverError):
     error_code = "QUOTA_EXCEEDED_NO_USER_PROVIDER"
 
     def __init__(self, user_id: str):
+        # Keep the leading "Free quota exhausted." phrase: job_trigger's
+        # _NO_QUOTA_ERROR_MARKERS still substring-matches it as its legacy
+        # third detection layer, so background jobs pause instead of
+        # retry-storming.
         super().__init__(
             user_id,
-            "Free quota exhausted. Configure your own provider to continue.",
+            "Free quota exhausted. Add your own provider in Settings → "
+            "Providers, or subscribe to a NetMind.AI plan, to continue.",
         )
 
 
