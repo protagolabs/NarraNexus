@@ -142,10 +142,24 @@ def _narra_cli_home() -> str:
     ``--token-file``, never into this dir.
     """
     global _NARRA_HOME
-    if _NARRA_HOME is None:
-        d = os.path.join(tempfile.gettempdir(), "narra-cli-home")
-        os.makedirs(d, exist_ok=True)
-        _NARRA_HOME = d
+    if _NARRA_HOME is not None:
+        return _NARRA_HOME
+    # Per-uid path + 0700, and verify WE own it. On a shared host (bash run.sh
+    # mode, 铁律 #7) a co-tenant could pre-squat a fixed path: exist_ok=True would
+    # silently pass and narra-cli would then chmod a dir it doesn't own —
+    # reproducing this very EPERM — while a default-umask 0755 would leak the
+    # endpoint config to other users. If the path isn't ours, fall back to an
+    # unpredictable private dir (mkdtemp is 0700 and unique).
+    base = os.path.join(tempfile.gettempdir(), f"narra-cli-home-{os.getuid()}")
+    try:
+        os.makedirs(base, mode=0o700, exist_ok=True)
+        if os.stat(base).st_uid == os.getuid():
+            os.chmod(base, 0o700)  # tighten even if it pre-existed with looser bits
+            _NARRA_HOME = base
+            return _NARRA_HOME
+    except OSError:
+        pass
+    _NARRA_HOME = tempfile.mkdtemp(prefix="narra-cli-home-")
     return _NARRA_HOME
 
 
