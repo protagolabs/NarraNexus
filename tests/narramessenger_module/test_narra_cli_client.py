@@ -60,7 +60,7 @@ def _patch_exec(monkeypatch, capture: dict, envelope: dict, returncode: int = 0)
 async def test_token_file_injected_not_on_argv(monkeypatch):
     cap: dict = {}
     _patch_exec(monkeypatch, cap, {"command": "status", "data": {"ok": True}, "status": "ok"})
-    client = NarraCliClient(BEARER, "https://api.netmind.chat")
+    client = NarraCliClient(BEARER)
     await client.run(["status"])
 
     assert "--token-file" in cap["cmd"]
@@ -75,7 +75,7 @@ async def test_token_file_injected_not_on_argv(monkeypatch):
 async def test_token_file_removed_after_success(monkeypatch):
     cap: dict = {}
     _patch_exec(monkeypatch, cap, {"command": "status", "data": {}, "status": "ok"})
-    client = NarraCliClient(BEARER, "https://api.netmind.chat")
+    client = NarraCliClient(BEARER)
     await client.run(["status"])
     assert not os.path.exists(cap["token_path"])  # cleaned up
 
@@ -91,7 +91,7 @@ async def test_token_file_removed_after_exception(monkeypatch):
     monkeypatch.setattr(ncc.asyncio, "create_subprocess_exec", boom)
     monkeypatch.setenv("NARRA_CLI_BIN", "/opt/narra-cli/node_modules/.bin/narra-cli")
     ncc._NARRA_CLI_BIN = None
-    client = NarraCliClient(BEARER, "https://api.netmind.chat")
+    client = NarraCliClient(BEARER)
     with pytest.raises(RuntimeError):
         await client.run(["status"])
     assert not os.path.exists(seen["token_path"])  # cleaned up even on crash
@@ -100,7 +100,7 @@ async def test_token_file_removed_after_exception(monkeypatch):
 async def test_cwd_threaded(monkeypatch):
     cap: dict = {}
     _patch_exec(monkeypatch, cap, {"command": "im send", "data": {}, "status": "ok"})
-    client = NarraCliClient(BEARER, "https://api.netmind.chat")
+    client = NarraCliClient(BEARER)
     await client.run(["im", "send"], cwd="/work/agent_x")
     assert cap["cwd"] == "/work/agent_x"
 
@@ -108,7 +108,7 @@ async def test_cwd_threaded(monkeypatch):
 async def test_ok_envelope_normalized(monkeypatch):
     cap: dict = {}
     _patch_exec(monkeypatch, cap, {"command": "status", "data": {"room": 3}, "status": "ok"})
-    client = NarraCliClient(BEARER, "https://api.netmind.chat")
+    client = NarraCliClient(BEARER)
     out = await client.run(["status"])
     assert out["success"] is True
     assert out["data"] == {"room": 3}
@@ -123,10 +123,36 @@ async def test_error_envelope_normalized(monkeypatch):
         "status": "error",
     }
     _patch_exec(monkeypatch, cap, envelope, returncode=1)
-    client = NarraCliClient(BEARER, "https://api.netmind.chat")
+    client = NarraCliClient(BEARER)
     out = await client.run(["im", "send"])
     assert out["success"] is False
     assert out["error"] == "agent-room-access-denied"
+
+
+async def test_empty_stdout_exit0_is_success(monkeypatch):
+    # A file-writing command (speech synthesize --out / attachments download
+    # --output) can succeed with empty stdout — exit 0 must map to success,
+    # NOT a false "empty_output" failure.
+    async def fake_exec(*cmd, **kw):
+        return _FakeProc(b"", returncode=0)
+
+    monkeypatch.setattr(ncc.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setenv("NARRA_CLI_BIN", "/opt/narra-cli/node_modules/.bin/narra-cli")
+    ncc._NARRA_CLI_BIN = None
+    out = await NarraCliClient(BEARER).run(["speech", "synthesize", "--out", "./r.wav"])
+    assert out["success"] is True
+
+
+async def test_empty_stdout_nonzero_is_failure(monkeypatch):
+    async def fake_exec(*cmd, **kw):
+        return _FakeProc(b"", returncode=1)
+
+    monkeypatch.setattr(ncc.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setenv("NARRA_CLI_BIN", "/opt/narra-cli/node_modules/.bin/narra-cli")
+    ncc._NARRA_CLI_BIN = None
+    out = await NarraCliClient(BEARER).run(["speech", "synthesize"])
+    assert out["success"] is False
+    assert out["error"] == "empty_output"
 
 
 def test_managed_install_beats_stale_global_on_path(monkeypatch):

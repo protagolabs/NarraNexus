@@ -41,6 +41,12 @@ short and hand-auditable.
   signal of official status, and a client gate would only block everyone
   (and hide the informative backend error). An earlier ``is_official``
   param was removed 2026-07-20 for exactly this reason.
+- **All checks run on the shlex-tokenized command (2026-07-20 review fix), not
+  the raw string.** Matching blocked patterns on the raw string let ``im  send``
+  (extra whitespace) slip past the ``im send`` block while the token-based domain
+  check still saw ``im``. ``validate_command`` now ``shlex.split``s once and
+  matches blocked patterns against **leading tokens** — whitespace-robust, and
+  quotes are respected so whitespace inside a quoted arg survives.
 - **``shlex.split`` + ``shell=False`` argv is the real injection defense,
   NOT a shell-metachar denylist.** Under ``execve`` the metachars are
   literal; a denylist would only break legitimate content ("S&P 500",

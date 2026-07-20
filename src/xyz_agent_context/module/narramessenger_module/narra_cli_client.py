@@ -164,16 +164,14 @@ async def _resolve_agent_workspace_cwd(agent_id: str, db) -> Optional[Path]:
 class NarraCliClient:
     """Runs one narra-cli command with the bearer injected via ephemeral file."""
 
-    def __init__(self, bearer_token: str, backend_base_url: str = "") -> None:
+    def __init__(self, bearer_token: str) -> None:
         self._bearer = bearer_token
-        self._base = backend_base_url
 
     async def run(
         self,
         command_args: list[str],
         *,
         cwd: Path | str | None = None,
-        capture_binary: bool = False,
         timeout: float = 60.0,
     ) -> dict:
         """Spawn narra-cli with ``command_args`` + injected ``--token-file``.
@@ -181,7 +179,9 @@ class NarraCliClient:
         Returns a normalized dict:
           - ``{"success": True, "data": <envelope.data>, "raw": <envelope>}``
           - ``{"success": False, "error": <issue code>, "issues": [...], "raw": ...}``
-          - binary mode (``capture_binary``, empty stdout): ``{"success": True}``.
+          - file-writing commands (``speech synthesize --out``,
+            ``im attachments download --output``) may emit empty stdout on
+            success; that + a zero exit code is treated as ``{"success": True}``.
         """
         tok_path = self._write_token_file()
         try:
@@ -214,7 +214,7 @@ class NarraCliClient:
                 return {"success": False, "error": "narra_cli_not_found",
                         "message": "narra-cli binary not found (install / PATH issue)"}
 
-            return self._parse_envelope(stdout, stderr, capture_binary)
+            return self._parse_envelope(stdout, stderr, proc.returncode)
         finally:
             try:
                 os.unlink(tok_path)
@@ -236,12 +236,14 @@ class NarraCliClient:
         return path
 
     @staticmethod
-    def _parse_envelope(stdout: bytes, stderr: bytes, capture_binary: bool) -> dict:
+    def _parse_envelope(stdout: bytes, stderr: bytes, returncode: int) -> dict:
         text = (stdout or b"").decode(errors="replace").strip()
-        if capture_binary and not text:
-            # --output wrote the body to disk; empty stdout == success.
-            return {"success": True}
         if not text:
+            # A file-writing command (speech synthesize --out / im attachments
+            # download --output) can succeed with empty stdout — trust the exit
+            # code rather than misreporting a written file as a failure.
+            if returncode == 0:
+                return {"success": True}
             return {"success": False, "error": "empty_output",
                     "message": (stderr or b"").decode(errors="replace").strip()}
         try:
@@ -268,13 +270,20 @@ async def run_narra_cli(
     command_args: list[str],
     *,
     db,
-    capture_binary: bool = False,
     timeout: float = 60.0,
 ) -> dict:
     """Resolve the agent's bearer + workspace, then run a narra-cli command.
 
     Returns the normalized :meth:`NarraCliClient.run` dict, or a
     ``no_credential`` error if the agent has no NarraMessenger binding.
+
+    Single-backend (prod) assumption: we inject the per-agent bearer, but the
+    ENDPOINT narra-cli talks to is its global config (``~/.narra-cli/config.json``,
+    default ``https://api.netmind.chat``), NOT ``cred.backend_base_url``. Every
+    binding is expected to use the same hosted backend as that global config.
+    A per-agent endpoint (e.g. an api-test binding on a prod-configured host)
+    would need a per-agent HOME override with its own config.json — deliberately
+    NOT built yet; ``cred.backend_base_url`` is only used here to sanity-warn.
     """
     from ._narramessenger_credential_manager import NarramessengerCredentialManager
 
@@ -284,7 +293,5 @@ async def run_narra_cli(
                 "message": "no NarraMessenger binding for this agent"}
 
     cwd = await _resolve_agent_workspace_cwd(agent_id, db)
-    client = NarraCliClient(cred.bearer_token, cred.backend_base_url)
-    return await client.run(
-        command_args, cwd=cwd, capture_binary=capture_binary, timeout=timeout
-    )
+    client = NarraCliClient(cred.bearer_token)
+    return await client.run(command_args, cwd=cwd, timeout=timeout)

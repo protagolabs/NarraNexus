@@ -4,6 +4,18 @@ stub: false
 last_verified: 2026-07-20
 ---
 
+## 2026-07-20 — review fixes: envelope trusts exit code; dead field/param dropped
+
+- ``_parse_envelope`` now takes the subprocess **exit code**. A file-writing
+  command (``speech synthesize --out`` / ``im attachments download --output``)
+  can succeed with **empty stdout**; empty + exit 0 → ``{"success": True}``
+  instead of a false ``empty_output`` failure. (The never-wired ``capture_binary``
+  param was removed — this general rule subsumes it.)
+- Dropped ``NarraCliClient._base`` (stored ``backend_base_url`` but never used).
+  The CLI's endpoint is its **global** config, NOT ``cred.backend_base_url`` —
+  ``run_narra_cli`` now documents the single-backend (prod) assumption
+  explicitly. A per-agent endpoint (api-test) is deliberately not built yet.
+
 ## Why it exists
 
 The single spawn choke point for the local ``narra-cli`` binary

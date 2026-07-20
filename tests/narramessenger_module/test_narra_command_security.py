@@ -57,6 +57,21 @@ def test_im_send_blocked_but_im_messages_allowed():
     assert validate_command("im attachments download --event-id e --output ./x")[0] is True
 
 
+def test_im_send_block_is_whitespace_robust():
+    # LLMs emit inconsistent spacing; `im  send` (double space) must NOT slip
+    # past the `im send` block (it would otherwise reach the proxy send path).
+    ok, reason = validate_command("im   send --room-id !r:h --text hi")
+    assert ok is False
+    assert "im send" in reason
+
+
+def test_quoted_internal_whitespace_preserved():
+    # The whitespace-robust block must not collapse whitespace INSIDE a quoted
+    # arg — shlex respects quotes, so message content survives intact.
+    args = sanitize_command('im messages --room-id !r:h --keyword "a  b"')
+    assert args[-1] == "a  b"
+
+
 def test_explore_passes_whitelist_backend_enforces_official():
     # explore is NOT gated client-side — it passes our whitelist, and the
     # backend returns `official-agent-required` for a non-official agent.

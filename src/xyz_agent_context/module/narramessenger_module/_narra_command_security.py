@@ -106,27 +106,38 @@ def validate_command(command: str) -> Tuple[bool, str]:
     if not command or not command.strip():
         return False, "Empty command"
 
-    stripped = command.strip()
-    lower = stripped.lower()
+    # Tokenize with shlex (the SAME view sanitize_command uses) so every check
+    # below agrees. Matching blocked patterns on the raw string instead would
+    # let ``im  send`` (extra whitespace) slip past the ``im send`` block while
+    # the domain check — which runs on tokens — still saw ``im``. shlex also
+    # respects quotes, so whitespace INSIDE a quoted arg is preserved.
+    try:
+        tokens = shlex.split(command.strip())
+    except ValueError as e:
+        return False, f"Could not parse command: {e}"
+    if not tokens:
+        return False, "Empty command"
 
-    # Blocked top-level patterns.
-    for pattern in BLOCKED_PATTERNS:
-        if lower == pattern or lower.startswith(f"{pattern} "):
-            return False, (
-                f"Blocked command: '{pattern}' — not available via narra_cli"
-            )
+    lowered = [t.lower() for t in tokens]
 
     # Injected flags must never come from the agent.
-    tokens = stripped.split()
     for flag in BLOCKED_FLAGS:
-        if flag in tokens or any(t.startswith(f"{flag}=") for t in tokens):
+        if any(t == flag or t.startswith(f"{flag}=") for t in tokens):
             return False, (
                 f"Blocked flag: '{flag}' — the platform injects the agent token; "
                 "do not pass it yourself"
             )
 
+    # Blocked commands — match leading tokens (whitespace-robust).
+    for pattern in BLOCKED_PATTERNS:
+        pat = pattern.split()
+        if lowered[: len(pat)] == pat:
+            return False, (
+                f"Blocked command: '{pattern}' — not available via narra_cli"
+            )
+
     # Domain whitelist.
-    domain = tokens[0].lower()
+    domain = lowered[0]
     if domain not in ALLOWED_DOMAINS:
         return False, (
             f"Unknown command domain: '{domain}'. "
