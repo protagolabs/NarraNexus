@@ -126,6 +126,44 @@ def _resolve_narra_cli() -> tuple[str, tuple[str, ...]]:
 
 
 # =============================================================================
+# narra-cli HOME — a chmod-able config-dir home
+# =============================================================================
+_NARRA_HOME: Optional[str] = None
+
+
+def _narra_cli_home() -> str:
+    """Return a process-owned, writable HOME for narra-cli, created once.
+
+    narra-cli's ``ConfigStore`` always ``chmod``s ``$HOME/.narra-cli`` (0700) at
+    startup; the container's real HOME is on a mount the server user cannot
+    chmod, so we redirect HOME to a dir under the system tmpdir that the process
+    owns. Shared across calls/agents is fine — the only thing narra-cli stores
+    there is the (default, prod) endpoint config; the per-call TOKEN goes via
+    ``--token-file``, never into this dir.
+    """
+    global _NARRA_HOME
+    if _NARRA_HOME is not None:
+        return _NARRA_HOME
+    # Per-uid path + 0700, and verify WE own it. On a shared host (bash run.sh
+    # mode, 铁律 #7) a co-tenant could pre-squat a fixed path: exist_ok=True would
+    # silently pass and narra-cli would then chmod a dir it doesn't own —
+    # reproducing this very EPERM — while a default-umask 0755 would leak the
+    # endpoint config to other users. If the path isn't ours, fall back to an
+    # unpredictable private dir (mkdtemp is 0700 and unique).
+    base = os.path.join(tempfile.gettempdir(), f"narra-cli-home-{os.getuid()}")
+    try:
+        os.makedirs(base, mode=0o700, exist_ok=True)
+        if os.stat(base).st_uid == os.getuid():
+            os.chmod(base, 0o700)  # tighten even if it pre-existed with looser bits
+            _NARRA_HOME = base
+            return _NARRA_HOME
+    except OSError:
+        pass
+    _NARRA_HOME = tempfile.mkdtemp(prefix="narra-cli-home-")
+    return _NARRA_HOME
+
+
+# =============================================================================
 # Agent workspace CWD (same P0 fix as lark 2026-05-28)
 # =============================================================================
 _agent_user_id_cache: dict[str, str] = {}
@@ -190,6 +228,14 @@ class NarraCliClient:
             env = dict(os.environ)
             if extra_path:
                 env["PATH"] = os.pathsep.join([*extra_path, env.get("PATH", "")])
+            # narra-cli's ConfigStore.ensurePrivateDir unconditionally
+            # `chmod`s ``$HOME/.narra-cli`` on startup. In the MCP container the
+            # server runs as a non-root user whose real $HOME (/home/app) is on a
+            # mount it cannot chmod → ``EPERM: chmod '/home/app/.narra-cli'`` on
+            # EVERY call (dev 2026-07-20; only surfaced with a strong model that
+            # actually ran the command). Point HOME at a dir the process owns so
+            # the chmod succeeds.
+            env["HOME"] = _narra_cli_home()
 
             try:
                 proc = await asyncio.create_subprocess_exec(

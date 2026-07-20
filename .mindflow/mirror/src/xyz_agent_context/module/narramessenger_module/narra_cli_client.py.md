@@ -4,6 +4,24 @@ stub: false
 last_verified: 2026-07-20
 ---
 
+## 2026-07-21 — redirect HOME so narra-cli can chmod its config dir (EPERM fix)
+
+Real dev bug (only surfaced once a strong model actually RAN the command, not the
+manual root-shell test which masked it): narra-cli's ``ConfigStore.ensurePrivateDir``
+unconditionally ``chmod``s ``$HOME/.narra-cli`` at startup. The MCP server runs as
+a non-root user (app) whose real ``$HOME`` (``/home/app``) is on a mount it cannot
+chmod → ``EPERM: chmod '/home/app/.narra-cli'`` on EVERY narra_cli call. Fix:
+``run()`` sets ``env["HOME"] = _narra_cli_home()`` — a process-owned dir under the
+system tmpdir (created once, shared across calls; only holds the default/prod
+endpoint config, never the token). The path is **per-uid** (``narra-cli-home-<uid>``)
+and forced to **0700 with an ownership check**: on a shared host (bash run.sh mode,
+铁律 #7) a fixed world-path + ``exist_ok=True`` could be pre-squatted by another uid
+→ narra-cli chmods a dir it doesn't own = the same EPERM, and 0755 would leak the
+endpoint config. If the path isn't ours we fall back to ``tempfile.mkdtemp`` (unique,
+0700). Reproduced + verified on dev: ``HOME=/home/app``
+→ EPERM, ``HOME=/tmp/…`` → runs. (My earlier "manual verify passed" was a false
+positive — it ran as root, which can chmod anything.)
+
 ## 2026-07-20 (review round 2) — default timeout 60s → 120s
 
 Large `im attachments download` / long `speech synthesize` can exceed 60s;

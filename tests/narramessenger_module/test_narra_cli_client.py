@@ -42,6 +42,7 @@ def _patch_exec(monkeypatch, capture: dict, envelope: dict, returncode: int = 0)
     async def fake_exec(*cmd, stdout=None, stderr=None, stdin=None, env=None, cwd=None):
         capture["cmd"] = list(cmd)
         capture["cwd"] = cwd
+        capture["env"] = env
         # token-file must exist and contain the bearer WHILE the CLI runs.
         idx = cmd.index("--token-file")
         tok_path = cmd[idx + 1]
@@ -95,6 +96,26 @@ async def test_token_file_removed_after_exception(monkeypatch):
     with pytest.raises(RuntimeError):
         await client.run(["status"])
     assert not os.path.exists(seen["token_path"])  # cleaned up even on crash
+
+
+async def test_home_redirected_so_narra_cli_can_chmod_its_config_dir(monkeypatch):
+    # narra-cli chmods $HOME/.narra-cli on startup; the real container HOME is on
+    # a mount the server user can't chmod (EPERM). We must point HOME at a
+    # process-owned, writable dir.
+    ncc._NARRA_HOME = None  # force fresh creation
+    cap: dict = {}
+    _patch_exec(monkeypatch, cap, {"command": "status", "data": {}, "status": "ok"})
+    await NarraCliClient(BEARER).run(["status"])
+    home = cap["env"]["HOME"]
+    assert home == ncc._narra_cli_home()
+    assert os.path.isdir(home)           # created + writable
+    assert os.access(home, os.W_OK)
+    assert home != os.path.expanduser("~")  # NOT the real (unchmod-able) HOME
+    # Owned by us + private (no co-tenant squat / config leak on a shared host).
+    st = os.stat(home)
+    assert st.st_uid == os.getuid()
+    assert stat.S_IMODE(st.st_mode) == 0o700
+    assert str(os.getuid()) in home       # per-uid path
 
 
 async def test_cwd_threaded(monkeypatch):
