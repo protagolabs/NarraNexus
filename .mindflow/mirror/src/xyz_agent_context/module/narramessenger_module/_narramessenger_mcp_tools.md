@@ -4,6 +4,21 @@ stub: false
 last_verified: 2026-07-20
 ---
 
+## 2026-07-21 — `narra_cli` docstring said "read-only"; agent refused to publish
+
+Dev incident: asked to `explore publish`, an agent refused with "narra_cli only
+supports query/context/status reads" — because the tool docstring **literally
+said that** ("Run a narra-cli command for query/context/status ops. Use this to
+READ … NOT to send", no `explore` in the command list). The MCP tool docstring
+IS the description the LLM sees, so it outweighed the `_CLI_CAPABILITY` system
+prompt that DID mention explore. Rewrote the docstring: narra-cli is a ready,
+installed tool (don't reason about installing it / npm / tokens); it covers
+explore **writes** (publish/list/delete) plus rooms/history/attachments/speech/
+status; only CHAT messages go via `narra_reply`/`narra_send`. Companion tweak in
+[[narramessenger_module]]'s `_CLI_CAPABILITY` ("don't refuse a write as
+read-only"). (Root cause A of the same incident — narra-cli binary missing from
+the MCP image — is a deploy rebuild, not code.)
+
 ## 2026-07-20 (review) — orphan client deleted; single validate pass
 
 - Removing `narra_status` left `_narramessenger_client.py` (`NarramessengerClient`)

@@ -189,22 +189,34 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
     async def narra_cli(agent_id: str, command: str) -> dict:
-        """Run a narra-cli command for query / context / status ops.
+        """Operate NarraMessenger via the narra-cli CLI (a ready, installed tool).
 
-        Use this to READ NarraMessenger state — NOT to send (reply with
-        ``narra_reply``; send proactively with ``narra_send`` /
-        ``narra_send_media``). The platform injects your agent token per
-        call; do NOT pass ``--token`` / ``--token-file``.
+        This runs narra-cli for you. Do NOT try to install narra-cli / run npm,
+        and do NOT provide a token — narra-cli is already available and the
+        platform injects your agent token per call (never pass ``--token`` /
+        ``--token-file``). Just call this tool with the command.
 
-        Common commands (drop the ``narra-cli`` prefix):
-          - ``room list`` / ``room info --room-id <id> --members``
-          - ``im messages --room-id <id> --limit 50`` (history / search:
-            add ``--keyword`` / ``--start`` / ``--end`` / ``--dir``)
-          - ``im attachments download --room-id <id> --event-id <e> --output ./f``
-          - ``speech transcribe --input ./a.wav`` / ``speech synthesize --text ...``
-          - ``status``
-        Call ``narra_guide(agent_id)`` for the full command reference, or
-        ``<domain> --help`` for one command.
+        It covers rooms, history, attachments, speech, status, AND the public
+        Explore timeline — including WRITES. Common commands (drop the
+        ``narra-cli`` prefix):
+          - explore:      ``explore publish --markdown "..."`` /
+                          ``explore publish --file ./post.md`` / ``explore list`` /
+                          ``explore delete --post-id <id>``. Publishing is
+                          official-agents-only; a non-official agent gets an
+                          ``official-agent-required`` error FROM THE SERVER —
+                          that is a permission answer, not a reason to refuse
+                          before trying.
+          - rooms/people: ``room list`` / ``room info --room-id <id> --members``
+          - history:      ``im messages --room-id <id> --limit 50``
+                          (+ ``--keyword`` / ``--start`` / ``--end`` / ``--dir``)
+          - attachments:  ``im attachments download --room-id <id> --event-id <e> --output ./f``
+          - speech:       ``speech transcribe --input ./a.wav`` /
+                          ``speech synthesize --text "..." --out ./r.wav``
+          - status:       ``status``
+        The ONLY things that do NOT go through this tool are CHAT messages:
+        reply with ``narra_reply``; send a proactive chat message with
+        ``narra_send`` / ``narra_send_media``. Everything else above is this
+        tool. Call ``narra_guide(agent_id)`` for the full command reference.
 
         Returns ``{"success": true, "data": ...}`` or
         ``{"success": false, "error": ...}``.

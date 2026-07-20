@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-07-20
 ---
 
+## 2026-07-21 — `_CLI_CAPABILITY` closing line clarified (writes ≠ read-only)
+
+The closing "Sending stays on narra_reply/narra_send…" line was reinforcing an
+agent's wrong belief that `narra_cli` is read-only (see [[_narramessenger_mcp_tools]]
+2026-07-21). Reworded: only CHAT messages go elsewhere; explore *writes* and
+everything else ARE `narra_cli` — "don't refuse a write as read-only, call the
+tool and try".
+
 ## 2026-07-20 — `_CLI_CAPABILITY` instruction block
 
 ``get_instructions`` injects a ``_CLI_CAPABILITY`` block between ``_BEHAVIOUR``
