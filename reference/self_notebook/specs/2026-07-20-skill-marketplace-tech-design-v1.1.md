@@ -348,6 +348,63 @@ tests/marketplace/{test_scanner,test_install_pipeline,test_registry,test_reconci
 
 ---
 
+## 十一-B、实施进度跟踪(每段完成后更新本节)
+
+> 约定:每完成一段,把该段状态改为 ✅、填入 commit 与实际交付记录;开工中标 🔄。
+> 本节是唯一进度真相,与 git log 互为印证。
+
+### ① 数据层 + SecretBox — ✅ 已完成(2026-07-20,commit `c4223932`)
+
+**范围**:4 张表注册 + 3 个 Repository + Pydantic schema + Fernet 加密件。
+
+**实际交付**:
+- `utils/schema_registry.py`:+`skill_catalog` / `skill_installations`(唯一键 agent_id+user_id+skill_id 三元组)/ `skill_scan_results`(append-only)/ `team_skill_policies`(占位)
+- `schema/skill_marketplace_schema.py`:`SkillCatalogEntry` / `SkillInstallationRecord` / `SkillScanResult`(时间字段 `Optional[datetime]`,对齐 SkillArchive 惯例)
+- `repository/skill_catalog_repository.py`:publish 幂等 upsert(不重置 downloads)、semver 感知 get_latest、search 每 skill 一张卡 + capability/tag 紧凑 JSON LIKE 匹配、increment_downloads 原子自增
+- `repository/skill_installation_repository.py`:upsert_event / mark_status(行永不删,审计留痕)/ list_for_workspace
+- `repository/skill_scan_result_repository.py`:record + latest_for(ORDER BY id DESC)
+- `_skill_marketplace_impl/secret_box.py`:SKILL_SECRETS_KEY 环境变量(非法值 fail-fast)→ 0600 密钥文件;legacy base64 兼容解密 + `needs_rewrite` 惰性迁移标记;不可解析值原样返回
+- `pyproject.toml`:+`cryptography>=42.0.0`
+
+**验收**:22 个新测试全绿(TDD);tests/bundle 45 个回归全绿;ruff 干净;pyright 新文件 0 错误;全部新文件配 mirror md。
+
+### ② Security Scanner — ⬜ 未开始
+
+**范围**:`_skill_marketplace_impl/scanner/`(`static.py` 规则引擎、`patterns.py` HIGH/LOW 规则表、`audit.py` 依赖审计)。框架无关主防线,双端共用;HIGH→REJECT,LOW→WARN。
+**计划交付**:scanner 3 文件 + `tests/marketplace/test_scanner.py`(12 条规则逐条正反例 + 恶意样本集)+ mirror md。
+
+### ③ InstallPipeline 接线 — ⬜ 未开始
+
+**范围**:`_skill_marketplace_impl/install_pipeline.py` 7 步引擎(Resolve→Validate→Conflict→Download+hash→Unpack→Inject Config→Lock&Audit);现有 `backend/routes/skills.py` 的 zip/GitHub 安装入口改为经 Pipeline(响应结构不变);`.skill_meta.json` 增加 `hash`/`content_hash`/`updated_at`;env_config 读写接 SecretBox。
+**计划交付**:pipeline + `skill_module.py` 接线改动 + `tests/marketplace/test_install_pipeline.py` + 现有安装路径回归。**唯一改现有行为的段,独立可回滚。**
+
+### ④ Registry + S3 — ⬜ 未开始
+
+**范围**:`_skill_marketplace_impl/registry.py`(cloud catalog 查询/Publish 流水线 + 桌面 RegistryClient)、`artifact_store.py`(S3 封装,boto3 仅此一处;+boto3 依赖)。
+**计划交付**:2 文件 + `tests/marketplace/test_registry.py` + S3 bucket/IAM 配置说明(dev server 见 PRD comment)。
+
+### ⑤ API + MCP 工具 — ⬜ 未开始
+
+**范围**:`backend/routes/marketplace_skills.py`(`/api/marketplace/skills/*` 五端点)+ `skill_marketplace_service.py` 协议层;`_skill_mcp_tools.py` +3 工具(search/install/uninstall);`skill_module.py` WORKSPACE_RULES 增加"禁手工动 skills/"条款(双模式同文)。
+**计划交付**:路由 + service + MCP + `tests/marketplace/test_api.py`。
+
+### ⑥ 对账器 — ⬜ 未开始
+
+**范围**:`services/skill_sync_service.py`(启动 + 30min 定时 + 装后增量;四种漂移分支 manual/external_removed/modified/disabled;disk wins,只写 DB)。
+**计划交付**:service + `tests/marketplace/test_reconciler.py`(真实文件系统 fixture)。
+
+### ⑦ 前端 — ⬜ 未开始
+
+**范围**:`components/skills/marketplace/{MarketplaceBrowser,SkillDetailSheet}.tsx`、`hooks/useSkillMarketplace.ts`、`lib/api.ts` 五调用、`types/skills.ts` 扩展、`SkillsPanel.tsx` 入口 + Source 列 + 状态徽标(含 Unmanaged)。
+**计划交付**:组件 + vitest 测试,沿用 SkillsPanel.studyStatus.test 模式。
+
+### ⑧ MVP Skills + 双模式验收 — ⬜ 未开始
+
+**范围**:5 个首批 skill(multimodal-fallback / web-search-fallback / file-converter / markdown-exporter / error-handler,清单待同事 wiki 消化后可调)发布上架;DMG 与 `bash run.sh` 各跑一遍 搜索→安装→重启生效→卸载(铁律 #7)。
+**计划交付**:skill 包 + 发布记录 + 双模式验收记录。
+
+---
+
 ## 十二、风险清单(修订后)
 
 1. **第三方代码执行(不变,最高)** — 缓解:MVP 不开社区上传 + 双端扫描 Gate + 运行时隔离 + Known Gaps 文档化。
