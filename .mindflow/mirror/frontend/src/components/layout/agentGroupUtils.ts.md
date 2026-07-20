@@ -50,6 +50,11 @@ render-only and makes the grouping rules testable without rendering.
   `agent_id` tie-break so equal-timestamp order never churns between
   renders. The backend `/api/auth/agents` applies the same rule
   (minus local sessions) as a pre-hydration baseline.
+  Implemented with decorate-sort-undecorate: `score()` (which scans
+  an agent's whole message list via the injected callback) runs once
+  per agent, not the ~2·n·log₂n times an inline comparator would.
+  This sort sits on the streaming path and message lists are
+  unbounded in long sessions, so the single-pass cost matters.
 
 ## 新人易踩的坑
 

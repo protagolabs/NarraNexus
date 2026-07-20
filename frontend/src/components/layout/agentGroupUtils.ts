@@ -129,11 +129,22 @@ export function sortAgentsByActivity<A extends SortableAgent>(
       localActivityMs(a.agent_id) || 0,
       isoToMs(a.created_at),
     );
-  return [...agents].sort((a, b) => {
-    const diff = score(b) - score(a);
-    if (diff !== 0) return diff;
-    return a.agent_id < b.agent_id ? -1 : a.agent_id > b.agent_id ? 1 : 0;
+  // Decorate-sort-undecorate: score() calls localActivityMs(), which scans an
+  // agent's whole message list, so it must run exactly ONCE per agent — not
+  // the ~2·n·log₂n times a comparator that calls score(a)/score(b) inline
+  // would. This sort sits on the streaming path (AgentList re-runs it as chat
+  // state changes), and message lists grow without bound in long sessions, so
+  // the O(n·m) → single-pass difference is what keeps it off the hot path.
+  const scored = agents.map((a) => ({ agent: a, s: score(a) }));
+  scored.sort((x, y) => {
+    if (x.s !== y.s) return y.s - x.s;
+    return x.agent.agent_id < y.agent.agent_id
+      ? -1
+      : x.agent.agent_id > y.agent.agent_id
+        ? 1
+        : 0;
   });
+  return scored.map((x) => x.agent);
 }
 
 // ---------------------------------------------------------------------------

@@ -7,8 +7,9 @@
  * integration chain that the pure test can't see:
  *   rawAgents + agentSessions  →  useMemo(sortAgentsByActivity)  →  DOM order
  * i.e. it fails the day someone passes `rawAgents` (unsorted) back to
- * <AgentGroupSection> instead of `sortedAgents`, or drops `agentSessions`
- * from the memo deps so a fresh local message no longer re-pins its agent.
+ * <AgentGroupSection> instead of `sortedAgents`, or drops the message
+ * signature from the memo deps so a fresh local message no longer re-pins its
+ * agent.
  *
  * The regression this locks down is the exact one seen on 2026-07-17: the
  * list stayed in creation order even though a just-chatted agent had a newer
@@ -30,20 +31,35 @@ vi.mock('@/lib/api', () => ({
 
 import { AgentList } from '../AgentList';
 import { useConfigStore, useChatStore, useTeamsStore } from '@/stores';
+import type { AgentInfo } from '@/types/api';
 import type { ChatMessage } from '@/types/messages';
+import type { AgentChatState } from '@/stores/chatStore';
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Typed fixtures — no `as never`, so adding a required field to AgentInfo /
+// AgentChatState surfaces here as a compile error instead of a silent gap.
 // ---------------------------------------------------------------------------
 
 /** A minimal committed assistant ChatMessage at a given epoch-ms. */
 function assistantMsgAt(ms: number): ChatMessage {
+  return { id: `m_${ms}`, role: 'assistant', content: 'hi', timestamp: ms };
+}
+
+/** A full, type-checked AgentChatState carrying only the given messages. */
+function sessionWith(messages: ChatMessage[]): AgentChatState {
   return {
-    id: `m_${ms}`,
-    role: 'assistant',
-    content: 'hi',
-    timestamp: ms,
-  } as ChatMessage;
+    messages,
+    currentSteps: [],
+    currentThinking: '',
+    currentToolCalls: [],
+    currentErrors: [],
+    currentActionReason: null,
+    currentAssistantMessage: '',
+    isStreaming: false,
+    history: [],
+    currentEvents: [],
+    currentRunId: null,
+  };
 }
 
 /**
@@ -61,13 +77,13 @@ function isBefore(firstName: string, secondName: string): boolean {
 
 // Two agents: Bravo has the newer server reply, Alpha the older one, so the
 // initial (server/baseline) order is Bravo, then Alpha.
-const ALPHA = {
+const ALPHA: AgentInfo = {
   agent_id: 'agent_alpha',
   name: 'Alpha',
   created_at: '2026-01-01T00:00:00Z',
   last_assistant_at: '2026-01-02T00:00:00Z',
 };
-const BRAVO = {
+const BRAVO: AgentInfo = {
   agent_id: 'agent_bravo',
   name: 'Bravo',
   created_at: '2026-01-01T00:00:00Z',
@@ -77,7 +93,7 @@ const BRAVO = {
 beforeEach(() => {
   localStorage.clear();
   // userId empty → refreshAgents() no-ops, so the seeded agents survive mount.
-  useConfigStore.setState({ userId: '', agentId: '', agents: [ALPHA, BRAVO] as never });
+  useConfigStore.setState({ userId: '', agentId: '', agents: [ALPHA, BRAVO] });
   useChatStore.setState({ agentSessions: {} });
   // loaded=true so the mount effect doesn't kick off a teams refresh.
   useTeamsStore.setState({ teams: [], loaded: true });
@@ -111,10 +127,10 @@ describe('AgentList — recent-conversation ordering', () => {
     act(() => {
       useChatStore.setState({
         agentSessions: {
-          [ALPHA.agent_id]: {
-            messages: [assistantMsgAt(Date.parse('2026-08-01T00:00:00Z'))],
-          },
-        } as never,
+          [ALPHA.agent_id]: sessionWith([
+            assistantMsgAt(Date.parse('2026-08-01T00:00:00Z')),
+          ]),
+        },
       });
     });
 
