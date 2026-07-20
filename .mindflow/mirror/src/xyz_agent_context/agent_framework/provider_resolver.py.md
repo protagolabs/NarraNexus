@@ -1,8 +1,37 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-07-18
+last_verified: 2026-07-20
 ---
+
+## 2026-07-20 — QuotaExceededError 文案补「订阅 NetMind.AI 套餐」
+
+`NETMIND_USE_SUBSCRIPTION_ENABLED` 于 2026-07-20 在 prod 打开后，登录会自动在
+用户自己的 NetMind 账户下生成 key 并绑定槽位。于是出现一类新用户：**被绑上了
+NetMind key，但从未订阅过套餐、账户没有余额**。他们免费额度耗尽后走 1b 自动
+迁移，切到那把空 key —— 原文案只说"配置你自己的 provider"，对这类人是死路，
+因为他们已经有 provider 了，缺的是余额/订阅。
+
+文案改为同时给出两条出路：加 provider **或** 订阅 NetMind.AI 套餐。
+
+⚠️ **订阅那半句必须带上「重新登录」**（review 指出的实质问题）。订阅本身**不产生
+provider** —— `ensure_netmind_provider` 只在登录路径（`auth.py`）和
+`POST /providers/use-subscription` 上跑，而后者**前端没有任何调用方**
+（`api.useSubscription()` 只有定义）。所以只说"去订阅"会让用户付完钱、重试、
+撞回同一个 402，比不给这个选项更糟。
+
+> 这背后是个**产品缺口**而不只是文案问题：flag 打开后，用户被自动接入的**唯一**
+> 途径仍然是重新登录。把 use-subscription 按钮在前端接上，才是这条路的正解。
+
+⚠️ **"Free quota exhausted." 这个前缀短语不能动**：`job_trigger` 的
+`_NO_QUOTA_ERROR_MARKERS`（[[job_trigger]]）把它作为第三层 legacy 子串检测，
+用来把后台 job 置为 PAUSED_NO_QUOTA 而不是无限重试（上游事故：9 用户 / 14 天 /
+390 次重试）。
+
+该契约**现在有测试守着**了：`tests/job_module/test_no_quota_pause.py` 新增
+`test_real_resolver_messages_still_pause_jobs`，构造**真实异常**再断言
+`_is_no_quota_failure` 命中。此前那条测试写的是硬编码字面串，与真实异常无关联
+——改文案它照样绿，等于没有保护。新测试经变异验证：破坏前缀即变红。
 
 ## 2026-07-18 — 免费额度优先成为平台行为（用户偏好删除，决策树无状态化）
 

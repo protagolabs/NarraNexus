@@ -117,14 +117,28 @@ class ProviderResolverError(Exception):
 
 class QuotaExceededError(ProviderResolverError):
     """The free tier is exhausted AND the user has no own provider
-    configured — they must add one to continue."""
+    configured — to continue they must either add one, or subscribe to a
+    NetMind.AI plan AND re-login so the auto-link mints a key for them."""
 
     error_code = "QUOTA_EXCEEDED_NO_USER_PROVIDER"
 
     def __init__(self, user_id: str):
+        # Two things are load-bearing in this string.
+        #
+        # 1. The leading "Free quota exhausted." phrase: job_trigger's
+        #    _NO_QUOTA_ERROR_MARKERS substring-matches it as its legacy third
+        #    detection layer, so background jobs pause instead of
+        #    retry-storming. test_no_quota_pause pins this.
+        # 2. "sign out and back in" is not padding. Subscribing does NOT by
+        #    itself produce a provider — ensure_netmind_provider only runs on
+        #    the login path (and on POST /providers/use-subscription, which no
+        #    frontend calls). Without the re-login the user pays and retries
+        #    into the same 402, which is worse than not offering the option.
         super().__init__(
             user_id,
-            "Free quota exhausted. Configure your own provider to continue.",
+            "Free quota exhausted. Add your own provider in Settings → "
+            "Providers to continue — or subscribe to a NetMind.AI plan, then "
+            "sign out and back in to link it automatically.",
         )
 
 
