@@ -19,8 +19,12 @@ import { useTranslation } from 'react-i18next';
 interface NetmindRunwayViewProps {
   /** Free-tier % remaining (1–100), or null when there is no free-tier bar
    *  (feature off, no quota row, used up — or replaced by the plan-credit
-   *  bar for a Pro account with the subscription split active). */
+   *  bar for a Pro account with the subscription split active). Drives the
+   *  bar WIDTH; the row VALUE is freeTokensText. */
   freePct: number | null;
+  /** Pre-formatted row value ("3.9M / 4.5M tokens left") — same more-depleted
+   *  dimension as freePct so the number and the bar never disagree. */
+  freeTokensText: string | null;
   /** Pre-formatted monthly grant (e.g. "$19.00 / mo") — legacy line for Pro
    *  accounts on an API without subscription_credit; null otherwise. */
   grantText: string | null;
@@ -45,6 +49,7 @@ function Row({ label, value }: { label: string; value: string }) {
 
 export function NetmindRunwayView({
   freePct,
+  freeTokensText,
   grantText,
   freeTierExhausted,
   subPct,
@@ -61,7 +66,10 @@ export function NetmindRunwayView({
         <div className="space-y-1.5">
           <Row
             label={t('settings.netmind.freeTierLabel', 'Free tier')}
-            value={t('settings.netmind.freeTierLeft', '{{pct}}% left', { pct: freePct })}
+            value={
+              freeTokensText ??
+              t('settings.netmind.freeTierLeft', '{{pct}}% left', { pct: freePct })
+            }
           />
           <div
             role="progressbar"

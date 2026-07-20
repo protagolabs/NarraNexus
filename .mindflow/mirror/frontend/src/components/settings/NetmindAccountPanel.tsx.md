@@ -4,6 +4,35 @@ last_verified: 2026-07-18
 stub: false
 ---
 
+## 2026-07-20 (续) — 免费额度行值 token 化 + Link 按钮排版右置
+
+`freeTokensText` 派生（freeTierTokensLeft × formatTokens × i18n
+`freeTierTokensLeft` 键）传入 RunwayView；not_connected 警示框改
+`flex justify-between`（文字左、按钮右，与取消订阅行同款排版）。
+行值格式二改定稿：**只显示剩余**（"剩余 3.9M tokens"）——Owner 觉得
+"剩余/总量"两个数太密，比例语境由进度条承担；helper 仍返回 total 备用。
+
+## 2026-07-20 — not_connected 接上 use-subscription（断头路终于通了）
+
+`POST /providers/use-subscription` 的**第一个前端调用方**（接口 + 自动接入
+开关早就现成，api.useSubscription 此前零调用——审计报告点名的产品缺口）。
+两个接入点：
+
+- **not_connected 分支**：警示框从"Sign out and back in to link it"改为
+  「Link it now / 立即接入」按钮 → `linkNetmind`（`linkBusyRef` 同步守卫；
+  **409 = 已接入按成功处理**，api 错误消息含状态码故 `msg.includes('409')`；
+  成功后 `refreshNetStatus` 刷新连接状态）。失败显示 `linkFailed` 行,按钮
+  保留可重试。
+- **订阅支付落地时自动接入**：`pollUntilActive` 的 ACTIVE 分支 fire
+  `linkNetmindRef.current?.()`（best-effort、幂等）——用户刚付完钱是最不该
+  被要求重登的时刻。**TDZ 注意**：pollUntilActive 声明在 refreshNetStatus/
+  linkNetmind 之前，直接引用会撞 const 暂时性死区，故经 ref 间接调用
+  （useEffect 同步最新引用）。
+
+同批：App.tsx 横幅与 QuotaExceededError 文案的"退出重登"引导改为指向本按钮
+（[[provider_resolver]]）；mock/index.ts 补 useSubscription 桩。测试 +5
+（按钮出现/成功流转 driving/409 视为成功/硬失败可重试/订阅后自动接入）。
+
 ## 2026-07-18 (同日三改) — Pro 套餐额度"溢出水箱"拆分（Owner 设计）
 
 NetMind 的 `free_credit` 合并了充值 + **跨周期累积**的套餐赠额（dev 实测：
