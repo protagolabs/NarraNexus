@@ -43,7 +43,7 @@ from xyz_agent_context.module.base import XYZBaseModule
 
 from ._matrix_send import MatrixSendError, matrix_room_send, send_media_impl
 from ._narra_command_security import sanitize_command
-from ._narra_guide import fetch_guide
+from ._narra_guide import get_guide
 from ._narramessenger_credential_manager import NarramessengerCredentialManager
 from ._narramessenger_service import do_bind
 from .narra_cli_client import run_narra_cli
@@ -238,19 +238,17 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
     async def narra_guide(agent_id: str) -> dict:
-        """Return the narra-cli command reference (fetched live from Narra).
+        """Return the narra-cli command reference for the ``narra_cli`` tool.
 
-        Call this before driving ``narra_cli`` for a domain you haven't used
-        this session — it is the authoritative, up-to-date list of commands and
-        flags. If the live doc can't be reached you still get a bundled snapshot;
-        ``narra_cli("<domain> --help")`` is always available too.
+        Call this before driving ``narra_cli`` for a domain you haven't used this
+        session. It lists the common command shapes and — importantly — reminds
+        you that narra-cli is PLATFORM-PROVIDED: never install / configure it or
+        pass a token. For the exact / latest flags of any command, use
+        ``narra_cli("<domain> --help")`` (that hits the live CLI).
 
         Returns ``{"success": true, "guide": "<markdown>"}``.
         """
-        cred = await _get_credential(agent_id)
-        base = getattr(cred, "backend_base_url", "") if cred else ""
-        guide = await fetch_guide(base)
-        return {"success": True, "guide": guide}
+        return {"success": True, "guide": get_guide()}
 
     logger.info(
         "NarraMessenger MCP tools registered: "

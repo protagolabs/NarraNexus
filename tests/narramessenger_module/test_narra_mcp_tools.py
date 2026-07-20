@@ -74,21 +74,10 @@ async def test_narra_cli_empty_command_rejected():
     assert out["success"] is False
 
 
-async def test_narra_guide_serves_fetched_doc(monkeypatch):
-    class _Cred:
-        backend_base_url = "https://api.netmind.chat"
-
-    async def fake_cred(agent_id):
-        return _Cred()
-
-    async def fake_fetch(base):
-        assert base == "https://api.netmind.chat"
-        return "# narra-cli guide"
-
-    monkeypatch.setattr(mt, "_get_credential", fake_cred)
-    monkeypatch.setattr(mt, "fetch_guide", fake_fetch)
+async def test_narra_guide_serves_curated_reference(monkeypatch):
+    monkeypatch.setattr(mt, "get_guide", lambda: "# curated narra-cli reference")
     narra_guide = _register_tools()["narra_guide"]
 
     out = await narra_guide("agent_x")
     assert out["success"] is True
-    assert "narra-cli guide" in out["guide"]
+    assert "curated narra-cli reference" in out["guide"]

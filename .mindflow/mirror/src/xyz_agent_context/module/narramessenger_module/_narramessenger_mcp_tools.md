@@ -19,6 +19,13 @@ status; only CHAT messages go via `narra_reply`/`narra_send`. Companion tweak in
 read-only"). (Root cause A of the same incident — narra-cli binary missing from
 the MCP image — is a deploy rebuild, not code.)
 
+## 2026-07-21 — `narra_guide` serves a curated static reference (no live-fetch)
+
+`narra_guide` no longer live-fetches narra's `runtime.md` (which told agents to
+install/configure narra-cli themselves → sandbox chmod failure). It returns
+`get_guide()` — OUR curated, platform-adapted reference. No credential / network.
+See [[_narra_guide]] 2026-07-21.
+
 ## 2026-07-20 (review) — orphan client deleted; single validate pass
 
 - Removing `narra_status` left `_narramessenger_client.py` (`NarramessengerClient`)
