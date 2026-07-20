@@ -380,10 +380,17 @@ tests/marketplace/{test_scanner,test_install_pipeline,test_registry,test_reconci
 
 **验收**:31 个 scanner 测试全绿(每条规则正反例 + 语法错误绕过 + 二进制跳过 + 误报回归);全套 53 个 marketplace 测试绿;ruff/pyright 干净;4 个源文件 + 测试全部配 mirror md。
 
-### ③ InstallPipeline 接线 — ⬜ 未开始
+### ③ InstallPipeline 接线 — ✅ 已完成(2026-07-20)
 
-**范围**:`_skill_marketplace_impl/install_pipeline.py` 7 步引擎(Resolve→Validate→Conflict→Download+hash→Unpack→Inject Config→Lock&Audit);现有 `backend/routes/skills.py` 的 zip/GitHub 安装入口改为经 Pipeline(响应结构不变);`.skill_meta.json` 增加 `hash`/`content_hash`/`updated_at`;env_config 读写接 SecretBox。
-**计划交付**:pipeline + `skill_module.py` 接线改动 + `tests/marketplace/test_install_pipeline.py` + 现有安装路径回归。**唯一改现有行为的段,独立可回滚。**
+**范围**:`_skill_marketplace_impl/install_pipeline.py` 7 步引擎;现有 zip/GitHub 安装入口改为经 Pipeline(响应结构不变);`.skill_meta.json` 增加 `hash`/`content_hash`/`updated_at`;env_config 读写接 SecretBox。
+
+**实际交付**:
+- `install_pipeline.py`:7 步引擎。扫描 Gate 在 staging 阶段跑(HIGH 拒绝时 `skills/` 完全不被触碰、旧版本安然无恙);同版本冲突 → `already_installed` 不动盘;替换时先捕获旧 `env_config` 装完合并回(同名 key 自动迁移);审计/归档失败只记 log 绝不回滚磁盘(disk is truth)。
+- `skill_module.py` 重构:安装流程拆为三个公开原语 `extract_skill_package` / `fetch_github_repo` / `install_from_dir`,老 API(`install_skill`/`install_from_github`)变薄壳、行为不变(bundle 导入路径不受影响);另加 `merge_skill_meta`/`read_skill_meta`/`parse_skill_package`,pipeline 零私有访问。
+- **env_config 加密上线**:`set_skill_env_config`/`get_all_skill_env_vars` 接 SecretBox(Fernet),旧 base64 值读到即惰性迁移重写;对前端/MCP 完全透明(env 值从不出后端,接口只回 presence bool)。
+- `backend/routes/skills.py`:install/remove 端点接 Pipeline,`backup_after_api_install` 移入 pipeline。行为差异仅:恶意包 400 拒绝;消息可能带 "(N security warnings)";同版本重装返回 already-installed(原为静默覆盖)。
+
+**验收**:11 个 pipeline 测试 + **全量套件 2812 passed / 0 fail 零回归**;ruff 干净;pyright 新文件 0 错误(所touch旧文件存在 9 个改动前已有的类型噪音,未引入新错误);mirror md 同步(skill_module.py.md / skills.py.md 加dated entry)。
 
 ### ④ Registry + S3 — ⬜ 未开始
 

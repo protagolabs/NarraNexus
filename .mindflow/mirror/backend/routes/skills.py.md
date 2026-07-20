@@ -1,10 +1,20 @@
 ---
 code_file: backend/routes/skills.py
-last_verified: 2026-07-15
+last_verified: 2026-07-20
 stub: false
 ---
 
 # routes/skills.py — Skill 安装、学习与环境配置路由
+
+## 2026-07-20 — install/remove 端点接入 InstallPipeline(stage 3)
+
+`POST /install` 与 `DELETE /{skill_name}` 改为经
+`_skill_marketplace_impl/install_pipeline.py`(7 步引擎:扫描 Gate → 依赖/
+兼容校验 → 冲突+config 迁移 → 落盘 → meta hash 字段 → skill_installations
+审计 → 自动归档)。响应模型不变;`backup_after_api_install` 从本文件移入
+pipeline(所有安装入口统一享有)。行为差异仅两点:恶意包(HIGH 扫描规则)
+现在被 400 拒绝;安装消息可能追加 "(N security warning(s))" 后缀。同版本
+重复安装返回 success + "already installed" 消息(原先是静默覆盖重装)。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

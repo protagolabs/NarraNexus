@@ -100,3 +100,18 @@ class SecretBox:
             if not value.startswith(self.TOKEN_PREFIX):
                 needs_rewrite = True
         return plain, needs_rewrite
+
+
+_default_box: Optional[SecretBox] = None
+
+
+def get_secret_box() -> SecretBox:
+    """Process-wide SecretBox using the default key resolution.
+
+    Cached so the key file is read once per process. Tests that repoint
+    settings.base_working_path must also reset ``_default_box`` to None.
+    """
+    global _default_box
+    if _default_box is None:
+        _default_box = SecretBox.load()
+    return _default_box

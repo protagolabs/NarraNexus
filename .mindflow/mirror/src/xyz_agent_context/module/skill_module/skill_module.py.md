@@ -1,7 +1,28 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-07-14
+last_verified: 2026-07-20
 ---
+
+## 2026-07-20 — install 原语拆分 + env_config 换 Fernet(Skill Marketplace stage 3)
+
+安装流程拆成三个公开原语,老 API 行为不变、全量测试零回归:
+`extract_skill_package(zip, dest)`(安全解包+找根)、`fetch_github_repo(url,
+branch, dest) -> (root, canonical_url)`(校验+浅克隆+剥 .git)、
+`install_from_dir(root, source_type, source_url, target_dir_name)`(共享尾部:
+解析/替换/落盘/写 meta)。拆分动机:InstallPipeline 要在「staging 之后、落盘
+之前」插入安全扫描 Gate——一体式 install_skill 做不到。`install_skill` /
+`install_from_github` 现在是原语组合的薄壳。另加三个小公开件:
+`merge_skill_meta` / `read_skill_meta` / `parse_skill_package`,让 pipeline
+零私有访问。
+
+`set_skill_env_config` / `get_all_skill_env_vars` 从裸 base64 改为 SecretBox
+(Fernet)加解密;后者对旧 base64 值惰性迁移(读到即重写为密文)。对
+routes/MCP 完全透明——env 值从不出后端,接口只返回 presence bool。
+
+**注意**:routes/skills.py 的 install/remove 端点现在走 InstallPipeline
+(`_skill_marketplace_impl/install_pipeline.py`),不再直接调 install_skill /
+install_from_github / remove_skill;bundle 导入路径仍直接用 `install_skill(zip,
+target_dir_name)`,不经 pipeline(信任来源,不需要扫描 Gate)。
 
 ## 2026-07-13 — install_skill target_dir_name + meta preservation
 

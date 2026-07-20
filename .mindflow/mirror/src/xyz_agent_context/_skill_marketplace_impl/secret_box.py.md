@@ -6,6 +6,12 @@ stub: false
 
 # secret_box.py
 
+## 2026-07-20 — get_secret_box() 进程级单例
+
+新增模块级缓存单例,供 `SkillModule.set_skill_env_config` /
+`get_all_skill_env_vars` 使用(key 文件每进程读一次)。测试若重定向
+`settings.base_working_path`,必须同时把 `_default_box` 重置为 None。
+
 Fernet encryption for skill `env_config` values, replacing the previous
 plain-base64 "encoding" in `.skill_meta.json`. Decision locked in spec §7
 (marketplace multiplies third-party skills asking users for API keys, and the
