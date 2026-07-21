@@ -274,6 +274,11 @@ async def list_channels_for_manyfold(request: Request):
                 "config": {
                     "app_id": cred.app_id,
                     "brand": cred.brand or "feishu",
+                    # Bot display name — Manyfold needs it to detect @-mentions
+                    # of the bot in group chats (config.botName). Empty until
+                    # the bind flow captures it; Manyfold falls back to
+                    # mention-all when absent.
+                    "bot_name": cred.bot_name or None,
                 },
             }
         )

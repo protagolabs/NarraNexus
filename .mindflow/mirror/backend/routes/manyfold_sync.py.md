@@ -6,6 +6,13 @@ stub: false
 
 # manyfold_sync.py — Manyfold managed-trigger surface
 
+## 2026-07-21 — `/manyfold/channels` lark 行补 `bot_name`
+
+lark 行的 `config` 增加 `bot_name`(取 `cred.bot_name`,可空)。Manyfold 的
+sync mapper 用它填 `config.botName` 做群聊 @-mention 检测;没有时 Manyfold 退到
+`mentionOnly=false`(否则 managed channel 会因"mentionOnly 需要 botName/botOpenId"
+校验失败、建不出来)。配套 manyfold `narranexus-sync.mapper.ts` 的改动。
+
 ## 2026-07-21 — 修 `/manyfold/channels` 的 lark 崩溃
 
 lark 分支引用了 `cred.has_secret` / `cred.app_secret`,`LarkCredential` 并无这两
