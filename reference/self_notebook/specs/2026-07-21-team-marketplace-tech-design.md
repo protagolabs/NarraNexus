@@ -193,17 +193,23 @@ cloud=本地 DB registry;desktop=proxy cloud API(读 + install-preflight 都可
 
 ## 七、实施分段(结构维度,铁律 #17)
 
-| 段 | 内容 | 依赖 |
+| 段 | 内容 | 状态 |
 |----|------|------|
-| T1 | `team_catalog` 表 + repository + `TeamTemplate` schema | — |
-| T2 | `get_template_store()`(artifact_store 扩展,独立 prefix) | — |
-| T3 | `marketplace_teams.py` 路由 + `team_marketplace_service.py`(含 install-preflight→importer.preflight) | T1/T2 + 现有 importer |
-| T4 | 上架 CLI(`publish_team_template.py`)+ seed 迁移(9 官方 template 从 narra.nexus 拉→重上架) | T3 |
-| T5 | 前端 Marketplace tab shell + TeamMarketplaceTab + 安装接线 | T3 |
-| T6 | 端到端验收(本地:上架→浏览→install-preflight→confirm→新 team 落库)+ 双模式 | 全部 |
+| T1 | `team_catalog` 表 + repository + `TeamTemplate` schema | ✅ 完成(4a8e7db8) |
+| T2 | `get_template_store()`(artifact_store 扩展,独立 prefix) | ✅ 完成 |
+| T3 | `marketplace_teams.py` 路由 + `team_marketplace_service.py`(含 install-preflight→importer.preflight,source 抽象) | ✅ 完成 |
+| T4 | seed 迁移(9 官方 template 从 narra.nexus 拉→本地 store→catalog);lifespan 接线 | ✅ 完成(实测 9/9 restore) |
+| T5 | 前端 Marketplace tab shell(Skills\|Teams)+ TeamMarketplaceTab + `?teamTemplate=` deep-link 复用导入向导 | ✅ 完成(dbb1e48d) |
+| T6 | 端到端验收 | ✅ 完成(见下) |
 
-风险等级:低——安装引擎(最复杂、最易错的部分)零改动复用;新增全是 catalog +
-路由 + 前端,与 skill 侧同构、独立可回滚。
+**T6 验收记录(2026-07-21,隔离实例)**:
+- lifespan 自动 seed 9 个官方 template 进本地 registry(catalog + `marketplace_store/teams/`)。
+- 真实 HTTP 全链路:`GET /templates`(9 个)→ `POST install-preflight`(gaokao-team,返回 token + manifest 5 agents)→ `POST /api/bundle/import/confirm` → **agents_created=5, team_created=True, instances_created=57**;DB 落 team「高考模拟」+ 5 agent 到调用用户名下(fork 语义),下载计数 +1。
+- 后端全量 2856 passed 零回归;前端 tsc/eslint 干净、vitest 18 marketplace 测试(含 4 个新 team-tab)通过;真 importer 集成测试通过。
+
+风险等级:低——安装引擎(最复杂、最易错的部分)零改动复用,验证确认 fork 语义正确。
+
+**剩余(与 skill 侧同一批,非本项目阻塞)**:S3 bucket 上线后把 `marketplace_store/teams/` 迁上去(配 `TEMPLATE_S3_BUCKET`/`TEMPLATE_S3_PREFIX`,已支持);DMG/线上双模式手工验收;社区上传 team template(MVP 只官方)。
 
 ---
 
