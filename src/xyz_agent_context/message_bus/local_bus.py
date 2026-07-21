@@ -56,6 +56,8 @@ class LocalMessageBus(MessageBusService):
         """Convert a DB row to a BusMessage, deserializing mentions JSON."""
         mentions_raw = row.get("mentions")
         mentions = json.loads(mentions_raw) if mentions_raw else None
+        attachments_raw = row.get("attachments")
+        attachments = json.loads(attachments_raw) if attachments_raw else None
         return BusMessage(
             message_id=row["message_id"],
             channel_id=row["channel_id"],
@@ -63,6 +65,7 @@ class LocalMessageBus(MessageBusService):
             content=row["content"],
             msg_type=row.get("msg_type", "text"),
             mentions=mentions,
+            attachments=attachments,
             created_at=row.get("created_at"),
         )
 
@@ -75,9 +78,14 @@ class LocalMessageBus(MessageBusService):
         content: str,
         msg_type: str = "text",
         mentions: Optional[List[str]] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id."""
         msg_id = _generate_id("msg")
+        # A message carrying files is tagged "multimodal" so UI / search can
+        # distinguish it; pure text stays "text".
+        if attachments and msg_type == "text":
+            msg_type = "multimodal"
         await self._db.insert("bus_messages", {
             "message_id": msg_id,
             "channel_id": to_channel,
@@ -85,6 +93,7 @@ class LocalMessageBus(MessageBusService):
             "content": content,
             "msg_type": msg_type,
             "mentions": json.dumps(mentions) if mentions else None,
+            "attachments": json.dumps(attachments) if attachments else None,
             "created_at": _now_iso(),
         })
         # Index the message into the unified search layer (memory_bus), under the
@@ -172,6 +181,7 @@ class LocalMessageBus(MessageBusService):
         to_agent: str,
         content: str,
         msg_type: str = "text",
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         """Send a direct message to another agent, auto-creating a DM channel if needed."""
         ph = self._db.placeholder
@@ -206,7 +216,9 @@ class LocalMessageBus(MessageBusService):
                 channel_type="direct",
             )
 
-        return await self.send_message(from_agent, channel_id, content, msg_type)
+        return await self.send_message(
+            from_agent, channel_id, content, msg_type, attachments=attachments
+        )
 
     # ===== Channel Management =====
 

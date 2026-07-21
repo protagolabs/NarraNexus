@@ -33,7 +33,13 @@ class CloudMessageBus(MessageBusService):
         self._auth_token = auth_token
 
     async def send_message(
-        self, from_agent: str, to_channel: str, content: str, msg_type: str = "text"
+        self,
+        from_agent: str,
+        to_channel: str,
+        content: str,
+        msg_type: str = "text",
+        mentions: Optional[List[str]] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
@@ -49,7 +55,12 @@ class CloudMessageBus(MessageBusService):
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def send_to_agent(
-        self, from_agent: str, to_agent: str, content: str, msg_type: str = "text"
+        self,
+        from_agent: str,
+        to_agent: str,
+        content: str,
+        msg_type: str = "text",
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 

@@ -1,8 +1,33 @@
 ---
 code_file: frontend/src/components/chat/TeamChatPanel.tsx
-last_verified: 2026-06-23
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-21 — voice input (mic), parity with single-agent chat
+
+Tools row gained an `AudioRecorder` (mic) next to the attach `+`. Records → uploads with
+`source:'recording'` → backend Whisper → the memo joins `pending` and renders as a
+`VoiceTranscript` chip; on send it flows like any bus attachment (agents get the transcript
+in their marker). Reuses the ChatPanel plumbing: a mount `getTranscriptionAvailability`
+probe, a click-time `onPreflight` re-check, a "voice unavailable" `<Dialog>` (→ Settings),
+and a post-record notice banner. New i18n keys `chat.team.transcriptionUnavailable|
+voiceUnavailableTitle|voiceUnavailableBody|voiceUnavailableProbeFailed|openSettings|cancel`.
+
+## 2026-07-21 — user can attach files in the composer
+
+Composer gained a paperclip button + hidden multi `<input type=file>`. Picked files upload
+immediately via `api.uploadTeamChatAttachment` into a `pending: BusAttachment[]` state,
+shown as removable chips above the textarea; `handleSend` passes `pending` to
+`api.sendTeamChat` and clears it (restores on failure). An attachment-only message (no text)
+is allowed. New i18n keys `chat.team.attach|uploading|removeAttachment` (en+zh).
+
+## 2026-07-20 — bus attachments render in the room
+
+Each message bubble now renders `<BusAttachmentList attachments={m.attachments} />`
+below the text, so files an agent sent/shared into the team room show as
+chips/thumbnails. `TeamChatMessage` gained `attachments?: BusAttachment[]`
+(populated by `GET /api/teams/{id}/chat/messages`). See [[BusAttachmentList]].
 
 # chat/TeamChatPanel.tsx — Team group-chat surface
 

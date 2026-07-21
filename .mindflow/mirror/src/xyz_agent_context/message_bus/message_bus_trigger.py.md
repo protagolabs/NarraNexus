@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-13
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-21 — team group-chat rule: allow Read, forbid only send/bus
+
+`_build_team_prompt`'s reply-only rule used to say "Do NOT use any tools", which made an
+agent REFUSE to open a shared image/doc it was asked about (either from a `[Shared file …]`
+marker or a path a teammate pasted into text). "Reply-only" is meant to prevent re-sending /
+triggering teammates, NOT to block reading a file. Rule generalized: forbid
+send/bus/@-trigger-to-deliver, but explicitly ALLOW read-only tools (esp. the built-in Read)
+to open a file path, then reply in plain text. Applies whether or not the message carries a
+structured attachment — the path often arrives as plain text.
+
+## 2026-07-20 — prompt builders inject attachment markers + team shared-folder hint
+
+Both `_build_prompt` (DM/owner-relay) and `_build_team_prompt` now append
+`build_bus_markers(msg.attachments, …)` after each message body, so a file sent
+over the bus surfaces to the recipient as the same `… use Read tool …` marker a
+user upload would (see [[_bus_attachment_impl]]). `_build_team_prompt` gained
+`owner_user_id` / `team_id` params (derived at the call site: owner via
+`_get_agent_owner`, team_id from `channel_owner[len("team_"):]`) and, when known,
+prints the team's shared-folder path (`team_shared_dir`) so teammates know where
+`bus_share_to_team` drops land. Markers need no per-recipient resolution — the
+stored rel_path is rebuilt against `base_working_path` into an absolute path.
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 

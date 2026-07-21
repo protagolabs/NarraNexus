@@ -36,6 +36,7 @@ class MessageBusService(ABC):
         content: str,
         msg_type: str = "text",
         mentions: Optional[List[str]] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         """
         Send a message to a channel.
@@ -46,6 +47,8 @@ class MessageBusService(ABC):
             content: The message content.
             msg_type: The message type (default: "text").
             mentions: List of agent_ids to mention, or ["@everyone"].
+            attachments: Optional list of bus-attachment dicts (see
+                _bus_attachment_impl); files travel by reference, not bytes.
 
         Returns:
             The generated message_id.
@@ -103,6 +106,7 @@ class MessageBusService(ABC):
         to_agent: str,
         content: str,
         msg_type: str = "text",
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         """
         Send a message directly to another agent by agent_id.
@@ -115,6 +119,8 @@ class MessageBusService(ABC):
             to_agent: The agent ID of the recipient.
             content: The message content.
             msg_type: The message type (default: "text").
+            attachments: Optional list of bus-attachment dicts (see
+                _bus_attachment_impl); files travel by reference, not bytes.
 
         Returns:
             The generated message_id.

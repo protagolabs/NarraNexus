@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/team_repository.py
-last_verified: 2026-05-08
+last_verified: 2026-07-21
 stub: false
 ---
 
@@ -35,3 +35,9 @@ stub: false
 ## Gotcha
 
 - `delete_team` 只删 `teams` 表行；调用方（routes/teams.py）必须**先**调 `member_repo.remove_all_members(team_id)`。这条契约只在 routes 层保证。
+
+## 2026-07-21 — lead_agent_id + ordered members
+
+`_row_to_entity`/`_entity_to_row` now carry `teams.lead_agent_id`. `list_members_by_team`
+orders by `joined_at ASC, id ASC` so the first entry is the earliest-joined member — the
+default-responder fallback in [[teams]] relies on that ordering.

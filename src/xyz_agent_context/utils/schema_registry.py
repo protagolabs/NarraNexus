@@ -654,6 +654,11 @@ _register(
             Column("content", "TEXT", "TEXT", nullable=False),
             Column("msg_type", "TEXT", "VARCHAR(32)", nullable=False, default="'text'"),
             Column("mentions", "TEXT", "TEXT", nullable=True),
+            # JSON list of bus-attachment dicts (file_id/original_name/mime_type/
+            # size_bytes/category/rel_path). rel_path is base_working_path-relative
+            # and points into the per-user shared area; markers are built from it
+            # at delivery time. NULL for text-only messages. See _bus_attachment_impl.
+            Column("attachments", "TEXT", "TEXT", nullable=True),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
@@ -1328,6 +1333,10 @@ _register(
             Column("color", "TEXT", "VARCHAR(16)"),
             Column("source", "TEXT", "VARCHAR(64)", nullable=False, default="'user'"),
             Column("intro_md", "TEXT", "MEDIUMTEXT"),
+            # Agent that responds to a team-chat message with NO @mention.
+            # NULL = fall back to the earliest-joined member. auto_migrate adds
+            # this to pre-existing tables. See backend/routes/teams.py.
+            Column("lead_agent_id", "TEXT", "VARCHAR(64)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

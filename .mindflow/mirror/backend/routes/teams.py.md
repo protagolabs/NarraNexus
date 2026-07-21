@@ -1,8 +1,48 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-06-23
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — team-chat messages carry attachments
+
+`get_team_chat` now includes `attachments` (from `BusMessage.attachments`) per message, so
+files an agent sent/shared into the room render in the group chat. Bytes are served by the
+shared endpoint `GET /api/agent-inbox/attachments/raw?path=<rel_path>` (see [[inbox]]);
+teams.py doesn't add its own serving route.
+
+## 2026-07-21 — default responder (no-@mention messages)
+
+A team message with NO @mention used to trigger nobody (team rooms have a non-agent
+`created_by`, so no member is the always-activated owner → silence). Now `send_team_chat`
+routes an un-addressed message to exactly one agent via `_resolve_default_responder(team,
+members)` = `team.lead_agent_id` if it's a current member, else the earliest-joined member
+(`list_members_by_team` is ordered by `joined_at`). A single-agent team therefore
+auto-responds; the picked agent can @-delegate. `update_team` (PATCH) sets/validates the
+lead — a non-empty value must be a member; `""` clears it (exclude_none drops null, so empty
+string is the "clear" wire signal). New nullable `teams.lead_agent_id` column.
+
+## 2026-07-21 — voice input (parity with single-agent chat)
+
+The upload endpoint gained a `source` query param and, for `audio/*` uploads, runs
+`TranscriptionService` (Whisper) — same as the single-agent path — so @mentioned agents
+receive the spoken words via the attachment marker (they can't listen). `agent_id=""` is
+passed to `transcribe` because a team memo has no single agent; the NetMind signed-URL path
+resolves the file via the shared-area fallback in [[transcription_public]]. `transcript` /
+`source` land on the bus-attachment dict; the response echoes `transcription_available` so
+the composer can show a "voice unavailable" notice. OpenAI-backend transcription reads the
+local shared file directly (no fallback needed).
+
+## 2026-07-21 — USER can attach files to a team message
+
+New `POST /{team_id}/chat/attachments` (multipart) stores a user upload into the sender's
+shared bus area via `store_bytes_into_bus` ([[_bus_attachment_impl]]) after team-ownership
+check + server-side MIME sniff (`_sniff_upload_mime`, libmagic→ext→client) + size cap
+(`backend.config.settings.max_upload_bytes`), returning a bus-attachment dict.
+`TeamChatSendRequest` gained `attachments: list[dict]`; `send_team_chat` re-validates each
+via `resolve_shared_file_for_user` (reject tampered rel_path), allows an attachment-only
+message (empty content OK when files present), and passes them to `bus.send_message`. So a
+human upload flows the same path as an agent-attached file (same shared area, same Read).
 
 ## 2026-06-23 — team group chat（基于 message bus，无 schema 迁移）
 

@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-07-16
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-21 — teams.lead_agent_id
+
+Added nullable `lead_agent_id VARCHAR(64)` to `teams` — the agent that answers a team-chat
+message with no @mention (NULL = earliest-joined member fallback). auto_migrate adds it
+idempotently. See [[teams]].
+
+## 2026-07-20 — bus_messages.attachments
+
+Added nullable `attachments TEXT` to `bus_messages` (JSON list of bus-attachment
+dicts). `auto_migrate()` back-fills the column idempotently; no destructive change.
+See [[_bus_attachment_impl]] for the multimodal-A2A feature it backs.
 
 ## 2026-07-16 — user_providers 加 netmind_account_id / netmind_account_email
 

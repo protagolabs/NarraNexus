@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/teams/TeamManagementModal.tsx
-last_verified: 2026-06-24
+last_verified: 2026-07-21
 stub: false
 ---
 
@@ -36,3 +36,9 @@ within) that team's chat.
   as the bundle's default README on export. Imported teams (`source === 'bundle'`)
   get an "imported" badge. Deleting a team only unlinks members — the agents
   themselves are not deleted (the confirm copy says so).
+
+## 2026-07-21 — default-responder picker
+
+Added a "Default responder" `<select>` (Auto = earliest member, or pick a current member) that
+saves `lead_agent_id` via `updateTeam`. Backs the no-@mention routing in backend [[teams]].
+`""` clears back to Auto. New i18n keys `teams.defaultResponderLabel|Auto|Hint`.

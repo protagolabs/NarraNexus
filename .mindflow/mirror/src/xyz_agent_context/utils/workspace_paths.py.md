@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/utils/workspace_paths.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-20
 ---
+
+## 2026-07-20 — per-user shared-area helpers
+
+Added `user_shared_root` / `bus_files_dir` / `team_shared_dir`, all rooted at
+`{base}/{user_id}/_shared` — a SIBLING of each agent's own workspace dir, deliberately
+not inside one. Because the per-user Executor bind-mounts the whole `{base}/{user_id}`
+subtree, these dirs are Read-able by every same-user agent in both local and cloud
+mode. This is what makes cross-agent file sharing on the bus work without copying into
+each recipient's workspace (see [[_bus_attachment_impl]]).
 
 ## Why it exists
 

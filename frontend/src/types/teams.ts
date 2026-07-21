@@ -2,6 +2,8 @@
  * Team & Bundle types — Subproject 1 + Subproject 2
  */
 
+import type { BusAttachment } from './messages';
+
 export interface Team {
   id?: number | null;
   team_id: string;
@@ -11,6 +13,8 @@ export interface Team {
   color?: string | null;
   source: string;
   intro_md?: string | null;
+  // Agent that answers a team-chat message with no @mention (null = earliest member).
+  lead_agent_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -32,6 +36,7 @@ export interface TeamChatMessage {
   author_name: string;
   is_user: boolean;
   content: string;
+  attachments?: BusAttachment[] | null;
   created_at: string;
 }
 

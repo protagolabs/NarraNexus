@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-18
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-21 — team voice upload
+
+`uploadTeamChatAttachment` gained an `options.source` ('recording'|'upload') → query param,
+and its return type carries `transcription_available` so the composer can show a voice-
+unavailable notice.
+
+## 2026-07-21 — team-chat upload + attachments on send
+
+Added `uploadTeamChatAttachment(teamId, file)` (multipart, bypasses `request<T>` like the
+other upload helpers) → returns a bus-attachment dict. `sendTeamChat` gained an
+`attachments: BusAttachment[]` param, forwarded in the POST body.
+
+## 2026-07-20 — fetchBusAttachmentBlob
+
+Added `fetchBusAttachmentBlob(relPath)` — authed GET of a bus-message attachment
+from `/api/agent-inbox/attachments/raw?path=<relPath>`, returning a Blob (bypasses
+`request<T>` for the binary body, like `fetchAttachmentBlob`). Backs
+[[useBusAttachmentBlobUrl]] and the [[BusAttachmentList]] download path.
 
 ## 2026-07-18 — 删 setQuotaPreference
 

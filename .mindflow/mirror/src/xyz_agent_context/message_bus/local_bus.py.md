@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-07-02
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — multimodal: messages can carry file attachments
+
+`send_message` / `send_to_agent` gained an `attachments: list[dict] | None` param;
+`_row_to_message` deserializes the new `bus_messages.attachments` JSON column. When
+files are present the `msg_type` auto-flips `text`→`multimodal` (UI/search hint).
+Attachments travel by REFERENCE (metadata + base-relative shared-area path), never
+bytes — staging + marker synthesis live in [[_bus_attachment_impl]]. No change to
+the same-user boundary: files ride the same DM/channel path, so cross-user still
+raises `PermissionError`. Insert still goes through the dialect-safe `db.insert`.
 
 ## 2026-07-02 — poison threshold now has a detection + recovery path (no code change here)
 

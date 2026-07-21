@@ -17,14 +17,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { CornerDownLeft, Settings2, Users2 } from 'lucide-react';
+import { CornerDownLeft, FileText, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { Button, Textarea, Markdown } from '@/components/ui';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
+import { BusAttachmentList } from './BusAttachmentList';
+import { AudioRecorder } from './AudioRecorder';
+import { VoiceTranscript } from './VoiceTranscript';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn, formatTime } from '@/lib/utils';
 import type { AgentInfo } from '@/types';
 import type { TeamChatMessage } from '@/types/teams';
+import type { BusAttachment } from '@/types';
 
 interface TeamChatPanelProps {
   teamId: string;
@@ -61,7 +66,35 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const [messages, setMessages] = useState<TeamChatMessage[]>([]);
   const [thinking, setThinking] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
+  const [pending, setPending] = useState<BusAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  // Voice input (mirrors the single-agent ChatPanel): probe transcription
+  // availability once per user; a mic click when unavailable opens a dialog.
+  const [transcriptionAvailable, setTranscriptionAvailable] = useState<boolean | undefined>(undefined);
+  const [transcriptionReason, setTranscriptionReason] = useState<string>('');
+  const [voiceUnavailableDialogOpen, setVoiceUnavailableDialogOpen] = useState(false);
+  const [transcriptionNotice, setTranscriptionNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    api
+      .getTranscriptionAvailability()
+      .then((r) => {
+        if (cancelled) return;
+        setTranscriptionAvailable(r.available);
+        setTranscriptionReason(r.reason);
+      })
+      .catch(() => {
+        // Probe failure → leave undefined so the click is allowed; a real
+        // failure surfaces via the post-upload notice.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   // --- Live transcript: poll the room while the panel is open. -------------
@@ -171,19 +204,57 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     return ids;
   };
 
+  const handlePickFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const res = await api.uploadTeamChatAttachment(teamId, file);
+        if (res.success && res.attachment) {
+          setPending((prev) => [...prev, res.attachment!]);
+        }
+      }
+    } catch {
+      // Silent — a failed upload just doesn't add a chip; the user can retry.
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRecorded = async (file: File) => {
+    setUploading(true);
+    try {
+      const res = await api.uploadTeamChatAttachment(teamId, file, { source: 'recording' });
+      if (res.success && res.attachment) {
+        setPending((prev) => [...prev, res.attachment!]);
+        setTranscriptionNotice(
+          res.transcription_available === false ? t('chat.team.transcriptionUnavailable') : null,
+        );
+      }
+    } catch {
+      // Silent — the AudioRecorder's own onError surfaces capture failures.
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSend = async () => {
     const body = text.trim();
-    if (!body || sending) return;
+    if ((!body && pending.length === 0) || sending || uploading) return;
     const mentions = resolveMentions(body);
+    const attachments = pending;
     setText('');
+    setPending([]);
     closeMention();
     setSending(true);
     try {
-      await api.sendTeamChat(teamId, body, mentions);
+      await api.sendTeamChat(teamId, body, mentions, attachments);
       await refresh();
     } catch {
-      // Restore the draft so nothing is lost on a failed send.
+      // Restore the draft + attachments so nothing is lost on a failed send.
       setText(body);
+      setPending(attachments);
     } finally {
       setSending(false);
     }
@@ -322,6 +393,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                           <Markdown content={m.content.trim()} />
                         )}
                       </div>
+                      <BusAttachmentList attachments={m.attachments} />
                     </div>
                     {/* Meta row outside the bubble, aligned to its side. */}
                     <div
@@ -393,6 +465,73 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           Textarea owns the box, and the send (↵) button docks bottom-right
           inside it (carbon-soft when there's content, neutral when empty). */}
       <div className="shrink-0 px-5 py-4 border-t border-[var(--rule)]">
+        {/* Transcription-unavailable notice (post-record). */}
+        {transcriptionNotice && (
+          <div className="mb-2 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
+            <Mic className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[var(--text-tertiary)]" />
+            <span className="flex-1">{transcriptionNotice}</span>
+            <button
+              type="button"
+              onClick={() => setTranscriptionNotice(null)}
+              className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+            >
+              <X className="w-3 h-3 text-[var(--text-tertiary)]" />
+            </button>
+          </div>
+        )}
+        {/* Pending attachments preview row — matches the single-agent ChatPanel:
+            voice memos render as a transcript chip; other files as icon + name. */}
+        {(pending.length > 0 || uploading) && (
+          <div className="mb-2.5 flex flex-wrap gap-2">
+            {pending.map((att) => (
+              <div
+                key={att.file_id}
+                className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
+              >
+                {att.source === 'recording' ? (
+                  <VoiceTranscript compact transcript={att.transcript} />
+                ) : (
+                  <>
+                    <div className="w-9 h-9 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
+                      {att.category === 'image' ? (
+                        <ImageIcon className="w-4 h-4 text-[var(--text-tertiary)]" />
+                      ) : (
+                        <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1 leading-tight">
+                      <div className="text-xs truncate">{att.original_name}</div>
+                      <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+                        {att.category} · {Math.max(1, Math.round(att.size_bytes / 1024))} KB
+                      </div>
+                    </div>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPending((prev) => prev.filter((a) => a.file_id !== att.file_id))}
+                  className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                  title={t('chat.team.removeAttachment')}
+                >
+                  <X className="w-3 h-3 text-[var(--text-tertiary)]" />
+                </button>
+              </div>
+            ))}
+            {uploading && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {t('chat.team.uploading')}
+              </div>
+            )}
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => handlePickFiles(e.target.files)}
+        />
         <div className="relative">
           {/* @-mention autocomplete — opens above the composer (it's pinned to
               the bottom of the panel). @all leads the list. */}
@@ -471,11 +610,11 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             variant="ghost"
             size="icon"
             onClick={handleSend}
-            disabled={!text.trim() || sending}
+            disabled={(!text.trim() && pending.length === 0) || sending || uploading}
             title={t('chat.team.send')}
             className={cn(
               'absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-[var(--radius-lg)] border transition-colors',
-              text.trim()
+              text.trim() || pending.length > 0
                 ? 'border-[var(--color-carbon)] bg-[var(--color-carbon-soft)] text-[var(--color-carbon)] hover:bg-[var(--color-carbon-soft)] hover:text-[var(--color-carbon)]'
                 : 'border-[var(--nm-hairline)] bg-[var(--nm-paper-warm)] text-[var(--text-tertiary)]',
             )}
@@ -483,7 +622,81 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             <CornerDownLeft className="w-4 h-4" />
           </Button>
         </div>
+        {/* Tools row — attach (+) and voice (mic) on the left, matching the
+            single-agent ChatPanel. */}
+        <div className="mt-1 flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading || sending}
+            className="h-8 w-8 text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]"
+            title={t('chat.team.attach')}
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+          <AudioRecorder
+            disabled={uploading || sending}
+            onRecorded={handleRecorded}
+            onError={(msg) => setTranscriptionNotice(msg)}
+            available={transcriptionAvailable}
+            onUnavailable={() => setVoiceUnavailableDialogOpen(true)}
+            onPreflight={async () => {
+              if (!userId) return false;
+              try {
+                const r = await api.getTranscriptionAvailability();
+                setTranscriptionAvailable(r.available);
+                setTranscriptionReason(r.reason);
+                if (!r.available) {
+                  setVoiceUnavailableDialogOpen(true);
+                  return false;
+                }
+                return true;
+              } catch {
+                return true;
+              }
+            }}
+          />
+        </div>
       </div>
+
+      {/* Voice-input unavailable dialog — mirrors the single-agent ChatPanel. */}
+      <Dialog
+        isOpen={voiceUnavailableDialogOpen}
+        onClose={() => setVoiceUnavailableDialogOpen(false)}
+        title={t('chat.team.voiceUnavailableTitle')}
+        size="md"
+      >
+        <DialogContent>
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
+              <Mic className="w-4 h-4 text-[var(--text-secondary)]" />
+            </div>
+            <div className="flex-1 text-sm leading-relaxed text-[var(--text-secondary)]">
+              <p>{t('chat.team.voiceUnavailableBody')}</p>
+              {transcriptionReason === 'unknown' && (
+                <p className="mt-2 text-xs text-[var(--text-tertiary)] italic">
+                  {t('chat.team.voiceUnavailableProbeFailed')}
+                </p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setVoiceUnavailableDialogOpen(false)}>
+            {t('chat.team.cancel')}
+          </Button>
+          <Button
+            variant="accent"
+            onClick={() => {
+              setVoiceUnavailableDialogOpen(false);
+              navigate('/app/settings');
+            }}
+          >
+            {t('chat.team.openSettings')}
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }

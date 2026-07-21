@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-07-14
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-21 — BusAttachment voice fields
+
+`BusAttachment` gained `source?: 'recording'|'upload'` and `transcript?` for team voice
+memos (rendered as a transcript, read by agents via the marker).
+
+## 2026-07-20 — BusAttachment type
+
+Added `BusAttachment` (file_id/mime_type/original_name/size_bytes/category/rel_path)
+for files carried on message-bus messages. Distinct from chat `Attachment`: addressed
+by `rel_path` in the per-user shared area, not per-agent `file_id`. Used by
+`TeamChatMessage` / `RoomMessage` and [[BusAttachmentList]].
 # messages.ts — 前端运行时消息 + ChatMessage 类型契约
 
 ## 为什么存在

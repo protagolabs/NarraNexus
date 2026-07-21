@@ -16,7 +16,9 @@ Endpoints (all under /api/teams):
 - DELETE /{team_id}/members/{agent_id}  Remove agent from team
 """
 
-from fastapi import APIRouter, HTTPException, Request
+import mimetypes
+
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
@@ -24,6 +26,10 @@ from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.repository import TeamRepository, TeamMemberRepository
 from xyz_agent_context.repository.user_repository import UserRepository
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from xyz_agent_context.message_bus._bus_attachment_impl import (
+    resolve_shared_file_for_user,
+    store_bytes_into_bus,
+)
 from xyz_agent_context.schema.team_schema import (
     CreateTeamRequest,
     UpdateTeamRequest,
@@ -64,10 +70,30 @@ USER_SENDER_PREFIX = "usr_"
 
 class TeamChatSendRequest(BaseModel):
     """User message into a team group chat. ``mentions`` carries agent_ids
-    and/or the literal ``"@all"`` (mapped to the bus "@everyone")."""
+    and/or the literal ``"@all"`` (mapped to the bus "@everyone").
+
+    ``attachments`` are bus-attachment dicts returned by
+    ``POST /{team_id}/chat/attachments`` (each carries a ``rel_path`` into the
+    user's shared area); they are re-validated server-side before the send."""
 
     content: str
     mentions: list[str] = []
+    attachments: list[dict] = []
+
+
+def _resolve_default_responder(team, member_agent_ids: list[str]) -> str | None:
+    """The agent that answers a team message with NO @mention.
+
+    ``team.lead_agent_id`` if it's set and still a member; otherwise the
+    earliest-joined member (``member_agent_ids`` is ordered by join time). A
+    single-agent team therefore auto-responds. Returns None for an empty team.
+    """
+    if not member_agent_ids:
+        return None
+    lead = getattr(team, "lead_agent_id", None)
+    if lead and lead in member_agent_ids:
+        return lead
+    return member_agent_ids[0]
 
 
 async def _get_or_create_team_room(db, bus: LocalMessageBus, team_id: str, team_name: str, member_agent_ids: list[str]) -> str:
@@ -101,8 +127,20 @@ async def _get_or_create_team_room(db, bus: LocalMessageBus, team_id: str, team_
 @router.post("/{team_id}/chat/messages")
 async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Request):
     user_id = await _user_id_for_request(request)
-    if not (payload.content or "").strip():
-        raise HTTPException(status_code=400, detail="Message content is required")
+
+    # Re-validate attachment rel_paths against the sender's own shared area —
+    # the client echoes back dicts from the upload endpoint, so a tampered
+    # rel_path must not be trusted. Drop any that don't resolve.
+    valid_attachments = [
+        att
+        for att in (payload.attachments or [])
+        if isinstance(att, dict)
+        and att.get("rel_path")
+        and resolve_shared_file_for_user(user_id, att["rel_path"]) is not None
+    ]
+
+    if not (payload.content or "").strip() and not valid_attachments:
+        raise HTTPException(status_code=400, detail="Message content or an attachment is required")
 
     db = await get_db_client()
     team_repo = TeamRepository(db)
@@ -120,14 +158,107 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
 
     # Map the UI's "@all" to the bus-native "@everyone"; pass agent_ids through.
     resolved = ["@everyone" if m == "@all" else m for m in (payload.mentions or [])]
+    # No @mention → route to the team's default responder so the room never
+    # goes silent. Exactly one agent is triggered; it can @-delegate from there.
+    if not resolved:
+        default_responder = _resolve_default_responder(team, members)
+        if default_responder:
+            resolved = [default_responder]
     msg_id = await bus.send_message(
         from_agent=f"{USER_SENDER_PREFIX}{user_id}",
         to_channel=channel_id,
         content=payload.content.strip(),
         mentions=resolved or None,
+        attachments=valid_attachments or None,
     )
     logger.info(f"Team chat: user {user_id} -> team {team_id} channel {channel_id} (mentions={resolved})")
     return {"success": True, "message_id": msg_id, "channel_id": channel_id}
+
+
+def _sniff_upload_mime(file: UploadFile, raw_bytes: bytes) -> str:
+    """Best-effort server-side MIME (never trust the client type as primary):
+    python-magic content sniff → extension guess → client type → octet-stream."""
+    try:
+        import magic  # type: ignore[import-not-found]
+
+        sniffed = magic.from_buffer(raw_bytes, mime=True)
+        if sniffed:
+            return sniffed
+    except ImportError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"libmagic sniff failed: {e}; falling back to extension")
+    guessed, _ = mimetypes.guess_type(file.filename or "")
+    return guessed or file.content_type or "application/octet-stream"
+
+
+@router.post("/{team_id}/chat/attachments")
+async def upload_team_chat_attachment(
+    team_id: str,
+    request: Request,
+    source: str | None = Query(
+        None,
+        description="'recording' = in-browser voice memo (rendered as a transcript); "
+        "any other value = regular file upload. Whisper runs for all audio/* either way.",
+    ),
+    file: UploadFile = File(..., description="File to attach to a team chat message"),
+):
+    """Store a user-uploaded file into the sender's shared bus area and return a
+    bus-attachment dict. The client echoes that dict back in the ``attachments``
+    field of ``POST /{team_id}/chat/messages``. The file lands in
+    ``{base}/{user_id}/_shared/bus_files`` so every team agent can Read it. For
+    audio uploads we run Whisper (same as the single-agent path) so @mentioned
+    agents receive the spoken content as text via the attachment marker."""
+    from backend.config import settings as backend_settings
+
+    user_id = await _user_id_for_request(request)
+    db = await get_db_client()
+    team = await TeamRepository(db).get_team(team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if team.owner_user_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    raw_bytes = await file.read()
+    max_bytes = backend_settings.max_upload_bytes
+    if len(raw_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the maximum upload size of {max_bytes // (1024 * 1024)} MB",
+        )
+
+    mime_type = _sniff_upload_mime(file, raw_bytes)
+    att = store_bytes_into_bus(
+        user_id=user_id,
+        raw_bytes=raw_bytes,
+        original_name=file.filename or "upload",
+        mime_type=mime_type,
+    )
+
+    # Normalise source for deterministic frontend dispatch (recording vs upload).
+    att["source"] = "recording" if source == "recording" else "upload"
+
+    # Transcribe audio uploads so team agents get the words (they can't listen).
+    transcription_available: bool | None = None
+    if mime_type.startswith("audio/"):
+        from xyz_agent_context.agent_framework.transcription import TranscriptionService
+
+        on_disk = resolve_shared_file_for_user(user_id, att["rel_path"])
+        svc = TranscriptionService.instance()
+        transcription_available = await svc.is_available(user_id)
+        if transcription_available and on_disk is not None:
+            transcript = await svc.transcribe(
+                file_path=str(on_disk),
+                file_id=att["file_id"],
+                agent_id="",  # team memo has no single agent; public endpoint falls back to shared resolver
+                user_id=user_id,
+            )
+            if transcript:
+                att["transcript"] = transcript
+                logger.info(f"Team voice memo transcribed: file={att['file_id']} chars={len(transcript)}")
+
+    logger.info(f"Team chat upload: user {user_id} team {team_id} file={att['file_id']} mime={mime_type}")
+    return {"success": True, "attachment": att, "transcription_available": transcription_available}
 
 
 @router.get("/{team_id}/chat/messages")
@@ -163,6 +294,7 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
             "author_name": (user_name or "You") if is_user else name_by_agent.get(m.from_agent, m.from_agent),
             "is_user": is_user,
             "content": m.content,
+            "attachments": m.attachments,
             "created_at": m.created_at,
         })
 
@@ -242,6 +374,16 @@ async def update_team(team_id: str, payload: UpdateTeamRequest, request: Request
         raise HTTPException(status_code=403, detail="Forbidden")
 
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    # Default-responder: a non-empty lead must be a current member; an empty
+    # string clears it (back to the earliest-joined fallback). exclude_none
+    # already drops a null, so "" is the wire signal for "clear".
+    if "lead_agent_id" in updates:
+        lead = (updates["lead_agent_id"] or "").strip()
+        if lead:
+            members = await TeamMemberRepository(db).list_members_by_team(team_id)
+            if lead not in members:
+                raise HTTPException(status_code=400, detail="lead_agent_id must be a team member")
+        updates["lead_agent_id"] = lead or None
     if updates:
         await team_repo.update_team(team_id, updates)
     refreshed = await team_repo.get_team(team_id)

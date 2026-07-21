@@ -401,7 +401,12 @@ class MessageBusTrigger:
         try:
             if is_team:
                 member_map = await self._team_member_names(channel_id)
-                prompt = self._build_team_prompt(agent_id, messages, member_map)
+                team_owner = await self._get_agent_owner(agent_id)
+                team_id = channel_owner[len(TEAM_ROOM_OWNER_PREFIX):]
+                prompt = self._build_team_prompt(
+                    agent_id, messages, member_map,
+                    owner_user_id=team_owner, team_id=team_id,
+                )
             else:
                 # Owner lookup up-front — used by both the prompt (to remind the
                 # agent its owner is waiting in chat) and the inbox writer.
@@ -639,11 +644,18 @@ class MessageBusTrigger:
         return out
 
     def _build_team_prompt(
-        self, agent_id: str, messages: List[BusMessage], member_map: Dict[str, str]
+        self,
+        agent_id: str,
+        messages: List[BusMessage],
+        member_map: Dict[str, str],
+        owner_user_id: str = "",
+        team_id: str = "",
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
         peer/owner-relay path — there is no send_message_to_user_directly step."""
+        from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
+
         me = member_map.get(agent_id, agent_id)
         teammates = [n for a, n in member_map.items() if a != agent_id]
         roster = ", ".join(teammates) if teammates else "(no other agents yet)"
@@ -655,9 +667,16 @@ class MessageBusTrigger:
             "These are the ONLY participants who can see this chat. Someone "
             "named in the history but not in that list has LEFT or was never "
             "here — they are not present.",
-            "",
-            "Recent messages:",
         ]
+        if owner_user_id and team_id:
+            from xyz_agent_context.utils.workspace_paths import team_shared_dir
+            shared = team_shared_dir(owner_user_id, team_id)
+            lines.append(
+                f"Team shared folder: {shared} — files placed here (via "
+                f"bus_share_to_team) are visible to every teammate; open them "
+                f"with the Read tool."
+            )
+        lines += ["", "Recent messages:"]
         for msg in messages:
             sender = (
                 "User"
@@ -665,13 +684,24 @@ class MessageBusTrigger:
                 else member_map.get(msg.from_agent, msg.from_agent)
             )
             lines.append(f"{sender}: {msg.content}")
+            marker = build_bus_markers(msg.attachments, from_agent=sender)
+            if marker:
+                lines.append(marker)
         lines += [
             "",
             "Write your chat reply now. Rules:",
             "- Output ONLY the message itself — natural, conversational text "
             "(markdown is fine). It is posted to the group as-is; everyone sees it.",
-            "- Do NOT use any tools and do NOT call any send/bus function. Your "
-            "text reply is delivered automatically — there is nothing to invoke.",
+            # Reply-only means "don't re-send / don't trigger others", NOT "can't
+            # look at a file". Read-only tools (esp. the built-in Read) MUST stay
+            # allowed — a shared image/doc is answered by Read-ing the path from a
+            # marker or pasted into a message. Forbidding all tools made agents
+            # refuse to open files they were asked about.
+            "- Do NOT call any send/bus/reply function or @-trigger a teammate to "
+            "deliver your answer — your text reply below is posted to the group "
+            "automatically. You MAY use read-only tools, especially the built-in "
+            "Read tool, to open a file path mentioned above (e.g. to view an image "
+            "or document you're asked about). After reading, reply with plain text.",
             "- Do NOT narrate your process or thinking. No \"Let me…\", no \"I "
             "need to find…\", no tool/function names, no step-by-step. Just talk.",
             "- Keep it short, like a real group chat. To pull in a teammate, "
@@ -740,13 +770,19 @@ class MessageBusTrigger:
         "go talk to agent B for me" never hears back — the reply only lands
         in the Inbox. observed as a silent-failure UX issue in production.
         """
+        from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
+
         lines = ["[Message Bus - Incoming Messages]", ""]
         for msg in messages:
-            lines.append(
+            block = (
                 f"From: {msg.from_agent}\n"
                 f"Time: {msg.created_at}\n"
                 f"{msg.content}\n"
             )
+            marker = build_bus_markers(msg.attachments, from_agent=msg.from_agent)
+            if marker:
+                block += f"{marker}\n"
+            lines.append(block)
 
         if owner_user_id:
             lines.append("")

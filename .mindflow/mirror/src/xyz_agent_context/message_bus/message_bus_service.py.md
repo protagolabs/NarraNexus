@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-04-10
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — attachments in the send contract
+
+`send_message` / `send_to_agent` abstract methods gained `attachments: list[dict] |
+None`. Implementers persist it; `CloudMessageBus` stub carries the param but still
+raises NotImplementedError. Files are references, not bytes — see
+[[_bus_attachment_impl]].
 
 # message_bus_service.py — MessageBus 统一抽象接口
 
