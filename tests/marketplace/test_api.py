@@ -106,6 +106,39 @@ async def test_publish_requires_token(app, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_publish_without_configured_token_allowed_in_local_mode(
+    app, tmp_path, monkeypatch
+):
+    monkeypatch.delenv("MARKETPLACE_PUBLISH_TOKEN", raising=False)
+    import xyz_agent_context.utils.deployment_mode as dm
+
+    monkeypatch.setattr(dm, "is_cloud_mode", lambda: False)
+    response = await _publish(app, tmp_path, name="local-pub", token="")
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_publish_without_configured_token_closed_on_cloud(
+    app, tmp_path, monkeypatch
+):
+    monkeypatch.delenv("MARKETPLACE_PUBLISH_TOKEN", raising=False)
+    import xyz_agent_context.utils.deployment_mode as dm
+
+    monkeypatch.setattr(dm, "is_cloud_mode", lambda: True)
+    response = await _publish(app, tmp_path, name="cloud-pub", token="")
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_local_registry_flag_forces_registry_host(monkeypatch):
+    from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+
+    monkeypatch.setenv("SKILL_MARKETPLACE_LOCAL_REGISTRY", "1")
+    assert SkillMarketplaceService()._is_registry_host() is True
+    monkeypatch.delenv("SKILL_MARKETPLACE_LOCAL_REGISTRY")
+
+
+@pytest.mark.asyncio
 async def test_publish_and_search_and_detail(app, tmp_path):
     response = await _publish(app, tmp_path)
     assert response.status_code == 200

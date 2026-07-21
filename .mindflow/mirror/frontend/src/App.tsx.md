@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-07-20
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — /app/marketplace 路由
+
+新增 lazy MarketplacePage 路由,与其他页面同模式。
+
 
 ## 2026-07-20 — quota-exceeded 横幅文案补「订阅 NetMind.AI 套餐」
 

@@ -4,6 +4,13 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — local 模式免 token 发布
+
+`MARKETPLACE_PUBLISH_TOKEN` 未配置时:cloud 仍然 403(多租户,发布默认关
+闭);local 放行(loopback + OS 用户边界,与本地 API 信任模型一致)——让
+dev/桌面主机能运行自己的 registry。配置了 token 则两种模式都严格校验。
+
+
 # routes/marketplace_skills.py — /api/marketplace/skills/*
 
 Skill Marketplace API. The `/api/marketplace` namespace is split by object:

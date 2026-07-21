@@ -164,7 +164,7 @@ export function MarketplaceBrowser({
   );
 }
 
-function MarketplaceCard({
+export function MarketplaceCard({
   item,
   isInstalling,
   onInstall,

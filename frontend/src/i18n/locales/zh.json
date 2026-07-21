@@ -23,7 +23,8 @@
     "you": "你",
     "cloud": "云端",
     "localMode": "本地模式",
-    "cloudMode": "云端模式"
+    "cloudMode": "云端模式",
+    "marketplace": "技能市场"
   },
   "chat": {
     "conversation": "对话",
@@ -1992,7 +1993,15 @@
       "capabilities": "能力标签",
       "configKeys": "配置项",
       "versions": "版本历史",
-      "close": "关闭"
+      "close": "关闭",
+      "pageSubtitle": "发现并安装技能,扩展你的 Agent 能力。",
+      "category": {
+        "all": "全部",
+        "fallback": "能力补齐",
+        "utility": "实用工具",
+        "integration": "集成",
+        "enhancement": "增强"
+      }
     }
   },
   "feedback": {

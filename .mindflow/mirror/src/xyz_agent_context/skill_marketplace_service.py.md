@@ -4,6 +4,14 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — SKILL_MARKETPLACE_LOCAL_REGISTRY 开关
+
+`_is_registry_host()` 新增 env 覆盖:`SKILL_MARKETPLACE_LOCAL_REGISTRY=1`
+时本地/桌面实例自己当 registry(服务并浏览自己的 catalog),用于 dev、离线
+演示、以及 cloud marketplace 上线前的过渡。默认仍是 cloud=registry、
+local=proxy 到 NARRANEXUS_MARKETPLACE_URL。
+
+
 # skill_marketplace_service.py
 
 Service protocol layer (public façade) for the Skill Marketplace — the ONLY

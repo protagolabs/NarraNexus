@@ -4,6 +4,11 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — MarketplaceCard 导出
+
+`MarketplaceCard` 改为具名导出,MarketplacePage(全页入口)复用同一张卡片。
+
+
 # MarketplaceBrowser.tsx
 
 Skill Marketplace browse/search dialog, opened from SkillsPanel's action-bar

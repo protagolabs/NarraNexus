@@ -23,7 +23,8 @@
     "you": "You",
     "cloud": "Cloud",
     "localMode": "Local Mode",
-    "cloudMode": "Cloud Mode"
+    "cloudMode": "Cloud Mode",
+    "marketplace": "Marketplace"
   },
   "chat": {
     "conversation": "Conversation",
@@ -1993,7 +1994,15 @@
       "capabilities": "Capabilities",
       "configKeys": "Config keys",
       "versions": "Versions",
-      "close": "Close"
+      "close": "Close",
+      "pageSubtitle": "Discover and install skills to extend your agents.",
+      "category": {
+        "all": "All",
+        "fallback": "Fallback",
+        "utility": "Utility",
+        "integration": "Integration",
+        "enhancement": "Enhancement"
+      }
     }
   },
   "feedback": {

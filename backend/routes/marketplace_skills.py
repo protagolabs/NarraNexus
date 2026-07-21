@@ -184,8 +184,19 @@ async def publish_skill(
     x_publish_token: Optional[str] = Header(None),
 ):
     expected = os.environ.get("MARKETPLACE_PUBLISH_TOKEN")
-    if not expected or x_publish_token != expected:
-        raise HTTPException(status_code=403, detail="Invalid or missing publish token")
+    if expected:
+        if x_publish_token != expected:
+            raise HTTPException(status_code=403, detail="Invalid or missing publish token")
+    else:
+        # No token configured: publishing stays CLOSED on cloud (multi-tenant),
+        # but is allowed in local mode — the backend is loopback-bound and the
+        # OS user is the security boundary (same trust model as the rest of
+        # the local API). Lets dev/desktop hosts run their own registry.
+        from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+
+        if is_cloud_mode():
+            raise HTTPException(status_code=403, detail="Publishing is not enabled on this server")
+        logger.info("Marketplace publish: local mode without token — allowed")
 
     temp_dir = Path(tempfile.mkdtemp())
     try:

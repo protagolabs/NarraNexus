@@ -39,6 +39,15 @@ class SkillMarketplaceService:
     # -- registry access -----------------------------------------------------
 
     def _is_registry_host(self) -> bool:
+        """Cloud deployments ARE the registry. A local/desktop deployment can
+        opt into hosting its own registry (dev, offline demos, or before the
+        cloud marketplace is live) via SKILL_MARKETPLACE_LOCAL_REGISTRY=1 —
+        it then serves/browses its own catalog instead of proxying to
+        NARRANEXUS_MARKETPLACE_URL."""
+        import os
+
+        if os.environ.get("SKILL_MARKETPLACE_LOCAL_REGISTRY", "").lower() in ("1", "true"):
+            return True
         return get_deployment_mode() == "cloud"
 
     async def _registry(self) -> RegistryService:
