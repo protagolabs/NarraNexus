@@ -231,3 +231,50 @@ async def test_platform_var_counts_as_configured(db_client, workspace, tmp_path,
     skill = next(s for s in module.list_skills() if s.name == "netmind-vision")
     assert "NETMIND_API_KEY" in (skill.requires_env or [])
     assert skill.env_configured is True  # platform-resolved, no Needs Config badge
+
+
+@pytest.mark.asyncio
+async def test_declared_requires_suppresses_body_scan(db_client, workspace, tmp_path, monkeypatch):
+    """Optional override vars mentioned in the SKILL.md body (NETMIND_BASE_URL
+    etc.) must NOT be promoted to required when frontmatter declares
+    requires.env explicitly."""
+    registry = _registry(db_client, tmp_path)
+    zip_path = tmp_path / "declared.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr(
+            "declared-skill/SKILL.md",
+            "---\nname: declared-skill\ndescription: d\nversion: 1.0.0\n"
+            "metadata:\n  clawdbot:\n    requires:\n      env: [NETMIND_API_KEY]\n---\n"
+            "Optionally set NETMIND_BASE_URL and NETMIND_VISION_MODEL to override.\n",
+        )
+        zf.writestr("declared-skill/manifest.json", json.dumps({"id": "declared-skill", "version": "1.0.0"}))
+    await registry.publish(zip_path, "team")
+
+    from xyz_agent_context._skill_marketplace_impl.install_pipeline import InstallPipeline
+
+    pipeline = InstallPipeline(AGENT_ID, USER_ID, db_client=db_client)
+    await pipeline.install_from_marketplace(
+        "declared-skill", marketplace_source=LocalMarketplaceSource(registry)
+    )
+    skill = next(
+        s for s in SkillModule(agent_id=AGENT_ID, user_id=USER_ID).list_skills()
+        if s.name == "declared-skill"
+    )
+    assert skill.requires_env == ["NETMIND_API_KEY"]
+    assert skill.env_configured is True
+
+
+@pytest.mark.asyncio
+async def test_platform_env_available_truthful(db_client, workspace):
+    from xyz_agent_context.module.skill_module.skill_module import platform_env_available
+
+    assert await platform_env_available(db_client, USER_ID) == set()
+    await db_client.insert(
+        "user_providers",
+        {"user_id": USER_ID, "source": "netmind", "protocol": "openai", "name": "NetMind",
+         "provider_id": "netmind-openai", "api_key": "nm-key",
+         "base_url": "https://api.netmind.ai/inference-api/openai/v1"},
+    )
+    assert await platform_env_available(db_client, USER_ID) == {"NETMIND_API_KEY"}
+    assert await platform_env_available(db_client, "someone_else") == set()
+    assert await platform_env_available(None, USER_ID) == set()

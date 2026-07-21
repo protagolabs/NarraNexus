@@ -3,6 +3,16 @@ code_file: src/xyz_agent_context/module/skill_module/skill_module.py
 last_verified: 2026-07-21
 ---
 
+## 2026-07-21(晚)— frontmatter requires 抑制 body 扫描 + platform_env_available
+
+两个修正:1)frontmatter 显式声明 `requires.env` 时,正文大写变量扫描不再
+追加(正文常提到 NETMIND_BASE_URL 这类**可选**覆盖项,被误提为必填导致
+Needs Config 误报);未声明的技能保留 body 扫描 fallback。2)新公开
+`platform_env_available(db, user_id) -> set`:查该 user 真的能被平台解析的
+变量(NetMind 行存在才算),供 routes 层做「真实」配置状态显示——
+`_parse_skill_md` 保持 fs-only 乐观判定,真伪校正在 API 层。
+
+
 ## 2026-07-21 — 平台可解析 env(NETMIND_API_KEY 运行时注入,stage 9)
 
 新常量 `PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)` + 私有

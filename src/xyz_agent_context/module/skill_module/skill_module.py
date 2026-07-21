@@ -213,6 +213,29 @@ BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin_skills"
 PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)
 
 
+async def platform_env_available(db, user_id: Optional[str]) -> set:
+    """Which PLATFORM_RESOLVED_ENV vars are actually satisfiable for this user.
+
+    Used by the API layer to show TRUTHFUL config status: a skill declaring
+    NETMIND_API_KEY shows "configured" only when the user really has a
+    NetMind provider row (or an explicit skill-level value)."""
+    available: set = set()
+    if db is None or not user_id:
+        return available
+    for var in PLATFORM_RESOLVED_ENV:
+        if var == "NETMIND_API_KEY":
+            try:
+                row = await db.get_one(
+                    "user_providers",
+                    {"user_id": user_id, "source": "netmind", "protocol": "openai"},
+                )
+                if row and row.get("api_key"):
+                    available.add(var)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"platform_env_available({var}) lookup failed: {e}")
+    return available
+
+
 class SkillModule(XYZBaseModule):
     """
     Skill Module - Manages Skills under the user's workspace
@@ -576,9 +599,16 @@ class SkillModule(XYZBaseModule):
                                     fm_requires_env = requires.get("env", [])
                                     fm_requires_bins = requires.get("bins", [])
 
-                        # Scan markdown body for env var patterns
-                        body_text = parts[2] if len(parts) >= 3 else ""
-                        body_env = self._extract_env_vars_from_text(body_text)
+                        # Body scan is a FALLBACK for skills that declare
+                        # nothing. When the frontmatter explicitly declares
+                        # requires.env, trust it — the body often mentions
+                        # OPTIONAL override vars (e.g. NETMIND_BASE_URL) that
+                        # must not be promoted to "required".
+                        if fm_requires_env:
+                            body_env = []
+                        else:
+                            body_text = parts[2] if len(parts) >= 3 else ""
+                            body_env = self._extract_env_vars_from_text(body_text)
 
                         # Merge frontmatter + body scan + meta.json requirements (union)
                         requires_env = sorted(set(fm_requires_env + body_env + meta_requires_env)) or None

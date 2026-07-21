@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/skills.py
-last_verified: 2026-07-20
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — 平台共享凭证的真实配置状态
+
+`_enrich_platform_env_status`:list/env 接口对声明了 PLATFORM_RESOLVED_ENV
+的技能,按「显式配置 OR 用户有 NetMind provider 行」重算 env_configured
+(GET /env 与 PUT /env 的返回同逻辑)。配了 System→NetMind 的用户看到
+已配置(共享生效);没配的用户如实提示。
+
 
 # routes/skills.py — Skill 安装、学习与环境配置路由
 

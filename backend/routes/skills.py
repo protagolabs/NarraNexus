@@ -127,6 +127,39 @@ def _get_skill_module(agent_id: str, user_id: str) -> SkillModule:
     return SkillModule(agent_id=agent_id, user_id=user_id, database_client=None)
 
 
+async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id: str) -> None:
+    """Truthful config status for platform-resolved env vars.
+
+    _parse_skill_md is filesystem-only and optimistically counts
+    PLATFORM_RESOLVED_ENV vars as configured. Here (async, DB in reach) we
+    check whether the user actually has the backing provider (e.g. a NetMind
+    row for NETMIND_API_KEY) and downgrade env_configured when not."""
+    from xyz_agent_context.module.skill_module.skill_module import (
+        PLATFORM_RESOLVED_ENV,
+        platform_env_available,
+    )
+
+    affected = [
+        s for s in skills
+        if s.requires_env and any(v in PLATFORM_RESOLVED_ENV for v in s.requires_env)
+    ]
+    if not affected:
+        return
+    try:
+        from xyz_agent_context.utils.db_factory import get_db_client
+
+        available = await platform_env_available(await get_db_client(), user_id)
+    except Exception as e:
+        logger.warning(f"platform env status enrich skipped: {e}")
+        return
+    for skill in affected:
+        env_config = skill_module.get_skill_env_config(skill.name)
+        skill.env_configured = all(
+            bool(env_config.get(v)) or (v in PLATFORM_RESOLVED_ENV and v in available)
+            for v in (skill.requires_env or [])
+        )
+
+
 # =========================================================================
 # Background study tasks
 # =========================================================================
@@ -255,6 +288,7 @@ async def list_skills(
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skills = skill_module.list_skills(include_disabled=include_disabled)
+        await _enrich_platform_env_status(skill_module, skills, user_id)
 
         return SkillListResponse(skills=skills, total=len(skills))
 
@@ -541,7 +575,21 @@ async def get_skill_env(
         # Use requires_env from SkillInfo (merged from frontmatter + .skill_meta.json)
         requires_env = skill.requires_env or []
         env_config = skill_module.get_skill_env_config(skill_name)
-        env_configured = {v: bool(env_config.get(v)) for v in requires_env}
+
+        # Platform-resolved vars (e.g. NETMIND_API_KEY) count as configured
+        # when the user's provider config can back them at run time.
+        from xyz_agent_context.module.skill_module.skill_module import (
+            PLATFORM_RESOLVED_ENV,
+            platform_env_available,
+        )
+        from xyz_agent_context.utils.db_factory import get_db_client
+
+        available = set()
+        if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
+            available = await platform_env_available(await get_db_client(), user_id)
+        env_configured = {
+            v: bool(env_config.get(v)) or v in available for v in requires_env
+        }
 
         return SkillEnvConfigResponse(
             success=True,
@@ -581,7 +629,19 @@ async def set_skill_env(
         skill = skill_module.get_skill(skill_name)
         updated_config = skill_module.get_skill_env_config(skill_name)
         requires_env = skill.requires_env or [] if skill else []
-        env_configured = {v: bool(updated_config.get(v)) for v in requires_env}
+
+        from xyz_agent_context.module.skill_module.skill_module import (
+            PLATFORM_RESOLVED_ENV,
+            platform_env_available,
+        )
+        from xyz_agent_context.utils.db_factory import get_db_client
+
+        available = set()
+        if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
+            available = await platform_env_available(await get_db_client(), user_id)
+        env_configured = {
+            v: bool(updated_config.get(v)) or v in available for v in requires_env
+        }
 
         return SkillEnvConfigResponse(
             success=True,
