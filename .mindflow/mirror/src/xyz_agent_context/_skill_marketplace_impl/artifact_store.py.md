@@ -4,6 +4,15 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — MARKETPLACE_S3_ENV(dev/prod × skills/teams 单桶布局)
+
+`_compose_prefix`:一个 bucket 按 `<MARKETPLACE_S3_ENV>/<skills|teams>` 分环境
+(dev/skills, dev/teams, prod/skills, prod/teams)。显式 SKILL_S3_PREFIX /
+TEMPLATE_S3_PREFIX 仍优先;不设 env 段则回落扁平默认(narranexus-skills/teams)。
+一个部署只需设 SKILL_S3_BUCKET + SKILL_S3_REGION + MARKETPLACE_S3_ENV,
+skills/teams 自动分目录、不会设错。
+
+
 ## 2026-07-21 — get_template_store()(Team Marketplace)
 
 新增 team 专用 store 选择器,与 skill 物理分开:S3 走 TEMPLATE_S3_BUCKET

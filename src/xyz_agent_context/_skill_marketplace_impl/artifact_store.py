@@ -109,12 +109,31 @@ class S3ArtifactStore(ArtifactStore):
             return False
 
 
+def _env_segment() -> str:
+    """Optional front segment of the S3 layout (e.g. "dev" / "prod") so ONE
+    bucket cleanly serves multiple environments. Set MARKETPLACE_S3_ENV per
+    deployment; the object layout becomes <env>/skills/... and <env>/teams/...
+    Empty = flat layout (no env segment)."""
+    return os.environ.get("MARKETPLACE_S3_ENV", "").strip("/")
+
+
+def _compose_prefix(explicit_env: str, object_dir: str, flat_default: str) -> str:
+    """Resolve the S3 key prefix. An explicit *_S3_PREFIX env always wins;
+    otherwise compose <MARKETPLACE_S3_ENV>/<object_dir> (dev/skills,
+    prod/teams, ...), falling back to the flat default when no env segment."""
+    explicit = os.environ.get(explicit_env)
+    if explicit is not None:
+        return explicit.strip("/")
+    seg = _env_segment()
+    return f"{seg}/{object_dir}" if seg else flat_default
+
+
 def get_artifact_store() -> ArtifactStore:
     bucket = os.environ.get("SKILL_S3_BUCKET")
     if bucket:
         return S3ArtifactStore(
             bucket=bucket,
-            prefix=os.environ.get("SKILL_S3_PREFIX", "narranexus-skills"),
+            prefix=_compose_prefix("SKILL_S3_PREFIX", "skills", "narranexus-skills"),
             region=os.environ.get("SKILL_S3_REGION"),
         )
     from xyz_agent_context.settings import settings
@@ -128,17 +147,18 @@ def get_template_store() -> ArtifactStore:
     """Artifact store for Team Marketplace `.nxbundle` blobs — physically
     SEPARATE from skills (different S3 prefix / local subfolder).
 
-    Selection mirrors get_artifact_store():
-    - TEMPLATE_S3_BUCKET (falls back to SKILL_S3_BUCKET — same bucket, own
-      prefix) -> S3ArtifactStore, prefix TEMPLATE_S3_PREFIX (default
-      "narranexus-teams").
-    - otherwise -> LocalArtifactStore under <base>/../marketplace_store/teams.
+    S3 layout (one bucket, dev/prod × skills/teams):
+    - MARKETPLACE_S3_ENV=dev  -> keys under  dev/teams/...
+    - MARKETPLACE_S3_ENV=prod -> keys under  prod/teams/...
+    - unset                   -> flat "narranexus-teams/..."
+    TEMPLATE_S3_PREFIX overrides the composed prefix; TEMPLATE_S3_BUCKET
+    falls back to SKILL_S3_BUCKET (same bucket, own object dir).
     """
     bucket = os.environ.get("TEMPLATE_S3_BUCKET") or os.environ.get("SKILL_S3_BUCKET")
     if bucket:
         return S3ArtifactStore(
             bucket=bucket,
-            prefix=os.environ.get("TEMPLATE_S3_PREFIX", "narranexus-teams"),
+            prefix=_compose_prefix("TEMPLATE_S3_PREFIX", "teams", "narranexus-teams"),
             region=os.environ.get("TEMPLATE_S3_REGION") or os.environ.get("SKILL_S3_REGION"),
         )
     from xyz_agent_context.settings import settings
