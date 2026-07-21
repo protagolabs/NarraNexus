@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-07-20
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — skill_catalog.is_default 列(stage 9)
+
+additive TINYINT(1) 默认 0:标记「建 agent 时自动安装」的默认技能。
+manifest 的 `"default": true` 在 publish 时写入。
+
 
 ## 2026-07-20 — Skill Marketplace: 4 new tables
 

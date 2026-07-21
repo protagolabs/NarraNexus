@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/repository/skill_catalog_repository.py
-last_verified: 2026-07-20
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — list_defaults()
+
+is_default=1 且 published 的技能,每 skill 取语义化最新版,按 skill_id 排序。
+
 
 # skill_catalog_repository.py
 

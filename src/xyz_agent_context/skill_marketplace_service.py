@@ -151,6 +151,42 @@ class SkillMarketplaceService:
         """Registry-host-side batch update check (serves GET /updates?skills=)."""
         return await (await self._registry()).check_updates(installed)
 
+    async def list_defaults(self) -> List[Dict[str, Any]]:
+        if self._is_registry_host():
+            registry = await self._registry()
+            return [e.model_dump() for e in await registry.catalog.list_defaults()]
+        return await self._remote().list_defaults()
+
+    async def install_defaults(self, agent_id: str, user_id: str) -> Dict[str, Any]:
+        """Install every is_default skill into a (typically new) workspace.
+
+        Per-skill failures are collected, never raised — default-skill setup
+        must not break agent creation, and an unreachable registry (desktop
+        offline) degrades to a no-op.
+        """
+        installed, skipped, failed = [], [], []
+        try:
+            defaults = await self.list_defaults()
+        except Exception as exc:
+            logger.warning(f"Default skills: registry unreachable, skipping ({exc})")
+            return {"installed": [], "skipped": [], "failed": [], "registry_unreachable": True}
+
+        for entry in defaults:
+            skill_id = entry.get("skill_id")
+            if not skill_id:
+                continue
+            try:
+                result = await self.install(agent_id, user_id, skill_id)
+                (installed if result.status == "installed" else skipped).append(skill_id)
+            except Exception as exc:
+                logger.warning(f"Default skill '{skill_id}' install failed: {exc}")
+                failed.append(skill_id)
+        if installed:
+            logger.info(
+                f"Default skills installed for agent={agent_id}: {', '.join(installed)}"
+            )
+        return {"installed": installed, "skipped": skipped, "failed": failed}
+
     # -- mutations -----------------------------------------------------------
 
     async def install(

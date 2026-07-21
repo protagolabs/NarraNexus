@@ -113,6 +113,20 @@ class SkillCatalogRepository(BaseRepository[SkillCatalogEntry]):
         start = max(page - 1, 0) * limit
         return items[start : start + limit], total
 
+    async def list_defaults(self) -> List[SkillCatalogEntry]:
+        """Latest published version of every skill flagged is_default."""
+        rows = await self._db.execute(
+            f"SELECT * FROM {self.table_name} WHERE is_default = 1 AND status = %s",
+            ("published",),
+        )
+        latest: Dict[str, SkillCatalogEntry] = {}
+        for row in rows:
+            entry = self._row_to_entity(row)
+            current = latest.get(entry.skill_id)
+            if current is None or _semver_key(entry.version) > _semver_key(current.version):
+                latest[entry.skill_id] = entry
+        return sorted(latest.values(), key=lambda e: e.skill_id)
+
     async def increment_downloads(self, skill_id: str, version: str) -> None:
         await self._db.execute(
             f"UPDATE {self.table_name} SET downloads = downloads + 1 "
@@ -151,6 +165,7 @@ class SkillCatalogRepository(BaseRepository[SkillCatalogEntry]):
             scan_status=row["scan_status"],
             status=row["status"],
             downloads=row.get("downloads") or 0,
+            is_default=bool(row.get("is_default")),
             avg_rating=row.get("avg_rating"),
             published_at=row.get("published_at"),
             created_at=row.get("created_at"),
@@ -181,6 +196,7 @@ class SkillCatalogRepository(BaseRepository[SkillCatalogEntry]):
             "scan_status": entity.scan_status,
             "status": entity.status,
             "downloads": entity.downloads,
+            "is_default": 1 if entity.is_default else 0,
             "avg_rating": entity.avg_rating,
             "published_at": (
                 entity.published_at.strftime("%Y-%m-%d %H:%M:%S")

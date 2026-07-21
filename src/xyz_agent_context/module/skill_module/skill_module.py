@@ -207,6 +207,11 @@ Do NOT silently skip human-required steps — the skill will not function withou
 # Dockerfile.manyfold / build-desktop.sh), never installed by the agent.
 BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin_skills"
 
+# Env vars the PLATFORM can satisfy from the user's provider configuration
+# at run time (see _resolve_platform_env). Declared-but-unconfigured vars in
+# this set do NOT flag a skill as "Needs Config" — they are auto-injected.
+PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)
+
 
 class SkillModule(XYZBaseModule):
     """
@@ -295,6 +300,7 @@ class SkillModule(XYZBaseModule):
 
         # Collect all configured env vars from enabled skills for runtime injection
         skill_env_vars = self.get_all_skill_env_vars()
+        skill_env_vars = await self._resolve_platform_env(skill_env_vars, skills)
         if skill_env_vars:
             ctx_data.extra_data["skill_env_vars"] = skill_env_vars
             logger.debug(f"Collected {len(skill_env_vars)} skill env vars for injection")
@@ -581,7 +587,10 @@ class SkillModule(XYZBaseModule):
                         # Check if all required env vars are configured
                         env_configured = None
                         if requires_env:
-                            env_configured = all(env_config.get(v) for v in requires_env)
+                            env_configured = all(
+                                env_config.get(v) or v in PLATFORM_RESOLVED_ENV
+                                for v in requires_env
+                            )
 
                         return SkillInfo(
                             name=meta.get("name", skill_dir.name),
@@ -606,7 +615,9 @@ class SkillModule(XYZBaseModule):
         requires_bins = sorted(set(meta_requires_bins)) or None
         env_configured = None
         if requires_env:
-            env_configured = all(env_config.get(v) for v in requires_env)
+            env_configured = all(
+                env_config.get(v) or v in PLATFORM_RESOLVED_ENV for v in requires_env
+            )
 
         return SkillInfo(
             name=skill_dir.name,
@@ -827,6 +838,36 @@ class SkillModule(XYZBaseModule):
         }
         self._write_skill_meta(skill_name, meta_data)
         logger.info(f"Updated requirements for skill '{skill_name}': env={merged_env}, bins={merged_bins}")
+
+    async def _resolve_platform_env(self, env: dict, skills: list) -> dict:
+        """Runtime-only injection of platform-resolvable env vars.
+
+        Skills may declare requirements (e.g. NETMIND_API_KEY) that the
+        platform can satisfy from the user's provider configuration instead
+        of asking the user to re-enter a credential. Resolution happens per
+        run, per user, and the value is NEVER persisted to the workspace —
+        so key rotation applies immediately and cloud workspaces hold no
+        extra key copies. An explicit skill env_config value always wins.
+        """
+        needed = [
+            v for v in PLATFORM_RESOLVED_ENV
+            if not env.get(v) and any(v in (s.requires_env or []) for s in skills)
+        ]
+        if not needed or self.db is None or not self.user_id:
+            return env
+        for var in needed:
+            if var == "NETMIND_API_KEY":
+                try:
+                    row = await self.db.get_one(
+                        "user_providers",
+                        {"user_id": self.user_id, "source": "netmind", "protocol": "openai"},
+                    )
+                    if row and row.get("api_key"):
+                        env[var] = row["api_key"]
+                        logger.debug("Injected NETMIND_API_KEY from user's provider config")
+                except Exception as e:
+                    logger.warning(f"Platform env resolve failed for {var}: {e}")
+        return env
 
     def merge_skill_meta(self, skill_name: str, fields: dict) -> None:
         """Merge fields into a skill's .skill_meta.json (public, for the

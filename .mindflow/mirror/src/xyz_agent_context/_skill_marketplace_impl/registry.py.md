@@ -4,6 +4,12 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — manifest "default" -> catalog is_default(stage 9)
+
+publish 时透传;RemoteMarketplaceSource 增加 `list_defaults()`(GET
+/api/marketplace/skills/defaults,公开读)。
+
+
 # registry.py
 
 Marketplace registry: publish pipeline, catalog queries, and the two install

@@ -37,6 +37,7 @@ class SkillCatalogEntry(BaseModel):
     scan_status: str = "passed"  # passed | warning | rejected
     status: str = "published"  # published | deprecated | unlisted
     downloads: int = 0
+    is_default: bool = False  # auto-installed on agent creation
     avg_rating: Optional[float] = None
     published_at: Optional[datetime] = None
     created_at: Optional[datetime] = None

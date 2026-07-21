@@ -1,7 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-07-20
+last_verified: 2026-07-21
 ---
+
+## 2026-07-21 — 平台可解析 env(NETMIND_API_KEY 运行时注入,stage 9)
+
+新常量 `PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)` + 私有
+`_resolve_platform_env(env, skills)`:hook_data_gathering 收集 skill env 后,
+对「技能声明了但用户未显式配置」的平台变量,从该 user 的
+`user_providers`(source=netmind, protocol=openai)行取 api_key **仅注入本次
+运行的子进程环境,永不落盘**——key 轮换即时生效、cloud workspace 零额外密钥
+副本。显式 skill env_config 永远优先。两处 `env_configured` 计算把平台变量视
+为已配置(不再显示 Needs Config)。依赖 loader 传入的 self.db;db 缺失/无
+user_id 时静默跳过。
+
 
 ## 2026-07-21 — SKILL_MANAGEMENT_RULES 追加进双模式 prompt(stage 5)
 

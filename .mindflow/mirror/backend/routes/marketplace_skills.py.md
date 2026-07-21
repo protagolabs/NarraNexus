@@ -4,6 +4,12 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — GET /defaults(stage 9)
+
+公开读端点,返回 is_default 技能卡片;注册顺序在 /{skill_id} 之前(FastAPI
+按注册序匹配)。desktop 端 agent 创建时匿名拉取。
+
+
 ## 2026-07-21 — local 模式免 token 发布
 
 `MARKETPLACE_PUBLISH_TOKEN` 未配置时:cloud 仍然 403(多租户,发布默认关

@@ -105,6 +105,7 @@ class RegistryService:
                 s3_key=key,
                 package_hash=package_hash,
                 publisher=publisher,
+                is_default=bool(manifest.get("default")),
                 scan_status=report.status,
                 status="published",
                 published_at=_utcnow(),  # type: ignore[arg-type]  # pydantic coerces str -> datetime
@@ -299,6 +300,11 @@ class RemoteMarketplaceSource:
         response = await self._http().get("/api/marketplace/skills/updates", params={"skills": spec})
         response.raise_for_status()
         return response.json().get("updates", [])
+
+    async def list_defaults(self) -> List[Dict[str, Any]]:
+        response = await self._http().get("/api/marketplace/skills/defaults")
+        response.raise_for_status()
+        return response.json().get("items", [])
 
 
 def _utcnow() -> str:

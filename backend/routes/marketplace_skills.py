@@ -99,6 +99,17 @@ async def check_updates(
         raise HTTPException(status_code=500, detail="Update check failed")
 
 
+@router.get("/defaults")
+async def list_default_skills():
+    """Skills flagged is_default — auto-installed on agent creation.
+    Public read (desktop clients fetch this anonymously)."""
+    try:
+        return {"items": await SkillMarketplaceService().list_defaults()}
+    except Exception as e:
+        logger.exception(f"Marketplace defaults listing failed: {e}")
+        raise HTTPException(status_code=500, detail="Defaults listing failed")
+
+
 @router.get("/{skill_id}/download")
 async def download_skill(skill_id: str, version: Optional[str] = Query(None)):
     """Serve the artifact (registry host only). Increments the download counter."""

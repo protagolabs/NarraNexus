@@ -4,6 +4,14 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — Default Skills(stage 9)
+
+`list_defaults()`(cloud=catalog.list_defaults;desktop=GET /defaults)与
+`install_defaults(agent_id, user_id)`:逐个装 is_default 技能,单个失败只记
+录不抛,registry 不可达返回 `registry_unreachable=True` 的空摘要——默认技能
+安装绝不能破坏 agent 创建。
+
+
 ## 2026-07-21 — SKILL_MARKETPLACE_LOCAL_REGISTRY 开关
 
 `_is_registry_host()` 新增 env 覆盖:`SKILL_MARKETPLACE_LOCAL_REGISTRY=1`

@@ -445,6 +445,22 @@ tests/marketplace/{test_scanner,test_install_pipeline,test_registry,test_reconci
 2. **双模式手工验收**(铁律 #7)——DMG 与 `bash run.sh` 各跑:Marketplace 搜索→安装→重启生效→配置→卸载 + Agent 侧 `skill_install` 一次;
 3. 上架来源合规:5 个技能来自 clawhub 社区(Apache-2.0 等),正式对外上架前确认 license/署名展示(manifest 已带 provenance_note)。
 
+### ⑨ Default Skills(NetMind 多模态补齐)— ✅ MVP 已完成(2026-07-21)
+
+**背景**:DeepSeek V4 等模型缺多模态,用 NetMind API 撑腰的技能补齐;用户已配 NetMind 则零配置可用(Hongyi 需求)。
+
+**实际交付**:
+- **平台可解析 env(密钥复用 + 隔离)**:`PLATFORM_RESOLVED_ENV=("NETMIND_API_KEY",)`——技能声明该变量且用户未显式配置时,运行时从该 user 的 `user_providers`(source=netmind)取 key **只注入子进程环境、永不落盘**;显式配置优先;key 轮换即时生效;cloud 无额外密钥副本。UI 侧平台变量不再触发 Needs Config。
+- **两个第一方技能**(`marketplace_skills/` 源目录,纯 stdlib、扫描 0 issue):
+  - `netmind-vision`:图片理解,OpenAI 兼容端点 + `Qwen/Qwen3-VL-235B-A22B-Instruct`。**已实测通过**(读出测试图文字)。
+  - `netmind-transcribe`:音频转文字(`openai/whisper`)。URL → 原生 submit/poll 流(可用,需公网可取 URL);本地文件 → 兼容端点 multipart——**NetMind 侧当前 500**(真实语音亦复现,request_id `f001d463…`/`f350908c…` 已交 Hongyi 内部报障),脚本失败时明确提示走 URL 路。
+- **default 装机机制**:`skill_catalog.is_default` 列(additive)+ manifest `"default": true` → `list_defaults()` + 公开 `GET /defaults` 端点 + `service.install_defaults()`(单技能失败只记录、registry 不可达优雅跳过)→ `create_agent` 成功后 fire-and-forget 自动装(带 done-callback,不阻塞不致命)。
+- 两技能已以 default 标记发布进本地 registry(目录现有 7 技能)。
+
+**验收**:8 个新测试(default 标记/最新版/装机/降级/key 注入/显式优先/无 provider 不注入/不落盘/UI 视为已配置);全量 2843 passed 零回归;ruff/pyright 干净。
+
+**遗留**:officecli/home-assistant 仍走 builtin 物化(离线兜底),统一进 registry 是下一步;模型能力清单(按模型缺口选装)代码库尚无能力数据,PRD §2 的按模型选装推后;NetMind 文件转写端点修复后 `netmind-transcribe` 本地文件路自动痊愈(无需改动)。
+
 ---
 
 ## 十二、风险清单(修订后)
