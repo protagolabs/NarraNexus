@@ -45,8 +45,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if not args.token:
-        print("error: --token or MARKETPLACE_PUBLISH_TOKEN is required", file=sys.stderr)
-        return 2
+        # Local-mode registries accept tokenless publishes (loopback trust);
+        # cloud registries will 403 without a valid token.
+        print("note: no publish token set — only a local-mode registry will accept this")
 
     package = Path(args.package)
     if not package.exists():
@@ -60,7 +61,7 @@ def main() -> int:
             url,
             files={"file": (zip_path.name, f, "application/zip")},
             data={"publisher": args.publisher},
-            headers={"X-Publish-Token": args.token},
+            headers={"X-Publish-Token": args.token} if args.token else {},
             timeout=120.0,
         )
 
