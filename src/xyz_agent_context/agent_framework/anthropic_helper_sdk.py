@@ -33,6 +33,7 @@ from xyz_agent_context.agent_framework.openai_agents_sdk import (
     _last_llm_call_info,
     json_repair_note,
 )
+from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.cost_tracker import (
     get_cost_context,
     record_cost,
@@ -203,10 +204,8 @@ class AnthropicHelperSDK:
         # times (see json_repair_note). A single throw here silently dropped
         # the caller's intent (e.g. an Instance-Decision job never got created)
         # whenever a complex nested schema came back wrapped in prose.
-        from xyz_agent_context.settings import settings as _settings
-
         adapter = TypeAdapter(output_type)
-        attempts = max(1, _settings.helper_json_repair_attempts)
+        attempts = max(1, settings.helper_json_repair_attempts)
         messages: list[dict] = [{"role": "user", "content": user_input}]
         last_reason = ""
         raw_content = ""
@@ -230,9 +229,16 @@ class AnthropicHelperSDK:
                 f"{last_reason}; head={raw_content[:200]!r}"
             )
             if attempt < attempts:
+                # raw_content is the joined text blocks; when the model emitted
+                # NO text this turn (pure thinking / empty / truncated) it is ""
+                # — and an empty assistant content block makes the Messages API
+                # 400. "No text at all" is itself a common extraction-failure
+                # shape, so guard it or the repair turn dies with an API error
+                # unrelated to JSON instead of retrying cleanly.
+                prev = raw_content[:4000].strip() or "(empty response)"
                 messages = [
                     {"role": "user", "content": user_input},
-                    {"role": "assistant", "content": raw_content[:4000]},
+                    {"role": "assistant", "content": prev},
                     {"role": "user", "content": json_repair_note(last_reason)},
                 ]
 

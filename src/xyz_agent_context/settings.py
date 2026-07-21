@@ -132,9 +132,13 @@ class Settings(BaseSettings):
     # (API_TIMEOUT_MS=llm_api_timeout_ms, retries=llm_max_retries) — i.e. up to
     # 10 min/request × 10 retries ≈ 100 min hang on a bad/hijacked endpoint,
     # which surfaced as "Job stuck at 正在创建" when helper_llm was set to Claude.
+    # Kept self-consistent: the wall-clock total is the HARD cap on one
+    # one-shot; the per-request timeout × (1 + retries) is the SOFT budget the
+    # CLI's own retries spend inside it. 60_000ms × (1 + 1) = 120s = the total,
+    # so a configured retry can actually run instead of being cut off early.
     helper_cli_timeout_ms: int = 60000            # per-request cap for the helper CLI subprocess (1 min)
-    helper_cli_max_retries: int = 2               # helper CLI transient-retry count (not agent-loop's 10)
-    helper_cli_total_timeout_seconds: int = 120   # wall-clock bound for ONE helper one-shot (all retries)
+    helper_cli_max_retries: int = 1               # helper CLI transient-retry count (not agent-loop's 10)
+    helper_cli_total_timeout_seconds: int = 120   # HARD wall-clock bound for ONE helper one-shot
     # How many times a Claude helper structured-output call re-prompts for
     # valid JSON before giving up. Prompt-engineered structured output (schema
     # in the prompt + client-side JSON extraction) sometimes returns prose /

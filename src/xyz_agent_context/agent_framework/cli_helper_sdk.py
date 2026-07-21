@@ -51,6 +51,7 @@ from xyz_agent_context.agent_framework.openai_agents_sdk import (
     _last_llm_call_info,
     json_repair_note,
 )
+from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.cost_tracker import (
     get_cost_context,
     record_cost,
@@ -123,10 +124,7 @@ class CliHelperSDK:
             TextBlock,
             query,
         )
-
         from xyz_agent_context.agent_framework.model_catalog import resolve_cli_alias
-
-        from xyz_agent_context.settings import settings as _settings
 
         cfg = ClaudeConfig(
             api_key=cli_helper_config.api_key,
@@ -142,8 +140,8 @@ class CliHelperSDK:
         # "Job stuck at 正在创建" symptom when helper_llm was set to Claude.
         # A helper one-shot is NOT the agent_loop (single turn, tool-free), so
         # bounding it does not violate 铁律 #14.
-        env["API_TIMEOUT_MS"] = str(_settings.helper_cli_timeout_ms)
-        env["CLAUDE_CODE_MAX_RETRIES"] = str(_settings.helper_cli_max_retries)
+        env["API_TIMEOUT_MS"] = str(settings.helper_cli_timeout_ms)
+        env["CLAUDE_CODE_MAX_RETRIES"] = str(settings.helper_cli_max_retries)
         # OAuth helper runs against the isolated CLAUDE_CONFIG_DIR that to_cli_env
         # set (#76). Stage the credential into it ourselves so the helper is
         # self-sufficient — it must work even when the agent slot is NOT claude
@@ -195,17 +193,19 @@ class CliHelperSDK:
             return ("".join(text_parts) or result_text), in_tok, out_tok
 
         # Wall-clock bound for the whole one-shot (all internal CLI retries). On
-        # timeout the coroutine is cancelled and the claude subprocess is torn
-        # down by the SDK's query() context manager. Raises a classifiable error
-        # so the caller surfaces it (never an infinite "创建中").
+        # timeout wait_for cancels the coroutine; claude_agent_sdk's
+        # process_query tears the subprocess down in its own try/finally
+        # (await query.close()) as the cancellation propagates. Raises a
+        # classifiable error so the caller surfaces it (never an infinite
+        # "创建中").
         try:
             return await asyncio.wait_for(
-                _consume(), timeout=_settings.helper_cli_total_timeout_seconds
+                _consume(), timeout=settings.helper_cli_total_timeout_seconds
             )
         except asyncio.TimeoutError as e:
             raise TimeoutError(
                 f"CLI helper one-shot exceeded "
-                f"{_settings.helper_cli_total_timeout_seconds}s "
+                f"{settings.helper_cli_total_timeout_seconds}s "
                 f"(model={model_name}, base_url={env.get('ANTHROPIC_BASE_URL') or '(official)'})"
             ) from e
 
@@ -394,10 +394,8 @@ class CliHelperSDK:
         # one-shot path (esp. Haiku) sometimes return prose / schema-divergent
         # JSON on the first try; a single throw there silently dropped the
         # caller's intent (e.g. an Instance-Decision job never got created).
-        from xyz_agent_context.settings import settings as _settings
-
         adapter = TypeAdapter(output_type)
-        attempts = max(1, _settings.helper_json_repair_attempts)
+        attempts = max(1, settings.helper_json_repair_attempts)
         prompt_text = user_input
         last_reason = ""
         raw_content = ""
@@ -420,7 +418,16 @@ class CliHelperSDK:
                 f"{last_reason}; head={raw_content[:200]!r}"
             )
             if attempt < attempts:
-                prompt_text = user_input + json_repair_note(last_reason)
+                # Each CLI one-shot is a fresh, stateless subprocess (max_turns=1,
+                # query() re-spawns), so the model never sees its "previous
+                # response" — feed the bad reply back inline, otherwise
+                # json_repair_note's reference dangles and only the generic
+                # "output only JSON" hint survives. This is exactly the
+                # CLI-helper + Haiku path the Lark bug reported.
+                prompt_text = (
+                    f"{user_input}\n\nYour previous response was:\n"
+                    f"{raw_content[:4000]}" + json_repair_note(last_reason)
+                )
 
         raise ValueError(
             f"CLI helper did not return schema-valid JSON after {attempts} "

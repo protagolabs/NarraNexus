@@ -116,6 +116,27 @@ async def test_anthropic_repairs_on_second_attempt(monkeypatch):
     assert len(fake.messages.calls[1]["messages"]) == 3
 
 
+async def test_anthropic_empty_reply_repair_turn_has_nonempty_content(monkeypatch):
+    """A turn with NO text block → raw_content "" must not become an empty
+    assistant content block (Messages API 400s on that). The repair turn
+    substitutes a placeholder and still recovers."""
+    set_user_config(
+        ClaudeConfig(), OpenAIConfig(),
+        anthropic_helper=AnthropicHelperConfig(api_key="k", model="claude-haiku-4-5"),
+    )
+    fake = _FakeClient(["", '{"value": 5}'])
+    monkeypatch.setattr(AnthropicHelperSDK, "_build_client", staticmethod(lambda: fake))
+
+    result = await AnthropicHelperSDK().llm_function(
+        instructions="decide", user_input="go", output_type=_Val,
+    )
+    assert result.final_output.value == 5
+    # The repair turn's assistant content is the placeholder, never "".
+    repair_msgs = fake.messages.calls[1]["messages"]
+    assistant = next(m for m in repair_msgs if m["role"] == "assistant")
+    assert assistant["content"].strip() != ""
+
+
 async def test_anthropic_raises_after_exhausting_attempts(monkeypatch):
     set_user_config(
         ClaudeConfig(), OpenAIConfig(),
@@ -158,6 +179,34 @@ async def test_cli_repairs_on_third_attempt(monkeypatch):
         instructions="decide", user_input="go", output_type=_Val,
     )
     assert result.final_output.value == 7
+
+
+async def test_cli_repair_prompt_feeds_back_previous_reply(monkeypatch):
+    """CLI one-shots are stateless (fresh subprocess per turn), so the repair
+    prompt must carry the prior bad reply inline — otherwise json_repair_note's
+    'previous response' reference dangles."""
+    set_user_config(
+        ClaudeConfig(), OpenAIConfig(),
+        cli_helper=CliHelperConfig(framework="claude_code", model="haiku"),
+    )
+    monkeypatch.setattr(settings, "helper_json_repair_attempts", 2)
+    seen_prompts: list[str] = []
+    replies = iter([("BAD_REPLY_XYZ not json", 0, 0), ('{"value": 9}', 0, 0)])
+
+    async def fake_run_oneshot(system_prompt, user_input, model_name):
+        seen_prompts.append(user_input)
+        return next(replies)
+
+    sdk = CliHelperSDK()
+    monkeypatch.setattr(sdk, "_run_oneshot", fake_run_oneshot)
+
+    result = await sdk.llm_function(
+        instructions="decide", user_input="ORIGINAL_INPUT", output_type=_Val,
+    )
+    assert result.final_output.value == 9
+    # Second (repair) prompt echoes both the original input and the bad reply.
+    assert "ORIGINAL_INPUT" in seen_prompts[1]
+    assert "BAD_REPLY_XYZ" in seen_prompts[1]
 
 
 async def test_cli_raises_after_exhausting_attempts(monkeypatch):
