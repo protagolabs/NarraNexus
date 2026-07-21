@@ -48,6 +48,10 @@ class SkillMarketplaceService:
 
         if os.environ.get("SKILL_MARKETPLACE_LOCAL_REGISTRY", "").lower() in ("1", "true"):
             return True
+        from xyz_agent_context.settings import settings
+
+        if settings.skill_marketplace_local_registry:
+            return True
         return get_deployment_mode() == "cloud"
 
     async def _registry(self) -> RegistryService:
