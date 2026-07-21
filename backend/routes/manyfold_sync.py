@@ -268,9 +268,9 @@ async def list_channels_for_manyfold(request: Request):
             {
                 "provider": "lark",
                 "agent_id": cred.agent_id,
-                "enabled": bool(cred.is_active and cred.has_secret),
+                "enabled": bool(cred.is_active and cred.app_secret_encoded),
                 "external_id": cred.app_id or None,
-                "credentials": {"app_secret": cred.app_secret},
+                "credentials": {"app_secret": cred.get_app_secret()},
                 "config": {
                     "app_id": cred.app_id,
                     "brand": cred.brand or "feishu",

@@ -1,10 +1,18 @@
 ---
 code_file: backend/routes/manyfold_sync.py
-last_verified: 2026-07-20
+last_verified: 2026-07-21
 stub: false
 ---
 
 # manyfold_sync.py — Manyfold managed-trigger surface
+
+## 2026-07-21 — 修 `/manyfold/channels` 的 lark 崩溃
+
+lark 分支引用了 `cred.has_secret` / `cred.app_secret`,`LarkCredential` 并无这两
+个属性(它有 `app_secret_encoded` 字段 + `get_app_secret()` 方法)→ 任何 lark
+行都 500(初版测试只覆盖 telegram 才漏掉)。改为
+`bool(cred.app_secret_encoded)` / `cred.get_app_secret()`,并补 lark 解码回归
+测试。intent 不变(端点仍为 Manyfold 解码 lark secret)。
 
 ## 2026-07-20 — `build_inbound_run_context`：托管 IM 入向（模型 B）
 
