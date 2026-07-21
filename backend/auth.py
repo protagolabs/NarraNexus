@@ -277,14 +277,16 @@ AUTH_EXEMPT_PATHS = {
 # is present (JWT in cloud, X-User-Id in local) the middleware still
 # resolves the user so agent-scoped features (installed flags, per-agent
 # update checks) work; when absent the request proceeds anonymously and
-# routes degrade gracefully. POSTs under this prefix (install) are NOT
+# routes degrade gracefully. POSTs under these prefixes (install) are NOT
 # covered and keep strict auth; publish has its own exemption above.
-MARKETPLACE_PUBLIC_READ_PREFIX = "/api/marketplace/skills"
+# Covers both marketplace objects: skills/* and teams/* (a desktop client
+# browsing/downloading team templates has no cloud JWT).
+MARKETPLACE_PUBLIC_READ_PREFIXES = ("/api/marketplace/skills", "/api/marketplace/teams")
 
 
 def _is_marketplace_public_read(request: "Request") -> bool:
-    return request.method == "GET" and request.url.path.startswith(
-        MARKETPLACE_PUBLIC_READ_PREFIX
+    return request.method == "GET" and any(
+        request.url.path.startswith(p) for p in MARKETPLACE_PUBLIC_READ_PREFIXES
     )
 
 

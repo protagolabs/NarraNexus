@@ -4,6 +4,14 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — /api/marketplace/teams 挂载 + team seed(Team Marketplace)
+
+挂 marketplace_teams_router 于 /api/marketplace/teams。lifespan 在
+registry host(cloud / SKILL_MARKETPLACE_LOCAL_REGISTRY)跑 seed_team_marketplace
+(best-effort,非阻塞):从 narra.nexus 拉 9 个官方模板 → 本地 template store
+→ catalog。desktop 客户端不 seed(proxy 云端)。
+
+
 ## 2026-07-21 — Skill Marketplace 路由挂载 + 对账器 lifespan 任务(stage 5/6)
 
 挂载 `marketplace_skills_router` 于 `/api/marketplace/skills`(marketplace

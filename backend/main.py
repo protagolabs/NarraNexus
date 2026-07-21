@@ -265,6 +265,24 @@ async def lifespan(app: FastAPI):
     if app.state.executor_reaper_task is not None:
         logger.info("Executor idle-cull reaper started")
 
+    # Team Marketplace seed — restore the official team templates into this
+    # registry host's catalog + store (best-effort, non-blocking). Only runs
+    # where this instance IS the registry (cloud, or a local dev instance with
+    # SKILL_MARKETPLACE_LOCAL_REGISTRY); a pure desktop client proxies to the
+    # cloud and needs no local catalog.
+    try:
+        from xyz_agent_context.team_marketplace_service import TeamMarketplaceService
+
+        if TeamMarketplaceService()._is_registry_host():
+            from xyz_agent_context.repository._team_marketplace_seed import (
+                seed_team_marketplace,
+            )
+
+            seeded = await seed_team_marketplace(db)
+            logger.info(f"Team Marketplace seed: {seeded} templates present")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[team-seed] skipped due to error: {e}")
+
     # Skill reconciler — keeps the skill_installations audit table following
     # the filesystem truth (users can hand-edit skills/; the DB heals).
     # Startup pass + periodic loop; only ever writes DB, never user files.
@@ -354,6 +372,7 @@ from backend.routes.jobs import router as jobs_router
 from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
 from backend.routes.marketplace_skills import router as marketplace_skills_router
+from backend.routes.marketplace_teams import router as marketplace_teams_router
 from backend.routes.home_assistant import router as home_assistant_router
 from backend.routes.providers import router as providers_router
 from backend.routes.inbox import router as inbox_router
@@ -398,6 +417,9 @@ app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
 # teams/* is reserved for the Team/Agent bundle marketplace.
 app.include_router(
     marketplace_skills_router, prefix="/api/marketplace/skills", tags=["SkillMarketplace"]
+)
+app.include_router(
+    marketplace_teams_router, prefix="/api/marketplace/teams", tags=["TeamMarketplace"]
 )
 app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["HomeAssistant"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])

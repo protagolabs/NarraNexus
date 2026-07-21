@@ -122,3 +122,27 @@ def get_artifact_store() -> ArtifactStore:
     root = Path(settings.base_working_path).parent / "marketplace_store"
     logger.debug(f"ArtifactStore: SKILL_S3_BUCKET unset, using local store at {root}")
     return LocalArtifactStore(root)
+
+
+def get_template_store() -> ArtifactStore:
+    """Artifact store for Team Marketplace `.nxbundle` blobs — physically
+    SEPARATE from skills (different S3 prefix / local subfolder).
+
+    Selection mirrors get_artifact_store():
+    - TEMPLATE_S3_BUCKET (falls back to SKILL_S3_BUCKET — same bucket, own
+      prefix) -> S3ArtifactStore, prefix TEMPLATE_S3_PREFIX (default
+      "narranexus-teams").
+    - otherwise -> LocalArtifactStore under <base>/../marketplace_store/teams.
+    """
+    bucket = os.environ.get("TEMPLATE_S3_BUCKET") or os.environ.get("SKILL_S3_BUCKET")
+    if bucket:
+        return S3ArtifactStore(
+            bucket=bucket,
+            prefix=os.environ.get("TEMPLATE_S3_PREFIX", "narranexus-teams"),
+            region=os.environ.get("TEMPLATE_S3_REGION") or os.environ.get("SKILL_S3_REGION"),
+        )
+    from xyz_agent_context.settings import settings
+
+    root = Path(settings.base_working_path).parent / "marketplace_store" / "teams"
+    logger.debug(f"TemplateStore: no S3 bucket set, using local store at {root}")
+    return LocalArtifactStore(root)

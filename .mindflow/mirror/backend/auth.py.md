@@ -4,6 +4,13 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — marketplace 公开读扩展到 teams/*
+
+`_is_marketplace_public_read` 的前缀从单一 skills/* 改为 (skills/*, teams/*)
+元组:desktop 客户端浏览/下载 team 模板同样无 cloud JWT,GET 读面匿名放行。
+POST(install-preflight/publish)仍走严格认证。
+
+
 ## 2026-07-21 — Marketplace 可选认证读面 + publish 自凭证豁免(stage 8 试跑发现)
 
 真实缺口:桌面端用户不登录 cloud,原全局中间件把 marketplace 读端点一并

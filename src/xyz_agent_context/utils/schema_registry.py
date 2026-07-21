@@ -1512,6 +1512,42 @@ _register(
     )
 )
 
+# ----------------------------------------------------------------------------
+# Team Marketplace (spec: 2026-07-21-team-marketplace-tech-design.md)
+#
+# Catalog INDEX for team/agent bundle templates. The .nxbundle blob lives in
+# the artifact store (get_template_store, own S3 prefix / local subfolder);
+# this table only points at it via store_key + bundle_sha256. Written only by
+# the cloud registry instance; desktop deployments have the (empty) table and
+# proxy browse/install to the cloud API.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="team_catalog",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("template_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("name", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("description", "TEXT", "TEXT"),
+            Column("categories_json", "TEXT", "TEXT"),
+            Column("author", "TEXT", "VARCHAR(128)"),
+            Column("agent_count", "INTEGER", "INT", nullable=False, default="1"),
+            Column("thumbnail_url", "TEXT", "VARCHAR(1024)"),
+            Column("store_key", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("bundle_sha256", "TEXT", "VARCHAR(80)", nullable=False),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("sort_order", "INTEGER", "INT", nullable=False, default="0"),
+            Column("downloads", "INTEGER", "BIGINT", nullable=False, default="0"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_team_catalog_tid", ["template_id"], unique=True),
+            Index("idx_team_catalog_enabled_sort", ["enabled", "sort_order"]),
+        ],
+    )
+)
+
 # Placeholder registration (Team Recommended phase implements the logic).
 _register(
     TableDef(

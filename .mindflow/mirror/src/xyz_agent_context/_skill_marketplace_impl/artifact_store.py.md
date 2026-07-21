@@ -4,6 +4,13 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — get_template_store()(Team Marketplace)
+
+新增 team 专用 store 选择器,与 skill 物理分开:S3 走 TEMPLATE_S3_BUCKET
+(回落 SKILL_S3_BUCKET)+ TEMPLATE_S3_PREFIX(默认 narranexus-teams);本地
+落 marketplace_store/teams/。boto3 仍只此一文件。
+
+
 # artifact_store.py
 
 Object-storage abstraction for marketplace skill artifacts. **boto3 exists

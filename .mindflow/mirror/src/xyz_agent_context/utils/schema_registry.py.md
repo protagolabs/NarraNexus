@@ -4,6 +4,13 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — team_catalog 表(Team Marketplace)
+
+additive:catalog INDEX,一行一个 team/agent bundle 模板;store_key 指向
+artifact store 里的 .nxbundle(独立 prefix),bundle_sha256 防篡改。unique
+template_id + (enabled, sort_order) 索引。cloud registry 写,desktop 空表。
+
+
 ## 2026-07-21 — skill_catalog.is_default 列(stage 9)
 
 additive TINYINT(1) 默认 0:标记「建 agent 时自动安装」的默认技能。
