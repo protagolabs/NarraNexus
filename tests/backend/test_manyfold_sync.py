@@ -20,6 +20,7 @@ from httpx import ASGITransport
 import backend.routes.manyfold_sync as mod
 from xyz_agent_context.module.job_module.job_trigger import JobTrigger
 from xyz_agent_context.repository.job_repository import JobRepository
+from xyz_agent_context.schema import WorkingSource
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +42,91 @@ def test_parse_run_job_control_rejects_everything_else():
     # Unknown version / malformed id must fall through to a normal run.
     assert mod.parse_run_job_control("[[nx:run_job j1 v2]]") is None
     assert mod.parse_run_job_control("[[nx:run_job bad id v1]]") is None
+
+
+# ---------------------------------------------------------------------------
+# build_inbound_run_context — managed-IM inbound (model B), pure mapping
+# ---------------------------------------------------------------------------
+
+
+def test_inbound_context_lark_provider_runs_as_channel_trigger():
+    ws, run_input, extra = mod.build_inbound_run_context(
+        channel_provider="lark",
+        channel_context={
+            "room_id": "oc_test",
+            "sender_id": "ou_alice",
+            "sender_name": "Alice",
+            "source_message_id": "om_1",
+        },
+        user_input="what's the weather tomorrow?",
+        session_id="manyfold_abc",
+    )
+    # LARK source → LarkModule renders "reply via lark_cli".
+    assert ws == WorkingSource.LARK
+    # ChannelTag prefixed so the agent sees the room_id for --chat-id.
+    assert run_input.startswith("[Lark · Alice · ou_alice · oc_test]\n")
+    assert run_input.endswith("what's the weather tomorrow?")
+    # channel_tag carried so the channel module fills current_sender_id / owner
+    # trust; empty fields dropped by ChannelTag.to_dict().
+    assert extra["channel_tag"] == {
+        "channel": "lark",
+        "sender_name": "Alice",
+        "sender_id": "ou_alice",
+        "room_id": "oc_test",
+    }
+    assert extra["source_message_id"] == "om_1"
+    assert extra["trigger_id"] == "manyfold_abc"
+    assert extra["retrieval_anchor"] == "what's the weather tomorrow?"
+
+
+def test_inbound_context_maps_every_im_provider():
+    for provider, expected in (
+        ("lark", WorkingSource.LARK),
+        ("slack", WorkingSource.SLACK),
+        ("telegram", WorkingSource.TELEGRAM),
+        ("wechat", WorkingSource.WECHAT),
+        ("discord", WorkingSource.DISCORD),
+        ("narramessenger", WorkingSource.NARRAMESSENGER),
+        ("LARK", WorkingSource.LARK),  # case-insensitive
+    ):
+        ws, _, _ = mod.build_inbound_run_context(
+            channel_provider=provider,
+            channel_context={"room_id": "r", "sender_id": "s"},
+            user_input="hi",
+            session_id="sess",
+        )
+        assert ws == expected, provider
+
+
+def test_inbound_context_no_provider_is_unchanged_manyfold():
+    ws, run_input, extra = mod.build_inbound_run_context(
+        channel_provider=None,
+        channel_context=None,
+        user_input="hi",
+        session_id="manyfold_xyz",
+    )
+    assert ws == WorkingSource.MANYFOLD
+    assert run_input == "hi"  # no ChannelTag prefix
+    assert extra == {"trigger_id": "manyfold_xyz", "retrieval_anchor": "hi"}
+    # An unknown provider also falls back to the plain Manyfold turn.
+    ws2, _, _ = mod.build_inbound_run_context(
+        channel_provider="myspace",
+        channel_context={"room_id": "r"},
+        user_input="hi",
+        session_id="s",
+    )
+    assert ws2 == WorkingSource.MANYFOLD
+
+
+def test_inbound_context_sender_name_falls_back_to_id_then_user():
+    # Missing sender_name → falls back to sender_id in the ChannelTag.
+    _, run_input, _ = mod.build_inbound_run_context(
+        channel_provider="lark",
+        channel_context={"room_id": "oc_x", "sender_id": "ou_bob"},
+        user_input="hi",
+        session_id="s",
+    )
+    assert run_input.startswith("[Lark · ou_bob · ou_bob · oc_x]\n")
 
 
 # ---------------------------------------------------------------------------

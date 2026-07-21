@@ -38,10 +38,77 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
+from xyz_agent_context.schema import WorkingSource
+from xyz_agent_context.schema.channel_tag import ChannelTag
 from xyz_agent_context.utils.db_factory import get_db_client
 
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Managed-IM inbound run context (model B) — reply via the LOCAL channel tool
+# ---------------------------------------------------------------------------
+
+# IM provider → WorkingSource. Naming an origin makes the forwarded turn behave
+# like the in-process channel trigger (channel_trigger_base): the matching
+# channel module renders its "reply via <tool>" mode and the agent sends
+# through its LOCAL credentials, so the platform only forwards inbound and
+# never touches the outbound reply.
+_PROVIDER_WORKING_SOURCE: dict[str, WorkingSource] = {
+    "lark": WorkingSource.LARK,
+    "slack": WorkingSource.SLACK,
+    "telegram": WorkingSource.TELEGRAM,
+    "wechat": WorkingSource.WECHAT,
+    "discord": WorkingSource.DISCORD,
+    "narramessenger": WorkingSource.NARRAMESSENGER,
+}
+
+
+def build_inbound_run_context(
+    *,
+    channel_provider: Optional[str],
+    channel_context: Optional[dict],
+    user_input: str,
+    session_id: str,
+) -> tuple[WorkingSource, str, dict]:
+    """Translate a Manyfold-forwarded turn into an agent-run context.
+
+    Without ``channel_provider`` (or an unknown one) this is a plain MANYFOLD
+    turn, unchanged: the reply streams back for the platform to deliver.
+
+    With a known IM ``channel_provider`` it mirrors what channel_trigger_base
+    does for a native inbound: prefix the input with the ChannelTag (so the
+    room_id reaches the agent for ``--chat-id``) and carry ``channel_tag`` in
+    ``trigger_extra_data`` (so the channel module fills current_sender_id /
+    owner trust). The agent then replies through its LOCAL channel tool
+    (e.g. ``lark_cli(command="im +messages-send --chat-id <room> ...")``).
+
+    Returns ``(working_source, input_content, trigger_extra_data)``.
+    """
+    ws = _PROVIDER_WORKING_SOURCE.get((channel_provider or "").lower().strip())
+    if ws is None:
+        return (
+            WorkingSource.MANYFOLD,
+            user_input,
+            {"trigger_id": session_id, "retrieval_anchor": user_input},
+        )
+
+    ctx = channel_context or {}
+    sender_id = str(ctx.get("sender_id", "") or "")
+    tag = ChannelTag(
+        channel=ws.value,
+        sender_name=str(ctx.get("sender_name", "") or "") or sender_id or "user",
+        sender_id=sender_id,
+        room_id=str(ctx.get("room_id", "") or ""),
+    )
+    trigger_extra_data = {
+        "channel_tag": tag.to_dict(),
+        "retrieval_anchor": user_input,
+        "trigger_id": session_id,
+        "source_message_id": str(ctx.get("source_message_id", "") or ""),
+    }
+    return ws, f"{tag.format()}\n{user_input}", trigger_extra_data
 
 
 def _require_manyfold_auth(request: Request) -> None:

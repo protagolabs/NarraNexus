@@ -1,10 +1,23 @@
 ---
 code_file: backend/routes/manyfold_sync.py
-last_verified: 2026-07-16
+last_verified: 2026-07-20
 stub: false
 ---
 
 # manyfold_sync.py — Manyfold managed-trigger surface
+
+## 2026-07-20 — `build_inbound_run_context`：托管 IM 入向（模型 B）
+
+新增纯函数 `build_inbound_run_context`(+ `_PROVIDER_WORKING_SOURCE` 映射)。
+`openai_compat` 的 `/v1/chat/completions` 收到带 `channel_provider` 的转发时调它,
+把 turn 翻成 channel-trigger 形态:返回 `(working_source, input_content,
+trigger_extra_data)`。已知 IM provider → 对应 `WorkingSource` + `ChannelTag`
+前缀 input(room_id 进 prompt 供 `--chat-id`)+ `channel_tag` 进 extra_data
+(渠道模块据此填 current_sender_id / owner 信任)。未知/缺省 → 原样
+`WorkingSource.MANYFOLD`(回复流式回传由平台投递)。**目的:把出向回复留在
+Nexus 本地渠道工具(lark_cli 等、本地凭证),平台只管转发入向,不碰出向。**
+放这里而非 openai_compat 是延续本文件"平台耦合收敛"的原则。此函数纯映射、
+无 IO、无副作用,由 tests/backend 覆盖(不起 LLM)。
 
 ## 为什么存在
 

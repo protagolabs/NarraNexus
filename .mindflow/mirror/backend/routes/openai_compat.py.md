@@ -1,8 +1,20 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-07-16
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — 托管 IM inbound：本地渠道回复（模型 B）
+
+`ChatCompletionsRequest` 新增可选 `channel_provider` / `channel_context`。当
+平台转发的是一条 IM 入向消息（而非原生 UI turn）时带上它们：`chat_completions`
+起 run 前调 `manyfold_sync.build_inbound_run_context`，把这条 turn 变成"像原生
+channel trigger 一样"跑 —— `working_source` 映射成对应 IM 源（lark→LARK 等）、
+input 前缀 `ChannelTag.format()`（room_id 进 prompt）、`channel_tag` 进
+`trigger_extra_data`。于是 agent 用**本地**渠道工具（`lark_cli --chat-id <room>`
+等、本地凭证）回到对的房间，回复**不再**经 `send_message_to_user_directly` →
+`delta.content` 由平台投递。缺这两个字段 → 完全保持旧 `WorkingSource.MANYFOLD`
+行为（向后透明）。契约与映射见 manyfold_sync.py.md 同日条目。
 
 ## 2026-07-16 — run-job 控制消息短路（Manyfold managed triggers）
 
