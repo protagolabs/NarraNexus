@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/pages/BundleImportPage.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — ?teamTemplate= deep-link(Team Marketplace)
+
+新增第二种 deep-link:`?teamTemplate=<id>` 调 install-preflight(服务端从我们
+store resolve+验 sha256+本地 importer preflight)→ 直接进 review 步。与
+`?url=` 平行,共用 deepLinkMode 渲染分支;review/confirm UI 零改动复用。
+
 
 ## 2026-07-13 — credential clashes + activation + LLM-config guidance
 

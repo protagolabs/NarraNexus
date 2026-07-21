@@ -2,155 +2,86 @@
  * @file_name: MarketplacePage.tsx
  * @author: NetMind.AI
  * @date: 2026-07-21
- * @description: Full-page Skill Marketplace (left-sidebar entry point).
- *
- * The browse-first experience: search + category filter + card grid +
- * detail sheet. Complements (does not replace) the Skill tab's dialog
- * entry — both share the same hooks and install pipeline.
+ * @description: Marketplace shell — one left-sidebar entry, two tabs:
+ * Skills (extend a single agent) and Teams (fork a whole team/agent bundle).
+ * Tab is reflected in ?tab= so links and refreshes are stable.
  */
 
-import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Store, Search, Loader2, AlertCircle } from 'lucide-react';
-import { ScrollArea } from '@/components/ui';
+import { useSearchParams } from 'react-router-dom';
+import { Store, Puzzle, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import {
-  useMarketplaceInstall,
-  useMarketplaceSearch,
-} from '@/hooks/useSkillMarketplace';
-import { MarketplaceCard } from '@/components/skills/marketplace/MarketplaceBrowser';
-import { SkillDetailSheet } from '@/components/skills/marketplace/SkillDetailSheet';
+import { SkillMarketplaceTab } from '@/components/skills/marketplace/SkillMarketplaceTab';
+import { TeamMarketplaceTab } from '@/components/skills/marketplace/TeamMarketplaceTab';
 
-const CATEGORIES = ['all', 'fallback', 'utility', 'integration', 'enhancement'] as const;
+type Tab = 'skills' | 'teams';
 
 export function MarketplacePage() {
   const { t } = useTranslation();
-  const [input, setInput] = useState('');
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<(typeof CATEGORIES)[number]>('all');
-  const [detailId, setDetailId] = useState<string | null>(null);
-  const [installError, setInstallError] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: Tab = searchParams.get('tab') === 'teams' ? 'teams' : 'skills';
 
-  useEffect(() => {
-    const handle = setTimeout(() => setQuery(input.trim()), 300);
-    return () => clearTimeout(handle);
-  }, [input]);
-
-  const { data, isLoading, error } = useMarketplaceSearch(query);
-  const install = useMarketplaceInstall();
-
-  const items = useMemo(() => {
-    const all = data?.items ?? [];
-    return category === 'all' ? all : all.filter((i) => i.category === category);
-  }, [data, category]);
-
-  const handleInstall = (skillId: string) => {
-    setInstallError(null);
-    install.mutate(
-      { skillId },
-      {
-        onSuccess: () => setDetailId(null),
-        onError: (err) =>
-          setInstallError(err instanceof Error ? err.message : String(err)),
-      }
-    );
+  const setTab = (next: Tab) => {
+    const p = new URLSearchParams(searchParams);
+    p.set('tab', next);
+    setSearchParams(p, { replace: true });
   };
 
   return (
     <div className="flex flex-col h-full" data-testid="marketplace-page">
-      {/* Header */}
-      <div className="px-6 pt-6 pb-4">
+      {/* Header + tabs */}
+      <div className="px-6 pt-6 pb-3">
         <h1 className="text-xl font-semibold text-[var(--text-primary)] flex items-center gap-2.5">
           <Store className="w-5 h-5" />
-          {t('skills.marketplace.title')}
+          {t('sidebar.marketplace')}
         </h1>
-        <p className="text-xs text-[var(--text-tertiary)] mt-1">
-          {t('skills.marketplace.pageSubtitle')}
-        </p>
-      </div>
-
-      {/* Search + category filter */}
-      <div className="px-6 pb-3 flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[240px] max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={t('skills.marketplace.searchPlaceholder')}
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
+        <div className="flex gap-1 mt-4 border-b border-[var(--rule)]">
+          <TabButton
+            active={tab === 'skills'}
+            onClick={() => setTab('skills')}
+            icon={<Puzzle className="w-4 h-4" />}
+            label={t('marketplace.tabs.skills')}
+          />
+          <TabButton
+            active={tab === 'teams'}
+            onClick={() => setTab('teams')}
+            icon={<Users className="w-4 h-4" />}
+            label={t('marketplace.tabs.teams')}
           />
         </div>
-        <div className="flex gap-1">
-          {CATEGORIES.map((c) => (
-            <button
-              key={c}
-              onClick={() => setCategory(c)}
-              className={cn(
-                'px-2.5 py-1 rounded-lg text-xs transition-colors',
-                category === c
-                  ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
-                  : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)]'
-              )}
-            >
-              {t(`skills.marketplace.category.${c}`)}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {installError && (
-        <div className="mx-6 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--color-error)]/10 border border-[var(--color-error)]/20">
-          <AlertCircle className="w-4 h-4 text-[var(--color-error)] shrink-0" />
-          <span className="text-xs text-[var(--color-error)]">{installError}</span>
-        </div>
-      )}
-
-      {/* Results grid */}
-      <ScrollArea className="flex-1 min-h-0 px-6 pb-6">
-        {error ? (
-          <div className="flex items-center justify-center py-16 text-center">
-            <div>
-              <AlertCircle className="w-8 h-8 text-[var(--color-error)] mx-auto mb-3 opacity-60" />
-              <p className="text-xs text-[var(--text-tertiary)] max-w-[320px]">
-                {t('skills.marketplace.unavailable')}
-              </p>
-            </div>
-          </div>
-        ) : isLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="w-5 h-5 text-[var(--text-tertiary)] animate-spin" />
-          </div>
-        ) : items.length === 0 ? (
-          <p className="text-center text-xs text-[var(--text-tertiary)] py-16">
-            {t('skills.marketplace.empty')}
-          </p>
-        ) : (
-          <div className="grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
-            {items.map((item) => (
-              <MarketplaceCard
-                key={item.skill_id}
-                item={item}
-                isInstalling={
-                  install.isPending && install.variables?.skillId === item.skill_id
-                }
-                onInstall={handleInstall}
-                onOpenDetail={() => setDetailId(item.skill_id)}
-              />
-            ))}
-          </div>
-        )}
-      </ScrollArea>
-
-      {detailId && (
-        <SkillDetailSheet
-          skillId={detailId}
-          installed={items.find((i) => i.skill_id === detailId)?.installed}
-          isInstalling={install.isPending}
-          onInstall={handleInstall}
-          onClose={() => setDetailId(null)}
-        />
-      )}
+      <div className="flex-1 min-h-0">
+        {tab === 'skills' ? <SkillMarketplaceTab /> : <TeamMarketplaceTab />}
+      </div>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 px-3 py-2 text-sm -mb-px border-b-2 transition-colors',
+        active
+          ? 'border-[var(--accent-primary)] text-[var(--text-primary)] font-medium'
+          : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 

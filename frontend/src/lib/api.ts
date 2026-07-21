@@ -66,6 +66,8 @@ import type {
   TeamChatSendResponse,
   BundleExportRequest,
   BundlePreflightResponse,
+  TeamTemplate,
+  TeamMarketplaceListResponse,
   BundleConfirmResponse,
   BundleArtifactPreview,
   BundleMcpPreview,
@@ -1764,6 +1766,29 @@ class ApiClient {
         expected_sha256: expectedSha256 ?? null,
       }),
     });
+  }
+
+  // Team Marketplace — /api/marketplace/teams/*
+  async getTeamTemplates(): Promise<TeamMarketplaceListResponse> {
+    return this.request<TeamMarketplaceListResponse>('/api/marketplace/teams/templates');
+  }
+
+  async getTeamTemplate(templateId: string): Promise<TeamTemplate> {
+    return this.request<TeamTemplate>(
+      `/api/marketplace/teams/templates/${encodeURIComponent(templateId)}`,
+    );
+  }
+
+  /** Resolve + verify the template bundle server-side and run the local
+   *  importer preflight. Same response shape as a normal bundle preflight,
+   *  so the existing review/confirm wizard consumes it unchanged. */
+  async installTeamTemplatePreflight(
+    templateId: string,
+  ): Promise<BundlePreflightResponse> {
+    return this.request<BundlePreflightResponse>(
+      `/api/marketplace/teams/templates/${encodeURIComponent(templateId)}/install-preflight`,
+      { method: 'POST', body: JSON.stringify({}) },
+    );
   }
 
   async previewBusChannels(agentIds: string[]): Promise<{ channels: Array<{

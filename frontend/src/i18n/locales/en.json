@@ -2030,5 +2030,20 @@
     "loading": "Opening live preview…",
     "loadError": "Could not open the live preview.",
     "livePreview": "Live preview"
+  },
+  "marketplace": {
+    "tabs": {
+      "skills": "Skills",
+      "teams": "Teams"
+    }
+  },
+  "teamMarketplace": {
+    "searchPlaceholder": "Search team templates…",
+    "categoryAll": "All",
+    "unavailable": "Team Marketplace is unavailable right now. Check your connection and try again.",
+    "empty": "No team templates found",
+    "install": "Install",
+    "agentCount": "{{count}} agents",
+    "agentCount_one": "{{count}} agent"
   }
 }

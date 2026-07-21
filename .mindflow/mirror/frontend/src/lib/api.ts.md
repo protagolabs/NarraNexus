@@ -4,6 +4,12 @@ last_verified: 2026-07-21
 stub: false
 ---
 
+## 2026-07-21 — Team Marketplace 三调用
+
+`getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`
+(POST install-preflight → BundlePreflightResponse,承接现有导入向导)。
+
+
 ## 2026-07-21 — Skill Marketplace 四调用(stage 7)
 
 `searchMarketplaceSkills` / `getMarketplaceSkillDetail` /

@@ -2029,5 +2029,20 @@
     "loading": "正在打开实时预览…",
     "loadError": "无法打开实时预览。",
     "livePreview": "实时预览"
+  },
+  "marketplace": {
+    "tabs": {
+      "skills": "技能",
+      "teams": "团队"
+    }
+  },
+  "teamMarketplace": {
+    "searchPlaceholder": "搜索团队模板…",
+    "categoryAll": "全部",
+    "unavailable": "团队市场暂时不可用,请检查网络后重试。",
+    "empty": "没有找到团队模板",
+    "install": "安装",
+    "agentCount": "{{count}} 个 Agent",
+    "agentCount_one": "{{count}} 个 Agent"
   }
 }
