@@ -434,10 +434,16 @@ tests/marketplace/{test_scanner,test_install_pipeline,test_registry,test_reconci
 **已交付**:
 - `scripts/publish_skill.py` 发布 CLI(zip 或目录一键发布,422 时打印完整扫描报告,可进 CI;exit code 区分 rejected/error)。
 
-**剩余项(需要 Owner/人工推进,代码侧已就绪)**:
-1. **技能清单锁定**——等同事 wiki(NarraNexus Potential Skills)消化结论,再写 5 个 SKILL.md + manifest;
-2. **S3 bucket + IAM**——dev server(PRD comment 有机器信息)创建 bucket 并给 cloud 部署注入 `SKILL_S3_BUCKET`(未配则自动落本机 marketplace_store,单机可先跑通);同时注入 `MARKETPLACE_PUBLISH_TOKEN` 与 `SKILL_SECRETS_KEY`;
-3. **双模式手工验收**(铁律 #7)——DMG 与 `bash run.sh` 各跑:Marketplace 搜索→安装→重启生效→配置→卸载 + Agent 侧 `skill_install` 一次。
+**2026-07-21 试跑结果(本地全链路已打通)**:
+- **首批 5 技能定稿**(选自同事的 Source & Installation Summary,均 clawhub 拉取 + 补 manifest.json,扫描全 passed):`ddg-search`(免费网页搜索,零依赖)/ `markdown-converter`(PDF/DOCX→MD)/ `gh`(GitHub CLI,⭐)/ `api-tester`(HTTP API 测试)/ `chain-of-density`(纯 prompt 摘要方法论,零依赖)。打包件持久化在 `~/Desktop/xyz_proto_test/NarraNexus_mvp_skill_packages/`。
+- **ggshield-scanner(⭐)被我们的 Gate 拒绝**(11 HIGH:文档合法讨论 `.env`/凭证路径 + README 有真 `curl|bash` 安装指引)→ 换成 api-tester。规则课题记录:安全类技能"讨论敏感路径"vs"访问敏感路径"如何分级,待定(可选方向:仅对 .md 文档降级为 WARN、代码文件维持 REJECT)。
+- **端到端验证**:隔离 registry 实例(cloud 模式、临时 sqlite、本地 store)→ CLI 发布 5 个 → 匿名搜索可见 → 桌面路径(RemoteMarketplaceSource,hash 校验)安装进测试 workspace → 审计行/来源/版本正确 → 服务端下载计数 +1。
+- **发现并修复真 bug**:cloud 全局 auth 中间件拦掉 marketplace 读端点(桌面端无 cloud JWT 拉不到目录)→ GET 读面改「可选认证」+ publish 走自带 token 豁免(见 auth.py mirror 2026-07-21 条目)。
+
+**剩余项**:
+1. **S3 bucket + IAM**——已核实 dev server 上没有任何 S3 配置(无 `~/.aws`、stack .env 无 AWS key、实例无 IAM role),需要在 AWS 账户新建 bucket + 发 key,然后给 cloud 部署注入 `SKILL_S3_BUCKET`(未配则自动回退本机 `~/.nexusagent/marketplace_store/`,单机模式已验证可用);同时注入 `MARKETPLACE_PUBLISH_TOKEN` 与 `SKILL_SECRETS_KEY`;
+2. **双模式手工验收**(铁律 #7)——DMG 与 `bash run.sh` 各跑:Marketplace 搜索→安装→重启生效→配置→卸载 + Agent 侧 `skill_install` 一次;
+3. 上架来源合规:5 个技能来自 clawhub 社区(Apache-2.0 等),正式对外上架前确认 license/署名展示(manifest 已带 provenance_note)。
 
 ---
 

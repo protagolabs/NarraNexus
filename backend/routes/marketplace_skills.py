@@ -24,7 +24,7 @@ from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from loguru import logger
 
-from backend.auth import resolve_current_user_id
+from backend.auth import resolve_current_user_id, resolve_optional_user_id
 from xyz_agent_context.skill_marketplace_service import (
     PublishRejectedError,
     SkillMarketplaceService,
@@ -56,7 +56,9 @@ async def search_skills(
     limit: int = Query(20, ge=1, le=100),
     agent_id: Optional[str] = Query(None, description="Annotate installed/update_available"),
 ):
-    user_id = await resolve_current_user_id(request) if agent_id else None
+    # Optional identity: anonymous searches (desktop → cloud registry) are
+    # served without the installed/update_available annotations.
+    user_id = await resolve_optional_user_id(request) if agent_id else None
     try:
         return await SkillMarketplaceService().search(
             q=q,

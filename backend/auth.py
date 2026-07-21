@@ -259,6 +259,10 @@ AUTH_EXEMPT_PATHS = {
     # inside the handler (admin_secret_key), not a user JWT — the offline batch
     # migrator has no JWT. Same self-credentialed pattern as netmind-login.
     "/api/admin/migrate-identity",
+    # Marketplace publish: self-credentialed via the X-Publish-Token header
+    # (MARKETPLACE_PUBLISH_TOKEN env) — CI/ops publishers have no user JWT.
+    # Same pattern as migrate-identity above.
+    "/api/marketplace/skills/publish",
     "/api/providers/claude-status",
     "/docs",
     "/openapi.json",
@@ -267,6 +271,23 @@ AUTH_EXEMPT_PATHS = {
 }
 
 # Prefixes that don't require auth
+# Marketplace READ surface (GET only): public like a package registry, so
+# desktop deployments — whose users are NOT logged into the cloud — can
+# search/inspect/download skills. Auth is OPTIONAL here: when a credential
+# is present (JWT in cloud, X-User-Id in local) the middleware still
+# resolves the user so agent-scoped features (installed flags, per-agent
+# update checks) work; when absent the request proceeds anonymously and
+# routes degrade gracefully. POSTs under this prefix (install) are NOT
+# covered and keep strict auth; publish has its own exemption above.
+MARKETPLACE_PUBLIC_READ_PREFIX = "/api/marketplace/skills"
+
+
+def _is_marketplace_public_read(request: "Request") -> bool:
+    return request.method == "GET" and request.url.path.startswith(
+        MARKETPLACE_PUBLIC_READ_PREFIX
+    )
+
+
 AUTH_EXEMPT_PREFIXES = (
     "/ws/",  # WebSocket handles its own auth via message payload
     # Public transcription audio: NetMind's STT worker fetches via
@@ -439,6 +460,10 @@ async def auth_middleware(request: Request, call_next):
             and not any(local_path.startswith(p) for p in AUTH_EXEMPT_PREFIXES)
         ):
             header_uid = request.headers.get("x-user-id")
+            if not header_uid and _is_marketplace_public_read(request):
+                # Anonymous marketplace read — proceed without identity;
+                # routes skip agent-scoped annotations.
+                return await call_next(request)
             if not header_uid:
                 return _json_response(401, {
                     "success": False,
@@ -471,6 +496,9 @@ async def auth_middleware(request: Request, call_next):
     # Require JWT
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
+        if _is_marketplace_public_read(request):
+            # Anonymous marketplace read (desktop clients have no cloud JWT).
+            return await call_next(request)
         return _json_response(401, {"detail": "Authentication required"})
 
     token = auth_header[7:]
@@ -559,6 +587,12 @@ async def resolve_current_user_id(request) -> str:
     if not uid:
         raise HTTPException(status_code=401, detail="Authentication required")
     return uid
+
+
+async def resolve_optional_user_id(request) -> Optional[str]:
+    """Like resolve_current_user_id, but returns None for anonymous requests
+    on optional-auth surfaces (marketplace public reads) instead of raising."""
+    return getattr(request.state, "user_id", None)
 
 
 async def ensure_local_default_user() -> str:

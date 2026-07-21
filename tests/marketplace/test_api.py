@@ -63,6 +63,9 @@ def app(db_client, tmp_path, monkeypatch):
         return USER_ID
 
     monkeypatch.setattr(routes, "resolve_current_user_id", _fake_user)
+    # The mini-app has no auth middleware to populate request.state.user_id,
+    # so the optional resolver is stubbed to the same identity.
+    monkeypatch.setattr(routes, "resolve_optional_user_id", _fake_user)
 
     app = FastAPI()
     app.include_router(routes.router, prefix="/api/marketplace/skills")

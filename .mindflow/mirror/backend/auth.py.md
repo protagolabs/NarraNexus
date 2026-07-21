@@ -1,8 +1,22 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-07-18
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — Marketplace 可选认证读面 + publish 自凭证豁免(stage 8 试跑发现)
+
+真实缺口:桌面端用户不登录 cloud,原全局中间件把 marketplace 读端点一并
+401,桌面根本拉不到目录。修复:
+- `MARKETPLACE_PUBLIC_READ_PREFIX`(仅 **GET** `/api/marketplace/skills/*`)
+  为「可选认证」——带 JWT/X-User-Id 则照常解析身份(cloud UI 的 installed
+  标注继续工作),不带则匿名放行,路由侧用新 helper
+  `resolve_optional_user_id`(缺省返 None、不抛)优雅降级。POST(install)
+  不在此列,维持严格认证。
+- `/api/marketplace/skills/publish` 加入 AUTH_EXEMPT_PATHS:自带
+  X-Publish-Token 凭证(MARKETPLACE_PUBLISH_TOKEN),与 migrate-identity
+  同模式——CI/ops 发布者没有用户 JWT。
+
 
 ## 2026-07-18 — 注释同步（行为不变）
 
