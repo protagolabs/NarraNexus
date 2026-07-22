@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/_skill_marketplace_impl/artifact_store.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — review 修复:exists 只吞 404
+
+S3ArtifactStore.exists 改为 catch ClientError 判 404/NoSuchKey,其余错误(限流/网络)re-raise——原先吞所有异常返 False,S3 抖一下就让 seed 幂等闸门每次重传。
+
 
 ## 2026-07-21 — MARKETPLACE_S3_ENV(dev/prod × skills/teams 单桶布局)
 

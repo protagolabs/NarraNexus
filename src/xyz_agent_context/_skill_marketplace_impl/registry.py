@@ -16,6 +16,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from contextlib import asynccontextmanager
+
 import httpx
 from loguru import logger
 
@@ -248,30 +250,43 @@ class RemoteMarketplaceSource:
         ).rstrip("/")
         self._client = client
 
-    def _http(self) -> httpx.AsyncClient:
-        if self._client is None:
-            self._client = httpx.AsyncClient(base_url=self.base_url, timeout=60.0)
-        return self._client
+    @asynccontextmanager
+    async def _http(self):
+        """Yield an httpx client, closing an internally-created one so the
+        connection pool never leaks (RemoteMarketplaceSource is created per
+        service call). An injected client (tests) is left for the caller to
+        own."""
+        if self._client is not None:
+            yield self._client
+        else:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=60.0) as client:
+                yield client
 
     async def resolve_and_download(
         self, skill_id: str, dest_dir: Path, version: Optional[str] = None
     ) -> Tuple[Path, SkillCatalogEntry]:
-        detail = await self._http().get(f"/api/marketplace/skills/{skill_id}")
-        if detail.status_code == 404:
-            raise FileNotFoundError(f"Skill '{skill_id}' not found in the marketplace")
-        detail.raise_for_status()
-        entry_data = detail.json()["entry"]
-        if version and entry_data["version"] != version:
-            entry_data = dict(entry_data, version=version)
+        async with self._http() as client:
+            detail = await client.get(f"/api/marketplace/skills/{skill_id}")
+            if detail.status_code == 404:
+                raise FileNotFoundError(f"Skill '{skill_id}' not found in the marketplace")
+            detail.raise_for_status()
+            entry_data = detail.json()["entry"]
+            if version and entry_data["version"] != version:
+                entry_data = dict(entry_data, version=version)
 
-        params = {"version": version} if version else {}
-        response = await self._http().get(
-            f"/api/marketplace/skills/{skill_id}/download", params=params
-        )
-        if response.status_code == 404:
-            raise FileNotFoundError(f"Skill '{skill_id}'@{version or 'latest'} has no artifact")
-        response.raise_for_status()
-        entry = SkillCatalogEntry(**{**entry_data, "version": response.headers.get("X-Skill-Version", entry_data["version"]), "package_hash": response.headers.get("X-Package-Hash", entry_data["package_hash"])})
+            params = {"version": version} if version else {}
+            response = await client.get(
+                f"/api/marketplace/skills/{skill_id}/download", params=params
+            )
+            if response.status_code == 404:
+                raise FileNotFoundError(f"Skill '{skill_id}'@{version or 'latest'} has no artifact")
+            response.raise_for_status()
+        # Integrity: the expected hash comes ONLY from the catalog detail
+        # (entry_data), NEVER from the download response's own X-Package-Hash
+        # header — whoever can serve a tampered artifact can serve a matching
+        # header, so trusting it means no verification at all. The pipeline
+        # verifies the downloaded bytes against THIS hash.
+        entry = SkillCatalogEntry(**entry_data)
         dest = Path(dest_dir) / f"{entry.skill_id}-{entry.version}.zip"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(response.content)
@@ -282,12 +297,14 @@ class RemoteMarketplaceSource:
         return None
 
     async def search(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        response = await self._http().get("/api/marketplace/skills/search", params=params)
+        async with self._http() as client:
+            response = await client.get("/api/marketplace/skills/search", params=params)
         response.raise_for_status()
         return response.json()
 
     async def get_detail(self, skill_id: str) -> Optional[Dict[str, Any]]:
-        response = await self._http().get(f"/api/marketplace/skills/{skill_id}")
+        async with self._http() as client:
+            response = await client.get(f"/api/marketplace/skills/{skill_id}")
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -297,12 +314,14 @@ class RemoteMarketplaceSource:
         spec = ",".join(f"{i['skill_id']}@{i['version']}" for i in installed if i.get("version"))
         if not spec:
             return []
-        response = await self._http().get("/api/marketplace/skills/updates", params={"skills": spec})
+        async with self._http() as client:
+            response = await client.get("/api/marketplace/skills/updates", params={"skills": spec})
         response.raise_for_status()
         return response.json().get("updates", [])
 
     async def list_defaults(self) -> List[Dict[str, Any]]:
-        response = await self._http().get("/api/marketplace/skills/defaults")
+        async with self._http() as client:
+            response = await client.get("/api/marketplace/skills/defaults")
         response.raise_for_status()
         return response.json().get("items", [])
 

@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/_skill_marketplace_impl/install_pipeline.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — review 修复:目录名锁 catalog id
+
+`_install_staged` 加 `catalog_skill_id`:marketplace 安装用 catalog id 作目录名 + 写进 .skill_meta.json `skill_id`,避免 SKILL.md name≠catalog id 时永远显示未安装/依赖不满足。
+
 
 # install_pipeline.py
 

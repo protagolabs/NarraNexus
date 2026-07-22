@@ -156,8 +156,11 @@ async def seed_team_marketplace(db_client) -> int:
             tmp = Path(tempfile.mkdtemp(prefix="nx-team-seed-"))
             try:
                 dest = tmp / f"{tid}.nxbundle"
-                with httpx.Client(timeout=60.0, follow_redirects=True) as client:
-                    resp = client.get(entry["source_url"])
+                # Async client — this runs on the event loop (lifespan seed
+                # task); a sync httpx.Client would freeze it for the whole
+                # download.
+                async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                    resp = await client.get(entry["source_url"])
                     resp.raise_for_status()
                     dest.write_bytes(resp.content)
                 actual = hashlib.sha256(dest.read_bytes()).hexdigest()

@@ -184,6 +184,7 @@ class InstallPipeline:
                 source_url=None,
                 package_hash=actual_hash,
                 skip_scan=True,
+                catalog_skill_id=entry.skill_id,
             )
             if result.status == "installed":
                 try:
@@ -229,15 +230,22 @@ class InstallPipeline:
         original_zip_path: Optional[Path] = None,
         branch: Optional[str] = None,
         skip_scan: bool = False,
+        catalog_skill_id: Optional[str] = None,
     ) -> InstallResult:
         from xyz_agent_context.utils.file_safety import sanitize_filename
 
         manifest = self._read_manifest(skill_root)
         incoming = self.skill_module.parse_skill_package(skill_root)
         incoming_version = (manifest or {}).get("version") or incoming.version
-        # install_from_dir will land the skill under the sanitized name — the
-        # conflict check must look up the same name.
-        incoming_name = sanitize_filename(incoming.name, label="skill name")
+        # The on-disk directory name MUST match the marketplace catalog id, or
+        # everything keyed on that id (installed flags, dependency resolution,
+        # update checks, audit rows) treats the skill as never-installed. When
+        # a catalog id is known (marketplace source) it is authoritative;
+        # otherwise fall back to the SKILL.md name. install_from_dir lands the
+        # skill under this (sanitized) name.
+        incoming_name = sanitize_filename(
+            catalog_skill_id or incoming.name, label="skill name"
+        )
 
         # Step 4.5 — security scan gate. Unvetted sources (zip/github/url)
         # are scanned here; marketplace packages were scanned at publish time
@@ -276,13 +284,17 @@ class InstallPipeline:
             replaced_version = existing_version
             migrated_env = existing_meta.get("env_config", {}) or {}
 
-        # Step 5 — commit to skills/ via the module's shared tail.
+        # Step 5 — commit to skills/ via the module's shared tail. Pin the
+        # directory name to the catalog id when known.
         info = self.skill_module.install_from_dir(
-            skill_root, source_type=source_type, source_url=source_url
+            skill_root, source_type=source_type, source_url=source_url,
+            target_dir_name=catalog_skill_id,
         )
 
         # Step 6 — config migration + requirement status.
         meta_fields: Dict[str, Any] = {"updated_at": _now()}
+        if catalog_skill_id:
+            meta_fields["skill_id"] = catalog_skill_id  # marketplace catalog key
         if incoming_version:
             meta_fields["version"] = incoming_version
         if migrated_env:

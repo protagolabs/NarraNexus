@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/marketplace_teams.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — review 修复:固定文件名 + CSRF 守卫
+
+publish 固定写 `upload.nxbundle`;`_require_publisher` 在 local 分支复用 skill 的 `_reject_cross_origin`。
+
 
 # routes/marketplace_teams.py — /api/marketplace/teams/*
 

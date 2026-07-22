@@ -184,3 +184,50 @@ async def test_marketplace_install_resolves_dependencies(db_client, workspace, t
 
     names = {s.name for s in SkillModule(agent_id=AGENT_ID, user_id=USER_ID).list_skills()}
     assert {"base-skill", "dependent-skill"} <= names
+
+
+@pytest.mark.asyncio
+async def test_marketplace_install_uses_catalog_id_for_dir(db_client, workspace, tmp_path):
+    """When the SKILL.md `name` differs from the manifest/catalog `id`, the
+    installed directory (and audit + list_skills) must key on the CATALOG id —
+    otherwise the skill shows as never-installed forever. Regression for the
+    skill_id/dir-name mismatch."""
+    registry = _registry(db_client, tmp_path)
+    # SKILL.md name = "Fancy Name", manifest id = "fancy-skill" (the catalog key)
+    zip_path = tmp_path / "fancy.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("pkg/SKILL.md", "---\nname: Fancy Name\ndescription: d\nversion: 1.0.0\n---\nBody.\n")
+        zf.writestr("pkg/manifest.json", json.dumps({"id": "fancy-skill", "version": "1.0.0"}))
+    entry = await registry.publish(zip_path, "team")
+    assert entry.skill_id == "fancy-skill"
+
+    pipeline = InstallPipeline(AGENT_ID, USER_ID, db_client=db_client)
+    result = await pipeline.install_from_marketplace(
+        "fancy-skill", marketplace_source=LocalMarketplaceSource(registry)
+    )
+    assert result.status == "installed"
+
+    from xyz_agent_context.module.skill_module import SkillModule
+
+    # On-disk directory and meta both keyed on the catalog id, not "Fancy Name".
+    module = SkillModule(agent_id=AGENT_ID, user_id=USER_ID)
+    assert (Path(module.skills_dir) / "fancy-skill").exists()
+    meta = module.read_skill_meta("fancy-skill")
+    assert meta.get("skill_id") == "fancy-skill"
+
+    # End-to-end observable: the marketplace marks it INSTALLED (this is what
+    # broke before — search keyed on catalog id but installed keyed on name).
+    import xyz_agent_context.skill_marketplace_service as svc_mod
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(svc_mod, "get_deployment_mode", lambda: "cloud")
+    service = svc_mod.SkillMarketplaceService(db_client=db_client)
+
+    async def _fixed_registry():
+        return registry
+
+    monkeypatch.setattr(service, "_registry", _fixed_registry)
+    payload = await service.search(agent_id=AGENT_ID, user_id=USER_ID)
+    fancy = next(i for i in payload["items"] if i["skill_id"] == "fancy-skill")
+    assert fancy["installed"] is True
+    monkeypatch.undo()

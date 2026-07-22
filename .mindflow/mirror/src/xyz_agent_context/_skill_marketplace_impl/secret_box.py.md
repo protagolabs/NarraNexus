@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/_skill_marketplace_impl/secret_box.py
-last_verified: 2026-07-20
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — review 修复:key 落挂载卷 + 解密失败告警
+
+`_default_key_dir` 从 `base.parent/keys`(未挂载,重建即丢)改到 `base/.secrets`(挂载卷内);`decrypt` 解不开时对 Fernet token 打 ERROR(不再静默返回密文)。
+
 
 # secret_box.py
 

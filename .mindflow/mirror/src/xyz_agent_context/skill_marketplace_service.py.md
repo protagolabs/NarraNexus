@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/skill_marketplace_service.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — review 修复:installed 标注按 catalog id
+
+_annotate_installed / check_updates 的 installed 键从 skill.name 改为 `meta.skill_id or skill.name`,配合 install 侧目录名锁 catalog id,修复 name≠id 时的永不安装显示。
+
 
 ## 2026-07-21 — Default Skills(stage 9)
 

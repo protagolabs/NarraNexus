@@ -33,6 +33,21 @@ from xyz_agent_context.skill_marketplace_service import (
 router = APIRouter()
 
 
+def _reject_cross_origin(request: Request) -> None:
+    """CSRF guard for unauthenticated local-mode writes. A cross-site browser
+    POST carries an Origin header pointing at the attacker page; same-origin
+    UI and CLI tools do not (or point at loopback). Raises 403 on a
+    non-loopback Origin."""
+    from urllib.parse import urlparse
+
+    origin = request.headers.get("origin")
+    if not origin:
+        return
+    host = (urlparse(origin).hostname or "").lower()
+    if host not in ("127.0.0.1", "localhost", "::1", ""):
+        raise HTTPException(status_code=403, detail="cross-origin publish not allowed")
+
+
 def _parse_skills_spec(spec: str):
     installed = []
     for token in spec.split(","):
@@ -207,11 +222,19 @@ async def publish_skill(
 
         if is_cloud_mode():
             raise HTTPException(status_code=403, detail="Publishing is not enabled on this server")
+        # Local no-token: loopback-trust only. Reject cross-origin (CSRF) —
+        # a browser always sends Origin on a cross-site POST; the CLI sends
+        # none. Without this a malicious page could POST to localhost:8000.
+        _reject_cross_origin(request)
         logger.info("Marketplace publish: local mode without token — allowed")
 
     temp_dir = Path(tempfile.mkdtemp())
     try:
-        zip_path = temp_dir / (file.filename or "skill.zip")
+        # NEVER trust the client-supplied filename — pathlib does not
+        # normalize `..`, so `file.filename = "../../x"` would escape temp_dir
+        # and write an arbitrary file. Fixed name; content is validated by the
+        # scan gate downstream.
+        zip_path = temp_dir / "upload.zip"
         zip_path.write_bytes(await file.read())
         entry = await SkillMarketplaceService().publish(zip_path, publisher)
         return {"status": "published", "skill_id": entry.skill_id, "version": entry.version,

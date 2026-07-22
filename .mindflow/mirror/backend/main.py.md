@@ -4,6 +4,11 @@ last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — review 修复:seed/reconcile 移出启动关键路径
+
+两个 marketplace seed 从 `yield` 前的 `await` 改为 `create_task`(team seed 走网络最坏拖数分钟会冻启动、超 healthcheck);首次 reconcile 也移除(run_forever 首轮即做)。加 shutdown cancel。
+
+
 ## 2026-07-22 — skill seed 接入 lifespan
 
 继 team seed 之后,registry host 再跑 `seed_skill_marketplace`(发布 repo 的

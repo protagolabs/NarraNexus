@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/repository/_team_marketplace_seed.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — review 修复:同步 httpx→异步
+
+`httpx.Client`(同步,在 async 里冻 loop)改 `httpx.AsyncClient` + await。
+
 
 # _team_marketplace_seed.py
 

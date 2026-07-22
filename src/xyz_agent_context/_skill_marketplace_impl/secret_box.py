@@ -33,8 +33,14 @@ _KEY_FILENAME = "skill_secrets.key"
 
 
 def _default_key_dir() -> Path:
-    # base_working_path is ~/.nexusagent/workspaces — keys live beside it.
-    return Path(settings.base_working_path).parent / "keys"
+    # Keep the key file UNDER base_working_path (the mounted volume in cloud
+    # compose — /opt/narranexus/workspaces), not beside it (/opt/narranexus,
+    # which is NOT mounted and is lost on container rebuild). A dot-prefixed
+    # dir so it never looks like an agent workspace. Cloud multi-pod should
+    # still set SKILL_SECRETS_KEY (a per-pod file key can't cross pods) — see
+    # .env.cloud.example — but this makes the file fallback survive a rebuild
+    # on single-pod deploys instead of silently rotating the key.
+    return Path(settings.base_working_path) / ".secrets"
 
 
 class SecretBox:
@@ -82,7 +88,19 @@ class SecretBox:
         try:
             return base64.b64decode(value, validate=True).decode("utf-8")
         except (binascii.Error, ValueError, UnicodeDecodeError):
-            return value
+            pass
+        # Neither a Fernet token this key can open NOR legacy base64. Most
+        # likely the key was rotated/lost (e.g. container rebuilt without
+        # SKILL_SECRETS_KEY and the file key gone). Returning the raw value
+        # would let a skill run with ciphertext as its "credential" and fail
+        # opaquely downstream — LOUDLY log so it's diagnosable, not silent.
+        if value.startswith(self.TOKEN_PREFIX):
+            logger.error(
+                "SecretBox: cannot decrypt a stored secret — the encryption "
+                "key appears to have changed or been lost. Re-enter the "
+                "affected skill credential (or set a stable SKILL_SECRETS_KEY)."
+            )
+        return value
 
     def encrypt_env_config(self, env: Dict[str, str]) -> Dict[str, str]:
         return {k: self.encrypt(v) for k, v in env.items()}

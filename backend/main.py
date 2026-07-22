@@ -265,16 +265,19 @@ async def lifespan(app: FastAPI):
     if app.state.executor_reaper_task is not None:
         logger.info("Executor idle-cull reaper started")
 
-    # Marketplace seeds — populate this registry host's catalog + store
-    # (best-effort, non-blocking). Only run where this instance IS the
-    # registry (cloud, or a local dev instance with
-    # SKILL_MARKETPLACE_LOCAL_REGISTRY); a pure desktop client proxies to the
-    # cloud and needs no local catalog.
-    try:
-        from xyz_agent_context.team_marketplace_service import TeamMarketplaceService
+    import asyncio as _asyncio
 
-        if TeamMarketplaceService()._is_registry_host():
-            # Team templates — fetched from narra.nexus into our store.
+    # Marketplace seeds — populate this registry host's catalog + store.
+    # OFF the startup critical path: the team seed fetches over the network
+    # (narra.nexus, up to ~minutes if slow) and both seeds do S3 I/O, so
+    # awaiting them before `yield` would freeze startup and can exceed the
+    # compose healthcheck start_period. Fire-and-forget with a done-callback.
+    async def _seed_marketplaces() -> None:
+        try:
+            from xyz_agent_context.team_marketplace_service import TeamMarketplaceService
+
+            if not TeamMarketplaceService()._is_registry_host():
+                return  # a pure desktop client proxies to the cloud
             from xyz_agent_context.repository._team_marketplace_seed import (
                 seed_team_marketplace,
             )
@@ -283,7 +286,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"Team Marketplace seed: {seeded} templates present")
 
             # First-party skills vendored in marketplace_skills/ (incl. the
-            # default NetMind vision/audio fallbacks). Without this a fresh
+            # default NetMind vision/audio fallbacks) — without this a fresh
             # deploy has an empty Skills tab and default-skill install finds
             # nothing to auto-install on agent creation.
             from xyz_agent_context.repository._skill_marketplace_seed import (
@@ -292,21 +295,26 @@ async def lifespan(app: FastAPI):
 
             skill_seeded = await seed_skill_marketplace(db)
             logger.info(f"Skill Marketplace seed: {skill_seeded} first-party skill(s) present")
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[marketplace-seed] skipped due to error: {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[marketplace-seed] skipped due to error: {e}")
+
+    app.state.marketplace_seed_task = _asyncio.create_task(_seed_marketplaces())
+    app.state.marketplace_seed_task.add_done_callback(
+        lambda t: (
+            logger.warning(f"[marketplace-seed] task died: {t.exception()}")
+            if not t.cancelled() and t.exception() is not None
+            else None
+        )
+    )
 
     # Skill reconciler — keeps the skill_installations audit table following
-    # the filesystem truth (users can hand-edit skills/; the DB heals).
-    # Startup pass + periodic loop; only ever writes DB, never user files.
+    # the filesystem truth (users can hand-edit skills/; the DB heals). The
+    # loop does its first reconcile pass immediately, so we do NOT block
+    # startup on it here (reconcile_all scans every workspace + hashes every
+    # installed skill — latency grows with users).
     from xyz_agent_context.services.skill_sync_service import SkillSyncService
 
-    import asyncio as _asyncio
-
     skill_sync = SkillSyncService(db)
-    try:
-        await skill_sync.reconcile_all()
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[skill-sync] startup pass failed: {e}")
     app.state.skill_sync_task = _asyncio.create_task(skill_sync.run_forever())
     app.state.skill_sync_task.add_done_callback(
         lambda t: (
@@ -324,6 +332,9 @@ async def lifespan(app: FastAPI):
     skill_sync_task = getattr(app.state, "skill_sync_task", None)
     if skill_sync_task is not None:
         skill_sync_task.cancel()
+    seed_task = getattr(app.state, "marketplace_seed_task", None)
+    if seed_task is not None:
+        seed_task.cancel()
     reaper_task = getattr(app.state, "executor_reaper_task", None)
     if reaper_task is not None:
         reaper_task.cancel()

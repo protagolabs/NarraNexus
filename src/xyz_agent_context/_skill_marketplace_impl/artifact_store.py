@@ -102,11 +102,21 @@ class S3ArtifactStore(ArtifactStore):
         return dest
 
     def exists(self, key: str) -> bool:
+        """True iff the object is present. A genuine 404/NoSuchKey is False;
+        any OTHER error (throttling, network, auth) is re-raised — swallowing
+        it would return False and make the seed idempotency gate re-upload on
+        every transient S3 hiccup."""
+        from botocore.exceptions import ClientError
+
         try:
             self._s3().head_object(Bucket=self.bucket, Key=self._key(key))
             return True
-        except Exception:
-            return False
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if code in ("404", "NoSuchKey", "NotFound") or status == 404:
+                return False
+            raise
 
 
 def _env_segment() -> str:

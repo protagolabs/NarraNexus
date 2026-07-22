@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/marketplace_skills.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — review 修复:固定文件名 + CSRF 守卫
+
+publish 不再用客户端 `file.filename`(路径穿越 → 任意文件写),固定写 `upload.zip`。新增 `_reject_cross_origin`:local 无 token 时按 Origin 头挡跨站 POST(CSRF)。
+
 
 ## 2026-07-21 — GET /defaults(stage 9)
 

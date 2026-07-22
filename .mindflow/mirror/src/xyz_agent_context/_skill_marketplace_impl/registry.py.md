@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/_skill_marketplace_impl/registry.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — review 修复:hash 从 catalog 取 + client 不泄漏
+
+RemoteMarketplaceSource:校验 hash 只从 catalog detail(entry_data)取,不再用下载响应自证的 X-Package-Hash 头;`_http()` 改为 asynccontextmanager,内部创建的 client 用完即关(每 service 调用一个,原先泄漏)。
+
 
 ## 2026-07-21 — manifest "default" -> catalog is_default(stage 9)
 

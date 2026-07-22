@@ -27,10 +27,14 @@ router = APIRouter()
 
 
 def _require_publisher(request: Request) -> None:
-    """Cloud: staff role required. Local: allowed (loopback + OS boundary)."""
+    """Cloud: staff role required. Local: loopback-trust, but reject a
+    cross-origin (CSRF) POST — same guard as the skill publish endpoint."""
     from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
     if not is_cloud_mode():
+        from backend.routes.marketplace_skills import _reject_cross_origin
+
+        _reject_cross_origin(request)
         return
     role = getattr(request.state, "role", None)
     if not getattr(request.state, "user_id", None):
@@ -115,7 +119,8 @@ async def publish_template(
     _require_publisher(request)
     tmp = Path(tempfile.mkdtemp(prefix="nx-team-pub-"))
     try:
-        bundle_path = tmp / (file.filename or "bundle.nxbundle")
+        # Never trust the client filename (path traversal) — fixed name.
+        bundle_path = tmp / "upload.nxbundle"
         bundle_path.write_bytes(await file.read())
         cats: List[str] = [c.strip() for c in categories.split(",") if c.strip()]
         entry = await TeamMarketplaceService().publish(

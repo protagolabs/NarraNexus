@@ -116,7 +116,12 @@ class SkillMarketplaceService:
         installed_versions: Dict[str, Optional[str]] = {}
         for skill in module.list_skills(include_disabled=True):
             meta = module.read_skill_meta(skill.name)
-            installed_versions[skill.name] = meta.get("version") or skill.version
+            # Key on the marketplace catalog id (stored in .skill_meta.json at
+            # install), falling back to the SKILL.md name. Without this a skill
+            # whose catalog id differs from its SKILL.md name shows as never
+            # installed in the marketplace.
+            key = meta.get("skill_id") or skill.name
+            installed_versions[key] = meta.get("version") or skill.version
         for item in items:
             skill_id = item.get("skill_id") or item.get("id") or ""
             item["installed"] = bool(skill_id) and skill_id in installed_versions
@@ -140,7 +145,9 @@ class SkillMarketplaceService:
             meta = module.read_skill_meta(skill.name)
             version = meta.get("version") or skill.version
             if version:
-                installed.append({"skill_id": skill.name, "version": version})
+                installed.append(
+                    {"skill_id": meta.get("skill_id") or skill.name, "version": version}
+                )
         if not installed:
             return []
         if self._is_registry_host():
