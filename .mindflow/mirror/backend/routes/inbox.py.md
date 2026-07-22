@@ -9,7 +9,7 @@ stub: false
 Each inbox message now carries `attachments` (parsed from the `bus_messages.attachments`
 JSON column). New `GET /attachments/raw?path=<rel_path>` streams a shared-area bus file
 after gating it to the authenticated user via
-`_bus_attachment_impl.resolve_shared_file_for_user` (path's first segment must equal the
+`message_bus.attachments.resolve_shared_file_for_user` (facade over [[_bus_attachment_impl]]) (path's first segment must equal the
 user_id; no traversal outside `{base}/{user_id}`). This is the DM/peer counterpart to the
 team-chat attachment surface in [[teams]]; both serve through this one endpoint.
 

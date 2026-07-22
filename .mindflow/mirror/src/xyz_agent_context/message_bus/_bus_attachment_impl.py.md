@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/message_bus/_bus_attachment_impl.py
-last_verified: 2026-07-20
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — meta sidecar + off-loop disk writes + public facade
+
+- **Meta sidecar (`{file_id}_meta.json`)**: `store_bus_attachment_meta` /
+  `load_bus_attachment_meta` persist the server-built attachment dict next to
+  the staged file. Written by the team-chat upload endpoint after Whisper
+  finishes; at send time the route reloads THIS instead of trusting the
+  client's echoed dict (transcript is raw prompt injection otherwise — PR
+  #141 review). Underscore (not dot) in the name keeps the sidecar invisible
+  to `resolve_shared_file_by_id`'s `{file_id}.*` glob so it can never shadow
+  the original.
+- **Disk writes moved off the event loop**: `_stage_into`'s link/copy and
+  `store_bytes_into_bus`'s `write_bytes` (uploads up to 50 MB) run via
+  `asyncio.to_thread`; `store_bytes_into_bus` is now async — callers await it.
+- **Cross-package consumers import the [[attachments]] facade**, never this
+  module directly (routes/MCP tools were pinned to the private impl).
 
 # _bus_attachment_impl.py — 让 bus 消息携带文件
 

@@ -110,10 +110,14 @@ class TeamMemberRepository(BaseRepository[TeamMember]):
         )
 
     async def list_members_by_team(self, team_id: str) -> List[str]:
-        # Ordered by join time so callers can treat the first entry as the
-        # earliest-joined member (the default-responder fallback in teams.py).
+        # Ordered by auto-increment id (== insertion/join order) so callers can
+        # treat the first entry as the earliest-joined member (the
+        # default-responder fallback in teams.py). NOT joined_at: it has
+        # second-level precision on SQLite (ties), and the order_by parser only
+        # honors a single "<field> [ASC|DESC]" — a composite tiebreaker would be
+        # silently dropped.
         rows = await self._db.get(
-            self.table_name, {"team_id": team_id}, order_by="joined_at ASC, id ASC"
+            self.table_name, {"team_id": team_id}, order_by="id ASC"
         )
         return [r["agent_id"] for r in rows]
 

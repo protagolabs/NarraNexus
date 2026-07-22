@@ -17,10 +17,12 @@ import pytest
 
 from xyz_agent_context.message_bus._bus_attachment_impl import (
     build_bus_markers,
+    load_bus_attachment_meta,
     resolve_and_stage_refs,
     resolve_shared_file_by_id,
     resolve_shared_file_for_user,
     stage_path_into_team,
+    store_bus_attachment_meta,
     store_bytes_into_bus,
 )
 from xyz_agent_context.utils.workspace_paths import (
@@ -224,9 +226,10 @@ async def test_resolve_shared_file_for_user_serves_and_gates(tmp_path):
     assert resolve_shared_file_for_user(OWNER, f"{OWNER}/_shared/bus_files/x/none.txt", base=str(tmp_path)) is None
 
 
-def test_store_bytes_into_bus_roundtrip(tmp_path):
+@pytest.mark.asyncio
+async def test_store_bytes_into_bus_roundtrip(tmp_path):
     # A user upload has no source workspace file — bytes are written directly.
-    att = store_bytes_into_bus(
+    att = await store_bytes_into_bus(
         user_id=OWNER,
         raw_bytes=b"hello world",
         original_name="notes.txt",
@@ -244,10 +247,11 @@ def test_store_bytes_into_bus_roundtrip(tmp_path):
     assert got is not None and got.read_bytes() == b"hello world"
 
 
-def test_resolve_shared_file_by_id_prefers_original_over_mp3(tmp_path):
+@pytest.mark.asyncio
+async def test_resolve_shared_file_by_id_prefers_original_over_mp3(tmp_path):
     # A voice memo (webm) with a later .mp3 transcode sibling: by-id resolution
     # (used by the public transcription endpoint) must return the original.
-    att = store_bytes_into_bus(
+    att = await store_bytes_into_bus(
         user_id=OWNER, raw_bytes=b"webmdata", original_name="memo.webm",
         mime_type="audio/webm", base=str(tmp_path),
     )
@@ -272,3 +276,26 @@ def test_build_bus_markers_includes_transcript(tmp_path):
     marker = build_bus_markers(atts, base=str(tmp_path))
     assert "transcript=hello team" in marker
     assert "use Read tool" in marker
+
+
+@pytest.mark.asyncio
+async def test_attachment_meta_sidecar_roundtrip(tmp_path):
+    # The upload endpoint persists the finished dict server-side; the send
+    # endpoint reloads it instead of trusting the client's echoed copy.
+    att = await store_bytes_into_bus(
+        user_id=OWNER, raw_bytes=b"webmdata", original_name="memo.webm",
+        mime_type="audio/webm", base=str(tmp_path),
+    )
+    att["source"] = "recording"
+    att["transcript"] = "hello team"
+    store_bus_attachment_meta(OWNER, att, base=str(tmp_path))
+
+    loaded = load_bus_attachment_meta(OWNER, att["rel_path"], base=str(tmp_path))
+    assert loaded == att
+    # The `_meta.json` sidecar must never shadow the original in by-id
+    # resolution (its name deliberately misses the `{file_id}.*` glob).
+    got = resolve_shared_file_by_id(OWNER, att["file_id"], base=str(tmp_path))
+    assert got is not None and got.suffix == ".webm"
+    # Same user-scoping gate as the file itself; missing sidecar → None.
+    assert load_bus_attachment_meta("user_intruder", att["rel_path"], base=str(tmp_path)) is None
+    assert load_bus_attachment_meta(OWNER, f"{OWNER}/_shared/bus_files/x/none.txt", base=str(tmp_path)) is None

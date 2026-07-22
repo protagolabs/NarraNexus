@@ -76,6 +76,29 @@ class MessageBusService(ABC):
         ...
 
     @abstractmethod
+    async def get_recent_messages(
+        self,
+        channel_id: str,
+        limit: int = 20,
+    ) -> List[BusMessage]:
+        """
+        Get the MOST RECENT ``limit`` messages of a channel, oldest→newest.
+
+        The recent-scrollback complement to ``get_messages`` (which returns
+        the OLDEST ``limit``). Used to give a triggered team-room agent the
+        recent conversation as context, not just the message that
+        @mentioned it.
+
+        Args:
+            channel_id: The channel to fetch messages from.
+            limit: Maximum number of messages to return.
+
+        Returns:
+            List of BusMessage — the newest ``limit``, reordered ASC.
+        """
+        ...
+
+    @abstractmethod
     async def get_unread(self, agent_id: str) -> List[BusMessage]:
         """
         Get all unread messages for an agent across all channels.

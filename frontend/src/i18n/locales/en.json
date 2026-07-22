@@ -179,6 +179,9 @@
         "executor_unreachable": "Your execution container is temporarily unreachable. It usually recovers within a few seconds — please resend this message shortly.",
         "infra_transient": "This turn could not run due to a temporary platform-side execution issue. Please send the message again in a moment."
       }
+    },
+    "attachments": {
+      "downloadTitle": "Download {{name}}"
     }
   },
   "awareness": {

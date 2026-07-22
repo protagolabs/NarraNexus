@@ -24,13 +24,17 @@ from loguru import logger
 from pydantic import BaseModel
 
 from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.mime_sniff import sniff_mime_type
 from xyz_agent_context.repository import TeamRepository, TeamMemberRepository
 from xyz_agent_context.repository.user_repository import UserRepository
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus._bus_attachment_impl import (
+from xyz_agent_context.message_bus.attachments import (
+    load_bus_attachment_meta,
     resolve_shared_file_for_user,
+    store_bus_attachment_meta,
     store_bytes_into_bus,
 )
+from xyz_agent_context.schema.attachment_schema import derive_category_from_mime
 from xyz_agent_context.utils.workspace_paths import team_shared_dir
 from xyz_agent_context.schema.team_schema import (
     CreateTeamRequest,
@@ -128,11 +132,19 @@ async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool) -> d
         channel = await db.get_one("bus_channels", {"created_by": marker, "channel_type": "group"})
         if channel:
             cid = channel["channel_id"]
-            msg_ids = [m["message_id"] for m in await db.get("bus_messages", {"channel_id": cid})]
+            # One IN-subquery statement instead of pulling every message_id
+            # into memory and deleting failures row-by-row (N+1 in an open
+            # transaction). Bare identifiers — the raw SQL must stay portable
+            # across the sqlite and MySQL dialects.
             async with db.transaction():
+                failures = await db.execute(
+                    "DELETE FROM bus_message_failures WHERE message_id IN "
+                    "(SELECT message_id FROM bus_messages WHERE channel_id = %s)",
+                    (cid,),
+                    fetch=False,
+                )
+                result["chat_failures"] = failures if isinstance(failures, int) else 0
                 result["chat_messages"] = await db.delete("bus_messages", {"channel_id": cid})
-                for mid in msg_ids:
-                    result["chat_failures"] += await db.delete("bus_message_failures", {"message_id": mid})
 
     if clear_files:
         d = team_shared_dir(team.owner_user_id, team.team_id)
@@ -179,19 +191,49 @@ async def _get_or_create_team_room(db, bus: LocalMessageBus, team_id: str, team_
     return channel_id
 
 
+def _sanitized_attachment(user_id: str, att: object) -> dict | None:
+    """Rebuild one echoed attachment dict from server-side state only.
+
+    The client echoes dicts from the upload endpoint, so every field is
+    attacker-writable over the wire — and the dict lands verbatim in
+    ``bus_messages.attachments`` and (via ``build_bus_markers``) in the team
+    prompt, with ``transcript`` injected as raw text. So nothing echoed is
+    trusted: the ``rel_path`` only serves to locate the file (gated to the
+    sender's own shared area), then the dict is reloaded from the meta
+    sidecar the upload endpoint wrote (``load_bus_attachment_meta``). No
+    sidecar → minimal metadata rebuilt from disk, no transcript.
+    """
+    if not isinstance(att, dict):
+        return None
+    rel_path = att.get("rel_path")
+    if not isinstance(rel_path, str) or not rel_path:
+        return None
+    on_disk = resolve_shared_file_for_user(user_id, rel_path)
+    if on_disk is None:
+        return None
+    meta = load_bus_attachment_meta(user_id, rel_path)
+    if meta is not None:
+        return meta
+    guessed, _ = mimetypes.guess_type(on_disk.name)
+    mime = guessed or "application/octet-stream"
+    return {
+        "file_id": on_disk.stem,
+        "original_name": on_disk.name,
+        "mime_type": mime,
+        "size_bytes": on_disk.stat().st_size,
+        "category": derive_category_from_mime(mime).value,
+        "rel_path": rel_path,
+    }
+
+
 @router.post("/{team_id}/chat/messages")
 async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Request):
     user_id = await _user_id_for_request(request)
 
-    # Re-validate attachment rel_paths against the sender's own shared area —
-    # the client echoes back dicts from the upload endpoint, so a tampered
-    # rel_path must not be trusted. Drop any that don't resolve.
     valid_attachments = [
-        att
+        sanitized
         for att in (payload.attachments or [])
-        if isinstance(att, dict)
-        and att.get("rel_path")
-        and resolve_shared_file_for_user(user_id, att["rel_path"]) is not None
+        if (sanitized := _sanitized_attachment(user_id, att)) is not None
     ]
 
     if not (payload.content or "").strip() and not valid_attachments:
@@ -230,23 +272,6 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
     return {"success": True, "message_id": msg_id, "channel_id": channel_id}
 
 
-def _sniff_upload_mime(file: UploadFile, raw_bytes: bytes) -> str:
-    """Best-effort server-side MIME (never trust the client type as primary):
-    python-magic content sniff → extension guess → client type → octet-stream."""
-    try:
-        import magic  # type: ignore[import-not-found]
-
-        sniffed = magic.from_buffer(raw_bytes, mime=True)
-        if sniffed:
-            return sniffed
-    except ImportError:
-        pass
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"libmagic sniff failed: {e}; falling back to extension")
-    guessed, _ = mimetypes.guess_type(file.filename or "")
-    return guessed or file.content_type or "application/octet-stream"
-
-
 @router.post("/{team_id}/chat/attachments")
 async def upload_team_chat_attachment(
     team_id: str,
@@ -282,8 +307,10 @@ async def upload_team_chat_attachment(
             detail=f"File exceeds the maximum upload size of {max_bytes // (1024 * 1024)} MB",
         )
 
-    mime_type = _sniff_upload_mime(file, raw_bytes)
-    att = store_bytes_into_bus(
+    mime_type = sniff_mime_type(
+        raw_bytes, filename=file.filename or "", client_type=file.content_type
+    )
+    att = await store_bytes_into_bus(
         user_id=user_id,
         raw_bytes=raw_bytes,
         original_name=file.filename or "upload",
@@ -311,6 +338,10 @@ async def upload_team_chat_attachment(
             if transcript:
                 att["transcript"] = transcript
                 logger.info(f"Team voice memo transcribed: file={att['file_id']} chars={len(transcript)}")
+
+    # Persist the finished dict server-side: the send endpoint reloads it from
+    # this sidecar instead of trusting the client's echoed copy.
+    store_bus_attachment_meta(user_id, att)
 
     logger.info(f"Team chat upload: user {user_id} team {team_id} file={att['file_id']} mime={mime_type}")
     return {"success": True, "attachment": att, "transcription_available": transcription_available}
@@ -359,14 +390,14 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
     #   queued  — it has an unprocessed @mention in this room but isn't running
     #             yet (poll latency / worker-slot / behind its own turn);
     #   idle    — nothing pending.
-    from xyz_agent_context.message_bus import _bus_activity
+    from xyz_agent_context.message_bus import activity as bus_activity
 
-    act_rows = {r["agent_id"]: r for r in await _bus_activity.get_channel_activity(db, channel_id)}
+    act_rows = {r["agent_id"]: r for r in await bus_activity.get_channel_activity(db, channel_id)}
     activity: list[dict] = []
     thinking: list[str] = []  # kept for back-compat (running+queued)
     for aid in members:
         row = act_rows.get(aid)
-        if _bus_activity.is_live(row):
+        if bus_activity.is_live(row):
             activity.append({
                 "agent_id": aid, "status": "running",
                 "phase": row.get("phase"), "tool_count": row.get("tool_count") or 0,

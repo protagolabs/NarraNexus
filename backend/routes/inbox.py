@@ -345,7 +345,7 @@ async def get_bus_attachment_raw(request: Request, path: str = Query(...)):
     so a tampered path can only ever reach files the caller already owns.
     """
     from backend.auth import resolve_current_user_id
-    from xyz_agent_context.message_bus._bus_attachment_impl import (
+    from xyz_agent_context.message_bus.attachments import (
         resolve_shared_file_for_user,
     )
 

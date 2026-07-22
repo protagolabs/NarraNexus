@@ -30,6 +30,8 @@ and checked to stay inside the sender's workspace (no ``../`` escape).
 
 from __future__ import annotations
 
+import asyncio
+import json
 import mimetypes
 import os
 import shutil
@@ -141,15 +143,20 @@ def _new_target(dest_dir: Path, suffix: str) -> Path:
     return ensure_within_directory(dest_dir, on_disk_name, label="bus attachment")
 
 
-def _stage_into(src: Path, dest_dir: Path, base: str, *, original_name: str) -> dict:
+async def _stage_into(src: Path, dest_dir: Path, base: str, *, original_name: str) -> dict:
     """Hard-link/copy ``src`` into ``dest_dir`` under a fresh file_id, returning
-    the bus-attachment dict (metadata + base-relative staged path)."""
+    the bus-attachment dict (metadata + base-relative staged path).
+
+    The disk write runs in a thread: the hard-link path is instant, but the
+    cross-device ``shutil.copy2`` fallback can move tens of MB and must not
+    block the event loop the caller (route / MCP tool) runs on.
+    """
     target = _new_target(dest_dir, src.suffix)
-    _link_or_copy(src, target)
+    await asyncio.to_thread(_link_or_copy, src, target)
     return _bus_att_dict(target, base, original_name=original_name, mime=_sniff_mime(original_name or src.name))
 
 
-def store_bytes_into_bus(
+async def store_bytes_into_bus(
     *,
     user_id: str,
     raw_bytes: bytes,
@@ -164,13 +171,67 @@ def store_bytes_into_bus(
     message, so there is no source workspace file to reference — we persist the
     raw bytes directly under ``{base}/{user_id}/_shared/bus_files/{date}/``.
     Callers pass an authenticated ``user_id`` and a server-sniffed ``mime_type``.
+    The write runs in a thread — uploads go up to ``MAX_UPLOAD_BYTES`` (50 MB
+    default) and must not block the route's event loop.
     """
     base = _base(base)
     dest_dir = bus_files_dir(user_id, base) / _today_str()
     suffix = Path(original_name or "").suffix
     target = _new_target(dest_dir, suffix)
-    target.write_bytes(raw_bytes)
+    await asyncio.to_thread(target.write_bytes, raw_bytes)
     return _bus_att_dict(target, base, original_name=original_name or target.name, mime=mime_type)
+
+
+def _meta_sidecar_path(staged: Path) -> Path:
+    """Sidecar path for a staged file's server-authoritative attachment dict.
+
+    ``{file_id}_meta.json`` next to the staged file. The underscore (not a
+    dot) keeps it invisible to ``resolve_shared_file_by_id``'s
+    ``{file_id}.*`` glob, so the sidecar can never shadow the original.
+    """
+    return staged.parent / f"{staged.stem}_meta.json"
+
+
+def store_bus_attachment_meta(
+    user_id: str, attachment: dict, base: Optional[str] = None
+) -> None:
+    """Persist the server-built attachment dict next to its staged file.
+
+    Written by the upload endpoint AFTER it finishes building the dict
+    (including a Whisper ``transcript``). At send time the client echoes
+    attachment dicts back over the wire; the server re-reads this sidecar
+    instead of trusting any echoed field — see ``load_bus_attachment_meta``.
+    Best-effort: a sidecar write failure must not fail the upload.
+    """
+    staged = resolve_shared_file_for_user(user_id, attachment.get("rel_path") or "", base)
+    if staged is None:
+        return
+    try:
+        _meta_sidecar_path(staged).write_text(
+            json.dumps(attachment, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError as e:
+        logger.warning(f"[bus attachment] failed to write meta sidecar: {e}")
+
+
+def load_bus_attachment_meta(
+    user_id: str, rel_path: str, base: Optional[str] = None
+) -> Optional[dict]:
+    """Load the server-authoritative attachment dict for a staged file.
+
+    Returns None when the rel_path fails the shared-area gate or no sidecar
+    exists (e.g. agent-staged files, which never pass through the upload
+    endpoint). Callers fall back to rebuilding minimal metadata from disk.
+    """
+    staged = resolve_shared_file_for_user(user_id, rel_path, base)
+    if staged is None:
+        return None
+    sidecar = _meta_sidecar_path(staged)
+    try:
+        loaded = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
 
 
 async def resolve_and_stage_refs(
@@ -200,7 +261,7 @@ async def resolve_and_stage_refs(
         if src is None:
             continue
         try:
-            out.append(_stage_into(src, dest_dir, base, original_name=src.name))
+            out.append(await _stage_into(src, dest_dir, base, original_name=src.name))
         except Exception as e:  # noqa: BLE001 — one bad file must not drop the message
             logger.warning(f"[bus attachment] failed to stage {ref!r}: {e}")
     return out
@@ -222,7 +283,7 @@ async def stage_path_into_team(
     if src is None:
         return None
     dest_dir = team_shared_dir(owner_user_id, team_id, base)
-    staged = _stage_into(src, dest_dir, base, original_name=src.name)
+    staged = await _stage_into(src, dest_dir, base, original_name=src.name)
     staged["path"] = str((_base_root(base) / staged["rel_path"]).resolve())
     return staged
 

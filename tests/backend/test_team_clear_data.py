@@ -36,12 +36,26 @@ async def test_clear_chat_deletes_messages_keeps_channel(db_client):
     channel_id = await _seed_team_room(db_client)
     team = Team(team_id=TID, owner_user_id=OWNER, name="T")
 
+    # A recorded delivery failure for a room message must be wiped with it
+    # (the IN-subquery delete), while failures of OTHER channels' messages stay.
+    room_msg = (await db_client.get("bus_messages", {"channel_id": channel_id}))[0]
+    await db_client.insert("bus_message_failures", {
+        "message_id": room_msg["message_id"], "agent_id": "agent_b", "last_error": "boom",
+    })
+    await db_client.insert("bus_message_failures", {
+        "message_id": "msg_other_room", "agent_id": "agent_b", "last_error": "keep me",
+    })
+
     res = await _wipe_team_data(db_client, team, clear_chat=True, clear_files=False)
 
     assert res["chat_messages"] == 2
+    assert res["chat_failures"] == 1
     # Messages gone…
     assert await db_client.get("bus_messages", {"channel_id": channel_id}) == []
-    # …but the channel + membership survive (room keeps working).
+    # …their failures too, but not another channel's…
+    assert await db_client.get("bus_message_failures", {"message_id": room_msg["message_id"]}) == []
+    assert len(await db_client.get("bus_message_failures", {"message_id": "msg_other_room"})) == 1
+    # …and the channel + membership survive (room keeps working).
     assert await db_client.get_one("bus_channels", {"channel_id": channel_id}) is not None
     assert len(await db_client.get("bus_channel_members", {"channel_id": channel_id})) == 2
 

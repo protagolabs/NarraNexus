@@ -39,7 +39,7 @@ async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
     owner = await _resolve_owner_user_id(agent_id)
     if not owner:
         return []
-    from xyz_agent_context.message_bus._bus_attachment_impl import resolve_and_stage_refs
+    from xyz_agent_context.message_bus.attachments import resolve_and_stage_refs
     return await resolve_and_stage_refs(
         sender_agent_id=agent_id, owner_user_id=owner, refs=ref_list
     )
@@ -328,7 +328,7 @@ def register_message_bus_mcp_tools(
         """
         try:
             from xyz_agent_context.utils.db_factory import get_db_client
-            from xyz_agent_context.message_bus._bus_attachment_impl import (
+            from xyz_agent_context.message_bus.attachments import (
                 stage_path_into_team,
             )
 

@@ -179,6 +179,9 @@
         "executor_unreachable": "你的执行容器暂时不可达，通常几秒内自动恢复，请稍后重发这条消息。",
         "infra_transient": "本次执行因平台侧临时问题未能运行，请稍后重发这条消息。"
       }
+    },
+    "attachments": {
+      "downloadTitle": "下载 {{name}}"
     }
   },
   "awareness": {

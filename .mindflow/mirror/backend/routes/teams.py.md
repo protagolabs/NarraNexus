@@ -1,8 +1,33 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-07-20
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — PR #141 review hardening (attachments + wipe + layering)
+
+Three changes from review:
+
+- **Echoed attachment dicts are no longer trusted.** ``send_team_chat`` used
+  to store the client's whole dict after only validating ``rel_path`` — an
+  open client-writable JSON channel into ``bus_messages.attachments`` and
+  (via ``transcript`` in ``build_bus_markers``) raw text into the team
+  prompt. Now ``_sanitized_attachment`` uses the echoed ``rel_path`` ONLY to
+  locate the file, then reloads the dict the upload endpoint persisted
+  server-side (``store_bus_attachment_meta`` → ``load_bus_attachment_meta``
+  sidecar, see [[_bus_attachment_impl]]); no sidecar → minimal metadata
+  rebuilt from disk, never a client transcript.
+- **MIME sniffing consolidated.** The local ``_sniff_upload_mime`` (which
+  returned libmagic's octet-stream verdict directly, diverging from the
+  other two copies) is gone; the upload endpoint calls the shared
+  [[mime_sniff]] helper. ``store_bytes_into_bus`` is now awaited (its disk
+  write moved off the event loop).
+- **Wipe without N+1.** ``_wipe_team_data`` deletes ``bus_message_failures``
+  with one IN-subquery statement (bare identifiers, dialect-portable) instead
+  of pulling every message_id into memory and deleting row-by-row inside the
+  open transaction.
+- Imports go through the public facades ``message_bus.attachments`` /
+  ``message_bus.activity`` instead of the private impl modules.
 
 ## 2026-07-20 — team-chat messages carry attachments
 

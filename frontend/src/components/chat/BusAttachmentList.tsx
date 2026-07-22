@@ -11,6 +11,7 @@
  */
 
 import { Download, FileText, Image as ImageIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { useBusAttachmentBlobUrl } from '@/hooks/useBusAttachmentBlobUrl';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -49,11 +50,12 @@ function BusAttachmentImageThumb({ att }: { att: BusAttachment }) {
 }
 
 function BusAttachmentChip({ att }: { att: BusAttachment }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
       onClick={() => downloadBusAttachment(att).catch(() => {})}
-      title={`Download ${att.original_name}`}
+      title={t('chat.attachments.downloadTitle', { name: att.original_name })}
       className="flex max-w-[280px] items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 text-left hover:bg-[var(--bg-tertiary)]/70"
     >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-[var(--bg-secondary)]">
