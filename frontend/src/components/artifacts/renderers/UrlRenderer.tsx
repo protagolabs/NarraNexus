@@ -25,6 +25,15 @@
  * the request-derived app origin) refuses to open such a tab. The safety of
  * this sandbox depends on that guard; do NOT copy this sandbox to a renderer
  * that can load first-party (same-origin) content.
+ *
+ * NAVIGATION — the sandbox deliberately omits `allow-popups` /
+ * `allow-popups-to-escape-sandbox`: with them, a `target="_blank"` link or
+ * `window.open` inside the page escaped into a new OS-browser window (users
+ * reported links "jumping out of the app"). Without them, same-frame links
+ * navigate inside the tab and popup attempts are neutralised. We cannot turn
+ * a cross-origin page's link into a new in-app tab (the same-origin policy
+ * hides its navigations from us) — full in-app navigation control is a
+ * streaming-browser (方案三) capability, not an iframe one.
  */
 
 import { useEffect, useState } from 'react';
@@ -113,7 +122,7 @@ export default function UrlRenderer({ artifact }: Props) {
           title={doc.title}
           className="flex-1 w-full border-0 bg-white"
           referrerPolicy="no-referrer"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+          sandbox="allow-scripts allow-same-origin allow-forms"
         />
       ) : (
         <FallbackCard
@@ -161,12 +170,12 @@ function ModeBar({
         className="flex items-center gap-1 px-2 py-1 rounded opacity-70 hover:opacity-100 hover:bg-[var(--bg-secondary)]"
         title={
           mode === 'iframe'
-            ? t('artifacts.url.switchToFull', 'This page not loading? Switch to full mode')
+            ? t('artifacts.url.switchToExternal', "Page not loading? Switch to the open-in-browser card")
             : t('artifacts.url.switchToEmbed', 'Try embedding this page inline')
         }
       >
         <MonitorPlay className="w-3.5 h-3.5" />
-        <span>{mode === 'iframe' ? t('artifacts.url.embedMode', 'Embedded') : t('artifacts.url.fullMode', 'Full')}</span>
+        <span>{mode === 'iframe' ? t('artifacts.url.inlineMode', 'Inline') : t('artifacts.url.externalMode', 'External')}</span>
       </button>
       <button
         onClick={onOpenExternal}
@@ -200,7 +209,7 @@ function FallbackCard({
       <p className="text-xs opacity-70 max-w-sm">
         {t(
           'artifacts.url.cannotEmbed',
-          "This site refuses to be embedded (many large sites do). Open it in a new window, or try embedding it anyway.",
+          "This site can't be shown inline — it refuses to be embedded (many large sites like Google do). Open it in your browser, or try embedding it anyway. Full in-app viewing of these sites is coming with the built-in browser.",
         )}
       </p>
       <div className="flex items-center gap-2">

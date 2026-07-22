@@ -44,6 +44,14 @@ frontend's refetch sees a change. 404s if the artifact is missing / not this
 agent's / not a URL tab; a missing doc file on disk (a real pointer-model
 state) raises `ArtifactContentGone` (410), not a bare FileNotFoundError → 500.
 
+## Agent-readable content snapshot (2026-07-22)
+
+`open_url` also writes `tabs/<slug>/content.md` next to the doc — a bounded
+plain-text snapshot of the page ([[page_text.py]]) so the agent can SEE what
+the page says. Written ALWAYS (even when extraction fails, with a "could not
+capture" note) so the state-block hint in [[common_tools_module.py]] always
+points at a real file. Best-effort: `fetch_page_text` never raises.
+
 ## Atomic doc write
 
 `_write_doc` writes a sibling temp file then `os.replace` (atomic on POSIX)

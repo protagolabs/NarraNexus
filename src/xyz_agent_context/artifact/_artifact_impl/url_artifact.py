@@ -29,6 +29,7 @@ from loguru import logger
 
 from xyz_agent_context.artifact._artifact_impl import registration
 from xyz_agent_context.artifact._artifact_impl.embed_probe import probe_url
+from xyz_agent_context.artifact._artifact_impl.page_text import fetch_page_text
 from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactContentGone,
     ArtifactError,
@@ -47,6 +48,9 @@ from xyz_agent_context.utils.url_safety import UnsafeUrlError, assert_public_htt
 
 _URL_TABS_DIR = "tabs"
 _DOC_FILENAME = "page.url.json"
+# Agent-readable text snapshot of the page, written next to the doc. The
+# artifact state block points the agent here so it can SEE the page content.
+CONTENT_FILENAME = "content.md"
 
 
 def _our_scheme() -> str:
@@ -144,6 +148,27 @@ def _write_doc(abs_path: str, doc: UrlArtifactDoc) -> None:
     os.replace(tmp_path, abs_path)
 
 
+def _write_content(dir_abs: str, *, url: str, title: str, page_text: Optional[str]) -> None:
+    """Write the agent-readable `content.md` next to the doc. Always written
+    (even when extraction failed) so the state-block hint always points at a
+    real file. The body is a snapshot taken at open time."""
+    if page_text:
+        body = page_text
+    else:
+        body = (
+            "_The page text could not be captured automatically (the site may "
+            "block server-side fetches, require login, or render entirely with "
+            "JavaScript). Ask the user what they need from this page._"
+        )
+    content = f"# {title}\n\nSource: {url}\n\n---\n\n{body}\n"
+    abs_path = os.path.join(dir_abs, CONTENT_FILENAME)
+    os.makedirs(dir_abs, exist_ok=True)
+    tmp_path = f"{abs_path}.{os.getpid()}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp_path, abs_path)
+
+
 async def open_url(
     *,
     repo: ArtifactRepository,
@@ -181,12 +206,17 @@ async def open_url(
         raise ArtifactError(f"refusing to open a non-public URL: {e}") from e
 
     verdict = await probe_url(url, our_scheme=_our_scheme())
+    # Best-effort readable-text snapshot so the agent can SEE the page content,
+    # not just that a tab exists. Never raises; None → a "text unavailable" note.
+    page_text = await fetch_page_text(url)
 
     slug = secrets.token_hex(4)
     rel_entry = f"{_URL_TABS_DIR}/{slug}/{_DOC_FILENAME}"
     abs_entry = _doc_abs_path(agent_id, user_id, rel_entry)
     resolved_title = (title or url)[:200]
     _write_doc(abs_entry, UrlArtifactDoc(url=url, title=resolved_title, embed=verdict))
+    # Sibling file the agent can Read (surfaced in the artifact state block).
+    _write_content(os.path.dirname(abs_entry), url=url, title=resolved_title, page_text=page_text)
 
     result = await registration.register_artifact(
         repo=repo,

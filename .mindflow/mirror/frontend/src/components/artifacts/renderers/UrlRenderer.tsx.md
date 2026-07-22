@@ -31,6 +31,15 @@ renderer fetches it through the token-authed raw route, then:
   would become a same-origin scriptable iframe reaching the app token, so the
   backend (`url_artifact._reject_self_origin`) refuses to open one. The sandbox
   safety DEPENDS on that guard — don't copy it to a same-origin renderer.
+- Sandbox is `allow-scripts allow-same-origin allow-forms` — NO
+  `allow-popups` / `allow-popups-to-escape-sandbox` (2026-07-22): with them,
+  a `target="_blank"` link inside the page escaped into a new OS-browser
+  window ("links jump out of the app"). Without them, same-frame links stay in
+  the tab and popups are neutralised. We CANNOT turn a cross-origin page's link
+  into a new in-app tab (same-origin policy) — full in-app navigation is a
+  streaming-browser (方案三) capability. The mode toggle labels are "Inline"
+  (iframe) / "External" (the open-in-browser fallback card, formerly the
+  misleading "Full").
 - The doc fetch uses `fetchArtifactText` like the other text renderers
   (Csv/Markdown/Chart) — same pattern, same Tauri behavior.
 

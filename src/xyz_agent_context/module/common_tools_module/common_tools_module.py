@@ -296,6 +296,9 @@ class CommonToolsModule(XYZBaseModule):
             f"{agent_workspace_relpath(self.agent_id, self.user_id or '')}/",
             f"{self.agent_id}_{self.user_id or ''}/",
         )
+        from xyz_agent_context.artifact._artifact_impl.url_artifact import CONTENT_FILENAME
+        from xyz_agent_context.schema.artifact_schema import URL_ARTIFACT_KIND
+
         lines = [header]
         for a in artifacts:
             rel = a.file_path
@@ -303,9 +306,19 @@ class CommonToolsModule(XYZBaseModule):
                 if rel.startswith(prefix):
                     rel = rel[len(prefix):]
                     break
-            lines.append(
-                f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → `{rel}`"
-            )
+            # For URL tabs, point the agent at the readable text snapshot so it
+            # can SEE the page content (not just that a tab exists).
+            if a.kind == URL_ARTIFACT_KIND:
+                import posixpath
+                content_rel = posixpath.join(posixpath.dirname(rel), CONTENT_FILENAME)
+                lines.append(
+                    f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → web page; "
+                    f"Read `{content_rel}` to see its text content"
+                )
+            else:
+                lines.append(
+                    f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → `{rel}`"
+                )
         lines.append("")
         lines.append(
             "To update what the user sees: edit the workspace file(s) in "

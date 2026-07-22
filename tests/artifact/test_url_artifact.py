@@ -43,9 +43,14 @@ async def env(db_client, monkeypatch, tmp_path):
             raise UnsafeUrlError("blocked")
         return ["93.184.216.34"]
 
+    # Deterministic page-text (no real network); "notext" URLs yield None.
+    async def fake_page_text(url, *, resolver=None, client=None):
+        return None if "notext" in url else f"captured text of {url}"
+
     import xyz_agent_context.artifact._artifact_impl.url_artifact as ua
     monkeypatch.setattr(ua, "probe_url", fake_probe)
     monkeypatch.setattr(ua, "assert_public_http_url", fake_assert)
+    monkeypatch.setattr(ua, "fetch_page_text", fake_page_text)
 
     service = ArtifactService(db_client)
     repo = ArtifactRepository(db_client)
@@ -73,6 +78,34 @@ async def test_open_url_writes_doc_and_registers(env):
     assert doc.embed is not None
     assert doc.embed.recommended == "iframe"
     assert doc.embed.effective_mode == "iframe"
+
+
+@pytest.mark.asyncio
+async def test_open_url_writes_agent_readable_content(env):
+    result = await env["service"].open_url(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        url="https://grafana.example/d/xyz", title="Grafana",
+    )
+    art = await env["repo"].get_by_id(result.artifact_id)
+    import os
+    content_path = env["base"] / os.path.dirname(art.file_path) / "content.md"
+    assert content_path.exists()
+    body = content_path.read_text()
+    assert "captured text of https://grafana.example/d/xyz" in body
+    assert "Grafana" in body  # title header
+
+
+@pytest.mark.asyncio
+async def test_open_url_content_written_even_when_extraction_fails(env):
+    result = await env["service"].open_url(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        url="https://notext.example/", title="NoText",
+    )
+    art = await env["repo"].get_by_id(result.artifact_id)
+    import os
+    content_path = env["base"] / os.path.dirname(art.file_path) / "content.md"
+    assert content_path.exists()  # always written so the state-block hint is valid
+    assert "could not be captured" in content_path.read_text()
 
 
 @pytest.mark.asyncio
