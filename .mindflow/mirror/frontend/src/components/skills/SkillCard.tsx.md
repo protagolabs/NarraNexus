@@ -1,7 +1,14 @@
 ---
 code_file: frontend/src/components/skills/SkillCard.tsx
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — 动作行换行(4 按钮不被裁切)
+
+带 env 需求的技能(如 netmind-transcribe)动作行是 4 个按钮
+(Study · Configure/ENV · Enable/Disable · Remove),原来单行不换行,窄面板下
+Remove 被卡片右缘裁掉(实测截图)。动作行加 `flex-wrap`:第 4 个按钮换到第二行,
+gap-2 同时给行/列间距。无 env 的技能仍是 3 按钮单行。
 
 ## 2026-07-21 — Source 徽标(stage 7)
 

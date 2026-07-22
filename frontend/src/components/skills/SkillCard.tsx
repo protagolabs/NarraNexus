@@ -154,8 +154,10 @@ export function SkillCard({
             </div>
           )}
 
-          {/* Action buttons */}
-          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--border-subtle)]">
+          {/* Action buttons — wrap so a 4th action (Configure/ENV, present
+              only for skills with env requirements) never pushes Remove off
+              the card edge on a narrow panel. */}
+          <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[var(--border-subtle)]">
             {/* Study button */}
             <Button
               variant="ghost"
