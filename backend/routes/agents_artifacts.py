@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 
 from xyz_agent_context.artifact import ArtifactError, ArtifactService
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact, HealResult
+from xyz_agent_context.schema import Artifact, EmbedMode, HealResult
 from xyz_agent_context.utils.db_factory import get_db_client
 
 from backend.routes import _artifact_token
@@ -120,7 +120,9 @@ class OpenUrlRequest(BaseModel):
 
 class EmbedModeRequest(BaseModel):
     # None clears the user's override, reverting to the probe recommendation.
-    mode: Optional[str] = None
+    # Typed as EmbedMode so pydantic rejects unknown values (422) — single
+    # source of truth with the schema, and adding a third mode later just works.
+    mode: Optional[EmbedMode] = None
 
 
 # ── list / register ──────────────────────────────────────────────────────────
@@ -231,10 +233,8 @@ async def set_embed_mode(request: Request, agent_id: str, artifact_id: str, body
 
     The override wins over the probe recommendation for that tab. Rewrites the
     tab's on-disk doc; 404 if the artifact is missing / not owned / not a URL
-    tab; 400 for an invalid mode value.
+    tab; 422 (pydantic) for an invalid mode value.
     """
-    if body.mode is not None and body.mode not in ("iframe", "stream"):
-        raise HTTPException(400, "mode must be 'iframe', 'stream', or null")
     await _verify_agent_ownership(request, agent_id)
 
     db = await get_db_client()
@@ -243,7 +243,7 @@ async def set_embed_mode(request: Request, agent_id: str, artifact_id: str, body
         return await service.set_embed_mode(
             agent_id=agent_id,
             artifact_id=artifact_id,
-            mode=body.mode,  # type: ignore[arg-type]
+            mode=body.mode,
         )
     except ArtifactError as e:
         raise HTTPException(status_code=e.code, detail=str(e))

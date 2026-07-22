@@ -26,9 +26,12 @@ from typing import Optional
 
 from loguru import logger
 
+from urllib.parse import urlparse
+
 from xyz_agent_context.artifact._artifact_impl import registration
 from xyz_agent_context.artifact._artifact_impl.embed_probe import probe_url
 from xyz_agent_context.artifact._artifact_impl.errors import (
+    ArtifactContentGone,
     ArtifactError,
     ArtifactNotFound,
 )
@@ -66,8 +69,35 @@ def _doc_abs_path(agent_id: str, user_id: str, rel_entry: str) -> str:
 
 
 def _read_doc(abs_path: str) -> UrlArtifactDoc:
-    with open(abs_path, "r", encoding="utf-8") as f:
-        return UrlArtifactDoc.model_validate_json(f.read())
+    # A missing doc is a REAL state under the pointer model (the agent can
+    # move/delete workspace files) — surface it as 410, not a bare
+    # FileNotFoundError that the route would turn into a 500 + traceback.
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            return UrlArtifactDoc.model_validate_json(f.read())
+    except FileNotFoundError as e:
+        raise ArtifactContentGone("URL-tab doc is missing on disk") from e
+
+
+def _reject_self_origin(url: str) -> None:
+    """Refuse a URL whose origin is our own app.
+
+    A same-origin URL tab would become a same-origin iframe; with the renderer's
+    `allow-same-origin allow-scripts` sandbox that iframe could reach the parent
+    app's DOM / localStorage token. The SSRF gate only blocks private
+    addresses, and our own public origin is public — so this is the guard that
+    keeps the `allow-same-origin` grant safe (it is only ever cross-origin,
+    third-party content). Local dev (public_base_url unset) has no shared
+    tenant and app vs backend live on different ports/origins, so there is
+    nothing to match against there.
+    """
+    base = (settings.public_base_url or "").strip()
+    if not base:
+        return
+    ours = urlparse(base)
+    target = urlparse(url)
+    if ours.scheme and ours.netloc and target.scheme == ours.scheme and target.netloc == ours.netloc:
+        raise ArtifactError("refusing to open a URL tab pointing at this app's own origin")
 
 
 def _write_doc(abs_path: str, doc: UrlArtifactDoc) -> None:
@@ -98,6 +128,7 @@ async def open_url(
     Raises:
         ArtifactError: initial URL is not a safe public http(s) target.
     """
+    _reject_self_origin(url)
     try:
         await assert_public_http_url(url)
     except UnsafeUrlError as e:
@@ -159,7 +190,10 @@ async def set_embed_mode(
     doc.embed.user_override = mode
     _write_doc(abs_entry, doc)
 
-    # Bump updated_at so the frontend's cache-bust / refetch sees a change.
+    # Bump updated_at so the frontend's refetch sees a change. update_title with
+    # the unchanged title is a deliberate no-op-content / touch-timestamp write
+    # (the repo has no bare `touch`); the override itself lives in the doc, not
+    # the DB row.
     await repo.update_title(artifact_id, art.title)
     refreshed = await repo.get_by_id(artifact_id)
     assert refreshed is not None

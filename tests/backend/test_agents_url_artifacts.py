@@ -102,11 +102,12 @@ def test_embed_mode_override_round_trip(client):
     assert doc2.embed.user_override is None
 
 
-def test_embed_mode_invalid_value_400(client):
+def test_embed_mode_invalid_value_422(client):
+    # mode is typed EmbedMode on the request model → pydantic rejects (422).
     c, _ = client
     art = c.post("/api/agents/agent_x/artifacts/url", json={"url": "https://ok.example/"}).json()
     r = c.post(f"/api/agents/agent_x/artifacts/{art['artifact_id']}/embed-mode", json={"mode": "banana"})
-    assert r.status_code == 400
+    assert r.status_code == 422
 
 
 def test_embed_mode_missing_artifact_404(client):

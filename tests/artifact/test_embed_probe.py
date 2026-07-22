@@ -38,6 +38,17 @@ def test_x_frame_options_forces_stream(xfo):
     assert v.reason == "x-frame-options"
 
 
+def test_x_frame_options_allow_from_streams():
+    # The deprecated ALLOW-FROM permits exactly one embedder that is never us.
+    v = classify_embeddability(
+        final_url="https://x.example/",
+        headers={"x-frame-options": "ALLOW-FROM https://trusted.example"},
+        our_scheme="https",
+    )
+    assert v.recommended == "stream"
+    assert v.reason == "x-frame-options"
+
+
 def test_csp_frame_ancestors_none_streams():
     v = classify_embeddability(
         final_url="https://x.example/",

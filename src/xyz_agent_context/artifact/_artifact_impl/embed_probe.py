@@ -13,8 +13,10 @@ network:
   redirects manually so every hop passes the SSRF gate), then hand the final
   hop's headers to the pure classifier. Never raises for a normal failure —
   a failed probe degrades to an optimistic `iframe` verdict (a blank iframe
-  is a cheap, self-correcting failure the user can flip). It DOES propagate
-  SSRF rejections of the *initial* URL — that is the caller's hard reject.
+  is a cheap, self-correcting failure the user can flip). SSRF rejection of
+  ANY hop (including the first) also degrades to iframe here; the *initial*
+  URL's hard reject is done separately by the caller (`open_url`) before it
+  ever calls this, so the browser-fetched iframe is the only thing left.
 
 Why "probe failed → iframe" and not "→ stream": the failure of an iframe
 embed is visible and instantly fixable (user clicks the mode toggle),
@@ -89,8 +91,12 @@ def classify_embeddability(
         An EmbedVerdict with `recommended` + `reason`, `probe_status="ok"`.
     """
     xfo = headers.get("x-frame-options")
-    if xfo and xfo.strip().lower() in ("deny", "sameorigin"):
-        return EmbedVerdict(recommended="stream", reason="x-frame-options", probe_status="ok")
+    if xfo:
+        xfo_val = xfo.strip().lower()
+        # DENY / SAMEORIGIN block us outright; the deprecated ALLOW-FROM <origin>
+        # permits exactly one embedder that is never us — all block embedding.
+        if xfo_val in ("deny", "sameorigin") or xfo_val.startswith("allow-from"):
+            return EmbedVerdict(recommended="stream", reason="x-frame-options", probe_status="ok")
 
     csp = headers.get("content-security-policy")
     if csp:
@@ -130,13 +136,20 @@ async def probe_url(
         current = url
         for _ in range(_MAX_REDIRECTS + 1):
             await assert_public_http_url(current, resolver=resolver)
-            resp = await client.get(current, headers={"User-Agent": _BROWSER_UA})
-            if resp.is_redirect and "location" in resp.headers:
-                current = urljoin(current, resp.headers["location"])
-                continue
-            return classify_embeddability(
-                final_url=current, headers=resp.headers, our_scheme=our_scheme
-            )
+            # Stream, not get(): we only need the response headers. get() reads
+            # the whole body into memory, and the URL is user/agent-supplied
+            # with no size cap — a slow-drip large response would pin a worker.
+            # `stream` gives us headers immediately and closes on __aexit__
+            # without ever reading the body.
+            async with client.stream(
+                "GET", current, headers={"User-Agent": _BROWSER_UA}
+            ) as resp:
+                if resp.is_redirect and "location" in resp.headers:
+                    current = urljoin(current, resp.headers["location"])
+                    continue
+                return classify_embeddability(
+                    final_url=current, headers=resp.headers, our_scheme=our_scheme
+                )
         logger.warning("embed probe hit redirect limit for {}", url)
         return EmbedVerdict(recommended="iframe", reason="too-many-redirects", probe_status="failed")
     except UnsafeUrlError as e:

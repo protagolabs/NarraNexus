@@ -134,6 +134,35 @@ async def test_set_embed_mode_writes_override(env):
 
 
 @pytest.mark.asyncio
+async def test_open_url_rejects_self_origin(env, monkeypatch):
+    # A URL pointing at our own app origin is refused (would become a
+    # same-origin scriptable iframe reaching the parent's token).
+    from xyz_agent_context.settings import settings as sa_settings
+    monkeypatch.setattr(sa_settings, "public_base_url", "https://agent.narra.nexus", raising=False)
+    with pytest.raises(ArtifactError):
+        await env["service"].open_url(
+            agent_id="agent_x", user_id="user_y", session_id=None,
+            url="https://agent.narra.nexus/some/page", title="self",
+        )
+
+
+@pytest.mark.asyncio
+async def test_set_embed_mode_missing_doc_raises_content_gone(env):
+    from xyz_agent_context.artifact import ArtifactContentGone
+    result = await env["service"].open_url(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        url="https://gone.example/", title="Gone",
+    )
+    art = await env["repo"].get_by_id(result.artifact_id)
+    # Simulate the agent deleting the workspace file (a real pointer-model state).
+    (env["base"] / art.file_path).unlink()
+    with pytest.raises(ArtifactContentGone):
+        await env["service"].set_embed_mode(
+            agent_id="agent_x", artifact_id=result.artifact_id, mode="stream",
+        )
+
+
+@pytest.mark.asyncio
 async def test_set_embed_mode_rejects_non_url_artifact(env):
     from xyz_agent_context.artifact import ArtifactNotFound
     # Register a normal html artifact, then try to flip its embed mode.

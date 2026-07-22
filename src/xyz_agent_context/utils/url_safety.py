@@ -83,14 +83,20 @@ async def assert_public_http_url(
     if not host:
         raise UnsafeUrlError("URL has no host")
 
-    # Literal IP host — validate directly, no DNS.
+    # Literal IP host — validate directly, no DNS. The parse is in its OWN
+    # try that catches ONLY the "not an IP literal" ValueError; the
+    # public-ness check must stay OUTSIDE it, because UnsafeUrlError subclasses
+    # ValueError and would otherwise be swallowed here (making the literal-IP
+    # rejection dead code that silently falls through to DNS).
+    is_literal_ip = True
     try:
         ipaddress.ip_address(host)
+    except ValueError:
+        is_literal_ip = False
+    if is_literal_ip:
         if not _is_public_ip(host):
             raise UnsafeUrlError(f"host {host!r} is not a public address")
         return [host]
-    except ValueError:
-        pass  # not a literal IP — it's a hostname, resolve it below
 
     default_port = 443 if parsed.scheme == "https" else 80
     resolve = resolver or _default_resolver

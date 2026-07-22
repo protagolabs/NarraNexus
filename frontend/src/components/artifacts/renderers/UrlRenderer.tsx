@@ -14,6 +14,15 @@
  * The iframe points at the EXTERNAL url directly (not our backend), so the
  * Tauri mixed-content dodge used by HtmlRenderer is unnecessary for https
  * targets — the same code path serves both run modes.
+ *
+ * SECURITY — the iframe sandbox includes `allow-same-origin` (unlike
+ * HtmlRenderer, which forbids it). That is safe ONLY because a URL tab is
+ * always CROSS-origin third-party content: allow-same-origin keeps the iframe
+ * on the TARGET site's origin, which cannot reach our parent DOM/token. The
+ * backend (`url_artifact._reject_self_origin`) refuses to open a tab pointing
+ * at our own app origin, which is what would otherwise turn this into a
+ * same-origin scriptable iframe. Do NOT copy this sandbox to a renderer that
+ * loads first-party (same-origin) content.
  */
 
 import { useEffect, useState } from 'react';

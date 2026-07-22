@@ -68,6 +68,17 @@ async def test_literal_internal_ip_rejected(host):
 
 
 @pytest.mark.asyncio
+async def test_literal_internal_ip_rejected_even_with_permissive_resolver():
+    # Regression: the literal-IP rejection must NOT fall through to the
+    # resolver. A resolver that lies (returns a public IP for everything) must
+    # not let a literal metadata IP through — the literal branch decides first.
+    with pytest.raises(UnsafeUrlError):
+        await assert_public_http_url(
+            "http://169.254.169.254/", resolver=_resolver_returning("93.184.216.34"),
+        )
+
+
+@pytest.mark.asyncio
 async def test_hostname_resolving_to_private_rejected():
     with pytest.raises(UnsafeUrlError):
         await assert_public_http_url(
