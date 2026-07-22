@@ -218,10 +218,19 @@ export default function BundleImportPage() {
     }
   };
 
+  // Where "leave this page" goes, by origin. A team-template install came
+  // from the Marketplace Teams tab, so back/close returns there — NOT to
+  // settings, and NOT to the deep-link 'upload' step (which renders blank
+  // once the auto-preflight has resolved).
+  const exitToOrigin = () => {
+    if (teamTemplateMode) navigate('/app/marketplace?tab=teams');
+    else navigate('/app/settings');
+  };
+
   return (
     <div className="h-full flex flex-col bg-[var(--bg-primary)]">
       <div className="px-6 py-4 border-b border-[var(--border-default)] flex items-center gap-3">
-        <button onClick={() => navigate('/app/settings')} className="p-1 hover:bg-[var(--bg-tertiary)]">
+        <button onClick={exitToOrigin} className="p-1 hover:bg-[var(--bg-tertiary)]">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <Package className="w-5 h-5" />
@@ -319,7 +328,7 @@ export default function BundleImportPage() {
         {step === 'review' && preflight && (
           <ReviewPanel
             preflight={preflight}
-            onBack={() => setStep('upload')}
+            onBack={() => (deepLinkMode ? exitToOrigin() : setStep('upload'))}
             onConfirm={runConfirm}
             busy={busy}
             error={error}
@@ -329,7 +338,7 @@ export default function BundleImportPage() {
         {step === 'done' && confirmResult && (
           <DonePanel
             result={confirmResult}
-            onClose={() => navigate('/app/settings')}
+            onClose={exitToOrigin}
             onViewIntro={() => {
               if (confirmResult.team_id) {
                 navigate(`/app/teams/${confirmResult.team_id}`);
