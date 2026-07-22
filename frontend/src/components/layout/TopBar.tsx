@@ -100,8 +100,8 @@ export function TopBar() {
             target="_blank"
             rel="noopener noreferrer"
             title={t('layout.topBar.findUsTitle')}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-2.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] tracking-[0.12em] text-[var(--accent-primary)] transition-colors hover:border-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20"
-            data-help-id="topbar-find-us"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-2.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[var(--accent-primary)] transition-colors hover:border-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20"
+            data-help-id="topbar.find-us"
           >
             <Users className="h-3 w-3" />
             {t('layout.topBar.findUs')}
