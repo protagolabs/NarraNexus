@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-18
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — getWorkerStatus()
+
+New `ApiClient.getWorkerStatus()` GETs `/api/admin/runtime/workers` and maps the
+snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
+the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
+consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin_runtime.py]].
 
 ## 2026-07-18 — 删 setQuotaPreference
 

@@ -90,6 +90,8 @@ import type {
   RechargeStatusResponse,
   AgentSlotView,
   AgentSlotEffective,
+  WorkerStatus,
+  WorkerLiveness,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -229,6 +231,31 @@ class ApiClient {
 
   async getJob(jobId: string): Promise<JobDetailResponse> {
     return this.request<JobDetailResponse>(`/api/jobs/${encodeURIComponent(jobId)}`);
+  }
+
+  // Per-worker liveness of the consolidated `workers` supervisor (System page).
+  // Maps the snake_case backend payload to the camelCase WorkerStatus type.
+  async getWorkerStatus(): Promise<WorkerStatus> {
+    const raw = await this.request<{
+      available: boolean;
+      heartbeat_age_seconds: number | null;
+      workers: Array<{
+        name: string;
+        state: string;
+        restart_count: number;
+        last_error: string | null;
+      }>;
+    }>('/api/admin/runtime/workers');
+    return {
+      available: !!raw.available,
+      heartbeatAgeSeconds: raw.heartbeat_age_seconds ?? null,
+      workers: (raw.workers ?? []).map((w) => ({
+        name: w.name,
+        state: (w.state as WorkerLiveness['state']) ?? 'unknown',
+        restartCount: w.restart_count ?? 0,
+        lastError: w.last_error ?? null,
+      })),
+    };
   }
 
   // ── Home Assistant (smart-home) binding — per-agent ──

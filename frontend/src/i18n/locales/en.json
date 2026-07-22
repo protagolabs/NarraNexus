@@ -952,7 +952,17 @@
       "unknown": "Unknown"
     },
     "serviceCard": {
-      "restart": "Restart service"
+      "restart": "Restart service",
+      "workerCount": "{{count}} workers",
+      "restarts": "{{count}} restarts",
+      "workersFlapping": "A worker has crashed and restarted — expand for detail"
+    },
+    "workerState": {
+      "starting": "starting",
+      "running": "running",
+      "restarting": "restarting",
+      "stopped": "stopped",
+      "unknown": "unknown"
     }
   },
   "teams": {

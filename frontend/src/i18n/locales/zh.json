@@ -951,7 +951,17 @@
       "unknown": "未知"
     },
     "serviceCard": {
-      "restart": "重启服务"
+      "restart": "重启服务",
+      "workerCount": "{{count}} 个 worker",
+      "restarts": "重启 {{count}} 次",
+      "workersFlapping": "有 worker 崩溃并重启过 — 展开查看详情"
+    },
+    "workerState": {
+      "starting": "启动中",
+      "running": "运行中",
+      "restarting": "重启中",
+      "stopped": "已停止",
+      "unknown": "未知"
     }
   },
   "teams": {

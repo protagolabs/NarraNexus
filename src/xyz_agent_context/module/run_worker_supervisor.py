@@ -89,8 +89,11 @@ ALL_WORKERS = ("poller", "jobs", "bus", "channels")
 _BACKOFF_BASE = 1.0
 _BACKOFF_CAP = 60.0
 
-# Supervisor heartbeat cadence (seconds).
-_HEARTBEAT_INTERVAL = 60.0
+# Supervisor heartbeat cadence (seconds). Kept modest so the desktop System
+# page's Workers panel (which reads the latest heartbeat row from service_audit)
+# is at most this stale; `restart_count` in the snapshot is cumulative, so even
+# a between-beats flap surfaces on the next tick.
+_HEARTBEAT_INTERVAL = 30.0
 
 
 # =============================================================================
@@ -359,17 +362,19 @@ async def _heartbeat_loop(ctx: SupervisorContext) -> None:
 
     Its own try/except: a heartbeat failure never kills the supervisor (the
     auditor is already best-effort — the observer must not break the observed).
+    Emits FIRST, then waits, so the Workers panel has a snapshot within a tick
+    of startup instead of after a full interval.
     """
     while not ctx.stop_event.is_set():
+        try:
+            await ctx.audit.heartbeat(ctx.liveness_snapshot(), force=True)
+        except Exception as e:  # noqa: BLE001 — observer never breaks observed
+            logger.warning(f"[supervisor] heartbeat failed: {e}")
         try:
             await asyncio.wait_for(ctx.stop_event.wait(), timeout=_HEARTBEAT_INTERVAL)
             return  # stop_event fired → exit
         except asyncio.TimeoutError:
             pass
-        try:
-            await ctx.audit.heartbeat(ctx.liveness_snapshot(), force=True)
-        except Exception as e:  # noqa: BLE001 — observer never breaks observed
-            logger.warning(f"[supervisor] heartbeat failed: {e}")
 
 
 # =============================================================================
