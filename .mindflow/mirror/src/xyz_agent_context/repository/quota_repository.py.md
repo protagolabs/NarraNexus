@@ -7,7 +7,7 @@ last_verified: 2026-07-22
 ## 2026-07-22 — atomic_deduct 现写扣减流水（quota_deductions），但**刻意不用 DB 事务**
 
 `atomic_deduct` 新增可选参 `cost_record_id / provider_source / model / agent_id`，
-每次扣减先写一条 `quota_deductions` 流水、再跑原来的单条 CASE UPDATE。
+每次扣减写一条 `quota_deductions` 流水。
 
 **为什么不用 `db.transaction()` 把两写包成原子**：`atomic_deduct` 是并发热点
 （多路 LLM 调用同时对**共享** db client 扣减）。client 的 transaction() 用的是
@@ -15,11 +15,16 @@ last_verified: 2026-07-22
 SQLite 更是只有一条连接，结构上无法并发多语句事务。一旦包事务，就把单 UPDATE 设计
 本要消除的 lost-update 竞态又请回来了（已被 `test_atomic_deduct_concurrent_*` 复现）。
 
-**取而代之的顺序化 + 可对账**：①先 INSERT 流水——失败则在改动总额**之前**抛出，
-即「没扣成」而非「扣了但无痕」；②再跑并发安全的单 UPDATE。唯一分歧窗口是两个 await
-之间的硬崩溃，最多留一条多余流水（ledger ≥ total），保守且可检测：按用户对账
-`SUM(quota_deductions.input_tokens)` vs `used_input_tokens`。additive 比较与
-UNSIGNED underflow 规避原样保留。上游 [[quota_service]].deduct 透传这些参数、并吞异常。
+**顺序刻意是 UPDATE 优先、流水 best-effort**（review #3 修正，原为 ledger-first）：
+①单 UPDATE 先扣——扣减是**花费闸门**，计数器动是首要不变量；②流水是审计，随后
+best-effort 写，且 gate 在 `affected`（UPDATE 命中行数）上——没命中就不写流水，避免
+ledger > total。**为什么不能 ledger-first**：流水放前面且失败即抛，会被
+`quota_service.deduct` 的 `except` 吞掉 → 整笔扣减被跳过 → 免费额度静默不扣、`used_*`
+冻结，正是 2026-04-22 事故形状（见铁律事故教训 5）。所以流水写失败时：仍保留扣减，
+记 `logger.exception` **并**落一条 `service_audit`（durable，容器重启不丢），绝不抛。
+唯一分歧窗口是两写之间硬崩溃（扣了、流水缺）：保守且可对账
+`used_* >= SUM(quota_deductions)`，且 `cost_records`（已带 user_id）是二级归属兜底。
+additive 比较与 UNSIGNED underflow 规避原样保留。上游 [[quota_service]].deduct 透传参数、并吞异常。
 
 ## 2026-07-18 — 列语义重定义：偏好 → 耗尽通知闩锁
 

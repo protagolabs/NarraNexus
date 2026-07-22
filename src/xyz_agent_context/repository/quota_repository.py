@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from loguru import logger
+
 from .base import BaseRepository
 from xyz_agent_context.schema.quota_schema import Quota, QuotaStatus
 
@@ -53,7 +55,7 @@ class QuotaRepository(BaseRepository[Quota]):
         model: Optional[str] = None,
         agent_id: Optional[str] = None,
     ) -> None:
-        """Write one ledger row, then atomically bump the running total.
+        """Atomically bump the running total, then write one audit ledger row.
         Flips status to 'exhausted' when either dimension's post-update
         remaining is <= 0.
 
@@ -67,17 +69,26 @@ class QuotaRepository(BaseRepository[Quota]):
         only ever one connection, making concurrent multi-statement transactions
         structurally impossible. Wrapping the two writes in transaction() would
         reintroduce the exact lost-update race the single-UPDATE design exists to
-        prevent. So the two writes are ordered instead of atomic:
+        prevent. So the two writes are ordered, not atomic — and the ORDER is
+        deliberate:
 
-          1. INSERT the ledger row FIRST. If it fails we raise BEFORE touching
-             the total, so a failure means "nothing was charged" — never a
-             silent charge with no audit trail.
-          2. The single, concurrency-safe UPDATE bumps the total.
+          1. The single, concurrency-safe UPDATE bumps the total FIRST. This is a
+             spend-control gate: the counter moving is the primary invariant.
+          2. The ledger row is AUDIT, written best-effort AFTER. A ledger-write
+             failure must never SKIP the deduction — doing the ledger first and
+             letting it raise would drop the whole charge on any persistent ledger
+             fault (unmigrated process, disk/lock error), i.e. silent free-tier
+             consumption with a frozen `used_*` — the exact shape of the
+             2026-04-22 prod incident. So a ledger failure is logged AND recorded
+             to `service_audit` (durable across container restarts, per
+             incident-lesson #5), never raised.
 
-        The only divergence window is a hard process crash between the two
-        awaits, which leaves one extra ledger row (ledger >= total). That is
-        conservative and detectable: reconcile per user with
-        `SUM(quota_deductions.input_tokens) vs user_quotas.used_input_tokens`.
+        The ledger write is gated on the UPDATE actually matching a row
+        (`affected`): if the user has no `user_quotas` row nothing was charged, so
+        no ledger row is written (avoids ledger > total). The only divergence is a
+        hard crash between the two writes (charged, ledger missing): conservative
+        and reconcilable — `used_* >= SUM(quota_deductions)`, and cost_records
+        (which already carries user_id) is the secondary attribution backstop.
 
         Comparisons are written additively (`used + delta >= cap`) rather
         than subtractively (`cap - used - delta <= 0`). All six operands
@@ -86,22 +97,7 @@ class QuotaRepository(BaseRepository[Quota]):
         form only adds UNSIGNED to UNSIGNED on each side of the
         comparison, which can never underflow.
         """
-        # 1) Ledger row first (see docstring for the ordering rationale).
-        #    None-valued optional columns are filtered by db.insert and fall
-        #    back to their NULL / default, which is exactly what we want.
-        await self._db.insert(
-            "quota_deductions",
-            {
-                "user_id": user_id,
-                "input_tokens": input_delta,
-                "output_tokens": output_delta,
-                "cost_record_id": cost_record_id,
-                "provider_source": provider_source,
-                "model": model,
-                "agent_id": agent_id,
-            },
-        )
-        # 2) Running-total UPDATE — the single atomic, concurrency-safe statement.
+        # 1) Running-total UPDATE FIRST — single atomic, concurrency-safe statement.
         sql = f"""
         UPDATE {self.table_name}
         SET used_input_tokens  = used_input_tokens  + %s,
@@ -116,11 +112,51 @@ class QuotaRepository(BaseRepository[Quota]):
             END
         WHERE user_id = %s
         """
-        await self._db.execute(
+        affected = await self._db.execute(
             sql,
             params=(input_delta, output_delta, input_delta, output_delta, user_id),
             fetch=False,
         )
+        # 2) Audit ledger, best-effort (see docstring). Skip if the UPDATE matched
+        #    no row — nothing was charged, so nothing to record.
+        #    None-valued optional columns are filtered by db.insert and fall back
+        #    to their NULL / default, which is exactly what we want.
+        if affected:
+            try:
+                await self._db.insert(
+                    "quota_deductions",
+                    {
+                        "user_id": user_id,
+                        "input_tokens": input_delta,
+                        "output_tokens": output_delta,
+                        "cost_record_id": cost_record_id,
+                        "provider_source": provider_source,
+                        "model": model,
+                        "agent_id": agent_id,
+                    },
+                )
+            except Exception as e:
+                # Charge already applied; never undo/skip it for an audit fault.
+                # Leave a durable trail (survives container restart) plus a log.
+                logger.exception(
+                    f"quota_deductions ledger write failed for {user_id}: {e}"
+                )
+                try:
+                    await self._db.insert(
+                        "service_audit",
+                        {
+                            "service": "quota",
+                            "event_type": "ledger_write_failed",
+                            "detail": (
+                                f"user_id={user_id} input={input_delta} "
+                                f"output={output_delta} "
+                                f"cost_record_id={cost_record_id} error={e!r}"
+                            ),
+                        },
+                    )
+                except Exception:
+                    # Best-effort: the audit write itself must never raise here.
+                    pass
 
     async def atomic_grant(
         self, user_id: str, input_delta: int, output_delta: int

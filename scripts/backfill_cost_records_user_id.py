@@ -39,17 +39,18 @@ from xyz_agent_context.utils.db_factory import get_db_client
 
 
 # Rows that are NULL and whose agent still exists -> fillable from created_by.
+# EXISTS (not IN): NULL-safe and better-optimized than IN/NOT IN on MySQL.
 _COUNT_FILLABLE = """
 SELECT COUNT(*) AS n FROM cost_records
 WHERE user_id IS NULL
-  AND agent_id IN (SELECT agent_id FROM agents)
+  AND EXISTS (SELECT 1 FROM agents WHERE agents.agent_id = cost_records.agent_id)
 """
 
 # Rows that are NULL and whose agent is gone -> true orphans, unrecoverable.
 _COUNT_ORPHAN = """
 SELECT COUNT(*) AS n FROM cost_records
 WHERE user_id IS NULL
-  AND agent_id NOT IN (SELECT agent_id FROM agents)
+  AND NOT EXISTS (SELECT 1 FROM agents WHERE agents.agent_id = cost_records.agent_id)
 """
 
 # Correlated-subquery backfill (no UPDATE ... JOIN, for SQLite compatibility).
@@ -59,7 +60,7 @@ SET user_id = (
     SELECT created_by FROM agents WHERE agents.agent_id = cost_records.agent_id
 )
 WHERE user_id IS NULL
-  AND agent_id IN (SELECT agent_id FROM agents)
+  AND EXISTS (SELECT 1 FROM agents WHERE agents.agent_id = cost_records.agent_id)
 """
 
 

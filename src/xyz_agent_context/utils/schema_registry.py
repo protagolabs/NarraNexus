@@ -1142,13 +1142,17 @@ _register(
 )
 
 
-# 28b. quota_deductions — per-deduction ledger for the free-tier quota.
+# 28b. quota_deductions — per-deduction audit ledger for the free-tier quota.
 #
 # user_quotas holds only cumulative scalars (used_input/output_tokens), so a
 # single wrong charge could never be isolated or refunded — the only remedy
-# was a platform-wide reset. Every atomic_deduct now writes one row here in
-# the SAME transaction as the user_quotas UPDATE (quota_repository.atomic_deduct),
-# so the ledger and the running total can never diverge. Rows are self-auditing:
+# was a platform-wide reset. quota_repository.atomic_deduct now writes one row
+# here per deduction. It is NOT wrapped in a DB transaction with the user_quotas
+# UPDATE (the client's transaction() is single-connection and unsafe on this
+# concurrent hot path — see atomic_deduct's docstring): the UPDATE runs first as
+# the spend-control invariant, the ledger row follows best-effort. So ledger and
+# total are reconcilable, not transactionally identical — `used_* >= SUM(rows)`,
+# with a hard-crash-between-writes gap at most. Rows are self-auditing:
 # provider_source / model / agent_id are stored redundantly so a ledger entry
 # stands on its own even if the linked cost_records row is missing (insert
 # failed -> cost_record_id NULL) or later purged. Sum a user's rows to compute

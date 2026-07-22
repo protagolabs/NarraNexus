@@ -239,9 +239,11 @@ async def test_record_cost_persists_user_and_writes_ledger(db_client):
 
 
 @pytest.mark.asyncio
-async def test_record_cost_non_system_leaves_columns_null_and_no_ledger(db_client):
-    """Non-system call: cost_records still written but user attribution columns
-    are NULL and NO ledger row is created."""
+async def test_record_cost_non_system_records_attribution_but_no_ledger(db_client):
+    """Non-system call: cost_records is still written WITH attribution
+    (user_id + provider_source are captured for every call, not just system),
+    but NO quota_deductions ledger row is created (only the system branch
+    deducts)."""
     repo = QuotaRepository(db_client)
     QuotaService.set_default(
         QuotaService(repo=repo, system_provider=_EnabledProvider())

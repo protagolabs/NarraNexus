@@ -103,12 +103,13 @@ async def test_atomic_deduct_writes_ledger_row(repo, db_client):
 
 
 @pytest.mark.asyncio
-async def test_atomic_deduct_ledger_failure_aborts_before_charging(
+async def test_atomic_deduct_ledger_failure_does_not_skip_charge(
     repo, db_client, monkeypatch
 ):
-    """Ledger-first ordering: if the ledger INSERT fails, atomic_deduct raises
-    BEFORE running the UPDATE, so the total is never bumped without a trail — a
-    failure means 'nothing was charged', not a silent over-charge."""
+    """UPDATE-first ordering: a ledger-write failure must NOT skip the charge
+    (that would be silent free-tier consumption — the 2026-04-22 incident
+    shape). The counter still moves, no exception propagates, and a durable
+    service_audit row records the missing-ledger event."""
     await repo.create("usr_rb", 1000, 200)
 
     orig_insert = db_client.insert
@@ -120,20 +121,28 @@ async def test_atomic_deduct_ledger_failure_aborts_before_charging(
 
     monkeypatch.setattr(db_client, "insert", boom)
 
-    with pytest.raises(RuntimeError):
-        await repo.atomic_deduct("usr_rb", 100, 20, cost_record_id=1)
+    # Must NOT raise — the charge is the primary invariant; audit is best-effort.
+    await repo.atomic_deduct("usr_rb", 100, 20, cost_record_id=1)
 
-    # Counters untouched — the UPDATE never ran.
+    # Counter moved (charge applied).
     q = await repo.get_by_user_id("usr_rb")
-    assert q.used_input_tokens == 0
-    assert q.used_output_tokens == 0
-    # No ledger row either.
-    rows = await db_client.execute(
+    assert q.used_input_tokens == 100
+    assert q.used_output_tokens == 20
+    # No ledger row (its insert failed) ...
+    led = await db_client.execute(
         "SELECT id FROM quota_deductions WHERE user_id = %s",
         params=("usr_rb",),
         fetch=True,
     )
-    assert len(rows) == 0
+    assert len(led) == 0
+    # ... but a durable audit trail of the failure exists.
+    audit = await db_client.execute(
+        "SELECT detail FROM service_audit WHERE service = %s AND event_type = %s",
+        params=("quota", "ledger_write_failed"),
+        fetch=True,
+    )
+    assert len(audit) == 1
+    assert "usr_rb" in audit[0]["detail"]
 
 
 @pytest.mark.asyncio
