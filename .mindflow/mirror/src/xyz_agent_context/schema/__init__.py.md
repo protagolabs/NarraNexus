@@ -6,8 +6,11 @@ stub: false
 
 ## 2026-07-22 — export URL-tab models
 
-Re-export `URL_ARTIFACT_KIND`, `EmbedMode`, `EmbedVerdict`, `UrlArtifactDoc`
-from [[artifact_schema.py]]. Pure forwarding.
+Re-export `URL_ARTIFACT_KIND`, `URL_TAB_CONTENT_FILENAME`, `EmbedMode`,
+`EmbedVerdict`, `UrlArtifactDoc` from [[artifact_schema.py]]. Pure forwarding.
+(`URL_TAB_CONTENT_FILENAME` added later the same day so the common_tools state
+block imports the URL-tab content filename from schema, not the artifact
+package's private impl.)
 # schema/__init__.py — schema 包的集中导出门面
 
 ## 2026-07-21 — 导出 `HealCandidate` / `HealResult`
