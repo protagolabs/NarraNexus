@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-09
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — skill_marketplace_local_registry 字段
+
+新增 `skill_marketplace_local_registry: bool = False`(可从 .env 读)。为 true 时
+本地/桌面实例自己当 skill/team registry(不 proxy 云端),用于 dev、离线演示、
+cloud marketplace 上线前过渡。等价于 env `SKILL_MARKETPLACE_LOCAL_REGISTRY=1`,
+但落 Settings 后 `make dev-backend` 无需前缀即可生效。
+
 
 ## 2026-07-09 — claude_oauth_config_path (OAuth config-dir isolation)
 
