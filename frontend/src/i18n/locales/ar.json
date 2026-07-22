@@ -645,7 +645,9 @@
       "runtimeUnknown": "غير معروف",
       "openMenu": "فتح القائمة",
       "commandPaletteTitle": "لوحة الأوامر (⌘K)",
-      "search": "بحث"
+      "search": "بحث",
+      "findUs": "تابعنا",
+      "findUsTitle": "انضم إلى مجتمع NarraNexus"
     },
     "commandPalette": {
       "hintAgent": "وكيل",

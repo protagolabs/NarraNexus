@@ -641,7 +641,9 @@
       "runtimeUnknown": "Неизвестно",
       "openMenu": "Открыть меню",
       "commandPaletteTitle": "Палитра команд (⌘K)",
-      "search": "поиск"
+      "search": "поиск",
+      "findUs": "Подписывайтесь",
+      "findUsTitle": "Присоединяйтесь к сообществу NarraNexus"
     },
     "commandPalette": {
       "hintAgent": "Агент",
