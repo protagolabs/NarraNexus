@@ -4,7 +4,7 @@ last_verified: 2026-07-18
 stub: false
 ---
 
-## 2026-07-16 — agent-framework 403 门禁方向化(修云端老 codex 死锁)
+## 2026-07-18 — agent-framework 403 门禁方向化(修云端老 codex 死锁)
 
 `set_agent_framework` 的云端 403 原本方向不敏感(`_is_cloud() and not _is_staff` 就拦),
 老 codex 用户切不回 claude_code。改为加 `and body.framework != "claude_code"`——非 staff

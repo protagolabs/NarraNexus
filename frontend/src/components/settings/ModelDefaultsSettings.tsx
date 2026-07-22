@@ -271,10 +271,11 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
                 </span>
               )}
             </label>
-            {/* Cloud non-staff: framework switching is staff-only (backend
-                403s it). The select stays interactive — picking a different
-                framework pops an explanation and snaps back, which reads
-                friendlier than a greyed-out control with permanent copy. */}
+            {/* Cloud non-staff: switching TO a non-claude_code framework is
+                staff-only (backend 403s it); switching back to claude_code is
+                always allowed. The select stays interactive — picking a
+                non-claude_code framework pops an explanation and snaps back,
+                which reads friendlier than a greyed-out control. */}
             <select
               className={selectCls}
               value={framework}

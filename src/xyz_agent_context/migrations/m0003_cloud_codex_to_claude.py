@@ -24,10 +24,20 @@ CLOUD-ONLY (binding rule #7): the migration runner also runs on ``bash run.sh``
 / DMG, where a user may legitimately run ``codex_cli`` with their own key —
 those must NEVER be flipped. The first line no-ops outside cloud mode.
 
-Idempotent + non-destructive (binding rule #6): a plain value UPDATE guarded by
+Idempotent + non-destructive (binding rule #6): plain value updates guarded by
 ``agent_framework='codex_cli'``; a re-run matches zero rows. Only the ``agent``
 slot is touched — ``helper_llm`` is left alone (its protocol requirement is
 looser and it is not the blocker).
+
+BOTH framework layers are flipped (binding rule #8 — sweep the neighbours):
+``user_slots`` (the owner default) AND ``agent_slots`` (the per-agent override,
+which step_3 resolves FIRST). A user whose per-agent override was left on
+``codex_cli`` would otherwise stay locked even after the owner default flips.
+
+Dual-dialect via ``db.update`` (both filters are equality) rather than
+hand-written SQL — the client's UPDATE returns the affected-row count on both
+the SQLite and MySQL backends, so this runs correctly on the cloud MySQL it
+actually executes against without a separate dialect test.
 """
 from __future__ import annotations
 
@@ -50,17 +60,16 @@ async def _apply(db: "AsyncDatabaseClient") -> Dict:
         return {"skipped": "local mode"}
 
     now = datetime.now(timezone.utc).isoformat()
-    result = await db.execute(
-        "UPDATE user_slots SET agent_framework = %s, updated_at = %s "
-        "WHERE slot_name = %s AND agent_framework = %s",
-        params=("claude_code", now, "agent", "codex_cli"),
-        fetch=False,
-    )
-    migrated = result if isinstance(result, int) else 0
+    flip = {"agent_framework": "claude_code", "updated_at": now}
+    where = {"slot_name": "agent", "agent_framework": "codex_cli"}
+
+    users = await db.update("user_slots", where, flip)       # owner default
+    agents = await db.update("agent_slots", where, flip)     # per-agent override
     logger.info(
-        f"[migrate 0003] cloud codex_cli → claude_code: {migrated} agent slot(s) flipped"
+        f"[migrate 0003] cloud codex_cli → claude_code: "
+        f"{users} user_slots + {agents} agent_slots flipped"
     )
-    return {"migrated": migrated}
+    return {"migrated_user_slots": users, "migrated_agent_slots": agents}
 
 
 MIGRATION = Migration(

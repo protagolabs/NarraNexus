@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/migrations/m0003_cloud_codex_to_claude.py
-last_verified: 2026-07-16
+last_verified: 2026-07-18
 stub: false
 ---
 # m0003 — 云端 codex_cli → claude_code 一次性数据迁移

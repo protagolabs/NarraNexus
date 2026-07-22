@@ -4,7 +4,7 @@ last_verified: 2026-07-18
 stub: false
 ---
 
-## 2026-07-16 — 框架选择器弹窗方向化(修云端老 codex 死锁)
+## 2026-07-18 — 框架选择器弹窗方向化(修云端老 codex 死锁)
 
 弹窗条件原为 `netmindOnly && e.target.value !== framework`——对**任何**切换都弹窗+回退,
 包括切回 claude_code,前端也把老 codex 用户锁死。改为 `e.target.value !== 'claude_code'`:
