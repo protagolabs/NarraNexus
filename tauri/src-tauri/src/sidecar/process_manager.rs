@@ -295,6 +295,12 @@ impl ProcessManager {
                     &format!("worker process exited on startup ({})", status),
                 ));
             }
+            // Alive past the grace window → promote Starting → Running. Portless
+            // services have no port for verify_port_ready() to gate promotion
+            // on, so without this they'd sit at "Starting" forever and the
+            // System page would show a permanent yellow "启动中" for mcp/workers
+            // even though every worker is running.
+            self.promote_to_running(&def.id);
         }
         Ok(())
     }

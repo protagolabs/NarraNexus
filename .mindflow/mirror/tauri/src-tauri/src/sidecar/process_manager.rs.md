@@ -15,6 +15,13 @@ on a real bug (import / DB unreachable), which the startup grace window catches.
 No runtime restart logic was added here — the supervisor does its OWN per-task
 backoff-restart; this file's contract is still startup-gating only.
 
+The portless liveness sweep also now **promotes** each alive portless service
+`Starting → Running` (via `promote_to_running`). Port-bound services get promoted
+by `verify_port_ready`, but portless ones (`mcp`, `workers`) had no port to gate
+on, so they sat at `Starting` forever — the System page showed a permanent
+yellow "启动中" for MCP/Workers even while every worker ran. (Pre-existing;
+surfaced by the consolidated card.)
+
 ## 2026-07-13 — forward NetMind ("Power") env to the backend sidecar
 
 The backend `cmd` block now forwards the Power-login env vars
