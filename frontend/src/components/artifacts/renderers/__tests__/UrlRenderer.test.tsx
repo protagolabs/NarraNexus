@@ -63,11 +63,13 @@ describe('UrlRenderer', () => {
     const sandbox = (iframe.getAttribute('sandbox') ?? '').split(/\s+/);
     expect(sandbox).toContain('allow-scripts');
     expect(sandbox).toContain('allow-same-origin'); // intentional for 3rd-party
-    // Guard against over-broadening: top-navigation must never be granted.
+    // Popups allowed so in-page target=_blank links WORK (open in browser) —
+    // a blocked link is worse than one that opens externally, and iframe can't
+    // make it an in-app tab.
+    expect(sandbox).toContain('allow-popups');
+    // Guard against over-broadening: top-navigation must never be granted
+    // (a malicious embedded page could navigate our whole app away).
     expect(sandbox).not.toContain('allow-top-navigation');
-    // Popups removed so in-page links can't escape to the OS browser.
-    expect(sandbox).not.toContain('allow-popups');
-    expect(sandbox).not.toContain('allow-popups-to-escape-sandbox');
     expect(iframe.getAttribute('referrerPolicy')).toBe('no-referrer');
   });
 

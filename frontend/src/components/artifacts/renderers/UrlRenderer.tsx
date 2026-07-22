@@ -26,14 +26,24 @@
  * this sandbox depends on that guard; do NOT copy this sandbox to a renderer
  * that can load first-party (same-origin) content.
  *
- * NAVIGATION — the sandbox deliberately omits `allow-popups` /
- * `allow-popups-to-escape-sandbox`: with them, a `target="_blank"` link or
- * `window.open` inside the page escaped into a new OS-browser window (users
- * reported links "jumping out of the app"). Without them, same-frame links
- * navigate inside the tab and popup attempts are neutralised. We cannot turn
- * a cross-origin page's link into a new in-app tab (the same-origin policy
- * hides its navigations from us) — full in-app navigation control is a
- * streaming-browser capability, not an iframe one.
+ * NAVIGATION — the hard iframe reality: a cross-origin page's link clicks are
+ * invisible to us (same-origin policy), so we can NEITHER read the target URL
+ * NOR redirect it into a new in-app tab. A `target="_blank"` link therefore has
+ * only two possible fates: open a new OS-browser tab, or be blocked entirely.
+ * We keep `allow-popups allow-popups-to-escape-sandbox` so those links WORK
+ * (open in the browser) — a link that does nothing is worse than one that
+ * opens externally. Same-frame links (no target) navigate inside the tab as
+ * expected. True "open every link as an in-app tab" is a streaming-browser
+ * capability (we'd control the browser), not something an iframe can do.
+ *
+ * RUN-MODE (铁律 #7) — the above holds in BROWSER mode (bash run.sh / cloud).
+ * On the packaged DESKTOP app (Tauri/WKWebView) `window.open` / target=_blank
+ * popups are blocked by the webview (see
+ * tauri/src-tauri/src/commands/netmind_oauth.rs — the OAuth flow had to move to
+ * a Rust child-webview for exactly this reason), so these links likely remain
+ * dead on the DMG until a Tauri-side new-window handler routes them to the OS
+ * browser (shell open), or the streaming browser lands. Tracked as a follow-up;
+ * not fixable from the frontend alone.
  */
 
 import { useEffect, useState } from 'react';
@@ -122,7 +132,7 @@ export default function UrlRenderer({ artifact }: Props) {
           title={doc.title}
           className="flex-1 w-full border-0 bg-white"
           referrerPolicy="no-referrer"
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
         />
       ) : (
         <FallbackCard

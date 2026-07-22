@@ -31,15 +31,25 @@ renderer fetches it through the token-authed raw route, then:
   would become a same-origin scriptable iframe reaching the app token, so the
   backend (`url_artifact._reject_self_origin`) refuses to open one. The sandbox
   safety DEPENDS on that guard — don't copy it to a same-origin renderer.
-- Sandbox is `allow-scripts allow-same-origin allow-forms` — NO
-  `allow-popups` / `allow-popups-to-escape-sandbox` (2026-07-22): with them,
-  a `target="_blank"` link inside the page escaped into a new OS-browser
-  window ("links jump out of the app"). Without them, same-frame links stay in
-  the tab and popups are neutralised. We CANNOT turn a cross-origin page's link
-  into a new in-app tab (same-origin policy) — full in-app navigation is a
-  streaming-browser (方案三) capability. The mode toggle labels are "Inline"
-  (iframe) / "External" (the open-in-browser fallback card, formerly the
-  misleading "Full").
+- Navigation (2026-07-22, after a revert): a cross-origin page's link clicks
+  are invisible to us (same-origin policy) — we can neither read the target
+  URL nor redirect it into a new in-app tab. A `target="_blank"` link has only
+  two possible fates: open a new OS-browser tab, or be blocked. The sandbox
+  KEEPS `allow-popups allow-popups-to-escape-sandbox` so such links WORK (open
+  in the browser) — a dead link is worse than one that opens externally. (An
+  earlier same-day change dropped the popup flags to stop the "jump out", but
+  that blocked target=_blank links entirely — reverted.) Same-frame links
+  navigate in the tab. True "every link opens as an in-app tab" is a
+  streaming-browser capability, not an iframe one. `allow-top-navigation` is
+  NEVER granted (an embedded page must not be able to navigate our whole app).
+  The mode toggle labels are "Inline" (iframe) / "External" (the
+  open-in-browser fallback card, formerly the misleading "Full").
+- RUN-MODE (铁律 #7): the popup/open-in-browser behavior above holds in
+  BROWSER mode only. On the packaged Tauri DMG, WKWebView blocks popups (see
+  netmind_oauth.rs), so URL-tab target=_blank links are likely STILL dead on
+  desktop until a Tauri new-window handler routes them to the OS browser (or
+  the streaming browser lands). Tracked in
+  reference/self_notebook/todo/2026-07-22-url-tab-desktop-links.md.
 - The doc fetch uses `fetchArtifactText` like the other text renderers
   (Csv/Markdown/Chart) — same pattern, same Tauri behavior.
 

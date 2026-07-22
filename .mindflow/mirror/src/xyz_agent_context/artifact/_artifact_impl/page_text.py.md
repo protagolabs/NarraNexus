@@ -36,6 +36,18 @@ deliberately not built here.
   (network, SSRF hop, non-HTML, empty) returns None, so it can't break tab
   creation.
 
+## 2026-07-22 — strip truncated-mid-block script/style (+ comments)
+
+When the body is byte-capped mid-`<style>`/`<script>`, the closing tag is never
+read so the complete-block regex can't remove it and the raw CSS/JS leaked into
+the "text" (baidu et al. front-load huge inline `<style>`). `html_to_text` now:
+(1) strips HTML comments FIRST (a commented-out `<script>` would otherwise look
+like an orphan, and a raw `<!--` leaks into text); (2) tolerates `</script >`
+(space) in the complete-block close; (3) for the truncated tail, cuts at the
+LAST orphan open tag only — anchoring on the FIRST orphan (an earlier attempt)
+silently DELETED all body after any mid-document orphan, which is worse than
+CSS noise for "let the agent see the page". Regression tests pin all three.
+
 ## Gotchas
 
 - The snapshot is taken at open time; if the page changes later it's stale
