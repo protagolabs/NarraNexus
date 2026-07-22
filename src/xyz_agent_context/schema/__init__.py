@@ -245,6 +245,7 @@ from .artifact_schema import (
     HealCandidate,
     HealResult,
     URL_ARTIFACT_KIND,
+    URL_TAB_CONTENT_FILENAME,
     UrlArtifactDoc,
 )
 
@@ -425,5 +426,6 @@ __all__ = [
     "HealCandidate",
     "HealResult",
     "URL_ARTIFACT_KIND",
+    "URL_TAB_CONTENT_FILENAME",
     "UrlArtifactDoc",
 ]

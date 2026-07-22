@@ -65,6 +65,9 @@ describe('UrlRenderer', () => {
     expect(sandbox).toContain('allow-same-origin'); // intentional for 3rd-party
     // Guard against over-broadening: top-navigation must never be granted.
     expect(sandbox).not.toContain('allow-top-navigation');
+    // Popups removed so in-page links can't escape to the OS browser.
+    expect(sandbox).not.toContain('allow-popups');
+    expect(sandbox).not.toContain('allow-popups-to-escape-sandbox');
     expect(iframe.getAttribute('referrerPolicy')).toBe('no-referrer');
   });
 

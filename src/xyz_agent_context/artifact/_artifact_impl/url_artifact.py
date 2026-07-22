@@ -19,6 +19,7 @@ preserved). Updating the embed decision = rewriting the doc.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -34,12 +35,15 @@ from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactError,
     ArtifactNotFound,
 )
+from xyz_agent_context.artifact._artifact_impl.page_text import fetch_page_text
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema.artifact_schema import (
     URL_ARTIFACT_KIND,
+    URL_TAB_CONTENT_FILENAME,
     Artifact,
     CreateArtifactToolResult,
     EmbedMode,
+    EmbedVerdict,
     UrlArtifactDoc,
 )
 from xyz_agent_context.settings import settings
@@ -47,6 +51,10 @@ from xyz_agent_context.utils.url_safety import UnsafeUrlError, assert_public_htt
 
 _URL_TABS_DIR = "tabs"
 _DOC_FILENAME = "page.url.json"
+# Total wall-clock budget for the two outbound fetches (probe + page text) done
+# while opening a URL tab. Bounds how long this MCP tool blocks — an
+# outbound-HTTP deadline, NOT an agent_loop ceiling (铁律 #14 untouched).
+_OPEN_FETCH_BUDGET_S = 20.0
 
 
 def _our_scheme() -> str:
@@ -144,6 +152,27 @@ def _write_doc(abs_path: str, doc: UrlArtifactDoc) -> None:
     os.replace(tmp_path, abs_path)
 
 
+def _write_content(dir_abs: str, *, url: str, title: str, page_text: Optional[str]) -> None:
+    """Write the agent-readable `content.md` next to the doc. Always written
+    (even when extraction failed) so the state-block hint always points at a
+    real file. The body is a snapshot taken at open time."""
+    if page_text:
+        body = page_text
+    else:
+        body = (
+            "_The page text could not be captured automatically (the site may "
+            "block server-side fetches, require login, or render entirely with "
+            "JavaScript). Ask the user what they need from this page._"
+        )
+    content = f"# {title}\n\nSource: {url}\n\n---\n\n{body}\n"
+    abs_path = os.path.join(dir_abs, URL_TAB_CONTENT_FILENAME)
+    os.makedirs(dir_abs, exist_ok=True)
+    tmp_path = f"{abs_path}.{os.getpid()}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp_path, abs_path)
+
+
 async def open_url(
     *,
     repo: ArtifactRepository,
@@ -180,13 +209,30 @@ async def open_url(
     except UnsafeUrlError as e:
         raise ArtifactError(f"refusing to open a non-public URL: {e}") from e
 
-    verdict = await probe_url(url, our_scheme=_our_scheme())
+    # Probe (embed verdict) and page-text capture are independent outbound
+    # fetches — run them CONCURRENTLY under one wall-clock budget so opening a
+    # tab isn't the sum of both worst cases. Both degrade rather than raise;
+    # on timeout we fall back to an optimistic iframe verdict + no text.
+    verdict: EmbedVerdict
+    page_text: Optional[str]
+    try:
+        async with asyncio.timeout(_OPEN_FETCH_BUDGET_S):
+            verdict, page_text = await asyncio.gather(
+                probe_url(url, our_scheme=_our_scheme()),
+                fetch_page_text(url),
+            )
+    except TimeoutError:
+        logger.info("open_url: outbound fetch budget exceeded for {}", url)
+        verdict = EmbedVerdict(recommended="iframe", reason="probe-failed", probe_status="failed")
+        page_text = None
 
     slug = secrets.token_hex(4)
     rel_entry = f"{_URL_TABS_DIR}/{slug}/{_DOC_FILENAME}"
     abs_entry = _doc_abs_path(agent_id, user_id, rel_entry)
     resolved_title = (title or url)[:200]
     _write_doc(abs_entry, UrlArtifactDoc(url=url, title=resolved_title, embed=verdict))
+    # Sibling file the agent can Read (surfaced in the artifact state block).
+    _write_content(os.path.dirname(abs_entry), url=url, title=resolved_title, page_text=page_text)
 
     result = await registration.register_artifact(
         repo=repo,
@@ -230,8 +276,6 @@ async def set_embed_mode(
     if doc.embed is None:
         # No probe verdict on disk (shouldn't happen for a real URL tab, but be
         # defensive): synthesize an iframe default to hang the override on.
-        from xyz_agent_context.schema.artifact_schema import EmbedVerdict
-
         doc.embed = EmbedVerdict(recommended="iframe", reason="no-blocking-headers")
     doc.embed.user_override = mode
     _write_doc(abs_entry, doc)

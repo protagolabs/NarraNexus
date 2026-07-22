@@ -44,6 +44,23 @@ frontend's refetch sees a change. 404s if the artifact is missing / not this
 agent's / not a URL tab; a missing doc file on disk (a real pointer-model
 state) raises `ArtifactContentGone` (410), not a bare FileNotFoundError → 500.
 
+## Agent-readable content snapshot (2026-07-22)
+
+The probe (embed verdict) and page-text capture are independent outbound
+fetches — `open_url` runs them CONCURRENTLY (`asyncio.gather`) under one
+`asyncio.timeout(_OPEN_FETCH_BUDGET_S)` wall-clock budget, so opening a tab
+isn't the sum of both worst cases; on timeout it degrades to an optimistic
+iframe verdict + no text. This budget is an outbound-HTTP deadline, NOT an
+agent_loop ceiling (铁律 #14 untouched). The content filename is the schema
+constant `URL_TAB_CONTENT_FILENAME` (not a private local), so the state-block
+reader doesn't reach across the package seam.
+
+`open_url` also writes `tabs/<slug>/content.md` next to the doc — a bounded
+plain-text snapshot of the page ([[page_text.py]]) so the agent can SEE what
+the page says. Written ALWAYS (even when extraction fails, with a "could not
+capture" note) so the state-block hint in [[common_tools_module.py]] always
+points at a real file. Best-effort: `fetch_page_text` never raises.
+
 ## Atomic doc write
 
 `_write_doc` writes a sibling temp file then `os.replace` (atomic on POSIX)
