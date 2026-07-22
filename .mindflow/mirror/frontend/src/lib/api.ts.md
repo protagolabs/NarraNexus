@@ -14,6 +14,25 @@ snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
 the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
 consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin_runtime.py]].
 
+## 2026-07-21 — team voice upload
+
+`uploadTeamChatAttachment` gained an `options.source` ('recording'|'upload') → query param,
+and its return type carries `transcription_available` so the composer can show a voice-
+unavailable notice.
+
+## 2026-07-21 — team-chat upload + attachments on send
+
+Added `uploadTeamChatAttachment(teamId, file)` (multipart, bypasses `request<T>` like the
+other upload helpers) → returns a bus-attachment dict. `sendTeamChat` gained an
+`attachments: BusAttachment[]` param, forwarded in the POST body.
+
+## 2026-07-20 — fetchBusAttachmentBlob
+
+Added `fetchBusAttachmentBlob(relPath)` — authed GET of a bus-message attachment
+from `/api/agent-inbox/attachments/raw?path=<relPath>`, returning a Blob (bypasses
+`request<T>` for the binary body, like `fetchAttachmentBlob`). Backs
+[[useBusAttachmentBlobUrl]] and the [[BusAttachmentList]] download path.
+
 ## 2026-07-18 — 删 setQuotaPreference
 
 免费额度偏好删除（后端 PATCH /api/quota/me/preference 端点同批移除）：
@@ -273,3 +292,8 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 `onboard(apiKey, providerType, replace?)` 新增可选 `replace`，请求体带 `replace`；返回
 类型加 `needs_replace` / `existing_masked`，供 OneKeyOnboard 的换 key 确认流程使用。
+
+## 2026-07-22 — clearTeamData
+
+Added `clearTeamData(teamId, {chat, files})` → `DELETE /api/teams/{id}/data?chat=&files=`.
+Team counterpart to `clearHistory`. Backs [[ClearTeamDataDialog]].

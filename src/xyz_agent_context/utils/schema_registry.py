@@ -667,6 +667,11 @@ _register(
             Column("content", "TEXT", "TEXT", nullable=False),
             Column("msg_type", "TEXT", "VARCHAR(32)", nullable=False, default="'text'"),
             Column("mentions", "TEXT", "TEXT", nullable=True),
+            # JSON list of bus-attachment dicts (file_id/original_name/mime_type/
+            # size_bytes/category/rel_path). rel_path is base_working_path-relative
+            # and points into the per-user shared area; markers are built from it
+            # at delivery time. NULL for text-only messages. See _bus_attachment_impl.
+            Column("attachments", "TEXT", "TEXT", nullable=True),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
@@ -691,6 +696,31 @@ _register(
         indexes=[
             Index("idx_bus_registry_visibility", ["visibility"]),
             Index("idx_bus_registry_owner", ["owner_user_id"]),
+        ],
+    )
+)
+
+# 23b. bus_agent_activity — live "what is this agent doing" for a channel.
+# Written by MessageBusTrigger while it runs a team-room agent so the team
+# chat UI can show running / phase / elapsed. One row per (agent_id,
+# channel_id); state flips to 'idle' when the turn ends. `updated_at` is a
+# heartbeat — a stale 'running' row (process died) is treated as not-running
+# by readers. This is NOT the events pipeline; it's a lightweight status mirror.
+_register(
+    TableDef(
+        name="bus_agent_activity",
+        columns=[
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("channel_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("state", "TEXT", "VARCHAR(16)", nullable=False, default="'idle'"),
+            Column("phase", "TEXT", "VARCHAR(64)"),
+            Column("tool_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("started_at", "TEXT", "DATETIME(6)"),
+            Column("updated_at", "TEXT", "DATETIME(6)"),
+        ],
+        primary_key=["agent_id", "channel_id"],
+        indexes=[
+            Index("idx_bus_activity_channel", ["channel_id"]),
         ],
     )
 )
@@ -1383,6 +1413,10 @@ _register(
             Column("color", "TEXT", "VARCHAR(16)"),
             Column("source", "TEXT", "VARCHAR(64)", nullable=False, default="'user'"),
             Column("intro_md", "TEXT", "MEDIUMTEXT"),
+            # Agent that responds to a team-chat message with NO @mention.
+            # NULL = fall back to the earliest-joined member. auto_migrate adds
+            # this to pre-existing tables. See backend/routes/teams.py.
+            Column("lead_agent_id", "TEXT", "VARCHAR(64)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

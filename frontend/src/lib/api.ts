@@ -4,6 +4,7 @@
  */
 
 import type {
+  BusAttachment,
   JobListResponse,
   JobDetailResponse,
   CancelJobResponse,
@@ -804,6 +805,24 @@ class ApiClient {
    */
   async fetchAttachmentBlob(agentId: string, fileId: string): Promise<Blob> {
     const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments/${encodeURIComponent(fileId)}/raw`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    return response.blob();
+  }
+
+  /**
+   * Fetch a bus-message attachment's bytes as a Blob (JWT/X-User-Id attached).
+   * Bus attachments live in the per-user shared area and are addressed by
+   * `rel_path` (from a message's `attachments` entry), served by
+   * `GET /api/agent-inbox/attachments/raw`. Bypasses `request<T>` — binary body.
+   */
+  async fetchBusAttachmentBlob(relPath: string): Promise<Blob> {
+    const url = `${getApiBaseUrl()}/api/agent-inbox/attachments/raw?path=${encodeURIComponent(relPath)}`;
     const response = await fetch(url, {
       method: 'GET',
       headers: this.getAuthHeaders(),
@@ -1632,7 +1651,7 @@ class ApiClient {
     });
   }
 
-  async updateTeam(teamId: string, patch: { name?: string; description?: string; color?: string; intro_md?: string }): Promise<TeamOperationResponse> {
+  async updateTeam(teamId: string, patch: { name?: string; description?: string; color?: string; intro_md?: string; lead_agent_id?: string }): Promise<TeamOperationResponse> {
     return this.request<TeamOperationResponse>(`/api/teams/${encodeURIComponent(teamId)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
@@ -1659,6 +1678,19 @@ class ApiClient {
     );
   }
 
+  /** Clear a team's data (group-chat and/or shared files), keeping the team,
+   *  its members and the bus channel. Team counterpart to clearHistory. */
+  async clearTeamData(
+    teamId: string,
+    opts: { chat: boolean; files: boolean } = { chat: true, files: true },
+  ): Promise<{ success: boolean; chat_messages?: number; files_removed?: boolean; error?: string }> {
+    const params = new URLSearchParams({ chat: String(opts.chat), files: String(opts.files) });
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/data?${params}`,
+      { method: 'DELETE' },
+    );
+  }
+
   // --- Team group chat (over the message bus) ---
 
   async getTeamChat(teamId: string, since?: string): Promise<TeamChatHistoryResponse> {
@@ -1669,12 +1701,44 @@ class ApiClient {
   }
 
   /** Post a user message into a team's group chat. `mentions` carries
-   *  agent_ids and/or the literal "@all" (the backend maps it to @everyone). */
-  async sendTeamChat(teamId: string, content: string, mentions: string[]): Promise<TeamChatSendResponse> {
+   *  agent_ids and/or the literal "@all" (the backend maps it to @everyone).
+   *  `attachments` are bus-attachment dicts from `uploadTeamChatAttachment`. */
+  async sendTeamChat(
+    teamId: string,
+    content: string,
+    mentions: string[],
+    attachments: BusAttachment[] = [],
+  ): Promise<TeamChatSendResponse> {
     return this.request<TeamChatSendResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/chat/messages`,
-      { method: 'POST', body: JSON.stringify({ content, mentions }) },
+      { method: 'POST', body: JSON.stringify({ content, mentions, attachments }) },
     );
+  }
+
+  /** Upload a file to attach to a team chat message. Returns the
+   *  bus-attachment dict to echo back in `sendTeamChat`. Multipart, so it
+   *  bypasses `request<T>` (which forces application/json). */
+  async uploadTeamChatAttachment(
+    teamId: string,
+    file: File,
+    options?: { source?: 'recording' | 'upload' },
+  ): Promise<{
+    success: boolean;
+    attachment?: BusAttachment;
+    transcription_available?: boolean | null;
+    error?: string;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const params = new URLSearchParams();
+    if (options?.source) params.set('source', options.source);
+    const qs = params.toString();
+    const url = `${getApiBaseUrl()}/api/teams/${encodeURIComponent(teamId)}/chat/attachments${qs ? `?${qs}` : ''}`;
+    const response = await fetch(url, { method: 'POST', body: formData, headers: this.getAuthHeaders() });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    return response.json();
   }
 
   // =========================================================================

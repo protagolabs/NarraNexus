@@ -4,6 +4,24 @@ last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — bus_agent_activity
+
+Added `bus_agent_activity` (composite PK agent_id+channel_id) — a lightweight live-status
+mirror for team-room agent runs (state/phase/tool_count/heartbeat). Written by the trigger,
+read by the team-chat status view. See [[_bus_activity]].
+
+## 2026-07-21 — teams.lead_agent_id
+
+Added nullable `lead_agent_id VARCHAR(64)` to `teams` — the agent that answers a team-chat
+message with no @mention (NULL = earliest-joined member fallback). auto_migrate adds it
+idempotently. See [[teams]].
+
+## 2026-07-20 — bus_messages.attachments
+
+Added nullable `attachments TEXT` to `bus_messages` (JSON list of bus-attachment
+dicts). `auto_migrate()` back-fills the column idempotently; no destructive change.
+See [[_bus_attachment_impl]] for the multimodal-A2A feature it backs.
+
 ## 2026-07-22 — 计费可审计化：cost_records +user_id/provider_source，新增 quota_deductions
 
 `cost_records` 加两列（additive、nullable）：`user_id`（VARCHAR(128)，对齐

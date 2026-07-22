@@ -167,6 +167,27 @@ export interface Attachment {
   transcript?: string;
 }
 
+// A file attached to a message-bus message (agent-to-agent / team chat).
+// Mirrors the bus-attachment dict from
+// xyz_agent_context.message_bus._bus_attachment_impl. Unlike a chat
+// `Attachment` (resolved per-agent via file_id), a bus attachment lives in
+// the per-user shared area and is fetched by `rel_path` through
+// `GET /api/agent-inbox/attachments/raw?path=<rel_path>`.
+export interface BusAttachment {
+  file_id: string;
+  mime_type: string;
+  original_name: string;
+  size_bytes: number;
+  category: AttachmentCategory;
+  rel_path: string;
+  // 'recording' = in-browser voice memo (rendered as a transcript); 'upload'
+  // (or undefined) = regular file. Set by the team-chat upload endpoint.
+  source?: 'recording' | 'upload' | null;
+  // Whisper transcript for audio memos, so the message renders the words and
+  // @mentioned agents read them via the attachment marker.
+  transcript?: string | null;
+}
+
 // Chat message for display
 export interface ChatMessage {
   id: string;
