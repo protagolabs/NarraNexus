@@ -135,13 +135,16 @@ async def test_atomic_deduct_ledger_failure_does_not_skip_charge(
         fetch=True,
     )
     assert len(led) == 0
-    # ... but a durable audit trail of the failure exists.
+    # ... but a durable audit trail of the failure exists (written via
+    # ServiceAuditRepository.record: EVENT_ERROR + JSON detail carrying the
+    # subtype under `reason`, so the System page can actually parse it).
     audit = await db_client.execute(
         "SELECT detail FROM service_audit WHERE service = %s AND event_type = %s",
-        params=("quota", "ledger_write_failed"),
+        params=("quota", "error"),
         fetch=True,
     )
     assert len(audit) == 1
+    assert "ledger_write_failed" in audit[0]["detail"]
     assert "usr_rb" in audit[0]["detail"]
 
 

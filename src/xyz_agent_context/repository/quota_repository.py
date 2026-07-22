@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 from loguru import logger
 
 from .base import BaseRepository
+from .service_audit_repository import EVENT_ERROR, ServiceAuditRepository
 from xyz_agent_context.schema.quota_schema import Quota, QuotaStatus
 
 
@@ -97,6 +98,15 @@ class QuotaRepository(BaseRepository[Quota]):
         form only adds UNSIGNED to UNSIGNED on each side of the
         comparison, which can never underflow.
         """
+        # Nothing to deduct. Guard here (not only in QuotaService.deduct) so the
+        # "affected" gate below never depends on cross-dialect rowcount semantics
+        # for a zero-delta call: MySQL reports changed-rows, SQLite matched-rows,
+        # so a stray atomic_deduct(u, 0, 0) would otherwise write a zero-value
+        # ledger row on SQLite but not MySQL. This is a public method — keep its
+        # invariant self-contained.
+        if input_delta <= 0 and output_delta <= 0:
+            return
+
         # 1) Running-total UPDATE FIRST — single atomic, concurrency-safe statement.
         sql = f"""
         UPDATE {self.table_name}
@@ -138,25 +148,27 @@ class QuotaRepository(BaseRepository[Quota]):
             except Exception as e:
                 # Charge already applied; never undo/skip it for an audit fault.
                 # Leave a durable trail (survives container restart) plus a log.
+                # Use ServiceAuditRepository.record (never raises, JSON-serializes
+                # detail via _to_detail) so the row is actually readable by the
+                # System page's _parse_detail — a hand-written f-string detail
+                # would be dropped as non-JSON. Event vocab is
+                # started/stopped/heartbeat/error, so the subtype lives in
+                # detail.reason under EVENT_ERROR.
                 logger.exception(
                     f"quota_deductions ledger write failed for {user_id}: {e}"
                 )
-                try:
-                    await self._db.insert(
-                        "service_audit",
-                        {
-                            "service": "quota",
-                            "event_type": "ledger_write_failed",
-                            "detail": (
-                                f"user_id={user_id} input={input_delta} "
-                                f"output={output_delta} "
-                                f"cost_record_id={cost_record_id} error={e!r}"
-                            ),
-                        },
-                    )
-                except Exception:
-                    # Best-effort: the audit write itself must never raise here.
-                    pass
+                await ServiceAuditRepository(self._db).record(
+                    "quota",
+                    EVENT_ERROR,
+                    {
+                        "reason": "ledger_write_failed",
+                        "user_id": user_id,
+                        "input": input_delta,
+                        "output": output_delta,
+                        "cost_record_id": cost_record_id,
+                        "error": repr(e),
+                    },
+                )
 
     async def atomic_grant(
         self, user_id: str, input_delta: int, output_delta: int
