@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-07-13
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — HealCandidate / HealResult moved into the central schema
+
+The heal endpoint's response models (`HealResponse` / `HealCandidate`) used to
+be route-local pydantic classes in `agents_artifacts.py`. With the heal
+strategy promoted into `ArtifactService.heal`, its result type belongs to the
+central schema layer: `HealResult` (same fields as the old `HealResponse` —
+recovered / artifact / candidates / message — so the wire shape is unchanged)
+and `HealCandidate`. Exported via `schema/__init__.py` like the other artifact
+models.
 
 ## 2026-05-14 — pointer model: versioning dropped
 

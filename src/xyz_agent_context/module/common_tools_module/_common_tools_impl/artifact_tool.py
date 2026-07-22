@@ -4,7 +4,7 @@
 @date: 2026-05-08
 @description: Register the `register_artifact` MCP tool on the common_tools_module
 FastMCP server. The call resolves the per-agent context from the MCP request
-headers, opens a fresh DB client, and delegates to artifact_runner.
+headers, opens a fresh DB client, and delegates to ArtifactService.
 
 Pointer model (2026-05-14): the agent writes artifact files into its own
 workspace, then calls `register_artifact` with the entry file path. The tool
@@ -18,8 +18,7 @@ from typing import Optional
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import artifact_runner
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.artifact import ArtifactError, ArtifactService
 from xyz_agent_context.utils.db_factory import get_db_client
 
 
@@ -116,16 +115,14 @@ def register(mcp: FastMCP) -> None:
         """Register-scoped MCP handler for `register_artifact`.
 
         The LLM-facing contract lives in the `description=` above. This body
-        just resolves a DB client and delegates to
-        `artifact_runner.register_artifact`; all validation and path logic
-        is there. Every failure path returns a structured
-        `{error, code}` dict.
+        just resolves a DB client and delegates to `ArtifactService.register`;
+        all validation and path logic is there. Every failure path returns a
+        structured `{error, code}` dict.
         """
         try:
             db = await get_db_client()
-            repo = ArtifactRepository(db)
-            result = await artifact_runner.register_artifact(
-                repo=repo,
+            service = ArtifactService(db)
+            result = await service.register(
                 agent_id=agent_id,
                 user_id=user_id,
                 session_id=session_id,
@@ -136,7 +133,7 @@ def register(mcp: FastMCP) -> None:
                 target_artifact_id=target_artifact_id,
             )
             return result.model_dump(mode="json")
-        except artifact_runner.ArtifactError as e:
+        except ArtifactError as e:
             # Expected, structured rejection (bad kind, path escape, too large, ...).
             # The message is already actionable; hand it straight to the LLM.
             logger.warning(f"register_artifact rejected: {e}")

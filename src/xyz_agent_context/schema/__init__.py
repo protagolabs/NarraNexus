@@ -240,6 +240,8 @@ from .artifact_schema import (
     Artifact,
     ArtifactKind,
     CreateArtifactToolResult,
+    HealCandidate,
+    HealResult,
 )
 
 # ===== Export All =====
@@ -414,4 +416,6 @@ __all__ = [
     "Artifact",
     "ArtifactKind",
     "CreateArtifactToolResult",
+    "HealCandidate",
+    "HealResult",
 ]
