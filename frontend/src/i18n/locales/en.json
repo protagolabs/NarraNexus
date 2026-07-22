@@ -955,7 +955,9 @@
       "restart": "Restart service",
       "workerCount": "{{count}} workers",
       "restarts": "{{count}} restarts",
-      "workersFlapping": "A worker has crashed and restarted — expand for detail"
+      "workersFlapping": "A worker is currently restarting — expand for detail",
+      "workersStale": "stale · {{age}} ago",
+      "workersStaleHint": "Worker liveness snapshot hasn't refreshed — the supervisor may be down"
     },
     "workerState": {
       "starting": "starting",

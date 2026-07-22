@@ -39,6 +39,17 @@ interface ServiceCardProps {
   onRestart?: () => void;
   /** Per-worker liveness for the consolidated `workers` service (optional). */
   workers?: WorkerLiveness[];
+  /** Age of the worker liveness snapshot (seconds); null when unknown. Older
+   *  than STALE_AFTER_S means the supervisor may be dead and the snapshot is a
+   *  frozen last-known state, so we must not render it as live. */
+  workerHeartbeatAgeSeconds?: number | null;
+}
+
+// 3× the supervisor's 30s heartbeat cadence. Beyond this the snapshot is stale.
+const STALE_AFTER_S = 90;
+
+function formatAge(seconds: number): string {
+  return seconds >= 60 ? `${Math.floor(seconds / 60)}m` : `${Math.round(seconds)}s`;
 }
 
 const STATUS_CONFIG: Record<
@@ -98,17 +109,27 @@ export function ServiceCard({
   lastError,
   onRestart,
   workers,
+  workerHeartbeatAgeSeconds,
 }: ServiceCardProps) {
   const { t } = useTranslation();
   const config = STATUS_CONFIG[status];
   const [expanded, setExpanded] = useState(false);
 
   const hasWorkers = !!workers && workers.length > 0;
-  // A sub-worker that is restarting, or has ever restarted, means the process
-  // dot ("running") is hiding a problem — surface it on the header.
-  const flapping =
+  // Stale = the liveness snapshot hasn't refreshed within 3 heartbeats. The
+  // service_audit heartbeat row is persistent, so a dead supervisor still
+  // yields available:true with a frozen snapshot — rendering it as live would
+  // just swap this card's original failure mode ("process green hides a dead
+  // worker") for a new one ("stale snapshot hides a dead supervisor").
+  const stale =
     hasWorkers &&
-    workers!.some((w) => w.state === 'restarting' || w.restartCount > 0);
+    workerHeartbeatAgeSeconds != null &&
+    workerHeartbeatAgeSeconds > STALE_AFTER_S;
+  // Flap warning only reflects a worker CURRENTLY restarting (not a long-ago
+  // restart that left restartCount>0 — that stays as the per-row count badge).
+  // Suppressed when stale, since we can't trust the snapshot.
+  const flapping =
+    hasWorkers && !stale && workers!.some((w) => w.state === 'restarting');
 
   return (
     <Card variant="default">
@@ -143,6 +164,16 @@ export function ServiceCard({
                   title={t('system.serviceCard.workersFlapping')}
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
+                </span>
+              )}
+              {stale && (
+                <span
+                  className="text-xs text-[var(--text-tertiary)]"
+                  title={t('system.serviceCard.workersStaleHint')}
+                >
+                  {t('system.serviceCard.workersStale', {
+                    age: formatAge(workerHeartbeatAgeSeconds!),
+                  })}
                 </span>
               )}
             </div>
@@ -208,7 +239,11 @@ export function ServiceCard({
                     <span
                       className={cn(
                         'inline-flex rounded-full h-2 w-2 shrink-0',
-                        WORKER_DOT[w.state] ?? WORKER_DOT.unknown,
+                        // Stale snapshot → gray every dot; we can't vouch for
+                        // the frozen state.
+                        stale
+                          ? WORKER_DOT.unknown
+                          : WORKER_DOT[w.state] ?? WORKER_DOT.unknown,
                       )}
                     />
                     <span className="text-[var(--text-primary)] font-mono">

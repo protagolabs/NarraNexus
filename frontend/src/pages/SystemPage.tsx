@@ -225,6 +225,11 @@ export function SystemPage() {
                   ? workerStatus?.workers
                   : undefined
               }
+              workerHeartbeatAgeSeconds={
+                proc.serviceId === 'workers'
+                  ? workerStatus?.heartbeatAgeSeconds ?? null
+                  : null
+              }
             />
           );
         })}

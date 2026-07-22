@@ -191,6 +191,18 @@ create_service "mcp" "MCP Server" \
 create_service "workers" "Workers" \
     "${UV_BIN} run python -m xyz_agent_context.module.run_worker_supervisor"
 
+# Remove units from previous layouts BEFORE daemon-reload. Any machine deployed
+# by an earlier version of this script has enabled `narranexus-{poller,jobs,bus,
+# channels}` (and, pre-#73, per-channel lark/slack/telegram/discord) with
+# `Restart=always`. Without this, re-running would leave those OLD units running
+# ALONGSIDE the new `workers` supervisor — double-polling instance_jobs, double
+# Instance-completion handling, and two channel health servers fighting over
+# 47831 + duplicate IM delivery. disable --now stops+disables; rm drops the file.
+for _old in poller jobs bus channels lark slack telegram discord; do
+    sudo systemctl disable --now "narranexus-${_old}" 2>/dev/null || true
+    sudo rm -f "/etc/systemd/system/narranexus-${_old}.service"
+done
+
 sudo systemctl daemon-reload
 echo -e "${G}  Systemd services created${R}"
 

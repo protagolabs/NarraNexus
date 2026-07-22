@@ -6,7 +6,10 @@ stub: false
 
 ## 2026-07-22 — getWorkerStatus()
 
-New `ApiClient.getWorkerStatus()` GETs `/api/admin/runtime/workers` and maps the
+New `ApiClient.getWorkerStatus()` GETs `/api/admin/runtime/workers`. It validates
+each worker `state` against the known `WorkerState` set (unknown → `'unknown'`;
+a bare `as` cast would let an unrecognised backend value render a raw i18n key —
+PR #136 review). It maps the
 snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
 the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
 consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin_runtime.py]].

@@ -49,6 +49,34 @@ test('a restarting sub-worker raises a flap warning even while process runs', ()
   expect(screen.getByTitle('system.serviceCard.workersFlapping')).toBeTruthy();
 });
 
+test('a historical restart (running, restartCount>0) does NOT flap the header', () => {
+  const historical: WorkerLiveness[] = [
+    { name: 'poller', state: 'running', restartCount: 5, lastError: null },
+  ];
+  render(
+    <ServiceCard label="Workers" status="running" port={null} lastError={null} workers={historical} />,
+  );
+  // Warning triangle reflects only a CURRENT restart, not an old one.
+  expect(screen.queryByTitle('system.serviceCard.workersFlapping')).toBeNull();
+});
+
+test('a stale snapshot suppresses the flap warning and shows a stale label', () => {
+  render(
+    <ServiceCard
+      label="Workers"
+      status="running"
+      port={null}
+      lastError={null}
+      workers={flapping}
+      workerHeartbeatAgeSeconds={600}
+    />,
+  );
+  // Even though a worker is "restarting", the snapshot is 10m old → don't trust
+  // it: no flap warning, show the stale marker instead.
+  expect(screen.queryByTitle('system.serviceCard.workersFlapping')).toBeNull();
+  expect(screen.getByText('system.serviceCard.workersStale')).toBeTruthy();
+});
+
 test('expanding lists each sub-worker with its restart count', () => {
   render(
     <ServiceCard label="Workers" status="running" port={null} lastError={null} workers={flapping} />,

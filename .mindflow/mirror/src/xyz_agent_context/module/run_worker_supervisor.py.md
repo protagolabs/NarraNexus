@@ -33,6 +33,12 @@ different kind of thing) and already single-process via
   of the workers here (via `start_channel_triggers`) — so there is a single
   supervisor, not a supervisor-of-supervisors. The channel core stayed where it
   was ([[run_channel_triggers.py]]); this file imports it.
+- **Shutdown drains workers CONCURRENTLY** (`_drain_and_close` gathers all
+  `_call_stop`s, PR #136 review). `ModulePoller.stop`/`JobTrigger.stop` each
+  block up to 30 s on a queue join; serialising would stack to 60 s+ and, under
+  a fixed docker/systemd stop grace, SIGKILL later workers before their drain
+  starts. Concurrent → total ≈ max(30 s). Shutdown code reads registered stops
+  via `SupervisorContext.stops()`, not the private `_stops` field.
 - **Per-task backoff-restart, no run-duration cap.** Each worker runs as a
   supervised task; a task that RAISES is a crash → audited + exponential backoff
   (1→2→…→60 s) + restart; a task cancelled during shutdown is NOT restarted.
@@ -106,6 +112,10 @@ L2 across all merged workers — and is `message_bus_trigger`'s FIRST L2 signal
   today, but any future accidental blocking call starves ALL workers, not one.
 - **MySQL pool sizing.** Four independent pools became one. SQLite is strictly
   better (single opener); MySQL must be sized for the busiest concurrent mix
-  (poller 3 + jobs 5 + bus 3 + channels workers).
+  (poller 3 + jobs 5 + bus 3 + channels workers). Pool size is now env-tunable
+  via `MYSQL_POOL_SIZE` (default 10; see [[db_factory.py]]) — a supervisor
+  deployment should set ≥25. Note: cloud compose still runs the 4 separate
+  containers today, so the single-pool case only bites once compose switches to
+  the supervisor (tracked in `reference/self_notebook/todo/`).
 - The individual workers keep their `if __name__ == "__main__"` blocks as
   standalone DEBUG entrypoints only — no launcher wires them anymore.

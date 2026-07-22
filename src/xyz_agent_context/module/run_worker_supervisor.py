@@ -178,6 +178,11 @@ class SupervisorContext:
     def register_stop(self, name: str, stop: Callable[[], Any]) -> None:
         self._stops[name] = stop
 
+    def stops(self) -> list[tuple[str, Callable[[], Any]]]:
+        """Registered (name, stop) pairs — read accessor so shutdown code does
+        not reach into the private `_stops` field."""
+        return list(self._stops.items())
+
     def liveness_snapshot(self) -> dict:
         """Deep-enough copy of per-worker state for the heartbeat detail blob."""
         return {name: dict(entry) for name, entry in self._states.items()}
@@ -407,8 +412,14 @@ async def _drain_and_close(
     """
     ctx.stop_event.set()
 
-    for name, stop in list(ctx._stops.items()):
-        await _call_stop(name, stop)
+    # Drain all workers CONCURRENTLY. ModulePoller.stop / JobTrigger.stop each
+    # block up to 30s on their queue join; serialising them would stack to 60s+
+    # and, under a fixed docker/systemd stop grace, later workers would be
+    # SIGKILL'd before their drain even starts. Concurrent → total ≈ max(30s).
+    await asyncio.gather(
+        *(_call_stop(name, stop) for name, stop in ctx.stops()),
+        return_exceptions=True,
+    )
 
     for w in wrappers:
         w.cancel()
