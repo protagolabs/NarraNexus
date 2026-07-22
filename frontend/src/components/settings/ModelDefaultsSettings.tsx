@@ -280,7 +280,10 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
               value={framework}
               disabled={frameworkSaving}
               onChange={(e) => {
-                if (netmindOnly && e.target.value !== framework) {
+                // Direction-aware: a cloud netmind-only user may always switch
+                // back TO claude_code (recovers old codex_cli users); only
+                // switching to a NON-claude_code framework shows the notice.
+                if (netmindOnly && e.target.value !== 'claude_code') {
                   void showNotice({
                     title: t(
                       'pages.settings.modelDefaults.cloudFrameworkLockedTitle',

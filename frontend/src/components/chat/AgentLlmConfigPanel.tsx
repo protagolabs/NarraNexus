@@ -263,7 +263,10 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                     className={selectCls}
                     value={agentDraft.agent_framework}
                     onChange={(e) => {
-                      if (netmindOnly && e.target.value !== agentDraft.agent_framework) {
+                      // Direction-aware: switching back TO claude_code is always
+                      // allowed for cloud netmind-only users (recovers old
+                      // codex_cli users); only → non-claude_code shows the notice.
+                      if (netmindOnly && e.target.value !== 'claude_code') {
                         void showNotice({
                           title: t(
                             'pages.settings.modelDefaults.cloudFrameworkLockedTitle',
