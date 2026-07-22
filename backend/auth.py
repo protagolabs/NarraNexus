@@ -563,6 +563,37 @@ def _json_response(status_code: int, body: dict):
 # Local-mode identity (dashboard v2 TDR-12)
 # ---------------------------------------------------------------------------
 
+def reject_cross_origin(request) -> None:
+    """CSRF guard for unauthenticated local-mode writes (e.g. tokenless
+    marketplace publish). Shared so no route depends on another route's
+    private helper.
+
+    A cross-site browser POST carries an Origin header pointing at the
+    attacker page; same-origin UI and CLI tools do not (or point at
+    loopback). CRITICAL: ``Origin: null`` (sandboxed iframe / data: form) is
+    treated as CROSS-origin, not same-origin — a sandboxed iframe form POST
+    is exactly the CSRF vector, and multipart POST is a CORS simple request
+    (no preflight). As defense-in-depth we also honor ``Sec-Fetch-Site``
+    (modern browsers always send it; CLIs don't): anything other than
+    same-origin/none is rejected.
+    """
+    from fastapi import HTTPException
+    from urllib.parse import urlparse
+
+    fetch_site = request.headers.get("sec-fetch-site")
+    if fetch_site and fetch_site not in ("same-origin", "none"):
+        raise HTTPException(status_code=403, detail="cross-origin request not allowed")
+
+    origin = request.headers.get("origin")
+    if not origin:
+        return  # no Origin (CLI, same-origin GET-turned-POST) — allow
+    if origin.lower() == "null":
+        raise HTTPException(status_code=403, detail="cross-origin request not allowed")
+    host = (urlparse(origin).hostname or "").lower()
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        raise HTTPException(status_code=403, detail="cross-origin request not allowed")
+
+
 async def resolve_current_user_id(request) -> str:
     """Single source of truth for "who is the current user" on this request.
 

@@ -4,6 +4,15 @@ last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — 二轮 review 修复:hash-from-catalog 打断了按版本安装
+
+上一条把 hash 只从 catalog detail 取时,`get_detail` 永远返回 latest,导致
+「按旧版本号安装」下载到旧包却拿 latest 的 hash 校验 → 必然 tamper 报错。
+修:`RegistryService.get_detail(skill_id, version=None)` 与
+`RemoteMarketplaceSource.get_detail/resolve_and_download` 全程透传 version
+(有则 `get_version`,无则 `get_latest`;remote 端把 version 作为查询参数带上),
+校验的 entry 就是请求的那个版本。删掉了 remote 端 `entry_data|version` 覆盖行。
+
 ## 2026-07-22 — review 修复:hash 从 catalog 取 + client 不泄漏
 
 RemoteMarketplaceSource:校验 hash 只从 catalog detail(entry_data)取,不再用下载响应自证的 X-Package-Hash 头;`_http()` 改为 asynccontextmanager,内部创建的 client 用完即关(每 service 调用一个,原先泄漏)。

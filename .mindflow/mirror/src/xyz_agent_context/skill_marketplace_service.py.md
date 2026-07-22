@@ -4,6 +4,11 @@ last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — 二轮 review 修复:get_detail 透传 version
+
+`get_detail(skill_id, version=None)` 把 version 一路透传给 registry / remote,
+配合按版本号安装的 hash 校验(见 registry 侧同日条目)。纯透传,无新逻辑。
+
 ## 2026-07-22 — review 修复:installed 标注按 catalog id
 
 _annotate_installed / check_updates 的 installed 键从 skill.name 改为 `meta.skill_id or skill.name`,配合 install 侧目录名锁 catalog id,修复 name≠id 时的永不安装显示。

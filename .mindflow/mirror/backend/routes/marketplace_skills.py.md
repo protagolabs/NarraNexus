@@ -4,6 +4,14 @@ last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — 二轮 review 修复:CSRF 守卫下沉 + 版本详情
+
+CSRF 守卫从本模块私有的 `_reject_cross_origin` 挪到 `backend/auth.py` 的共享
+`reject_cross_origin`(teams 路由也用同一个,不再跨兄弟模块 import 私有函数);
+顺带堵上 `Origin: null`(沙箱 iframe / data: 表单)被当同源放行的洞——现在
+一律按跨站拒。`GET /{skill_id}` 加 `version` 查询参数,详情按指定版本取,
+支撑按版本号安装的 hash 校验。
+
 ## 2026-07-22 — review 修复:固定文件名 + CSRF 守卫
 
 publish 不再用客户端 `file.filename`(路径穿越 → 任意文件写),固定写 `upload.zip`。新增 `_reject_cross_origin`:local 无 token 时按 Origin 头挡跨站 POST(CSRF)。

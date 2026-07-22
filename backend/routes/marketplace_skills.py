@@ -24,28 +24,17 @@ from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from loguru import logger
 
-from backend.auth import resolve_current_user_id, resolve_optional_user_id
+from backend.auth import (
+    reject_cross_origin,
+    resolve_current_user_id,
+    resolve_optional_user_id,
+)
 from xyz_agent_context.skill_marketplace_service import (
     PublishRejectedError,
     SkillMarketplaceService,
 )
 
 router = APIRouter()
-
-
-def _reject_cross_origin(request: Request) -> None:
-    """CSRF guard for unauthenticated local-mode writes. A cross-site browser
-    POST carries an Origin header pointing at the attacker page; same-origin
-    UI and CLI tools do not (or point at loopback). Raises 403 on a
-    non-loopback Origin."""
-    from urllib.parse import urlparse
-
-    origin = request.headers.get("origin")
-    if not origin:
-        return
-    host = (urlparse(origin).hostname or "").lower()
-    if host not in ("127.0.0.1", "localhost", "::1", ""):
-        raise HTTPException(status_code=403, detail="cross-origin publish not allowed")
 
 
 def _parse_skills_spec(spec: str):
@@ -151,9 +140,9 @@ async def download_skill(skill_id: str, version: Optional[str] = Query(None)):
 
 
 @router.get("/{skill_id}")
-async def skill_detail(skill_id: str):
+async def skill_detail(skill_id: str, version: Optional[str] = Query(None)):
     try:
-        detail = await SkillMarketplaceService().get_detail(skill_id)
+        detail = await SkillMarketplaceService().get_detail(skill_id, version)
     except Exception as e:
         logger.exception(f"Marketplace detail failed: {e}")
         raise HTTPException(status_code=500, detail="Detail lookup failed")
@@ -225,7 +214,7 @@ async def publish_skill(
         # Local no-token: loopback-trust only. Reject cross-origin (CSRF) —
         # a browser always sends Origin on a cross-site POST; the CLI sends
         # none. Without this a malicious page could POST to localhost:8000.
-        _reject_cross_origin(request)
+        reject_cross_origin(request)
         logger.info("Marketplace publish: local mode without token — allowed")
 
     temp_dir = Path(tempfile.mkdtemp())

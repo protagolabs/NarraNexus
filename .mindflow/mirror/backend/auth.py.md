@@ -1,8 +1,16 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — 共享 CSRF 守卫 `reject_cross_origin`
+
+新增 `reject_cross_origin(request)`:tokenless 的 local-mode 写(marketplace
+skills/teams publish)共用的 CSRF 防线。规则——无 Origin(CLI/同源)放行;
+Origin 为 loopback(localhost/127.0.0.1)放行;其余含 `Origin: null`(沙箱
+iframe / data: 表单)一律按跨站 403;`Sec-Fetch-Site: cross-site` 兜底纵深。
+两个路由模块原本各自(或跨模块 import)私有实现,现下沉到 auth 单一来源。
 
 ## 2026-07-21 — marketplace 公开读扩展到 teams/*
 

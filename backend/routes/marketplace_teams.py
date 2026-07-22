@@ -20,7 +20,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from loguru import logger
 
-from backend.auth import resolve_current_user_id
+from backend.auth import reject_cross_origin, resolve_current_user_id
 from xyz_agent_context.team_marketplace_service import TeamMarketplaceService
 
 router = APIRouter()
@@ -32,9 +32,7 @@ def _require_publisher(request: Request) -> None:
     from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
     if not is_cloud_mode():
-        from backend.routes.marketplace_skills import _reject_cross_origin
-
-        _reject_cross_origin(request)
+        reject_cross_origin(request)
         return
     role = getattr(request.state, "role", None)
     if not getattr(request.state, "user_id", None):

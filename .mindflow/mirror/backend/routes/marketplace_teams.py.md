@@ -4,6 +4,12 @@ last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — 二轮 review 修复:CSRF 守卫走共享 helper
+
+`_require_publisher` local 分支不再从兄弟路由模块 import 私有 `_reject_cross_origin`,
+改用 `backend/auth.py` 的共享 `reject_cross_origin`。行为不变,依赖方向理顺
+(路由不互相 import 私有符号)。
+
 ## 2026-07-22 — review 修复:固定文件名 + CSRF 守卫
 
 publish 固定写 `upload.nxbundle`;`_require_publisher` 在 local 分支复用 skill 的 `_reject_cross_origin`。

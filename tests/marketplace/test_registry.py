@@ -231,3 +231,29 @@ async def test_marketplace_install_uses_catalog_id_for_dir(db_client, workspace,
     fancy = next(i for i in payload["items"] if i["skill_id"] == "fancy-skill")
     assert fancy["installed"] is True
     monkeypatch.undo()
+
+
+@pytest.mark.asyncio
+async def test_version_pinned_install_verifies_against_that_version(db_client, workspace, tmp_path):
+    """Installing a NON-latest version must succeed: the detail used for hash
+    verification is fetched for the requested version, not always latest.
+    Regression — the hash-from-catalog fix previously verified an older
+    download against the latest hash and failed as 'possible tampering'."""
+    registry = _registry(db_client, tmp_path)
+    await registry.publish(_make_zip(tmp_path, "demo-skill", version="1.0.0"), "team")
+    await registry.publish(_make_zip(tmp_path, "demo-skill", version="2.0.0"), "team")
+
+    # get_detail(version=...) returns the requested version's entry+hash.
+    detail_old = await registry.get_detail("demo-skill", version="1.0.0")
+    assert detail_old["entry"]["version"] == "1.0.0"
+    v1_hash = detail_old["entry"]["package_hash"]
+    detail_latest = await registry.get_detail("demo-skill")
+    assert detail_latest["entry"]["version"] == "2.0.0"
+    assert detail_latest["entry"]["package_hash"] != v1_hash
+
+    # End-to-end pin to 1.0.0 — must NOT raise "Package hash mismatch".
+    pipeline = InstallPipeline(AGENT_ID, USER_ID, db_client=db_client)
+    result = await pipeline.install_from_marketplace(
+        "demo-skill", version="1.0.0", marketplace_source=LocalMarketplaceSource(registry)
+    )
+    assert result.status == "installed" and result.skill.version == "1.0.0"

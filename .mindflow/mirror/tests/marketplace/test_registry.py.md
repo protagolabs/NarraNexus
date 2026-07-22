@@ -1,6 +1,6 @@
 ---
 code_file: tests/marketplace/test_registry.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
 

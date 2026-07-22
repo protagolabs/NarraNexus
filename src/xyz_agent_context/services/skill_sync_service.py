@@ -18,9 +18,12 @@ Drift handling per workspace skill:
 - under skills/.disabled/         -> status = disabled
 - back on disk after removal      -> status returns to installed
 
-Triggers: process startup + fixed interval (SKILL_SYNC_INTERVAL_SECONDS,
-default 1800, 0 disables the loop). Lifecycle events go to the log
-(started/finished/error per pass — incident lesson #4/#5).
+Triggers: run_forever loops on a fixed interval (SKILL_SYNC_INTERVAL_SECONDS,
+default 1800), doing its FIRST reconcile immediately (so backend startup does
+not block on it — the lifespan launches this as a background task). Setting
+the interval to 0 (or below) DISABLES the reconciler entirely — no periodic
+loop AND no startup pass; tests use this to opt out. Lifecycle events go to
+the log (started/healed/error per pass — incident lesson #4/#5).
 """
 
 import asyncio

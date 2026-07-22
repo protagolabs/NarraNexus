@@ -167,14 +167,23 @@ class RegistryService:
     async def search(self, **kwargs) -> Tuple[List[SkillCatalogEntry], int]:
         return await self.catalog.search(**kwargs)
 
-    async def get_detail(self, skill_id: str) -> Optional[Dict[str, Any]]:
-        latest = await self.catalog.get_latest(skill_id)
-        if latest is None:
+    async def get_detail(
+        self, skill_id: str, version: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        # `entry` must describe the REQUESTED version (its own package_hash),
+        # not always the latest — otherwise a version-pinned install verifies
+        # the downloaded bytes against the wrong hash and fails as tampering.
+        entry = (
+            await self.catalog.get_version(skill_id, version)
+            if version
+            else await self.catalog.get_latest(skill_id)
+        )
+        if entry is None:
             return None
         versions = await self.catalog.list_versions(skill_id)
-        scan = await self.scans.latest_for(skill_id, latest.version)
+        scan = await self.scans.latest_for(skill_id, entry.version)
         return {
-            "entry": latest.model_dump(),
+            "entry": entry.model_dump(),
             "versions": [
                 {"version": v.version, "status": v.status, "published_at": v.published_at}
                 for v in versions
@@ -265,16 +274,20 @@ class RemoteMarketplaceSource:
     async def resolve_and_download(
         self, skill_id: str, dest_dir: Path, version: Optional[str] = None
     ) -> Tuple[Path, SkillCatalogEntry]:
+        params = {"version": version} if version else {}
         async with self._http() as client:
-            detail = await client.get(f"/api/marketplace/skills/{skill_id}")
+            # Fetch the detail FOR THE REQUESTED VERSION so entry_data carries
+            # that version's own package_hash. (Never rewrite version onto a
+            # latest-entry — that decouples version from hash and the pipeline
+            # then rejects the download as tampered.)
+            detail = await client.get(
+                f"/api/marketplace/skills/{skill_id}", params=params
+            )
             if detail.status_code == 404:
                 raise FileNotFoundError(f"Skill '{skill_id}' not found in the marketplace")
             detail.raise_for_status()
             entry_data = detail.json()["entry"]
-            if version and entry_data["version"] != version:
-                entry_data = dict(entry_data, version=version)
 
-            params = {"version": version} if version else {}
             response = await client.get(
                 f"/api/marketplace/skills/{skill_id}/download", params=params
             )
@@ -299,16 +312,21 @@ class RemoteMarketplaceSource:
     async def search(self, params: Dict[str, Any]) -> Dict[str, Any]:
         async with self._http() as client:
             response = await client.get("/api/marketplace/skills/search", params=params)
-        response.raise_for_status()
-        return response.json()
+            response.raise_for_status()
+            return response.json()
 
-    async def get_detail(self, skill_id: str) -> Optional[Dict[str, Any]]:
+    async def get_detail(
+        self, skill_id: str, version: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        params = {"version": version} if version else {}
         async with self._http() as client:
-            response = await client.get(f"/api/marketplace/skills/{skill_id}")
-        if response.status_code == 404:
-            return None
-        response.raise_for_status()
-        return response.json()
+            response = await client.get(
+                f"/api/marketplace/skills/{skill_id}", params=params
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return response.json()
 
     async def check_updates(self, installed: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         spec = ",".join(f"{i['skill_id']}@{i['version']}" for i in installed if i.get("version"))

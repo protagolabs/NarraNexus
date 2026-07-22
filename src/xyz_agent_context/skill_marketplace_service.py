@@ -133,10 +133,12 @@ class SkillMarketplaceService:
                 and _semver_key(item["version"]) > _semver_key(current)
             )
 
-    async def get_detail(self, skill_id: str) -> Optional[Dict[str, Any]]:
+    async def get_detail(
+        self, skill_id: str, version: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         if self._is_registry_host():
-            return await (await self._registry()).get_detail(skill_id)
-        return await self._remote().get_detail(skill_id)
+            return await (await self._registry()).get_detail(skill_id, version)
+        return await self._remote().get_detail(skill_id, version)
 
     async def check_updates(self, agent_id: str, user_id: str) -> List[Dict[str, Any]]:
         module = SkillModule(agent_id=agent_id, user_id=user_id)
