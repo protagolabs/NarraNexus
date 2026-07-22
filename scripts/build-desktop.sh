@@ -264,7 +264,7 @@ done
 "$NODE_DIR/bin/npx" --version > /dev/null
 echo "  Node bin shims verified: npm $("$NODE_DIR/bin/npm" --version), npx $("$NODE_DIR/bin/npx" --version)"
 
-# Step 3.6: Install bundled CLIs (claude-code + lark-cli) into $NODE_DIR
+# Step 3.6: Install bundled CLIs (claude-code + lark-cli + narra-cli) into $NODE_DIR
 #
 # We install as *local* packages (no `-g`) so everything lives inside
 # $NODE_DIR/node_modules/ and the shim binaries end up at
@@ -275,7 +275,7 @@ echo "  Node bin shims verified: npm $("$NODE_DIR/bin/npm" --version), npx $("$N
 # user's global prefix (e.g. ~/.npm-global) and picking up / clobbering their
 # installs during build.
 echo ""
-echo "--- Step 3.6: Installing bundled CLIs (claude-code + lark-cli) ---"
+echo "--- Step 3.6: Installing bundled CLIs (claude-code + lark-cli + narra-cli) ---"
 # Use the committed package.json + package-lock.json so the build is
 # reproducible. Anything under scripts/desktop-bundle/ is the SOURCE OF
 # TRUTH for the bundled CLI versions — to bump:
@@ -307,7 +307,7 @@ cp "$BUNDLE_MANIFEST_DIR/package-lock.json" "$NODE_DIR/package-lock.json"
 # Sanity-check: the shims must exist at the path process_manager.rs will
 # prepend to PATH at runtime. If either is missing the build is broken — fail
 # loudly here rather than ship a half-working dmg.
-for bin in claude lark-cli; do
+for bin in claude lark-cli narra-cli; do
     if [ ! -x "$NODE_DIR/node_modules/.bin/$bin" ]; then
         echo "ERROR: bundled CLI shim missing: $NODE_DIR/node_modules/.bin/$bin"
         echo "       npm install step above likely failed; re-run with verbose logging."

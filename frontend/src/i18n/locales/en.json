@@ -169,11 +169,15 @@
       "situationFailed": "This run hit an error and the agent could not reply normally. Details:",
       "situationRecovered": "The agent replied, but errors occurred during the run. Details:",
       "titleActionable": "Action needed",
+      "titleInfra": "Execution environment issue",
       "action": {
         "context_window": "The selected model's context window is too small for this Agent. Switch to a model with a larger context window in Settings, then send again.",
         "insufficient_balance": "The model provider reports insufficient balance or quota. Top up or switch the provider in Settings, then send again.",
         "model_not_found": "The configured model id was rejected by the provider (not found or invalid). Pick a valid model in Settings, then send again.",
-        "generic": "This turn could not run due to a configuration issue you can fix in Settings, then send again."
+        "generic": "This turn could not run due to a configuration issue you can fix in Settings, then send again.",
+        "executor_oom": "The execution environment ran out of memory and was stopped by the system. Try splitting the task into smaller steps or reducing active modules, then send again.",
+        "executor_unreachable": "Your execution container is temporarily unreachable. It usually recovers within a few seconds — please resend this message shortly.",
+        "infra_transient": "This turn could not run due to a temporary platform-side execution issue. Please send the message again in a moment."
       }
     }
   },
@@ -685,7 +689,9 @@
       "runtimeUnknown": "Unknown",
       "openMenu": "Open menu",
       "commandPaletteTitle": "Command palette (⌘K)",
-      "search": "search"
+      "search": "search",
+      "findUs": "Find Us",
+      "findUsTitle": "Join the NarraNexus community"
     },
     "commandPalette": {
       "hintAgent": "Agent",
@@ -755,7 +761,7 @@
       "rechargeStopWaiting": "Stop waiting",
       "checkingStatus": "Checking your NetMind.AI Power connection…",
       "netStatusError": "Couldn’t read your connection status. Refresh to retry.",
-      "notConnected": "Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.",
+      "notConnected": "Your NetMind.AI Power account isn’t linked as a provider yet.",
       "managePlan": "Manage plan & credits",
       "manageSubscription": "Manage subscription & balance",
       "manageBalance": "Manage balance",
@@ -790,7 +796,10 @@
       "upsellPerkNoFee": "No platform service fee",
       "upsellPerkGrant": "Includes {{amount}} / month in usable balance",
       "netDriving": "Running on your NetMind.AI Power account — no setup needed.",
-      "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults."
+      "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults.",
+      "linkNow": "Link it now",
+      "linkFailed": "Linking failed:",
+      "freeTierTokensLeft": "{{remaining}} tokens left"
     },
     "modal": {
       "title": "Settings",
@@ -977,7 +986,19 @@
       "unknown": "Unknown"
     },
     "serviceCard": {
-      "restart": "Restart service"
+      "restart": "Restart service",
+      "workerCount": "{{count}} workers",
+      "restarts": "{{count}} restarts",
+      "workersFlapping": "A worker is currently restarting — expand for detail",
+      "workersStale": "stale · {{age}} ago",
+      "workersStaleHint": "Worker liveness snapshot hasn't refreshed — the supervisor may be down"
+    },
+    "workerState": {
+      "starting": "starting",
+      "running": "running",
+      "restarting": "restarting",
+      "stopped": "stopped",
+      "unknown": "unknown"
     }
   },
   "teams": {

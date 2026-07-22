@@ -91,6 +91,8 @@ import type {
   RechargeStatusResponse,
   AgentSlotView,
   AgentSlotEffective,
+  WorkerStatus,
+  WorkerLiveness,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -230,6 +232,43 @@ class ApiClient {
 
   async getJob(jobId: string): Promise<JobDetailResponse> {
     return this.request<JobDetailResponse>(`/api/jobs/${encodeURIComponent(jobId)}`);
+  }
+
+  // Per-worker liveness of the consolidated `workers` supervisor (System page).
+  // Maps the snake_case backend payload to the camelCase WorkerStatus type.
+  async getWorkerStatus(): Promise<WorkerStatus> {
+    const raw = await this.request<{
+      available: boolean;
+      heartbeat_age_seconds: number | null;
+      workers: Array<{
+        name: string;
+        state: string;
+        restart_count: number;
+        last_error: string | null;
+      }>;
+    }>('/api/admin/runtime/workers');
+    const KNOWN: WorkerLiveness['state'][] = [
+      'starting',
+      'running',
+      'restarting',
+      'stopped',
+      'unknown',
+    ];
+    return {
+      available: !!raw.available,
+      heartbeatAgeSeconds: raw.heartbeat_age_seconds ?? null,
+      workers: (raw.workers ?? []).map((w) => {
+        // Validate against the known set — a plain `as` cast would let an
+        // unrecognised backend state pass through and render a raw i18n key.
+        const s = w.state as WorkerLiveness['state'];
+        return {
+          name: w.name,
+          state: KNOWN.includes(s) ? s : 'unknown',
+          restartCount: w.restart_count ?? 0,
+          lastError: w.last_error ?? null,
+        };
+      }),
+    };
   }
 
   // ── Home Assistant (smart-home) binding — per-agent ──

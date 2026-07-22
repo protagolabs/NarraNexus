@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-07-20
+last_verified: 2026-07-21
 stub: false
 ---
 
@@ -205,6 +205,16 @@ boundary by `_row_to_entity` defensively coercing None to
 `datetime.now()`.
 
 ## 2026-05-14 — artifact pointer model
+
+## 2026-07-21 — instance_artifact_versions no longer registered
+
+The dead `instance_artifact_versions` TableDef was removed from the registry.
+Safe unilaterally: auto_migrate never drops, so existing databases keep the
+table and rows untouched (hand-migration of old saved HTML still possible);
+fresh databases simply stop provisioning a table no code has read or written
+since 2026-05-14. `instance_artifacts.latest_version` stays registered — a
+column removal only matters together with the destructive DROP migration,
+which remains one Owner-gated batch (铁律 #6); see the cleanup TODO.
 
 Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
 

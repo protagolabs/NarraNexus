@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-07-20
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — action_reason/actionReason 补 executor-infra reasons
+
+`ErrorMessage.action_reason` 与 `ChatMessage.actionReason` 的联合类型补上
+`'executor_oom' | 'executor_unreachable'`（仍保留 `| string` 前向兼容），注释说明
+两类 error_type（`config_actionable` 用户可修 / `infra_transient` 平台侧）都会带
+reason 且都 skip 兜底。纯类型+注释，无运行时逻辑。
 
 ## 2026-07-21 — BusAttachment voice fields
 

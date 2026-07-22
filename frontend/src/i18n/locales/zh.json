@@ -169,11 +169,15 @@
       "situationFailed": "此次运行发生错误，Agent 未能正常回复。详情：",
       "situationRecovered": "Agent 已回复，但运行过程中发生了错误。详情：",
       "titleActionable": "需要你处理",
+      "titleInfra": "执行环境异常",
       "action": {
         "context_window": "所选模型的上下文窗口太小，装不下本 Agent 的上下文。请在设置中更换上下文更大的模型后重新发送。",
         "insufficient_balance": "模型提供方报告余额或额度不足。请在设置中充值或更换提供方后重新发送。",
         "model_not_found": "配置的模型 ID 被提供方拒绝（不存在或无效）。请在设置中选择有效的模型后重新发送。",
-        "generic": "由于一个你可以在设置中修复的配置问题，本次运行未能执行。修复后请重新发送。"
+        "generic": "由于一个你可以在设置中修复的配置问题，本次运行未能执行。修复后请重新发送。",
+        "executor_oom": "执行环境内存不足，被系统中断。请把任务拆小或减少启用的模块后重试。",
+        "executor_unreachable": "你的执行容器暂时不可达，通常几秒内自动恢复，请稍后重发这条消息。",
+        "infra_transient": "本次执行因平台侧临时问题未能运行，请稍后重发这条消息。"
       }
     }
   },
@@ -684,7 +688,9 @@
       "runtimeUnknown": "未知",
       "openMenu": "打开菜单",
       "commandPaletteTitle": "命令面板（⌘K）",
-      "search": "搜索"
+      "search": "搜索",
+      "findUs": "关注我们",
+      "findUsTitle": "加入 NarraNexus 社区"
     },
     "commandPalette": {
       "hintAgent": "智能体",
@@ -754,7 +760,7 @@
       "rechargeStopWaiting": "停止等待",
       "checkingStatus": "正在检查你的 NetMind.AI Power 连接状态…",
       "netStatusError": "暂时读不到连接状态，请刷新重试。",
-      "notConnected": "尚未将你的 NetMind.AI Power 账户接入为服务商。重新登录以自动接入，或在「LLM 服务商」中手动添加。",
+      "notConnected": "尚未将你的 NetMind.AI Power 账户接入为服务商。",
       "managePlan": "管理套餐与余额",
       "manageSubscription": "管理订阅与余额",
       "manageBalance": "管理余额",
@@ -789,7 +795,10 @@
       "upsellPerkNoFee": "零平台服务费",
       "upsellPerkGrant": "每月含 {{amount}} 可用余额",
       "netDriving": "正在用你的 NetMind.AI Power 账户运行 —— 无需配置。",
-      "netAvailable": "你的 NetMind.AI Power 账户已接入但未启用 —— 当前由你自己的 provider 驱动。可在 Model Defaults 切换。"
+      "netAvailable": "你的 NetMind.AI Power 账户已接入但未启用 —— 当前由你自己的 provider 驱动。可在 Model Defaults 切换。",
+      "linkNow": "立即接入",
+      "linkFailed": "接入失败：",
+      "freeTierTokensLeft": "剩余 {{remaining}} tokens"
     },
     "modal": {
       "title": "设置",
@@ -976,7 +985,19 @@
       "unknown": "未知"
     },
     "serviceCard": {
-      "restart": "重启服务"
+      "restart": "重启服务",
+      "workerCount": "{{count}} 个 worker",
+      "restarts": "重启 {{count}} 次",
+      "workersFlapping": "有 worker 正在重启 — 展开查看详情",
+      "workersStale": "已过期 · {{age}}前",
+      "workersStaleHint": "worker 状态快照未刷新 — supervisor 可能已停止"
+    },
+    "workerState": {
+      "starting": "启动中",
+      "running": "运行中",
+      "restarting": "重启中",
+      "stopped": "已停止",
+      "unknown": "未知"
     }
   },
   "teams": {

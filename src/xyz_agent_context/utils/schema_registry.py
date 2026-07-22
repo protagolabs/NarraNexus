@@ -1518,9 +1518,9 @@ _register(
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
             # DEPRECATED (2026-05-14): versioning was dropped with the pointer
-            # model. Column kept so auto_migrate keeps provisioning it and
-            # colleagues can hand-migrate old rows. No code reads/writes it.
-            # Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
+            # model. Column kept registered because dropping a column is a
+            # destructive migration (铁律 #6) — removal is Owner-gated, see
+            # reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
             Column("latest_version", "INTEGER", "INT", nullable=False, default="1"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
@@ -1533,25 +1533,14 @@ _register(
     )
 )
 
-# DEPRECATED (2026-05-14): the pointer model dropped per-version content rows.
-# This table is kept registered so auto_migrate keeps provisioning it and
-# colleagues with old saved HTML can hand-migrate from these rows. No code
-# reads or writes it anymore.
-# Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
-_register(
-    TableDef(
-        name="instance_artifact_versions",
-        columns=[
-            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
-            Column("artifact_id", "TEXT", "VARCHAR(32)", nullable=False),
-            Column("version", "INTEGER", "INT", nullable=False),
-            Column("file_path", "TEXT", "VARCHAR(512)", nullable=False),
-            Column("size_bytes", "INTEGER", "BIGINT", nullable=False),
-            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-        ],
-        indexes=[Index("idx_artifact_version", ["artifact_id", "version"], unique=True)],
-    )
-)
+# RETIRED (2026-07-21): `instance_artifact_versions` is no longer registered.
+# The pointer model (2026-05-14) dropped per-version content rows; no code has
+# read or written the table since. Existing databases keep the table and its
+# rows untouched (auto_migrate never drops) so old saved HTML can still be
+# hand-migrated; fresh databases simply stop provisioning it. Dropping the
+# table (and `instance_artifacts.latest_version`) remains an explicit
+# Owner-gated migration — see
+# reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
 
 
 # ----------------------------------------------------------------------------
