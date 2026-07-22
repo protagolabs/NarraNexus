@@ -13,6 +13,19 @@ PR #136 review). It maps the
 snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
 the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
 consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin_runtime.py]].
+## 2026-07-21 — Team Marketplace 三调用
+
+`getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`
+(POST install-preflight → BundlePreflightResponse,承接现有导入向导)。
+
+
+## 2026-07-21 — Skill Marketplace 四调用(stage 7)
+
+`searchMarketplaceSkills` / `getMarketplaceSkillDetail` /
+`installMarketplaceSkill`(POST JSON,409=已安装,直接抛带 detail 的
+Error 由 Browser 展示)/ `checkSkillUpdates`。挂 `/api/marketplace/skills/*`
+前缀;读端点公开、agent 相关调用带身份头,复用 this.request。
+
 
 ## 2026-07-21 — team voice upload
 

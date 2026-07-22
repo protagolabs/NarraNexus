@@ -1,7 +1,14 @@
 ---
 code_file: frontend/src/components/skills/SkillCard.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-21
 ---
+
+## 2026-07-21 — Source 徽标(stage 7)
+
+非 builtin 且带 `source_type` 的技能显示来源徽标(marketplace/github/zip/
+manual…,mono 小标签,不走 i18n——值本身就是标识符)。数据来自
+`SkillInfo.source_type`(后端 `_parse_skill_md` 从 `.skill_meta.json` 回填)。
+
 
 # SkillCard.tsx — Display card for one installed skill with action buttons
 

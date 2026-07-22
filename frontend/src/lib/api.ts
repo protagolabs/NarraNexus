@@ -49,6 +49,10 @@ import type {
   SkillListResponse,
   SkillOperationResponse,
   SkillStudyResponse,
+  MarketplaceSearchResponse,
+  MarketplaceSkillDetail,
+  MarketplaceInstallResponse,
+  SkillUpdateInfo,
   CostResponse,
   SkillEnvConfigResponse,
   DashboardResponse,
@@ -63,6 +67,8 @@ import type {
   TeamChatSendResponse,
   BundleExportRequest,
   BundlePreflightResponse,
+  TeamTemplate,
+  TeamMarketplaceListResponse,
   BundleConfirmResponse,
   BundleArtifactPreview,
   BundleMcpPreview,
@@ -1012,6 +1018,58 @@ class ApiClient {
     );
   }
 
+  // Skill Marketplace API — /api/marketplace/skills/* (read endpoints are
+  // public; agent_id-scoped calls carry identity headers like the rest).
+  async searchMarketplaceSkills(params: {
+    q?: string;
+    category?: string;
+    capability?: string;
+    sort?: 'downloads' | 'published' | 'name';
+    page?: number;
+    limit?: number;
+    agentId?: string;
+  }): Promise<MarketplaceSearchResponse> {
+    const search = new URLSearchParams();
+    if (params.q) search.set('q', params.q);
+    if (params.category) search.set('category', params.category);
+    if (params.capability) search.set('capability', params.capability);
+    if (params.sort) search.set('sort', params.sort);
+    if (params.page) search.set('page', String(params.page));
+    if (params.limit) search.set('limit', String(params.limit));
+    if (params.agentId) search.set('agent_id', params.agentId);
+    return this.request<MarketplaceSearchResponse>(
+      `/api/marketplace/skills/search?${search}`
+    );
+  }
+
+  async getMarketplaceSkillDetail(skillId: string): Promise<MarketplaceSkillDetail> {
+    return this.request<MarketplaceSkillDetail>(
+      `/api/marketplace/skills/${encodeURIComponent(skillId)}`
+    );
+  }
+
+  async installMarketplaceSkill(
+    skillId: string,
+    agentId: string,
+    version?: string
+  ): Promise<MarketplaceInstallResponse> {
+    return this.request<MarketplaceInstallResponse>(
+      `/api/marketplace/skills/${encodeURIComponent(skillId)}/install`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, ...(version ? { version } : {}) }),
+      }
+    );
+  }
+
+  async checkSkillUpdates(agentId: string): Promise<{ updates: SkillUpdateInfo[] }> {
+    const params = new URLSearchParams({ agent_id: agentId });
+    return this.request<{ updates: SkillUpdateInfo[] }>(
+      `/api/marketplace/skills/updates?${params}`
+    );
+  }
+
   // Cost API
   async getCosts(agentId: string, days: number = 7): Promise<CostResponse> {
     const params = new URLSearchParams({ days: days.toString() });
@@ -1811,6 +1869,29 @@ class ApiClient {
         expected_sha256: expectedSha256 ?? null,
       }),
     });
+  }
+
+  // Team Marketplace — /api/marketplace/teams/*
+  async getTeamTemplates(): Promise<TeamMarketplaceListResponse> {
+    return this.request<TeamMarketplaceListResponse>('/api/marketplace/teams/templates');
+  }
+
+  async getTeamTemplate(templateId: string): Promise<TeamTemplate> {
+    return this.request<TeamTemplate>(
+      `/api/marketplace/teams/templates/${encodeURIComponent(templateId)}`,
+    );
+  }
+
+  /** Resolve + verify the template bundle server-side and run the local
+   *  importer preflight. Same response shape as a normal bundle preflight,
+   *  so the existing review/confirm wizard consumes it unchanged. */
+  async installTeamTemplatePreflight(
+    templateId: string,
+  ): Promise<BundlePreflightResponse> {
+    return this.request<BundlePreflightResponse>(
+      `/api/marketplace/teams/templates/${encodeURIComponent(templateId)}/install-preflight`,
+      { method: 'POST', body: JSON.stringify({}) },
+    );
   }
 
   async previewBusChannels(agentIds: string[]): Promise<{ channels: Array<{
