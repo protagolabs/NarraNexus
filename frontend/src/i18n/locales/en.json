@@ -657,7 +657,9 @@
       "runtimeUnknown": "Unknown",
       "openMenu": "Open menu",
       "commandPaletteTitle": "Command palette (⌘K)",
-      "search": "search"
+      "search": "search",
+      "findUs": "Find Us",
+      "findUsTitle": "Join the NarraNexus community"
     },
     "commandPalette": {
       "hintAgent": "Agent",

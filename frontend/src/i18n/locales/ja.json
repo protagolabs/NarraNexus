@@ -636,7 +636,9 @@
       "runtimeUnknown": "不明",
       "openMenu": "メニューを開く",
       "commandPaletteTitle": "コマンドパレット（⌘K）",
-      "search": "検索"
+      "search": "検索",
+      "findUs": "フォローする",
+      "findUsTitle": "NarraNexus コミュニティに参加"
     },
     "commandPalette": {
       "hintAgent": "エージェント",

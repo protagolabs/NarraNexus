@@ -656,7 +656,9 @@
       "runtimeUnknown": "未知",
       "openMenu": "打开菜单",
       "commandPaletteTitle": "命令面板（⌘K）",
-      "search": "搜索"
+      "search": "搜索",
+      "findUs": "关注我们",
+      "findUsTitle": "加入 NarraNexus 社区"
     },
     "commandPalette": {
       "hintAgent": "智能体",
