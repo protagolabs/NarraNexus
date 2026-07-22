@@ -37,12 +37,16 @@ _TIMEOUT_S = 6.0
 _MAX_FETCH_BYTES = 1_000_000  # read at most ~1 MB of body
 _MAX_TEXT_CHARS = 16_000      # cap the extracted text handed to the agent
 
-_SCRIPT_STYLE = re.compile(r"<(script|style|noscript|template)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
-# A script/style block left UNCLOSED — happens when the body was byte-capped
-# mid-block, so `</style>` was never read. Strip from the opening tag to EOF,
-# else the raw CSS/JS leaks into the "text" (baidu et al. front-load huge
-# inline <style> blocks). Runs after the complete-block removal above.
-_DANGLING_SCRIPT_STYLE = re.compile(r"<(script|style|noscript|template)\b[^>]*>.*$", re.IGNORECASE | re.DOTALL)
+# Comments first — a commented-out `<script>`/`<style>` (common) would
+# otherwise look like an orphan open tag to the dangling-strip below, and a
+# raw `<!--` leaks into the text if left in.
+_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# Complete blocks. `</\1\s*>` tolerates a space before `>` (`</script >`).
+_SCRIPT_STYLE = re.compile(r"<(script|style|noscript|template)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+# An OPEN script/style tag on its own — after complete blocks are removed, any
+# remaining match is an ORPHAN (unclosed). Matches only the tag, not what
+# follows, so we can locate orphans without eating text.
+_OPEN_SCRIPT_STYLE = re.compile(r"<(?:script|style|noscript|template)\b[^>]*>", re.IGNORECASE)
 _BLOCK_END = re.compile(r"</(p|div|section|article|li|tr|h[1-6]|header|footer)\s*>|<br\s*/?>", re.IGNORECASE)
 _TAG = re.compile(r"<[^>]+>")
 _INLINE_WS = re.compile(r"[ \t\r\f\v]+")
@@ -52,8 +56,16 @@ _MULTI_NL = re.compile(r"\n[ \t]*\n[ \t]*(?:\n\s*)+")
 def html_to_text(html: str) -> str:
     """Crude, dependency-free HTML → readable text. Not a full parser — good
     enough to give the agent the gist of a page's content."""
-    s = _SCRIPT_STYLE.sub(" ", html)
-    s = _DANGLING_SCRIPT_STYLE.sub(" ", s)  # truncated-mid-block script/style
+    s = _COMMENT.sub(" ", html)
+    s = _SCRIPT_STYLE.sub(" ", s)
+    # A byte-capped body can leave an UNCLOSED script/style at the tail (its
+    # `</style>` was never read). Cut at the LAST orphan open tag only — this
+    # is by definition a document-tail phenomenon, so anchoring on the last
+    # orphan loses just the truncated tail, never middle body after some
+    # orphan the complete-block regex happened to miss.
+    opens = list(_OPEN_SCRIPT_STYLE.finditer(s))
+    if opens:
+        s = s[: opens[-1].start()]
     s = _BLOCK_END.sub("\n", s)  # turn block-ends into line breaks
     s = _TAG.sub("", s)
     s = unescape(s)

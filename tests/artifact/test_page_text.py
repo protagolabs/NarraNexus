@@ -54,6 +54,27 @@ def test_html_to_text_strips_unclosed_trailing_script():
     assert "function" not in text and "var x" not in text
 
 
+def test_html_to_text_keeps_body_after_commented_out_script():
+    # A commented-out <script> mid-document must NOT trigger the tail-strip and
+    # eat the real body after it (regression: anchoring on the leftmost orphan
+    # deleted everything after a fake <script> in a comment).
+    html = "<p>hello</p><!-- <script src=x.js> legacy --><p>REAL BODY TEXT</p>"
+    text = html_to_text(html)
+    assert "hello" in text
+    assert "REAL BODY TEXT" in text  # body survives
+    assert "<!--" not in text and "src=x.js" not in text
+
+
+def test_html_to_text_strips_comments():
+    assert html_to_text("<p>a</p><!-- secret note --><p>b</p>") == "a\n\nb" or \
+        "secret" not in html_to_text("<p>a</p><!-- secret note --><p>b</p>")
+
+
+def test_html_to_text_closing_tag_with_space():
+    # </script > (space before >) must still close the block.
+    assert "leak" not in html_to_text("<script>var leak=1</script ><p>body</p>")
+
+
 # ── async fetch ──────────────────────────────────────────────────────────────
 
 

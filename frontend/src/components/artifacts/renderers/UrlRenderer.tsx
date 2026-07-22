@@ -35,6 +35,15 @@
  * opens externally. Same-frame links (no target) navigate inside the tab as
  * expected. True "open every link as an in-app tab" is a streaming-browser
  * capability (we'd control the browser), not something an iframe can do.
+ *
+ * RUN-MODE (铁律 #7) — the above holds in BROWSER mode (bash run.sh / cloud).
+ * On the packaged DESKTOP app (Tauri/WKWebView) `window.open` / target=_blank
+ * popups are blocked by the webview (see
+ * tauri/src-tauri/src/commands/netmind_oauth.rs — the OAuth flow had to move to
+ * a Rust child-webview for exactly this reason), so these links likely remain
+ * dead on the DMG until a Tauri-side new-window handler routes them to the OS
+ * browser (shell open), or the streaming browser lands. Tracked as a follow-up;
+ * not fixable from the frontend alone.
  */
 
 import { useEffect, useState } from 'react';
