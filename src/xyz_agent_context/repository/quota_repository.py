@@ -44,10 +44,40 @@ class QuotaRepository(BaseRepository[Quota]):
         return fetched
 
     async def atomic_deduct(
-        self, user_id: str, input_delta: int, output_delta: int
+        self,
+        user_id: str,
+        input_delta: int,
+        output_delta: int,
+        cost_record_id: Optional[int] = None,
+        provider_source: Optional[str] = None,
+        model: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> None:
-        """Atomic UPDATE. Flips status to 'exhausted' when either dimension's
-        post-update remaining is <= 0.
+        """Write one ledger row, then atomically bump the running total.
+        Flips status to 'exhausted' when either dimension's post-update
+        remaining is <= 0.
+
+        The ledger is what makes a wrong charge auditable and an exact refund
+        computable — without it, `used_*` is an opaque scalar with no provenance.
+
+        Why NOT one DB transaction: this method is a concurrent hot path (many
+        LLM calls deduct against the shared db client at once). The client's
+        transaction() primitive holds a SINGLE shared connection on the client
+        instance, so concurrent transactions collide — and on SQLite there is
+        only ever one connection, making concurrent multi-statement transactions
+        structurally impossible. Wrapping the two writes in transaction() would
+        reintroduce the exact lost-update race the single-UPDATE design exists to
+        prevent. So the two writes are ordered instead of atomic:
+
+          1. INSERT the ledger row FIRST. If it fails we raise BEFORE touching
+             the total, so a failure means "nothing was charged" — never a
+             silent charge with no audit trail.
+          2. The single, concurrency-safe UPDATE bumps the total.
+
+        The only divergence window is a hard process crash between the two
+        awaits, which leaves one extra ledger row (ledger >= total). That is
+        conservative and detectable: reconcile per user with
+        `SUM(quota_deductions.input_tokens) vs user_quotas.used_input_tokens`.
 
         Comparisons are written additively (`used + delta >= cap`) rather
         than subtractively (`cap - used - delta <= 0`). All six operands
@@ -56,6 +86,22 @@ class QuotaRepository(BaseRepository[Quota]):
         form only adds UNSIGNED to UNSIGNED on each side of the
         comparison, which can never underflow.
         """
+        # 1) Ledger row first (see docstring for the ordering rationale).
+        #    None-valued optional columns are filtered by db.insert and fall
+        #    back to their NULL / default, which is exactly what we want.
+        await self._db.insert(
+            "quota_deductions",
+            {
+                "user_id": user_id,
+                "input_tokens": input_delta,
+                "output_tokens": output_delta,
+                "cost_record_id": cost_record_id,
+                "provider_source": provider_source,
+                "model": model,
+                "agent_id": agent_id,
+            },
+        )
+        # 2) Running-total UPDATE — the single atomic, concurrency-safe statement.
         sql = f"""
         UPDATE {self.table_name}
         SET used_input_tokens  = used_input_tokens  + %s,

@@ -599,12 +599,25 @@ _register(
             Column("input_tokens", "INTEGER", "INT", nullable=False, default="0"),
             Column("output_tokens", "INTEGER", "INT", nullable=False, default="0"),
             Column("total_cost_usd", "REAL", "DECIMAL(10,6)", nullable=False, default="0"),
+            # Owner attribution captured at write time. Nullable: background /
+            # non-user LLM calls (memory consolidation, no auth context) leave
+            # it NULL. VARCHAR(128) matches user_quotas.user_id so the two
+            # tables join without truncation. Before this column, the only way
+            # to attribute a cost row to a user was cost_records.agent_id ->
+            # agents.created_by, which breaks the moment the agent is hard
+            # deleted (see backfill_cost_records_user_id.py).
+            Column("user_id", "TEXT", "VARCHAR(128)"),
+            # Which provider branch served the call ("system" free-tier vs the
+            # user's own key). Was only ever a ContextVar (api_config.py);
+            # persisting it here makes billing auditable.
+            Column("provider_source", "TEXT", "VARCHAR(32)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_cost_agent_id", ["agent_id"]),
             Index("idx_cost_created_at", ["created_at"]),
             Index("idx_cost_call_type", ["call_type"]),
+            Index("idx_cost_records_user_id", ["user_id"]),
         ],
     )
 )
@@ -1124,6 +1137,44 @@ _register(
         ],
         indexes=[
             Index("idx_user_quotas_user", ["user_id"], unique=True),
+        ],
+    )
+)
+
+
+# 28b. quota_deductions — per-deduction ledger for the free-tier quota.
+#
+# user_quotas holds only cumulative scalars (used_input/output_tokens), so a
+# single wrong charge could never be isolated or refunded — the only remedy
+# was a platform-wide reset. Every atomic_deduct now writes one row here in
+# the SAME transaction as the user_quotas UPDATE (quota_repository.atomic_deduct),
+# so the ledger and the running total can never diverge. Rows are self-auditing:
+# provider_source / model / agent_id are stored redundantly so a ledger entry
+# stands on its own even if the linked cost_records row is missing (insert
+# failed -> cost_record_id NULL) or later purged. Sum a user's rows to compute
+# an exact refund instead of resetting everyone.
+_register(
+    TableDef(
+        name="quota_deductions",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            # Link to the cost_records row that triggered this deduction.
+            # Nullable: if the cost_records insert failed, the deduction still
+            # happened and must still be recorded — just without the link.
+            Column("cost_record_id", "INTEGER", "BIGINT UNSIGNED"),
+            # Redundant self-audit columns (see table comment).
+            Column("provider_source", "TEXT", "VARCHAR(32)"),
+            Column("model", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_quota_deductions_user", ["user_id"]),
+            Index("idx_quota_deductions_created", ["created_at"]),
+            Index("idx_quota_deductions_cost_record", ["cost_record_id"]),
         ],
     )
 )

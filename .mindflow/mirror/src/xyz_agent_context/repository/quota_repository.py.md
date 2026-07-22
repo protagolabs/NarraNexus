@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/repository/quota_repository.py
 stub: false
-last_verified: 2026-07-18
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — atomic_deduct 现写扣减流水（quota_deductions），但**刻意不用 DB 事务**
+
+`atomic_deduct` 新增可选参 `cost_record_id / provider_source / model / agent_id`，
+每次扣减先写一条 `quota_deductions` 流水、再跑原来的单条 CASE UPDATE。
+
+**为什么不用 `db.transaction()` 把两写包成原子**：`atomic_deduct` 是并发热点
+（多路 LLM 调用同时对**共享** db client 扣减）。client 的 transaction() 用的是
+**实例上单一共享连接**（`_transaction_connection` / SQLite 单连接），并发事务会互撞；
+SQLite 更是只有一条连接，结构上无法并发多语句事务。一旦包事务，就把单 UPDATE 设计
+本要消除的 lost-update 竞态又请回来了（已被 `test_atomic_deduct_concurrent_*` 复现）。
+
+**取而代之的顺序化 + 可对账**：①先 INSERT 流水——失败则在改动总额**之前**抛出，
+即「没扣成」而非「扣了但无痕」；②再跑并发安全的单 UPDATE。唯一分歧窗口是两个 await
+之间的硬崩溃，最多留一条多余流水（ledger ≥ total），保守且可检测：按用户对账
+`SUM(quota_deductions.input_tokens)` vs `used_input_tokens`。additive 比较与
+UNSIGNED underflow 规避原样保留。上游 [[quota_service]].deduct 透传这些参数、并吞异常。
 
 ## 2026-07-18 — 列语义重定义：偏好 → 耗尽通知闩锁
 
