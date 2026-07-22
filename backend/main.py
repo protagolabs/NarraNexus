@@ -265,23 +265,35 @@ async def lifespan(app: FastAPI):
     if app.state.executor_reaper_task is not None:
         logger.info("Executor idle-cull reaper started")
 
-    # Team Marketplace seed — restore the official team templates into this
-    # registry host's catalog + store (best-effort, non-blocking). Only runs
-    # where this instance IS the registry (cloud, or a local dev instance with
+    # Marketplace seeds — populate this registry host's catalog + store
+    # (best-effort, non-blocking). Only run where this instance IS the
+    # registry (cloud, or a local dev instance with
     # SKILL_MARKETPLACE_LOCAL_REGISTRY); a pure desktop client proxies to the
     # cloud and needs no local catalog.
     try:
         from xyz_agent_context.team_marketplace_service import TeamMarketplaceService
 
         if TeamMarketplaceService()._is_registry_host():
+            # Team templates — fetched from narra.nexus into our store.
             from xyz_agent_context.repository._team_marketplace_seed import (
                 seed_team_marketplace,
             )
 
             seeded = await seed_team_marketplace(db)
             logger.info(f"Team Marketplace seed: {seeded} templates present")
+
+            # First-party skills vendored in marketplace_skills/ (incl. the
+            # default NetMind vision/audio fallbacks). Without this a fresh
+            # deploy has an empty Skills tab and default-skill install finds
+            # nothing to auto-install on agent creation.
+            from xyz_agent_context.repository._skill_marketplace_seed import (
+                seed_skill_marketplace,
+            )
+
+            skill_seeded = await seed_skill_marketplace(db)
+            logger.info(f"Skill Marketplace seed: {skill_seeded} first-party skill(s) present")
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[team-seed] skipped due to error: {e}")
+        logger.warning(f"[marketplace-seed] skipped due to error: {e}")
 
     # Skill reconciler — keeps the skill_installations audit table following
     # the filesystem truth (users can hand-edit skills/; the DB heals).

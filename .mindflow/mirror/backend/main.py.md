@@ -1,8 +1,15 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — skill seed 接入 lifespan
+
+继 team seed 之后,registry host 再跑 `seed_skill_marketplace`(发布 repo 的
+marketplace_skills/ first-party 技能,含 NetMind vision/audio default)。best-
+effort、非阻塞;两个 seed 共用一个 try 块。
+
 
 ## 2026-07-21 — /api/marketplace/teams 挂载 + team seed(Team Marketplace)
 
