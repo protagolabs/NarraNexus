@@ -23,12 +23,19 @@ from __future__ import annotations
 
 from typing import Optional
 
-from xyz_agent_context.artifact._artifact_impl import heal, raw_access, registration
+from xyz_agent_context.artifact._artifact_impl import (
+    heal,
+    raw_access,
+    registration,
+    url_artifact,
+)
 from xyz_agent_context.artifact._artifact_impl.raw_access import ResolvedRawFile
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema.artifact_schema import (
+    Artifact,
     ArtifactKind,
     CreateArtifactToolResult,
+    EmbedMode,
     HealResult,
 )
 from xyz_agent_context.utils.database import AsyncDatabaseClient
@@ -95,6 +102,54 @@ class ArtifactService:
             user_id=user_id,
             artifact_id=artifact_id,
             entry_path=entry_path,
+        )
+
+    async def open_url(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        session_id: Optional[str],
+        url: str,
+        title: Optional[str] = None,
+        app_origin: Optional[str] = None,
+    ) -> CreateArtifactToolResult:
+        """Open a web page as a URL-tab artifact.
+
+        See `_artifact_impl/url_artifact.py`: rejects our own origin
+        (self-origin guard) and SSRF-gates the URL, probes its embeddability,
+        writes the UrlArtifactDoc, and registers it through the shared pointer
+        path. Raises ArtifactError on our own origin / a non-public URL.
+
+        `app_origin` (the browser-visible app origin, supplied by the HTTP
+        route) widens the self-origin guard; the MCP path leaves it None and
+        relies on settings.public_base_url.
+        """
+        return await url_artifact.open_url(
+            repo=self._repo,
+            agent_id=agent_id,
+            user_id=user_id,
+            session_id=session_id,
+            url=url,
+            title=title,
+            app_origin=app_origin,
+        )
+
+    async def set_embed_mode(
+        self,
+        *,
+        agent_id: str,
+        artifact_id: str,
+        mode: Optional[EmbedMode],
+    ) -> Artifact:
+        """Set (or clear, mode=None) the user's manual embed override on a URL
+        tab. Rewrites the on-disk doc; raises ArtifactNotFound if the artifact
+        is missing / not this agent's / not a URL tab."""
+        return await url_artifact.set_embed_mode(
+            repo=self._repo,
+            agent_id=agent_id,
+            artifact_id=artifact_id,
+            mode=mode,
         )
 
     async def resolve_raw_file(

@@ -1,9 +1,15 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/registration.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — application/x-url added to ALL_KINDS
+
+`URL_ARTIFACT_KIND` ("application/x-url") joined the whitelist so URL tabs
+register through the same pointer path as everything else. Their entry file is
+a JSON doc written by [[url_artifact.py]] before registration; no other change
+to this module.
 ## 2026-07-21 — moved out of common_tools_module (was artifact_runner.py)
 
 This file is the old

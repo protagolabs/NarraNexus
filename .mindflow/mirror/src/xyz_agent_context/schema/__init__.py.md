@@ -3,6 +3,11 @@ code_file: src/xyz_agent_context/schema/__init__.py
 last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — export URL-tab models
+
+Re-export `URL_ARTIFACT_KIND`, `EmbedMode`, `EmbedVerdict`, `UrlArtifactDoc`
+from [[artifact_schema.py]]. Pure forwarding.
 # schema/__init__.py — schema 包的集中导出门面
 
 ## 2026-07-21 — 导出 `HealCandidate` / `HealResult`

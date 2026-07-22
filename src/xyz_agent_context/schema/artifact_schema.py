@@ -36,7 +36,15 @@ ArtifactKind = Literal[
     # Office document (.pptx/.docx/.xlsx) — renders as a LIVE officecli-watch
     # preview (auto-refreshes as the agent edits), not a static file.
     "application/vnd.officecli-live",
+    # A web page opened as a tab. The entry file is a small JSON doc
+    # (UrlArtifactDoc) holding the URL + embed decision; the renderer either
+    # iframes the URL or falls back per the EmbedVerdict.
+    "application/x-url",
 ]
+
+# The kind for a URL-tab artifact — referenced in multiple layers, so it has a
+# name rather than being a bare string literal scattered around.
+URL_ARTIFACT_KIND = "application/x-url"
 
 
 class Artifact(BaseModel):
@@ -82,3 +90,47 @@ class HealResult(BaseModel):
     artifact: Optional[Artifact] = None  # populated when recovered=True
     candidates: List[HealCandidate] = Field(default_factory=list)
     message: str
+
+
+# ── URL-tab artifacts (application/x-url) ─────────────────────────────────────
+
+# How a URL tab should be surfaced. Only two real rendering strategies exist:
+# embed it in an iframe, or (future) stream it from a server-side browser.
+# "stream" today renders a graceful fallback card — the streaming renderer
+# (方案三) plugs into exactly this value later.
+EmbedMode = Literal["iframe", "stream"]
+
+
+class EmbedVerdict(BaseModel):
+    """The hybrid embed decision for a URL (see embed_probe.classify_embeddability).
+
+    `recommended` is what server-side probing concluded from the target's
+    response headers; `user_override` is the user's manual toggle and wins.
+    `effective_mode` collapses the two for the renderer.
+    """
+
+    recommended: EmbedMode
+    # Machine-readable slug: no-blocking-headers / x-frame-options /
+    # csp-frame-ancestors / mixed-content / probe-failed / too-many-redirects.
+    reason: str
+    probe_status: Literal["ok", "failed", "skipped"] = "ok"
+    user_override: Optional[EmbedMode] = None
+
+    @property
+    def effective_mode(self) -> EmbedMode:
+        return self.user_override or self.recommended
+
+
+class UrlArtifactDoc(BaseModel):
+    """The on-disk entry file (`page.url.json`) of a URL-tab artifact.
+
+    This JSON doc is the source of truth for a URL tab: the renderer fetches
+    it through the raw route, the agent Reads it from its workspace, and the
+    bundle carries it. There is no DB column for the URL — the pointer model
+    is preserved.
+    """
+
+    schema_version: int = 1
+    url: str
+    title: str
+    embed: Optional[EmbedVerdict] = None
