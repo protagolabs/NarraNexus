@@ -128,7 +128,14 @@
       "all": "@all",
       "notifyEveryone": "通知所有人",
       "typing": "{{name}} 正在输入",
-      "youTitle": "你 · {{name}}"
+      "youTitle": "你 · {{name}}",
+      "activity": {
+        "running": "运行中",
+        "thinking": "思考中",
+        "replying": "回复中",
+        "tool": "调用 {{name}}",
+        "queued": "排队中"
+      }
     },
     "execution": {
       "showSteps": "显示执行步骤",
@@ -658,6 +665,7 @@
     "teamRowMenu": {
       "options": "群聊选项",
       "rename": "重命名",
+      "clearData": "清理数据",
       "delete": "删除"
     },
     "topBar": {
@@ -998,6 +1006,17 @@
       "title": "删除团队“{{name}}”？",
       "message": "成员将被解除关联。Agent 本身不会被删除。",
       "confirm": "删除"
+    },
+    "clearData": {
+      "title": "清理团队“{{name}}”的数据",
+      "subtitle": "选择要清理的内容。团队、成员和 Agent 都会保留。",
+      "optChat": "群聊记录",
+      "optChatDesc": "删除该团队群聊里的所有消息。",
+      "optFiles": "共享文件",
+      "optFilesDesc": "删除分享到该团队的文件（通过 bus_share_to_team）。",
+      "keepNote": "团队、成员，以及每个 Agent 自己的数据都会保留。",
+      "cancel": "取消",
+      "confirm": "清理"
     },
     "alert": {
       "createFailed": "创建团队失败：{{error}}",

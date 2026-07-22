@@ -1639,6 +1639,19 @@ class ApiClient {
     );
   }
 
+  /** Clear a team's data (group-chat and/or shared files), keeping the team,
+   *  its members and the bus channel. Team counterpart to clearHistory. */
+  async clearTeamData(
+    teamId: string,
+    opts: { chat: boolean; files: boolean } = { chat: true, files: true },
+  ): Promise<{ success: boolean; chat_messages?: number; files_removed?: boolean; error?: string }> {
+    const params = new URLSearchParams({ chat: String(opts.chat), files: String(opts.files) });
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/data?${params}`,
+      { method: 'DELETE' },
+    );
+  }
+
   // --- Team group chat (over the message bus) ---
 
   async getTeamChat(teamId: string, since?: string): Promise<TeamChatHistoryResponse> {

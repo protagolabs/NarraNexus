@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/teams/TeamManagementModal.tsx
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
 
@@ -42,3 +42,10 @@ within) that team's chat.
 Added a "Default responder" `<select>` (Auto = earliest member, or pick a current member) that
 saves `lead_agent_id` via `updateTeam`. Backs the no-@mention routing in backend [[teams]].
 `""` clears back to Auto. New i18n keys `teams.defaultResponderLabel|Auto|Hint`.
+
+## 2026-07-22 — clear team data lives in the sidebar ⋮ menu (not here)
+
+"Clear data" is intentionally NOT in this modal — to mirror agents (whose clear-data is only
+in the row ⋮ menu), it lives in the team row's [[TeamRowMenu]] → [[AgentList]] renders
+[[ClearTeamDataDialog]]. This modal keeps only rename/color/intro/members/default-responder
++ delete.

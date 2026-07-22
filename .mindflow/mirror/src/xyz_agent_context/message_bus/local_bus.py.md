@@ -4,6 +4,12 @@ last_verified: 2026-07-20
 stub: false
 ---
 
+## 2026-07-22 — get_recent_messages (newest N, chat order)
+
+Added `get_recent_messages(channel_id, limit=20)` — `ORDER BY created_at DESC LIMIT n`
+reversed to oldest→newest. `get_messages` is ASC-limited (the OLDEST n), wrong for "recent
+scrollback"; this powers the team-room prompt's history window (see [[message_bus_trigger]]).
+
 ## 2026-07-20 — multimodal: messages can carry file attachments
 
 `send_message` / `send_to_agent` gained an `attachments: list[dict] | None` param;

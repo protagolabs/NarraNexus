@@ -17,6 +17,7 @@ Endpoints (all under /api/teams):
 """
 
 import mimetypes
+import shutil
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
@@ -30,6 +31,7 @@ from xyz_agent_context.message_bus._bus_attachment_impl import (
     resolve_shared_file_for_user,
     store_bytes_into_bus,
 )
+from xyz_agent_context.utils.workspace_paths import team_shared_dir
 from xyz_agent_context.schema.team_schema import (
     CreateTeamRequest,
     UpdateTeamRequest,
@@ -42,6 +44,14 @@ from backend.auth import resolve_current_user_id
 
 
 router = APIRouter()
+
+
+def _to_iso(value) -> str | None:
+    """Normalise a timestamp (datetime / str / None) to an ISO 8601 string."""
+    from datetime import datetime as _dt
+    if value is None:
+        return None
+    return value.isoformat() if isinstance(value, _dt) else str(value)
 
 
 async def _user_id_for_request(request: Request) -> str:
@@ -94,6 +104,51 @@ def _resolve_default_responder(team, member_agent_ids: list[str]) -> str | None:
     if lead and lead in member_agent_ids:
         return lead
     return member_agent_ids[0]
+
+
+async def _wipe_team_data(db, team, *, clear_chat: bool, clear_files: bool) -> dict:
+    """Clear a team's group-chat history and/or its shared files.
+
+    The team counterpart to ``wipe_agent_data``: it clears the collaboration
+    *surface* (the room's messages + the ``_shared/teams/{team_id}`` folder)
+    but KEEPS the team, its members, and the bus channel + membership rows so
+    the room keeps working. Owner scoping is enforced by the caller.
+
+    - clear_chat: delete ``bus_messages`` (and their ``bus_message_failures``)
+      for the team room channel (``created_by='team_<id>'``).
+    - clear_files: delete the on-disk ``_shared/teams/{team_id}`` dir.
+
+    DB deletes commit first (source of truth); the disk delete runs after,
+    best-effort, so a filesystem hiccup never rolls back the DB. Idempotent.
+    """
+    result = {"chat_messages": 0, "chat_failures": 0, "files_removed": False, "errors": []}
+    marker = f"{TEAM_ROOM_OWNER_PREFIX}{team.team_id}"
+
+    if clear_chat:
+        channel = await db.get_one("bus_channels", {"created_by": marker, "channel_type": "group"})
+        if channel:
+            cid = channel["channel_id"]
+            msg_ids = [m["message_id"] for m in await db.get("bus_messages", {"channel_id": cid})]
+            async with db.transaction():
+                result["chat_messages"] = await db.delete("bus_messages", {"channel_id": cid})
+                for mid in msg_ids:
+                    result["chat_failures"] += await db.delete("bus_message_failures", {"message_id": mid})
+
+    if clear_files:
+        d = team_shared_dir(team.owner_user_id, team.team_id)
+        try:
+            if d.exists():
+                shutil.rmtree(d)
+                result["files_removed"] = True
+        except Exception as e:  # noqa: BLE001 — best-effort; never fail the wipe
+            result["errors"].append(f"files: {e}")
+            logger.warning(f"[team wipe] failed to delete shared dir {d}: {e}")
+
+    logger.info(
+        f"[team wipe] team={team.team_id} chat={clear_chat} files={clear_files} "
+        f"messages={result['chat_messages']} files_removed={result['files_removed']}"
+    )
+    return result
 
 
 async def _get_or_create_team_room(db, bus: LocalMessageBus, team_id: str, team_name: str, member_agent_ids: list[str]) -> str:
@@ -298,22 +353,46 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
             "created_at": m.created_at,
         })
 
-    # "Thinking" members: those with an unprocessed message that @mentions them
-    # (or @everyone) in this room — i.e. the trigger is about to / is running
-    # them. Drives the "…" typing indicator. Reuses the proven cursor logic.
-    thinking: list[str] = []
-    for aid in members:
-        try:
-            pending = await bus.get_pending_messages(aid)
-        except Exception:  # noqa: BLE001 — best-effort indicator, never fail the GET
-            continue
-        for pm in pending:
-            ment = pm.mentions or []
-            if pm.channel_id == channel_id and (aid in ment or "@everyone" in ment):
-                thinking.append(aid)
-                break
+    # Per-member activity for the team status view:
+    #   running — the trigger is actively running it (live phase + elapsed),
+    #             from the bus_agent_activity heartbeat mirror;
+    #   queued  — it has an unprocessed @mention in this room but isn't running
+    #             yet (poll latency / worker-slot / behind its own turn);
+    #   idle    — nothing pending.
+    from xyz_agent_context.message_bus import _bus_activity
 
-    return {"success": True, "channel_id": channel_id, "messages": out, "thinking": thinking}
+    act_rows = {r["agent_id"]: r for r in await _bus_activity.get_channel_activity(db, channel_id)}
+    activity: list[dict] = []
+    thinking: list[str] = []  # kept for back-compat (running+queued)
+    for aid in members:
+        row = act_rows.get(aid)
+        if _bus_activity.is_live(row):
+            activity.append({
+                "agent_id": aid, "status": "running",
+                "phase": row.get("phase"), "tool_count": row.get("tool_count") or 0,
+                "started_at": _to_iso(row.get("started_at")),
+            })
+            thinking.append(aid)
+            continue
+        queued = False
+        try:
+            for pm in await bus.get_pending_messages(aid):
+                ment = pm.mentions or []
+                if pm.channel_id == channel_id and (aid in ment or "@everyone" in ment):
+                    queued = True
+                    break
+        except Exception:  # noqa: BLE001 — best-effort indicator, never fail the GET
+            pass
+        if queued:
+            activity.append({"agent_id": aid, "status": "queued"})
+            thinking.append(aid)
+        else:
+            activity.append({"agent_id": aid, "status": "idle"})
+
+    return {
+        "success": True, "channel_id": channel_id, "messages": out,
+        "thinking": thinking, "activity": activity,
+    }
 
 
 @router.get("", response_model=TeamListResponse)
@@ -406,6 +485,31 @@ async def delete_team(team_id: str, request: Request):
     await member_repo.remove_all_members(team_id)
     await team_repo.delete_team(team_id)
     return TeamOperationResponse(success=True, message="Team deleted")
+
+
+@router.delete("/{team_id}/data")
+async def clear_team_data(
+    team_id: str,
+    request: Request,
+    chat: bool = Query(True, description="Delete the team room's group-chat messages"),
+    files: bool = Query(True, description="Delete the team's shared files (_shared/teams/{id})"),
+):
+    """Clear a team's collaboration data (chat and/or shared files), keeping the
+    team, its members, and the bus channel. Owner-only. The team counterpart to
+    the per-agent ``DELETE /{agent_id}/history``."""
+    if not chat and not files:
+        raise HTTPException(status_code=400, detail="Select at least one scope: chat and/or files")
+
+    user_id = await _user_id_for_request(request)
+    db = await get_db_client()
+    team = await TeamRepository(db).get_team(team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    if team.owner_user_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    result = await _wipe_team_data(db, team, clear_chat=chat, clear_files=files)
+    return {"success": True, **result}
 
 
 @router.post("/{team_id}/members", response_model=TeamOperationResponse)

@@ -128,7 +128,14 @@
       "all": "@all",
       "notifyEveryone": "Notify everyone",
       "typing": "{{name}} is typing",
-      "youTitle": "You · {{name}}"
+      "youTitle": "You · {{name}}",
+      "activity": {
+        "running": "working",
+        "thinking": "thinking",
+        "replying": "replying",
+        "tool": "using {{name}}",
+        "queued": "queued"
+      }
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -659,6 +666,7 @@
     "teamRowMenu": {
       "options": "Group chat options",
       "rename": "Rename",
+      "clearData": "Clear data",
       "delete": "Delete"
     },
     "topBar": {
@@ -999,6 +1007,17 @@
       "title": "Delete team \"{{name}}\"?",
       "message": "Members are unlinked. Agents themselves are NOT deleted.",
       "confirm": "Delete"
+    },
+    "clearData": {
+      "title": "Clear data for \"{{name}}\"",
+      "subtitle": "Choose what to clear. The team, its members and agents are kept.",
+      "optChat": "Group chat history",
+      "optChatDesc": "Delete all messages in this team's chat room.",
+      "optFiles": "Shared files",
+      "optFilesDesc": "Delete files shared into this team (via bus_share_to_team).",
+      "keepNote": "The team, members, and each agent's own data are preserved.",
+      "cancel": "Cancel",
+      "confirm": "Clear"
     },
     "alert": {
       "createFailed": "Create team failed: {{error}}",

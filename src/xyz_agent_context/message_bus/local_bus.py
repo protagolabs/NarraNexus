@@ -136,6 +136,23 @@ class LocalMessageBus(MessageBusService):
             )
         return [self._row_to_message(row) for row in rows]
 
+    async def get_recent_messages(self, channel_id: str, limit: int = 20) -> List[BusMessage]:
+        """Get the MOST RECENT ``limit`` messages, returned oldest→newest.
+
+        ``get_messages`` is ``ORDER BY created_at ASC LIMIT n`` (the oldest n),
+        which is wrong for "recent scrollback". This selects the newest n
+        (``DESC``) and reverses so the caller reads them in chat order. Used to
+        give a team-room agent the recent conversation (incl. attachments) as
+        context, not just the message that @mentioned it.
+        """
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+            f"ORDER BY created_at DESC LIMIT {int(limit)}",
+            (channel_id,),
+        )
+        return [self._row_to_message(row) for row in reversed(rows)]
+
     async def get_unread(self, agent_id: str) -> List[BusMessage]:
         """Get all unread messages for an agent across all channels."""
         ph = self._db.placeholder

@@ -282,3 +282,8 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 `onboard(apiKey, providerType, replace?)` 新增可选 `replace`，请求体带 `replace`；返回
 类型加 `needs_replace` / `existing_masked`，供 OneKeyOnboard 的换 key 确认流程使用。
+
+## 2026-07-22 — clearTeamData
+
+Added `clearTeamData(teamId, {chat, files})` → `DELETE /api/teams/{id}/data?chat=&files=`.
+Team counterpart to `clearHistory`. Backs [[ClearTeamDataDialog]].

@@ -11,6 +11,15 @@ files an agent sent/shared into the room render in the group chat. Bytes are ser
 shared endpoint `GET /api/agent-inbox/attachments/raw?path=<rel_path>` (see [[inbox]]);
 teams.py doesn't add its own serving route.
 
+## 2026-07-22 — clear team data (counterpart to agent wipe)
+
+New `DELETE /api/teams/{team_id}/data?chat=&files=` (owner-only) + `_wipe_team_data`. The
+team analog of `wipe_agent_data`: clears the collaboration *surface* but KEEPS the team,
+members, and the bus channel + membership. `chat` → delete `bus_messages` (+ their
+`bus_message_failures`) for the team room channel (`created_by='team_<id>'`); `files` →
+`shutil.rmtree` the `_shared/teams/{team_id}` dir. DB deletes in a transaction (commit
+first), disk delete best-effort after. Idempotent (no room / no dir → zeros, no error).
+
 ## 2026-07-21 — default responder (no-@mention messages)
 
 A team message with NO @mention used to trigger nobody (team rooms have a non-agent
@@ -91,3 +100,10 @@ singleton "first user" 导致所有 local 用户 owner 相同、teams 互相
 ## Gotcha
 
 - 没做 `is_public` 维度（公开 team 给别用户加自己 agent），v1 不做。
+
+## 2026-07-22 — get_team_chat returns per-member activity
+
+`get_team_chat` now returns `activity: [{agent_id, status, phase?, tool_count?, started_at?}]`
+alongside `thinking` (kept for back-compat). status = running (from [[_bus_activity]]
+`is_live`, with live phase + elapsed) / queued (pending @mention, not yet running) / idle.
+Drives the team status strip + activity bubbles.

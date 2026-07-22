@@ -94,6 +94,7 @@ class InProcessAgentRuntimeClient:
         user_id: str,
         input_content: str,
         working_source: Any,
+        on_progress: Any = None,
         **extra_kwargs: Any,
     ) -> "RunCollection":
         from xyz_agent_context.agent_runtime.admission import (
@@ -111,6 +112,7 @@ class InProcessAgentRuntimeClient:
                 user_id=user_id,
                 input_content=input_content,
                 working_source=working_source,
+                on_progress=on_progress,
                 **extra_kwargs,
             )
 

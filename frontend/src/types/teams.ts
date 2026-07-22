@@ -40,12 +40,25 @@ export interface TeamChatMessage {
   created_at: string;
 }
 
+/** One team member's live activity in the room. */
+export interface TeamMemberActivity {
+  agent_id: string;
+  status: 'running' | 'queued' | 'idle';
+  /** running only: 'starting'|'thinking'|'replying'|'tool:<name>'. */
+  phase?: string | null;
+  tool_count?: number;
+  /** running only: ISO start time, for elapsed display. */
+  started_at?: string | null;
+}
+
 export interface TeamChatHistoryResponse {
   success: boolean;
   channel_id: string;
   messages: TeamChatMessage[];
   /** Member agent_ids the trigger is currently processing → "…" indicator. */
   thinking?: string[];
+  /** Per-member activity (running/queued/idle) for the status view. */
+  activity?: TeamMemberActivity[];
 }
 
 export interface TeamChatSendResponse {

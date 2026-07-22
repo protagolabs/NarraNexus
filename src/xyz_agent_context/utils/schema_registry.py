@@ -687,6 +687,31 @@ _register(
     )
 )
 
+# 23b. bus_agent_activity — live "what is this agent doing" for a channel.
+# Written by MessageBusTrigger while it runs a team-room agent so the team
+# chat UI can show running / phase / elapsed. One row per (agent_id,
+# channel_id); state flips to 'idle' when the turn ends. `updated_at` is a
+# heartbeat — a stale 'running' row (process died) is treated as not-running
+# by readers. This is NOT the events pipeline; it's a lightweight status mirror.
+_register(
+    TableDef(
+        name="bus_agent_activity",
+        columns=[
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("channel_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("state", "TEXT", "VARCHAR(16)", nullable=False, default="'idle'"),
+            Column("phase", "TEXT", "VARCHAR(64)"),
+            Column("tool_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("started_at", "TEXT", "DATETIME(6)"),
+            Column("updated_at", "TEXT", "DATETIME(6)"),
+        ],
+        primary_key=["agent_id", "channel_id"],
+        indexes=[
+            Index("idx_bus_activity_channel", ["channel_id"]),
+        ],
+    )
+)
+
 # 24. user_providers (per-user LLM provider configurations)
 _register(
     TableDef(

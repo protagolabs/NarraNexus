@@ -64,6 +64,22 @@ async def test_text_only_stays_text(db_client):
     assert msgs[0].attachments is None
 
 
+@pytest.mark.asyncio
+async def test_get_recent_messages_returns_newest_in_chat_order(db_client):
+    await _seed(db_client, "agent_a", "user_a")
+    await _seed(db_client, "agent_a2", "user_a")
+    bus = LocalMessageBus(db_client._backend)
+    await bus.send_to_agent(from_agent="agent_a", to_agent="agent_a2", content="ping")
+    channel = await db_client.get_one("bus_channels", {"created_by": "agent_a"})
+    cid = channel["channel_id"]
+    for i in range(5):
+        await bus.send_message(from_agent="agent_a", to_channel=cid, content=f"m{i}")
+
+    recent = await bus.get_recent_messages(cid, limit=3)
+    # newest 3, oldest→newest chat order
+    assert [m.content for m in recent] == ["m2", "m3", "m4"]
+
+
 def _msg(**kw):
     base = dict(
         message_id="msg_1",
@@ -101,10 +117,30 @@ def test_team_prompt_injects_marker_and_shared_folder():
     assert "teams/team_42" in prompt
 
 
-def test_team_prompt_allows_read_forbids_send():
-    # The reply-only rule must never blanket-forbid tools — a shared file (as a
-    # marker OR a path pasted in text) is answered by Read-ing it. The blocker
-    # was the old "Do NOT use any tools" rule; agents refused to open the file.
+def test_team_prompt_shows_history_from_others_and_points_at_trigger():
+    # The recipient sees a file posted by SOMEONE ELSE (a message that did not
+    # @mention it), so it can Read + discuss without a manual relay; and it's
+    # pointed at the message it must answer.
+    trig = MessageBusTrigger(bus=None)
+    member_map = {"agent_a": "Alice", "agent_b": "Bob"}
+    user_img = _msg(from_agent="usr_yzhou", content="whose place is this?", mentions=None)
+    ask = _msg(from_agent="agent_a", content="@Bob take a look", msg_type="text",
+               attachments=None, mentions=["agent_b"])
+    prompt = trig._build_team_prompt(
+        "agent_b", [user_img, ask], member_map,
+        owner_user_id="user_a", team_id="team_42", trigger_messages=[ask],
+    )
+    # The image (from the user, NOT @Bob) is visible to Bob in the scrollback.
+    assert "use Read tool" in prompt
+    assert "report.pdf" in prompt
+    # And Bob is told to respond to Alice's @mention.
+    assert "just @mentioned by Alice" in prompt
+
+
+def test_team_prompt_allows_action_tools_forbids_reply_delivery():
+    # Action tools (Read + bus_share_to_team) are allowed; REPLY-DELIVERY
+    # functions are forbidden (the reply auto-posts). The old blanket "no tools"
+    # / "no send/bus" ban made agents refuse to open a file and fake a forward.
     trig = MessageBusTrigger(bus=None)
     for atts, mtype in [(ATTS, "multimodal"), (None, "text")]:
         prompt = trig._build_team_prompt(
@@ -112,6 +148,7 @@ def test_team_prompt_allows_read_forbids_send():
             [_msg(attachments=atts, msg_type=mtype, content="see the path")],
             {"agent_a": "Alice", "agent_b": "Bob"},
         )
-        assert "built-in Read tool" in prompt          # Read always allowed
-        assert "Do NOT use any tools" not in prompt      # no blanket ban
-        assert "send/bus" in prompt                      # but send/bus still forbidden
+        assert "Do NOT use any tools" not in prompt          # no blanket ban
+        assert "built-in Read tool" in prompt                # Read allowed
+        assert "bus_share_to_team" in prompt                 # publishing a file allowed
+        assert "send_message_to_user_directly" in prompt     # reply-delivery forbidden

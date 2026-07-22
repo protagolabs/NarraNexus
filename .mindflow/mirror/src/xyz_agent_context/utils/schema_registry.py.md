@@ -4,6 +4,12 @@ last_verified: 2026-07-20
 stub: false
 ---
 
+## 2026-07-22 — bus_agent_activity
+
+Added `bus_agent_activity` (composite PK agent_id+channel_id) — a lightweight live-status
+mirror for team-room agent runs (state/phase/tool_count/heartbeat). Written by the trigger,
+read by the team-chat status view. See [[_bus_activity]].
+
 ## 2026-07-21 — teams.lead_agent_id
 
 Added nullable `lead_agent_id VARCHAR(64)` to `teams` — the agent that answers a team-chat

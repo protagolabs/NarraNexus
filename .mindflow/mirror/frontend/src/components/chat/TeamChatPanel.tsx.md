@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/TeamChatPanel.tsx
-last_verified: 2026-07-20
+last_verified: 2026-07-22
 stub: false
 ---
 
@@ -62,3 +62,12 @@ Messages flow over the **message bus**, NOT a single-agent narrative:
   this panel never touches the bus directly — it only calls the two team-chat
   routes. Agent replies (and agent→agent @ cascades) are produced server-side by
   the MessageBusTrigger and just appear in the polled transcript.
+
+## 2026-07-22 — team activity visualization
+
+Consumes the new `activity` from `getTeamChat` ([[teams]]). Renders a top **status strip**
+(chip per running/queued member: dot + name + phase·elapsed) and, at the bottom of the
+timeline, an **activity bubble** per active member — running shows a spinner + live phase
+(思考中 / 调用 <tool> / 回复中) + elapsed; queued shows the "…" dots. A 1s ticker advances
+elapsed between the 3s polls. Replaces the old dumb `thinking` "…" bubbles. i18n
+`chat.team.activity.*`.
