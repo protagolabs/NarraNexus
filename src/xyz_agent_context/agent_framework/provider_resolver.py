@@ -129,16 +129,17 @@ class QuotaExceededError(ProviderResolverError):
         #    _NO_QUOTA_ERROR_MARKERS substring-matches it as its legacy third
         #    detection layer, so background jobs pause instead of
         #    retry-storming. test_no_quota_pause pins this.
-        # 2. "sign out and back in" is not padding. Subscribing does NOT by
-        #    itself produce a provider — ensure_netmind_provider only runs on
-        #    the login path (and on POST /providers/use-subscription, which no
-        #    frontend calls). Without the re-login the user pays and retries
-        #    into the same 402, which is worse than not offering the option.
+        # 2. The "link it in Settings" step is not padding. Subscribing does
+        #    NOT by itself produce a provider — ensure_netmind_provider runs
+        #    on the login path and on POST /providers/use-subscription, which
+        #    the Account & Subscription panel's "Link it now" button calls
+        #    (first frontend caller, 2026-07-20). Without that step the user
+        #    pays and retries into the same 402.
         super().__init__(
             user_id,
             "Free quota exhausted. Add your own provider in Settings → "
-            "Providers to continue — or subscribe to a NetMind.AI plan, then "
-            "sign out and back in to link it automatically.",
+            "Providers to continue — or subscribe to a NetMind.AI plan and "
+            "link it in Settings → Account & Subscription.",
         )
 
 

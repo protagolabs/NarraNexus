@@ -1,9 +1,18 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — 计费可审计化：cost_records +user_id/provider_source，新增 quota_deductions
+
+`cost_records` 加两列（additive、nullable）：`user_id`（VARCHAR(128)，对齐
+`user_quotas.user_id` 避免 join 截断）+ `provider_source`（VARCHAR(32)），并加
+`idx_cost_records_user_id`。此前只能靠 `agent_id → agents.created_by` 追用户，
+agent 硬删即断链。新表 `quota_deductions`（逐笔扣减流水，自审计冗余
+provider_source/model/agent_id）：`user_quotas` 只有累计标量，无法定位/退还单笔
+错扣。写入见 [[cost_tracker]] / [[quota_repository]]；历史回填见
+`scripts/backfill_cost_records_user_id.py`。
 ## 2026-07-21 — team_catalog 表(Team Marketplace)
 
 additive:catalog INDEX,一行一个 team/agent bundle 模板;store_key 指向
@@ -215,6 +224,16 @@ boundary by `_row_to_entity` defensively coercing None to
 `datetime.now()`.
 
 ## 2026-05-14 — artifact pointer model
+
+## 2026-07-21 — instance_artifact_versions no longer registered
+
+The dead `instance_artifact_versions` TableDef was removed from the registry.
+Safe unilaterally: auto_migrate never drops, so existing databases keep the
+table and rows untouched (hand-migration of old saved HTML still possible);
+fresh databases simply stop provisioning a table no code has read or written
+since 2026-05-14. `instance_artifacts.latest_version` stays registered — a
+column removal only matters together with the destructive DROP migration,
+which remains one Owner-gated batch (铁律 #6); see the cleanup TODO.
 
 Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
 

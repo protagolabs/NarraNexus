@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — no longer its own OS process; runs under the worker supervisor
+
+`MessageBusTrigger.start()` / `_get_bus()` are unchanged, but the trigger is no
+longer launched as a standalone `-m ...message_bus_trigger` process. It is now
+one supervised task inside [[run_worker_supervisor.py]] (shared event loop + DB
+pool). Two consequences worth noting: (1) its flag-based sync `stop()` means the
+`while self._running` loop exits at the next poll boundary (≤ `POLL_MAX_INTERVAL`
+12 s) — the supervisor's cancel is the backstop; (2) it has no `ServiceAuditor`
+of its own, so the supervisor's per-worker liveness snapshot (state `bus:
+running/restarting`) is its FIRST L2 signal. The "独立进程" framing below is
+HISTORY; `__main__` is retained as a debug entrypoint.
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 

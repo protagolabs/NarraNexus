@@ -257,7 +257,9 @@ async def test_anthropic_helper_malformed_json_raises(monkeypatch):
     monkeypatch.setattr(
         sdk, "_build_client", lambda: _StubAnthropicClient("not json at all"),
     )
-    with pytest.raises(ValueError, match="Could not extract JSON"):
+    # After the repair-retry change, an always-unparseable reply raises only
+    # once the bounded retries are exhausted (see test_helper_json_repair.py).
+    with pytest.raises(ValueError, match="did not return schema-valid JSON"):
         await sdk.llm_function(
             instructions="extract", user_input="text", output_type=_Out,
         )

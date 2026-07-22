@@ -599,12 +599,25 @@ _register(
             Column("input_tokens", "INTEGER", "INT", nullable=False, default="0"),
             Column("output_tokens", "INTEGER", "INT", nullable=False, default="0"),
             Column("total_cost_usd", "REAL", "DECIMAL(10,6)", nullable=False, default="0"),
+            # Owner attribution captured at write time. Nullable: background /
+            # non-user LLM calls (memory consolidation, no auth context) leave
+            # it NULL. VARCHAR(128) matches user_quotas.user_id so the two
+            # tables join without truncation. Before this column, the only way
+            # to attribute a cost row to a user was cost_records.agent_id ->
+            # agents.created_by, which breaks the moment the agent is hard
+            # deleted (see backfill_cost_records_user_id.py).
+            Column("user_id", "TEXT", "VARCHAR(128)"),
+            # Which provider branch served the call ("system" free-tier vs the
+            # user's own key). Was only ever a ContextVar (api_config.py);
+            # persisting it here makes billing auditable.
+            Column("provider_source", "TEXT", "VARCHAR(32)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_cost_agent_id", ["agent_id"]),
             Index("idx_cost_created_at", ["created_at"]),
             Index("idx_cost_call_type", ["call_type"]),
+            Index("idx_cost_records_user_id", ["user_id"]),
         ],
     )
 )
@@ -1129,6 +1142,48 @@ _register(
 )
 
 
+# 28b. quota_deductions — per-deduction audit ledger for the free-tier quota.
+#
+# user_quotas holds only cumulative scalars (used_input/output_tokens), so a
+# single wrong charge could never be isolated or refunded — the only remedy
+# was a platform-wide reset. quota_repository.atomic_deduct now writes one row
+# here per deduction. It is NOT wrapped in a DB transaction with the user_quotas
+# UPDATE (the client's transaction() is single-connection and unsafe on this
+# concurrent hot path — see atomic_deduct's docstring): the UPDATE runs first as
+# the spend-control invariant, the ledger row follows best-effort. So ledger and
+# total are reconcilable, not transactionally identical — `used_* >= SUM(rows)`,
+# with a hard-crash-between-writes gap at most. Rows are self-auditing:
+# provider_source / model / agent_id are stored redundantly so a ledger entry
+# stands on its own even if the linked cost_records row is missing (insert
+# failed -> cost_record_id NULL) or later purged. Sum a user's rows to compute
+# an exact refund instead of resetting everyone.
+_register(
+    TableDef(
+        name="quota_deductions",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            # Link to the cost_records row that triggered this deduction.
+            # Nullable: if the cost_records insert failed, the deduction still
+            # happened and must still be recorded — just without the link.
+            Column("cost_record_id", "INTEGER", "BIGINT UNSIGNED"),
+            # Redundant self-audit columns (see table comment).
+            Column("provider_source", "TEXT", "VARCHAR(32)"),
+            Column("model", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_quota_deductions_user", ["user_id"]),
+            Index("idx_quota_deductions_created", ["created_at"]),
+            Index("idx_quota_deductions_cost_record", ["cost_record_id"]),
+        ],
+    )
+)
+
+
 # ----------------------------------------------------------------------------
 # 29. user_notifications — out-of-band messages to surface in UI
 #
@@ -1625,9 +1680,9 @@ _register(
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
             # DEPRECATED (2026-05-14): versioning was dropped with the pointer
-            # model. Column kept so auto_migrate keeps provisioning it and
-            # colleagues can hand-migrate old rows. No code reads/writes it.
-            # Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
+            # model. Column kept registered because dropping a column is a
+            # destructive migration (铁律 #6) — removal is Owner-gated, see
+            # reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
             Column("latest_version", "INTEGER", "INT", nullable=False, default="1"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
@@ -1640,25 +1695,14 @@ _register(
     )
 )
 
-# DEPRECATED (2026-05-14): the pointer model dropped per-version content rows.
-# This table is kept registered so auto_migrate keeps provisioning it and
-# colleagues with old saved HTML can hand-migrate from these rows. No code
-# reads or writes it anymore.
-# Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
-_register(
-    TableDef(
-        name="instance_artifact_versions",
-        columns=[
-            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
-            Column("artifact_id", "TEXT", "VARCHAR(32)", nullable=False),
-            Column("version", "INTEGER", "INT", nullable=False),
-            Column("file_path", "TEXT", "VARCHAR(512)", nullable=False),
-            Column("size_bytes", "INTEGER", "BIGINT", nullable=False),
-            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-        ],
-        indexes=[Index("idx_artifact_version", ["artifact_id", "version"], unique=True)],
-    )
-)
+# RETIRED (2026-07-21): `instance_artifact_versions` is no longer registered.
+# The pointer model (2026-05-14) dropped per-version content rows; no code has
+# read or written the table since. Existing databases keep the table and its
+# rows untouched (auto_migrate never drops) so old saved HTML can still be
+# hand-migrated; fresh databases simply stop provisioning it. Dropping the
+# table (and `instance_artifacts.latest_version`) remains an explicit
+# Owner-gated migration — see
+# reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
 
 
 # ----------------------------------------------------------------------------

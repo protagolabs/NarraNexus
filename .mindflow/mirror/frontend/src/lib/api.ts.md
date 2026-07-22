@@ -1,9 +1,18 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — getWorkerStatus()
+
+New `ApiClient.getWorkerStatus()` GETs `/api/admin/runtime/workers`. It validates
+each worker `state` against the known `WorkerState` set (unknown → `'unknown'`;
+a bare `as` cast would let an unrecognised backend value render a raw i18n key —
+PR #136 review). It maps the
+snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
+the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
+consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin_runtime.py]].
 ## 2026-07-21 — Team Marketplace 三调用
 
 `getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`
