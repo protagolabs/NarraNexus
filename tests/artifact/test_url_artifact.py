@@ -133,17 +133,52 @@ async def test_set_embed_mode_writes_override(env):
     assert doc2.embed.effective_mode == "iframe"
 
 
+@pytest.mark.parametrize("evil_url", [
+    "https://agent.narra.nexus/some/page",   # exact
+    "https://AGENT.narra.nexus/x",           # case — browser same-origin
+    "https://Agent.Narra.Nexus/x",           # mixed case
+    "https://agent.narra.nexus:443/x",       # explicit default port
+    "https://u@agent.narra.nexus/x",         # userinfo
+    "https://u:p@agent.narra.nexus:443/x",   # userinfo + default port
+])
 @pytest.mark.asyncio
-async def test_open_url_rejects_self_origin(env, monkeypatch):
-    # A URL pointing at our own app origin is refused (would become a
-    # same-origin scriptable iframe reaching the parent's token).
+async def test_open_url_rejects_self_origin_variants(env, monkeypatch, evil_url):
+    # A URL that a BROWSER reads as our own origin must be refused, no matter
+    # how it is spelled — else the allow-same-origin iframe reaches the token.
     from xyz_agent_context.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "public_base_url", "https://agent.narra.nexus", raising=False)
     with pytest.raises(ArtifactError):
         await env["service"].open_url(
             agent_id="agent_x", user_id="user_y", session_id=None,
-            url="https://agent.narra.nexus/some/page", title="self",
+            url=evil_url, title="self",
         )
+
+
+@pytest.mark.asyncio
+async def test_open_url_self_origin_guard_uses_request_origin_when_config_unset(env, monkeypatch):
+    # Even with public_base_url unset, the app_origin the HTTP route derives
+    # from the request closes the guard (defense in depth).
+    from xyz_agent_context.settings import settings as sa_settings
+    monkeypatch.setattr(sa_settings, "public_base_url", "", raising=False)
+    with pytest.raises(ArtifactError):
+        await env["service"].open_url(
+            agent_id="agent_x", user_id="user_y", session_id=None,
+            url="https://dev-agent.narra.nexus:443/x", title="self",
+            app_origin="https://dev-agent.narra.nexus",
+        )
+
+
+@pytest.mark.asyncio
+async def test_open_url_allows_genuine_third_party(env, monkeypatch):
+    # A different host is NOT self-origin — must be allowed.
+    from xyz_agent_context.settings import settings as sa_settings
+    monkeypatch.setattr(sa_settings, "public_base_url", "https://agent.narra.nexus", raising=False)
+    result = await env["service"].open_url(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        url="https://notagent.narra.nexus/x", title="third-party",
+        app_origin="https://agent.narra.nexus",
+    )
+    assert result.artifact_id.startswith("art_")
 
 
 @pytest.mark.asyncio

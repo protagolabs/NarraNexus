@@ -23,10 +23,9 @@ import json
 import os
 import secrets
 from typing import Optional
+from urllib.parse import urlparse
 
 from loguru import logger
-
-from urllib.parse import urlparse
 
 from xyz_agent_context.artifact._artifact_impl import registration
 from xyz_agent_context.artifact._artifact_impl.embed_probe import probe_url
@@ -79,25 +78,58 @@ def _read_doc(abs_path: str) -> UrlArtifactDoc:
         raise ArtifactContentGone("URL-tab doc is missing on disk") from e
 
 
-def _reject_self_origin(url: str) -> None:
-    """Refuse a URL whose origin is our own app.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
-    A same-origin URL tab would become a same-origin iframe; with the renderer's
-    `allow-same-origin allow-scripts` sandbox that iframe could reach the parent
-    app's DOM / localStorage token. The SSRF gate only blocks private
-    addresses, and our own public origin is public — so this is the guard that
-    keeps the `allow-same-origin` grant safe (it is only ever cross-origin,
-    third-party content). Local dev (public_base_url unset) has no shared
-    tenant and app vs backend live on different ports/origins, so there is
-    nothing to match against there.
+
+def _origin_tuple(url: str) -> Optional[tuple[str, str, Optional[int]]]:
+    """(scheme, host, effective_port) normalized the way a BROWSER compares
+    origins: scheme + host lowercased, userinfo dropped, the default port for
+    the scheme filled in. Returns None when there is no host to compare.
+
+    This is the crux of the self-origin guard: a naive `netloc == netloc`
+    string compare is bypassable (`AGENT.narra.nexus`, `host:443`,
+    `u@host` all read as same-origin to the browser but differ as strings).
     """
-    base = (settings.public_base_url or "").strip()
-    if not base:
+    p = urlparse(url)
+    host = (p.hostname or "").lower()
+    if not host:
+        return None
+    scheme = (p.scheme or "").lower()
+    try:
+        port = p.port or _DEFAULT_PORTS.get(scheme)
+    except ValueError:
+        return None  # malformed port
+    return (scheme, host, port)
+
+
+def _reject_self_origin(url: str, *, extra_origins: tuple[str, ...] = ()) -> None:
+    """Refuse a URL whose browser-origin equals our own app's.
+
+    A same-origin URL tab would become a same-origin iframe; with the
+    renderer's `allow-same-origin allow-scripts` sandbox that iframe could
+    reach the parent app's DOM / localStorage token and drive the app's API as
+    the user. The SSRF gate only blocks private addresses — our own public
+    origin is public — so this is the guard that keeps the `allow-same-origin`
+    grant safe (a URL tab is only ever meant to hold cross-origin third-party
+    content).
+
+    Candidate origins: `settings.public_base_url` (set in cloud; the MCP path
+    has only this) plus any `extra_origins` the caller derived from the request
+    (the HTTP route passes the browser-visible origin, so the guard holds even
+    if public_base_url is misconfigured). Empty candidates are skipped — local
+    dev without a configured origin has no shared tenant and its localhost URLs
+    are already rejected by the SSRF loopback rule.
+    """
+    target = _origin_tuple(url)
+    if target is None:
         return
-    ours = urlparse(base)
-    target = urlparse(url)
-    if ours.scheme and ours.netloc and target.scheme == ours.scheme and target.netloc == ours.netloc:
-        raise ArtifactError("refusing to open a URL tab pointing at this app's own origin")
+    for candidate in (settings.public_base_url, *extra_origins):
+        candidate = (candidate or "").strip()
+        if not candidate:
+            continue
+        ours = _origin_tuple(candidate)
+        if ours is not None and ours == target:
+            raise ArtifactError("refusing to open a URL tab pointing at this app's own origin")
 
 
 def _write_doc(abs_path: str, doc: UrlArtifactDoc) -> None:
@@ -120,21 +152,29 @@ async def open_url(
     session_id: Optional[str],
     url: str,
     title: Optional[str] = None,
+    app_origin: Optional[str] = None,
 ) -> CreateArtifactToolResult:
     """Create a URL-tab artifact.
 
     Steps:
-    1. Hard-reject an obviously-internal initial URL (SSRF gate). This raises
-       ArtifactError(400) — tab creation fails loudly.
+    1. Reject a URL whose browser-origin is our own app (self-origin guard,
+       keeps the renderer's allow-same-origin sandbox safe) and hard-reject an
+       internal URL (SSRF gate). Both raise ArtifactError — creation fails loud.
     2. Probe the URL server-side for its embed verdict (never crashes; a
        failed probe degrades to an optimistic iframe verdict).
     3. Write the UrlArtifactDoc into a dedicated `tabs/<slug>/` subdir.
     4. Register it through the shared pointer path.
 
+    Args:
+        app_origin: the browser-visible origin of the app, derived from the
+            request by the HTTP route (the MCP path leaves it None and relies
+            on settings.public_base_url). Used only to widen the self-origin
+            guard's defense.
+
     Raises:
-        ArtifactError: initial URL is not a safe public http(s) target.
+        ArtifactError: URL is our own origin, or not a safe public http(s) target.
     """
-    _reject_self_origin(url)
+    _reject_self_origin(url, extra_origins=(app_origin,) if app_origin else ())
     try:
         await assert_public_http_url(url)
     except UnsafeUrlError as e:

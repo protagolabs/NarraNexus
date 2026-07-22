@@ -207,6 +207,12 @@ async def open_url_artifact(request: Request, agent_id: str, body: OpenUrlReques
     await _verify_agent_ownership(request, agent_id)
     user_id = await _resolve_agent_user_id(agent_id)
 
+    # The browser-visible origin of the app, derived from the request headers
+    # (same helper the raw route uses for its CSP). Passed to the self-origin
+    # guard so it holds even if settings.public_base_url is unset/misconfigured.
+    from backend.routes.artifacts_public import _app_origin
+    app_origin = _app_origin(request)
+
     db = await get_db_client()
     service = ArtifactService(db)
     try:
@@ -216,6 +222,7 @@ async def open_url_artifact(request: Request, agent_id: str, body: OpenUrlReques
             session_id=None,  # URL tabs are agent-scoped like manual registers
             url=body.url,
             title=body.title,
+            app_origin=app_origin,
         )
     except ArtifactError as e:
         raise HTTPException(status_code=e.code, detail=str(e))

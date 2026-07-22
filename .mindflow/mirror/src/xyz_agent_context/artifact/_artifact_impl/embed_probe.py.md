@@ -16,13 +16,15 @@ frame-ancestors), which we cannot override. This module makes that decision.
 
 - **`classify_embeddability(...)`** — PURE function: response headers + our
   serving scheme in, `EmbedVerdict` out. Exhaustively unit-tested with no
-  network. Rules: XFO deny/sameorigin → stream; CSP frame-ancestors present
-  and not `*` → stream; http target under our https app (mixed content) →
-  stream; else → iframe.
-- **`probe_url(...)`** — async orchestration: fetch the URL, following
-  redirects MANUALLY (≤5) so every hop re-passes the [[url_safety.py]] SSRF
-  gate, then classify the final hop's headers. `client`/`resolver`
-  injectable for tests (httpx MockTransport).
+  network. Rules: XFO deny/sameorigin/ALLOW-FROM → stream; CSP frame-ancestors
+  present and not `*` → stream; http target under our https app (mixed
+  content) → stream; else → iframe.
+- **`probe_url(...)`** — async orchestration: `client.stream()` the URL and
+  read ONLY the response headers (never the body — the URL is user-supplied
+  and uncapped, so a full read could pin a worker), following redirects
+  MANUALLY (≤5) so every hop re-passes the [[url_safety.py]] SSRF gate, then
+  classify the final hop's headers. `client`/`resolver` injectable for tests
+  (httpx MockTransport).
 
 ## Key decision: probe-failed → iframe (optimistic), not stream
 

@@ -6,6 +6,11 @@ stub: false
 
 ## 2026-07-22 — URL-tab domain operations
 
+`open_url` gained an `app_origin` param: the HTTP route derives the
+browser-visible origin from the request and passes it so the self-origin
+guard holds even when settings.public_base_url is unset (the MCP path leaves
+it None). See [[url_artifact.py]] for the guard.
+
 Added `open_url()`, `set_embed_mode()` for the URL-tab feature (see
 [[url_artifact.py]] / [[embed_probe.py]] / [[url_safety.py]]). They follow the
 same thin-bridge shape as register/heal/resolve_raw_file — the service stays a

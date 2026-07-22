@@ -16,13 +16,15 @@
  * targets — the same code path serves both run modes.
  *
  * SECURITY — the iframe sandbox includes `allow-same-origin` (unlike
- * HtmlRenderer, which forbids it). That is safe ONLY because a URL tab is
- * always CROSS-origin third-party content: allow-same-origin keeps the iframe
- * on the TARGET site's origin, which cannot reach our parent DOM/token. The
- * backend (`url_artifact._reject_self_origin`) refuses to open a tab pointing
- * at our own app origin, which is what would otherwise turn this into a
- * same-origin scriptable iframe. Do NOT copy this sandbox to a renderer that
- * loads first-party (same-origin) content.
+ * HtmlRenderer, which forbids it). This is safe only for CROSS-origin
+ * third-party content: allow-same-origin keeps the iframe on the TARGET
+ * site's origin, which (being cross-origin) cannot reach our parent DOM/token.
+ * A URL tab pointing at OUR OWN origin would instead become a same-origin
+ * scriptable iframe able to read the app token — so the backend
+ * (`url_artifact._reject_self_origin`, browser-accurate origin comparison +
+ * the request-derived app origin) refuses to open such a tab. The safety of
+ * this sandbox depends on that guard; do NOT copy this sandbox to a renderer
+ * that can load first-party (same-origin) content.
  */
 
 import { useEffect, useState } from 'react';

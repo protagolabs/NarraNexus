@@ -26,8 +26,11 @@ renderer fetches it through the token-authed raw route, then:
   path serves both run modes (铁律 #7).
 - iframe sandbox is `allow-scripts allow-same-origin allow-forms allow-popups
   allow-popups-to-escape-sandbox` — a real third-party site needs its own
-  origin/storage/forms to function; cross-origin isolation still prevents it
-  touching OUR app (different origin).
+  origin/storage/forms to function. `allow-same-origin` is safe ONLY because a
+  URL tab is cross-origin third-party content; a tab pointing at our OWN origin
+  would become a same-origin scriptable iframe reaching the app token, so the
+  backend (`url_artifact._reject_self_origin`) refuses to open one. The sandbox
+  safety DEPENDS on that guard — don't copy it to a same-origin renderer.
 - The doc fetch uses `fetchArtifactText` like the other text renderers
   (Csv/Markdown/Chart) — same pattern, same Tauri behavior.
 

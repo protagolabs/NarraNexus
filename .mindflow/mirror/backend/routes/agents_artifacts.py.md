@@ -6,6 +6,12 @@ stub: false
 
 ## 2026-07-22 — URL-tab endpoints
 
+The `POST .../artifacts/url` handler computes the browser origin via
+`artifacts_public._app_origin(request)` and passes it to
+`ArtifactService.open_url` as `app_origin`, so the self-origin guard is robust
+even if `public_base_url` is misconfigured (defense in depth for the
+allow-same-origin URL iframe).
+
 Added `POST /{aid}/artifacts/url` (open a web page as a URL tab; SSRF-gated,
 probes embeddability) and `POST /{aid}/artifacts/{id}/embed-mode` (set/clear
 the user's manual embed override). Both are thin shells over

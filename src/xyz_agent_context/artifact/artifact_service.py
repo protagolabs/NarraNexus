@@ -112,12 +112,18 @@ class ArtifactService:
         session_id: Optional[str],
         url: str,
         title: Optional[str] = None,
+        app_origin: Optional[str] = None,
     ) -> CreateArtifactToolResult:
         """Open a web page as a URL-tab artifact.
 
-        See `_artifact_impl/url_artifact.py`: SSRF-gates the URL, probes its
-        embeddability, writes the UrlArtifactDoc, and registers it through the
-        shared pointer path. Raises ArtifactError on a non-public URL.
+        See `_artifact_impl/url_artifact.py`: rejects our own origin
+        (self-origin guard) and SSRF-gates the URL, probes its embeddability,
+        writes the UrlArtifactDoc, and registers it through the shared pointer
+        path. Raises ArtifactError on our own origin / a non-public URL.
+
+        `app_origin` (the browser-visible app origin, supplied by the HTTP
+        route) widens the self-origin guard; the MCP path leaves it None and
+        relies on settings.public_base_url.
         """
         return await url_artifact.open_url(
             repo=self._repo,
@@ -126,6 +132,7 @@ class ArtifactService:
             session_id=session_id,
             url=url,
             title=title,
+            app_origin=app_origin,
         )
 
     async def set_embed_mode(
