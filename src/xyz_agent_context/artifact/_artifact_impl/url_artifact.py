@@ -101,9 +101,15 @@ def _reject_self_origin(url: str) -> None:
 
 
 def _write_doc(abs_path: str, doc: UrlArtifactDoc) -> None:
+    # Atomic write: a truncate-in-place crash (e.g. during a set_embed_mode
+    # toggle) would leave a half-written doc that _read_doc can't parse,
+    # bricking the tab. Write a sibling temp file then os.replace (atomic on
+    # POSIX) so a reader always sees either the old or the new complete doc.
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    with open(abs_path, "w", encoding="utf-8") as f:
+    tmp_path = f"{abs_path}.{os.getpid()}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         f.write(doc.model_dump_json(indent=2))
+    os.replace(tmp_path, abs_path)
 
 
 async def open_url(
