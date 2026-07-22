@@ -240,8 +240,12 @@ from .artifact_schema import (
     Artifact,
     ArtifactKind,
     CreateArtifactToolResult,
+    EmbedMode,
+    EmbedVerdict,
     HealCandidate,
     HealResult,
+    URL_ARTIFACT_KIND,
+    UrlArtifactDoc,
 )
 
 # ===== Export All =====
@@ -416,6 +420,10 @@ __all__ = [
     "Artifact",
     "ArtifactKind",
     "CreateArtifactToolResult",
+    "EmbedMode",
+    "EmbedVerdict",
     "HealCandidate",
     "HealResult",
+    "URL_ARTIFACT_KIND",
+    "UrlArtifactDoc",
 ]

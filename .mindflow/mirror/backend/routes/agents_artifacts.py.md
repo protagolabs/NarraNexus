@@ -1,9 +1,16 @@
 ---
 code_file: backend/routes/agents_artifacts.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — URL-tab endpoints
+
+Added `POST /{aid}/artifacts/url` (open a web page as a URL tab; SSRF-gated,
+probes embeddability) and `POST /{aid}/artifacts/{id}/embed-mode` (set/clear
+the user's manual embed override). Both are thin shells over
+`ArtifactService.open_url` / `.set_embed_mode` — same auth + error-mapping
+pattern as the rest of this router.
 ## 2026-07-21 — thinned to an HTTP shell; heal moved to ArtifactService
 
 Artifact business logic left this file for the new

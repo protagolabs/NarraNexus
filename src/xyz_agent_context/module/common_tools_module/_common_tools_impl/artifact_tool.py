@@ -150,3 +150,54 @@ def register(mcp: FastMCP) -> None:
                          f"This is likely transient — you can call the tool again.",
                 "code": 500,
             }
+
+    @mcp.tool(
+        name="open_url",
+        description=(
+            "Open a web page as a tab next to the chat, so the user (and you) "
+            "can see it. Use this when you found a relevant web page — a "
+            "dashboard, a doc, a live report — and want to surface it, instead "
+            "of just pasting the link in a message.\n"
+            "\n"
+            "The system probes the page: if it allows embedding it shows "
+            "inline; if it refuses (many big sites do), the tab shows a card "
+            "with an 'open in new window' button — either way the tab is "
+            "created. Only public http(s) URLs are accepted; internal/"
+            "loopback addresses are rejected.\n"
+            "\n"
+            "url — the full http(s) URL. title — a short tab title (optional; "
+            "defaults to the URL).\n"
+            "On success returns {artifact_id, url}; the tab is already visible, "
+            "so don't repeat the link. On failure returns {error, code}."
+        ),
+    )
+    async def open_url(
+        url: str,
+        agent_id: str,
+        user_id: str,
+        title: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> dict:
+        """Register-scoped MCP handler for `open_url`. Delegates to
+        `ArtifactService.open_url`; every failure path returns {error, code}."""
+        try:
+            db = await get_db_client()
+            service = ArtifactService(db)
+            result = await service.open_url(
+                agent_id=agent_id,
+                user_id=user_id,
+                session_id=session_id,
+                url=url,
+                title=title,
+            )
+            return result.model_dump(mode="json")
+        except ArtifactError as e:
+            logger.warning(f"open_url rejected: {e}")
+            return {"error": str(e), "code": e.code}
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"open_url failed unexpectedly: {e}")
+            return {
+                "error": f"open_url failed unexpectedly: {e}. "
+                         f"This is likely transient — you can call the tool again.",
+                "code": 500,
+            }

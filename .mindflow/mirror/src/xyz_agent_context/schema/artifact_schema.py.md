@@ -1,9 +1,15 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — URL-tab models
+
+Added `URL_ARTIFACT_KIND` ("application/x-url") to `ArtifactKind`, plus
+`EmbedMode`, `EmbedVerdict` (with `effective_mode` collapsing recommend +
+user_override), and `UrlArtifactDoc` (the on-disk `page.url.json` entry file).
+The URL lives in the doc, not a DB column — pointer model preserved.
 ## 2026-07-21 — HealCandidate / HealResult moved into the central schema
 
 The heal endpoint's response models (`HealResponse` / `HealCandidate`) used to

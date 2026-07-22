@@ -39,6 +39,7 @@ from xyz_agent_context.artifact._artifact_impl.errors import (
 )
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema.artifact_schema import (
+    URL_ARTIFACT_KIND,
     Artifact,
     ArtifactKind,
     CreateArtifactToolResult,
@@ -72,6 +73,10 @@ ALL_KINDS = frozenset(
         "image/jpeg",
         "application/pdf",
         OFFICE_LIVE_KIND,
+        # URL-tab artifacts: the entry is a small JSON doc (UrlArtifactDoc)
+        # written by ArtifactService.open_url, so they register through the
+        # same pointer path as everything else.
+        URL_ARTIFACT_KIND,
     }
 )
 

@@ -1,9 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — new `open_url` MCP tool
+
+Second tool registered alongside `register_artifact`: `open_url(url, title?)`
+lets the agent open a web page as a URL tab, delegating to
+`ArtifactService.open_url`. Same `{error, code}` failure contract. The tool
+name is NOT matched by the frontend live-discovery constant (that is
+`register_artifact` only) — URL tabs surface via the normal artifact refresh,
+so no ChatPanel coupling to keep in sync here.
 ## 2026-05-20 — quota wording purged (v1.7.0 removal cleanup)
 
 The per-user artifact quota was removed in v1.7.0 (see [[artifact_runner.py]]),

@@ -113,6 +113,16 @@ class ViewTokenResponse(BaseModel):
     expires_at: int
 
 
+class OpenUrlRequest(BaseModel):
+    url: str
+    title: Optional[str] = None
+
+
+class EmbedModeRequest(BaseModel):
+    # None clears the user's override, reverting to the probe recommendation.
+    mode: Optional[str] = None
+
+
 # ── list / register ──────────────────────────────────────────────────────────
 
 
@@ -179,6 +189,64 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
         # Should be impossible — the service just wrote the row.
         raise HTTPException(500, "artifact disappeared after registration")
     return art
+
+
+# ── URL tabs ─────────────────────────────────────────────────────────────────
+
+
+@router.post("/{agent_id}/artifacts/url", response_model=Artifact)
+async def open_url_artifact(request: Request, agent_id: str, body: OpenUrlRequest):
+    """Open a web page as a URL-tab artifact.
+
+    Server-side probes the URL's embeddability and stores the verdict; the
+    frontend renders it as an iframe or a fallback card accordingly. The
+    initial URL is SSRF-gated — a non-public target is rejected 400.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    user_id = await _resolve_agent_user_id(agent_id)
+
+    db = await get_db_client()
+    service = ArtifactService(db)
+    try:
+        result = await service.open_url(
+            agent_id=agent_id,
+            user_id=user_id,
+            session_id=None,  # URL tabs are agent-scoped like manual registers
+            url=body.url,
+            title=body.title,
+        )
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
+
+    repo = ArtifactRepository(db)
+    art = await repo.get_by_id(result.artifact_id)
+    if art is None:
+        raise HTTPException(500, "artifact disappeared after registration")
+    return art
+
+
+@router.post("/{agent_id}/artifacts/{artifact_id}/embed-mode", response_model=Artifact)
+async def set_embed_mode(request: Request, agent_id: str, artifact_id: str, body: EmbedModeRequest):
+    """Set (or clear, mode=null) the user's manual embed override on a URL tab.
+
+    The override wins over the probe recommendation for that tab. Rewrites the
+    tab's on-disk doc; 404 if the artifact is missing / not owned / not a URL
+    tab; 400 for an invalid mode value.
+    """
+    if body.mode is not None and body.mode not in ("iframe", "stream"):
+        raise HTTPException(400, "mode must be 'iframe', 'stream', or null")
+    await _verify_agent_ownership(request, agent_id)
+
+    db = await get_db_client()
+    service = ArtifactService(db)
+    try:
+        return await service.set_embed_mode(
+            agent_id=agent_id,
+            artifact_id=artifact_id,
+            mode=body.mode,  # type: ignore[arg-type]
+        )
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
 
 
 # ── heal: recover a broken pointer ───────────────────────────────────────────
