@@ -138,11 +138,15 @@
       "situationFailed": "This run hit an error and the agent could not reply normally. Details:",
       "situationRecovered": "The agent replied, but errors occurred during the run. Details:",
       "titleActionable": "Action needed",
+      "titleInfra": "Execution environment issue",
       "action": {
         "context_window": "The selected model's context window is too small for this Agent. Switch to a model with a larger context window in Settings, then send again.",
         "insufficient_balance": "The model provider reports insufficient balance or quota. Top up or switch the provider in Settings, then send again.",
         "model_not_found": "The configured model id was rejected by the provider (not found or invalid). Pick a valid model in Settings, then send again.",
-        "generic": "This turn could not run due to a configuration issue you can fix in Settings, then send again."
+        "generic": "This turn could not run due to a configuration issue you can fix in Settings, then send again.",
+        "executor_oom": "The execution environment ran out of memory and was stopped by the system. Try splitting the task into smaller steps or reducing active modules, then send again.",
+        "executor_unreachable": "Your execution container is temporarily unreachable. It usually recovers within a few seconds — please resend this message shortly.",
+        "infra_transient": "This turn could not run due to a temporary platform-side execution issue. Please send the message again in a moment."
       }
     }
   },

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/remote_agent_loop_driver.py
 stub: false
-last_verified: 2026-07-15
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — 连接建立失败 → 类型化 ExecutorUnreachableError
+
+`agent_loop` 的 `session.post` 块外包一层 `except aiohttp.ClientConnectorError`
+→ `raise ExecutorUnreachableError(...) from e`（[[executor_errors.py]]）。
+`ClientConnectorError` **只在连接建立时**发生、不在流内，所以精确对应"executor
+不可达"，不会吞掉流内错误（NDJSON `response.error` 帧仍原样透传给
+response_processor）。上层 [[step_3_agent_loop.py]] 据类名 surface 成 `infra_transient`
+可读错误、skip 兜底、写审计，而不是冒裸 ClientConnectorError（issue ② 根因）。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

@@ -52,6 +52,7 @@ from .runtime_message import (
     # Constants
     AUTH_EXPIRED_ERROR_TYPE,
     SELF_SERVICEABLE_ERROR_TYPE,
+    EXECUTOR_INFRA_ERROR_TYPE,
 )
 
 # ===== Job Schema =====
