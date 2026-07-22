@@ -1,7 +1,19 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — required-service list follows the worker consolidation
+
+`is_required_service` now matches `sqlite_proxy | backend | mcp | workers` (was
+`… | poller | job_trigger | message_bus_trigger`). The four worker processes
+collapsed into the single `workers` supervisor ([[run_worker_supervisor.py]] /
+[[state.rs]]), so the portless-worker liveness sweep on startup now checks `mcp`
++ `workers`. An unconfigured IM channel never fails `workers` (per-channel
+startup is isolated inside `start_channel_triggers`); the supervisor only fails
+on a real bug (import / DB unreachable), which the startup grace window catches.
+No runtime restart logic was added here — the supervisor does its OWN per-task
+backoff-restart; this file's contract is still startup-gating only.
 
 ## 2026-07-13 — forward NetMind ("Power") env to the backend sidecar
 

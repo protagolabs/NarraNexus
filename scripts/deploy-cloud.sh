@@ -178,28 +178,25 @@ create_service "backend" "Backend API" \
 create_service "mcp" "MCP Server" \
     "${UV_BIN} run python -m xyz_agent_context.module.module_runner mcp"
 
-create_service "poller" "Module Poller" \
-    "${UV_BIN} run python -m xyz_agent_context.services.module_poller"
-
-create_service "jobs" "Job Trigger" \
-    "${UV_BIN} run python src/xyz_agent_context/module/job_module/job_trigger.py"
-
-create_service "bus" "Bus Trigger" \
-    "${UV_BIN} run python -m xyz_agent_context.message_bus.message_bus_trigger"
-
-# Consolidated IM channel triggers — one supervisor process runs every channel
-# (Lark / Slack / Telegram / Discord / WeChat / NarraMessenger) in a single
-# event loop, replacing the old one-service-per-channel layout. Must mirror
-# scripts/dev-local.sh so cloud and local stay in lockstep.
-create_service "channels" "Channel Triggers" \
-    "${UV_BIN} run python -m xyz_agent_context.module.run_channel_triggers"
+# Consolidated worker supervisor — ONE process runs the module poller, the job
+# and message-bus triggers, and every IM channel trigger in a single event loop,
+# each as a supervised backoff-restart task, sharing one package import + one DB
+# pool. Replaces the old four-unit layout (poller / jobs / bus / channels). Must
+# mirror scripts/dev-local.sh so cloud and local stay in lockstep.
+#
+# To split workers across VMs/containers for horizontal scale, run the
+# supervisor with a subset selector on each host, e.g.:
+#   ... run_worker_supervisor --only channels --channels lark
+#   ... run_worker_supervisor --only poller,jobs,bus
+create_service "workers" "Workers" \
+    "${UV_BIN} run python -m xyz_agent_context.module.run_worker_supervisor"
 
 sudo systemctl daemon-reload
 echo -e "${G}  Systemd services created${R}"
 
 # --- Start services ---
 echo -e "${Y}[6/6] Starting services...${R}"
-for svc in backend mcp poller jobs bus channels; do
+for svc in backend mcp workers; do
     sudo systemctl enable "narranexus-${svc}" --quiet
     sudo systemctl restart "narranexus-${svc}"
     echo -e "  ${G}●${R} narranexus-${svc}"
@@ -228,5 +225,5 @@ echo -e "    sudo systemctl status narranexus-backend"
 echo -e "    sudo journalctl -u narranexus-backend -f"
 echo -e "    sudo systemctl restart narranexus-backend"
 echo ""
-echo -e "  All services: narranexus-{backend,mcp,poller,jobs,bus,lark,slack,telegram,discord}"
+echo -e "  All services: narranexus-{backend,mcp,workers}"
 echo -e "${G}============================================================${R}"
