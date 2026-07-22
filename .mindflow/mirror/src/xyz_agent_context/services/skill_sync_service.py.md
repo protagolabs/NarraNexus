@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/services/skill_sync_service.py
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 stub: false
 ---
 
@@ -22,11 +22,18 @@ re-flagged every pass).
 
 ## Wiring
 
-Runs inside the backend lifespan (`backend/main.py`): one startup pass +
-`run_forever` loop (env `SKILL_SYNC_INTERVAL_SECONDS`, default 1800, 0
-disables), cancelled on shutdown with a done-callback that logs unexpected
-exits (fire-and-forget lesson #2). Lives in the backend process — both run
-modes (run.sh / DMG sidecar) boot the same lifespan, iron rule #7.
+Runs inside the backend lifespan (`backend/main.py`) as a single
+fire-and-forget `create_task(run_forever())` — the lifespan does NOT run a
+separate blocking startup pass and does NOT await the first reconcile
+(scanning every workspace + hashing every installed skill grows with users;
+blocking startup on it was the 2026-07-22 lifespan-latency fix). Instead
+`run_forever` does its FIRST reconcile immediately inside the loop, then
+sleeps `SKILL_SYNC_INTERVAL_SECONDS` (default 1800) between passes. Setting
+the interval `<= 0` returns before the loop even starts, so it disables the
+ENTIRE reconciler — no first pass and no periodic loop (tests opt out this
+way). Cancelled on shutdown with a done-callback that logs unexpected exits
+(fire-and-forget lesson #2). Lives in the backend process — both run modes
+(run.sh / DMG sidecar) boot the same lifespan, iron rule #7.
 `reconcile_all` walks the NESTED workspace layout `{user_id}/{agent_id}`
 (see utils/workspace_paths.py `_LAYOUT`); if the layout flips again this
 walk must follow.
