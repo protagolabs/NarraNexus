@@ -5,6 +5,11 @@ stub: false
 ---
 # schema/__init__.py — schema 包的集中导出门面
 
+## 2026-07-21 — 导出 `HealCandidate` / `HealResult`
+
+artifact heal 的结果模型从路由本地类提升进 [[artifact_schema.py]]，门面同步
+re-export。纯转发。
+
 ## 2026-07-22 — 导出 `EXECUTOR_INFRA_ERROR_TYPE`
 
 门面新增 re-export `EXECUTOR_INFRA_ERROR_TYPE`（[[runtime_message.py]]），供

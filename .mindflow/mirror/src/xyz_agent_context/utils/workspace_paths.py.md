@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/utils/workspace_paths.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-21
 ---
 
 ## Why it exists
@@ -9,7 +9,7 @@ last_verified: 2026-06-17
 Single source of truth for an agent's on-disk workspace layout. The
 layout `{base}/{agent_id}_{user_id}` used to be hardcoded as
 `f"{agent_id}_{user_id}"` in ~11 places (step_3, bundle builder/importer/
-skill_backup, bootstrap, skill_module, attachment_storage, artifact_runner,
+skill_backup, bootstrap, skill_module, attachment_storage, the artifact subsystem (xyz_agent_context/artifact),
 arena_provisioning, identity_migration). This module centralizes it so the
 layout can change in ONE place.
 

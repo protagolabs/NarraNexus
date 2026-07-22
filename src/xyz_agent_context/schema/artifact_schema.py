@@ -13,12 +13,14 @@ Models:
 - ArtifactKind: literal whitelist of allowed mime-like kinds
 - Artifact: metadata row; session_id NULL ⇔ pinned (agent-scoped)
 - CreateArtifactToolResult: what register_artifact returns to the LLM
+- HealCandidate / HealResult: outcome of the broken-pointer recovery flow
+  (ArtifactService.heal); doubles as the heal endpoint's response model
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -57,3 +59,26 @@ class CreateArtifactToolResult(BaseModel):
     artifact_id: str
     url: str
     created_at: datetime
+
+
+class HealCandidate(BaseModel):
+    """One workspace file the heal scan surfaced as a plausible re-register
+    target for a broken pointer (extension matches the artifact kind)."""
+
+    workspace_path: str  # path relative to the agent workspace, e.g. "briefings/2026-05-19.html"
+    size_bytes: int
+    mtime: float  # unix epoch seconds
+
+
+class HealResult(BaseModel):
+    """Outcome of a heal attempt (see ArtifactService.heal for the strategy).
+
+    recovered=True → `artifact` holds the (possibly re-registered) row.
+    recovered=False → `candidates` holds 0..N options for the user to pick
+    from; `message` explains the situation either way.
+    """
+
+    recovered: bool
+    artifact: Optional[Artifact] = None  # populated when recovered=True
+    candidates: List[HealCandidate] = Field(default_factory=list)
+    message: str
