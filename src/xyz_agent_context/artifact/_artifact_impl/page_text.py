@@ -38,6 +38,11 @@ _MAX_FETCH_BYTES = 1_000_000  # read at most ~1 MB of body
 _MAX_TEXT_CHARS = 16_000      # cap the extracted text handed to the agent
 
 _SCRIPT_STYLE = re.compile(r"<(script|style|noscript|template)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
+# A script/style block left UNCLOSED — happens when the body was byte-capped
+# mid-block, so `</style>` was never read. Strip from the opening tag to EOF,
+# else the raw CSS/JS leaks into the "text" (baidu et al. front-load huge
+# inline <style> blocks). Runs after the complete-block removal above.
+_DANGLING_SCRIPT_STYLE = re.compile(r"<(script|style|noscript|template)\b[^>]*>.*$", re.IGNORECASE | re.DOTALL)
 _BLOCK_END = re.compile(r"</(p|div|section|article|li|tr|h[1-6]|header|footer)\s*>|<br\s*/?>", re.IGNORECASE)
 _TAG = re.compile(r"<[^>]+>")
 _INLINE_WS = re.compile(r"[ \t\r\f\v]+")
@@ -48,6 +53,7 @@ def html_to_text(html: str) -> str:
     """Crude, dependency-free HTML → readable text. Not a full parser — good
     enough to give the agent the gist of a page's content."""
     s = _SCRIPT_STYLE.sub(" ", html)
+    s = _DANGLING_SCRIPT_STYLE.sub(" ", s)  # truncated-mid-block script/style
     s = _BLOCK_END.sub("\n", s)  # turn block-ends into line breaks
     s = _TAG.sub("", s)
     s = unescape(s)

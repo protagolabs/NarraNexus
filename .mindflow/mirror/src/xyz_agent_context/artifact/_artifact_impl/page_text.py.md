@@ -36,6 +36,14 @@ deliberately not built here.
   (network, SSRF hop, non-HTML, empty) returns None, so it can't break tab
   creation.
 
+## 2026-07-22 — strip truncated-mid-block script/style
+
+When the body is byte-capped mid-`<style>`/`<script>`, the closing tag is never
+read so the complete-block regex can't remove it and the raw CSS/JS leaked into
+the "text" (baidu et al. front-load huge inline `<style>` blocks — the agent
+saw `html{font-size:...}` noise). `html_to_text` now also strips a DANGLING
+open script/style block (opening tag → EOF) after removing complete ones.
+
 ## Gotchas
 
 - The snapshot is taken at open time; if the page changes later it's stale
