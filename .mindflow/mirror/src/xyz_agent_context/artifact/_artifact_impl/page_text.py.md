@@ -4,6 +4,14 @@ last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — built on the shared safe_http walk
+
+`fetch_page_text` no longer carries its own redirect+SSRF loop / UA / redirect
+constant (that was a near-duplicate of the probe's). It opens
+[[safe_http.py]] `safe_stream_get` and reads a BOUNDED slice of the final
+hop's body. `open_url` runs it CONCURRENTLY with the probe (asyncio.gather)
+under one wall-clock budget — see [[url_artifact.py]].
+
 # page_text.py — readable-text snapshot of a URL tab (agent visibility)
 
 ## Why it exists

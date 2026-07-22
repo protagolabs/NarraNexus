@@ -28,26 +28,16 @@ failure.
 from __future__ import annotations
 
 from typing import Mapping, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
 
 from xyz_agent_context.schema.artifact_schema import EmbedVerdict
-from xyz_agent_context.utils.url_safety import (
-    Resolver,
-    UnsafeUrlError,
-    assert_public_http_url,
-)
+from xyz_agent_context.utils.safe_http import RedirectLimitError, safe_stream_get
+from xyz_agent_context.utils.url_safety import Resolver, UnsafeUrlError
 
-# A realistic desktop browser UA — some sites vary embed headers by UA, and we
-# want the headers a real browser embed would see.
-_BROWSER_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-)
 _PROBE_TIMEOUT_S = 5.0
-_MAX_REDIRECTS = 5
 
 
 def _frame_ancestors_blocks(directive_value: str) -> bool:
@@ -126,36 +116,26 @@ async def probe_url(
     with `probe_status="failed"`; the caller has already hard-rejected an
     unsafe *initial* URL, so SSRF on a later hop just degrades the probe.
 
-    `client` is injectable for tests (a mock transport); `resolver` is passed
+    Redirect-following + per-hop SSRF gate live in the shared
+    `utils.safe_http.safe_stream_get`; we only read the final hop's headers
+    (never its body). `client` is injectable for tests; `resolver` is passed
     through to the SSRF gate.
     """
     owns_client = client is None
     if client is None:
         client = httpx.AsyncClient(follow_redirects=False, timeout=_PROBE_TIMEOUT_S)
     try:
-        current = url
-        for _ in range(_MAX_REDIRECTS + 1):
-            await assert_public_http_url(current, resolver=resolver)
-            # Stream, not get(): we only need the response headers. get() reads
-            # the whole body into memory, and the URL is user/agent-supplied
-            # with no size cap — a slow-drip large response would pin a worker.
-            # `stream` gives us headers immediately and closes on __aexit__
-            # without ever reading the body.
-            async with client.stream(
-                "GET", current, headers={"User-Agent": _BROWSER_UA}
-            ) as resp:
-                if resp.is_redirect and "location" in resp.headers:
-                    current = urljoin(current, resp.headers["location"])
-                    continue
-                return classify_embeddability(
-                    final_url=current, headers=resp.headers, our_scheme=our_scheme
-                )
+        async with safe_stream_get(client, url, resolver=resolver) as resp:
+            return classify_embeddability(
+                final_url=str(resp.url), headers=resp.headers, our_scheme=our_scheme
+            )
+    except RedirectLimitError:
         logger.warning("embed probe hit redirect limit for {}", url)
         return EmbedVerdict(recommended="iframe", reason="too-many-redirects", probe_status="failed")
     except UnsafeUrlError as e:
-        # A later hop pointed inside the network. Degrade the probe (the
-        # browser, not us, will fetch the iframe); don't crash tab creation.
-        logger.warning("embed probe SSRF-blocked a redirect hop for {}: {}", url, e)
+        # A hop pointed inside the network. Degrade the probe (the browser, not
+        # us, will fetch the iframe); don't crash tab creation.
+        logger.warning("embed probe SSRF-blocked a hop for {}: {}", url, e)
         return EmbedVerdict(recommended="iframe", reason="probe-failed", probe_status="failed")
     except Exception as e:  # noqa: BLE001 — any network failure degrades, never crashes
         logger.info("embed probe failed for {}: {}", url, e)

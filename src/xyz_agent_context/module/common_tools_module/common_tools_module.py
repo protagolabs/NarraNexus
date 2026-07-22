@@ -289,15 +289,23 @@ class CommonToolsModule(XYZBaseModule):
                 "a file as a tab the user can see)"
             )
 
+        import os
+        import posixpath
+
+        from xyz_agent_context.schema.artifact_schema import (
+            URL_ARTIFACT_KIND,
+            URL_TAB_CONTENT_FILENAME,
+        )
+        from xyz_agent_context.settings import settings
         from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
         # Strip whichever workspace prefix the stored path carries (current
         # nested layout, or a legacy flat path from before the flip).
         workspace_prefixes = (
             f"{agent_workspace_relpath(self.agent_id, self.user_id or '')}/",
             f"{self.agent_id}_{self.user_id or ''}/",
         )
-        from xyz_agent_context.artifact._artifact_impl.url_artifact import CONTENT_FILENAME
-        from xyz_agent_context.schema.artifact_schema import URL_ARTIFACT_KIND
+        base = os.path.realpath(settings.base_working_path)
 
         lines = [header]
         for a in artifacts:
@@ -307,10 +315,15 @@ class CommonToolsModule(XYZBaseModule):
                     rel = rel[len(prefix):]
                     break
             # For URL tabs, point the agent at the readable text snapshot so it
-            # can SEE the page content (not just that a tab exists).
+            # can SEE the page content — but ONLY when the snapshot exists on
+            # disk (URL tabs opened before this feature have no content.md, so
+            # a blind hint would point the agent at a missing file).
+            content_rel = None
             if a.kind == URL_ARTIFACT_KIND:
-                import posixpath
-                content_rel = posixpath.join(posixpath.dirname(rel), CONTENT_FILENAME)
+                candidate = posixpath.join(posixpath.dirname(rel), URL_TAB_CONTENT_FILENAME)
+                if os.path.isfile(os.path.join(base, a.file_path.rsplit("/", 1)[0], URL_TAB_CONTENT_FILENAME)):
+                    content_rel = candidate
+            if content_rel is not None:
                 lines.append(
                     f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → web page; "
                     f"Read `{content_rel}` to see its text content"

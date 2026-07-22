@@ -46,6 +46,13 @@ ArtifactKind = Literal[
 # name rather than being a bare string literal scattered around.
 URL_ARTIFACT_KIND = "application/x-url"
 
+# Filename of a URL tab's agent-readable text snapshot, written next to the
+# doc under tabs/<slug>/. A naming contract shared by the writer
+# (artifact/_artifact_impl/url_artifact.py) and the reader (the artifact state
+# block in common_tools_module) — it lives in schema so neither has to reach
+# across the artifact package's public seam to learn it.
+URL_TAB_CONTENT_FILENAME = "content.md"
+
 
 class Artifact(BaseModel):
     artifact_id: str  # "art_" + 8 random chars

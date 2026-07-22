@@ -7,7 +7,7 @@
  *   - fetches the doc through the token-authed raw route,
  *   - iframes the URL when it is embeddable (effective_mode = 'iframe'),
  *   - otherwise shows a fallback card (open-in-new-window) — this is where the
- *     future streaming renderer (方案三) plugs in for effective_mode = 'stream',
+ *     future streaming renderer (the streaming-browser plan) plugs in for effective_mode = 'stream',
  *   - always offers a mode toggle so the user can override a wrong verdict;
  *     the override is persisted via the embed-mode endpoint.
  *
@@ -33,7 +33,7 @@
  * navigate inside the tab and popup attempts are neutralised. We cannot turn
  * a cross-origin page's link into a new in-app tab (the same-origin policy
  * hides its navigations from us) — full in-app navigation control is a
- * streaming-browser (方案三) capability, not an iframe one.
+ * streaming-browser capability, not an iframe one.
  */
 
 import { useEffect, useState } from 'react';

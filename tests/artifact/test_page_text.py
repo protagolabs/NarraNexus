@@ -85,8 +85,10 @@ async def test_fetch_redirect_to_internal_returns_none_not_raise():
     def handler(request):
         return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/"})
     async with _client(handler) as c:
-        # no resolver override → the metadata IP is literal, SSRF-blocked → None
-        assert await fetch_page_text("https://evil.example/", client=c) is None
+        # resolver lets the FIRST hop pass so the 302 is actually followed; the
+        # second hop is the literal metadata IP → SSRF-blocked → degrade to None
+        # (exercises the per-hop gate on a followed redirect, no real DNS).
+        assert await fetch_page_text("https://evil.example/", client=c, resolver=_ok_resolver) is None
 
 
 @pytest.mark.asyncio
@@ -98,12 +100,21 @@ async def test_fetch_network_error_returns_none():
 
 
 @pytest.mark.asyncio
-async def test_fetch_body_is_byte_capped():
-    # A huge body must not blow up — extraction returns a capped, non-empty str.
-    big = "<p>" + ("word " * 500_000) + "</p>"
+async def test_fetch_stops_reading_at_byte_cap():
+    # Prove the BODY read stops at _MAX_FETCH_BYTES: a unique marker placed far
+    # past the cap must NOT appear in the extracted text (if we read the whole
+    # body it would). Uses an async byte stream so aiter_bytes is exercised.
+    from xyz_agent_context.artifact._artifact_impl import page_text as pt
+
+    body = b"<p>" + (b"x" * (pt._MAX_FETCH_BYTES + 500_000)) + b" UNIQUE_TAIL_MARKER</p>"
+
     def handler(request):
-        return httpx.Response(200, headers={"content-type": "text/html"}, text=big)
+        # content= bytes → httpx yields it in chunks via aiter_bytes, so the
+        # loop's byte-cap break is exercised against a >1MB body.
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=body)
+
     async with _client(handler) as c:
         text = await fetch_page_text("https://big.example/", client=c, resolver=_ok_resolver)
     assert text is not None
+    assert "UNIQUE_TAIL_MARKER" not in text  # tail past the byte cap was never read
     assert len(text) <= 16_000  # _MAX_TEXT_CHARS

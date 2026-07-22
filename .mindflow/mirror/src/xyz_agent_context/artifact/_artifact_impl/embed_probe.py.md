@@ -4,6 +4,13 @@ last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — redirect walk extracted to safe_http
+
+The manual redirect-following + per-hop SSRF loop moved to the shared
+[[safe_http.py]] `safe_stream_get`. `probe_url` now just opens that context and
+classifies the final hop's headers (`str(resp.url)` is the final URL). The
+duplicate copy in [[page_text.py]] is gone — the SSRF walk has one home.
+
 # embed_probe.py — can this URL be iframe-embedded, or must it stream?
 
 ## Why it exists
