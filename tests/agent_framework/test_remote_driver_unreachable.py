@@ -65,6 +65,69 @@ async def test_agent_loop_connect_error_becomes_unreachable(monkeypatch):
     assert ei.value.target == "http://nx-exec-abc:8020/agent-loop"
 
 
+class _FakeStreamResp:
+    """A response that streams `chunks`, then raises `raise_at_end` from
+    iter_any — models the executor container dying mid-run."""
+
+    def __init__(self, chunks, raise_at_end):
+        self._chunks = chunks
+        self._raise = raise_at_end
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    @property
+    def content(self):
+        return self
+
+    async def iter_any(self):
+        for c in self._chunks:
+            yield c
+        if self._raise is not None:
+            raise self._raise
+
+
+class _FakeStreamSession:
+    def __init__(self, resp):
+        self._resp = resp
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def post(self, *args, **kwargs):
+        return self._resp
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_mid_run_disconnect_becomes_unreachable(monkeypatch):
+    # Stream one valid event, then the connection drops mid-run — the executor
+    # was killed. This previously fell through as a generic exception and got
+    # masked by the fabricating fallback; now it is surfaced as unreachable.
+    resp = _FakeStreamResp(
+        chunks=[b'{"event": {"type": "ping"}}\n'],
+        raise_at_end=aiohttp.ServerDisconnectedError("connection lost"),
+    )
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _FakeStreamSession(resp))
+
+    driver = RemoteAgentLoopDriver("claude", "/tmp/wp", "http://nx-exec-abc:8020")
+    seen = []
+    with pytest.raises(ExecutorUnreachableError):
+        async for ev in driver.agent_loop(
+            messages=[{"role": "user", "content": "hi"}], mcp_servers={}
+        ):
+            seen.append(ev)
+    assert seen == [{"type": "ping"}]  # the pre-disconnect event still came through
+
+
 class _FakeHttpxClient:
     """Async-context httpx client whose .post() raises a transport error."""
 

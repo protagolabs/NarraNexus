@@ -22,6 +22,14 @@ stub: false
    纳入同一 `try`。这样冷启动抛的 `ExecutorUnreachableError`（[[executor_errors.py]]）
    落到同一 except 走 infra 收尾，而不是逃出 step_3 变裸异常（issue ② 根因）。
    `PathExecutionResult` 结尾产出不受影响。
+4. **severity 随"是否已回复"分级**（PR #133 review 连带修）：抽出
+   `_has_organic_reply(agent_loop_response)`（复用到 `_should_run_helper_llm_fallback`）。
+   infra/self-serviceable 的 raw_exception 分支：**若本轮已通过
+   `send_message_to_user_directly` 回复过**（executor OOM/掉线可能发生在回复之后）→
+   `severity="recovered_after_reply"`（warning 徽章、保留回复），否则 `fatal`。避免对
+   已经拿到答案的用户显示"请重试"、也避免把"已回复但收尾失败"整轮记失败。配合
+   [[agent_circuit_breaker.py]] 对 `infra_transient` 的熔断豁免，杜绝"平台抖动→冷却
+   →拒掉用户按提示的重发"。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

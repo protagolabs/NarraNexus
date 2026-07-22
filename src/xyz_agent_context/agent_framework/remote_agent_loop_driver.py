@@ -160,15 +160,25 @@ class RemoteAgentLoopDriver:
                     tail = bytes(buf).strip()
                     if tail:
                         yield _decode_event(tail)
-        except aiohttp.ClientConnectorError as e:
-            # The executor container is down / not yet up — the :8020 connection
-            # could not be established. ``ClientConnectorError`` fires ONLY at
-            # connection establishment (never mid-stream), so this stays scoped
-            # to "unreachable" and does not swallow in-stream failures. Convert
-            # to the typed exception so step_3 surfaces an actionable
-            # ``infra_transient`` error instead of a bare ClientConnectorError
-            # (issue ②), and so it is never mistaken for a retry-forever
-            # transient (its class name is not in the circuit breaker's set).
+        except (aiohttp.ClientConnectionError, aiohttp.ClientPayloadError) as e:
+            # The executor connection failed — either it could not be
+            # established (container down / not yet up → ClientConnectorError,
+            # ClientOSError) OR it dropped mid-run (container killed / network
+            # reset → ServerDisconnectedError, ClientPayloadError). Both mean
+            # the executor is unreachable; convert to the typed exception so
+            # step_3 surfaces an actionable ``infra_transient`` error and skips
+            # the fabricating fallback (issue ②) — even mid-run, which would
+            # otherwise be masked by a helper-LLM reply — and so it is never
+            # mistaken for a retry-forever transient (its class name is not in
+            # the circuit breaker's set).
+            #
+            # Deliberately NOT caught here (so they flow as before): the
+            # RuntimeError from ``_decode_event`` on an ``{"error":...}`` frame
+            # (a USER LLM error the executor relayed) and the ``_MAX_STREAM_BYTES``
+            # RuntimeError — both are RuntimeError, not aiohttp ClientError, so
+            # this except never touches them. ``ClientResponseError`` from
+            # ``raise_for_status`` (executor reachable but returned 5xx) is also
+            # not a ClientConnectionError, so it too flows through unchanged.
             raise ExecutorUnreachableError(
                 f"executor unreachable at {self._url}: "
                 f"{type(e).__name__}: {e}",

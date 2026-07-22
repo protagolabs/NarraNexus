@@ -30,6 +30,11 @@ target_error_type)`，infra 命中 → `error_type=infra_transient`
 并写审计事件（[[executor_audit.py]] `oom_killed` / `executor_unreachable`）。
 文案 provider 中立（延续下方 2026-07-20 约束），只信息告知不 force-stop（铁律 #14/#15）。
 
+**已知边界（PR #133 review Minor）**：`_OOM_RETURNCODE_MARKERS` 对整段错误文本做
+子串匹配；新加的 `"exit code -6"` 比 `-9` 更可能出现在 agent 自己跑的子进程报错文本
+里。当前只作用于**逃出 agent loop 的异常**（子进程报错通常被 agent 自己消化、不冒成
+loop 级异常），风险低。若将来 OOM 识别要更严，应改成解析结构化 returncode 而非子串。
+
 ## 2026-07-20 — 本文案保持 provider 中立（一度加过 NetMind 特化，已回退）
 
 `SELF_SERVICEABLE_USER_MESSAGE[INSUFFICIENT_BALANCE]` 曾短暂加上「订阅

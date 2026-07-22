@@ -213,6 +213,23 @@ def _serialize_agent_loop_for_prompt(
     return body
 
 
+def _has_organic_reply(agent_loop_response: list) -> bool:
+    """True if the agent already sent a real user reply this turn via
+    ``send_message_to_user_directly`` (a ProgressMessage tagged with that tool
+    name). Used to decide severity when a LATER failure hits: a turn that
+    already spoke must not be re-surfaced as a hard "retry" fatal — the user
+    got their answer, so it's a warning that the turn didn't finish all planned
+    work (severity=recovered_after_reply)."""
+    for r in agent_loop_response:
+        if not isinstance(r, ProgressMessage) or not r.details:
+            continue
+        details = r.details if isinstance(r.details, dict) else {}
+        tool_name = details.get("tool_name") or ""
+        if "send_message_to_user_directly" in tool_name:
+            return True
+    return False
+
+
 def _should_run_helper_llm_fallback(
     working_source: str,
     agent_loop_response: list,
@@ -258,18 +275,7 @@ def _should_run_helper_llm_fallback(
         isinstance(r, ErrorMessage) and getattr(r, "severity", "fatal") == "fatal"
         for r in agent_loop_response
     )
-    has_reply = False
-    for r in agent_loop_response:
-        if not isinstance(r, ProgressMessage) or not r.details:
-            continue
-        tool_name = (
-            (r.details.get("tool_name") or "")
-            if isinstance(r.details, dict)
-            else ""
-        )
-        if "send_message_to_user_directly" in tool_name:
-            has_reply = True
-            break
+    has_reply = _has_organic_reply(agent_loop_response)
 
     if has_fatal and has_reply:
         return "partial_reply_then_error", ""
@@ -1002,10 +1008,21 @@ async def step_3_agent_loop(
             if is_infra
             else self_serviceable_user_message(skip_reason_detail, raw_detail)
         )
+        # If the agent ALREADY sent a real reply before this failure (an executor
+        # OOM/drop can hit AFTER send_message_to_user_directly), surface a warning
+        # badge (recovered_after_reply), not a hard "retry" fatal — the user got
+        # their answer, and telling them to resend would re-run a done turn. Only
+        # a no-reply failure is fatal. (Self-serviceable errors fire before the
+        # agent runs, so this is virtually always "fatal" for them.)
+        severity = (
+            "recovered_after_reply"
+            if _has_organic_reply(agent_loop_response)
+            else "fatal"
+        )
         err = ErrorMessage(
             error_message=message,
             error_type=skip_target_type,
-            severity="fatal",
+            severity=severity,
             action_reason=skip_reason_detail,
         )
         agent_loop_response.append(err)

@@ -4,14 +4,24 @@ stub: false
 last_verified: 2026-07-22
 ---
 
-## 2026-07-22 — 连接建立失败 → 类型化 ExecutorUnreachableError
+## 2026-07-22 — 连接失败（建连 + mid-run 掉线）→ 类型化 ExecutorUnreachableError
 
-`agent_loop` 的 `session.post` 块外包一层 `except aiohttp.ClientConnectorError`
-→ `raise ExecutorUnreachableError(...) from e`（[[executor_errors.py]]）。
-`ClientConnectorError` **只在连接建立时**发生、不在流内，所以精确对应"executor
-不可达"，不会吞掉流内错误（NDJSON `response.error` 帧仍原样透传给
-response_processor）。上层 [[step_3_agent_loop.py]] 据类名 surface 成 `infra_transient`
-可读错误、skip 兜底、写审计，而不是冒裸 ClientConnectorError（issue ② 根因）。
+`agent_loop` 的 `session.post` 块外包一层
+`except (aiohttp.ClientConnectionError, aiohttp.ClientPayloadError)` →
+`raise ExecutorUnreachableError(...) from e`（[[executor_errors.py]]）。覆盖两种：
+- **建连失败**（容器没起/连不上）：ClientConnectorError / ClientOSError。
+- **mid-run 掉线**（容器跑一半被杀/网络断）：ServerDisconnectedError /
+  ClientPayloadError。
+
+> PR #133 review 指出：初版只 catch `ClientConnectorError`（仅建连），但 docstring
+> 声称覆盖 "mid-run drops"——文档与代码口径不一致，mid-run 掉线仍会被兜底编造回复
+> 掩盖。已扩到上述基类，口径对齐。
+
+**刻意不 catch**（照旧透传）：`_decode_event` 对 `{"error":...}` 帧抛的 RuntimeError
+（executor 转发的**用户 LLM 错误**）、`_MAX_STREAM_BYTES` 自抛的 RuntimeError——两者
+都是 RuntimeError 非 aiohttp ClientError；以及 `raise_for_status` 的
+ClientResponseError（executor 可达但返 5xx）。上层 [[step_3_agent_loop.py]] 据类名
+surface 成 `infra_transient`、skip 兜底、写审计（issue ② 根因）。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 
