@@ -61,6 +61,19 @@ class AddProviderRequest(BaseModel):
     default_slots: dict[str, SlotDefault] | None = None
 
 
+class TestProviderConfigRequest(BaseModel):
+    """Body for ``POST /api/providers/test-config`` — stateless probe.
+
+    Mirrors the custom-provider form fields so connectivity can be
+    verified BEFORE the provider is saved. Nothing here is persisted.
+    """
+    card_type: str
+    api_key: str = ""
+    base_url: str = ""
+    auth_type: str = "api_key"
+    models: list[str] = []
+
+
 class SetSlotRequest(BaseModel):
     provider_id: str
     model: str
@@ -513,6 +526,27 @@ async def test_provider(provider_id: str, request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
     success, message = await service.test_provider(uid, provider_id)
+    return {"success": success, "message": message}
+
+
+@router.post("/test-config")
+async def test_provider_config(req: TestProviderConfigRequest, request: Request):
+    """Probe an UNSAVED custom provider from raw form values.
+
+    Stateless counterpart to ``/{provider_id}/test``: it never reads or
+    writes the DB, letting the add-provider form validate a key /
+    base_url / model before the user commits it. Auth is still required
+    (a logged-in user), consistent with every other route here.
+    """
+    _get_user_id(request)  # enforce auth; the probe itself is per-request
+    service = await _get_service()
+    success, message = await service.test_provider_config(
+        card_type=req.card_type,
+        api_key=req.api_key,
+        base_url=req.base_url,
+        auth_type=req.auth_type,
+        models=req.models,
+    )
     return {"success": success, "message": message}
 
 

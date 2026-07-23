@@ -834,6 +834,7 @@
       "configuredProviders": "المزوّدون المُعدّون",
       "modelsCount": "{{count}} نموذج",
       "test": "اختبار",
+      "testConnection": "اختبار الاتصال",
       "edit": "تعديل",
       "delete": "حذف",
       "section2Title": "تعيين النماذج",

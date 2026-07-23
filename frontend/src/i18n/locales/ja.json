@@ -825,6 +825,7 @@
       "configuredProviders": "設定済みプロバイダー",
       "modelsCount": "{{count}} 個のモデル",
       "test": "テスト",
+      "testConnection": "接続をテスト",
       "edit": "編集",
       "delete": "削除",
       "section2Title": "モデル割り当て",

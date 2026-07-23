@@ -357,6 +357,10 @@ export function ProviderSettings() {
   const [formAuth, setFormAuth] = useState<'api_key' | 'bearer_token'>('api_key')
   const [formModels, setFormModels] = useState<string[]>([])
   const [formAdding, setFormAdding] = useState(false)
+  // In-form connectivity probe (verify BEFORE saving). Result is cleared
+  // whenever the form context changes so the UI never shows a stale verdict.
+  const [formTesting, setFormTesting] = useState(false)
+  const [formTestResult, setFormTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
 
   // Testing
@@ -491,8 +495,35 @@ export function ProviderSettings() {
     })
     if (ok) {
       setShowForm(null); setFormName(''); setFormUrl(''); setFormKey(''); setFormAuth('api_key'); setFormModels([])
+      setFormTestResult(null)
     }
     setFormAdding(false)
+  }
+
+  // Stateless "verify before save": probe the endpoint straight from the
+  // current form values via /test-config — nothing is persisted, so the
+  // user can fix a wrong key / url / model without polluting stored config.
+  const handleTestForm = async () => {
+    if (!showForm || !formKey.trim()) { setError(t('settings.provider.enterApiKeyShort')); return }
+    setFormTesting(true)
+    setFormTestResult(null)
+    try {
+      const res = await authFetch(providerUrl('/test-config'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          card_type: showForm,
+          api_key: formKey.trim(),
+          base_url: formUrl.trim(),
+          auth_type: formAuth,
+          models: formModels,
+        }),
+      }).then((r) => r.json())
+      setFormTestResult({ ok: res.success, msg: res.message })
+    } catch {
+      setFormTestResult({ ok: false, msg: t('settings.provider.networkError') })
+    }
+    setFormTesting(false)
   }
 
   const handleDelete = async (id: string) => {
@@ -578,6 +609,7 @@ export function ProviderSettings() {
     setFormName('')
     setFormUrl(protocol === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1')
     setFormKey(''); setFormAuth('api_key'); setFormModels([]); setError('')
+    setFormTesting(false); setFormTestResult(null)
   }
 
   // ---- Full view (always expanded) ----
@@ -973,10 +1005,21 @@ export function ProviderSettings() {
                     suggestions={MODEL_SUGGESTION_GROUPS}
                   />
                 </div>
-                <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-                  className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
-                  {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
-                </button>
+                {formTestResult && (
+                  <p className={cn('text-sm', formTestResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
+                    {formTestResult.msg}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={handleTestForm} disabled={formTesting || formAdding || !formKey.trim()}
+                    className="px-4 py-2.5 text-sm font-medium rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] disabled:opacity-40 transition-colors">
+                    {formTesting ? '...' : t('settings.provider.testConnection')}
+                  </button>
+                  <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
+                    className="flex-1 py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
+                    {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
+                  </button>
+                </div>
               </div>
             )}
           </div>

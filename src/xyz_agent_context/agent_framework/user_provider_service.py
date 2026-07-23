@@ -908,6 +908,50 @@ class UserProviderService:
         )
         return await provider_registry.test_provider(prov)
 
+    async def test_provider_config(
+        self,
+        *,
+        card_type: str,
+        api_key: str,
+        base_url: str = "",
+        auth_type: str = "api_key",
+        models: list[str] | None = None,
+    ) -> tuple[bool, str]:
+        """Test connectivity for an UNSAVED custom provider config.
+
+        Stateless twin of ``test_provider``: it builds a transient
+        ProviderConfig straight from the add-provider form values and
+        delegates to the registry — no DB row is read or written, nothing
+        is persisted. This is what lets the form verify a key / base_url /
+        model BEFORE the user commits it to storage.
+
+        Args:
+            card_type: "anthropic" | "openai" (custom-provider protocol).
+            api_key: The key / token to probe with.
+            base_url: Endpoint override; empty = provider default.
+            auth_type: "api_key" | "bearer_token".
+            models: Configured models; the registry uses models[0] to
+                probe non-official proxy endpoints.
+
+        Returns:
+            (success, message) — passed straight through from the registry.
+        """
+        if card_type not in ("anthropic", "openai"):
+            return False, f"Unsupported protocol: {card_type}"
+
+        from xyz_agent_context.agent_framework.provider_registry import provider_registry
+        prov = ProviderConfig(
+            provider_id="prov_probe",          # transient, never stored
+            name="probe",
+            source=ProviderSource.USER,
+            protocol=card_type,                # pydantic coerces to ProviderProtocol
+            auth_type=auth_type or "api_key",
+            api_key=api_key,
+            base_url=base_url,
+            models=models or [],
+        )
+        return await provider_registry.test_provider(prov)
+
 
 # =============================================================================
 # Dual-protocol provider builder (NetMind, Yunwu, OpenRouter)

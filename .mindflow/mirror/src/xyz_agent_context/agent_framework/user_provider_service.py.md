@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-07-18
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — `test_provider_config`：无状态「保存前测连通」孪生方法
+
+`test_provider(user_id, provider_id)` 是**有状态**的——先按 provider_id
+查 `user_providers` 行再构造 `ProviderConfig`，所以没落库就没法测，添加
+表单只能先存后测。新增 `test_provider_config(*, card_type, api_key,
+base_url, auth_type, models)`：直接用表单值构造 transient `ProviderConfig`
+（provider_id="prov_probe"，never stored），委托同一个
+`provider_registry.test_provider`。**不读不写 DB**。非法 card_type
+（非 anthropic/openai）直接返回 `(False, ...)`，不碰 registry。两条入口
+共用底层 registry、逻辑不重复。供 [[providers]] 路由的 `/test-config` 调用。
 
 ## 2026-07-18 — set_slot 新增 `actor_is_staff` 参数（云端 netmind-only 下沉）
 

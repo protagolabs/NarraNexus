@@ -830,6 +830,7 @@
       "configuredProviders": "Настроенные провайдеры",
       "modelsCount": "{{count}} модель(и)",
       "test": "Проверить",
+      "testConnection": "Проверить соединение",
       "edit": "Изменить",
       "delete": "Удалить",
       "section2Title": "Назначение моделей",

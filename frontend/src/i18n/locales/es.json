@@ -826,6 +826,7 @@
       "configuredProviders": "Proveedores configurados",
       "modelsCount": "{{count}} modelo(s)",
       "test": "Probar",
+      "testConnection": "Probar conexión",
       "edit": "Editar",
       "delete": "Eliminar",
       "section2Title": "Asignación de modelos",

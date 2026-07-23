@@ -946,6 +946,7 @@
       "configuredProviders": "Configured Providers",
       "modelsCount": "{{count}} model(s)",
       "test": "Test",
+      "testConnection": "Test connection",
       "edit": "Edit",
       "delete": "Delete",
       "section2Title": "Global Default",
