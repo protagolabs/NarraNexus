@@ -133,7 +133,7 @@ async def test_get_returns_owner_default_codex_framework(db_client, monkeypatch)
 
 
 def _wire_free_tier(client, *, enabled: bool, has_budget: bool, model: str = "sys-agent-x"):
-    """Attach fake lifespan services to the app so ``_free_tier_lock`` resolves.
+    """Attach fake lifespan services to the app so ``free_tier_lock_for`` resolves.
 
     Mirrors the lock predicate's inputs: ``system_provider.is_enabled()`` +
     ``quota_service.get()/check()``. ``get_config().slots['agent'].model`` is the
