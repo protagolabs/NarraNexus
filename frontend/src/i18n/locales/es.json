@@ -692,6 +692,7 @@
       "title": "Configuración",
       "navProviders": "Proveedores de LLM",
       "navPrivacy": "Privacidad",
+      "navDesktop": "Escritorio",
       "slotAgentName": "Agent",
       "slotAgentDesc": "El \"cerebro\" de tu agent de IA. Este modelo gestiona todas las conversaciones con los usuarios, toma decisiones y ejecuta tareas. Un modelo más capaz aquí significa respuestas más inteligentes y matizadas.",
       "slotAgentProtocol": "Protocolo Anthropic",
@@ -703,7 +704,11 @@
       "privacyHeading": "Privacidad",
       "privacyIntro": "Controla qué datos recopila NarraNexus para mejorar el producto.",
       "analyticsTitle": "Analítica del producto",
-      "analyticsDesc": "Permite que NarraNexus recopile datos de uso anónimos para mejorar el producto. Nunca se recopila el contenido de las conversaciones."
+      "analyticsDesc": "Permite que NarraNexus recopile datos de uso anónimos para mejorar el producto. Nunca se recopila el contenido de las conversaciones.",
+      "desktopHeading": "Escritorio",
+      "desktopIntro": "Ajustes que controlan cómo NarraNexus interactúa con este equipo. Solo disponible en la aplicación de escritorio.",
+      "lockedUseTitle": "Locked Use — mantener el equipo despierto",
+      "lockedUseDesc": "Evita que este equipo entre en reposo para que las automatizaciones en segundo plano sigan ejecutándose. Solo se mantiene mientras NarraNexus está abierto."
     },
     "provider": {
       "presetNetmindDesc": "Una sola clave cubre los endpoints de Anthropic y OpenAI",

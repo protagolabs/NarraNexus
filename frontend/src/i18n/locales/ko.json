@@ -691,6 +691,7 @@
       "title": "설정",
       "navProviders": "LLM 제공자",
       "navPrivacy": "개인정보",
+      "navDesktop": "데스크톱",
       "slotAgentName": "Agent",
       "slotAgentDesc": "AI agent의 \"두뇌\"입니다. 이 모델은 사용자와의 모든 대화를 처리하고, 의사결정을 내리며, 작업을 실행합니다. 여기에 더 뛰어난 모델을 사용하면 더 똑똑하고 섬세한 응답을 얻을 수 있습니다.",
       "slotAgentProtocol": "Anthropic 프로토콜",
@@ -702,7 +703,11 @@
       "privacyHeading": "개인정보",
       "privacyIntro": "제품 개선을 위해 NarraNexus가 수집하는 데이터를 제어하세요.",
       "analyticsTitle": "제품 분석",
-      "analyticsDesc": "제품 개선을 위해 NarraNexus가 익명 사용 데이터를 수집하도록 허용합니다. 대화 내용은 절대 수집되지 않습니다."
+      "analyticsDesc": "제품 개선을 위해 NarraNexus가 익명 사용 데이터를 수집하도록 허용합니다. 대화 내용은 절대 수집되지 않습니다.",
+      "desktopHeading": "데스크톱",
+      "desktopIntro": "NarraNexus가 이 컴퓨터와 상호작용하는 방식을 제어하는 설정입니다. 데스크톱 앱에서만 사용할 수 있습니다.",
+      "lockedUseTitle": "Locked Use — 컴퓨터 깨어 있게 유지",
+      "lockedUseDesc": "컴퓨터가 절전 모드로 전환되는 것을 방지하여 백그라운드 자동화가 계속 실행되도록 합니다. NarraNexus가 열려 있는 동안에만 유지됩니다."
     },
     "provider": {
       "presetNetmindDesc": "하나의 키로 Anthropic 및 OpenAI 엔드포인트를 모두 사용",

@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-07-21
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — Locked Use startup re-assert
+
+`App()` mounts one effect calling `usePowerStore.getState().applyOnStartup()`
+— re-asserts a persisted prevent-sleep state after restart (the previous
+process's caffeinate assertion died with it). No-op on web / when off.
 
 ## 2026-07-20 (续) — 横幅"退出重登"改为"Settings → Account 里接入"
 

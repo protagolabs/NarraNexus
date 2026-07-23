@@ -11,6 +11,12 @@ Registered `tauri_plugin_notification::init()` and added
 [[desktopNotify.ts]] (never the plugin's JS bindings; no @tauri-apps npm).
 Capability `notification:default` added in capabilities/default.json.
 
+## 2026-07-23 — Locked Use commands + managed PreventSleepState
+
+`.manage(commands::power::PreventSleepState::default())` and registered
+`set_prevent_sleep` / `get_prevent_sleep` ([[power.rs]]) — the caffeinate
+child uses `-w <pid>` so no exit-handler wiring is needed here.
+
 ## 2026-07-13 — register open_netmind_oauth command
 
 Added `commands::netmind_oauth::open_netmind_oauth` to the `invoke_handler` — the

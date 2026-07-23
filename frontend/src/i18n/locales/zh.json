@@ -809,6 +809,7 @@
       "navProviders": "LLM 服务商",
       "navBilling": "账户与订阅",
       "navPrivacy": "隐私",
+      "navDesktop": "桌面",
       "slotAgentName": "Agent",
       "slotAgentDesc": "你的 AI Agent 的“大脑”。该模型处理所有用户对话、做出决策并执行任务。这里使用更强的模型意味着更聪明、更细腻的回复。",
       "slotAgentProtocol": "Anthropic 协议",
@@ -820,7 +821,11 @@
       "privacyHeading": "隐私",
       "privacyIntro": "控制 NarraNexus 收集哪些数据以改进产品。",
       "analyticsTitle": "产品分析",
-      "analyticsDesc": "允许 NarraNexus 收集匿名使用数据以改进产品。绝不收集任何对话内容。"
+      "analyticsDesc": "允许 NarraNexus 收集匿名使用数据以改进产品。绝不收集任何对话内容。",
+      "desktopHeading": "桌面",
+      "desktopIntro": "控制 NarraNexus 与这台电脑交互方式的设置。仅在桌面应用中可用。",
+      "lockedUseTitle": "Locked Use — 保持电脑唤醒",
+      "lockedUseDesc": "阻止电脑进入休眠，让后台自动化持续运行。仅在 NarraNexus 打开期间生效。"
     },
     "provider": {
       "oneKeySaved": "Key 已保存",

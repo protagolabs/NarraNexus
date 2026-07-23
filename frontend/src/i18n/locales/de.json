@@ -692,6 +692,7 @@
       "title": "Einstellungen",
       "navProviders": "LLM-Anbieter",
       "navPrivacy": "Datenschutz",
+      "navDesktop": "Desktop",
       "slotAgentName": "Agent",
       "slotAgentDesc": "Das „Gehirn“ deines KI-Agents. Dieses Modell führt alle Gespräche mit Benutzern, trifft Entscheidungen und führt Aufgaben aus. Ein leistungsfähigeres Modell bedeutet hier intelligentere, nuanciertere Antworten.",
       "slotAgentProtocol": "Anthropic-Protokoll",
@@ -703,7 +704,11 @@
       "privacyHeading": "Datenschutz",
       "privacyIntro": "Steuere, welche Daten NarraNexus erfasst, um das Produkt zu verbessern.",
       "analyticsTitle": "Produkt-Analyse",
-      "analyticsDesc": "Erlaube NarraNexus, anonyme Nutzungsdaten zu erfassen, um das Produkt zu verbessern. Es werden niemals Gesprächsinhalte erfasst."
+      "analyticsDesc": "Erlaube NarraNexus, anonyme Nutzungsdaten zu erfassen, um das Produkt zu verbessern. Es werden niemals Gesprächsinhalte erfasst.",
+      "desktopHeading": "Desktop",
+      "desktopIntro": "Einstellungen, die steuern, wie NarraNexus mit diesem Computer interagiert. Nur in der Desktop-App verfügbar.",
+      "lockedUseTitle": "Locked Use — Computer wach halten",
+      "lockedUseDesc": "Verhindert, dass dieser Computer in den Ruhezustand wechselt, damit Hintergrund-Automatisierungen weiterlaufen. Gilt nur, solange NarraNexus geöffnet ist."
     },
     "provider": {
       "presetNetmindDesc": "Ein Schlüssel deckt sowohl Anthropic- als auch OpenAI-Endpunkte ab",
