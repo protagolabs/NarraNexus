@@ -200,6 +200,12 @@ async def list_jobs(
                 instance_ids
             )
             for inst in instances_data:
+                # get_by_ids preserves input order and yields None for any id
+                # with no matching row (a job whose instance was already
+                # deleted — an orphaned reference). Skip those; the job still
+                # renders, just with an empty depends_on.
+                if inst is None:
+                    continue
                 inst_id = inst.get("instance_id")
                 deps_raw = inst.get("dependencies")
                 # Parse dependencies (may be JSON string or list)

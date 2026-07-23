@@ -1,8 +1,28 @@
 ---
 code_file: backend/routes/jobs.py
-last_verified: 2026-06-01
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — 孤儿 Job 引用导致 list_jobs 500
+
+`list_jobs` 批量查依赖时用 `db_client.get_by_ids("module_instances", ...)`。
+该方法的契约是**保序、缺失填 `None`**（签名 `List[Optional[Dict]]`）：
+入参里某个 `instance_id` 在 `module_instances` 查不到行，对应位置就是 `None`。
+
+线上出现过 job 的 `instance_id` 指向的实例已被删、但 job 行还在（孤儿引用），
+于是 `instances_data` 里混入 `None`，循环里 `inst.get(...)` 抛
+`AttributeError: 'NoneType' object has no attribute 'get'`，整个接口 500。
+
+修复：循环里 `if inst is None: continue`，孤儿 job 照常返回、`depends_on` 为空。
+
+**孤儿从哪来（代码排查结论）**：当前代码里*没有*任何路径会单独删掉一个
+JobModule 实例却保留它的 job —— `delete_agent`(auth.py) 按 agent_id 同时删
+`instance_jobs` 和 `module_instances`；`wipe_service` 只删 ChatModule 实例
+（job 绑的是 JobModule 实例，不受影响）。因此现存孤儿基本是**历史数据**
+（早期删除逻辑 / 非事务删除中断 / 手工改库）。注意 `delete_agent` 与
+`wipe_service` 的级联删除都**不是事务化**的，中断只会产生"有实例没 job"的
+反向孤儿——不会触发本 bug，但同属一致性隐患，值得单独治理。
 
 ## 2026-06-01 — enum-derived status filter (batch ③)
 
