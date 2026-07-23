@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — upsert focus option
+
+`upsert(artifact, {focus?})`: `focus: true` forces activation (and
+un-minimizes the tab) even when the artifact is already in the list.
+Rationale: auto-focus previously only fired on `idx === -1`, so when a
+list refresh (loadForSession) raced ahead of the register_artifact
+tool_output roundtrip — or the agent re-registered an existing doc —
+the panel stayed on the old tab (users read "still on Welcome" as
+generation failure; prod feedback fp=07b73e74). [[ChatPanel.tsx]]'s
+register signal now passes `focus: true`; `openUrl` keeps relying on
+the default new-artifact auto-focus. Background-agent guard unchanged.
 
 ## 2026-07-22 — openUrl action
 

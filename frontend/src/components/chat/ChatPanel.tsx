@@ -90,7 +90,11 @@ function refreshArtifactFromToolCall(
   _seenArtifactToolCallIds.add(toolCallId);
   artifactsApi
     .getDetail(agentId, artifactId)
-    .then((d) => useArtifactStore.getState().upsert(d))
+    // focus: a register_artifact success must bring the doc to front even
+    // if a list refresh already inserted it (or it is a re-register) —
+    // otherwise the panel stays on the previous tab and the user reads
+    // the successful generation as a failure.
+    .then((d) => useArtifactStore.getState().upsert(d, { focus: true }))
     .catch(() => undefined);
 }
 

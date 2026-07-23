@@ -118,6 +118,19 @@ class MemoryConsolidationWorker:
     async def _process_scope(self, key: Dict[str, Any]) -> None:
         """Run one scope through consolidation with the processing→dirty/failed
         state machine. Isolated per scope: a failure here never propagates."""
+        # Self-heal: a queue row whose agent was deleted must be purged, not
+        # processed. Agent deletion now cascades the queue, but rows left by
+        # earlier deletions (or any other path that removes the agent without
+        # the route) would otherwise idle-trigger on every poll and spam
+        # "no owner row" warnings forever.
+        agent_row = await self._db.get_one("agents", {"agent_id": key["agent_id"]})
+        if agent_row is None:
+            await self._db.delete(_QUEUE, {"agent_id": key["agent_id"]})
+            logger.info(
+                f"[memory.consolidation] purged queue rows for deleted agent "
+                f"{key['agent_id']}"
+            )
+            return
         now = utc_now()
         await self._db.update(_QUEUE, key, {"status": "processing", "updated_at": now})
         try:

@@ -46,6 +46,10 @@ pub fn run() {
         // second-launch URL into the live process so this callback sees it
         // — see Cargo.toml.
         .plugin(tauri_plugin_deep_link::init())
+        // OS-level notifications ("agent finished responding", #44). The
+        // frontend drives it through commands::notify::notify_completion,
+        // not the plugin's JS bindings — no @tauri-apps npm dependency.
+        .plugin(tauri_plugin_notification::init())
         // `officewatch://` custom scheme — serves the live Office-preview watch
         // page + its sub-resources by proxying the local backend through Rust,
         // dodging WKWebView's mixed-content block on http://localhost from the
@@ -58,6 +62,9 @@ pub fn run() {
             });
         })
         .manage(app_state)
+        // Locked Use (prevent sleep) — holds the caffeinate child while the
+        // user's no-sleep toggle is on. See commands/power.rs.
+        .manage(commands::power::PreventSleepState::default())
         .invoke_handler(tauri::generate_handler![
             commands::service::get_service_status,
             commands::service::start_all_services,
@@ -99,6 +106,13 @@ pub fn run() {
             // origin ignores the download attr; workspace endpoint needs auth
             // headers that <a> can't carry). See commands/file_download.rs.
             commands::file_download::download_file_via_backend,
+            // OS notification when an agent finishes replying while the
+            // window is unfocused (#44). See commands/notify.rs.
+            commands::notify::notify_completion,
+            // Locked Use — keep the computer awake while background
+            // automations run. See commands/power.rs.
+            commands::power::set_prevent_sleep,
+            commands::power::get_prevent_sleep,
         ])
         .setup(|app| {
             // Port-conflict preflight. Must run before anything else: if a

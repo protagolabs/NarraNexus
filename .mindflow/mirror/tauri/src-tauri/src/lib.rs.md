@@ -1,7 +1,21 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-07-13
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — notification plugin + notify_completion (#44)
+
+Registered `tauri_plugin_notification::init()` and added
+`commands::notify::notify_completion` to the `invoke_handler` — OS-level
+"agent finished responding" notifications, driven from the frontend's
+[[desktopNotify.ts]] (never the plugin's JS bindings; no @tauri-apps npm).
+Capability `notification:default` added in capabilities/default.json.
+
+## 2026-07-23 — Locked Use commands + managed PreventSleepState
+
+`.manage(commands::power::PreventSleepState::default())` and registered
+`set_prevent_sleep` / `get_prevent_sleep` ([[power.rs]]) — the caffeinate
+child uses `-w <pid>` so no exit-handler wiring is needed here.
 
 ## 2026-07-13 — register open_netmind_oauth command
 

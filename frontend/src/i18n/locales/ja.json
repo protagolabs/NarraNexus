@@ -691,6 +691,7 @@
       "title": "設定",
       "navProviders": "LLM プロバイダー",
       "navPrivacy": "プライバシー",
+      "navDesktop": "デスクトップ",
       "slotAgentName": "Agent",
       "slotAgentDesc": "AI エージェントの「頭脳」。このモデルはユーザーとの全ての会話を処理し、判断を下し、タスクを実行します。ここでより高性能なモデルを使うほど、より賢く繊細な応答になります。",
       "slotAgentProtocol": "Anthropic プロトコル",
@@ -702,7 +703,11 @@
       "privacyHeading": "プライバシー",
       "privacyIntro": "製品改善のために NarraNexus が収集するデータを管理します。",
       "analyticsTitle": "製品アナリティクス",
-      "analyticsDesc": "製品改善のため NarraNexus が匿名の利用データを収集することを許可します。会話の内容は一切収集されません。"
+      "analyticsDesc": "製品改善のため NarraNexus が匿名の利用データを収集することを許可します。会話の内容は一切収集されません。",
+      "desktopHeading": "デスクトップ",
+      "desktopIntro": "NarraNexus とこのコンピュータの連携を制御する設定です。デスクトップアプリでのみ利用できます。",
+      "lockedUseTitle": "Locked Use — スリープを防止",
+      "lockedUseDesc": "コンピュータのスリープを防ぎ、バックグラウンドの自動処理を継続します。NarraNexus を開いている間のみ有効です。"
     },
     "provider": {
       "presetNetmindDesc": "1 つのキーで Anthropic と OpenAI 両方のエンドポイントをカバー",

@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/services/memory_consolidation_worker.py
-last_verified: 2026-07-07
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — deleted-agent queue rows self-purge
+
+`_process_scope` checks the agents row first: agent gone → DELETE every
+queue row of that agent_id and return (no engine call, no state machine).
+Rationale: agent deletion left queue rows behind; a successfully processed
+scope returns to `dirty` with its stale `last_dirty_at`, so the idle
+trigger re-fired it on EVERY 30s poll — each pass logging the
+"[background-llm] no owner row" warning (prod: 1,880 warnings/14d,
+bug tracker "Agent 无 owner 记录"). The delete_agent route now also
+cascades the queue ([[auth.py]] 7c); this purge is the self-heal for rows
+left by pre-fix deletions. Invariant for tests: a processed scope's agent
+must exist (`_seed_agent` helper).
 
 ## 2026-07-03 — cost accounting: worker sets the cost context (Phase 0 / module H)
 

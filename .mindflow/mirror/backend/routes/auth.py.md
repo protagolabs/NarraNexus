@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-21
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — delete_agent cascades memory_consolidation_queue
+
+New step 7c: `DELETE FROM memory_consolidation_queue WHERE agent_id = ?`.
+Without it the consolidation worker idle-triggered the dead agent's scopes
+on every poll and spammed "no owner row" warnings forever (see
+[[memory_consolidation_worker.py]] 2026-07-23 for the worker-side
+self-heal). Test: `tests/backend/test_delete_agent_queue_cascade.py`.
 
 ## 2026-07-21 — create_agent 默认技能装机(stage 9)
 

@@ -11,6 +11,7 @@ import { useConfigStore, useRuntimeStore } from '@/stores';
 import { getInboundEntry, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
 import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
 import { useUpdaterStore } from '@/stores/updaterStore';
+import { usePowerStore } from '@/stores/powerStore';
 import { api } from '@/lib/api';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { MockBanner } from '@/components/ui/MockBanner';
@@ -192,6 +193,13 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', effectiveTheme === 'dark');
   }, [effectiveTheme]);
+
+  // Locked Use: re-assert a persisted prevent-sleep state on startup — the
+  // previous process's OS assertion (caffeinate child) died with it.
+  // No-op on web and when the toggle is off (see stores/powerStore).
+  useEffect(() => {
+    void usePowerStore.getState().applyOnStartup();
+  }, []);
 
   // Deep-link handler: route narranexus:// URLs from the website (or any
   // app firing `open narranexus://...`) into the in-app install flow.

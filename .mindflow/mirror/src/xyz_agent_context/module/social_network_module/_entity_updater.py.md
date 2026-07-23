@@ -1,7 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_entity_updater.py
-last_verified: 2026-06-10
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — meaningfulness guard (junk-entity filter)
+
+`ExtractedEntity` gained `confidence` (default 1.0 so old outputs pass);
+`is_meaningful_entity()` is the deterministic backstop applied inside
+`extract_mentioned_entities` before create/merge: rejects generic
+role/category names (en+zh set), bare system IDs / pure digits / uuid /
+long-hex blobs, names > 80 chars, and confidence < 0.5. Rationale: the
+prompt already forbids these but weak helper models leak them and every
+leaked row is a permanent junk node in the graph (bug "entity 图无意义
+条目"). Dropped entities are logged at INFO. Prompt gained a Confidence
+section ([[prompts.py]]). Tests:
+`tests/social_network_module/test_entity_filter.py`.
 ## 2026-06-10 — helper obtained via get_helper_sdk()
 
 All five llm_function call sites switched to the protocol-agnostic

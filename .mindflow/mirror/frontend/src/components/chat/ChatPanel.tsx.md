@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-21
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — register signal passes focus to upsert
+
+`refreshArtifactFromToolCall` now calls `upsert(d, {focus: true})` so a
+successful register_artifact always brings the doc to front, even when a
+list refresh raced ahead and already inserted it (see [[artifactStore.ts]]
+2026-07-23). Dedup via the module-scope seen-Set is unchanged, so history
+re-renders don't re-steal focus.
 
 ## 2026-07-18 — 语音不可用弹窗：free_tier_opted_out → free_tier_not_granted
 

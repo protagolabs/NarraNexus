@@ -107,6 +107,21 @@ import type {
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 
+/**
+ * Error thrown for non-2xx API responses. Carries the HTTP status so
+ * callers can branch on it (e.g. treat DELETE 404 as already-gone)
+ * instead of string-matching the message.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 /** Sources accepted by POST /api/providers/onboard (one-key setup). */
 export type OnboardProviderType =
   | 'anthropic'
@@ -223,7 +238,7 @@ class ApiClient {
       const label = detail
         ? `API error ${response.status}: ${detail}`
         : `API error: ${response.status} ${response.statusText}`;
-      throw new Error(label);
+      throw new ApiError(response.status, label);
     }
 
     return response.json();
@@ -711,7 +726,7 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
@@ -795,7 +810,7 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
@@ -816,7 +831,7 @@ class ApiClient {
       headers: this.getAuthHeaders(),
     });
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
     return response.blob();
   }
@@ -834,7 +849,7 @@ class ApiClient {
       headers: this.getAuthHeaders(),
     });
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
     return response.blob();
   }
@@ -868,7 +883,7 @@ class ApiClient {
     const url = this.workspaceFileRawUrl(agentId, path);
     const response = await fetch(url, { headers: this.getAuthHeaders() });
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
     return response.blob();
   }
@@ -956,7 +971,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, error.detail || `API error: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
@@ -979,7 +994,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, error.detail || `API error: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
@@ -1794,7 +1809,7 @@ class ApiClient {
     const url = `${getApiBaseUrl()}/api/teams/${encodeURIComponent(teamId)}/chat/attachments${qs ? `?${qs}` : ''}`;
     const response = await fetch(url, { method: 'POST', body: formData, headers: this.getAuthHeaders() });
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
     return response.json();
   }
