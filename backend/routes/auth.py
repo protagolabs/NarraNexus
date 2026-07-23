@@ -933,6 +933,18 @@ async def delete_agent(
             except Exception:
                 pass  # Table may not exist on older DBs — skip.
 
+        # 7c. Memory consolidation queue (by agent_id) — without this the
+        # consolidation worker's idle trigger reprocesses the dead agent's
+        # scopes on every poll, logging "no owner row" warnings forever.
+        result = await db_client.execute(
+            "DELETE FROM memory_consolidation_queue WHERE agent_id = %s",
+            (agent_id,),
+            fetch=False,
+        )
+        cnt = result if isinstance(result, int) else 0
+        if cnt > 0:
+            stats["memory_consolidation_queue"] = cnt
+
         # 8. Module Instances (by agent_id)
         result = await db_client.execute(
             "DELETE FROM module_instances WHERE agent_id = %s",
