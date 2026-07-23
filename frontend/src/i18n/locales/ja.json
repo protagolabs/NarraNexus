@@ -123,6 +123,16 @@
         "activity": "バックグラウンド活動",
         "lark": "Lark",
         "callback": "コールバック"
+      },
+      "meta": {
+        "input": "入力",
+        "output": "出力",
+        "duration": "実行時間",
+        "cost": "コスト",
+        "tokens": "入出力トークン",
+        "model": "モデル",
+        "stateFailed": "失敗",
+        "stateCancelled": "キャンセル済み"
       }
     },
     "error": {
@@ -925,7 +935,9 @@
       "retry": "再試行",
       "unknownError": "不明なエラー",
       "attempts": "{{count}} 回失敗"
-    }
+    },
+    "showMore": "続きを表示",
+    "showLess": "折りたたむ"
   },
   "help": {
     "overlay": {

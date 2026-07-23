@@ -123,6 +123,16 @@
         "activity": "Activité en arrière-plan",
         "lark": "Lark",
         "callback": "Rappel"
+      },
+      "meta": {
+        "input": "Entrée",
+        "output": "Sortie",
+        "duration": "Durée",
+        "cost": "Coût",
+        "tokens": "Tokens entrée/sortie",
+        "model": "Modèle",
+        "stateFailed": "Échec",
+        "stateCancelled": "Annulé"
       }
     },
     "error": {
@@ -926,7 +936,9 @@
       "retry": "Réessayer",
       "unknownError": "Erreur inconnue",
       "attempts": "{{count}} tentatives échouées"
-    }
+    },
+    "showMore": "Afficher plus",
+    "showLess": "Afficher moins"
   },
   "help": {
     "overlay": {

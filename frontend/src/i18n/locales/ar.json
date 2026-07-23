@@ -127,6 +127,16 @@
         "activity": "نشاط في الخلفية",
         "lark": "Lark",
         "callback": "استدعاء"
+      },
+      "meta": {
+        "input": "المدخل",
+        "output": "المخرج",
+        "duration": "مدة التشغيل",
+        "cost": "التكلفة",
+        "tokens": "رموز الإدخال/الإخراج",
+        "model": "النموذج",
+        "stateFailed": "فشل",
+        "stateCancelled": "أُلغي"
       }
     },
     "error": {
@@ -934,7 +944,9 @@
       "retry": "إعادة المحاولة",
       "unknownError": "خطأ غير معروف",
       "attempts": "{{count}} محاولات فاشلة"
-    }
+    },
+    "showMore": "عرض المزيد",
+    "showLess": "عرض أقل"
   },
   "help": {
     "overlay": {

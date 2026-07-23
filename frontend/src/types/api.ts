@@ -250,6 +250,25 @@ export interface EventLogTimelineEntry {
   reply_via?: string;
 }
 
+// Mirrors backend EventLogMeta — run-level header for the activity card:
+// what the agent received, what it produced, lifecycle and costs. Fields
+// are null/empty on legacy rows (pre-lifecycle) and cost-less runs.
+export interface EventLogMeta {
+  trigger: string;
+  trigger_source: string;
+  input_text?: string | null;
+  final_output?: string | null;
+  state: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_seconds?: number | null;
+  models: string[];
+  total_cost_usd?: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  tool_call_count: number;
+}
+
 export interface EventLogResponse extends ApiResponse {
   event_id: string;
   thinking?: string;
@@ -258,6 +277,8 @@ export interface EventLogResponse extends ApiResponse {
   // falls back to (thinking, tool_calls) only for old backends that
   // haven't been redeployed yet.
   timeline?: EventLogTimelineEntry[];
+  // Run-level header info; absent on old backends.
+  meta?: EventLogMeta | null;
 }
 
 export interface ChatHistoryEvent {

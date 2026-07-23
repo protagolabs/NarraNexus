@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/agents_chat_history.py
-last_verified: 2026-07-10
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — event-log meta (activity card header)
+
+`get_event_log_detail` returns `meta: EventLogMeta` assembled by
+`_build_event_meta`: env_context.input (capped 4000 chars), lifecycle
+(state/started/finished/derived duration — Phase C columns, None on
+legacy rows), and a cost_records aggregation by event_id (distinct
+models, token sums, total USD — None when no rows so the UI hides the
+chip instead of lying with $0). Consumed by [[InnerThoughtCard.tsx]].
+Tests: `tests/backend/test_event_log_meta.py`.
 
 ## 2026-07-10 — clear-history rebuilt as a scoped wipe delegating to wipe_service
 

@@ -125,6 +125,16 @@
         "activity": "Фоновая активность",
         "lark": "Lark",
         "callback": "Обратный вызов"
+      },
+      "meta": {
+        "input": "Ввод",
+        "output": "Вывод",
+        "duration": "Длительность",
+        "cost": "Стоимость",
+        "tokens": "Токены вход/выход",
+        "model": "Модель",
+        "stateFailed": "Ошибка",
+        "stateCancelled": "Отменено"
       }
     },
     "error": {
@@ -930,7 +940,9 @@
       "retry": "Повторить",
       "unknownError": "Неизвестная ошибка",
       "attempts": "Неудачных попыток: {{count}}"
-    }
+    },
+    "showMore": "Показать полностью",
+    "showLess": "Свернуть"
   },
   "help": {
     "overlay": {

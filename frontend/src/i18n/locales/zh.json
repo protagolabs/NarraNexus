@@ -161,6 +161,16 @@
         "activity": "后台活动",
         "lark": "飞书",
         "callback": "回调"
+      },
+      "meta": {
+        "input": "输入",
+        "output": "输出",
+        "duration": "运行时长",
+        "cost": "消耗成本",
+        "tokens": "输入/输出 Token",
+        "model": "模型",
+        "stateFailed": "失败",
+        "stateCancelled": "已取消"
       }
     },
     "error": {
@@ -1092,7 +1102,9 @@
       "retry": "重试",
       "unknownError": "未知错误",
       "attempts": "已失败 {{count}} 次"
-    }
+    },
+    "showMore": "展开全文",
+    "showLess": "收起"
   },
   "help": {
     "overlay": {

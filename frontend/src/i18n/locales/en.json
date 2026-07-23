@@ -161,6 +161,16 @@
         "activity": "Background activity",
         "lark": "Lark",
         "callback": "Callback"
+      },
+      "meta": {
+        "input": "Input",
+        "output": "Output",
+        "duration": "Run duration",
+        "cost": "Cost",
+        "tokens": "Tokens in / out",
+        "model": "Model",
+        "stateFailed": "Failed",
+        "stateCancelled": "Cancelled"
       }
     },
     "error": {
@@ -1093,7 +1103,9 @@
       "retry": "Retry",
       "unknownError": "Unknown error",
       "attempts": "{{count}} failed attempts"
-    }
+    },
+    "showMore": "Show more",
+    "showLess": "Show less"
   },
   "help": {
     "overlay": {

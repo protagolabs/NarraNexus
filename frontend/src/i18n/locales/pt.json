@@ -123,6 +123,16 @@
         "activity": "Atividade em segundo plano",
         "lark": "Lark",
         "callback": "Retorno de chamada"
+      },
+      "meta": {
+        "input": "Entrada",
+        "output": "Saída",
+        "duration": "Duração",
+        "cost": "Custo",
+        "tokens": "Tokens entrada/saída",
+        "model": "Modelo",
+        "stateFailed": "Falhou",
+        "stateCancelled": "Cancelado"
       }
     },
     "error": {
@@ -926,7 +936,9 @@
       "retry": "Tentar novamente",
       "unknownError": "Erro desconhecido",
       "attempts": "{{count}} tentativas falhadas"
-    }
+    },
+    "showMore": "Mostrar mais",
+    "showLess": "Mostrar menos"
   },
   "help": {
     "overlay": {
