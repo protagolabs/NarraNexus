@@ -652,10 +652,21 @@
     "agentRowMenu": {
       "options": "Agent options",
       "rename": "Rename",
+      "edit": "Edit…",
       "setPrivate": "Set to Private",
       "setPublic": "Set to Public",
       "clearData": "Clear data",
       "delete": "Delete"
+    },
+    "editAgentDialog": {
+      "title": "Edit agent",
+      "nameLabel": "Name",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "What is this agent for? Shown to the agent itself and to other agents.",
+      "tooLong": "Must be {{max}} characters or fewer.",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saveFailedTitle": "Update failed"
     },
     "clearAgentData": {
       "title": "Clear data · {{name}}",
@@ -1471,6 +1482,7 @@
         "activateChannelsTitle": "Activate imported channels",
         "activateChannelsHint": "Imported IM channel credentials are DISABLED so they don't fight the source environment for the single connection each bot allows. Open each channel under the agent's Settings and enable it — but only after confirming the source environment is no longer connected.",
         "warnings": "{{count}} warnings (see details)",
+        "warningsTitle": "Warnings ({{count}})",
         "suggestedMcpTitle": "Suggested external MCP URLs",
         "mcpNotAutoInstalled": "These are not auto-installed. Add them under each agent's Settings → MCPs if you trust them.",
         "skillsTip": "Tip: skills marked as \"full copy\" already have credentials. URL/Zip skills need re-study or new credentials — talk to the imported agents to complete setup.",
