@@ -1103,7 +1103,9 @@
       "retry": "Retry",
       "unknownError": "Unknown error",
       "attempts": "{{count}} failed attempts"
-    }
+    },
+    "showMore": "Show more",
+    "showLess": "Show less"
   },
   "help": {
     "overlay": {

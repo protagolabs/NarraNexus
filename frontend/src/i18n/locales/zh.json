@@ -1102,7 +1102,9 @@
       "retry": "重试",
       "unknownError": "未知错误",
       "attempts": "已失败 {{count}} 次"
-    }
+    },
+    "showMore": "展开全文",
+    "showLess": "收起"
   },
   "help": {
     "overlay": {

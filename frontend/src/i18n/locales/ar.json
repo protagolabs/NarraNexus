@@ -944,7 +944,9 @@
       "retry": "إعادة المحاولة",
       "unknownError": "خطأ غير معروف",
       "attempts": "{{count}} محاولات فاشلة"
-    }
+    },
+    "showMore": "عرض المزيد",
+    "showLess": "عرض أقل"
   },
   "help": {
     "overlay": {

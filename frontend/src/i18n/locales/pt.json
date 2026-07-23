@@ -936,7 +936,9 @@
       "retry": "Tentar novamente",
       "unknownError": "Erro desconhecido",
       "attempts": "{{count}} tentativas falhadas"
-    }
+    },
+    "showMore": "Mostrar mais",
+    "showLess": "Mostrar menos"
   },
   "help": {
     "overlay": {

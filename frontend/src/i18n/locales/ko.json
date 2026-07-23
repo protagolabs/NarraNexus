@@ -935,7 +935,9 @@
       "retry": "재시도",
       "unknownError": "알 수 없는 오류",
       "attempts": "{{count}}회 실패"
-    }
+    },
+    "showMore": "더 보기",
+    "showLess": "접기"
   },
   "help": {
     "overlay": {
