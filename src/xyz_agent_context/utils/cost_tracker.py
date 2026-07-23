@@ -135,6 +135,9 @@ async def record_cost(
     input_tokens: int,
     output_tokens: int,
     sdk_cost_usd: Optional[float] = None,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
+    num_turns: Optional[int] = None,
 ) -> None:
     """
     Calculate cost and persist a record to the database.
@@ -148,6 +151,10 @@ async def record_cost(
         input_tokens: Input token count
         output_tokens: Output token count
         sdk_cost_usd: SDK-calculated cost (used as fallback when model is unknown)
+        cache_read_tokens: Prompt-cache read tokens (defaults keep existing
+            callers untouched; only agent_loop reports these today)
+        cache_creation_tokens: Prompt-cache write tokens
+        num_turns: Model calls within this run (None = framework didn't report)
     """
     cost = calculate_cost(model, input_tokens, output_tokens)
     # Prefer SDK-provided cost (most accurate, e.g. Claude SDK considers caching discounts).
@@ -188,10 +195,15 @@ async def record_cost(
             "total_cost_usd": final_cost,
             "user_id": user_id,
             "provider_source": provider_source,
+            "cache_read_input_tokens": cache_read_tokens or 0,
+            "cache_creation_input_tokens": cache_creation_tokens or 0,
+            "num_turns": num_turns,
         })
         logger.debug(
             f"Cost recorded: agent={agent_id} model={model} "
             f"tokens={input_tokens}+{output_tokens} cost=${final_cost:.6f}"
+            f" cache={cache_read_tokens}r/{cache_creation_tokens}w"
+            f"{f' turns={num_turns}' if num_turns is not None else ''}"
             f"{' (sdk)' if cost['total_cost'] == 0 and sdk_cost_usd else ''}"
         )
     except Exception as e:

@@ -502,6 +502,9 @@ async def step_4_persist_results(
                 input_tokens=execution_result.input_tokens,
                 output_tokens=execution_result.output_tokens,
                 sdk_cost_usd=execution_result.total_cost_usd or None,
+                cache_read_tokens=execution_result.cache_read_tokens,
+                cache_creation_tokens=execution_result.cache_creation_tokens,
+                num_turns=execution_result.num_turns,
             )
             cost_display = (
                 f"${execution_result.total_cost_usd:.6f}"

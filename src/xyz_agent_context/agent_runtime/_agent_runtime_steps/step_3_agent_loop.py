@@ -1109,6 +1109,9 @@ async def step_3_agent_loop(
         output_tokens=state.output_tokens,
         model=state.model,
         total_cost_usd=state.total_cost_usd,
+        cache_read_tokens=state.cache_read_tokens,
+        cache_creation_tokens=state.cache_creation_tokens,
+        num_turns=state.num_turns,
         agent_loop_response=agent_loop_response,
         ctx_data=context.ctx_data,
     )

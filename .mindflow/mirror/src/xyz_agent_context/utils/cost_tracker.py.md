@@ -1,5 +1,15 @@
 # cost_tracker.py
 
+## 2026-07-23 — record_cost 扩三参:cache 埋点 + num_turns(W1)
+
+`record_cost` 新增 `cache_read_tokens`/`cache_creation_tokens`(默认 0)与
+`num_turns`(默认 None),原样写入 cost_records 同名(前两者列名带 `_input_`)
+新列。**带默认值是契约**:llm_function/helper SDK 等旧调用点零改动,今天只有
+agent_loop(step_4)会传非默认值。金额计算完全不碰 cache 字段——Claude 的
+sdk_cost_usd 已含缓存折扣,价目表模型(GPT/Gemini)的 helper 路径根本不传。
+上游链:output_transfer(提取)→ response_processor(归一化两套词汇)→
+ExecutionState(累加;num_turns latest-wins)→ PathExecutionResult → step_4。
+
 ## 2026-07-22 — record_cost 落库归属 + 串联扣减流水
 
 `record_cost` 现在在函数开头（INSERT 之前）防御式读取 `current_user_id` /

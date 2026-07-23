@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — PathExecutionResult 透传 cache/num_turns(W1,纯搬运)
+
+末尾组装 PathExecutionResult 时新增 `cache_read_tokens`/`cache_creation_tokens`/
+`num_turns` 三项赋值(来自 state)。无逻辑变化;语义见 execution_state.py.md。
 
 ## 2026-07-22 — executor-infra 失败统一 surface + 审计 + try 边界上移
 

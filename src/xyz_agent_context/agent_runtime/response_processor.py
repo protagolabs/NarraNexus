@@ -430,12 +430,23 @@ class ResponseProcessor:
             usage = data.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
+            # Prompt-cache telemetry. Two provider vocabularies reach here:
+            # Anthropic (cache_read_input_tokens + cache_creation_input_tokens)
+            # and OpenAI/codex (cached_input_tokens, reads only — no write
+            # counter exists in that vocabulary).
+            cache_read_tokens = usage.get("cache_read_input_tokens", 0) or usage.get(
+                "cached_input_tokens", 0
+            )
+            cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
+            num_turns = data.get("num_turns")  # None when the framework doesn't report it
             model = data.get("model", "")
             total_cost_usd = data.get("total_cost_usd")  # SDK-calculated cost
             stop_reason = data.get("stop_reason", "unknown")
             logger.info(
                 f"Agent done: {stop_reason} model={model or '(sdk)'} "
                 f"(tokens: {input_tokens}+{output_tokens}"
+                f", cache_read={cache_read_tokens}, cache_write={cache_creation_tokens}"
+                f"{f', turns={num_turns}' if num_turns is not None else ''}"
                 f"{f', sdk_cost=${total_cost_usd:.6f}' if total_cost_usd else ''})"
             )
             return ProcessedResponse(
@@ -448,6 +459,9 @@ class ResponseProcessor:
                         "output_tokens": output_tokens,
                         "model": model,
                         "total_cost_usd": total_cost_usd,
+                        "cache_read_tokens": cache_read_tokens,
+                        "cache_creation_tokens": cache_creation_tokens,
+                        "num_turns": num_turns,
                     },
                 },
             )
