@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_trigger.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — permanent-auth classifier must catch the RAW slack_sdk error
+
+`is_permanent_auth_failure` used to check only `isinstance(exc, SlackSDKError)`
+— our own wrapper type. But Socket Mode's `connect()` (→ `apps.connections.open`)
+is the **one Slack call made directly on the vendored SDK client**, bypassing
+`SlackSDKClient`. So a dead **app-level token** (`xapp-…`) surfaces as a *raw*
+`slack_sdk.errors.SlackApiError` carrying `{"ok": false, "error": "invalid_auth"}`
+— which failed the `isinstance` check → returned `False` → the base
+`_subscribe_loop` treated a permanently-dead credential as a transient blip and
+reconnected forever (test-env symptom: endless `apps.connections.open … invalid_auth`
++ slack_sdk's own `Retrying…` spam, credential never disabled).
+
+Fix: the classifier now ALSO matches the raw `SlackApiError`, pulling the error
+code out of `exc.response` (a dict or `AsyncSlackResponse`, both expose `.get`)
+and comparing against `_SLACK_PERMANENT_AUTH_CODES`. `response is None` and
+non-mapping responses fall through to `False` (stay transient → keep reconnecting).
+Transient codes (`rate_limited`, …) are still NOT permanent, so a healthy
+credential is never disabled on a blip. The raw import is guarded (`_SlackApiError`)
+because slack-sdk is optional. Pin tested in
+`test_slack_trigger.py::test_permanent_auth_failure_raw_slack_api_error_*`.
+
+Contrast: DiscordTrigger already whitelists the raw `discord.LoginFailure` for
+exactly this reason — Slack was the odd one out.
 
 ## 2026-07-10 — react_tool_ref = "react_to_user_message"
 

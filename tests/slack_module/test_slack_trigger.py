@@ -13,11 +13,13 @@ Why this file exists:
 from __future__ import annotations
 
 import pytest
+from slack_sdk.errors import SlackApiError
 
 from xyz_agent_context.module.slack_module import slack_trigger as st_mod
 from xyz_agent_context.module.slack_module._slack_credential_manager import (
     SlackCredential,
 )
+from xyz_agent_context.module.slack_module.slack_sdk_client import SlackSDKError
 from xyz_agent_context.module.slack_module.slack_trigger import SlackTrigger
 from xyz_agent_context.schema.parsed_message import ChatType
 
@@ -335,6 +337,58 @@ async def test_is_echo_false_when_credential_has_no_bot_user_id():
     )
     assert parsed is not None
     assert await trigger.is_echo(parsed, _cred("")) is False
+
+
+# ── is_permanent_auth_failure ──────────────────────────────────────────
+#
+# Socket Mode's ``connect()`` is the ONE Slack call that does NOT go
+# through our ``SlackSDKClient`` wrapper — it is invoked directly on the
+# raw slack_sdk ``SocketModeClient``. So a dead app-level token surfaces
+# as a *raw* ``slack_sdk.errors.SlackApiError`` (carrying
+# ``{"ok": false, "error": "invalid_auth"}``), NOT our ``SlackSDKError``.
+# The classifier must recognise both shapes, otherwise a permanently
+# dead credential is misread as a transient blip and the base
+# ``_subscribe_loop`` reconnects forever instead of disabling it.
+
+
+def _api_error(code: str) -> SlackApiError:
+    return SlackApiError(message=code, response={"ok": False, "error": code})
+
+
+def test_permanent_auth_failure_raw_slack_api_error_invalid_auth():
+    trigger = SlackTrigger()
+    # This is exactly what Socket Mode's connect() raises for a dead app_token.
+    assert trigger.is_permanent_auth_failure(_api_error("invalid_auth")) is True
+
+
+def test_permanent_auth_failure_raw_slack_api_error_token_revoked():
+    trigger = SlackTrigger()
+    assert trigger.is_permanent_auth_failure(_api_error("token_revoked")) is True
+
+
+def test_transient_raw_slack_api_error_is_not_permanent():
+    trigger = SlackTrigger()
+    # rate_limited / transient codes MUST keep reconnecting — disabling a
+    # healthy credential on a blip is the failure we must not introduce.
+    assert trigger.is_permanent_auth_failure(_api_error("rate_limited")) is False
+
+
+def test_raw_slack_api_error_without_response_is_not_permanent():
+    trigger = SlackTrigger()
+    err = SlackApiError(message="boom", response=None)  # type: ignore[arg-type]
+    assert trigger.is_permanent_auth_failure(err) is False
+
+
+def test_permanent_auth_failure_wrapped_slack_sdk_error_still_works():
+    trigger = SlackTrigger()
+    # The wrapped path (files.info, auth.test, etc.) must keep working.
+    assert trigger.is_permanent_auth_failure(SlackSDKError("invalid_auth")) is True
+    assert trigger.is_permanent_auth_failure(SlackSDKError("channel_not_found")) is False
+
+
+def test_permanent_auth_failure_unrelated_exception_is_false():
+    trigger = SlackTrigger()
+    assert trigger.is_permanent_auth_failure(RuntimeError("network hiccup")) is False
 
 
 # ── resolve_sender_name ────────────────────────────────────────────────

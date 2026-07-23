@@ -100,6 +100,17 @@ except ImportError:  # pragma: no cover
     SocketModeResponse = None  # type: ignore[assignment]
     _HAS_SLACK_SOCKET = False
 
+# The RAW slack_sdk error type. Socket Mode's ``connect()`` is the one
+# Slack call we make directly on the vendored SDK client (not via our
+# ``SlackSDKClient`` wrapper), so a dead app-level token surfaces as this
+# type — never as our ``SlackSDKError``. ``is_permanent_auth_failure``
+# must recognise it or the base loop reconnects forever. Import is
+# guarded because slack-sdk is an optional dependency (see ``start()``).
+try:
+    from slack_sdk.errors import SlackApiError as _SlackApiError
+except ImportError:  # pragma: no cover
+    _SlackApiError = None  # type: ignore[assignment,misc]
+
 
 # Subtypes we ignore (edits, deletes, system events, bot replies, etc.)
 _IGNORED_SUBTYPES = frozenset({
@@ -223,8 +234,25 @@ class SlackTrigger(ChannelTriggerBase):
         return f"{credential.agent_id}:{credential.team_id}"
 
     def is_permanent_auth_failure(self, exc: BaseException) -> bool:  # type: ignore[override]
+        # Wrapped path: every Slack Web API call routed through
+        # ``SlackSDKClient`` (auth.test, files.info, chat.postMessage, …)
+        # raises our ``SlackSDKError`` carrying the upstream ``code``.
         if isinstance(exc, SlackSDKError):
             return (exc.code or "") in _SLACK_PERMANENT_AUTH_CODES
+        # Raw path: Socket Mode's ``connect()`` → ``apps.connections.open``
+        # is called on the vendored SDK client directly, so a dead
+        # app-level token raises a raw ``slack_sdk.errors.SlackApiError``
+        # instead. Pull the error code out of its response envelope
+        # (a dict or an ``AsyncSlackResponse`` — both expose ``.get``).
+        if _SlackApiError is not None and isinstance(exc, _SlackApiError):
+            response = getattr(exc, "response", None)
+            if response is None:
+                return False
+            try:
+                code = response.get("error") or ""
+            except (AttributeError, TypeError):  # pragma: no cover — defensive
+                return False
+            return code in _SLACK_PERMANENT_AUTH_CODES
         return False
 
     async def disable_credential(self, credential: SlackCredential) -> None:  # type: ignore[override]
