@@ -15,6 +15,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.auth import _is_cloud_mode
+from xyz_agent_context.agent_framework.provider_resolver import free_tier_lock_for
+from xyz_agent_context.utils.db_factory import get_db_client
 
 
 router = APIRouter(prefix="/api/quota", tags=["quota"])
@@ -55,11 +57,18 @@ async def get_my_quota(request: Request) -> dict:
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    # Free-tier lock (single source: free_tier_lock_for → ProviderResolver):
+    # while the free tier has budget, edits to the global Model Defaults are
+    # ignored at runtime — the settings UI renders an honest banner from this.
+    free_tier = await free_tier_lock_for(
+        user_id, sys_svc, quota_svc, await get_db_client()
+    )
+
     q = await quota_svc.get(user_id)
     if q is None:
-        return {"enabled": True, "status": "uninitialized"}
+        return {"enabled": True, "status": "uninitialized", "free_tier": free_tier}
 
-    return _quota_to_dict(q)
+    return {**_quota_to_dict(q), "free_tier": free_tier}
 
 
 # PATCH /me/preference was removed 2026-07-18: "free tier first" is platform

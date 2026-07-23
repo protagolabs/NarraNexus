@@ -44,7 +44,10 @@
       "setModel": "Modell festlegen",
       "switchTooltip": "Modell — zum Wechseln klicken",
       "noModels": "Keine Modelle — in den Einstellungen hinzufügen",
-      "moreInSettings": "Mehr in den Einstellungen →"
+      "moreInSettings": "Mehr in den Einstellungen →",
+      "freeTierTag": "gratis",
+      "freeTierLocked": "Für die Dauer deines Freikontingents auf das Gratis-Modell festgelegt — nach dessen Verbrauch kannst du das Modell wechseln oder eines im Modell-Panel voreinstellen.",
+      "freeTierBanner": "Gratis-Kontingent aktiv: Läufe verwenden derzeit {{model}}. Änderungen hier greifen, sobald dein Freikontingent aufgebraucht ist."
     },
     "voice": {
       "label": "Sprache",

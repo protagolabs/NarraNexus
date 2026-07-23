@@ -44,7 +44,10 @@
       "setModel": "모델 설정",
       "switchTooltip": "모델 — 클릭하여 전환",
       "noModels": "모델 없음 — 설정에서 추가하세요",
-      "moreInSettings": "설정에서 더 보기 →"
+      "moreInSettings": "설정에서 더 보기 →",
+      "freeTierTag": "무료",
+      "freeTierLocked": "무료 할당량이 남아 있는 동안 무료 모델로 고정됩니다. 모두 사용하면 전환할 수 있으며, 모델 패널에서 미리 설정할 수도 있습니다.",
+      "freeTierBanner": "무료 등급 활성화: 현재 실행은 {{model}}을(를) 사용합니다. 여기서의 변경은 무료 할당량을 모두 사용한 후에 적용됩니다."
     },
     "voice": {
       "label": "음성",

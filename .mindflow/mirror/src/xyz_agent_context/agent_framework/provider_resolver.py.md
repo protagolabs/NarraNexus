@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — 免费额度锁定的单一真源（`is_free_tier_active` / `free_tier_lock` / `free_tier_lock_for`）
+
+三层，防止"UI 与运行时不一致"这类 bug 自身在两个路由里被复制：
+
+- `ProviderResolver.is_free_tier_active(user_id) -> bool`：纯读，等价于 `classify` 的
+  `SYSTEM_OK` 判定门（system 启用 + 有 quota 行 + `check()` 有余量），但**不触发**
+  rearm_switch_notice、**不读**用户自有 config（classify 需要 has_own 判耗尽分支，这里
+  不需要）。classify 的 SYSTEM_OK 分支上方加了交叉引用注释，标明该方法是这个门的规范
+  无副作用定义。
+- `ProviderResolver.free_tier_lock(user_id) -> {active, model}`：在上者之上补出锁定时
+  真正运行的系统 agent 模型（从**自己持有**的 `system_provider_svc.get_config()` 取——
+  model 提取放在 resolver，不落到 API 层）；inactive 时 `model=None` 且绝不调 get_config
+  （禁用时会 raise）。
+- 模块级 `free_tier_lock_for(user_id, sys_svc, quota_svc, db) -> dict`：**路由朝向的单点**。
+  两个 GET 路由（[[agents_llm_config]] llm-config、[[quota]] quota/me）各自把从
+  `request.app.state` 取到的 lifespan 服务（可能为 None）传进来即可——resolver 组装 +
+  model 提取都在这里，锁定语义只有一处。None 服务（本地模式/未 wire）降级 inactive、不碰 DB。
+
+动机：免费额度有余量时 per-agent / user slot override 会被系统池整体抢占（见下方
+SYSTEM_OK 分支），底部 [[ComposerModelBadge]] 只读锁 + [[AgentLlmConfigPanel]] /
+[[ModelDefaultsSettings]] 的诚实 banner 都据此渲染。**第一版把 helper 复制进了两个路由**
+（review 抓出的 DRY/分层问题），本次收敛到这里。测试见 test_provider_availability.py
+（is_free_tier_active 四例 + free_tier_lock 两例：active 返回系统模型 / inactive 不碰
+get_config）。
 
 ## 2026-07-20 (续) — 文案"退出重登"改为"Settings → Account 里接入"
 

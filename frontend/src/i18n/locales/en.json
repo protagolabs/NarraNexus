@@ -66,7 +66,10 @@
       "setModel": "set model",
       "switchTooltip": "Model — click to switch",
       "noModels": "No models — add some in Settings",
-      "moreInSettings": "More in settings →"
+      "moreInSettings": "More in settings →",
+      "freeTierTag": "free",
+      "freeTierLocked": "Locked to the free-tier model while your free quota lasts — switch models once it's used up, or preset one from the model panel.",
+      "freeTierBanner": "Free tier active: runs currently use {{model}}. Changes here take effect once your free quota is used up."
     },
     "voice": {
       "label": "voice",

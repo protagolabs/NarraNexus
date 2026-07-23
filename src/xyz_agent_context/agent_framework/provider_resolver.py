@@ -233,6 +233,11 @@ class ProviderResolver:
             # Branch 1: a free tier was granted. Free-tier-first is platform
             # behavior, not a user choice (the prefer_system toggle was
             # removed 2026-07-18) — while there is budget, every run draws it.
+            #
+            # The (system enabled + quota granted + budget) gate below IS the
+            # SYSTEM_OK condition; ``is_free_tier_active`` is its side-effect-free
+            # twin for read-only callers (the llm-config route, to render an
+            # honest "free tier · <model>" chip). Keep the two in step.
             if await self.quota_svc.check(user_id):
                 # Re-arm the switch-notice latch: budget is back (the free
                 # tier is a one-time registration grant with no periodic
@@ -267,6 +272,42 @@ class ProviderResolver:
 
         # Branch 2: no free tier granted — own provider only.
         return ProviderAvailability.USER_OK if has_own else ProviderAvailability.NO_PROVIDER
+
+    async def is_free_tier_active(self, user_id: str) -> bool:
+        """True iff a run right now would resolve to the SYSTEM free tier
+        (system enabled + quota granted + budget remaining) — the same gate
+        ``classify`` uses for ``SYSTEM_OK``, minus the notice-latch side effect.
+
+        This is a PURE read: it never re-arms the switch-notice latch, never
+        builds a config, and never probes the user's own provider (unlike
+        ``classify``, which needs ``has_own`` for the exhausted branch). Safe to
+        call from GET endpoints. The composer model badge relies on it to render
+        an honest read-only "free tier · <model>" chip, because while this is
+        True every per-agent model override is preempted by the fixed system
+        pool — so offering an inline switch would be a false promise.
+        """
+        if not self.system_provider_svc.is_enabled():
+            return False
+        quota = await self.quota_svc.get(user_id)
+        if quota is None:
+            return False
+        return await self.quota_svc.check(user_id)
+
+    async def free_tier_lock(self, user_id: str) -> dict:
+        """`{active, model}` for the free-tier lock — the single source both the
+        llm-config and quota/me routes render their honest "locked" UI from.
+
+        `active` is `is_free_tier_active`; `model` is the fixed system agent
+        model that actually runs while locked (pulled off THIS resolver's own
+        `system_provider_svc`, so the model extraction lives here, not in the API
+        layer). Inactive → `model=None`, and `get_config()` is never touched
+        (it raises when the system provider is disabled)."""
+        if not await self.is_free_tier_active(user_id):
+            return {"active": False, "model": None}
+        return {
+            "active": True,
+            "model": self.system_provider_svc.get_config().slots["agent"].model,
+        }
 
     async def resolve(
         self, user_id: str, agent_id: str | None = None
@@ -391,6 +432,28 @@ async def classify_provider_for_user(user_id: str, db) -> ProviderAvailability:
         quota_svc=QuotaService.default(),
     )
     return await resolver.classify(user_id)
+
+
+async def free_tier_lock_for(user_id: str, sys_svc, quota_svc, db) -> dict:
+    """Route-facing single source for the free-tier lock block `{active, model}`.
+
+    Both the llm-config route and quota/me route call this with the lifespan
+    services they read off `request.app.state` (`system_provider` /
+    `quota_service`) — the resolver assembly + model extraction stays out of the
+    API layer, so the lock's semantics live in exactly one place. `None` services
+    (local mode / not wired) degrade to inactive without touching the DB.
+    """
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        UserProviderService,
+    )
+    if sys_svc is None or quota_svc is None:
+        return {"active": False, "model": None}
+    resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=sys_svc,
+        quota_svc=quota_svc,
+    )
+    return await resolver.free_tier_lock(user_id)
 
 
 async def resolve_and_set_provider_for_user(

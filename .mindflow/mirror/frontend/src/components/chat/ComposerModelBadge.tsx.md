@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/chat/ComposerModelBadge.tsx
-last_verified: 2026-07-09
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 免费额度锁定态（诚实只读 chip）
+
+新增最高优先级的锁定分支：当 `getAgentLlmConfig` 返回的 `data.free_tier.active`
+为真时（[[api]]），渲染**不可点击**的只读 chip `[免费] <model>`（tag + 系统模型名），
+tooltip 用 `chat.model.freeTierLocked` 解释"额度用尽后可切换/在面板预设"。
+
+为什么：云端免费额度优先策略在额度有余量时把 per-agent override 整个抢占、锁死系统
+固定模型（见 [[provider_resolver]] SYSTEM_OK 分支 + [[agents_llm_config]] 的
+`free_tier` 块）。此前徽章照常显示可切下拉、写库、乐观更新，用户以为切成功了实则运行时
+永远没变——这正是测试同学报的"model 选择器切换不生效"的真根因。锁定分支优先于
+"set model" 和可切换态，因为它决定真正运行的模型。`free_tier.model` 是锁定时实际运行
+的系统 agent 模型（非用户自有 slot 模型）。额度耗尽 / 本地模式 → `active=False` → 分支
+不触发，切换行为与改前完全一致。Owner 决策：UI 诚实化、不改运行时策略本身。
+
+**该早退是"模型永远切不了"这个 bug 的镜像**（后续重构误伤即复现），故有前端测试守着：
+`__tests__/ComposerModelBadge.test.tsx` 两例——锁定态渲染只读 tag + 系统模型、无任何
+button/下拉；非锁定态保留原可切按钮 + 展示用户自有模型（review 遗留项，本轮补上）。
 
 ## 2026-07-09 — now PER-AGENT (was user-scoped)
 

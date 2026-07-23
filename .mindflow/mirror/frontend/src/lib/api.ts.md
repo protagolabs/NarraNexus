@@ -4,6 +4,14 @@ last_verified: 2026-07-23
 stub: false
 ---
 
+## 2026-07-23 — getAgentLlmConfig 返回类型加 `free_tier`
+
+`getAgentLlmConfig` 的 `data` 类型加可选 `free_tier?: {active, model}`：免费额度有余量时
+运行时锁死系统模型、忽略 per-agent override，前端据此渲染只读 chip（[[ComposerModelBadge]]）
+/ banner（[[AgentLlmConfigPanel]]）。后端见 [[agents_llm_config]]；用户级同一信号走
+[[quota]] 的 `QuotaMeResponse.free_tier`（[[ModelDefaultsSettings]] 消费）。纯类型补充，
+`request<T>` 逻辑未变。
+
 ## 2026-07-23 — typed ApiError with status
 
 All non-2xx throws (the central `request<T>` plus the direct-fetch helpers)

@@ -19,6 +19,8 @@ ownership (403/404), override view, and the PUT gate/validation branches (the tw
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -121,6 +123,67 @@ async def test_get_returns_owner_default_codex_framework(db_client, monkeypatch)
     # Reasoning params from params_json must survive too (were forced to auto).
     assert agent["owner_default"]["thinking"] == "on"
     assert agent["owner_default"]["reasoning_effort"] == "high"
+
+
+# =============================================================================
+# free_tier lock block — the GET response tells the UI when the cloud free tier
+# preempts per-agent model overrides, so the composer badge can render an honest
+# read-only "free tier · <model>" chip instead of a switch that silently no-ops.
+# =============================================================================
+
+
+def _wire_free_tier(client, *, enabled: bool, has_budget: bool, model: str = "sys-agent-x"):
+    """Attach fake lifespan services to the app so ``free_tier_lock_for`` resolves.
+
+    Mirrors the lock predicate's inputs: ``system_provider.is_enabled()`` +
+    ``quota_service.get()/check()``. ``get_config().slots['agent'].model`` is the
+    system model surfaced when locked."""
+    sys_svc = MagicMock()
+    sys_svc.is_enabled.return_value = enabled
+    sys_svc.get_config.return_value = SimpleNamespace(
+        slots={"agent": SimpleNamespace(model=model)}
+    )
+    quota_svc = MagicMock()
+    quota_svc.get = AsyncMock(return_value=(MagicMock() if enabled else None))
+    quota_svc.check = AsyncMock(return_value=has_budget)
+    client.app.state.system_provider = sys_svc
+    client.app.state.quota_service = quota_svc
+
+
+@pytest.mark.asyncio
+async def test_get_free_tier_inactive_when_services_unwired(db_client, monkeypatch):
+    """Local mode / no lifespan services on app.state → active=False, so the UI
+    behaves exactly as before (switching stays live)."""
+    await _seed_agent(db_client)
+    client = _build_client(db_client, monkeypatch, viewer_id="u1")
+    r = client.get("/api/agents/ag1/llm-config")
+    assert r.status_code == 200
+    assert r.json()["data"]["free_tier"] == {"active": False, "model": None}
+
+
+@pytest.mark.asyncio
+async def test_get_free_tier_active_locks_to_system_model(db_client, monkeypatch):
+    """Cloud free tier with budget → active=True and model is the fixed system
+    agent model (NOT the user's own slot), so the badge locks honestly."""
+    await _seed_agent(db_client)
+    await _seed_user_agent_slot(db_client, framework="claude_code", model="my-own-model")
+    client = _build_client(db_client, monkeypatch, viewer_id="u1")
+    _wire_free_tier(client, enabled=True, has_budget=True, model="sys-agent-x")
+    r = client.get("/api/agents/ag1/llm-config")
+    assert r.status_code == 200
+    assert r.json()["data"]["free_tier"] == {"active": True, "model": "sys-agent-x"}
+
+
+@pytest.mark.asyncio
+async def test_get_free_tier_inactive_when_budget_exhausted(db_client, monkeypatch):
+    """Free tier exhausted → own provider takes over → active=False, switching
+    unlocks."""
+    await _seed_agent(db_client)
+    client = _build_client(db_client, monkeypatch, viewer_id="u1")
+    _wire_free_tier(client, enabled=True, has_budget=False)
+    r = client.get("/api/agents/ag1/llm-config")
+    assert r.status_code == 200
+    assert r.json()["data"]["free_tier"] == {"active": False, "model": None}
 
 
 @pytest.mark.asyncio

@@ -66,7 +66,10 @@
       "setModel": "设置模型",
       "switchTooltip": "模型 — 点击切换",
       "noModels": "暂无模型 — 请在设置中添加",
-      "moreInSettings": "更多设置 →"
+      "moreInSettings": "更多设置 →",
+      "freeTierTag": "免费",
+      "freeTierLocked": "免费额度期间锁定为该模型；额度用尽后即可切换，或在模型面板中预设。",
+      "freeTierBanner": "免费额度生效中：当前实际使用 {{model}}。此处的修改将在免费额度用尽后生效。"
     },
     "voice": {
       "label": "语音",

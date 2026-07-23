@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.agent_framework.agent_slot_service import AgentSlotService
+from xyz_agent_context.agent_framework.provider_resolver import free_tier_lock_for
 from xyz_agent_context.schema.provider_schema import SlotName
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.agent_framework.cloud_policy import CloudPolicyViolation
@@ -103,7 +104,11 @@ class SetAgentSlotRequest(BaseModel):
 @router.get("/{agent_id}/llm-config")
 async def get_agent_llm_config(agent_id: str, request: Request):
     """Per-slot view: is the agent inheriting the owner default, what is the
-    effective config, and (if any) the raw override + owner default."""
+    effective config, and (if any) the raw override + owner default.
+
+    Also carries a ``free_tier`` block: while the owner's cloud free tier has
+    budget, runs are pinned to the fixed system model and per-agent overrides
+    are ignored — the UI uses this to render an honest read-only model chip."""
     user_id, _ = await _require_owner(agent_id, request)
     db = await get_db_client()
 
@@ -130,7 +135,21 @@ async def get_agent_llm_config(agent_id: str, request: Request):
             "owner_default": owner_view,
         }
 
-    return {"success": True, "data": {"agent_id": agent_id, "slots": slots_out}}
+    # Free-tier lock: while the owner's cloud free tier has budget, runs are
+    # pinned to the fixed system model and the per-agent overrides above are
+    # ignored (single source: free_tier_lock_for → ProviderResolver). The UI
+    # renders an honest read-only chip from this instead of a no-op switch.
+    free_tier = await free_tier_lock_for(
+        user_id,
+        getattr(request.app.state, "system_provider", None),
+        getattr(request.app.state, "quota_service", None),
+        db,
+    )
+
+    return {
+        "success": True,
+        "data": {"agent_id": agent_id, "slots": slots_out, "free_tier": free_tier},
+    }
 
 
 @router.put("/{agent_id}/llm-config/{slot_name}")
