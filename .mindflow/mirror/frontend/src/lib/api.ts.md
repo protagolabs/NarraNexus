@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — typed ApiError with status
+
+All non-2xx throws (the central `request<T>` plus the direct-fetch helpers)
+now raise `ApiError extends Error` carrying `.status`, so callers can branch
+on HTTP status (`e instanceof ApiError && e.status === 404`) instead of
+string-matching messages. First consumer: [[teamsStore.ts]] treats DELETE
+404 as already-gone. Messages are unchanged — existing string-based
+handling keeps working.
 
 ## 2026-07-22 — getWorkerStatus()
 
