@@ -15,34 +15,11 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.auth import _is_cloud_mode
-from xyz_agent_context.agent_framework.provider_resolver import ProviderResolver
-from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+from xyz_agent_context.agent_framework.provider_resolver import free_tier_lock_for
 from xyz_agent_context.utils.db_factory import get_db_client
 
 
 router = APIRouter(prefix="/api/quota", tags=["quota"])
-
-
-async def _free_tier_lock(user_id: str, sys_svc, quota_svc) -> dict:
-    """Is a run for ``user_id`` right now pinned to the SYSTEM free tier, and if
-    so which model does it actually run?
-
-    While the free tier has budget the runtime ignores the user's own
-    agent/helper slots (see ``ProviderResolver.resolve`` SYSTEM_OK branch) — so
-    editing the global Model Defaults (or a per-agent override) silently no-ops
-    until the free tier is spent. The settings UIs read this to render an honest
-    "changes take effect once your free quota is used up" banner. Verdict comes
-    from the single-source predicate ``ProviderResolver.is_free_tier_active``;
-    the model is the fixed system agent model surfaced while locked.
-    """
-    resolver = ProviderResolver(
-        user_provider_svc=UserProviderService(await get_db_client()),
-        system_provider_svc=sys_svc,
-        quota_svc=quota_svc,
-    )
-    if not await resolver.is_free_tier_active(user_id):
-        return {"active": False, "model": None}
-    return {"active": True, "model": sys_svc.get_config().slots["agent"].model}
 
 
 def _quota_to_dict(q) -> dict:
@@ -80,7 +57,12 @@ async def get_my_quota(request: Request) -> dict:
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    free_tier = await _free_tier_lock(user_id, sys_svc, quota_svc)
+    # Free-tier lock (single source: free_tier_lock_for → ProviderResolver):
+    # while the free tier has budget, edits to the global Model Defaults are
+    # ignored at runtime — the settings UI renders an honest banner from this.
+    free_tier = await free_tier_lock_for(
+        user_id, sys_svc, quota_svc, await get_db_client()
+    )
 
     q = await quota_svc.get(user_id)
     if q is None:

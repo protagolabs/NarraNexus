@@ -11,10 +11,11 @@ last_verified: 2026-07-23
 是用户级面板、没有 agentId，拿不到 [[agents_llm_config]] 的 per-agent free_tier；而它
 在免费额度期改默认模型同样被运行时静默忽略（[[provider_resolver]] SYSTEM_OK 分支忽略
 user_slots）。于是复用本就承载配额状态的 quota/me 暴露同一锁定信号，前端据此渲染诚实
-banner。`active` 由单一真源 `ProviderResolver.is_free_tier_active` 给出（新 helper
-`_free_tier_lock`，与 agents_llm_config 的同名 helper 都委托同一 predicate）；`model`
-为锁定时真正运行的系统 agent 模型。本地模式 `_is_cloud_mode()` 假 → 早返回
-`{enabled: false}`，不带 free_tier（前端视作 inactive）。测试见 test_quota_route.py。
+banner。`free_tier` 由单点 `free_tier_lock_for`（[[provider_resolver]]）算出——本路由
+只把 `app.state` 的 system_provider / quota_service + db 传进去（review 抓出第一版在此
+和 agents_llm_config 各复制了一份 helper，本次收敛到 provider_resolver）。本地模式
+`_is_cloud_mode()` 假 → 早返回 `{enabled: false}`，不带 free_tier（前端视作 inactive）。
+测试见 test_quota_route.py。
 
 ## 2026-07-18 — PATCH /me/preference 删除
 

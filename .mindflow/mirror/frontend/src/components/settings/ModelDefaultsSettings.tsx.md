@@ -7,7 +7,10 @@ stub: false
 ## 2026-07-23 — 免费额度生效诚实 banner
 
 `load()` 的 `Promise.all` 增拉 `api.getMyQuota()`（[[api]] / [[quota]]），读其
-`free_tier`；`active` 为真时面板顶部渲染诚实 banner（复用 `chat.model.freeTierBanner`
+`free_tier`；**该路带 `.catch(() => ({enabled:false}))` 兜底**——banner 只是装饰性告知，
+不能让一个 quota/me 的 5xx 把整个面板（provider/model 下拉都靠统一 catch → setError）拖
+垮（review 抓出的问题），失败即静默退化为 inactive，与本地模式同一降级路径。
+`active` 为真时面板顶部渲染诚实 banner（复用 `chat.model.freeTierBanner`
 i18n 键，插值系统模型名）：说明免费额度生效中、当前实际用系统模型、此处默认设置将在额度
 用尽后生效。**控件保持可编辑**（允许预配置，与 [[AgentLlmConfigPanel]] 同策略）。这是把
 底部 [[ComposerModelBadge]] 只读锁 + Agent 面板 banner 的诚实化补齐到全局层——三个模型

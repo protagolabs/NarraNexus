@@ -88,7 +88,10 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       const [provRes, fwRes, quotaRes] = await Promise.all([
         api.getProviders(),
         api.getAgentFramework(),
-        api.getMyQuota(),
+        // The quota call only feeds the (decorative) free-tier banner — it must
+        // not be able to break the whole panel. Degrade to "not on free tier"
+        // on any failure (same inactive path local mode already takes).
+        api.getMyQuota().catch(() => ({ enabled: false }) as const),
       ]);
       setFreeTier(
         'free_tier' in quotaRes && quotaRes.free_tier

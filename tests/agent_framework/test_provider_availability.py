@@ -22,6 +22,7 @@ Decision tree (identical to `resolve`, just verdict-only):
 
 `is_runnable(verdict)` is True only for {SYSTEM_OK, USER_OK, SYSTEM_DISABLED}.
 """
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -211,6 +212,28 @@ async def test_free_tier_active_true_with_quota_and_budget():
 async def test_free_tier_active_false_when_quota_exhausted():
     r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=False, has_budget=False)
     assert await r.is_free_tier_active("u") is False
+
+
+# ── free_tier_lock ({active, model}) — the route-facing single source ────────
+
+@pytest.mark.asyncio
+async def test_free_tier_lock_active_returns_system_model():
+    """Locked → the fixed system agent model, pulled off the resolver's own
+    system_provider_svc (model extraction lives in the resolver, not the route)."""
+    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=False, has_budget=True)
+    r.system_provider_svc.get_config.return_value = SimpleNamespace(
+        slots={"agent": SimpleNamespace(model="sys-agent-x")}
+    )
+    assert await r.free_tier_lock("u") == {"active": True, "model": "sys-agent-x"}
+
+
+@pytest.mark.asyncio
+async def test_free_tier_lock_inactive_never_touches_get_config():
+    """Not locked → model=None, and get_config() (which raises when the system
+    provider is disabled) is never called."""
+    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=False, has_budget=False)
+    assert await r.free_tier_lock("u") == {"active": False, "model": None}
+    r.system_provider_svc.get_config.assert_not_called()
 
 
 # ── is_runnable helper ──────────────────────────────────────────────────────
