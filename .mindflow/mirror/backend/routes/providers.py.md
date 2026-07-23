@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-18
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — sync-defaults 尊重 `NARRANEXUS_OFFER_ALL_MODELS`
+
+`/sync-defaults`(前端"更新模型"按钮)的聚合源分支加了一条前置:当
+`offer_all_models_enabled()`(见 [[model_catalog]])为真时,**跳过探测**,直接用
+`get_default_models(source, protocol)`(此时返回全量目录)覆盖每一行。否则开了 flag
+再点按钮会重新探测、把列表缩回 pass-only,自相矛盾;这条也是把 flag 应用到**已存在
+provider**的一键途径(创建时的预填充同样走 `get_default_models`,已自动生效)。默认关,
+云端与普通本地安装行为不变。
 
 ## 2026-07-18 — agent-framework 403 门禁方向化(修云端老 codex 死锁)
 

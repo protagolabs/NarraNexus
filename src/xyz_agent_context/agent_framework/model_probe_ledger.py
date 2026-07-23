@@ -85,3 +85,20 @@ def ledger_models(source: str, protocol: str) -> list[str]:
     key = "netmind" if source in ("netmind", "system_pool") else source
     models = ledger.get("sources", {}).get(key, {}).get("models", {})
     return [mid for mid, rec in models.items() if rec.get(protocol) == PASS]
+
+
+def all_ledger_models(source: str) -> list[str]:
+    """Every model id catalogued for ``source``, regardless of per-protocol
+    pass/fail.
+
+    Same ``system_pool`` → ``netmind`` aliasing as ``ledger_models``. Backs the
+    ``NARRANEXUS_OFFER_ALL_MODELS`` dev opt-in: on a machine whose network to the
+    aggregator is poor, the probe marks many reachable models FAIL, so the
+    pass-filtered list under-counts. This ignores the filter and offers the
+    whole catalogue (sorted for a stable UI order). Returns [] when the ledger
+    has nothing for the source (caller falls back to hardcoded defaults).
+    """
+    ledger = load_ledger()
+    key = "netmind" if source in ("netmind", "system_pool") else source
+    models = ledger.get("sources", {}).get(key, {}).get("models", {})
+    return sorted(models.keys())

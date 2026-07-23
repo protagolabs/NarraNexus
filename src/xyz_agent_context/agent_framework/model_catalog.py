@@ -20,8 +20,32 @@ Usage:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Optional
+
+# Dev opt-in: offer every catalogued aggregator model, not just probe-passers.
+OFFER_ALL_MODELS_ENV_VAR = "NARRANEXUS_OFFER_ALL_MODELS"
+
+# Truthy spellings for boolean opt-in env vars (mirrors deployment_mode._TRUTHY
+# so every env boolean in the project parses the same way).
+_TRUTHY = ("1", "true", "yes")
+
+
+def offer_all_models_enabled() -> bool:
+    """Dev opt-in: should aggregator providers offer their ENTIRE catalogue?
+
+    Default OFF. When ``NARRANEXUS_OFFER_ALL_MODELS`` is truthy (a local
+    developer sets it), ``get_default_models`` returns every model the aggregator
+    lists instead of only the ones the probe ledger marked as passing. The point:
+    on a machine with poor connectivity to the aggregator the probe records many
+    reachable models as FAIL, so the pass-filtered list under-counts (cloud keeps
+    its list fresh via the daily re-probe; a local install ships a static, often
+    pessimistic snapshot). Off on cloud and normal local installs — the platform
+    does not decide models FOR the user, but the default stays conservative so
+    the dropdown only shows what actually answered.
+    """
+    return os.environ.get(OFFER_ALL_MODELS_ENV_VAR, "").strip().lower() in _TRUTHY
 
 
 # =============================================================================
@@ -288,9 +312,20 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     # actually answer on this protocol are listed). Fall back to the hardcoded
     # list when the ledger has no entry yet (fresh checkout before first sync,
     # or a source we haven't probed).
-    from xyz_agent_context.agent_framework.model_probe_ledger import ledger_models
+    from xyz_agent_context.agent_framework.model_probe_ledger import (
+        all_ledger_models,
+        ledger_models,
+    )
 
     if source in ("netmind", "system_pool", "openrouter", "yunwu"):
+        # Dev opt-in: ignore the pass/fail filter and offer the whole catalogue
+        # (see offer_all_models_enabled). Still requires a populated ledger — an
+        # empty one falls through to the hardcoded defaults below rather than
+        # leaving the provider with no models.
+        if offer_all_models_enabled():
+            everything = all_ledger_models(source)
+            if everything:
+                return everything
         synced = ledger_models(source, protocol)
         if synced:
             return synced

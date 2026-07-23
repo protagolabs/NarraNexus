@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/model_catalog.py
-last_verified: 2026-07-03
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — `NARRANEXUS_OFFER_ALL_MODELS` dev opt-in
+
+New `offer_all_models_enabled()` (+ `_TRUTHY`, `OFFER_ALL_MODELS_ENV_VAR`).
+Default OFF. When truthy, `get_default_models` for aggregator sources
+(netmind / system_pool / openrouter / yunwu) returns
+`model_probe_ledger.all_ledger_models(source)` — every catalogued id,
+**both protocol rows get the same full set** — instead of the pass-filtered
+`ledger_models`. Why: the committed ledger is a release-time snapshot probed
+from one network; a model unreachable from THAT network is stamped FAIL and
+vanishes from a local install's dropdown even though it works (cloud re-probes
+daily, local doesn't). The flag lets a dev see everything. Guard: an empty
+ledger still falls through to the hardcoded `_DEFAULT_MODELS` (never return
+`[]` and strand the provider). Consumed in exactly two places — here and
+`backend/routes/providers.py` sync-defaults (which skips probing and fills from
+`get_default_models` when the flag is on, so the "Update models" button doesn't
+re-shrink to pass-only). Caveat by design: a wrong-protocol pick (e.g. a gpt id
+on the anthropic row) errors at runtime — the flag trades that for full
+visibility. Tests: tests/agent_framework/test_offer_all_models.py.
 
 ## 2026-07-03 — `resolve_cli_alias` (upstream #57)
 

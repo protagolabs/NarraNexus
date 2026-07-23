@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/model_probe_ledger.py
-last_verified: 2026-06-24
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — `all_ledger_models(source)`
+
+Companion read to `ledger_models` that ignores the per-protocol pass/fail
+filter and returns EVERY catalogued id for a source (sorted; same
+`system_pool`→`netmind` aliasing). Backs the `NARRANEXUS_OFFER_ALL_MODELS`
+dev opt-in in [[model_catalog]] — see that mirror for the rationale (snapshot
+probed from one network under-counts on other networks). Pure read, no probing.
 
 # agent_framework/model_probe_ledger.py — the probe dedup cache (read/write)
 

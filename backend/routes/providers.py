@@ -27,6 +27,7 @@ from xyz_agent_context.agent_framework.model_catalog import (
     get_all_known_models,
     get_default_models,
     get_suggested_models,
+    offer_all_models_enabled,
     OFFICIAL_BASE_URLS,
 )
 from xyz_agent_context.schema.provider_schema import (
@@ -562,6 +563,16 @@ async def sync_default_models(request: Request):
             continue  # hand-picked custom provider — never auto-touch
 
         if source in model_sync.SUPPORTED_SOURCES and source != "system_pool":
+            # Dev opt-in (NARRANEXUS_OFFER_ALL_MODELS): skip probing entirely and
+            # fill every row with the full catalogue. Without this the button
+            # would re-probe and shrink the list back to pass-only, contradicting
+            # the flag — and it's the one-click way to apply the flag to an
+            # already-created provider (creation-time population also honours it).
+            if offer_all_models_enabled():
+                for prov_id, prov in rows:
+                    await _apply(prov_id, prov, list(get_default_models(source, prov.protocol.value)))
+                continue
+
             # Probe with the user's own key (same key works for both protocols
             # on these aggregators). OVERWRITE each row from the result.
             anykey = next((p.api_key for _, p in rows if p.api_key), "")
