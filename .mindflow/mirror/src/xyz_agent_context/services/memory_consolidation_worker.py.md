@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/services/memory_consolidation_worker.py
-last_verified: 2026-07-07
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — orphan-scope purge (self-healing for deleted agents)
+
+`_default_engine_consolidate` now guards at the very top: if the scope's
+owning `agents` row is gone, it DELETEs every queue row for that
+agent_id and returns 0 instead of running the engine. Why this exists:
+[[auth]]'s `delete_agent` historically didn't sweep
+`memory_consolidation_queue`, so a deleted agent's `dirty` rows lingered
+forever — the worker re-picked them each pass, hit
+[[provider_resolver]]'s "no owner" bail (creds cleared → LLM 401 on
+cloud), marked the scope `failed`, and left both the DB row and the
+recurring `[background-llm] … has no owner row` warning in place. The
+delete_agent fix stops NEW orphans; this guard heals the ones already in
+prod (they drain within ~90s once idle-triggered). The guard lives in
+the real engine path (NOT the mockable `_engine_consolidate` seam), so
+the existing state-machine tests — which insert queue rows without an
+`agents` row and mock the seam — are unaffected. Regression:
+test_orphan_scope_is_purged_not_failed +
+test_orphan_purge_removes_all_kinds_for_dead_agent. Iron rule #14 intact
+(no time/iteration ceiling — this only removes work that can never
+succeed, it never stops a live loop).
 
 ## 2026-07-03 — cost accounting: worker sets the cost context (Phase 0 / module H)
 

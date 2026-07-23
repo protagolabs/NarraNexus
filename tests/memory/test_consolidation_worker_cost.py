@@ -99,9 +99,25 @@ def _worker(db_client):
     return mod, mod.MemoryConsolidationWorker(db_client=db_client)
 
 
+async def _live_agent(db_client, worker, agent_id: str):
+    """Seed a live `agents` row so the worker's orphan guard (2026-07-23) does
+    not short-circuit — cost accounting only applies to a still-existing agent
+    — and stub credential injection (a no-op here as it was before the guard,
+    when these tests' agent rows were absent) so the test stays focused on the
+    cost context, not provider resolution.
+    """
+    from unittest.mock import AsyncMock
+
+    await db_client.insert(
+        "agents", {"agent_id": agent_id, "agent_name": "A", "created_by": "u"}
+    )
+    worker._inject_owner_credentials = AsyncMock()
+
+
 @pytest.mark.asyncio
 async def test_worker_sets_cost_context_carrying_agent_and_db(db_client):
     mod, worker = _worker(db_client)
+    await _live_agent(db_client, worker, "agt_cost")
     with patch.object(mod, "MemoryEngine", _FakeEngine):
         result = await worker._default_engine_consolidate(
             agent_id="agt_cost", scope_type="agent", scope_id="", kind="observation",
@@ -116,6 +132,7 @@ async def test_worker_sets_cost_context_carrying_agent_and_db(db_client):
 @pytest.mark.asyncio
 async def test_worker_clears_cost_context_after_success(db_client):
     mod, worker = _worker(db_client)
+    await _live_agent(db_client, worker, "agt1")
     with patch.object(mod, "MemoryEngine", _FakeEngine):
         await worker._default_engine_consolidate(
             agent_id="agt1", scope_type="agent", scope_id="", kind="observation",
@@ -126,6 +143,7 @@ async def test_worker_clears_cost_context_after_success(db_client):
 @pytest.mark.asyncio
 async def test_worker_clears_cost_context_even_on_failure(db_client):
     mod, worker = _worker(db_client)
+    await _live_agent(db_client, worker, "agt1")
     with patch.object(mod, "MemoryEngine", _BoomEngine):
         with pytest.raises(RuntimeError):
             await worker._default_engine_consolidate(

@@ -1,8 +1,25 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-17
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — delete_agent sweeps memory_consolidation_queue (orphan fix)
+
+`delete_agent` cleaned ~20 per-agent tables but forgot
+`memory_consolidation_queue` — the table the background consolidation
+worker polls for `dirty` scopes. A deleted agent left its queue rows
+behind as orphans; the worker kept picking them up, could not resolve
+the (now gone) owner via [[provider_resolver]]'s
+`inject_owner_helper_credentials`, and spammed `[background-llm] agent …
+has no owner row` every ~30s pass. Added step **14g** (same
+try/except + stats pattern as 14b/14f) right before deleting the agent
+row itself. Strictly scoped by `agent_id`, so deleting agent A never
+touches agent B's queue. Regression:
+tests/backend/test_delete_agent_consolidation_queue.py. The worker also
+gained a self-healing orphan purge for rows enqueued before this fix
+(see [[memory_consolidation_worker]]). Binding rule #8 (sweep adjacent
+code) — the same class of miss already cost us `agent_slots` (14f).
 
 ## 2026-07-17 — `/api/auth/agents` first-paint sort by recent conversation
 

@@ -85,6 +85,42 @@ async def test_returns_none_when_agent_row_missing(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_missing_agent_and_empty_owner_log_distinctly(monkeypatch):
+    """The two "no owner" states are NOT the same failure and must be
+    diagnosable apart: a MISSING agent row is an expected post-deletion race
+    (WARNING); an agent row that EXISTS with an empty created_by violates the
+    NOT NULL schema — a real data anomaly (ERROR). Conflating them into one
+    line (the pre-2026-07-23 behavior) hid the second class entirely.
+    """
+    from loguru import logger
+
+    monkeypatch.setattr(provider_resolver, "clear_user_config", lambda: None)
+
+    records: list[tuple[str, str]] = []
+    sink_id = logger.add(
+        lambda m: records.append(
+            (m.record["level"].name, m.record["message"])
+        ),
+        level="WARNING",
+    )
+    try:
+        await provider_resolver.inject_owner_helper_credentials(
+            "ghost", _FakeDB(None)
+        )
+        await provider_resolver.inject_owner_helper_credentials(
+            "agt_1", _FakeDB({"agent_id": "agt_1", "created_by": ""})
+        )
+    finally:
+        logger.remove(sink_id)
+
+    levels = [lvl for lvl, _ in records]
+    assert "WARNING" in levels, "missing agent row should log at WARNING"
+    assert "ERROR" in levels, "empty created_by is a data anomaly → ERROR"
+    # The two messages are not identical text.
+    assert len({msg for _, msg in records}) == 2
+
+
+@pytest.mark.asyncio
 async def test_resolver_errors_propagate(monkeypatch):
     monkeypatch.setattr(provider_resolver, "clear_user_config", lambda: None)
 

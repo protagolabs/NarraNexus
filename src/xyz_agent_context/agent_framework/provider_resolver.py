@@ -460,11 +460,26 @@ async def inject_owner_helper_credentials(agent_id: str, db) -> Optional[str]:
     # Reset first: never inherit a prior tenant's creds when we bail early.
     clear_user_config()
     agent_row = await db.get_one("agents", {"agent_id": agent_id})
-    owner = (agent_row or {}).get("created_by")
-    if not owner:
+    # Two distinct bail states — kept as separate log lines so they can be told
+    # apart in production (they used to share one warning, which hid the second
+    # class entirely):
+    #   1. Agent row MISSING — expected post-deletion race (a detached task
+    #      outliving its agent, or a stale queue row). Benign; WARNING.
+    #   2. Agent row EXISTS but created_by is empty — a real data anomaly:
+    #      created_by is NOT NULL and every insert path fills it, so this means
+    #      corruption / a migration artifact and warrants investigation; ERROR.
+    if agent_row is None:
         logger.warning(
-            f"[background-llm] agent {agent_id} has no owner row — helper "
-            f"credentials left cleared (global fallback)."
+            f"[background-llm] agent {agent_id} not found (deleted?) — helper "
+            f"credentials left cleared; skipping helper call."
+        )
+        return None
+    owner = agent_row.get("created_by")
+    if not owner:
+        logger.error(
+            f"[background-llm] agent {agent_id} exists but has no created_by "
+            f"owner — DATA ANOMALY (created_by is NOT NULL); helper credentials "
+            f"left cleared (global fallback)."
         )
         return None
     # Pass agent_id so the owner's helper_llm is overlaid with this agent's

@@ -1122,6 +1122,21 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"agent_slots cascade cleanup failed (non-critical): {e}")
 
+        # 14g. Memory consolidation queue (agent_id). The background worker
+        # polls this table for `dirty` scopes; without this sweep a deleted
+        # agent's rows linger as orphans the worker can never resolve an owner
+        # for, spamming "[background-llm] … has no owner row" every pass.
+        try:
+            mcq_res = await db_client.execute(
+                "DELETE FROM memory_consolidation_queue WHERE agent_id = %s",
+                (agent_id,), fetch=False,
+            )
+            mcq_cnt = mcq_res if isinstance(mcq_res, int) else 0
+            if mcq_cnt > 0:
+                stats["memory_consolidation_queue"] = mcq_cnt
+        except Exception as e:
+            logger.warning(f"memory_consolidation_queue cleanup failed (non-critical): {e}")
+
         # 15. The Agent itself
         result = await db_client.execute(
             "DELETE FROM agents WHERE agent_id = %s",

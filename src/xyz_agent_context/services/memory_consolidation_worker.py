@@ -169,6 +169,21 @@ class MemoryConsolidationWorker:
         records, run the engine, then tombstone the consumed raw units — their
         content now lives in the consolidated record, traceable via source_ids.
         """
+        # Orphan guard: a queue row whose owning `agents` row is gone is a
+        # stale artifact of agent deletion (delete_agent only started sweeping
+        # this table on 2026-07-23; rows enqueued before that linger). It can
+        # NEVER consolidate — the memory rows it tracked were deleted with the
+        # agent — so purge every queue row for the dead agent rather than
+        # marking it 'failed' forever (which leaked both DB rows and a
+        # recurring "[background-llm] ... has no owner row" warning every pass).
+        if await self._db.get_one("agents", {"agent_id": agent_id}) is None:
+            purged = await self._db.delete(_QUEUE, {"agent_id": agent_id})
+            logger.info(
+                f"[memory.consolidation] agent {agent_id} no longer exists - "
+                f"purged {purged if isinstance(purged, int) else '?'} orphan "
+                f"queue row(s); nothing to consolidate."
+            )
+            return 0
         await self._inject_owner_credentials(agent_id)
         # Account the LLM tokens this background pass burns. Without this the
         # worker ran OUTSIDE any cost context (only AgentRuntime.run set it),

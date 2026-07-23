@@ -353,3 +353,65 @@ async def test_inject_owner_credentials_never_leaks_previous_tenant(db_client):
         await worker._inject_owner_credentials("agent_deleted")
 
     assert openai_config.api_key != "tenant_a_key"
+
+
+# ── 2026-07-23 orphan-purge: stale queue rows for deleted agents ────────────
+#
+# delete_agent historically didn't sweep memory_consolidation_queue, so a
+# deleted agent's dirty rows lingered forever. The worker now heals them: a
+# scope whose owning `agents` row is gone is PURGED (not marked 'failed'), so
+# the queue drains itself instead of re-warning every pass.
+
+@pytest.mark.asyncio
+async def test_orphan_scope_is_purged_not_failed(db_client):
+    """A dirty queue row whose agent no longer exists → the row is DELETED,
+    not left as status='failed'. Uses the REAL engine path (no mock) so the
+    orphan guard runs before any owner lookup / LLM call."""
+    spec = get_spec("observation")
+    key = {"agent_id": "agent_gone", "scope_type": "agent", "scope_id": "", "kind": "observation"}
+    await db_client.insert(_QUEUE, {
+        **key, "status": "dirty", "pending_count": spec.consolidate_threshold,
+        "last_dirty_at": utc_now(), "updated_at": utc_now(),
+    })
+    # NOTE: deliberately NO row inserted into `agents`.
+
+    from xyz_agent_context.services.memory_consolidation_worker import (
+        MemoryConsolidationWorker,
+    )
+    worker = MemoryConsolidationWorker(db_client=db_client)  # real _engine_consolidate
+
+    await worker._run_one_pass()
+
+    assert await db_client.get_one(_QUEUE, key) is None, "orphan row must be purged"
+
+
+@pytest.mark.asyncio
+async def test_orphan_purge_removes_all_kinds_for_dead_agent(db_client):
+    """One dead agent with several queued kinds → purging one scope clears the
+    whole agent's backlog in a single sweep (no per-kind residue)."""
+    now = utc_now()
+    for kind in ("observation", "entity"):
+        await db_client.insert(_QUEUE, {
+            "agent_id": "agent_gone", "scope_type": "agent", "scope_id": "", "kind": kind,
+            "status": "dirty", "pending_count": 20, "last_dirty_at": now, "updated_at": now,
+        })
+    # A live agent's row must survive the sweep.
+    await db_client.insert("agents", {"agent_id": "agent_live", "agent_name": "L", "created_by": "u"})
+    await db_client.insert(_QUEUE, {
+        "agent_id": "agent_live", "scope_type": "agent", "scope_id": "", "kind": "observation",
+        "status": "dirty", "pending_count": 20, "last_dirty_at": now, "updated_at": now,
+    })
+
+    from xyz_agent_context.services.memory_consolidation_worker import (
+        MemoryConsolidationWorker,
+    )
+    worker = MemoryConsolidationWorker(db_client=db_client)
+    # Live agent's consolidation is stubbed — we only care about orphan sweeping here.
+    worker._inject_owner_credentials = AsyncMock()
+
+    await worker._default_engine_consolidate(
+        agent_id="agent_gone", scope_type="agent", scope_id="", kind="observation"
+    )
+
+    assert await db_client.get(_QUEUE, {"agent_id": "agent_gone"}) == []
+    assert len(await db_client.get(_QUEUE, {"agent_id": "agent_live"})) == 1

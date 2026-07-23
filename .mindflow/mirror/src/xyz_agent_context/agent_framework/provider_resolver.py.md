@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — inject_owner_helper_credentials 拆分两种 "no owner" 日志
+
+`inject_owner_helper_credentials` 原本把「`agents` 行整个不存在」和「行在、
+但 `created_by` 为空」合并成同一句 WARNING，排障时无法区分。现在分两条：
+- **agent_row is None** → WARNING「not found (deleted?)」：属删除竞态/孤儿
+  队列行的良性场景（[[memory_consolidation_worker]] 现已在 worker 侧主动清
+  理这类孤儿）。
+- **row 在但 created_by 空** → ERROR「DATA ANOMALY」：`created_by` 是
+  NOT NULL 且所有插入路径都填值，为空即数据损坏/迁移遗留，须人工排查
+  （事故教训 #3：别把该报的错静默掉）。
+行为不变（两种都 return None、凭证保持清空、绝不落平台 key），仅日志级别与
+文案分流。回归：test_missing_agent_and_empty_owner_log_distinctly（loguru
+sink 断言两条不同级别）。
 
 ## 2026-07-20 (续) — 文案"退出重登"改为"Settings → Account 里接入"
 
