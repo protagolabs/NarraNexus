@@ -193,7 +193,9 @@
     },
     "attachments": {
       "downloadTitle": "下载 {{name}}"
-    }
+    },
+    "dateToday": "今天",
+    "dateYesterday": "昨天"
   },
   "awareness": {
     "common": {

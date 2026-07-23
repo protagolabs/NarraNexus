@@ -4,6 +4,16 @@ last_verified: 2026-07-23
 stub: false
 ---
 
+## 2026-07-23 — day separators in the timeline
+
+Messages show only HH:mm:ss, so multi-day history had no date context.
+New `visibleTimeline` memo applies the tab filter BEFORE rendering so
+separators compare adjacent VISIBLE items (comparing against
+tab-hidden neighbours would draw phantom separators); a separator
+(Today / Yesterday / locale date — [[chatDays.ts]]) renders at every
+local-day boundary, for both bubbles and activity cards. i18n:
+`chat.dateToday` / `chat.dateYesterday`.
+
 ## 2026-07-23 — register signal passes focus to upsert
 
 `refreshArtifactFromToolCall` now calls `upsert(d, {focus: true})` so a

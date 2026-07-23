@@ -152,7 +152,9 @@
         "executor_unreachable": "Tu contenedor de ejecución no está disponible temporalmente. Suele recuperarse en unos segundos; vuelve a enviar este mensaje en breve.",
         "infra_transient": "Este turno no se pudo ejecutar debido a un problema temporal de ejecución en la plataforma. Vuelve a enviar el mensaje en un momento."
       }
-    }
+    },
+    "dateToday": "Hoy",
+    "dateYesterday": "Ayer"
   },
   "awareness": {
     "common": {

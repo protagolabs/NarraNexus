@@ -152,7 +152,9 @@
         "executor_unreachable": "Seu contêiner de execução está temporariamente inacessível. Normalmente se recupera em alguns segundos — reenvie esta mensagem em breve.",
         "infra_transient": "Este turno não pôde ser executado devido a um problema temporário de execução na plataforma. Envie a mensagem novamente em instantes."
       }
-    }
+    },
+    "dateToday": "Hoje",
+    "dateYesterday": "Ontem"
   },
   "awareness": {
     "common": {
