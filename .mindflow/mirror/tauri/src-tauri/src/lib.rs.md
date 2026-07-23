@@ -1,7 +1,15 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-07-13
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — notification plugin + notify_completion (#44)
+
+Registered `tauri_plugin_notification::init()` and added
+`commands::notify::notify_completion` to the `invoke_handler` — OS-level
+"agent finished responding" notifications, driven from the frontend's
+[[desktopNotify.ts]] (never the plugin's JS bindings; no @tauri-apps npm).
+Capability `notification:default` added in capabilities/default.json.
 
 ## 2026-07-13 — register open_netmind_oauth command
 
