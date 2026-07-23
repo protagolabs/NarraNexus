@@ -211,12 +211,16 @@ class SlackTrigger(ChannelTriggerBase):
         )
 
     async def stop(self) -> None:
-        # Disconnect any live Socket Mode sessions before the base tears down.
+        # Fully close (not just disconnect) any live Socket Mode sessions
+        # before the base tears down — ``close()`` also cancels the
+        # ``process_messages()`` task and shuts the ClientSession
+        # (aiohttp/__init__.py 446-457); ``disconnect()`` would leave both
+        # dangling past shutdown.
         for key, client in list(self._socket_clients.items()):
             try:
-                await asyncio.wait_for(client.disconnect(), timeout=3.0)
+                await asyncio.wait_for(client.close(), timeout=3.0)
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
-                logger.warning(f"[slack:{key}] disconnect during stop: {e}")
+                logger.warning(f"[slack:{key}] close during stop: {e}")
         self._socket_clients.clear()
         await super().stop()
 
@@ -369,8 +373,27 @@ class SlackTrigger(ChannelTriggerBase):
         # ``is_permanent_auth_failure`` recognises it and disables the
         # credential. connect() then skips its own fetch because
         # ``wss_uri`` is already set (aiohttp/__init__.py 372).
-        socket_client.wss_uri = await socket_client.issue_new_wss_url()
-        await socket_client.connect()
+        #
+        # On ANY failure here we must ``close()`` — not ``disconnect()`` —
+        # the client. ``SocketModeClient.__init__`` already opened an
+        # ``aiohttp.ClientSession`` AND fired a ``process_messages()`` task
+        # (aiohttp/__init__.py 130,137); only ``close()`` cancels that task
+        # and closes the session (446-457), whereas ``disconnect()`` (411)
+        # just drops the ws. Without this, every backoff retry of a
+        # non-permanent connect failure (network blip, etc.) would leak one
+        # session + one forever-running task per round (CLAUDE.md lesson #2).
+        try:
+            socket_client.wss_uri = await socket_client.issue_new_wss_url()
+            await socket_client.connect()
+        except BaseException:
+            try:
+                await asyncio.wait_for(socket_client.close(), timeout=3.0)
+            except (asyncio.TimeoutError, Exception) as close_err:  # noqa: BLE001
+                logger.warning(
+                    f"[slack:{credential.agent_id}] close() after failed "
+                    f"connect raised: {close_err}"
+                )
+            raise
 
         key = self._subscriber_key(credential)
         self._socket_clients[key] = socket_client
@@ -388,11 +411,16 @@ class SlackTrigger(ChannelTriggerBase):
                     continue
                 yield event
         finally:
+            # ``close()`` not ``disconnect()``: the latter only drops the ws
+            # and leaves ``process_messages()`` + the ClientSession alive
+            # (aiohttp/__init__.py 411 vs 446-457). On every reconnect the
+            # base loop builds a fresh SocketModeClient, so leaking here
+            # accumulates one zombie task + session per session (lesson #2).
             try:
-                await asyncio.wait_for(socket_client.disconnect(), timeout=3.0)
+                await asyncio.wait_for(socket_client.close(), timeout=3.0)
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                 logger.warning(
-                    f"[slack:{credential.agent_id}] disconnect on subscribe-loop exit: {e}"
+                    f"[slack:{credential.agent_id}] close on subscribe-loop exit: {e}"
                 )
             self._socket_clients.pop(key, None)
 

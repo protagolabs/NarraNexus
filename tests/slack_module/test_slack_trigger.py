@@ -408,13 +408,20 @@ def test_permanent_auth_failure_unrelated_exception_is_false():
 
 class _FakeSocketClient:
     """Minimal stand-in for slack_sdk's SocketModeClient — issue_new_wss_url
-    raises like a dead app_token; connect/disconnect are inert."""
+    raises like a dead app_token; connect/close are inert AsyncMocks so the
+    test can assert cleanup happened. Constructed instances register
+    themselves in ``_FakeSocketClient.instances`` so the test can inspect
+    the one connect() built internally."""
+
+    instances: list = []
 
     def __init__(self, **_kwargs):
         self.socket_mode_request_listeners: list = []
         self.wss_uri = None
         self.connect = AsyncMock()
         self.disconnect = AsyncMock()
+        self.close = AsyncMock()
+        _FakeSocketClient.instances.append(self)
 
     async def issue_new_wss_url(self):
         raise _api_error("invalid_auth")
@@ -423,6 +430,7 @@ class _FakeSocketClient:
 @pytest.mark.asyncio
 async def test_connect_propagates_permanent_auth_error(monkeypatch: pytest.MonkeyPatch):
     trigger = SlackTrigger()
+    _FakeSocketClient.instances = []
     monkeypatch.setattr(st_mod, "_HAS_SLACK_SOCKET", True)
     monkeypatch.setattr(st_mod, "SocketModeClient", _FakeSocketClient)
     monkeypatch.setattr(st_mod, "SocketModeResponse", object)
@@ -433,6 +441,12 @@ async def test_connect_propagates_permanent_auth_error(monkeypatch: pytest.Monke
         await agen.__anext__()
     # And the base loop would classify it as permanent → disable.
     assert trigger.is_permanent_auth_failure(ei.value) is True
+    # The half-constructed client (live ClientSession + process_messages
+    # task in the real SDK) must be fully closed, not leaked — close(), not
+    # disconnect().
+    client = _FakeSocketClient.instances[-1]
+    client.close.assert_awaited_once()
+    client.disconnect.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -446,6 +460,12 @@ async def test_subscribe_loop_disables_credential_on_permanent_auth(
     trigger.running = True
 
     async def _boom(_cred):
+        # Flip running off so that IF this chain ever regresses (raise no
+        # longer classified permanent → base loop takes the backoff branch)
+        # the loop breaks instead of sleeping+retrying forever — a regression
+        # then fails the assertion fast instead of hanging CI. In the healthy
+        # path the permanent branch returns before running is even checked.
+        trigger.running = False
         raise _api_error("invalid_auth")
         yield  # pragma: no cover — makes this an async generator
 

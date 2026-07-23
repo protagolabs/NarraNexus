@@ -42,6 +42,22 @@ a blip. Raw import is guarded (`_SlackApiError`) because slack-sdk is optional.
 Contrast: DiscordTrigger already whitelists the raw `discord.LoginFailure` for
 the classifier half — Slack was the odd one out.
 
+**Cleanup corollary — `close()` not `disconnect()`.** Making Bug A's exception
+escape means non-permanent connect failures (network blip, `apps.connections.open`
+unreachable — `issue_new_wss_url` only swallows `ratelimited`, re-raises the rest)
+now re-enter `_subscribe_loop` on backoff (≤120 s), and **each round constructs a
+fresh `SocketModeClient`**. But `SocketModeClient.__init__` (`aiohttp/__init__.py`
+130,137) already opens an `aiohttp.ClientSession` AND fires a `process_messages()`
+task at construction — and only `close()` (446-457) cancels that task + shuts the
+session; `disconnect()` (411) merely drops the ws. So (1) the pre-fetch/connect
+handoff is wrapped in `try/except BaseException: await close(); raise`, and (2) the
+subscribe-loop `finally` and `stop()` were switched from `disconnect()` → `close()`
+(the latter a pre-existing leak on the normal reconnect path, swept per binding
+rule #8). Without this, a half-hour upstream outage leaks ~20 zombie tasks +
+sessions and spams aiohttp "Unclosed client session" (CLAUDE.md lesson #2).
+Regression-pinned by `test_connect_propagates_permanent_auth_error` asserting
+`close()` awaited once / `disconnect()` never.
+
 **Known follow-up (NOT covered here).** This fixes the INITIAL-connect case (dead
 token at subscribe time). A token revoked *mid-session* fails on slack_sdk's
 background reconnect path (`connect_to_new_endpoint`), whose exceptions are
