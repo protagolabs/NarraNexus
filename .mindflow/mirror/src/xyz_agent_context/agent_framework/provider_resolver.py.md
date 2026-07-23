@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — 新增 `is_free_tier_active`（SYSTEM_OK 门的无副作用只读孪生）
+
+新增 `ProviderResolver.is_free_tier_active(user_id) -> bool`：纯读，等价于
+`classify` 里 `SYSTEM_OK` 的判定门（system 启用 + 有 quota 行 + `check()` 有余量），
+但**不触发** rearm_switch_notice、**不读**用户自有 config（classify 需要 has_own 判
+耗尽分支，这里不需要）。用途：给 GET 端点（[[agents_llm_config]] 的 llm-config 路由）
+判断"此刻这次 run 是否被免费额度锁死在系统固定模型上"，让底部 [[ComposerModelBadge]]
+渲染诚实的只读 `free tier · <model>` chip——因为免费额度有余量时 per-agent override
+会被系统池抢占（见下方 SYSTEM_OK 分支说明），提供可切下拉是假承诺。classify 的
+SYSTEM_OK 分支上方加了交叉引用注释，标明该方法是这个门的规范无副作用定义，两者需同步。
+测试见 test_provider_availability.py（system 禁用/无 quota/有余量/余量耗尽 四例）。
 
 ## 2026-07-20 (续) — 文案"退出重登"改为"Settings → Account 里接入"
 

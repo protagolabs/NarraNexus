@@ -44,7 +44,10 @@
       "setModel": "モデルを設定",
       "switchTooltip": "モデル — クリックで切り替え",
       "noModels": "モデルがありません — 設定で追加してください",
-      "moreInSettings": "設定でさらに表示 →"
+      "moreInSettings": "設定でさらに表示 →",
+      "freeTierTag": "無料",
+      "freeTierLocked": "無料枠が残っている間はこのモデルに固定されます。使い切ると切り替え可能になり、モデルパネルで事前設定もできます。",
+      "freeTierBanner": "無料枠が有効です：現在の実行は {{model}} を使用します。ここでの変更は無料枠を使い切ると反映されます。"
     },
     "voice": {
       "label": "音声",

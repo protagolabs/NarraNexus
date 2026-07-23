@@ -32,11 +32,13 @@ vi.mock('@/lib/runtimeConfig', async (importOriginal) => {
 const mockGetProviders = vi.fn();
 const mockGetAgentFramework = vi.fn();
 const mockSetAgentFramework = vi.fn();
+const mockGetMyQuota = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
     getAgentFramework: (...a: unknown[]) => mockGetAgentFramework(...a),
     setAgentFramework: (...a: unknown[]) => mockSetAgentFramework(...a),
+    getMyQuota: (...a: unknown[]) => mockGetMyQuota(...a),
   },
 }));
 
@@ -76,6 +78,8 @@ beforeEach(() => {
     success: true,
     data: { framework: 'codex_cli', probe: { ok: true, detail: '' }, install: null },
   });
+  // Default: free tier not active (local/exhausted) — panel behaves as before.
+  mockGetMyQuota.mockReset().mockResolvedValue({ enabled: false });
 });
 
 afterEach(() => {
@@ -94,6 +98,25 @@ async function renderLoaded() {
     expect(screen.getByText('Agent (main dialogue)')).toBeInTheDocument(),
   );
 }
+
+test('free-tier active: renders the honest banner (edits still allowed)', async () => {
+  mockGetMyQuota.mockResolvedValue({
+    enabled: true,
+    status: 'active',
+    free_tier: { active: true, model: 'sys-agent-x' },
+  });
+  await renderLoaded();
+  // t() mock returns the key when the 2nd arg is an interpolation object.
+  expect(screen.getByText('chat.model.freeTierBanner')).toBeInTheDocument();
+  // Controls stay editable — the banner informs, it does not lock.
+  expect(frameworkSelect()).not.toBeDisabled();
+});
+
+test('free-tier inactive: no banner', async () => {
+  mockGetMyQuota.mockResolvedValue({ enabled: true, status: 'exhausted', free_tier: { active: false, model: null } });
+  await renderLoaded();
+  expect(screen.queryByText('chat.model.freeTierBanner')).toBeNull();
+});
 
 test('cloud non-staff: only NetMind providers are offered + local-version note', async () => {
   mockForcedCloud = true;

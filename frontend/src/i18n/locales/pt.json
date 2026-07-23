@@ -44,7 +44,10 @@
       "setModel": "definir modelo",
       "switchTooltip": "Modelo — clique para trocar",
       "noModels": "Sem modelos — adicione alguns em Configurações",
-      "moreInSettings": "Mais em configurações →"
+      "moreInSettings": "Mais em configurações →",
+      "freeTierTag": "grátis",
+      "freeTierLocked": "Fixado no modelo do plano gratuito enquanto durar sua cota gratuita — troque de modelo quando ela acabar, ou predefina um no painel de modelos.",
+      "freeTierBanner": "Plano gratuito ativo: as execuções usam {{model}} no momento. As alterações aqui entram em vigor quando sua cota gratuita se esgotar."
     },
     "voice": {
       "label": "voz",

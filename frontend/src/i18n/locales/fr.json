@@ -44,7 +44,10 @@
       "setModel": "définir le modèle",
       "switchTooltip": "Modèle — cliquez pour changer",
       "noModels": "Aucun modèle — ajoutez-en dans Paramètres",
-      "moreInSettings": "Plus dans les paramètres →"
+      "moreInSettings": "Plus dans les paramètres →",
+      "freeTierTag": "gratuit",
+      "freeTierLocked": "Verrouillé sur le modèle de l'offre gratuite tant que votre quota gratuit dure — changez de modèle une fois épuisé, ou préréglez-en un depuis le panneau des modèles.",
+      "freeTierBanner": "Offre gratuite active : les exécutions utilisent actuellement {{model}}. Vos changements ici prendront effet une fois le quota gratuit épuisé."
     },
     "voice": {
       "label": "voix",

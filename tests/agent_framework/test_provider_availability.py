@@ -175,6 +175,44 @@ async def test_no_quota_row_with_own_config_is_user_ok_without_checking_quota():
     r.quota_svc.check.assert_not_called()
 
 
+# ── is_free_tier_active predicate ───────────────────────────────────────────
+# Pure "is a run right now locked to the SYSTEM free tier" gate — the same
+# condition classify() uses for SYSTEM_OK, minus the notice-latch side effect.
+# The composer model badge reads this (via the llm-config route) to render an
+# honest read-only chip while the free tier preempts per-agent model overrides.
+
+@pytest.mark.asyncio
+async def test_free_tier_active_false_when_system_disabled():
+    """System off → not free-tier-locked, and must not probe quota (lazy)."""
+    quota_svc = _mk_quota_svc(prefer_system=True, has_budget=True)
+    r = ProviderResolver(_mk_user_svc(None), _mk_sys(False), quota_svc)
+    assert await r.is_free_tier_active("u") is False
+    quota_svc.get.assert_not_called()
+    quota_svc.check.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_free_tier_active_false_when_no_quota_row():
+    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=None, has_budget=True)
+    assert await r.is_free_tier_active("u") is False
+
+
+@pytest.mark.asyncio
+async def test_free_tier_active_true_with_quota_and_budget():
+    """Quota granted + budget remaining → SYSTEM_OK gate → locked. Pure read:
+    it never touches the notice latch or the user's own config."""
+    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=False, has_budget=True)
+    assert await r.is_free_tier_active("u") is True
+    r.quota_svc.rearm_switch_notice.assert_not_called()
+    r.user_provider_svc.get_user_config.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_free_tier_active_false_when_quota_exhausted():
+    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=False, has_budget=False)
+    assert await r.is_free_tier_active("u") is False
+
+
 # ── is_runnable helper ──────────────────────────────────────────────────────
 
 def test_is_runnable_truth_table():

@@ -391,12 +391,20 @@ export interface RegisterResponse extends ApiResponse {
 // Response shape for GET /api/quota/me. Discriminated by `enabled` and
 // `status` so the UI can switch exhaustively without "is the feature on"
 // booleans scattered through the component tree.
+// While the free tier has budget, runs are pinned to the fixed system model
+// and the user's own slot edits are ignored until it's spent (backend
+// ProviderResolver SYSTEM_OK branch). `free_tier.active` lets settings panels
+// render an honest "changes apply once your free quota is used up" banner;
+// `model` is what actually runs meanwhile. Absent in local mode → inactive.
+type FreeTierLock = { active: boolean; model: string | null };
+
 export type QuotaMeResponse =
   | { enabled: false }
-  | { enabled: true; status: 'uninitialized' }
+  | { enabled: true; status: 'uninitialized'; free_tier?: FreeTierLock }
   | {
       enabled: true;
       status: 'active' | 'exhausted' | 'disabled';
+      free_tier?: FreeTierLock;
       remaining_input_tokens: number;
       remaining_output_tokens: number;
       initial_input_tokens: number;

@@ -37,6 +37,10 @@ export function ComposerModelBadge({ agentId, reloadKey }: Props) {
   const [eff, setEff] = useState<AgentSlotEffective | null>(null);
   const [inheriting, setInheriting] = useState(true);
   const [models, setModels] = useState<Array<{ model_id: string; display_name: string }>>([]);
+  // While the owner's cloud free tier has budget, the runtime pins every run to
+  // the fixed system model and ignores per-agent overrides — so we lock the
+  // switch to an honest read-only chip rather than promise a no-op switch.
+  const [freeTierModel, setFreeTierModel] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -54,11 +58,13 @@ export function ComposerModelBadge({ agentId, reloadKey }: Props) {
       ]);
       const slot = cfgRes?.data?.slots?.agent;
       const effective = slot?.effective ?? null;
+      const freeTier = cfgRes?.data?.free_tier;
       const providers = (provRes?.data?.providers ?? {}) as Record<string, ProviderSummary>;
       const prov = effective?.provider_id ? providers[effective.provider_id] : undefined;
       setEff(effective);
       setInheriting(slot?.inheriting !== false);
       setModels(prov ? getModelsForSlot(prov, 'agent', effective?.agent_framework, {}) : []);
+      setFreeTierModel(freeTier?.active ? freeTier.model : null);
     } catch {
       /* leave unset → "set model" */
     } finally {
@@ -80,6 +86,24 @@ export function ComposerModelBadge({ agentId, reloadKey }: Props) {
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
+
+  // Free-tier lock takes precedence over every other state: while the free tier
+  // is active the run is pinned to the system model regardless of the agent's
+  // own slot/override, so we show a read-only "free tier · <model>" chip instead
+  // of a switch that would silently no-op. Unlocks once the free tier is spent.
+  if (loaded && freeTierModel) {
+    return (
+      <span
+        title={t('chat.model.freeTierLocked')}
+        className="inline-flex cursor-default items-center gap-1 lowercase text-[11px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)]"
+      >
+        <span className="rounded-full bg-[var(--color-carbon-soft)] px-1.5 py-0.5 not-italic text-[10px] text-[var(--text-secondary)]">
+          {t('chat.model.freeTierTag')}
+        </span>
+        <span className="max-w-[180px] truncate">{prettifyModel(freeTierModel)}</span>
+      </span>
+    );
+  }
 
   // No agent slot configured at all (owner default missing) → Settings link.
   if (loaded && !eff) {

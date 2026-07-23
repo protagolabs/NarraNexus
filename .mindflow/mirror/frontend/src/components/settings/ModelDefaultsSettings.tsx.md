@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-07-18
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 免费额度生效诚实 banner
+
+`load()` 的 `Promise.all` 增拉 `api.getMyQuota()`（[[api]] / [[quota]]），读其
+`free_tier`；`active` 为真时面板顶部渲染诚实 banner（复用 `chat.model.freeTierBanner`
+i18n 键，插值系统模型名）：说明免费额度生效中、当前实际用系统模型、此处默认设置将在额度
+用尽后生效。**控件保持可编辑**（允许预配置，与 [[AgentLlmConfigPanel]] 同策略）。这是把
+底部 [[ComposerModelBadge]] 只读锁 + Agent 面板 banner 的诚实化补齐到全局层——三个模型
+编辑入口在免费额度期都不再静默（运行时都被 [[provider_resolver]] SYSTEM_OK 抢占，区别只
+在 UI 有没有告知）。Owner 决策：三入口都 banner、不硬锁；底部快捷徽章例外，保持硬锁。
 
 ## 2026-07-18 — 框架选择器弹窗方向化(修云端老 codex 死锁)
 

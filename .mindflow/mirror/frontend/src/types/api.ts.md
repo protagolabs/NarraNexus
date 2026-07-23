@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-20
+last_verified: 2026-07-23
 stub: true
 ---
+
+## 2026-07-23 — QuotaMeResponse.free_tier
+
+`QuotaMeResponse` 的两个 enabled 分支加可选 `free_tier?: {active, model}`
+（`FreeTierLock`）。免费额度有余量时运行时锁死系统模型、忽略用户自有 slot 编辑，
+`active` 让 [[ModelDefaultsSettings]] 渲染诚实 banner，`model` 是锁定时真正运行的模型。
+后端见 [[quota]] 的 free_tier 块。
 
 ## 2026-07-20 — RoomMessage.attachments
 

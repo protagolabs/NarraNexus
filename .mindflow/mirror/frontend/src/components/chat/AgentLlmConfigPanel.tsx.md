@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-07-18
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 免费额度生效诚实 banner
+
+`load()` 读 `getAgentLlmConfig` 返回的 `data.free_tier`（[[api]]），`active` 为真时
+面板顶部渲染一条信息 banner（`chat.model.freeTierBanner`，插值当前系统模型名）：说明
+免费额度生效中、当前实际使用的模型、此处设置将在额度用尽后生效。**控件仍保持可编辑**
+——刻意不硬禁用，让用户能预配置模型/框架，额度耗尽即自动生效；banner 负责诚实告知。
+与底部 [[ComposerModelBadge]] 的只读锁定 chip 是同一根因的两个入口（云端免费额度优先
+抢占 per-agent override，见 [[provider_resolver]] / [[agents_llm_config]]）——徽章是
+快捷切换故锁死，本详细面板允许预配置故只提示。
 
 ## 2026-07-18 — per-agent 框架选择器弹窗方向化(修云端老 codex 死锁)
 

@@ -90,6 +90,13 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // While the owner's cloud free tier has budget, the runtime pins every run to
+  // the fixed system model and ignores what's edited here — surface that
+  // honestly (the edits still persist and apply once the free tier is spent).
+  const [freeTier, setFreeTier] = useState<{ active: boolean; model: string | null }>({
+    active: false,
+    model: null,
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,6 +110,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       setProviders(provMap);
       const s = (cfgRes?.data?.slots ?? {}) as Record<string, AgentSlotView>;
       setSlots(s);
+      setFreeTier(cfgRes?.data?.free_tier ?? { active: false, model: null });
       const ownerFramework =
         s.agent?.owner_default?.agent_framework || 'claude_code';
       const a = draftFrom(s.agent?.effective ?? null, ownerFramework);
@@ -238,6 +246,13 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           <p className="text-sm text-[var(--text-tertiary)]">Loading…</p>
         ) : (
           <div className="space-y-6">
+            {freeTier.active && (
+              <div className="rounded-xl border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-4 py-3 text-sm text-[var(--text-secondary)]">
+                {t('chat.model.freeTierBanner', {
+                  model: freeTier.model ? prettifyModel(freeTier.model) : '',
+                })}
+              </div>
+            )}
             <p className="text-sm text-[var(--text-tertiary)]">
               These settings apply to <span className="font-mono">{agentId}</span> only.
               Leave a slot as the inherited default to follow your global setting

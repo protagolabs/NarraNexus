@@ -73,15 +73,28 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  // While the cloud free tier has budget, the runtime pins every run to the
+  // fixed system model and ignores these defaults until it's spent — surface
+  // that honestly (edits still persist and apply once the free tier runs out).
+  const [freeTier, setFreeTier] = useState<{ active: boolean; model: string | null }>({
+    active: false,
+    model: null,
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [provRes, fwRes] = await Promise.all([
+      const [provRes, fwRes, quotaRes] = await Promise.all([
         api.getProviders(),
         api.getAgentFramework(),
+        api.getMyQuota(),
       ]);
+      setFreeTier(
+        'free_tier' in quotaRes && quotaRes.free_tier
+          ? quotaRes.free_tier
+          : { active: false, model: null },
+      );
       const provMap = (provRes?.data?.providers ?? {}) as Record<string, ProviderSummary>;
       setProviders(provMap);
       const slots = (provRes?.data?.slots ?? {}) as Record<string, { config?: SlotCfg | null }>;
@@ -238,6 +251,13 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
 
   return (
     <div className="space-y-6 max-w-2xl">
+      {freeTier.active && (
+        <div className="rounded-xl border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-4 py-3 text-sm text-[var(--text-secondary)]">
+          {t('chat.model.freeTierBanner', {
+            model: freeTier.model ? prettifyModel(freeTier.model) : '',
+          })}
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-[var(--text-tertiary)]">
           The framework + model every agent inherits by default. To give one agent

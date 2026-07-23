@@ -233,6 +233,11 @@ class ProviderResolver:
             # Branch 1: a free tier was granted. Free-tier-first is platform
             # behavior, not a user choice (the prefer_system toggle was
             # removed 2026-07-18) — while there is budget, every run draws it.
+            #
+            # The (system enabled + quota granted + budget) gate below IS the
+            # SYSTEM_OK condition; ``is_free_tier_active`` is its side-effect-free
+            # twin for read-only callers (the llm-config route, to render an
+            # honest "free tier · <model>" chip). Keep the two in step.
             if await self.quota_svc.check(user_id):
                 # Re-arm the switch-notice latch: budget is back (the free
                 # tier is a one-time registration grant with no periodic
@@ -267,6 +272,26 @@ class ProviderResolver:
 
         # Branch 2: no free tier granted — own provider only.
         return ProviderAvailability.USER_OK if has_own else ProviderAvailability.NO_PROVIDER
+
+    async def is_free_tier_active(self, user_id: str) -> bool:
+        """True iff a run right now would resolve to the SYSTEM free tier
+        (system enabled + quota granted + budget remaining) — the same gate
+        ``classify`` uses for ``SYSTEM_OK``, minus the notice-latch side effect.
+
+        This is a PURE read: it never re-arms the switch-notice latch, never
+        builds a config, and never probes the user's own provider (unlike
+        ``classify``, which needs ``has_own`` for the exhausted branch). Safe to
+        call from GET endpoints. The composer model badge relies on it to render
+        an honest read-only "free tier · <model>" chip, because while this is
+        True every per-agent model override is preempted by the fixed system
+        pool — so offering an inline switch would be a false promise.
+        """
+        if not self.system_provider_svc.is_enabled():
+            return False
+        quota = await self.quota_svc.get(user_id)
+        if quota is None:
+            return False
+        return await self.quota_svc.check(user_id)
 
     async def resolve(
         self, user_id: str, agent_id: str | None = None

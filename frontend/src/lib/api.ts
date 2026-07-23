@@ -1283,6 +1283,11 @@ class ApiClient {
     data?: {
       agent_id: string;
       slots: Record<string, AgentSlotView>;
+      // While the owner's cloud free tier has budget, runs are pinned to the
+      // fixed system model and per-agent overrides are ignored (see backend
+      // ProviderResolver SYSTEM_OK branch). `active` lets the UI render an
+      // honest read-only model chip; `model` is what actually runs meanwhile.
+      free_tier?: { active: boolean; model: string | null };
     };
   }> {
     return this.request(`/api/agents/${encodeURIComponent(agentId)}/llm-config`);

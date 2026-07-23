@@ -33,6 +33,8 @@ from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.agent_framework.agent_slot_service import AgentSlotService
+from xyz_agent_context.agent_framework.provider_resolver import ProviderResolver
+from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
 from xyz_agent_context.schema.provider_schema import SlotName
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.agent_framework.cloud_policy import CloudPolicyViolation
@@ -100,10 +102,45 @@ class SetAgentSlotRequest(BaseModel):
     agent_framework: Optional[str] = None
 
 
+async def _free_tier_lock(user_id: str, request: Request, db) -> dict:
+    """Is a run for ``user_id`` right now locked to the SYSTEM free tier, and
+    if so, which model does it actually run?
+
+    While the free tier has budget the resolver returns the fixed system pool
+    and IGNORES every per-agent ``agent_slots`` override (see
+    ``ProviderResolver.resolve`` SYSTEM_OK branch) — so the effective/override
+    model rendered from the slots below is NOT what runs. The composer badge +
+    config panel read this block to show an honest read-only "free tier" state
+    instead of a switch that silently no-ops until the free tier is exhausted.
+
+    Reads the lifespan-wired services off ``app.state`` (like ``/api/quota/me``)
+    rather than ``QuotaService.default()``, so local mode — where the system
+    provider is disabled and neither service is bootstrapped — degrades to
+    ``active=False`` without raising. The lock verdict itself comes from the
+    single-source predicate ``ProviderResolver.is_free_tier_active``.
+    """
+    sys_svc = getattr(request.app.state, "system_provider", None)
+    quota_svc = getattr(request.app.state, "quota_service", None)
+    if sys_svc is None or quota_svc is None or not sys_svc.is_enabled():
+        return {"active": False, "model": None}
+    resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=sys_svc,
+        quota_svc=quota_svc,
+    )
+    if not await resolver.is_free_tier_active(user_id):
+        return {"active": False, "model": None}
+    return {"active": True, "model": sys_svc.get_config().slots["agent"].model}
+
+
 @router.get("/{agent_id}/llm-config")
 async def get_agent_llm_config(agent_id: str, request: Request):
     """Per-slot view: is the agent inheriting the owner default, what is the
-    effective config, and (if any) the raw override + owner default."""
+    effective config, and (if any) the raw override + owner default.
+
+    Also carries a ``free_tier`` block: while the owner's cloud free tier has
+    budget, runs are pinned to the fixed system model and per-agent overrides
+    are ignored — the UI uses this to render an honest read-only model chip."""
     user_id, _ = await _require_owner(agent_id, request)
     db = await get_db_client()
 
@@ -130,7 +167,12 @@ async def get_agent_llm_config(agent_id: str, request: Request):
             "owner_default": owner_view,
         }
 
-    return {"success": True, "data": {"agent_id": agent_id, "slots": slots_out}}
+    free_tier = await _free_tier_lock(user_id, request, db)
+
+    return {
+        "success": True,
+        "data": {"agent_id": agent_id, "slots": slots_out, "free_tier": free_tier},
+    }
 
 
 @router.put("/{agent_id}/llm-config/{slot_name}")
