@@ -123,6 +123,16 @@
         "activity": "バックグラウンド活動",
         "lark": "Lark",
         "callback": "コールバック"
+      },
+      "meta": {
+        "input": "入力",
+        "output": "出力",
+        "duration": "実行時間",
+        "cost": "コスト",
+        "tokens": "入出力トークン",
+        "model": "モデル",
+        "stateFailed": "失敗",
+        "stateCancelled": "キャンセル済み"
       }
     },
     "error": {

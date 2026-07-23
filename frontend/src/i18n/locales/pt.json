@@ -123,6 +123,16 @@
         "activity": "Atividade em segundo plano",
         "lark": "Lark",
         "callback": "Retorno de chamada"
+      },
+      "meta": {
+        "input": "Entrada",
+        "output": "Saída",
+        "duration": "Duração",
+        "cost": "Custo",
+        "tokens": "Tokens entrada/saída",
+        "model": "Modelo",
+        "stateFailed": "Falhou",
+        "stateCancelled": "Cancelado"
       }
     },
     "error": {

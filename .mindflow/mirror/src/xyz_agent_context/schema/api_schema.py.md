@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-07-15
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — EventLogMeta
+
+New `EventLogMeta` (run-level header for the activity card: trigger,
+input_text, final_output, lifecycle, models, cost/token aggregates) +
+`EventLogResponse.meta`. `total_cost_usd` is None (not 0) when no cost
+rows exist. Producer: [[agents_chat_history.py]]; consumer mirror type
+in frontend types/api.ts.
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

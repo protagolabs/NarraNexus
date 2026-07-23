@@ -161,6 +161,16 @@
         "activity": "后台活动",
         "lark": "飞书",
         "callback": "回调"
+      },
+      "meta": {
+        "input": "输入",
+        "output": "输出",
+        "duration": "运行时长",
+        "cost": "消耗成本",
+        "tokens": "输入/输出 Token",
+        "model": "模型",
+        "stateFailed": "失败",
+        "stateCancelled": "已取消"
       }
     },
     "error": {

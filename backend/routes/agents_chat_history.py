@@ -31,6 +31,7 @@ from xyz_agent_context.schema import (
     SimpleChatHistoryResponse,
     EventLogToolCall,
     EventLogTimelineEntry,
+    EventLogMeta,
     EventLogResponse,
 )
 from xyz_agent_context.schema.api_schema import InstanceInfo
@@ -696,14 +697,104 @@ async def get_event_log_detail(agent_id: str, event_id: str):
             # Other types (progress markers, etc.) intentionally skipped.
         _flush_thinking()
 
+        meta = await _build_event_meta(db_client, event_row, tool_call_count=len(tool_calls))
+
         return EventLogResponse(
             success=True,
             event_id=event_id,
             thinking=thinking,
             tool_calls=tool_calls,
             timeline=timeline,
+            meta=meta,
         )
 
     except Exception as e:
         logger.exception(f"Error getting event log detail: {e}")
         return EventLogResponse(success=False, event_id=event_id, error=str(e))
+
+
+# Cap for meta.input_text — a bus payload or a rendered job prompt can be
+# hundreds of KB; the card only needs enough to read what the run was about.
+_META_INPUT_CAP = 4000
+
+
+def _parse_lifecycle_dt(value) -> Optional[datetime]:
+    """Parse a lifecycle timestamp column (datetime on MySQL, str on SQLite)."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+async def _build_event_meta(db_client, event_row: Dict[str, Any], *, tool_call_count: int) -> EventLogMeta:
+    """
+    Assemble the run-level header for the activity card.
+
+    Workflow:
+    1. Input: env_context.input (what the agent actually received), capped.
+    2. Lifecycle: state + started/finished + derived duration (Phase C
+       columns; legacy rows leave them NULL -> fields stay None).
+    3. Costs: aggregate cost_records by event_id — distinct models, token
+       sums, total USD. No rows -> total_cost_usd stays None so the UI can
+       hide the chip instead of showing a misleading $0.
+
+    Args:
+        db_client: Active AsyncDatabaseClient.
+        event_row: The raw events row.
+        tool_call_count: Number of tool calls extracted from event_log.
+
+    Returns:
+        EventLogMeta ready for the response.
+    """
+    env_context = _parse_json_field(event_row.get("env_context"), {})
+    input_text = None
+    if isinstance(env_context, dict):
+        raw_input = env_context.get("input")
+        if isinstance(raw_input, str) and raw_input.strip():
+            input_text = raw_input[:_META_INPUT_CAP]
+
+    started = _parse_lifecycle_dt(event_row.get("started_at"))
+    finished = _parse_lifecycle_dt(event_row.get("finished_at"))
+    duration_seconds = None
+    if started and finished and finished >= started:
+        duration_seconds = (finished - started).total_seconds()
+
+    models: List[str] = []
+    total_cost_usd: Optional[float] = None
+    input_tokens = 0
+    output_tokens = 0
+    cost_rows = await db_client.execute(
+        "SELECT model, input_tokens, output_tokens, total_cost_usd "
+        "FROM cost_records WHERE event_id = %s",
+        (event_row.get("event_id"),),
+        fetch=True,
+    )
+    for row in cost_rows or []:
+        model = row.get("model")
+        if model and model not in models:
+            models.append(model)
+        input_tokens += int(row.get("input_tokens") or 0)
+        output_tokens += int(row.get("output_tokens") or 0)
+        total_cost_usd = (total_cost_usd or 0.0) + float(row.get("total_cost_usd") or 0.0)
+
+    final_output = event_row.get("final_output")
+
+    return EventLogMeta(
+        trigger=event_row.get("trigger") or "",
+        trigger_source=event_row.get("trigger_source") or "",
+        input_text=input_text,
+        final_output=final_output if final_output else None,
+        state=event_row.get("state") or "completed",
+        started_at=str(event_row.get("started_at")) if event_row.get("started_at") else None,
+        finished_at=str(event_row.get("finished_at")) if event_row.get("finished_at") else None,
+        duration_seconds=duration_seconds,
+        models=models,
+        total_cost_usd=total_cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        tool_call_count=tool_call_count,
+    )
