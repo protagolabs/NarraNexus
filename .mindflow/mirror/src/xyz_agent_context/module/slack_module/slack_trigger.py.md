@@ -4,29 +4,50 @@ stub: false
 last_verified: 2026-07-23
 ---
 
-## 2026-07-23 — permanent-auth classifier must catch the RAW slack_sdk error
+## 2026-07-23 — a dead app_token must be forced to ESCAPE connect(), then classified
 
-`is_permanent_auth_failure` used to check only `isinstance(exc, SlackSDKError)`
-— our own wrapper type. But Socket Mode's `connect()` (→ `apps.connections.open`)
-is the **one Slack call made directly on the vendored SDK client**, bypassing
-`SlackSDKClient`. So a dead **app-level token** (`xapp-…`) surfaces as a *raw*
-`slack_sdk.errors.SlackApiError` carrying `{"ok": false, "error": "invalid_auth"}`
-— which failed the `isinstance` check → returned `False` → the base
-`_subscribe_loop` treated a permanently-dead credential as a transient blip and
-reconnected forever (test-env symptom: endless `apps.connections.open … invalid_auth`
-+ slack_sdk's own `Retrying…` spam, credential never disabled).
+Symptom: a dead **app-level token** (`xapp-…`) makes the workers spam
+`apps.connections.open … {'ok': false, 'error': 'invalid_auth'} … Retrying…`
+forever, and the credential is never disabled. **Two independent bugs had to be
+fixed together** — fixing only one leaves the symptom intact:
 
-Fix: the classifier now ALSO matches the raw `SlackApiError`, pulling the error
-code out of `exc.response` (a dict or `AsyncSlackResponse`, both expose `.get`)
-and comparing against `_SLACK_PERMANENT_AUTH_CODES`. `response is None` and
-non-mapping responses fall through to `False` (stay transient → keep reconnecting).
-Transient codes (`rate_limited`, …) are still NOT permanent, so a healthy
-credential is never disabled on a blip. The raw import is guarded (`_SlackApiError`)
-because slack-sdk is optional. Pin tested in
-`test_slack_trigger.py::test_permanent_auth_failure_raw_slack_api_error_*`.
+**Bug A — the error never escaped `connect()` (the load-bearing one).**
+slack_sdk's `SocketModeClient.connect()` (`aiohttp/__init__.py` 352-409) wraps the
+WSS-URL fetch in `while True: try/except Exception:` — on failure it calls
+`logger.exception(...)` (line 408) and `sleep`s, then retries indefinitely. So the
+raw `SlackApiError` from `apps.connections.open` is **swallowed inside connect()**;
+it never reaches our `_subscribe_loop`, `is_permanent_auth_failure` is never called,
+and the credential is never disabled. (The multi-line "traceback" in the workers
+log is `logger.exception`'s output from that swallow point — NOT a propagation to
+our code. Names lie; read the vendored source — CLAUDE.md engineering lesson #1.)
+Fix: `connect()` now calls `socket_client.issue_new_wss_url()` **itself** before
+handing off to `socket_client.connect()`. `issue_new_wss_url()` (`async_client.py`
+43-58) retries `ratelimited` internally but **re-raises every other SlackApiError**,
+so a dead token propagates out of our code up to the base loop. `connect()` then
+skips its own fetch because `wss_uri` is already set (`aiohttp/__init__.py` 372).
+This is the whole reason we don't just call `connect()` directly — regression-pinned
+by `test_slack_trigger.py::test_connect_propagates_permanent_auth_error` (goes red
+if the pre-fetch line is removed).
+
+**Bug B — even once it escaped, the classifier didn't recognise it.**
+`is_permanent_auth_failure` only checked `isinstance(exc, SlackSDKError)` (our
+wrapper). But Socket Mode is the one path NOT routed through `SlackSDKClient`, so
+the error is a *raw* `slack_sdk.errors.SlackApiError`, not our `SlackSDKError`.
+Fix: the classifier now also matches the raw error, reading the code from
+`exc.response` (a dict or `AsyncSlackResponse` — both expose `.get`; `None` →
+`False`) and comparing against `_SLACK_PERMANENT_AUTH_CODES`. Transient codes
+(`ratelimited`, …) stay non-permanent so a healthy credential is never disabled on
+a blip. Raw import is guarded (`_SlackApiError`) because slack-sdk is optional.
 
 Contrast: DiscordTrigger already whitelists the raw `discord.LoginFailure` for
-exactly this reason — Slack was the odd one out.
+the classifier half — Slack was the odd one out.
+
+**Known follow-up (NOT covered here).** This fixes the INITIAL-connect case (dead
+token at subscribe time). A token revoked *mid-session* fails on slack_sdk's
+background reconnect path (`connect_to_new_endpoint`), whose exceptions are
+swallowed the same way but run in a fire-and-forget task we don't drive — catching
+that needs an independent L2/L3 health check (CLAUDE.md lesson #4), tracked
+separately, not in this change.
 
 ## 2026-07-10 — react_tool_ref = "react_to_user_message"
 

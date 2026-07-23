@@ -245,7 +245,10 @@ class SlackTrigger(ChannelTriggerBase):
         # instead. Pull the error code out of its response envelope
         # (a dict or an ``AsyncSlackResponse`` — both expose ``.get``).
         if _SlackApiError is not None and isinstance(exc, _SlackApiError):
-            response = getattr(exc, "response", None)
+            # ``.response`` is a dict or an ``AsyncSlackResponse`` — both
+            # expose ``.get`` — but can be None for a SlackApiError raised
+            # without a response body.
+            response = exc.response
             if response is None:
                 return False
             try:
@@ -345,6 +348,28 @@ class SlackTrigger(ChannelTriggerBase):
             await queue.put(event)
 
         socket_client.socket_mode_request_listeners.append(_listener)
+
+        # Acquire the WSS URL OURSELVES before handing off to connect().
+        #
+        # slack_sdk's SocketModeClient.connect() wraps the WSS-URL fetch in
+        # a ``while True: try/except Exception`` loop (aiohttp/__init__.py
+        # 352-409): if ``apps.connections.open`` fails it logs the traceback
+        # and ``sleep``s, then retries — forever. That means a dead
+        # app-level token (``invalid_auth`` / ``token_revoked``) is
+        # SWALLOWED inside connect(): the exception never escapes, our
+        # ``_subscribe_loop`` never catches it, ``is_permanent_auth_failure``
+        # is never called, and the credential is never disabled — the
+        # process just spams "apps.connections.open ... invalid_auth ...
+        # Retrying..." indefinitely (this is exactly the bug we're fixing).
+        #
+        # ``issue_new_wss_url()`` (async_client.py 43-58) handles the
+        # genuinely-transient ``ratelimited`` case internally (sleep+retry)
+        # but RE-RAISES every other SlackApiError. So calling it here lets a
+        # permanent auth failure propagate up to the base loop, where
+        # ``is_permanent_auth_failure`` recognises it and disables the
+        # credential. connect() then skips its own fetch because
+        # ``wss_uri`` is already set (aiohttp/__init__.py 372).
+        socket_client.wss_uri = await socket_client.issue_new_wss_url()
         await socket_client.connect()
 
         key = self._subscriber_key(credential)

@@ -12,6 +12,9 @@ Why this file exists:
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 from slack_sdk.errors import SlackApiError
 
@@ -368,9 +371,11 @@ def test_permanent_auth_failure_raw_slack_api_error_token_revoked():
 
 def test_transient_raw_slack_api_error_is_not_permanent():
     trigger = SlackTrigger()
-    # rate_limited / transient codes MUST keep reconnecting — disabling a
-    # healthy credential on a blip is the failure we must not introduce.
-    assert trigger.is_permanent_auth_failure(_api_error("rate_limited")) is False
+    # ``ratelimited`` (Slack's real transient code) MUST keep reconnecting —
+    # disabling a healthy credential on a blip is the failure we must not
+    # introduce. (issue_new_wss_url() actually retries ratelimited itself,
+    # but the classifier must still not mark it permanent if it ever bubbles.)
+    assert trigger.is_permanent_auth_failure(_api_error("ratelimited")) is False
 
 
 def test_raw_slack_api_error_without_response_is_not_permanent():
@@ -389,6 +394,71 @@ def test_permanent_auth_failure_wrapped_slack_sdk_error_still_works():
 def test_permanent_auth_failure_unrelated_exception_is_false():
     trigger = SlackTrigger()
     assert trigger.is_permanent_auth_failure(RuntimeError("network hiccup")) is False
+
+
+# ── connect() must let a dead token ESCAPE (propagation regression) ─────
+#
+# The classifier fix above is only reachable if the raw SlackApiError
+# actually propagates out of connect(). slack_sdk's connect() swallows
+# it in a `while True` retry loop, so SlackTrigger.connect() pre-fetches
+# the WSS URL itself (issue_new_wss_url re-raises non-ratelimited errors)
+# to force the error to bubble up to _subscribe_loop. Without that, this
+# test hangs/never raises and the credential is never disabled.
+
+
+class _FakeSocketClient:
+    """Minimal stand-in for slack_sdk's SocketModeClient — issue_new_wss_url
+    raises like a dead app_token; connect/disconnect are inert."""
+
+    def __init__(self, **_kwargs):
+        self.socket_mode_request_listeners: list = []
+        self.wss_uri = None
+        self.connect = AsyncMock()
+        self.disconnect = AsyncMock()
+
+    async def issue_new_wss_url(self):
+        raise _api_error("invalid_auth")
+
+
+@pytest.mark.asyncio
+async def test_connect_propagates_permanent_auth_error(monkeypatch: pytest.MonkeyPatch):
+    trigger = SlackTrigger()
+    monkeypatch.setattr(st_mod, "_HAS_SLACK_SOCKET", True)
+    monkeypatch.setattr(st_mod, "SocketModeClient", _FakeSocketClient)
+    monkeypatch.setattr(st_mod, "SocketModeResponse", object)
+    monkeypatch.setattr(st_mod, "SlackSDKClient", lambda _t: SimpleNamespace(web=object()))
+
+    agen = trigger.connect(_cred())
+    with pytest.raises(SlackApiError) as ei:
+        await agen.__anext__()
+    # And the base loop would classify it as permanent → disable.
+    assert trigger.is_permanent_auth_failure(ei.value) is True
+
+
+@pytest.mark.asyncio
+async def test_subscribe_loop_disables_credential_on_permanent_auth(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """End-to-end: connect() raising invalid_auth → base loop disables the
+    credential exactly once and stops (no infinite reconnect)."""
+    trigger = SlackTrigger()
+    trigger._db = object()
+    trigger.running = True
+
+    async def _boom(_cred):
+        raise _api_error("invalid_auth")
+        yield  # pragma: no cover — makes this an async generator
+
+    disable = AsyncMock()
+    monkeypatch.setattr(trigger, "connect", _boom)
+    monkeypatch.setattr(trigger, "_on_transport_connected", AsyncMock())
+    monkeypatch.setattr(trigger, "_audit", AsyncMock())
+    monkeypatch.setattr(trigger, "disable_credential", disable)
+
+    # Returns (does not loop forever) because permanent failure → disable → return.
+    await trigger._subscribe_loop(_cred())
+
+    disable.assert_awaited_once()
 
 
 # ── resolve_sender_name ────────────────────────────────────────────────
