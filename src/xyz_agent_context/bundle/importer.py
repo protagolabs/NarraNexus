@@ -715,22 +715,30 @@ async def _confirm_inner(
         agent_record = json.loads(agent_path.read_text(encoding="utf-8"))
         new_aid = id_map[old_aid]
 
-        # Clamp over-long name/description BEFORE dedupe/insert. A bundle can
-        # carry values longer than the AGENT_TEXT_MAX_LENGTH ceiling the Agent
-        # model enforces on read (the raw db.insert below bypasses that model),
-        # which would strand the agent as "insertable but unreadable" — every
-        # later edit/delete deserializes the row and fails Pydantic validation.
-        # Trim here (dedupe then operates on the clamped name so uniqueness is
-        # preserved) and surface each trimmed field in the import summary.
+        # Clamp over-long name/description to the AGENT_TEXT_MAX_LENGTH ceiling
+        # the Agent model enforces on read. The raw db.insert below bypasses
+        # that model, so an unclamped value would strand the agent as
+        # "insertable but unreadable" — every later edit/delete deserializes the
+        # row and fails Pydantic validation.
         original_name = agent_record["agent_name"]
         clamped_name, name_trimmed = _clamp_agent_text(original_name)
         clamped_desc, desc_trimmed = _clamp_agent_text(agent_record.get("agent_description"))
         agent_record["agent_description"] = clamped_desc
 
+        # Dedupe against existing (already-clamped) names, THEN clamp again:
+        # dedupe_name appends a " (n)" suffix with no length budget of its own,
+        # so on a clash a clamped 255-char name becomes "…255… (1)" = 259 and
+        # would land back over the ceiling. Re-clamping the FINAL name is what
+        # actually guarantees the raw insert never stores an unreadable value.
+        # agent_name has no UNIQUE constraint, so a rare post-clamp collision is
+        # harmless — two same-named agents, exactly as manual creation allows.
         deduped_name = await dedupe_name(
             "agents", "agent_name", {"created_by": user_id}, clamped_name
         )
-        renamed = (deduped_name != clamped_name)
+        final_name, dedupe_overflow = _clamp_agent_text(deduped_name)
+        name_trimmed = name_trimmed or dedupe_overflow
+
+        renamed = (final_name != clamped_name)
         if renamed:
             written_summary["agents_renamed"] += 1
         if name_trimmed or desc_trimmed:
@@ -739,17 +747,17 @@ async def _confirm_inner(
                                  ("agent_description", desc_trimmed)) if hit
             ]
             written_summary["agent_fields_trimmed"].append(
-                {"agent_name": deduped_name, "fields": trimmed_fields}
+                {"agent_name": final_name, "fields": trimmed_fields}
             )
             written_summary["warnings"].append(
-                f"Agent {deduped_name!r}: {', '.join(trimmed_fields)} exceeded "
+                f"Agent {final_name!r}: {', '.join(trimmed_fields)} exceeded "
                 f"{AGENT_TEXT_MAX_LENGTH} chars and was trimmed to fit."
             )
 
         # Insert agents row (new agent_id, current user_id)
         new_agent_row = rewrite_row("agents", agent_record)
         new_agent_row["agent_id"] = new_aid
-        new_agent_row["agent_name"] = deduped_name
+        new_agent_row["agent_name"] = final_name
         new_agent_row["created_by"] = user_id
         new_agent_row.pop("agent_create_time", None)
         new_agent_row.pop("agent_update_time", None)
@@ -758,7 +766,7 @@ async def _confirm_inner(
         rename_part = f"renamed_from={original_name!r}" if renamed else "renamed=no"
         logger.info(
             f"bundle_import.agent.created old_id={old_aid} new_id={new_aid} "
-            f"name={deduped_name!r} {rename_part}"
+            f"name={final_name!r} {rename_part}"
         )
 
         # team_members

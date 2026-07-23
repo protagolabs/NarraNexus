@@ -28,6 +28,8 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+
 from xyz_agent_context.agent_framework.cloud_policy import (
     NETMIND_SOURCE,
     netmind_slots_only,
@@ -105,8 +107,11 @@ class ManyfoldCreateAgentRequest(BaseModel):
     """
 
     agent_id: str
-    agent_name: str = ""
-    description: Optional[str] = None
+    # Capped at the shared agent-text ceiling — this body raw-writes the
+    # `agents` row, so an over-long value would be unreadable through the
+    # Agent model (see AGENT_TEXT_MAX_LENGTH).
+    agent_name: str = Field(default="", max_length=AGENT_TEXT_MAX_LENGTH)
+    description: Optional[str] = Field(default=None, max_length=AGENT_TEXT_MAX_LENGTH)
     manyfold_user_id: str
     manyfold_user_email: Optional[str] = None
     display_name: Optional[str] = None
@@ -228,11 +233,15 @@ class ManyfoldUpdateAgentRequest(BaseModel):
     skip the field.
     """
 
+    # Both capped at the shared agent-text ceiling (patch raw-updates the
+    # `agents` row; a longer value would deserialize-fail on read). Previously
+    # 200 / 2000 — the 2000 was the fourth uncapped write path that could
+    # re-create the #71 unreadable-row bug.
     agent_name: Optional[str] = Field(
         default=None,
         description="New display name. Omit to leave unchanged.",
         min_length=1,
-        max_length=200,
+        max_length=AGENT_TEXT_MAX_LENGTH,
     )
     agent_description: Optional[str] = Field(
         default=None,
@@ -240,7 +249,7 @@ class ManyfoldUpdateAgentRequest(BaseModel):
             "New description. Empty string is honored (clears the field); "
             "omit (None) to leave unchanged."
         ),
-        max_length=2000,
+        max_length=AGENT_TEXT_MAX_LENGTH,
     )
 
 

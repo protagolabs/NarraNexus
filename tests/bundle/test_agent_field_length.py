@@ -127,6 +127,38 @@ async def test_import_trims_overlong_name(db_client, tmp_workspace_root):
 
 
 @pytest.mark.asyncio
+async def test_dedupe_suffix_stays_within_limit_on_repeat_import(db_client, tmp_workspace_root):
+    """Importing the same over-long-named bundle to the same user twice: the
+    2nd import clamps to 255, clashes with the 1st, and dedupe_name appends a
+    ' (1)' suffix. That suffix must NOT push the stored name back over the
+    ceiling — otherwise the row is unreadable again (the #71 bug, re-opened by
+    clamping before dedupe). Regression for review finding #1."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+    from xyz_agent_context.repository.agent_repository import AgentRepository
+
+    await _seed_overlong_agent(db_client, "agent_dup0001x", "owner", "N" * 300, "desc")
+    ws = tmp_workspace_root / "agent_dup0001x_owner"
+    ws.mkdir()
+    (ws / "notes.md").write_text("x\n", encoding="utf-8")
+    bundle = tmp_workspace_root.parent / "dup.nxbundle"
+    await build_bundle("owner", ExportSelection(agent_ids=["agent_dup0001x"]), bundle)
+
+    importer = "dupimporter"
+    for _ in range(2):
+        pre = await preflight(bundle, importer)
+        await confirm(pre["preflight_token"], importer)
+
+    rows = await db_client.get("agents", {"created_by": importer})
+    assert len(rows) == 2, "both imports should create an agent"
+    repo = AgentRepository(db_client)
+    for r in rows:
+        assert len(r["agent_name"]) <= AGENT_TEXT_MAX_LENGTH
+        # Must read back through the Agent model without string_too_long.
+        assert await repo.get_agent(r["agent_id"]) is not None
+
+
+@pytest.mark.asyncio
 async def test_import_within_limit_no_trim(db_client, tmp_workspace_root):
     """A normal-length agent imports with no trim warning."""
     await _seed_overlong_agent(

@@ -1481,6 +1481,7 @@
         "activateChannelsTitle": "激活导入的频道",
         "activateChannelsHint": "导入的 IM 频道凭据默认停用，以免和源环境争抢每个 bot 仅有的一条连接。请到各智能体的 设置 中逐个开启——但务必先确认源环境已断开连接。",
         "warnings": "{{count}} 条警告（详见详情）",
+        "warningsTitle": "警告({{count}})",
         "suggestedMcpTitle": "建议的外部 MCP URL",
         "mcpNotAutoInstalled": "这些不会自动安装。如果你信任它们，可在各智能体的 设置 → MCP 中添加。",
         "skillsTip": "提示：标记为“完整副本”的技能已包含凭据。URL/Zip 技能需要重新学习或新的凭据——与导入的智能体对话以完成设置。",

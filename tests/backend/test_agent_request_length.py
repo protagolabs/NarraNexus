@@ -41,3 +41,32 @@ def test_none_accepted(model):
     obj = model()
     assert obj.agent_name is None
     assert obj.agent_description is None
+
+
+# --- Manyfold write path (the 4th path — review finding #2) --------------------
+# These raw-write the `agents` row, so they must honor the same ceiling; the
+# description field used to allow 2000 chars, re-creating the #71 unreadable row.
+from backend.routes.manyfold_agents import (  # noqa: E402
+    ManyfoldCreateAgentRequest,
+    ManyfoldUpdateAgentRequest,
+)
+
+
+@pytest.mark.parametrize("field", ["agent_name", "description"])
+def test_manyfold_create_overlong_rejected(field):
+    with pytest.raises(ValidationError):
+        ManyfoldCreateAgentRequest(
+            agent_id="a", manyfold_user_id="u", **{field: OVER}
+        )
+
+
+@pytest.mark.parametrize("field", ["agent_name", "agent_description"])
+def test_manyfold_update_overlong_rejected(field):
+    with pytest.raises(ValidationError):
+        ManyfoldUpdateAgentRequest(**{field: OVER})
+
+
+@pytest.mark.parametrize("field", ["agent_name", "agent_description"])
+def test_manyfold_update_at_limit_accepted(field):
+    obj = ManyfoldUpdateAgentRequest(**{field: AT_LIMIT})
+    assert getattr(obj, field) == AT_LIMIT

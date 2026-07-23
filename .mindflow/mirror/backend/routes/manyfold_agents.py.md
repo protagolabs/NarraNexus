@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/manyfold_agents.py
-last_verified: 2026-07-18
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 收口第 4 条 agents 写路径的长度上限(review #2)
+
+`ManyfoldCreateAgentRequest` / `ManyfoldUpdateAgentRequest` 的 agent_name /
+description 改为 `Field(max_length=AGENT_TEXT_MAX_LENGTH)`(常量来自 entity_schema)。
+这两个模型走 raw `db.insert` / `db.update("agents", ...)`,绕过 Agent 模型;之前
+Create 完全不限长、Update 的 description 限 2000——2000 > 255 正是第 4 条能重造
+#71 不可读行的洞。现与其余三处(读模型 / Create·UpdateAgentRequest / 导入修剪)
+绑同一上限。
 
 # manyfold_agents.py — Manyfold 网关的服务间集成路由
 

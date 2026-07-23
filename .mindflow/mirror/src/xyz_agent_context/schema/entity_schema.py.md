@@ -7,9 +7,11 @@ stub: false
 ## 2026-07-23 — AGENT_TEXT_MAX_LENGTH 常量
 
 新增模块常量 `AGENT_TEXT_MAX_LENGTH = 255`,`Agent.agent_name` /
-`agent_description` 的 `max_length` 都改成引用它。目的:让"读模型 / 写请求模型
-(api_schema) / bundle 导入修剪"三处上限绑同一个来源,不再各写字面量 255 而漂移
-(NetMindAI-Open#71 就是写侧绕过了这个上限)。行为不变,仍是 255。
+`agent_description` 的 `max_length` 都改成引用它。目的:让所有 agents 表写路径的
+上限绑同一个来源——读模型(本文件)、`Create/UpdateAgentRequest`(api_schema)、
+`ManyfoldCreate/UpdateAgentRequest`([[manyfold_agents.py]],走 raw db 写)、以及
+bundle 导入修剪——不再各写字面量 255/200/2000 而漂移(NetMindAI-Open#71 就是写侧
+绕过了这个上限)。前端另有一份镜像常量 [[agentLimits]]。行为不变,仍是 255。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 
