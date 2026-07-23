@@ -152,7 +152,9 @@
         "executor_unreachable": "실행 컨테이너에 일시적으로 연결할 수 없습니다. 보통 몇 초 내에 복구됩니다 — 잠시 후 이 메시지를 다시 보내세요.",
         "infra_transient": "플랫폼 측의 일시적인 실행 문제로 이번 턴을 실행하지 못했습니다. 잠시 후 메시지를 다시 보내세요."
       }
-    }
+    },
+    "dateToday": "오늘",
+    "dateYesterday": "어제"
   },
   "awareness": {
     "common": {

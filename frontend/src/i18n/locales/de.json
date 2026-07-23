@@ -152,7 +152,9 @@
         "executor_unreachable": "Ihr Ausführungscontainer ist vorübergehend nicht erreichbar. Er erholt sich normalerweise innerhalb weniger Sekunden — bitte senden Sie diese Nachricht in Kürze erneut.",
         "infra_transient": "Diese Runde konnte aufgrund eines vorübergehenden plattformseitigen Ausführungsproblems nicht ausgeführt werden. Bitte senden Sie die Nachricht gleich erneut."
       }
-    }
+    },
+    "dateToday": "Heute",
+    "dateYesterday": "Gestern"
   },
   "awareness": {
     "common": {
