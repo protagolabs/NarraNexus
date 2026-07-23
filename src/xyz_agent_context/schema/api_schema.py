@@ -15,7 +15,9 @@ Includes:
 """
 
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 
 
 # ===== Auth Schemas =====
@@ -126,8 +128,11 @@ class AgentListResponse(BaseModel):
 class CreateAgentRequest(BaseModel):
     """Request model for creating agent. Identity (created_by) comes from
     auth_middleware, never from the body."""
-    agent_name: Optional[str] = None
-    agent_description: Optional[str] = None
+    # Length-capped at the write edge so an over-long name/description is
+    # rejected as 422 here, never reaching the DB — the same ceiling the
+    # Agent entity model enforces on read (see AGENT_TEXT_MAX_LENGTH).
+    agent_name: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    agent_description: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
     # Bootstrap profile name (first-run flow). None/omitted → "default" (today's
     # behavior). Scenario creators (e.g. Arena) use their own profile instead.
     bootstrap: Optional[str] = None
@@ -146,8 +151,9 @@ class CreateAgentResponse(BaseModel):
 
 class UpdateAgentRequest(BaseModel):
     """Request model for updating agent"""
-    agent_name: Optional[str] = None
-    agent_description: Optional[str] = None
+    # See CreateAgentRequest — same write-edge length cap (422 on overflow).
+    agent_name: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    agent_description: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
     is_public: Optional[bool] = None
 
 

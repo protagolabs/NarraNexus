@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-07-13
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 导入修剪超长 agent_name / agent_description(#71)
+
+confirm 写 `agents` 行前,用 `_clamp_agent_text` 把 name/description 截到
+`AGENT_TEXT_MAX_LENGTH`(name 在 dedupe 之前先截,保证唯一性判断作用在截断后的值上)。
+根因:raw `db.insert` 绕过 Agent 模型的 max_length,超长值入库后每次编辑/删除
+反序列化都炸 string_too_long(insertable-but-unreadable)。被截的 agent 记进
+`written_summary["agent_fields_trimmed"]`(`[{agent_name, fields}]`)并各加一条
+`warnings`——修剪只发生在 `confirm`(_confirm_inner 写库阶段),`preflight` 不改
+数据,所以是 **confirm 返回的 summary** 里能看到哪些 agent 被截。
+测试:tests/bundle/test_agent_field_length.py。
 
 ## 2026-07-13 — skill install to the known skill_dir
 

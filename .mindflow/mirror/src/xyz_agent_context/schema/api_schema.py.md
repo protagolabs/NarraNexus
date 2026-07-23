@@ -4,6 +4,13 @@ last_verified: 2026-07-23
 stub: false
 ---
 
+## 2026-07-23 — Create/UpdateAgentRequest 加写侧长度上限
+
+`CreateAgentRequest` / `UpdateAgentRequest` 的 `agent_name` / `agent_description`
+从裸 `Optional[str]` 改成 `Field(None, max_length=AGENT_TEXT_MAX_LENGTH)`
+(常量来自 entity_schema)。过去写请求这层不卡长度,超 255 只在读回(Agent 模型)
+时才炸;现在写边界直接 422。配合 importer 侧的修剪一起补齐 #71 的写侧缺口。
+
 ## 2026-07-23 — EventLogMeta
 
 New `EventLogMeta` (run-level header for the activity card: trigger,

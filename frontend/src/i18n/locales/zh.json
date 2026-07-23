@@ -652,10 +652,21 @@
     "agentRowMenu": {
       "options": "智能体选项",
       "rename": "重命名",
+      "edit": "编辑…",
       "setPrivate": "设为私有",
       "setPublic": "设为公开",
       "clearData": "清理数据",
       "delete": "删除"
+    },
+    "editAgentDialog": {
+      "title": "编辑智能体",
+      "nameLabel": "名称",
+      "descriptionLabel": "描述",
+      "descriptionPlaceholder": "这个智能体是做什么的?会展示给它自己和其他智能体。",
+      "tooLong": "不能超过 {{max}} 个字符。",
+      "save": "保存",
+      "cancel": "取消",
+      "saveFailedTitle": "更新失败"
     },
     "clearAgentData": {
       "title": "清理数据 · {{name}}",

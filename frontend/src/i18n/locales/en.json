@@ -652,10 +652,21 @@
     "agentRowMenu": {
       "options": "Agent options",
       "rename": "Rename",
+      "edit": "Edit…",
       "setPrivate": "Set to Private",
       "setPublic": "Set to Public",
       "clearData": "Clear data",
       "delete": "Delete"
+    },
+    "editAgentDialog": {
+      "title": "Edit agent",
+      "nameLabel": "Name",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "What is this agent for? Shown to the agent itself and to other agents.",
+      "tooLong": "Must be {{max}} characters or fewer.",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saveFailedTitle": "Update failed"
     },
     "clearAgentData": {
       "title": "Clear data · {{name}}",

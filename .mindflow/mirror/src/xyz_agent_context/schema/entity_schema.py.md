@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-07-15
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — AGENT_TEXT_MAX_LENGTH 常量
+
+新增模块常量 `AGENT_TEXT_MAX_LENGTH = 255`,`Agent.agent_name` /
+`agent_description` 的 `max_length` 都改成引用它。目的:让"读模型 / 写请求模型
+(api_schema) / bundle 导入修剪"三处上限绑同一个来源,不再各写字面量 255 而漂移
+(NetMindAI-Open#71 就是写侧绕过了这个上限)。行为不变,仍是 255。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 
