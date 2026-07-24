@@ -55,7 +55,7 @@ office 文档(pptx/docx/xlsx)作为一种 artifact **实时**渲染。是"office
   了,但 agent 后续每次编辑的 SSE 增量刷不进来,直到最后重挂 iframe 才整体显示"。HTML `Response`
   和 SSE `StreamingResponse` 两条路径都要带。
 - **SSE 流式纪律**:仿 `manyfold_files`(`StreamingResponse` + `X-Accel-Buffering: no`)+
-  `remote_agent_loop_driver` 的 `aiohttp.ClientTimeout(total=None)`,SSE 帧实时穿透不缓冲。
+  `loop.remote_driver` 的 `aiohttp.ClientTimeout(total=None)`,SSE 帧实时穿透不缓冲。
 - **按用户 SSE 上限(`MAX_SSE_STREAMS_PER_USER`,`_register_sse_stream`)**:每个开着的预览 tab 占一条
   常驻 `/events` 长连,无上限的话一个用户(或泄漏的 token)能堆满后端连接/fd。第 N+1 条开时**挤掉
   该用户最旧的一条**(关它的 aiohttp session → 那条的 body 生成器结束、连接断,浏览器 EventSource

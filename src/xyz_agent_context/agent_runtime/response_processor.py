@@ -131,7 +131,7 @@ _AUTH_EXPIRED_USER_MESSAGE = (
 # fix (see runtime_message.py). Like auth, step_3 keys on this error_type to
 # skip the helper-LLM fallback — a fabricated reply over a turn that never
 # ran hides the real, fixable cause. The actionable copy lives in
-# ``llm_failure.self_serviceable_user_message`` (shared with step_3's raw-
+# ``llm.failure.self_serviceable_user_message`` (shared with step_3's raw-
 # exception path). Reason also rides on ``ErrorMessage.action_reason`` so the
 # frontend can pick its own copy.
 

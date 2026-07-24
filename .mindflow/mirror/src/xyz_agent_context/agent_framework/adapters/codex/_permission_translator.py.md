@@ -74,7 +74,7 @@ rules; extend it as new rules land.
 
 ## Upstream / downstream
 
-- **Upstream**: ``xyz_codex_cli_sdk.CodexSDK.agent_loop`` calls
+- **Upstream**: ``adapters.codex.cli_sdk.CodexSDK.agent_loop`` calls
   this once per run to derive the permission dict.
 - **Downstream**: ``_codex_config_toml_builder.build_codex_config_toml``
   takes the dict and renders the ``[permissions.narranexus]``

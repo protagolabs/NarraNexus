@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3] / "src"))
 from dotenv import load_dotenv
-load_dotenv("/home/bin.liang/Documents/03-open-source/NarraNexus-deploy/NarraNexus/.env")
+load_dotenv(str(__import__("pathlib").Path(__file__).resolve().parents[3] / ".env"))
 
 from pydantic import BaseModel, Field
 

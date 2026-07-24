@@ -15,7 +15,7 @@ Why a registry keyed on protocol (not a scattered if/elif): the SAME
 protocol that BUILT the config (in the single-point Provider Driver
 resolver) is the one that PICKS the SDK here, so an anthropic provider
 can never end up on the OpenAI SDK — that mismatch is unrepresentable.
-Mirrors the in-repo DRIVER_REGISTRY / agent_loop_driver registries.
+Mirrors the in-repo DRIVER_REGISTRY / loop.driver registries.
 
 Call sites never import a concrete SDK class; this keeps the helper
 swappable per iron rule #9 (no hard binding to one LLM/protocol) and

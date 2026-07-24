@@ -69,7 +69,7 @@ paused + auth/quota 的 cooling 连击，不动 transient 冷却）。
 被 `agent_runtime/background_run._record_circuit_breaker`（记账）、`backend/routes/websocket.py`
 + `message_bus/message_bus_trigger.py` + `services/module_poller.py`（should_skip 闸门）、
 `backend/routes/providers.py`（reset_for_owner 自动恢复）、`backend/routes/agents/circuit_breaker.py`
-（reset_agent 手动）调用。分类复用 `llm_failure.is_credential_error` +
+（reset_agent 手动）调用。分类复用 `llm.failure.is_credential_error` +
 `response_processor._is_auth_failure`；告警复用 `services/background_llm_alerts`。
 
 ## 设计决策 / Gotcha

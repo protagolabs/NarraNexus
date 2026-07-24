@@ -6,8 +6,8 @@ last_verified: 2026-06-17
 
 ## Why it exists
 
-Both codex spawn paths (`xyz_codex_official_sdk` v2 and
-`xyz_codex_cli_sdk` v1) used to build the subprocess environment as
+Both codex spawn paths (`adapters.codex.official_sdk` v2 and
+`adapters.codex.cli_sdk` v1) used to build the subprocess environment as
 `{**os.environ}` — handing the codex child the backend container's
 **entire** environment. The backend env carries every platform secret
 (`DB_PASSWORD`, `JWT_SECRET`, `ADMIN_SECRET_KEY`, `*_API_KEY`,
@@ -53,7 +53,7 @@ the handful of variables codex needs, and nothing else.
   authoritative — closing the cross-tenant key-leak the old
   `to_cli_env` "explicit blank" trick used to guard.
 - This covers only the **codex** paths. The Claude path
-  (`xyz_claude_agent_sdk`) merges `{**os.environ, **options.env}`
+  (`adapters.claude.sdk`) merges `{**os.environ, **options.env}`
   *inside* the SDK transport, so its env fix needs a different lever
   (custom transport / `cli_path` wrapper / boot-time scrub) — tracked
   under the broader agent-isolation work.

@@ -18,7 +18,7 @@ Codex CLI reads its full configuration from a single ``config.toml``
 file at ``$CODEX_HOME/config.toml``. There is no command-line
 equivalent for declaring MCP servers, custom model providers, or
 permission profiles — they have to be in TOML. The
-``xyz_codex_cli_sdk`` wrapper writes a fresh ``config.toml`` into a
+``adapters.codex.cli_sdk`` wrapper writes a fresh ``config.toml`` into a
 per-run temp directory before every spawn, populated from the
 runtime inputs (MCP URLs, CodexConfig, permission spec).
 
@@ -56,7 +56,7 @@ unit-tested without spawning a subprocess.
 
 ## Upstream / downstream
 
-- **Upstream**: ``xyz_codex_cli_sdk.CodexSDK.agent_loop`` calls
+- **Upstream**: ``adapters.codex.cli_sdk.CodexSDK.agent_loop`` calls
   this once per run, then writes the result to
   ``<temp>/config.toml``.
 - **Downstream**: Codex CLI reads the TOML at process start when

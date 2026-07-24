@@ -58,7 +58,7 @@ the core of the 2026-06-10 one-key onboarding feature.
   resolver produced an `AnthropicHelperConfig`).
 - **Reads**: `api_config.anthropic_helper_config` proxy (api_key /
   base_url / model / auth_type).
-- **Reuses from openai_agents_sdk**: `_SimpleResult` / `_ParsedResult`
+- **Reuses from adapters.openai_agents**: `_SimpleResult` / `_ParsedResult`
   (so downstream consumers see identical result shapes),
   `_extract_json_from_llm_output`, and the `_last_llm_call_info`
   ContextVar — deliberate import of that module's internals to keep the

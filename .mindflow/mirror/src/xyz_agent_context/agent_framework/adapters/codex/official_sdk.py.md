@@ -39,7 +39,7 @@ Step 4 的 `env = {**os.environ}` 把 backend 容器的**全部环境(含所有�
 `_codex_env.build_codex_subprocess_env`:只透传最小系统白名单 +
 `CODEX_HOME` + `NO_PROXY` + `to_cli_env` 的 scoped `CODEX_API_KEY`。
 **注意**:文件系统沙箱(`workspace-write`)解决不了这条——`env` 读的是
-进程内存,不是文件。详见 `adapters/codex/_env.py.md`。v1(`xyz_codex_cli_sdk`)同步
+进程内存,不是文件。详见 `adapters/codex/_env.py.md`。v1(`adapters.codex.cli_sdk`)同步
 做了一样的修改。
 
 ## 2026-06-17 — PR #25 评审收尾:删诊断 + 收日志 + 修 docstring
@@ -185,8 +185,8 @@ OFFICIAL `openai-codex` Python SDK (JSON-RPC `app-server` mode)
 rather than v1's hand-rolled `codex exec --json` subprocess
 management.
 
-Coexists with v1 (`xyz_codex_cli_sdk.CodexSDK`) through the
-`agent_loop_driver` registry: v1 keeps the `codex_cli` /
+Coexists with v1 (`adapters.codex.cli_sdk.CodexSDK`) through the
+`loop.driver` registry: v1 keeps the `codex_cli` /
 `codex` registration as the default; v2 registers under
 `codex_cli_v2` / `codex_official` as opt-in. Users switch by setting
 `user_slots.agent_framework = "codex_cli_v2"` or
@@ -194,9 +194,9 @@ Coexists with v1 (`xyz_codex_cli_sdk.CodexSDK`) through the
 to v2 is a separate Phase 3 PR.
 
 Implements the same async-generator contract as
-`xyz_claude_agent_sdk.ClaudeAgentSDK` and
-`xyz_codex_cli_sdk.CodexSDK`, conforming to
-`agent_loop_driver.AgentLoopDriver` Protocol via structural typing.
+`adapters.claude.sdk.ClaudeAgentSDK` and
+`adapters.codex.cli_sdk.CodexSDK`, conforming to
+`loop.driver.AgentLoopDriver` Protocol via structural typing.
 
 ## Design decisions
 
@@ -270,7 +270,7 @@ Implements the same async-generator contract as
   is unit-testable independently.
 
 - **One-way reuse of v1 helpers, NOT a refactor**: v2 imports from
-  `xyz_codex_cli_sdk` directly during the coexistence period. When
+  `adapters.codex.cli_sdk` directly during the coexistence period. When
   v1 retires (Phase 3 cutover PR), the shared helpers move into
   `_codex_common.py` and both files import from there. Doing the
   refactor before retirement would inflate the v2 PR's diff
@@ -293,7 +293,7 @@ Implements the same async-generator contract as
     — Notification dict → internal event shape.
   - `_codex_permission_translator.translate_tool_policy_to_codex_permissions`
     — unchanged from v1.
-  - `xyz_codex_cli_sdk._build_system_prompt_and_user_msg` /
+  - `adapters.codex.cli_sdk._build_system_prompt_and_user_msg` /
     `_stage_codex_oauth_credentials` / `_sse_url_to_streamable_http`
     — imported directly (cross-file reuse).
   - `api_config.codex_config` — ContextVar for per-call config.

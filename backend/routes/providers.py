@@ -721,7 +721,7 @@ from xyz_agent_context.agent_framework.providers.user_service import (
     UserProviderService as _UserProviderServiceForFrameworks,
 )
 # Single source of truth — keep the route's whitelist in sync with the
-# service layer. Adding a v3 framework name in user_provider_service
+# service layer. Adding a v3 framework name in providers/user_service
 # automatically opens the route here, no double-edit required.
 _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
 

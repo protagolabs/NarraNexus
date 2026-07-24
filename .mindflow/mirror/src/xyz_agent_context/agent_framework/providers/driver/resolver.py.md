@@ -85,7 +85,7 @@ cutover (binding rule #2). ``_is_codex_framework`` is now just
 
 This whitelist **must** stay in sync with
 ``agent_framework/__init__.py`` registrations and with
-``user_provider_service._SUPPORTED_AGENT_FRAMEWORKS``. If a slot row
+``providers.user_service._SUPPORTED_AGENT_FRAMEWORKS``. If a slot row
 carries an unknown framework name, ``_agent_framework_from_slot``
 falls back to ``"claude_code"`` (the historical default) rather than
 let an unrecognised value pass through silently — typo-resistance at

@@ -8,13 +8,13 @@ stub: false
 ## 为什么存在
 
 这个 `__init__` 是 framework 轴（"用哪套 agent-loop 协议"）的注册门面。它在 import
-时把各 SDK driver 按**名字**注册进 `agent_loop_driver` 的全局表里；下游
+时把各 SDK driver 按**名字**注册进 `loop.driver` 的全局表里；下游
 `step_3_agent_loop` 只读 `user_slots.agent_framework` 这个字符串，再用
 `get_agent_loop_driver(name)` 查表拿到 driver——**没有任何下游硬编码具体类名**。
 这正是铁律 #9（不绑死任何一个 Agent 框架）的落地点：换框架 = 在这里加一行
 `register_agent_loop_driver`，上层不动。
 
-注意区分这里的两条抽象轴：framework 轴（本文件 + `agent_loop_driver`）决定"哪套
+注意区分这里的两条抽象轴：framework 轴（本文件 + `loop.driver`）决定"哪套
 loop 协议"；provider 轴（`provider_driver/`）决定"哪个 endpoint / key"。两者正交。
 
 ## 2026-06-17 — 收敛成「一个框架一个 canonical 名」+ codex_cli 切官方 SDK

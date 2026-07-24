@@ -495,7 +495,7 @@ class CodexSDKv2:
     """Codex CLI wrapper via the OFFICIAL ``openai-codex`` Python SDK.
 
     Same async-generator contract as v1 ``CodexSDK`` and
-    ``ClaudeAgentSDK`` — conforms to ``agent_loop_driver.AgentLoopDriver``
+    ``ClaudeAgentSDK`` — conforms to ``loop.driver.AgentLoopDriver``
     Protocol via structural typing.
     """
 
