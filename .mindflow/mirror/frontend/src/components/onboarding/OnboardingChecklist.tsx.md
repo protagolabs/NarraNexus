@@ -17,7 +17,7 @@ same-tab staleness until next re-render is acceptable for a hint.
 
 A brand-new cloud user lands on an empty chat with no guidance on what to
 do next — the register → first-use chain had zero onboarding (see
-`drafts/logs/register_onboarding_review_2026_05_21.md`). This card sits at
+`docs/design-notes/register_onboarding_review_2026_05_21.md`). This card sits at
 the top of the chat surface and gives them the three concrete next steps.
 
 ## Design decisions

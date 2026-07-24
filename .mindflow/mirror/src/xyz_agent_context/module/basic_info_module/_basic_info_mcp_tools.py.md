@@ -12,7 +12,7 @@ summary, severity)`，Agent 觉察到用户不满、或同一指令连续失败 
 `NARRANEXUS_FEEDBACK_DISABLED=1` 可关）。隐私契约在 client 层强制：id 全部
 哈希、只送 Agent 自己写的一句话摘要。工具恒返 ok=True——投递失败不该让
 Agent 重试或向用户道歉。Spec:
-reference/self_notebook/specs/2026-07-10-feedback-mechanism-design.md
+docs/design-notes/2026-07-10-feedback-mechanism-design.md
 
 
 # _basic_info_mcp_tools.py — narrative-awareness MCP tools (Fix #2 P3)

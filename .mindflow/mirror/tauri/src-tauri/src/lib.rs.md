@@ -61,7 +61,7 @@ URL scheme is declared in `tauri.conf.json` (`plugins.deep-link.desktop.schemes`
 which the bundler turns into `CFBundleURLTypes` inside `Info.plist`.
 Capability `deep-link:default` is granted in
 `capabilities/default.json`. Design context:
-`drafts/logs/template_sharing_2026_05_18.md`.
+`docs/design-notes/template_sharing_2026_05_18.md`.
 
 # lib.rs — Tauri app bootstrap: registers commands, wires setup, handles close
 

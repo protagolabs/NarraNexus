@@ -51,7 +51,7 @@ even against the un-fixed bare-id code. `test_classify_db_layer_
 partitions_by_agent_id` now spins up `store_restarted` to actually
 exercise the durable composite-key dedup.
 
-Session log: `drafts/logs/narra_guide_v12_incident_2026_07_14.md`
+Session log (author-local worklog, never tracked in the repo)
 covers the wider Matrix-side incident; this fix is the client-side
 group-room half.
 

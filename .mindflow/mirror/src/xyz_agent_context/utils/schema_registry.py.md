@@ -282,7 +282,7 @@ the SMTP send actually succeeded so a failed send is visible/re-sendable in
 the admin list without blocking `/api/invite/request`.
 
 Purely additive — `auto_migrate` creates it on next startup. Design doc:
-`drafts/logs/invite_code_2026_05_14.md`.
+`docs/design-notes/invite_code_2026_05_14.md`.
 
 ## 2026-05-13 addition — Agent Runtime Lifecycle (Phase C)
 
