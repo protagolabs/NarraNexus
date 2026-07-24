@@ -285,7 +285,7 @@ async def lifespan(app: FastAPI):
             seeded = await seed_team_marketplace(db)
             logger.info(f"Team Marketplace seed: {seeded} templates present")
 
-            # First-party skills vendored in marketplace_skills/ (incl. the
+            # First-party skills vendored in marketplace/resources/marketplace_skills/ (incl. the
             # default NetMind vision/audio fallbacks) — without this a fresh
             # deploy has an empty Skills tab and default-skill install finds
             # nothing to auto-install on agent creation.

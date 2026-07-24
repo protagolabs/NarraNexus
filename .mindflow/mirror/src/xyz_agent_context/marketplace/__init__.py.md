@@ -24,6 +24,12 @@ skills now travel with the package instead of relying on a repo-root path).
   keeping the `__init__` inert made the regrouping a pure move with zero
   import-style churn. If a public seam is wanted later, follow
   `artifact/__init__.py`'s re-export pattern.
+- **`_skill_marketplace_impl/` is not yet a sealed boundary.** Six call
+  sites outside the package (backend/routes/skills.py, skill_module,
+  skill_sync_service, both seeds) import the private impl directly —
+  pre-existing debt this move did not introduce or worsen. Renaming
+  impl symbols WILL break external callers until they converge on the
+  service seam (todo recorded).
 - **Seed path** lives in `repository/_skill_marketplace_seed.py`, which
   resolves `marketplace/resources/marketplace_skills/` package-relative
   (env-overridable via `MARKETPLACE_SKILLS_DIR`).

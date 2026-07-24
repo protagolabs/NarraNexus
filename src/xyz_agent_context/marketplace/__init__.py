@@ -10,8 +10,10 @@ domain-subpackage convention (artifact/, memory/, message_bus/, ...):
 - `skill_marketplace_service.py` / `team_marketplace_service.py` — the
   public service seams consumers import directly.
 - `_skill_marketplace_impl/` — private implementation (registry, install
-  pipeline, artifact store, scanner, secret box); never imported from
-  outside this package.
+  pipeline, artifact store, scanner, secret box). NOTE: several external
+  consumers (backend routes, skill_module, skill_sync_service, the two
+  seeds) still import it directly — pre-existing debt; long-term these
+  should converge on the service seam.
 - `resources/marketplace_skills/` — first-party skills vendored with the
   package, seeded into the catalog by `repository/_skill_marketplace_seed`.
 
