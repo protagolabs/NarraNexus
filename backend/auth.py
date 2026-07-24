@@ -96,7 +96,7 @@ async def _resolve_manyfold_default_user_id() -> Optional[str]:
     path — see auth_middleware. Kept so older URLs (pre-2026-05-26 build
     of the frontend) keep working without 401.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     return row.get("user_id") if row else None
@@ -119,7 +119,7 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
     """
     if not user_id.startswith("mf_"):
         return
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     existing = await db.get_one("users", {"user_id": user_id})
     if existing:
@@ -640,7 +640,7 @@ async def ensure_local_default_user() -> str:
     Returns the user_id of an existing row when one is present, or
     creates 'local-default' and returns it. Idempotent.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     if row:

@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/utils/db_factory.py
+code_file: src/xyz_agent_context/utils/db/db_factory.py
 last_verified: 2026-07-22
 stub: false
 ---

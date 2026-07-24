@@ -60,7 +60,7 @@ from xyz_agent_context.agent_framework.provider_driver.self_heal import (
 )
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 # The slots every user must have bound. Which driver method builds each

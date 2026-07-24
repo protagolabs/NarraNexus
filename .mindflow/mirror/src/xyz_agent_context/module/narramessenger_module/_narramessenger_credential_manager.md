@@ -59,7 +59,7 @@ telegram credential manager.
   `update_owner` from `NarramessengerTrigger._maybe_claim_owner`, the X2/X3
   owner-auto-claim fix), the module (`get`), the MCP tools, and
   `scripts/seed_narramessenger_credential.py` (`upsert`).
-- **Table**: `channel_narramessenger_credentials` (see `utils/schema_registry.py`).
+- **Table**: `channel_narramessenger_credentials` (see `utils/db/schema_registry.py`).
 
 ## Gotchas
 

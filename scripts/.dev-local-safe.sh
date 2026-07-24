@@ -189,7 +189,7 @@ tmux new-session -d -s "$SESSION" -n "Control" \
 
 # --- SQLite Proxy (MUST start first — all other services depend on it) ---
 tmux new-window -t "$SESSION" -n "DB Proxy" \
-  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; uv run python -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
+  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; uv run python -m xyz_agent_context.utils.db.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
 
 # Wait for proxy to be ready before starting other services
 echo -n "Waiting for DB Proxy..."

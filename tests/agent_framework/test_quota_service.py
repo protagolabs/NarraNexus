@@ -187,7 +187,7 @@ async def test_bootstrap_quota_service_reuses_current_loop_db_not_bootstrap_db(m
 
     import xyz_agent_context.agent_framework.quota_service as quota_service_module
     import xyz_agent_context.repository.quota_repository as quota_repo_module
-    import xyz_agent_context.utils.db_factory as db_factory_module
+    import xyz_agent_context.utils.db.db_factory as db_factory_module
 
     current_db_label = ContextVar("current_db_label", default="bootstrap")
 

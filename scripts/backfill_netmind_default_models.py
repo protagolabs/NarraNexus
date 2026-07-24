@@ -26,7 +26,7 @@ from typing import List
 sys.path.insert(0, "src")
 
 from xyz_agent_context.agent_framework.model_catalog import get_default_models
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 _PROTOCOLS = ("openai", "anthropic")

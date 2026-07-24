@@ -695,7 +695,7 @@ async def test_framework_probe_passes_on_api_key_provider(monkeypatch):
     NOT be told 'auth missing, run codex login' — the API key IS the
     auth. Same for claude_code with an anthropic key."""
     from backend.routes.providers import _probe_agent_framework_auth
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
 
     db = _FakeDB()
     svc = UserProviderService(db)

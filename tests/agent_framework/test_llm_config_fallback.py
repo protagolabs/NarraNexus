@@ -113,7 +113,7 @@ def _wire(monkeypatch, quota_svc, *, user_cfg=None):
     """Stub the outer wiring get_user_runtime_llm_configs constructs, leaving
     the real ProviderResolver decision tree in play. SystemProviderService is
     stubbed via its singleton (_stub_sys)."""
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
     from xyz_agent_context.agent_framework import user_provider_service
 
     monkeypatch.setattr(api_config, "_ensure_quota_service",

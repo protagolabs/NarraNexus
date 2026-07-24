@@ -31,7 +31,7 @@ from uuid import uuid4
 from loguru import logger
 
 from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.arena_onboarding import (
+from backend.integrations.arena.arena_onboarding import (
     ArenaCredentials,
     ArenaOnboarder,
     arena_auth_directive,

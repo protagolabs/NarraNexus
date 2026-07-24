@@ -19,7 +19,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.analytics import track, identify_user
 from xyz_agent_context.analytics.events import (
@@ -918,7 +918,7 @@ async def delete_agent(
         # 7b. Unified memory tables (by agent_id) — observation/entity/chat/...
         # are all agent-scoped; without this an account deletion would leave
         # orphaned memory rows (entities, learned facts, etc.).
-        from xyz_agent_context.utils.schema_registry import MEMORY_KINDS
+        from xyz_agent_context.utils.db.schema_registry import MEMORY_KINDS
         for _kind in MEMORY_KINDS:
             _tbl = f"memory_{_kind}"
             try:

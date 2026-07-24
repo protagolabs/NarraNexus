@@ -40,7 +40,7 @@ in `wipe_service`, not this route.
 - **被谁用**：`backend/routes/agents.py` 聚合；前端聊天面板、历史记录页面、调试视图
 - **依赖谁**：
   - `InstanceRepository` — 查询 ChatModule 实例
-  - `xyz_agent_context.utils.db_factory.get_db_client` — 直接查询 `narratives`、`events`、`instance_narrative_links`、`instance_json_format_memory_chat`、`module_instances`、`agent_messages` 表
+  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `narratives`、`events`、`instance_narrative_links`、`instance_json_format_memory_chat`、`module_instances`、`agent_messages` 表
 
 ## 设计决策
 

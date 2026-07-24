@@ -25,8 +25,8 @@ from loguru import logger
 
 from xyz_agent_context.memory import MemoryEngine, MemoryRecord, SCOPE_AGENT, SCOPE_NARRATIVE, SCOPE_USER
 from xyz_agent_context.memory.record import _parse_dt
-from xyz_agent_context.utils.db_factory import get_db_client
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 
 def _guard() -> None:

@@ -61,7 +61,7 @@ in QuotaService; this layer is deliberately dumb.
   by `NARRANEXUS_MYSQL_TEST_URL`; SQLite cannot reproduce the defect.
 
 ## Downstream
-- AsyncDatabaseClient (utils/database.py) — raw SQL `execute` + CRUD helpers
+- AsyncDatabaseClient (utils/db/database.py) — raw SQL `execute` + CRUD helpers
 - schema_registry `user_quotas` table — row shape
 
 ## Design decisions

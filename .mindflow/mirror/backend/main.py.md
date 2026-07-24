@@ -212,8 +212,8 @@ values, so lifespan wiring is harmless when the feature is off.
 - **依赖谁**：
   - `backend.config.settings` — 读取 CORS origins 和 frontend_dist 路径
   - `backend.auth.auth_middleware` — 注入 HTTP 鉴权中间件
-  - `xyz_agent_context.utils.db_factory` — `get_db_client` / `close_db_client` 管理连接池生命周期
-  - `xyz_agent_context.utils.schema_registry.auto_migrate` — 启动时执行表结构迁移
+  - `xyz_agent_context.utils.db.db_factory` — `get_db_client` / `close_db_client` 管理连接池生命周期
+  - `xyz_agent_context.utils.db.schema_registry.auto_migrate` — 启动时执行表结构迁移
   - 全部路由模块：`websocket`, `agents`, `jobs`, `auth`, `skills`, `providers`, `inbox`
 
 ## 设计决策

@@ -28,9 +28,9 @@ import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 import backend.routes.agents_chat_history as hist_mod
 
@@ -47,7 +47,7 @@ async def db_client():
 
 @pytest.fixture(autouse=True)
 def _restore_get_db():
-    import xyz_agent_context.utils.db_factory as db_factory_mod
+    import xyz_agent_context.utils.db.db_factory as db_factory_mod
     original_factory = db_factory_mod.get_db_client
     original_mod = hist_mod.get_db_client
     yield
@@ -62,7 +62,7 @@ def _build_client(db_client):
     async def _get_db_override():
         return db_client
 
-    import xyz_agent_context.utils.db_factory as db_factory_mod
+    import xyz_agent_context.utils.db.db_factory as db_factory_mod
 
     db_factory_mod.get_db_client = _get_db_override
     hist_mod.get_db_client = _get_db_override

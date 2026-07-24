@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/utils/arena_onboarding.py
+code_file: backend/integrations/arena/arena_onboarding.py
 last_verified: 2026-06-23
 stub: false
 ---

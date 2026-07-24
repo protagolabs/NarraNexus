@@ -51,7 +51,7 @@ from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 from . import Migration
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 async def _apply(db: "AsyncDatabaseClient") -> Dict:

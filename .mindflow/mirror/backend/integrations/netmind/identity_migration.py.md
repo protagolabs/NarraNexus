@@ -23,8 +23,8 @@ Phase 1 用户系统统一要求把所有存量旧 user_id 改写为 NetMind 的
 - `backend/routes/admin_migration.py`：`POST /api/admin/migrate-identity` 路由处理函数调用 `execute_migration` 做单用户原子迁移，可选地顺带更新目标行 display_name/email。
 
 **依赖谁**：
-- `xyz_agent_context.utils.schema_registry`（`TABLES`）：`classify_identity_columns` 和 `_is_unique_identity_column` 从中自动发现所有身份列，避免列清单硬编码。
-- `xyz_agent_context.utils.db_factory`：操作传入的 `AsyncDatabaseClient`。
+- `xyz_agent_context.utils.db.schema_registry`（`TABLES`）：`classify_identity_columns` 和 `_is_unique_identity_column` 从中自动发现所有身份列，避免列清单硬编码。
+- `xyz_agent_context.utils.db.db_factory`：操作传入的 `AsyncDatabaseClient`。
 - `pathlib.Path`：`_rename_workspaces` 操作 workspace 目录。
 
 ## 关键函数说明

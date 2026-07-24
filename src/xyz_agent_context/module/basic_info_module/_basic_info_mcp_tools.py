@@ -33,7 +33,7 @@ from typing import Any, Dict, List
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 # Tool names the runtime hook scans agent_loop_response for (keep in lockstep

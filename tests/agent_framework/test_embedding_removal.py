@@ -69,7 +69,7 @@ async def test_get_user_llm_configs_returns_2_tuple(db_client, monkeypatch):
         ClaudeConfig,
         OpenAIConfig,
     )
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
     from xyz_agent_context.agent_framework.quota_service import QuotaService, bootstrap_quota_subsystem
     from xyz_agent_context.agent_framework.system_provider_service import SystemProviderService
 

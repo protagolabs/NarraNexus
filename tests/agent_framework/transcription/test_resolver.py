@@ -79,7 +79,7 @@ def _patch_user_providers(monkeypatch, *providers):
         fake_module.UserProviderService,
     )
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db_factory.get_db_client",
+        "xyz_agent_context.utils.db.db_factory.get_db_client",
         fake_db_module.get_db_client,
     )
 
@@ -495,7 +495,7 @@ async def test_user_lookup_failure_does_not_break_resolution(monkeypatch):
         raise RuntimeError("simulated DB outage")
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db_factory.get_db_client", _explode,
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _explode,
     )
     _patch_local_mode(monkeypatch, is_cloud=False)
     _patch_settings(monkeypatch, openai_api_key="env-key")

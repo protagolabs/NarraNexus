@@ -40,7 +40,7 @@ def _seconds_until(hour_utc: int) -> float:
 async def run_once() -> dict:
     """One full pass: refresh the ledger for every keyed source, then overwrite
     every user's provider lists in the DB. Returns a summary dict."""
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
 
     plan = [
         ("netmind", os.environ.get("NETMIND_API_KEY"), None),

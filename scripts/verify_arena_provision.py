@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, "src")
 
 from xyz_agent_context.settings import settings  # noqa: E402
-from xyz_agent_context.utils.db_factory import get_db_client  # noqa: E402
+from xyz_agent_context.utils.db.db_factory import get_db_client  # noqa: E402
 
 
 def _check(cond: bool, label: str) -> None:
@@ -39,7 +39,7 @@ async def main() -> None:
     user_id = args.user_id
 
     db = await get_db_client()
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
     await auto_migrate(db._backend)
 
     # Ensure the user exists (provision attaches created_by=user_id).

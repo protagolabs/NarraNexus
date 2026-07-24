@@ -36,9 +36,9 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 import backend.routes.agents_bus_failures as bus_failures_mod
 

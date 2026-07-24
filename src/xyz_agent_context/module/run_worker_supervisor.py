@@ -438,7 +438,7 @@ async def _drain_and_close(
     # the process alive after run() returns, turning a clean signal into a hang
     # (same reason as run_channel_triggers.main()).
     try:
-        from xyz_agent_context.utils.db_factory import close_db_client
+        from xyz_agent_context.utils.db.db_factory import close_db_client
 
         await close_db_client()
     except Exception as e:  # noqa: BLE001
@@ -461,8 +461,8 @@ async def run(
 ) -> None:
     """Supervisor entrypoint. Reuses run_channel_triggers.main()'s template."""
     import xyz_agent_context.settings  # noqa: F401 — ensure .env is loaded
-    from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
     from xyz_agent_context.agent_framework.quota_service import (
         bootstrap_quota_subsystem,
     )

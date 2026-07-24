@@ -34,7 +34,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from xyz_agent_context.settings import settings as core_settings
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()

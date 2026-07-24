@@ -16,7 +16,7 @@ Awareness 是 Agent 的自我认知配置——它知道自己是谁、有什么
 - **依赖谁**：
   - `InstanceRepository` — 查询或创建 `AwarenessModule` 实例
   - `InstanceAwarenessRepository` — upsert awareness 内容到 `instance_awareness` 表
-  - `xyz_agent_context.utils.db_factory.get_db_client` — 直接查询 `instance_awareness` 表读取结果
+  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `instance_awareness` 表读取结果
 
 ## 设计决策
 

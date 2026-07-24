@@ -9,7 +9,7 @@ file. All other processes (Backend, MCP Server, Poller, etc.) access the databas
 through HTTP calls to this proxy, eliminating multi-process file lock contention.
 
 Usage:
-    uv run python -m xyz_agent_context.utils.sqlite_proxy_server
+    uv run python -m xyz_agent_context.utils.db.sqlite_proxy_server
 
 Environment:
     DATABASE_URL: SQLite database URL (e.g., sqlite:///path/to/db)
@@ -30,9 +30,9 @@ from fastapi import FastAPI, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.utils.database import _mysql_to_sqlite_sql
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db_factory import detect_backend_type, parse_sqlite_url
+from xyz_agent_context.utils.db.database import _mysql_to_sqlite_sql
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.db_factory import detect_backend_type, parse_sqlite_url
 
 
 # =============================================================================
@@ -237,7 +237,7 @@ async def lifespan(app: FastAPI):
     logger.info("SQLite backend initialized")
 
     # Run schema migration
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
     await auto_migrate(_backend)
     logger.info("Schema auto-migration complete")
 
@@ -520,7 +520,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("SQLITE_PROXY_PORT", "8100"))
     logger.info(f"Starting SQLite Proxy Server on port {port}")
     uvicorn.run(
-        "xyz_agent_context.utils.sqlite_proxy_server:app",
+        "xyz_agent_context.utils.db.sqlite_proxy_server:app",
         host="127.0.0.1",
         port=port,
         log_level="info",

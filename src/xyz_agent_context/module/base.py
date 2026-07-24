@@ -31,7 +31,7 @@ from xyz_agent_context.utils import DatabaseClient
 from xyz_agent_context.utils.mcp_executor import list_mcp_tools
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 def mcp_host() -> str:
@@ -130,7 +130,7 @@ class XYZBaseModule(ABC):
                 result = await db.get_one("table", {"id": arg})
                 return str(result)
         """
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         return await get_db_client()
 
     @classmethod

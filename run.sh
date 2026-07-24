@@ -451,7 +451,7 @@ run_container_mode() {
 
   # 1. sqlite_proxy (only when DATABASE_URL is sqlite-ish)
   if [[ "${DATABASE_URL}" == sqlite* ]]; then
-    "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.utils.sqlite_proxy_server &
+    "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.utils.db.sqlite_proxy_server &
     SQLITE_PID=$!
     # Wait up to 30s for :8100
     for i in {1..30}; do

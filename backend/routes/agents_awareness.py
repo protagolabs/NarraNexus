@@ -14,7 +14,7 @@ import uuid
 from fastapi import APIRouter
 from loguru import logger
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import InstanceRepository
 from xyz_agent_context.repository import InstanceAwarenessRepository

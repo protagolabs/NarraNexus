@@ -33,7 +33,7 @@ from xyz_agent_context.repository.service_audit_repository import (
     EVENT_STARTED,
     ServiceAuditRepository,
 )
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 logger = logging.getLogger(__name__)
 

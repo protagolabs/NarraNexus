@@ -23,7 +23,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.mime_sniff import sniff_mime_type
 from xyz_agent_context.repository import TeamRepository, TeamMemberRepository
 from xyz_agent_context.repository.user_repository import UserRepository

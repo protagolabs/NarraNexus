@@ -2112,7 +2112,7 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
     Args:
         backend: An initialized DatabaseBackend instance.
     """
-    from xyz_agent_context.utils.db_backend import DatabaseBackend  # noqa: F811
+    from xyz_agent_context.utils.db.db_backend import DatabaseBackend  # noqa: F811
 
     dialect = backend.dialect
     tables_created = 0

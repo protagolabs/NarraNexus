@@ -61,7 +61,7 @@ from xyz_agent_context.services.background_llm_alerts import (
     audit_agent_internal_streak,
 )
 from xyz_agent_context.utils.backoff import compute_cooldown_seconds
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
 
 # Consecutive same-category auth/quota failures before a hard PAUSE. Small on

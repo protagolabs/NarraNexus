@@ -21,7 +21,7 @@ Both endpoints now go through `SocialNetworkRepository` (reading `memory_entity`
   - `InstanceRepository` — 查询 `SocialNetworkModule` 实例 ID
   - `SocialNetworkRepository` — 语义搜索（`semantic_search`）和关键词搜索（`keyword_search`）
   - `xyz_agent_context.agent_framework.llm_api.embedding.get_embedding` — 语义搜索时生成 query 的向量
-  - `xyz_agent_context.utils.db_factory.get_db_client` — 直接查询 `instance_social_entities` 表
+  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `instance_social_entities` 表
 
 ## 设计决策
 

@@ -30,7 +30,7 @@ import aiomysql
 import pymysql.err
 from loguru import logger
 
-from xyz_agent_context.utils.db_backend import DatabaseBackend
+from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
 # InnoDB deadlock errno. MySQL aborts the "lighter" transaction; the

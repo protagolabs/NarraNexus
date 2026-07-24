@@ -41,7 +41,7 @@ from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
 from xyz_agent_context.schema import WorkingSource
 from xyz_agent_context.repository import MCPRepository
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()

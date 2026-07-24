@@ -38,7 +38,7 @@ from ._narrative_impl import (
 )
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.schema.module_schema import InstanceStatus
 
 

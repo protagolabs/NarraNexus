@@ -235,7 +235,7 @@ async def _lookup_office_file(request: Request, artifact_id: str) -> tuple[str, 
             the file escapes the workspace / is the wrong type.
     """
     from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.utils.workspace_paths import resolve_workspace_relative_file
 
     user_id = await resolve_current_user_id(request)

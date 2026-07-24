@@ -35,9 +35,9 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes.providers as providers_mod
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 USER = {"X-User-Id": "u1"}
 STAFF = {"X-User-Id": "u1", "X-Role": "staff"}

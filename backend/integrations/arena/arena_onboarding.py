@@ -166,7 +166,7 @@ class ArenaOnboarder:
 
     Typical use from another script::
 
-        from xyz_agent_context.utils.arena_onboarding import ArenaOnboarder
+        from backend.integrations.arena.arena_onboarding import ArenaOnboarder
 
         onboarder = ArenaOnboarder()
         result = onboarder.onboard("/path/to/agent_xxx_user_yyy")

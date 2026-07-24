@@ -23,7 +23,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()

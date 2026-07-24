@@ -27,7 +27,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from xyz_agent_context.utils.schema_registry import TABLES  # noqa: E402
+from xyz_agent_context.utils.db.schema_registry import TABLES  # noqa: E402
 from xyz_agent_context.bundle.id_field_map import STRUCTURED_ID_FIELDS  # noqa: E402
 
 

@@ -26,7 +26,7 @@ from xyz_agent_context.agent_framework.system_provider_service import (
     SystemProviderService,
 )
 from xyz_agent_context.repository.quota_repository import QuotaRepository
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 async def main() -> int:

@@ -243,7 +243,7 @@ async def fetch_last_activity(agent_ids: list[str]) -> dict[str, str | None]:
     """MAX(events.created_at) GROUP BY agent_id for the given ids."""
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     sql = (
@@ -289,7 +289,7 @@ async def fetch_jobs(agent_ids: list[str]) -> dict[str, dict[str, list[dict]]]:
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     state_placeholders = ",".join("%s" for _ in _LIVE_JOB_STATES)
@@ -334,7 +334,7 @@ async def fetch_recent_events(agent_ids: list[str], limit_per_agent: int = 3) ->
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     out: dict[str, list[dict]] = {aid: [] for aid in agent_ids}
     # Per-agent loop keeps it portable across SQLite/MySQL without window funcs.
@@ -361,7 +361,7 @@ async def fetch_metrics_today(agent_ids: list[str]) -> dict[str, dict]:
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     # Count ok vs error events today.
@@ -401,7 +401,7 @@ async def fetch_sparkline_24h(agent_id: str, hours: int = 24) -> list[int]:
 
     Served by a separate lazy endpoint to avoid bloating the main poll.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     try:
         rows = await db.execute(
@@ -660,7 +660,7 @@ async def fetch_instances(agent_ids: list[str]) -> dict[str, dict[str, list[dict
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     sql = (
@@ -727,7 +727,7 @@ async def fetch_enhanced_signals(agent_ids: list[str]) -> dict[str, dict]:
     """
     if not agent_ids:
         return {}
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     placeholders = ",".join("%s" for _ in agent_ids)
     # errors: final_output matching error markers in last hour
@@ -819,7 +819,7 @@ async def build_run_state_for_agent(
 async def _latest_bus_content_for_channel(channel: str) -> str | None:
     """Fetch the most recent bus_messages.content for a channel (content preview)."""
     try:
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         db = await get_db_client()
         row = await db.execute(
             "SELECT content FROM bus_messages WHERE channel_id=%s "

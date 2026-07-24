@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/utils/schema_registry.py
+code_file: src/xyz_agent_context/utils/db/schema_registry.py
 last_verified: 2026-07-22
 stub: false
 ---

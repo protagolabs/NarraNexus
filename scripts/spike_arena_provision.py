@@ -5,7 +5,7 @@
 @description: SPIKE — prove the full Arena one-click provisioning end-to-end
              against the real local stack (sqlite + real workspace + real Arena
              API). The Arena registration + skill-file layout is delegated to
-             the reusable ArenaOnboarder (utils/arena_onboarding.py); this
+             the reusable ArenaOnboarder (backend/integrations/arena/arena_onboarding.py); this
              script wraps the DB side (agent + instances + awareness) around it.
 
              NOT production code; validates the arena-onboarding design
@@ -38,8 +38,8 @@ from uuid import uuid4
 sys.path.insert(0, "src")
 
 from xyz_agent_context.settings import settings  # noqa: E402
-from xyz_agent_context.utils.db_factory import get_db_client  # noqa: E402
-from xyz_agent_context.utils.arena_onboarding import (  # noqa: E402
+from xyz_agent_context.utils.db.db_factory import get_db_client  # noqa: E402
+from backend.integrations.arena.arena_onboarding import (  # noqa: E402
     ArenaOnboarder,
     ArenaCredentials,
 )
@@ -155,7 +155,7 @@ async def main() -> None:
     print("=" * 64)
 
     db = await get_db_client()
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     await auto_migrate(db._backend)
 

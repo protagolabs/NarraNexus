@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.repository import HomeAssistantBindingRepository
 from xyz_agent_context.schema.home_assistant_schema import HAConfig
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 router = APIRouter()
 

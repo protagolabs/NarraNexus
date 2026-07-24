@@ -33,7 +33,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from xyz_agent_context.artifact import ArtifactError, ArtifactService
 from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 from backend.routes._artifact_token import TokenError, verify
 

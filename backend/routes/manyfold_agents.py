@@ -34,7 +34,7 @@ from xyz_agent_context.agent_framework.cloud_policy import (
     NETMIND_SOURCE,
     netmind_slots_only,
 )
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()

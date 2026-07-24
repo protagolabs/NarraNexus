@@ -46,7 +46,7 @@ def app(db_client, tmp_path, monkeypatch):
     async def _get_db():
         return db_client
 
-    import xyz_agent_context.utils.db_factory as db_factory
+    import xyz_agent_context.utils.db.db_factory as db_factory
 
     monkeypatch.setattr(db_factory, "get_db_client", _get_db)
 

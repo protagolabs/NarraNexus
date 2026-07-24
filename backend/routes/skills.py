@@ -28,7 +28,7 @@ from loguru import logger
 
 from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.module.skill_module import SkillModule
 from xyz_agent_context.schema.skill_schema import (
     SkillInfo,
@@ -146,7 +146,7 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     if not affected:
         return
     try:
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
 
         available = await platform_env_available(await get_db_client(), user_id)
     except Exception as e:
@@ -582,7 +582,7 @@ async def get_skill_env(
             PLATFORM_RESOLVED_ENV,
             platform_env_available,
         )
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
 
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
@@ -634,7 +634,7 @@ async def set_skill_env(
             PLATFORM_RESOLVED_ENV,
             platform_env_available,
         )
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
 
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):

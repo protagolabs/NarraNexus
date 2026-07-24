@@ -27,9 +27,9 @@ import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 import backend.routes.agents_llm_config as mod
 

@@ -115,7 +115,7 @@ Social-network import reconstructs `SocialNetworkEntity` objects and writes them
 - **依赖谁**：
   - `bundle/security.py` — `extract_zip_safely`、size limits
   - `bundle/id_field_map.py` / `id_schema.py` — ID rewrite 5 层防御 Layer 2 + Layer 1
-  - `utils/db_factory.get_db_client` — 写库
+  - `utils/db/db_factory.get_db_client` — 写库
   - `bundle_preflight_sessions` 表 — token 持久化（B5 修复）
 
 ## 设计决策
