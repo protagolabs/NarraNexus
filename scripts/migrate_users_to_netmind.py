@@ -8,7 +8,7 @@ userSystemCode (Phase 1 user-system unification).
 Legacy users registered with a self-chosen username that became their
 user_id; the NetMind switchover keys identity by the 32-hex
 userSystemCode instead. This is a thin CLI over the shared kernel in
-`xyz_agent_context.integrations.netmind.identity_migration` (same kernel the
+`backend.integrations.netmind.identity_migration` (same kernel the
 POST /api/admin/migrate-identity route uses — one source of truth).
 
 OPERATIONAL RULES (hard-won — see v1.7.16 outage):
@@ -48,7 +48,7 @@ if str(_REPO_ROOT / "src") not in sys.path:
 
 # Re-export the shared kernel so existing tooling/tests that import this
 # script keep working unchanged (铁律 8 — no duplicated migration logic).
-from xyz_agent_context.integrations.netmind.identity_migration import (  # noqa: E402,F401
+from backend.integrations.netmind.identity_migration import (  # noqa: E402,F401
     IdentityColumns,
     build_report,
     classify_identity_columns,

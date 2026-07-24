@@ -2,15 +2,15 @@
 @file_name: __init__.py
 @author: NetMind.AI
 @date: 2026-07-24
-@description: External-platform integration clients, grouped by platform.
+@description: External-platform clients the AGENT side itself needs.
 
-`services/` is for background workers (pollers, sync loops, alert
-watchers). Clients that talk to external platforms live here instead:
+Placement rule: src/xyz_agent_context holds only what agent-side
+processes (agent runtime, module/MCP servers, workers) must import.
+Platform/business clients consumed only by the API app live in
+backend/integrations/ instead (netmind/, arena/ moved there 2026-07-24).
 
-- `netmind/` — NetMind auth / billing / key provisioning / power-account
-  and the user-identity migration service.
-- `arena/` — Agent Arena auto-provisioning.
-- `feedback_client.py` — central feedback intake client.
+- `feedback_client.py` — feedback intake; stays here because the agent's
+  `submit_feedback` MCP tool (basic_info_module) calls it in-process.
 
 No re-exports: consumers import the client modules explicitly.
 """

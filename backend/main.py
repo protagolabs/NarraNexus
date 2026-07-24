@@ -197,9 +197,9 @@ async def lifespan(app: FastAPI):
     # lifespan), applying every still-pending migration in order — so a DB that
     # skipped versions catches up one layer at a time. Best-effort: never block
     # startup on a migration error (search degrades gracefully; it retries next
-    # startup). See xyz_agent_context/migrations/.
+    # startup). See backend/migrations/.
     try:
-        from xyz_agent_context.migrations import run_pending_migrations
+        from backend.migrations import run_pending_migrations
 
         migrated = await run_pending_migrations(db)
         if migrated:
@@ -278,7 +278,7 @@ async def lifespan(app: FastAPI):
 
             if not TeamMarketplaceService()._is_registry_host():
                 return  # a pure desktop client proxies to the cloud
-            from xyz_agent_context.repository._team_marketplace_seed import (
+            from xyz_agent_context.marketplace._team_marketplace_seed import (
                 seed_team_marketplace,
             )
 
@@ -289,7 +289,7 @@ async def lifespan(app: FastAPI):
             # default NetMind vision/audio fallbacks) — without this a fresh
             # deploy has an empty Skills tab and default-skill install finds
             # nothing to auto-install on agent creation.
-            from xyz_agent_context.repository._skill_marketplace_seed import (
+            from xyz_agent_context.marketplace._skill_marketplace_seed import (
                 seed_skill_marketplace,
             )
 

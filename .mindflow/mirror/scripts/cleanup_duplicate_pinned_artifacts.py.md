@@ -14,4 +14,4 @@ workspace files are never touched, the surviving row keeps serving the same
 entry. Dry-run by default, `--apply` to delete; idempotent; plain
 bare-identifier SQL so it runs on SQLite and MySQL. Run inside the backend
 container (`cd /app && uv run python scripts/...`). Tests:
-`tests/migrations/test_cleanup_duplicate_pinned_artifacts.py`.
+`tests/backend/migrations/test_cleanup_duplicate_pinned_artifacts.py`.

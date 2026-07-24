@@ -59,7 +59,7 @@ def seed_env(db_client, tmp_path, monkeypatch):
     monkeypatch.delenv("TEMPLATE_S3_BUCKET", raising=False)
     monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
 
-    import xyz_agent_context.repository._team_marketplace_seed as seed_mod
+    import xyz_agent_context.marketplace._team_marketplace_seed as seed_mod
 
     store = LocalArtifactStore(tmp_path / "team_store")
     monkeypatch.setattr(seed_mod, "get_template_store", lambda: store)
