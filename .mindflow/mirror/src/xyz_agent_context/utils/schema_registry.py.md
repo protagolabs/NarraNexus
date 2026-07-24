@@ -281,8 +281,8 @@ when the cap is hit), `→ revoked` (admin kill). `email_sent` records whether
 the SMTP send actually succeeded so a failed send is visible/re-sendable in
 the admin list without blocking `/api/invite/request`.
 
-Purely additive — `auto_migrate` creates it on next startup. Design doc:
-`drafts/logs/invite_code_2026_05_14.md`.
+Purely additive — `auto_migrate` creates it on next startup. (Design log
+is author-local, untracked.)
 
 ## 2026-05-13 addition — Agent Runtime Lifecycle (Phase C)
 

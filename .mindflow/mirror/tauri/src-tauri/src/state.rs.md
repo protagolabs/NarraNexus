@@ -90,8 +90,7 @@ React frontend mounts a `deep-link-received` event listener (events
 fired with no listener are dropped). The deep-link `on_open_url`
 callback in `lib.rs::setup` writes here; the frontend drains it via the
 `consume_pending_deep_link` Tauri command on first mount. See
-`.mindflow/mirror/tauri/src-tauri/src/lib.rs.md` and
-`drafts/logs/template_sharing_2026_05_18.md`.
+`.mindflow/mirror/tauri/src-tauri/src/lib.rs.md`.
 
 # state.rs — AppState, ServiceDef, and path resolution for the Tauri app
 

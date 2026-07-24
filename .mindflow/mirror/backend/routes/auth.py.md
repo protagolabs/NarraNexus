@@ -239,7 +239,7 @@ server 端把 `final_output` 拍平空白后截到 200 chars（前端再切到 6
 
 注册不再"全局开关"——有没有可用的码由 `invite_codes` 表决定。Mode B 的
 发码 / cap / waitlist 全在 `backend/routes/invite.py` + `admin_invite.py`。
-设计文档：`drafts/logs/invite_code_2026_05_14.md`。
+设计记录为作者本地 worklog，不入库；关键决策已写在上文。
 
 ## 2026-05-13 — `/api/auth/agents` 返回 active_run 字段（Phase C）
 
