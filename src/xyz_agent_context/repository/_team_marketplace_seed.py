@@ -24,10 +24,10 @@ from typing import Any, Dict, List
 import httpx
 from loguru import logger
 
-from xyz_agent_context._skill_marketplace_impl.artifact_store import get_template_store
+from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import get_template_store
 from xyz_agent_context.repository.team_catalog_repository import TeamCatalogRepository
 from xyz_agent_context.schema.team_marketplace_schema import TeamTemplate
-from xyz_agent_context.team_marketplace_service import store_key_for
+from xyz_agent_context.marketplace.team_marketplace_service import store_key_for
 
 # Migration source: narra.nexus static templates (the original ee1db871
 # catalog). `source_url` is used only to fetch-and-restore into our store.

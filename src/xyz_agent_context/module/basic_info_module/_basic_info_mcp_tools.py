@@ -88,7 +88,7 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
         summary: str,
         severity: str = "medium",
     ) -> dict:
-        from xyz_agent_context.services.feedback_client import send_feedback
+        from xyz_agent_context.integrations.feedback_client import send_feedback
 
         delivered = await send_feedback(
             category=category,

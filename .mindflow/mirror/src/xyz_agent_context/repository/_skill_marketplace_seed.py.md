@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/_skill_marketplace_seed.py
-last_verified: 2026-07-22
+last_verified: 2026-07-24
 stub: false
 ---
 
@@ -16,5 +16,7 @@ seeded — they go through scripts/publish_skill.py deliberately (license/
 attribution). Reuses RegistryService.publish (extract -> scan gate -> store ->
 catalog, is_default from manifest). Idempotent (skip when (id,version) already
 catalogued + blob in store), best-effort per skill, registry-host only. Path:
-MARKETPLACE_SKILLS_DIR override, else parents[3]/marketplace_skills; None ->
-no-op (pip-installed package without the dir).
+MARKETPLACE_SKILLS_DIR override, else package-relative
+marketplace/resources/marketplace_skills (moved from repo root 2026-07-24 in
+the layout cleanup — the vendored skills now travel with the package in any
+install form); None -> no-op.

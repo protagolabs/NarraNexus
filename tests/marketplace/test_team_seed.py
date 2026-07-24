@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context._skill_marketplace_impl.artifact_store import LocalArtifactStore
+from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
 from xyz_agent_context.repository.team_catalog_repository import TeamCatalogRepository
 
 

@@ -274,7 +274,7 @@ async def lifespan(app: FastAPI):
     # compose healthcheck start_period. Fire-and-forget with a done-callback.
     async def _seed_marketplaces() -> None:
         try:
-            from xyz_agent_context.team_marketplace_service import TeamMarketplaceService
+            from xyz_agent_context.marketplace.team_marketplace_service import TeamMarketplaceService
 
             if not TeamMarketplaceService()._is_registry_host():
                 return  # a pure desktop client proxies to the cloud
@@ -285,7 +285,7 @@ async def lifespan(app: FastAPI):
             seeded = await seed_team_marketplace(db)
             logger.info(f"Team Marketplace seed: {seeded} templates present")
 
-            # First-party skills vendored in marketplace_skills/ (incl. the
+            # First-party skills vendored in marketplace/resources/marketplace_skills/ (incl. the
             # default NetMind vision/audio fallbacks) — without this a fresh
             # deploy has an empty Skills tab and default-skill install finds
             # nothing to auto-install on agent creation.
