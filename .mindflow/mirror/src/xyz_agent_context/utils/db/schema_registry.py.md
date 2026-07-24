@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — cost_records 加 prompt-cache 埋点三列(W1)
+
+additive:`cache_read_input_tokens` + `cache_creation_input_tokens`(BIGINT
+UNSIGNED,NOT NULL DEFAULT 0,同 user_quotas 的 used_* 形制)+ `num_turns`
+(INT,**nullable 是刻意的**:NULL=框架未上报,与上报 0 区分)。动机:input_tokens
+一个总数分不出全价/缓存写(1.25×)/缓存读(0.1×),缓存是否生效完全不可见
+(token 诊断报告 R5)。写入见 [[cost_tracker]] 同日条目;计划:
+`reference/self_notebook/plans/2026-07-23-token-consumption-optimization.plan.md`。
 
 ## 2026-07-22 — bus_agent_activity
 

@@ -1,9 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/output_transfer.py
-last_verified: 2026-06-17
+last_verified: 2026-07-23
 stub: false
 ---
 # output_transfer.py — Claude SDK 消息格式转换为统一事件流
+
+## 2026-07-23 — ResultMessage 补提取 num_turns + session_id(W1 token 埋点)
+
+`_convert_result_to_stream_event` 现在把 `ResultMessage.num_turns`(int 才透传)
+放进 response.done 的 data,供 response_processor 折算进 ExecutionState——此前
+"每次运行 ≈1.8 次调用"只能靠均值相除推算。`session_id` 只打 INFO 日志**不落库**:
+它是 `--resume` 可行性实验(E1)的前置证据,列位留待实验结论。cache 两键
+(331-334 行)早已提取,本轮零改动,只是下游终于开始消费。
+计划:`reference/self_notebook/plans/2026-07-23-token-consumption-optimization.plan.md`。
 
 ## 2026-06-17 — reasoning textDelta vs summaryTextDelta 同进 Thinking 面板的安全前提
 

@@ -609,6 +609,18 @@ _register(
             # user's own key). Was only ever a ContextVar (api_config.py);
             # persisting it here makes billing auditable.
             Column("provider_source", "TEXT", "VARCHAR(32)"),
+            # Prompt-cache telemetry (2026-07-23). input_tokens alone cannot
+            # distinguish full-price tokens from cache writes (1.25x) and cache
+            # reads (0.1x), so cache effectiveness was unmeasurable. Summed
+            # across all model calls within one run. 0 = provider reported no
+            # cache activity (also the value for providers without cache
+            # fields in usage).
+            Column("cache_read_input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("cache_creation_input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            # Model calls the CLI made during this run (ResultMessage.num_turns).
+            # Nullable on purpose: NULL = the framework did not report it
+            # (non-Claude CLI paths), distinct from a reported 0.
+            Column("num_turns", "INTEGER", "INT"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[

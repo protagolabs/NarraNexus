@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-07-14
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — response.done 折算 cache 用量,归一化两套 provider 词汇(W1)
+
+`response.done` 分支现在读 cache 字段并入 `accumulate_usage` 参数。**词汇归一化
+是这里唯一的坑**:Anthropic 叫 `cache_read_input_tokens`/`cache_creation_input_tokens`,
+OpenAI/codex 叫 `cached_input_tokens`(只有读、没有写计数)——两者都折到
+`cache_read_tokens`,codex 的 `cache_creation_tokens` 恒 0 是词汇缺失不是 bug。
+`num_turns` 从 data(非 usage)读取,None = 框架没报,与 0 语义不同。
 
 ## 2026-07-14 — `response.error` 新增确定性自助类分支（不再被兜底掩盖 / "黑盒" P1）
 

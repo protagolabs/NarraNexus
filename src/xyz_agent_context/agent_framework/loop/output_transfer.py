@@ -350,6 +350,18 @@ def _convert_result_to_stream_event(message: Any) -> Dict[str, Any]:
     if total_cost is not None:
         data["total_cost_usd"] = total_cost
 
+    # Model-call count for this run (ResultMessage.num_turns). Before this,
+    # calls-per-run was only ever estimated (avg input / fixed prompt cost).
+    num_turns = getattr(message, 'num_turns', None)
+    if isinstance(num_turns, int):
+        data["num_turns"] = num_turns
+
+    # session_id is logged (not persisted) as groundwork for the --resume
+    # feasibility experiment: it proves the CLI hands us a resumable handle.
+    session_id = getattr(message, 'session_id', None)
+    if session_id:
+        logger.info(f"Agent loop CLI session_id={session_id} num_turns={num_turns}")
+
     # Add stop reason
     if hasattr(message, 'stop_reason'):
         data["stop_reason"] = message.stop_reason

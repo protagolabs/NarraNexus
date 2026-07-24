@@ -1,9 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/execution_state.py
-last_verified: 2026-04-10
+last_verified: 2026-07-23
 stub: false
 ---
 # execution_state.py — Agent Loop 执行过程的不可变状态追踪器
+
+## 2026-07-23 — cache/num_turns 字段 + 全面改用 dataclasses.replace(W1)
+
+新增 `cache_read_tokens`/`cache_creation_tokens`(累加语义,同 input/output)与
+`num_turns`(**latest-non-None-wins,绝不累加**——它是框架报的单次运行总数,
+不是逐事件增量;None 表示"未上报",与 0 严格区分)。同时把 7 个方法的手工全字段
+重建全部改为 `dataclasses.replace(self, ...)`:行为不变,消掉"加一个字段要改
+7 处构造"的维护陷阱——本次加字段正是踩着这个陷阱做的最后一次全量手改。
 
 ## 为什么存在
 
