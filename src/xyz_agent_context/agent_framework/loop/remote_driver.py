@@ -30,7 +30,7 @@ incident (2026-07-08) traces to exactly that: any Read on an image
 >~90 KiB crashed the transport, killing the executor connection, and
 the fallback helper LLM covered it up with a fake reply. The fix lifts
 the ceiling to ``_MAX_STREAM_BYTES`` (aligned with the SDK's own
-``max_buffer_size`` in ``xyz_claude_agent_sdk``).
+``max_buffer_size`` in ``adapters.claude.sdk``).
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ from xyz_agent_context.agent_framework.loop.executor_errors import (
 
 
 # Ceiling for a single NDJSON event line pulled from the executor. Chosen
-# to match the SDK's ``max_buffer_size`` in ``xyz_claude_agent_sdk`` (50 MiB)
+# to match the SDK's ``max_buffer_size`` in ``adapters.claude.sdk`` (50 MiB)
 # so that whatever the SDK is willing to hand us upstream, this transport
 # can pass through. Experiment 3 of the 2026-07-08 incident
 # analysis showed image event lines top out around 400 KiB even for

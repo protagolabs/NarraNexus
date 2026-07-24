@@ -29,7 +29,7 @@ from loguru import logger
 # =============================================================================
 #
 # Only contains models whose name strings are controlled by our code:
-#   - OpenAI: hardcoded in openai_agents_sdk.py (MODEL_NAME)
+#   - OpenAI: hardcoded in adapters/openai_agents.py (MODEL_NAME)
 #   - Gemini: hardcoded in gemini_api_sdk.py (self.model)
 # Claude costs use sdk_cost_usd directly (see record_cost), so no entry needed here.
 MODEL_PRICING: Dict[str, Dict[str, float]] = {

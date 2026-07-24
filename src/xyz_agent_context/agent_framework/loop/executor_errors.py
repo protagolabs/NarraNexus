@@ -6,7 +6,7 @@
 
 Raised at the two executor boundaries — ``broker_client.ensure_executor`` /
 ``wait_until_ready`` (can't reach the broker or the container never boots)
-and ``remote_agent_loop_driver.agent_loop`` (the ``:8020`` connection drops
+and ``loop.remote_driver.agent_loop`` (the ``:8020`` connection drops
 mid-run) — so the orchestration layer can classify an executor-infrastructure
 failure by exception TYPE rather than fragile substring matching on the
 underlying aiohttp/httpx error text.
