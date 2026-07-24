@@ -1,5 +1,5 @@
 """
-@file_name: manyfold_agents.py
+@file_name: agents.py
 @author: NexusAgent
 @date: 2026-05-25
 @description: Cross-user agent listing + create endpoint for Manyfold platform

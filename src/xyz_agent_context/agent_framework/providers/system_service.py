@@ -1,5 +1,5 @@
 """
-@file_name: system_provider_service.py
+@file_name: system_service.py
 @author: Bin Liang
 @date: 2026-04-16
 @description: Load the system-default LLMConfig from environment variables.

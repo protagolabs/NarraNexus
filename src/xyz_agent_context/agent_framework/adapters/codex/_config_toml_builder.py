@@ -1,5 +1,5 @@
 """
-@file_name: _codex_config_toml_builder.py
+@file_name: _config_toml_builder.py
 @date: 2026-05-29
 @description: Per-run ``$CODEX_HOME/config.toml`` builder.
 

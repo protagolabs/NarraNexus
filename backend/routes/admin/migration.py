@@ -1,5 +1,5 @@
 """
-@file_name: admin_migration.py
+@file_name: migration.py
 @author: NarraNexus
 @date: 2026-06-12
 @description: Admin-only single-user identity migration.

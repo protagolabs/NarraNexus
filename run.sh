@@ -363,7 +363,7 @@ check_deps() {
   # Version pinned. officecli ships from FOUR independent places and they must
   # agree — bump all of them together:
   #   run.sh (here)                      local run
-  #   scripts/release/build-desktop.sh           the macOS app bundle
+  #   scripts/release/build-desktop.sh   the macOS app bundle
   #   deploy: docker/Dockerfile.python   cloud backend + workers
   #   deploy: docker/Dockerfile.executor cloud agent  <- the one that matters
   #                                      for the builtin skill; missed once and

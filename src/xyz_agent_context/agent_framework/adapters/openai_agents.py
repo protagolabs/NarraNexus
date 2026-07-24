@@ -1,5 +1,5 @@
 """
-@file_name: openai_agents_sdk.py
+@file_name: openai_agents.py
 @author: NetMind.AI
 @date: 2025-11-07
 @description: OpenAI-compatible LLM function caller

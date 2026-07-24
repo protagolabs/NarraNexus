@@ -1,5 +1,5 @@
 """
-@file_name: agents_files.py
+@file_name: files.py
 @author: NetMind.AI
 @date: 2025-11-28
 @description: Agent-workspace file management routes (tree view + download + delete).

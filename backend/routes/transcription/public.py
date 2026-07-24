@@ -1,5 +1,5 @@
 """
-@file_name: transcription_public.py
+@file_name: public.py
 @author: Bin Liang
 @date: 2026-05-07
 @description: Public (JWT-bypassed) audio fetch route for transcription workers

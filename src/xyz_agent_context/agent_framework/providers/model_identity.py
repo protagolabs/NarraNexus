@@ -1,5 +1,5 @@
 """
-@file_name: agent_model_identity.py
+@file_name: model_identity.py
 @author:
 @date: 2026-07-10
 @description: Resolve an agent's REAL runtime identity (coding-agent

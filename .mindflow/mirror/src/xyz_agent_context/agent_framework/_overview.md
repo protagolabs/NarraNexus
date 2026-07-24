@@ -33,8 +33,7 @@ function caller，支持结构化输出 + think-block fallback）、
 ### `llm/` — LLM 原子操作（单发调用，无 loop）
 `helper_sdk.py`（协议键控的 helper_llm 工厂）与 `anthropic_helper` /
 `cli_helper` / `gemini_api`（Gemini 原生 SDK，PDF 上传与多模态推理）三个后端、
-`failure.py`（provider 错误分类与脱敏）、`api.py`（向量化：embedding 与
-embedding_store_bridge，原 `llm_api/` 包）、`transcription/`（音频→文本子系统）。
+`failure.py`（provider 错误分类与脱敏）、`transcription/`（音频→文本子系统）。
 
 ### `providers/` — 供应商与模型目录体系
 `registry.py`（本地单机 `~/.nexusagent/llm_config.json` 管理，5 种 provider
@@ -58,7 +57,7 @@ JSON 随包）、`cloud_policy.py`（云端 netmind-only slot 策略）、
 
 - `agent_runtime/` 在 `run()` 入口调用 `get_agent_owner_llm_configs()` 和
   `set_user_config()`，经 `loop/driver` 的注册表选择框架
-- `narrative/` 包通过 `llm/`（helper 决策 + `llm/api` 向量化）间接使用这里的配置
+- `narrative/` 包通过 `llm/`（helper 决策）间接使用这里的配置
 - `backend/routes/providers.py` 等直接使用 `providers/` 的 `registry` 与
   `user_service`
 - `services/model_sync_runner`（compose 入口，不在本目录）内部调

@@ -1,5 +1,5 @@
 """
-@file_name: agent_slot_service.py
+@file_name: slot_service.py
 @author: rujing.yan
 @date: 2026-07-09
 @description: Per-agent LLM slot OVERRIDES (agent_slots table).

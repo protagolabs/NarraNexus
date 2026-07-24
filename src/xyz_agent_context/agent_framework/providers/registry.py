@@ -1,5 +1,5 @@
 """
-@file_name: provider_registry.py
+@file_name: registry.py
 @author: Bin Liang
 @date: 2026-03-23
 @description: LLM Provider configuration management

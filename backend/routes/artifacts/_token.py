@@ -1,5 +1,5 @@
 """
-@file_name: _artifact_token.py
+@file_name: _token.py
 @author: Bin Liang
 @date: 2026-05-14
 @description: HMAC-signed view tokens for the public artifact raw-content route.

@@ -30,7 +30,7 @@ match) → LLM 拍板 MERGE/CREATE**，不再做向量相似度检索 ("Bob" vs
 "Robert" 异名同人会产生两条记录，后续靠人工/LLM 合并)。
 
 同时 `get_embedding` import 也被删，文件不再依赖
-`agent_framework.llm.api.embedding`。
+agent_framework 的 embedding 工具（该子系统现已整体移除）。
 
 为什么这么彻底——参见 [[social_network_module.py]] 的 2026-05-27 条目和
 [[social_network_repository.py]] 的同期改动。

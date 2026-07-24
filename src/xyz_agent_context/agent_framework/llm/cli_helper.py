@@ -1,5 +1,5 @@
 """
-@file_name: cli_helper_sdk.py
+@file_name: cli_helper.py
 @author:
 @date: 2026-07-07
 @description: CLI-backed helper_llm caller (subscription / OAuth helper).

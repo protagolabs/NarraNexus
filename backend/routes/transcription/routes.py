@@ -1,5 +1,5 @@
 """
-@file_name: transcription.py
+@file_name: routes.py
 @author: Bin Liang
 @date: 2026-05-07
 @description: Transcription availability check (JWT-protected)

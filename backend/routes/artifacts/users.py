@@ -1,5 +1,5 @@
 """
-@file_name: users_artifacts.py
+@file_name: users.py
 @author: Bin Liang
 @date: 2026-05-09
 @description: User-scoped artifact endpoints — cross-agent list + bulk delete.

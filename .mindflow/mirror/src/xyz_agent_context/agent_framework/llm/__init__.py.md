@@ -9,5 +9,6 @@ stub: false
 Created in the 2026-07-24 agent_framework regrouping (61 flat files →
 loop/ adapters/ llm/ providers/ + 2 cross-cutting root files). Atomic LLM operations — single calls, no agent loop: the
 protocol-keyed helper factory (helper_sdk) with its anthropic/cli/gemini
-backends, failure classification (failure), embedding & co (api), and
-audio transcription (transcription/).
+backends, failure classification (failure), and audio transcription
+(transcription/). (llm_api's empty leftover shell was deleted here —
+embedding moved out long ago; zero imports remained.)

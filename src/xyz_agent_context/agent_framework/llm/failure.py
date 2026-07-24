@@ -1,5 +1,5 @@
 """
-@file_name: llm_failure.py
+@file_name: failure.py
 @author:
 @date: 2026-07-07
 @description: Shared helpers for classifying and redacting LLM provider

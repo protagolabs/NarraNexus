@@ -1,5 +1,5 @@
 """
-@file_name: admin_quota.py
+@file_name: quota.py
 @author: Bin Liang
 @date: 2026-04-16
 @description: Staff-only quota management routes.

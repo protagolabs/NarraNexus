@@ -1,5 +1,5 @@
 """
-@file_name: manyfold_files.py
+@file_name: files.py
 @author: NexusAgent
 @date: 2026-05-26
 @description: Read-only file-tree API for Manyfold's per-agent file browser.

@@ -1,5 +1,5 @@
 """
-@file_name: _codex_env.py
+@file_name: _env.py
 @author:
 @date: 2026-06-17
 @description: Build the minimal, secret-free environment for the codex

@@ -1,5 +1,5 @@
 """
-@file_name: office_watch_proxy.py
+@file_name: proxy.py
 @author: NetMind.AI
 @date: 2026-07-13
 @description: Reverse-proxy for the live Office-document preview.

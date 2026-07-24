@@ -1,5 +1,5 @@
 """
-@file_name: admin_runtime.py
+@file_name: runtime.py
 @author: Bin Liang
 @date: 2026-06-18
 @description: GET /api/admin/runtime/status — read-only L2 observability for

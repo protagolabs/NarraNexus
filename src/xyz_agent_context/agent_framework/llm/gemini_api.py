@@ -1,5 +1,5 @@
 """
-@file_name: gemini_api_sdk.py
+@file_name: gemini_api.py
 @author: NetMind.AI
 @date: 2025-12-04
 @description: This file contains the gemini api sdk.

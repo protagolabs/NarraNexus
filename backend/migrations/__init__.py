@@ -1,5 +1,5 @@
 """
-@file_name: migrations/__init__.py
+@file_name: __init__.py
 @author: NetMind.AI
 @date: 2026-06-09
 @description: Ordered, version-tracked data migrations — the layer-by-layer

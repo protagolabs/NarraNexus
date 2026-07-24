@@ -1,5 +1,5 @@
 """
-@file_name: _office_watch_token.py
+@file_name: _token.py
 @author: NetMind.AI
 @date: 2026-07-13
 @description: HMAC-signed view tokens for the public office-watch proxy route.

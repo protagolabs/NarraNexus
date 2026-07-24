@@ -1,5 +1,5 @@
 """
-@file_name: agents_artifacts.py
+@file_name: artifacts.py
 @author: Bin Liang
 @date: 2026-05-08
 @description: JWT-authed REST endpoints for agent-emitted Artifact tabs (pointer model).

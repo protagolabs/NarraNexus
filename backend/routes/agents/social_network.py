@@ -1,5 +1,5 @@
 """
-@file_name: agents_social_network.py
+@file_name: social_network.py
 @author: NetMind.AI
 @date: 2025-11-28
 @description: Agent Social Network routes

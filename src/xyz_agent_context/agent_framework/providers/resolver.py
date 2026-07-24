@@ -1,5 +1,5 @@
 """
-@file_name: provider_resolver.py
+@file_name: resolver.py
 @author: Bin Liang
 @date: 2026-04-16
 @description: Per-request routing between a user's own LLM config and the

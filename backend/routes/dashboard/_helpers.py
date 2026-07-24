@@ -1,5 +1,5 @@
 """
-@file_name: _dashboard_helpers.py
+@file_name: _helpers.py
 @author: NarraNexus
 @date: 2026-04-13
 @description: Pure helpers for GET /api/dashboard/agents-status.

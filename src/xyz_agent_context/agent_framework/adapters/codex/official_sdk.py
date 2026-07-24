@@ -1,5 +1,5 @@
 """
-@file_name: xyz_codex_official_sdk.py
+@file_name: official_sdk.py
 @author: NarraNexus
 @date: 2026-06-04
 @description: CodexSDKv2 — Codex CLI wrapper via OpenAI's OFFICIAL

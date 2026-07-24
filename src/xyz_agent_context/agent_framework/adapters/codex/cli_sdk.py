@@ -1,5 +1,5 @@
 """
-@file_name: xyz_codex_cli_sdk.py
+@file_name: cli_sdk.py
 @author: NetMind.AI
 @date: 2026-05-29
 @description: NarraNexus wrapper for OpenAI Codex CLI.

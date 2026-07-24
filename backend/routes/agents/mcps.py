@@ -1,5 +1,5 @@
 """
-@file_name: agents_mcps.py
+@file_name: mcps.py
 @author: NetMind.AI
 @date: 2025-11-28
 @description: Agent MCP management routes

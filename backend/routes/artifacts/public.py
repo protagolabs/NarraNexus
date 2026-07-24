@@ -1,5 +1,5 @@
 """
-@file_name: artifacts_public.py
+@file_name: public.py
 @author: Bin Liang
 @date: 2026-05-14
 @description: Public (JWT-bypassed) raw-content route for agent artifacts.

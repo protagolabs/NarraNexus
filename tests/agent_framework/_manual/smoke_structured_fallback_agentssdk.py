@@ -14,7 +14,7 @@ import os
 import sys
 from typing import Optional
 
-sys.path.insert(0, "/home/bin.liang/Documents/03-open-source/NarraNexus-deploy/NarraNexus")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3] / "src"))
 from dotenv import load_dotenv
 load_dotenv("/home/bin.liang/Documents/03-open-source/NarraNexus-deploy/NarraNexus/.env")
 
@@ -196,7 +196,7 @@ async def test_c_cache_persistence():
     # Subsequent calls: blocklisted → 1 fallback hop using cached level.
     print()
     print(f"  API hops per call: {api_calls_per_run}")
-    print(f"  Expected: 1st > 2nd ≈ 3rd (cache short-circuits the probing)")
+    print("  Expected: 1st > 2nd ≈ 3rd (cache short-circuits the probing)")
 
 
 async def test_d_default_model_path():

@@ -1,5 +1,5 @@
 """
-@file_name: agent_circuit_breaker.py
+@file_name: circuit_breaker.py
 @author:
 @date: 2026-07-13
 @description: Agent-level circuit-breaker for the REAL-TIME dialogue layer.

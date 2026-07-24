@@ -1,5 +1,5 @@
 """
-@file_name: user_provider_service.py
+@file_name: user_service.py
 @author: NexusAgent
 @date: 2026-04-08
 @description: Per-user LLM provider configuration service

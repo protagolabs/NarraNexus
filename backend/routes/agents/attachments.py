@@ -1,5 +1,5 @@
 """
-@file_name: agents_attachments.py
+@file_name: attachments.py
 @author: Bin Liang
 @date: 2026-04-29
 @description: Chat-message attachment upload + preview routes

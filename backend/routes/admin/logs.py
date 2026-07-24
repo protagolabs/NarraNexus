@@ -1,5 +1,5 @@
 """
-@file_name: admin_logs.py
+@file_name: logs.py
 @author: Bin Liang
 @date: 2026-04-28
 @description: Operator-facing log inspection endpoints.

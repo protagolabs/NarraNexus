@@ -1,5 +1,5 @@
 """
-@file_name: agents_circuit_breaker.py
+@file_name: circuit_breaker.py
 @author:
 @date: 2026-07-13
 @description: Inspect + manually reset an agent's real-time circuit-breaker.

@@ -1,5 +1,5 @@
 """
-@file_name: agents_llm_config.py
+@file_name: llm_config.py
 @author: rujing.yan
 @date: 2026-07-09
 @description: Per-agent LLM config overrides (agent framework + model + helper).

@@ -1,5 +1,5 @@
 """
-@file_name: spike_codex_sdk.py
+@file_name: spike_codex_sdk_community_archived.py
 @author: NarraNexus
 @date: 2026-06-01
 @description: Codex SDK migration capability spike.

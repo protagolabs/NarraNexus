@@ -1,5 +1,5 @@
 """
-@file_name: provider_readiness.py
+@file_name: readiness.py
 @author: Bin Liang
 @date: 2026-06-01
 @description: Framework-level "is this user ready to run right now" check, used

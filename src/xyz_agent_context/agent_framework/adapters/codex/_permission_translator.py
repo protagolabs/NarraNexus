@@ -1,5 +1,5 @@
 """
-@file_name: _codex_permission_translator.py
+@file_name: _permission_translator.py
 @date: 2026-05-29
 @description: Translate NarraNexus's Claude-Code PreToolUse policy
 into Codex CLI's ``[permissions]`` config.toml shape.

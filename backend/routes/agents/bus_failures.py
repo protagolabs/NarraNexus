@@ -1,5 +1,5 @@
 """
-@file_name: agents_bus_failures.py
+@file_name: bus_failures.py
 @author: Bin Liang
 @date: 2026-07-02
 @description: List + retry permanently-failed MessageBus deliveries for an agent.

@@ -1,5 +1,5 @@
 """
-@file_name: agents.py
+@file_name: core.py
 @author: NetMind.AI
 @date: 2025-11-28
 @description: Agent route aggregator

@@ -1,5 +1,5 @@
 """ 
-@file_name: xyz_claude_agent_sdk.py
+@file_name: sdk.py
 @author: NetMind.AI
 @date: 2025-11-15
 @description: This file is the main file for the xyz claude agent sdk.

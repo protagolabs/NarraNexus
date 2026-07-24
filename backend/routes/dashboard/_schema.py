@@ -1,5 +1,5 @@
 """
-@file_name: _dashboard_schema.py
+@file_name: _schema.py
 @author: NarraNexus
 @date: 2026-04-13
 @description: Pydantic response types for GET /api/dashboard/agents-status.

@@ -1,5 +1,5 @@
 """
-@file_name: manyfold_diagnostics.py
+@file_name: diagnostics.py
 @author: NexusAgent
 @date: 2026-05-25
 @description: Container self-diagnostics endpoint for Manyfold operators
