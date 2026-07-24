@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-23
+last_verified: 2026-07-24
 stub: false
 ---
+
+## 2026-07-24 — 透传 `context.disallowed_tools` 到 driver kwargs（B++）
+
+组装 driver.agent_loop kwargs 时新增 `disallowed_tools`（来自
+[[context_schema.py]] `ContextRuntimeOutput.disallowed_tools`，即未绑定
+channel 要求剔除的工具）。本地 SDK 侧与 WebSearch 守卫**合并**（见
+[[xyz_claude_agent_sdk.py]]），remote 侧进请求体
+（[[remote_agent_loop_driver.py]]）。codex driver 接受但忽略该 kwarg（本阶段
+已知限制：codex 路径只有指令侧裁剪）。本文件纯搬运，无逻辑。
 
 ## 2026-07-23 — PathExecutionResult 透传 cache/num_turns(W1,纯搬运)
 

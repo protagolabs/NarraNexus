@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-15
+last_verified: 2026-07-24
 stub: false
 ---
+
+## 2026-07-24 — `build_input_for_framework` 新增第三返回值 `disallowed_tools`（B++）
+
+返回值新增第三项：汇总各模块 `get_disallowed_tools()`（见 [[base.py]] 通用面 /
+[[channel_module_base]] channel 覆写）的全限定工具名列表，排序去重。单模块收集
+失败 **fail-open**（warning + 跳过——宁可多花 token 也不误伤已绑定 channel）。
+用途：未绑定 channel 的工具 schema 不进模型上下文，经 [[context_schema.py]]
+`ContextRuntimeOutput.disallowed_tools` → [[step_3_agent_loop.py]] → driver
+kwargs 下传。Plan：token 优化 W2 B++。
 
 ## 2026-07-15 — `build_input_for_framework` 返回 MCP spec dict
 

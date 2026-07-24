@@ -786,8 +786,12 @@ async def step_3_agent_loop(
     # ------------- 3.3: Extract messages and MCP URLs -------------
     messages = context.messages
     ctx.mcp_servers.update(context.mcp_servers)
+    # Setup-residency: tools suppressed for this agent this turn (schemas
+    # removed from the model context via the CLI's disallowed_tools).
+    extra_disallowed_tools = list(context.disallowed_tools or [])
     substeps.append(
         f"[3.3] ✓ Extraction complete: {len(messages)} messages, {len(ctx.mcp_servers)} MCP servers"
+        + (f", {len(extra_disallowed_tools)} suppressed tools" if extra_disallowed_tools else "")
     )
     logger.debug(f"context.messages count={len(messages)}")
     logger.debug(f"context.mcp_servers={list(ctx.mcp_servers.keys())}")
@@ -888,6 +892,7 @@ async def step_3_agent_loop(
             mcp_servers=ctx.mcp_servers,
             extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
+            disallowed_tools=extra_disallowed_tools or None,
         ):
             if _warming_active:
                 _warming_active = False

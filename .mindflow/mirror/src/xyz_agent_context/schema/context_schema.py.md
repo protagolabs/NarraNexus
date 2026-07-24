@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/schema/context_schema.py
-last_verified: 2026-07-15
+last_verified: 2026-07-24
 stub: false
 ---
+
+## 2026-07-24 — `ContextRuntimeOutput.disallowed_tools`（setup-residency B++）
+
+新增 `disallowed_tools: List[str] = []`：模块要求本轮从模型上下文剔除的全限定
+MCP 工具名（未绑定 channel 只留其 bind 工具）。由 [[context_runtime.py]] 填充，
+[[step_3_agent_loop.py]] 透传给 driver。纯载体字段，本文件无逻辑。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

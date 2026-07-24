@@ -706,6 +706,16 @@ class ClaudeAgentSDK:
         if not supports_server_tools:
             disallowed_tools.append("WebSearch")
 
+        # Setup-residency (B++): per-agent tool suppression decided upstream
+        # (unbound channels keep only their bind tool). MERGE with the local
+        # list — never replace it, the WebSearch guard above must survive.
+        # Rides **kwargs so every AgentLoopDriver keeps one signature.
+        extra_disallowed = kwargs.get("disallowed_tools")
+        if extra_disallowed:
+            disallowed_tools.extend(
+                t for t in extra_disallowed if t not in disallowed_tools
+            )
+
         # Build ClaudeAgentOptions; only pass model when explicitly configured
         options_kwargs: dict[str, Any] = dict(
             system_prompt=system_prompt,
