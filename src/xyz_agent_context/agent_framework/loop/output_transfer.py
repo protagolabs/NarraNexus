@@ -194,7 +194,7 @@ def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
     只提取所有 ToolUseBlock 事件（用于 Steps 面板）。
 
     注意：partial AssistantMessage 也会携带 ToolUseBlock，导致同一个 tool_call_id
-    出现多次。去重逻辑在 xyz_claude_agent_sdk.py 的 agent_loop 中处理。
+    出现多次。去重逻辑在 adapters/claude/sdk.py 的 agent_loop 中处理。
     """
 
     # Check AssistantMessage.error field (auth failure, quota exhaustion, rate limit, etc.)
@@ -699,7 +699,7 @@ def _codex_tool_output(item: Dict[str, Any]) -> str:
 # =========================================================================
 #
 # Translates ``openai_codex.models.Notification``-shaped dicts (as
-# emitted by :class:`xyz_codex_official_sdk.CodexSDKv2.agent_loop`)
+# emitted by :class:`adapters.codex.official_sdk.CodexSDKv2.agent_loop`)
 # into the same event shape ``response_processor`` consumes from v1
 # and ClaudeAgentSDK.
 #

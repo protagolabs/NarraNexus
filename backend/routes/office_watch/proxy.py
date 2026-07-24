@@ -19,7 +19,7 @@ same-origin:
 
 Streaming discipline mirrors `manyfold_files.read_file` (StreamingResponse +
 `X-Accel-Buffering: no`) and the long-lived-stream client config from
-`remote_agent_loop_driver` (`aiohttp.ClientTimeout(total=None)`), so SSE frames
+`loop.remote_driver` (`aiohttp.ClientTimeout(total=None)`), so SSE frames
 flow through unbuffered.
 
 Security:

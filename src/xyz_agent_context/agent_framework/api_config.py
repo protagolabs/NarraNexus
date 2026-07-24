@@ -58,7 +58,7 @@ class ClaudeConfig:
     # Framework-neutral reasoning params from the agent slot
     # (SlotConfig.thinking / SlotConfig.reasoning_effort). "" = auto =
     # the adapter passes nothing and the CLI keeps its defaults. The
-    # Claude-dialect mapping lives in xyz_claude_agent_sdk
+    # Claude-dialect mapping lives in adapters.claude.sdk
     # (_resolve_reasoning_options), not here.
     thinking: str = ""
     reasoning_effort: str = ""
@@ -124,7 +124,7 @@ class ClaudeConfig:
         #   * keyed (api_key/bearer) → ``claude_cli_config_path``; the key is
         #     injected via env above, no credential file needed.
         #   * oauth → ``claude_oauth_config_path``; a SEPARATE dir into which
-        #     ``_stage_claude_oauth_credentials`` (in xyz_claude_agent_sdk)
+        #     ``_stage_claude_oauth_credentials`` (in adapters.claude.sdk)
         #     copies ONLY ``.credentials.json`` before the spawn. OAuth used to
         #     point straight at ``~/.claude`` here, which re-exposed the exact
         #     hijack above AND raced the user's own Claude Code on
@@ -146,7 +146,7 @@ class ClaudeConfig:
         if self.model:
             # CLI family aliases ("opus") are invalid on raw API transports —
             # normalize here so the CLI's internal calls can't 400 either
-            # (same rule as the main-loop model in xyz_claude_agent_sdk).
+            # (same rule as the main-loop model in adapters.claude.sdk).
             from xyz_agent_context.agent_framework.providers.model_catalog import (
                 is_cli_family_alias,
                 resolve_cli_alias,
@@ -233,7 +233,7 @@ class CodexConfig:
     ``base_url`` + ``model`` flow into Codex's ``config.toml``
     ``[model_providers.<name>]`` table at run time, NOT env vars —
     Codex reads the endpoint from the toml file. See
-    :func:`_codex_config_toml_builder.build_codex_config_toml`.
+    :func:`_config_toml_builder.build_codex_config_toml`.
     """
 
     api_key: str = ""
@@ -243,7 +243,7 @@ class CodexConfig:
     auth_ref: str = ""  # e.g. codex-cli:~/.codex/auth.json for OAuth
     # Framework-neutral reasoning params from the agent slot — mirror of
     # ClaudeConfig's. The Codex-dialect mapping (model_reasoning_effort
-    # in config.toml, with clamping) lives in _codex_config_toml_builder;
+    # in config.toml, with clamping) lives in _config_toml_builder;
     # ``thinking`` has no Codex equivalent and is ignored there.
     thinking: str = ""
     reasoning_effort: str = ""

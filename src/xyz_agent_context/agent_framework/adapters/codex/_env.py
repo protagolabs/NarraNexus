@@ -3,7 +3,7 @@
 @author:
 @date: 2026-06-17
 @description: Build the minimal, secret-free environment for the codex
-subprocess (shared by xyz_codex_official_sdk v2 and xyz_codex_cli_sdk v1).
+subprocess (shared by adapters.codex.official_sdk v2 and adapters.codex.cli_sdk v1).
 
 Why this exists
 ---------------

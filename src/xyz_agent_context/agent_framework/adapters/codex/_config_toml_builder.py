@@ -62,7 +62,7 @@ _REASONING_EFFORT_MAP = {
 # Codex logs reference a consistent identifier.
 _CUSTOM_PROVIDER_NAME = "narranexus"
 # Permission profile name. Mirrors the one in
-# ``_codex_permission_translator`` output.
+# ``_permission_translator`` output.
 _PERMISSION_PROFILE_NAME = "narranexus"
 
 
@@ -118,7 +118,7 @@ def build_codex_config_toml(
             block is added and ``model_provider`` is set to that name.
             When empty, Codex uses its bundled OpenAI provider.
         permissions: Output of
-            :func:`_codex_permission_translator.translate_tool_policy_to_codex_permissions`.
+            :func:`_permission_translator.translate_tool_policy_to_codex_permissions`.
             Becomes ``[permissions.narranexus]`` + sub-tables.
         writable_roots: Extra writable directories beyond the cwd.
             Defaults to ``[]`` (cwd is implied at runtime).

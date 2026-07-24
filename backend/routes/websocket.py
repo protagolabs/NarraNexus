@@ -371,7 +371,7 @@ async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken
                 # stop above has been pending ≥10 s and the agent still
                 # has not torn down. We surface a louder cancellation
                 # reason so logs distinguish the path; the actual SIGKILL
-                # is performed by xyz_claude_agent_sdk's bounded
+                # is performed by adapters.claude.sdk's bounded
                 # disconnect (Phase A C2) — see the 5-second wait_for
                 # + process.kill() fallback. Note: even force_stop is
                 # cooperative at the asyncio layer — we don't bypass

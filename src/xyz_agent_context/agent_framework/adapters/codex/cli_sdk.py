@@ -4,7 +4,7 @@
 @date: 2026-05-29
 @description: NarraNexus wrapper for OpenAI Codex CLI.
 
-Parallel to ``xyz_claude_agent_sdk.py``. Same async-generator contract
+Parallel to ``adapters/claude/sdk.py``. Same async-generator contract
 (``agent_loop(messages, mcp_servers, extra_env, cancellation)``
 yielding ``{"type": "raw_response_event" | "run_item_stream_event"}``
 dicts) so :mod:`agent_runtime._agent_runtime_steps.step_3_agent_loop`
@@ -40,7 +40,7 @@ Key differences from the Claude wrapper
   unchanged.
 * **No PreToolUse hook.** Codex has no per-call hook API; the
   tool-policy gates are baked into ``config.toml`` ``[permissions]``
-  by :mod:`_codex_permission_translator`.
+  by :mod:`_permission_translator`.
 
 What's the SAME as the CC wrapper
 ---------------------------------
@@ -88,7 +88,7 @@ from xyz_agent_context.agent_framework.providers.driver.derive import (
 # config field". Centralised so the empty-default check is one place.
 _EMPTY = ""
 
-# Per-iteration idle probe (mirrors xyz_claude_agent_sdk's
+# Per-iteration idle probe (mirrors adapters.claude.sdk's
 # IDLE_PROBE_SECONDS). NOT a hard cap — we just log a warning every
 # N seconds when the CLI has been silent so ops can see whether the
 # model is thinking vs the subprocess is dead.
@@ -245,7 +245,7 @@ class CodexSDK:
             # full os.environ — that handed every platform secret to any
             # agent that ran `env` in its workspace. Only a minimal system
             # allowlist + CODEX_HOME / NO_PROXY / scoped CODEX_API_KEY reach
-            # the subprocess. See _codex_env.build_codex_subprocess_env.
+            # the subprocess. See _env.build_codex_subprocess_env.
             full_env = build_codex_subprocess_env(
                 cli_env=codex_config.to_cli_env(),
                 codex_home=codex_home_path,
@@ -314,7 +314,7 @@ class CodexSDK:
 
             # ---- Step 5: race-with-cancel receive loop ---------------
             #
-            # Mirrors xyz_claude_agent_sdk lines 393-451. We wait on two
+            # Mirrors adapters.claude.sdk lines 393-451. We wait on two
             # awaitables simultaneously (next line from stdout vs the
             # cancellation token) so a user Stop press is acted on within
             # ~100 ms even while a long-running tool call is in flight.
@@ -422,7 +422,7 @@ class CodexSDK:
                     )
                     for event in translated:
                         # Dedupe tool calls across started/completed pair.
-                        # See xyz_claude_agent_sdk lines 545-557 for the
+                        # See adapters.claude.sdk lines 545-557 for the
                         # same idea (Claude has partial AssistantMessage
                         # + complete that both carry the ToolUseBlock).
                         item = (
@@ -550,7 +550,7 @@ def _build_system_prompt_and_user_msg(
     apply source-aware history eviction so the prompt token cost
     stays bounded.
 
-    NOTE — kept inline rather than shared with xyz_claude_agent_sdk
+    NOTE — kept inline rather than shared with adapters.claude.sdk
     deliberately (see plan Task 7): consolidating both into a single
     helper is a follow-up. For now, the Codex variant has different
     limits and a simpler shape.

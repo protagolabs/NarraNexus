@@ -22,7 +22,7 @@ NarraNexus dev venv on 2026-06-01. Its exports include:
   login_with_auth_json, login_with_device_code
 
 This spike answers three questions before we commit to migrating
-``xyz_codex_cli_sdk.py``:
+``adapters/codex/cli_sdk.py``:
 
   0. SIGNATURE DISCOVERY — what do ``Codex.__init__``,
      ``codex.start_thread``, ``thread.run_streamed``, and
@@ -168,7 +168,7 @@ async def test_a_mcp_wiring(oc: object) -> bool:
     """Verify the SDK respects ``$CODEX_HOME/config.toml`` for MCP
     server config, since the discovered ``ThreadOptions`` API has no
     ``mcp_servers`` field. We write a minimal config.toml the way
-    ``xyz_codex_cli_sdk._codex_config_toml_builder`` does today,
+    ``adapters.codex._config_toml_builder`` does today,
     then drive ``Thread.run_streamed`` and watch for an
     ``McpToolCallItem`` in the event stream.
 

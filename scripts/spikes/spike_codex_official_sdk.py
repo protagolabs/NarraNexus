@@ -59,7 +59,7 @@ Usage
 Then paste the output back. Outcome matrix:
 * MCP works AND cancellation works
     → migrate to CodexSDKv2 as planned (coexist with v1 via the
-      ``agent_loop_driver`` registry).
+      ``loop.driver`` registry).
 * MCP requires $CODEX_HOME/config.toml route
     → CodexSDKv2 keeps writing config.toml (same as v1) but uses
       SDK for subprocess lifecycle. Migration still worthwhile.
@@ -242,7 +242,7 @@ async def test_a_mcp_wiring(oc: object) -> bool:
             "use Bash; do NOT speculate from memory.\n"
         )
         # config.toml — mcp + reasoning_summary + sandbox
-        # (matches what _codex_config_toml_builder produces in prod)
+        # (matches what _config_toml_builder produces in prod)
         (codex_home / "config.toml").write_text(
             f'model_instructions_file = "{instructions}"\n'
             f'sandbox_mode = "danger-full-access"\n'

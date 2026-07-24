@@ -6,7 +6,7 @@
 ``openai-codex`` Python SDK (JSON-RPC ``app-server`` mode, not
 ``exec`` mode like v1).
 
-Differences from v1 (xyz_codex_cli_sdk.py)
+Differences from v1 (cli_sdk.py)
 ------------------------------------------
 * Subprocess lifecycle owned by SDK — we drop ~150 lines of stdout
   reader / race-with-cancel / SIGTERM-SIGKILL fallback.
@@ -35,7 +35,7 @@ implementations coexist:
 
 Also reused unchanged:
 
-* ``_codex_permission_translator.translate_tool_policy_to_codex_permissions``
+* ``_permission_translator.translate_tool_policy_to_codex_permissions``
   — NarraNexus CC-style tool policy → codex permissions dict.
 * ``api_config.codex_config`` — per-call ContextVar carrying model
   / base_url / api_key / auth_type / auth_ref.
@@ -46,7 +46,7 @@ This class is the single canonical codex driver: ``__init__.py``
 registers it as ``codex_cli`` (the only user-facing codex framework
 name written to ``user_slots.agent_framework``). The transitional
 ``codex_cli_v2`` / ``codex_official`` aliases used during the A/B
-cutover have been removed. v1's ``CodexSDK`` (xyz_codex_cli_sdk.py) is
+cutover have been removed. v1's ``CodexSDK`` (cli_sdk.py) is
 kept importable as a revival fallback but is NOT registered — if the
 official ``openai-codex`` SDK is missing, ``codex_cli`` is left
 unregistered rather than silently downgraded to v1.
@@ -152,7 +152,7 @@ def _resolve_sandbox_mode() -> str:
 
 # Custom model-provider name used in config_overrides when the agent slot
 # authenticates with an API key (not OAuth). Mirrors v1's
-# ``_codex_config_toml_builder._CUSTOM_PROVIDER_NAME``.
+# ``_config_toml_builder._CUSTOM_PROVIDER_NAME``.
 _CODEX_CUSTOM_PROVIDER_NAME = "narranexus"
 # codex's built-in OpenAI provider endpoint — the default we point the
 # custom provider at when the slot didn't specify a base_url.
@@ -245,7 +245,7 @@ def _build_codex_config_overrides(
     need surrounding double quotes; arrays need brackets; nested table
     keys use dotted paths.
 
-    Replaces v1's ``_codex_config_toml_builder.build_codex_config_toml``
+    Replaces v1's ``_config_toml_builder.build_codex_config_toml``
     file-on-disk approach with an in-memory tuple. Same logical content,
     different surface.
 
@@ -514,8 +514,8 @@ class CodexSDKv2:
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Drive one full Codex agent turn via the official SDK.
 
-        Signature mirrors :meth:`xyz_codex_cli_sdk.CodexSDK.agent_loop`
-        and :meth:`xyz_claude_agent_sdk.ClaudeAgentSDK.agent_loop`
+        Signature mirrors :meth:`adapters.codex.cli_sdk.CodexSDK.agent_loop`
+        and :meth:`adapters.claude.sdk.ClaudeAgentSDK.agent_loop`
         (the Protocol contract). ``**kwargs`` swallows wrapper-specific
         args (hooks etc.) that don't apply here.
         """

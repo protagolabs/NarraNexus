@@ -19,7 +19,7 @@ Why a distinct type matters: an ``ExecutorUnreachableError`` is a PLATFORM-side
 failure the user cannot fix by changing their config — surfaced to them as an
 ``infra_transient`` ErrorMessage ("retry / split the task"), NOT masked by a
 fabricated helper-LLM reply. Because it subclasses ``RuntimeError`` and its
-class name is NOT in ``agent_circuit_breaker._TRANSIENT_ERROR_TYPES``, it is
+class name is NOT in ``loop.circuit_breaker._TRANSIENT_ERROR_TYPES``, it is
 never mistaken for a retry-forever transient blip. (User LLM-provider
 connection errors are a different class entirely — they arrive as NDJSON
 ``response.error`` frames inside the stream and are handled by

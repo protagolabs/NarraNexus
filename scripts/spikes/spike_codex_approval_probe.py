@@ -6,7 +6,7 @@
 command escalation route to a CLIENT-SIDE approval handler under
 ``sandbox_mode=workspace-write`` + ``approvals_reviewer=None``?
 
-Background (see .mindflow/mirror/.../xyz_codex_official_sdk.py.md
+Background (see .mindflow/mirror/.../official_sdk.py.md
 2026-06-14 + providers.py.md §1/§2): cloud codex currently runs
 ``workspace-write`` but the OS-sandbox boundary is SOFT — when codex
 hits an out-of-workspace op it escalates via the approval channel, and

@@ -503,7 +503,7 @@ class ModuleRunner:
 
         Why both:
           - Claude Code's MCP client expects ``{type: "sse", url: ".../sse"}``
-            (see xyz_claude_agent_sdk.py). It will not work with the
+            (see adapters/claude/sdk.py). It will not work with the
             streamable HTTP transport.
           - OpenAI Codex CLI's MCP client only speaks streamable HTTP
             (POST to a single ``/mcp`` endpoint, optional GET for SSE
