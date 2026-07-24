@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
@@ -70,7 +72,12 @@ class TestProviderConfigRequest(BaseModel):
     card_type: str
     api_key: str = ""
     base_url: str = ""
-    auth_type: str = "api_key"
+    # Only real API-key auth types are probeable statelessly. "oauth" is
+    # intentionally excluded: a stateless probe has no stored CLI
+    # credential, so reporting it "connected" would be a lie (the service
+    # guards this too). Literal → FastAPI 422 on anything else, instead of
+    # a pydantic ValidationError surfacing as a 500.
+    auth_type: Literal["api_key", "bearer_token"] = "api_key"
     models: list[str] = []
 
 
@@ -538,7 +545,16 @@ async def test_provider_config(req: TestProviderConfigRequest, request: Request)
     base_url / model before the user commits it. Auth is still required
     (a logged-in user), consistent with every other route here.
     """
-    _get_user_id(request)  # enforce auth; the probe itself is per-request
+    uid = _get_user_id(request)  # enforce auth; the probe itself is per-request
+    # This probe leaves NO DB row (unlike the stateful path, where testing
+    # a saved provider always had a user_providers row behind it), yet the
+    # server actively fetches a user-controlled base_url. Log one audit line
+    # so the outbound request is observable — CLAUDE.md incident lesson #5:
+    # a DB/audit trace beats a silent, grep-dependent log gap.
+    target_host = urlparse(req.base_url).hostname or "<provider-default>"
+    logger.info(
+        f"[test-config] uid={uid} protocol={req.card_type} host={target_host}"
+    )
     service = await _get_service()
     success, message = await service.test_provider_config(
         card_type=req.card_type,

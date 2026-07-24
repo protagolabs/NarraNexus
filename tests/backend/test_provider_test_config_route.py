@@ -70,3 +70,26 @@ def test_test_config_forwards_form_fields_and_result(monkeypatch):
         "auth_type": "api_key",
         "models": ["gpt-x"],
     }
+
+
+def test_test_config_requires_auth(monkeypatch):
+    """No X-User-Id → 401 before any service work (auth is mandatory)."""
+    client, captured = _make_client(monkeypatch)
+    resp = client.post(
+        "/api/providers/test-config",
+        json={"card_type": "openai", "api_key": "sk-bad"},
+    )
+    assert resp.status_code == 401
+    assert captured == {}  # never reached the service
+
+
+def test_test_config_rejects_oauth_auth_type(monkeypatch):
+    """auth_type outside the Literal → 422 at the API boundary, not 500."""
+    client, captured = _make_client(monkeypatch)
+    resp = client.post(
+        "/api/providers/test-config",
+        json={"card_type": "anthropic", "api_key": "", "auth_type": "oauth"},
+        headers={"X-User-Id": "u1"},
+    )
+    assert resp.status_code == 422
+    assert captured == {}  # rejected before the service

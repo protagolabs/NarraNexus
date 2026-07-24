@@ -518,8 +518,13 @@ export function ProviderSettings() {
           auth_type: formAuth,
           models: formModels,
         }),
-      }).then((r) => r.json())
-      setFormTestResult({ ok: res.success, msg: res.message })
+      }).then((r) => r.json()).catch(() => ({}))
+      // On 401/422 the body is { detail }, not { success, message } — fall
+      // back so we never render an empty red line (a blank "failure").
+      const msg = res.message
+        || (typeof res.detail === 'string' ? res.detail : null)
+        || t('settings.provider.networkError')
+      setFormTestResult({ ok: !!res.success, msg })
     } catch {
       setFormTestResult({ ok: false, msg: t('settings.provider.networkError') })
     }
@@ -977,7 +982,7 @@ export function ProviderSettings() {
                   {showForm === 'anthropic' ? (
                     <div>
                       <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.authType')}</label>
-                      <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
+                      <select value={formAuth} onChange={(e) => { setFormAuth(e.target.value as 'api_key' | 'bearer_token'); setFormTestResult(null) }}
                         className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
                         <option value="api_key">{t('settings.provider.authApiKey')}</option>
                         <option value="bearer_token">{t('settings.provider.authBearerToken')}</option>
@@ -987,13 +992,13 @@ export function ProviderSettings() {
                 </div>
                 <div>
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.baseUrl')}</label>
-                  <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
+                  <input type="text" value={formUrl} onChange={(e) => { setFormUrl(e.target.value); setFormTestResult(null) }}
                     placeholder={t('settings.provider.baseUrl')}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 </div>
                 <div>
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.apiKeyLabel')}</label>
-                  <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
+                  <input type="password" value={formKey} onChange={(e) => { setFormKey(e.target.value); setFormTestResult(null) }}
                     placeholder={t('settings.provider.yourApiKey')}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 </div>
@@ -1001,7 +1006,7 @@ export function ProviderSettings() {
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.availableModels')}</label>
                   <ModelBubbleInput
                     models={formModels}
-                    onChange={setFormModels}
+                    onChange={(m) => { setFormModels(m); setFormTestResult(null) }}
                     suggestions={MODEL_SUGGESTION_GROUPS}
                   />
                 </div>

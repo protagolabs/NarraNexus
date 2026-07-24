@@ -887,7 +887,15 @@ class UserProviderService:
     # =========================================================================
 
     async def test_provider(self, user_id: str, provider_id: str) -> tuple[bool, str]:
-        """Test connectivity to a provider."""
+        """Test connectivity to a SAVED provider (stateful entry point).
+
+        Loads the persisted row, then delegates to ``test_provider_config``
+        so the transient-ProviderConfig construction lives in exactly one
+        place. The OAuth short-circuit stays HERE: a stored oauth row means
+        the CLI holds real credentials, so "connected" is truthful — the
+        stateless twin deliberately rejects oauth (no stored credential to
+        stand behind that claim).
+        """
         row = await self.db.get_one("user_providers", {"user_id": user_id, "provider_id": provider_id})
         if not row:
             return False, "Provider not found"
@@ -895,18 +903,13 @@ class UserProviderService:
         if row.get("auth_type") == "oauth":
             return True, "OAuth provider (managed by Claude Code CLI)"
 
-        from xyz_agent_context.agent_framework.provider_registry import provider_registry
-        prov = ProviderConfig(
-            provider_id=row["provider_id"],
-            name=row["name"],
-            source=row["source"],
-            protocol=row["protocol"],
-            auth_type=row.get("auth_type", "api_key"),
+        return await self.test_provider_config(
+            card_type=row["protocol"],
             api_key=row.get("api_key", ""),
             base_url=row.get("base_url", ""),
+            auth_type=row.get("auth_type", "api_key"),
             models=json.loads(row["models"]) if row.get("models") else [],
         )
-        return await provider_registry.test_provider(prov)
 
     async def test_provider_config(
         self,
@@ -925,6 +928,18 @@ class UserProviderService:
         is persisted. This is what lets the form verify a key / base_url /
         model BEFORE the user commits it to storage.
 
+        Both ``card_type`` and ``auth_type`` are whitelisted BEFORE the
+        ProviderConfig is built. This is not defensive noise:
+        - ``auth_type="oauth"`` is a valid AuthType enum value, so without
+          the guard the registry's oauth short-circuit would return
+          ``(True, "OAuth provider …")`` for a config that was never
+          probed — a pure false "connected". A stateless probe has no
+          stored CLI credential to stand behind that claim.
+        - any other unknown ``auth_type`` would raise pydantic
+          ValidationError at construction; there is no global exception
+          handler, so that would surface as a 500 instead of a clean
+          failure verdict.
+
         Args:
             card_type: "anthropic" | "openai" (custom-provider protocol).
             api_key: The key / token to probe with.
@@ -938,6 +953,8 @@ class UserProviderService:
         """
         if card_type not in ("anthropic", "openai"):
             return False, f"Unsupported protocol: {card_type}"
+        if auth_type not in ("api_key", "bearer_token"):
+            return False, f"Unsupported auth type: {auth_type}"
 
         from xyz_agent_context.agent_framework.provider_registry import provider_registry
         prov = ProviderConfig(
@@ -945,7 +962,7 @@ class UserProviderService:
             name="probe",
             source=ProviderSource.USER,
             protocol=card_type,                # pydantic coerces to ProviderProtocol
-            auth_type=auth_type or "api_key",
+            auth_type=auth_type,
             api_key=api_key,
             base_url=base_url,
             models=models or [],

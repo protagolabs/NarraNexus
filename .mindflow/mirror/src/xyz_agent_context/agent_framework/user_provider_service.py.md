@@ -15,6 +15,19 @@ base_url, auth_type, models)`：直接用表单值构造 transient `ProviderConf
 （非 anthropic/openai）直接返回 `(False, ...)`，不碰 registry。两条入口
 共用底层 registry、逻辑不重复。供 [[providers]] 路由的 `/test-config` 调用。
 
+**两道白名单守卫（在构造 ProviderConfig 之前）**：`card_type` 只收
+anthropic/openai；`auth_type` 只收 api_key/bearer_token。后者非可选防御：
+① `oauth` 是合法 `AuthType` 枚举，若透传，registry 的 oauth 短路会
+`return (True, "OAuth provider…")`——一次探测都没发生却报连通，纯谎报
+（无状态侧没有已落库的 CLI 凭据来支撑这个 True）；② 其他非法 auth_type
+会让 pydantic 在构造时抛 `ValidationError`，无全局 handler → 500。守卫把
+两者都变成干净的 `(False, ...)`。
+
+**`test_provider`（有状态）已收敛为「读行 → oauth 短路 → 委托
+`test_provider_config`」**：transient ProviderConfig 的构造点只剩一处，
+消除将来漂移。oauth 短路**留在有状态侧**（已落库凭据由 CLI 托管，报连通
+属实），正是无状态孪生刻意拒绝 oauth 的镜像。
+
 ## 2026-07-18 — set_slot 新增 `actor_is_staff` 参数（云端 netmind-only 下沉）
 
 `set_slot(..., *, actor_is_staff: Optional[bool])`——**keyword-only 必填，

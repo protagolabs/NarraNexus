@@ -121,3 +121,51 @@ async def test_test_provider_config_rejects_unknown_card_type(monkeypatch):
 
     assert ok is False
     assert "gemini" in msg
+
+
+@pytest.mark.asyncio
+async def test_test_provider_config_rejects_oauth_no_false_connected(monkeypatch):
+    """A stateless probe must NOT report oauth as connected.
+
+    "oauth" is a valid AuthType enum value, so without the guard the
+    registry's oauth short-circuit would return (True, "OAuth provider…")
+    for a config that was never probed — a pure false "connected". The
+    guard rejects it BEFORE the registry is reached.
+    """
+    async def _boom(prov):  # pragma: no cover - must not be reached
+        raise AssertionError("registry must not be called for oauth auth_type")
+
+    monkeypatch.setattr(
+        registry_mod.provider_registry, "test_provider", _boom
+    )
+
+    svc = UserProviderService(_ExplodingDB())
+    ok, msg = await svc.test_provider_config(
+        card_type="anthropic", api_key="", auth_type="oauth"
+    )
+
+    assert ok is False
+    assert "oauth" in msg
+
+
+@pytest.mark.asyncio
+async def test_test_provider_config_rejects_unknown_auth_type(monkeypatch):
+    """An unknown auth_type must fail cleanly, never raise (would be a 500).
+
+    Building a ProviderConfig with a bogus auth_type raises pydantic
+    ValidationError; the guard turns that into a plain failure verdict.
+    """
+    async def _boom(prov):  # pragma: no cover - must not be reached
+        raise AssertionError("registry must not be called for bad auth_type")
+
+    monkeypatch.setattr(
+        registry_mod.provider_registry, "test_provider", _boom
+    )
+
+    svc = UserProviderService(_ExplodingDB())
+    ok, msg = await svc.test_provider_config(
+        card_type="openai", api_key="k", auth_type="whatever"
+    )
+
+    assert ok is False
+    assert "whatever" in msg
