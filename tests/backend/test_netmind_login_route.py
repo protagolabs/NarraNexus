@@ -24,7 +24,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.services.netmind_auth_client import (
+from xyz_agent_context.integrations.netmind.netmind_auth_client import (
     NetmindAuthError,
     NetmindUpstreamError,
     NetmindUser,
@@ -198,7 +198,7 @@ def test_netmind_login_schedules_provider_provisioning_in_local(db_client, monke
     on a LOCAL (power-login-enabled) deployment, not just cloud. We capture the
     fire-and-forget schedule call rather than the background task itself (the
     mint→onboard chain is unit-tested in test_netmind_provisioner.py)."""
-    import xyz_agent_context.services.netmind_provisioner as prov_mod
+    import xyz_agent_context.integrations.netmind.netmind_provisioner as prov_mod
 
     captured = {}
 

@@ -2,7 +2,7 @@
 @file_name: test_power_account.py
 @author: NarraNexus
 @date: 2026-07-13
-@description: Unit tests for services.power_account.is_power_account.
+@description: Unit tests for integrations.netmind.power_account.is_power_account.
 
 The users-table read is stubbed (monkeypatch get_db_client) so no DB is
 touched. Verifies the fail-closed contract: only an existing row with
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-import xyz_agent_context.services.power_account as pa
+import xyz_agent_context.integrations.netmind.power_account as pa
 
 
 def _stub_db(monkeypatch, row):

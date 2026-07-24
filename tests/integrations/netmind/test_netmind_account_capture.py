@@ -7,8 +7,8 @@ account id/email onto ALL of the user's netmind provider rows, best-effort.
 """
 import pytest
 
-import xyz_agent_context.services.netmind_provisioner as prov
-from xyz_agent_context.services.netmind_auth_client import NetmindUser
+import xyz_agent_context.integrations.netmind.netmind_provisioner as prov
+from xyz_agent_context.integrations.netmind.netmind_auth_client import NetmindUser
 
 
 async def _seed(db, provider_id, source="netmind"):
@@ -33,7 +33,7 @@ async def test_capture_stamps_all_netmind_rows(db_client, monkeypatch):
     async def fake_verify(self, token):
         return NetmindUser(user_system_code="acct_123", email="alice@example.com")
     monkeypatch.setattr(
-        "xyz_agent_context.services.netmind_auth_client.NetmindAuthClient.verify_token",
+        "xyz_agent_context.integrations.netmind.netmind_auth_client.NetmindAuthClient.verify_token",
         fake_verify,
     )
 
@@ -69,7 +69,7 @@ async def test_existing_user_backfilled_on_login(db_client, monkeypatch):
     async def fake_verify(self, token):
         return NetmindUser(user_system_code="acct_old", email="carol@example.com")
     monkeypatch.setattr(
-        "xyz_agent_context.services.netmind_auth_client.NetmindAuthClient.verify_token",
+        "xyz_agent_context.integrations.netmind.netmind_auth_client.NetmindAuthClient.verify_token",
         fake_verify,
     )
 
@@ -77,7 +77,7 @@ async def test_existing_user_backfilled_on_login(db_client, monkeypatch):
     async def _boom_mint(self, *a, **k):
         raise AssertionError("create_key must not run for an existing user")
     monkeypatch.setattr(
-        "xyz_agent_context.services.netmind_key_client.NetmindKeyClient.create_key",
+        "xyz_agent_context.integrations.netmind.netmind_key_client.NetmindKeyClient.create_key",
         _boom_mint,
     )
 
@@ -96,7 +96,7 @@ async def test_capture_best_effort_on_verify_failure(db_client, monkeypatch):
     async def boom(self, token):
         raise RuntimeError("netmind auth API unreachable")
     monkeypatch.setattr(
-        "xyz_agent_context.services.netmind_auth_client.NetmindAuthClient.verify_token",
+        "xyz_agent_context.integrations.netmind.netmind_auth_client.NetmindAuthClient.verify_token",
         boom,
     )
 

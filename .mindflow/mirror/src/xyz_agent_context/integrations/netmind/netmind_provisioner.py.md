@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/services/netmind_provisioner.py
+code_file: src/xyz_agent_context/integrations/netmind/netmind_provisioner.py
 last_verified: 2026-07-16
 stub: false
 ---

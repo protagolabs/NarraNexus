@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/services/arena_provisioning_service.py
+code_file: src/xyz_agent_context/integrations/arena/arena_provisioning_service.py
 last_verified: 2026-06-23
 stub: false
 ---

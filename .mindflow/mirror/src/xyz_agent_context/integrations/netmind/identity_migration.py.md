@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/services/identity_migration.py
+code_file: src/xyz_agent_context/integrations/netmind/identity_migration.py
 last_verified: 2026-06-12
 stub: false
 ---

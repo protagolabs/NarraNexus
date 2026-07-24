@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/services/netmind_billing_client.py
+code_file: src/xyz_agent_context/integrations/netmind/netmind_billing_client.py
 last_verified: 2026-07-06
 stub: false
 ---

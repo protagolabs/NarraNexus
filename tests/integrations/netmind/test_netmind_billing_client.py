@@ -15,7 +15,7 @@ import json
 import httpx
 import pytest
 
-from xyz_agent_context.services.netmind_billing_client import (
+from xyz_agent_context.integrations.netmind.netmind_billing_client import (
     BillingAuthError,
     BillingBusinessError,
     BillingForbiddenError,

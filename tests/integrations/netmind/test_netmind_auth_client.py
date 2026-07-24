@@ -23,7 +23,7 @@ import json
 import httpx
 import pytest
 
-from xyz_agent_context.services.netmind_auth_client import (
+from xyz_agent_context.integrations.netmind.netmind_auth_client import (
     NetmindAuthClient,
     NetmindAuthError,
     NetmindUpstreamError,

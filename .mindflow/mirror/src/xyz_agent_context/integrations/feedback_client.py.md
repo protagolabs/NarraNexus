@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/services/feedback_client.py
+code_file: src/xyz_agent_context/integrations/feedback_client.py
 last_verified: 2026-07-10
 stub: false
 ---

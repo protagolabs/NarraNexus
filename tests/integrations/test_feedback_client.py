@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.services import feedback_client as fc
+from xyz_agent_context.integrations import feedback_client as fc
 
 
 class StubResponse:
