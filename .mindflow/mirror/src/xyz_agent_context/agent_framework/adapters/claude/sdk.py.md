@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-07-21
+last_verified: 2026-07-24
 stub: false
 ---
+
+## 2026-07-24 — kwargs `disallowed_tools` 合并进本地列表（B++）
+
+`agent_loop` 读 kwargs 里的 `disallowed_tools`（未绑定 channel 的工具，来自
+[[step_3_agent_loop.py]]），**merge 不 replace** 进本地列表——WebSearch 守卫
+必须存活。已验证（2026-07-24）：CLI disallowedTools 会把工具 schema 从模型
+上下文移除（11 个 builtin → prefix −4.1K），所以这不只是禁调用，是真省 token。
 
 ## 2026-07-21 — 子进程 provider 可观测日志(Lark bug #1)
 

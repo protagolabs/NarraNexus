@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_mcp_tools.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — setup residency (B++): empty `narra_bind` returns the guide
+
+`narra_bind` with an empty `bind_command` now returns `{"success": True,
+"setup_guide": _SETUP_INSTRUCTION}` instead of the old "bind_command is
+required" error — the full walkthrough left the system prompt
+([[narramessenger_module]] unbound one-liner) and is served here on demand.
+The walkthrough text stays in its original constant; lazy import avoids a
+module-import cycle.
 
 ## 2026-07-21 — `narra_cli` docstring said "read-only"; agent refused to publish
 

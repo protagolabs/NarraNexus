@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_module_base.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — setup residency (B++): unbound channels go quiet
+
+Unbound channel modules no longer inject their ~8K onboarding walkthroughs nor
+expose their tools' schemas. New contract on this base: `all_tool_names` /
+`setup_tool_names` class attrs each subclass declares; `is_bound()` — memoized
+per instance, FAIL-OPEN on errors (wrongly gating a bound channel is
+user-visible loss; wrongly keeping an unbound one only costs tokens);
+`get_disallowed_tools()` — unbound → every non-setup tool as
+`mcp__<server>__<tool>` (overrides the generic surface in [[base.py]]); and
+`unbound_setup_line()` — the one-liner subclasses return while unbound.
+Drift guard: tests/channel/test_setup_residency.py. Plan: W2 B++ in
+reference/self_notebook/plans/2026-07-23-token-consumption-optimization.plan.md.
 
 ## Why it exists
 

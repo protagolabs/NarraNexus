@@ -101,6 +101,7 @@ class RemoteAgentLoopDriver:
             mcp_servers=mcp_servers,
             extra_env=extra_env,
             streaming=streaming,
+            disallowed_tools=kwargs.get("disallowed_tools"),
         )
 
         # No total timeout: agent loops can run for hours (binding rule

@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-07-22
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — 请求体转发 `disallowed_tools`（setup-residency B++）
+
+`agent_loop` 把 `kwargs.get("disallowed_tools")` 放进 executor 请求体
+（[[executor_protocol.py]] `build_agent_loop_request` 新字段），executor 侧由
+[[executor_service.py]] 再传给容器内 driver。纯透传；语义见
+[[channel_module_base]] setup-residency。
 
 ## 2026-07-22 — 连接失败（建连 + mid-run 掉线）→ 类型化 ExecutorUnreachableError
 

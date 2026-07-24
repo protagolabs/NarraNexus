@@ -189,6 +189,7 @@ async def agent_loop(request: Request) -> StreamingResponse:
                 streaming=bool(body.get("streaming", True)),
                 extra_env=body.get("extra_env") or None,
                 cancellation=None,  # cancellation = orchestrator aborts the stream
+                disallowed_tools=body.get("disallowed_tools") or None,
             ):
                 yield json.dumps({"event": event}, default=str) + "\n"
         except Exception as e:  # noqa: BLE001 — surface to caller, never crash the service

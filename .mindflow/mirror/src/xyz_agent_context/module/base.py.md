@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-05-29
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — generic `get_disallowed_tools()` surface (setup-residency B++)
+
+New async `get_disallowed_tools()` on the base, default `[]`: a module may ask
+the runtime to strip fully-qualified MCP tools (`mcp__<server>__<tool>`) from
+the model context this turn. The generic layer stays scenario-free (rule #4) —
+this file only defines the surface; the unbound-channel gating lives in the
+channel base override ([[channel_module_base]]). Collected by
+[[context_runtime.py]] `build_input_for_framework`.
 
 ## 2026-05-29 — capability flags (decouple orchestration from class names)
 

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_module.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — setup residency (B++): unbound → one-liner + tool suppression
+
+Declares `all_tool_names` + `setup_tool_names = {slack_bind}` per the
+[[channel_module_base]] setup-residency contract. The `get_instructions`
+unbound branch now returns `unbound_setup_line()` instead of the full
+onboarding walkthrough (bound-but-info-missing returns ""); the walkthrough is
+served on demand by zero-arg `slack_bind` (see [[_slack_mcp_tools]]). While
+unbound, every non-setup tool's schema is stripped from the model context.
 
 ## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
 
