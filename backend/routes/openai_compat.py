@@ -49,7 +49,7 @@ from pydantic import BaseModel, Field
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken
 from xyz_agent_context.schema import WorkingSource
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()

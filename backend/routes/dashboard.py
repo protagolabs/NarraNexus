@@ -77,7 +77,7 @@ async def agents_status(request: Request, response: Response):
         )
 
     # 4. Fetch visible agents (owned OR public)
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     agent_rows = await db.execute(
         "SELECT agent_id, agent_name, agent_description, created_by, is_public "
@@ -298,7 +298,7 @@ async def _resolve_viewer(request: Request) -> str:
 
 async def _assert_agent_visible(viewer_id: str, agent_id: str) -> dict:
     """Ensure viewer can see this agent (owned OR public). Returns agent row."""
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT agent_id, agent_name, created_by, is_public "
@@ -323,7 +323,7 @@ async def job_detail(job_id: str, request: Request):
     include the full error.
     """
     viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT job_id, agent_id, title, description, job_type, status, "
@@ -428,7 +428,7 @@ async def session_detail(session_id: str, request: Request):
         raise HTTPException(status_code=403, detail="not owned")
 
     # Latest bus message for this channel (best-effort preview)
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     preview = None
     try:
@@ -470,7 +470,7 @@ async def agent_sparkline(agent_id: str, request: Request, hours: int = 24):
 async def retry_job(job_id: str, request: Request):
     """v2.1: reset a failed job back to 'pending' so the trigger can pick it up."""
     viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",
@@ -499,7 +499,7 @@ async def retry_job(job_id: str, request: Request):
 async def pause_job(job_id: str, request: Request):
     """v2.1: pause an active/pending job."""
     viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",
@@ -523,7 +523,7 @@ async def pause_job(job_id: str, request: Request):
 async def resume_job(job_id: str, request: Request):
     """v2.1: resume a paused job (back to pending so trigger can take it)."""
     viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",

@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from loguru import logger
 
-from xyz_agent_context.utils.db_backend import DatabaseBackend
+from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
 # Active transaction token, scoped to the coroutine that opened the transaction.

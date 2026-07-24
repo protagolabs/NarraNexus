@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 import backend.integrations.netmind.netmind_key_client as key_mod
-import xyz_agent_context.utils.db_factory as db_factory
+import xyz_agent_context.utils.db.db_factory as db_factory
 import xyz_agent_context.agent_framework.user_provider_service as ups_mod
 import xyz_agent_context.agent_framework.provider_resolver as resolver_mod
 from backend.integrations.netmind.netmind_key_client import (

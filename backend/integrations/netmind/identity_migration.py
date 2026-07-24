@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from xyz_agent_context.utils import schema_registry
+from xyz_agent_context.utils.db import schema_registry
 
 # Identity-shaped column names we scan schema_registry for.
 _IDENTITY_COLUMN_NAMES = {

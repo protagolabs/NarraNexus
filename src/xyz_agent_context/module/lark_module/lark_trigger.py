@@ -61,7 +61,7 @@ from xyz_agent_context.repository.channel_seen_message_repository import (
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import ParsedMessage
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
 
 from ._lark_credential_manager import LarkCredential, LarkCredentialManager

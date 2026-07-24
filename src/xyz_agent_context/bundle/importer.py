@@ -28,11 +28,11 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from xyz_agent_context.utils.schema_registry import TABLES
+from xyz_agent_context.utils.db.schema_registry import TABLES
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES

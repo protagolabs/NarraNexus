@@ -24,7 +24,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from backend.integrations.netmind.identity_migration import execute_migration
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])

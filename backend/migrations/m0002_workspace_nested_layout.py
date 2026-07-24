@@ -29,7 +29,7 @@ from loguru import logger
 from . import Migration
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 async def _load_known_user_ids(db: "AsyncDatabaseClient") -> set[str]:

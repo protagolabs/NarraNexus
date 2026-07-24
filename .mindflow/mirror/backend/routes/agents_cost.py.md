@@ -21,7 +21,7 @@ identity 通路。query-param 拒绝逻辑保留（防御 TDR-12 spoof）。
 - **被谁用**：`backend/routes/agents.py` 聚合；前端 `CostPopover`
 - **依赖谁**：
   - `backend.auth._is_cloud_mode` / `get_local_user_id` — 拿当前 viewer 身份
-  - `xyz_agent_context.utils.db_factory.get_db_client` — 直接查询 `cost_records` / `agents` 表
+  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `cost_records` / `agents` 表
 
 ## 设计决策
 

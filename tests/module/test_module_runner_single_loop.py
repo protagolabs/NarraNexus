@@ -208,7 +208,7 @@ async def test_run_mcp_servers_async_uses_gather_not_threads(monkeypatch, fake_u
         _fake_get_db_client,
     )
     monkeypatch.setattr(
-        "xyz_agent_context.utils.schema_registry.auto_migrate",
+        "xyz_agent_context.utils.db.schema_registry.auto_migrate",
         _fake_auto_migrate,
     )
 

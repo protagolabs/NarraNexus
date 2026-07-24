@@ -25,7 +25,7 @@ visible.
 
 ## 上下游
 
-- **Consumes**: `xyz_agent_context.utils.schema_registry.TABLES`,
+- **Consumes**: `xyz_agent_context.utils.db.schema_registry.TABLES`,
   `xyz_agent_context.bundle.id_field_map.STRUCTURED_ID_FIELDS`
 - **Run by**: developer locally; ideally also wired into CI
   (`make lint` or pre-commit hook)

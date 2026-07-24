@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field
 from xyz_agent_context.artifact import ArtifactError, ArtifactService
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema import Artifact, EmbedMode, HealResult
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 from backend.routes import _artifact_token
 

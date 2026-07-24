@@ -184,7 +184,7 @@ async def bootstrap_quota_subsystem(db) -> QuotaService:
     Idempotent: replaces the current singleton if already set.
     """
     from xyz_agent_context.repository.quota_repository import QuotaRepository
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
 
     sys_provider = SystemProviderService.instance()
 

@@ -445,7 +445,7 @@ class ModuleRunner:
         db = await get_db_client()
 
         # Ensure all tables exist (MCP runs as separate process)
-        from xyz_agent_context.utils.schema_registry import auto_migrate
+        from xyz_agent_context.utils.db.schema_registry import auto_migrate
         await auto_migrate(db._backend)
         logger.info("Schema auto-migration complete")
 

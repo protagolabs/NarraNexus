@@ -36,7 +36,7 @@ from xyz_agent_context.agent_framework.provider_driver.derive import (
 )
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 async def backfill_provider_metadata(db: "AsyncDatabaseClient") -> dict:

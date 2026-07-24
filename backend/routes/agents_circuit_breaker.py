@@ -29,7 +29,7 @@ from xyz_agent_context.agent_framework.agent_circuit_breaker import reset_agent
 from xyz_agent_context.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 router = APIRouter()
 

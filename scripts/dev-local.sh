@@ -270,7 +270,7 @@ tmux new-session -d -s "$SESSION" -n "Control" \
 # ``$VENV_PY`` directly here because it's defined below — declare it
 # inline.
 tmux new-window -t "$SESSION" -n "DB Proxy" \
-  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; '$PROJECT_ROOT/.venv/bin/python3' -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
+  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; '$PROJECT_ROOT/.venv/bin/python3' -m xyz_agent_context.utils.db.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
 
 # Wait for proxy to be ready before starting other services
 echo -n "Waiting for DB Proxy..."

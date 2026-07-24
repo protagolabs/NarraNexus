@@ -239,7 +239,7 @@ async def _audit_framework_downgrade(event_type: str, detail: dict) -> None:
         from xyz_agent_context.repository.service_audit_repository import (
             ServiceAuditRepository,
         )
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         repo = ServiceAuditRepository(await get_db_client())
         await repo.record("llm_framework", event_type, detail)
     except Exception as e:  # noqa: BLE001 — audit is advisory

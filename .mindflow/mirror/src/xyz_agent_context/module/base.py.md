@@ -35,7 +35,7 @@ summaries). Default for both is no-op.
 ## 上下游关系
 
 - **被谁用**：`ModuleLoader`（`_module_impl/loader.py`）通过 `MODULE_MAP` 按名实例化子类；`HookManager` 循环调用 `hook_data_gathering` / `hook_after_event_execution`；`ModuleRunner` 调用 `create_mcp_server()` 部署 MCP 进程
-- **依赖谁**：`DatabaseClient`（`utils/`）同步 wrapper；`AsyncDatabaseClient` 通过 `utils/db_factory.get_db_client()` 懒加载（MCP 进程专用）；`schema/` 中的 `ModuleConfig`、`MCPServerConfig`、`ContextData`、`HookAfterExecutionParams`
+- **依赖谁**：`DatabaseClient`（`utils/`）同步 wrapper；`AsyncDatabaseClient` 通过 `utils/db/db_factory.get_db_client()` 懒加载（MCP 进程专用）；`schema/` 中的 `ModuleConfig`、`MCPServerConfig`、`ContextData`、`HookAfterExecutionParams`
 
 ## 设计决策
 

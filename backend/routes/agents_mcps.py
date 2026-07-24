@@ -20,7 +20,7 @@ from fastapi import APIRouter, Request
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import MCPRepository
 from xyz_agent_context.repository.mcp_repository import validate_mcp_sse_connection

@@ -72,7 +72,7 @@ from xyz_agent_context.agent_runtime.cancellation import (
 from xyz_agent_context.utils.timezone import utc_now
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 # Heartbeat cadence — every N seconds the heartbeat task bumps

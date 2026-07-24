@@ -2,7 +2,7 @@
 @file_name: verify_arena_onboarding.py
 @author: Bin Liang
 @date: 2026-06-15
-@description: Verify ArenaOnboarder (utils/arena_onboarding.py) is usable from
+@description: Verify ArenaOnboarder (backend/integrations/arena/arena_onboarding.py) is usable from
              an external script: pass a workspace path → a whole Arena setup is
              registered and laid down. Then prove the written files are
              consumable by the REAL SkillModule, and that the key is live.
@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, "src")
 
-from xyz_agent_context.utils.arena_onboarding import ArenaOnboarder, ArenaCredentials  # noqa: E402
+from backend.integrations.arena.arena_onboarding import ArenaOnboarder, ArenaCredentials  # noqa: E402
 
 
 def _check(cond: bool, label: str) -> None:

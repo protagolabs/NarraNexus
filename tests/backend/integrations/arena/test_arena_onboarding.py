@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.utils.arena_onboarding import (
+from backend.integrations.arena.arena_onboarding import (
     ArenaOnboarder,
     ArenaCredentials,
     ArenaApiError,
@@ -22,7 +22,7 @@ from xyz_agent_context.utils.arena_onboarding import (
     GROUP_FORCE,
     GROUP_CREATURE,
 )
-from xyz_agent_context.utils.schema_registry import get_registered_tables
+from xyz_agent_context.utils.db.schema_registry import get_registered_tables
 
 
 class _FakeResponse:

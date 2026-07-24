@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 import aiosqlite
 from loguru import logger
 
-from xyz_agent_context.utils.db_backend import DatabaseBackend
+from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
 # Regex for ISO 8601 timestamp detection (covers common SQLite datetime formats)

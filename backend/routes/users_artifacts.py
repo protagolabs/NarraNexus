@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema import Artifact
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()

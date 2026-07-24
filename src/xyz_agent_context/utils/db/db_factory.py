@@ -55,7 +55,7 @@ from typing import Dict, Optional, TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 # =============================================================================
@@ -198,7 +198,7 @@ async def _build_client_for_current_loop() -> "AsyncDatabaseClient":
     Extracted from get_db_client() so the branching stays readable. All
     imports are local to avoid circular-import issues at package load.
     """
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.settings import settings
 
     db_url = getattr(settings, 'database_url', None) or ''
@@ -207,7 +207,7 @@ async def _build_client_for_current_loop() -> "AsyncDatabaseClient":
         proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
 
         if proxy_url:
-            from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+            from xyz_agent_context.utils.db.db_backend_sqlite_proxy import SQLiteProxyBackend
 
             logger.info(
                 f"Creating AsyncDatabaseClient with SQLite Proxy backend (proxy={proxy_url})"
@@ -216,7 +216,7 @@ async def _build_client_for_current_loop() -> "AsyncDatabaseClient":
             await backend.initialize()
             return await AsyncDatabaseClient.create_with_backend(backend)
 
-        from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+        from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
 
         db_path = parse_sqlite_url(db_url)
         logger.info(f"Creating AsyncDatabaseClient with SQLite backend (path={db_path})")
@@ -224,8 +224,8 @@ async def _build_client_for_current_loop() -> "AsyncDatabaseClient":
         await backend.initialize()
         return await AsyncDatabaseClient.create_with_backend(backend)
 
-    from xyz_agent_context.utils.db_backend_mysql import MySQLBackend
-    from xyz_agent_context.utils.database import load_db_config
+    from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
+    from xyz_agent_context.utils.db.database import load_db_config
 
     db_config = load_db_config()
     # Pool size is env-tunable (MYSQL_POOL_SIZE, default 10). The worker
@@ -297,7 +297,7 @@ def get_db_client_sync() -> "AsyncDatabaseClient":
     if cached is not None:
         return cached
 
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
     logger.info("Creating AsyncDatabaseClient instance (sync bootstrap)")
     client = asyncio.run(AsyncDatabaseClient.create())

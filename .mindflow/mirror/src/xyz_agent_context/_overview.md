@@ -36,4 +36,4 @@ The two files at this root level (`settings.py`, `config.py`) are special: they 
 
 - **`backend/`** — FastAPI routes import `AgentRuntime`, repository classes, `AsyncDatabaseClient`, and schema models directly from their submodules (not the package root) to minimize startup load.
 - **`frontend/`** — no direct dependency; the frontend communicates only via the FastAPI HTTP/WebSocket API.
-- **`utils/database_table_management/`** — standalone scripts that read `schema_registry.TABLES` from `utils/schema_registry.py` to create and migrate tables; not imported by the package at runtime.
+- **`utils/database_table_management/`** — standalone scripts that read `schema_registry.TABLES` from `utils/db/schema_registry.py` to create and migrate tables; not imported by the package at runtime.

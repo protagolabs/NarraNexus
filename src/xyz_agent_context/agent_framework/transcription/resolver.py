@@ -132,7 +132,7 @@ async def resolve_candidates(user_id: Optional[str]) -> List[TranscriptionCreden
             from xyz_agent_context.agent_framework.user_provider_service import (
                 UserProviderService,
             )
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
             db = await get_db_client()
             user_cfg = await UserProviderService(db).get_user_config(user_id)

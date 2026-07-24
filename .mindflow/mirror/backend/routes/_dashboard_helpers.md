@@ -16,7 +16,7 @@ stub: false
 ## 上下游
 - **上游**：`backend/routes/dashboard.py` 的主路由 + lazy 详情路由都调这里的函数
 - **下游**：
-  - `xyz_agent_context.utils.db_factory.get_db_client` 做所有 DB 查询
+  - `xyz_agent_context.utils.db.db_factory.get_db_client` 做所有 DB 查询
   - `backend/state/active_sessions.py::get_session_registry` 只被 route 直接调用（这里不碰 registry）
   - `backend/routes/_dashboard_schema.py` 所有 Pydantic 类型
 - **测试**：`tests/backend/test_dashboard_helpers.py`（纯函数）+ `test_dashboard_fetchers.py`（async DB）+ `test_dashboard_v21.py`（v2.1 additions）

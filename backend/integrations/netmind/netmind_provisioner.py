@@ -77,7 +77,7 @@ async def ensure_netmind_provider(
         return False
 
     from backend.integrations.netmind.netmind_key_client import NetmindKeyClient
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.agent_framework.user_provider_service import (
         UserProviderService,
     )

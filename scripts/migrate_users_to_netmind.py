@@ -83,7 +83,7 @@ async def _amain() -> None:
     args = parser.parse_args()
 
     from xyz_agent_context.settings import settings
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
 
     db = await get_db_client()
 

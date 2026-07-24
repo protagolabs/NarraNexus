@@ -41,7 +41,7 @@ from typing import Awaitable, Callable, Dict, List, Set, TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 @dataclass(frozen=True)

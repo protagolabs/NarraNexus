@@ -62,7 +62,7 @@ class SkillMarketplaceService:
 
     async def _get_db(self):
         if self._db_client is None:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
             self._db_client = await get_db_client()
         return self._db_client

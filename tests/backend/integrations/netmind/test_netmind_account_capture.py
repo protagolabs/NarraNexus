@@ -64,7 +64,7 @@ async def test_existing_user_backfilled_on_login(db_client, monkeypatch):
 
     async def fake_db():
         return db_client
-    monkeypatch.setattr("xyz_agent_context.utils.db_factory.get_db_client", fake_db)
+    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", fake_db)
 
     async def fake_verify(self, token):
         return NetmindUser(user_system_code="acct_old", email="carol@example.com")

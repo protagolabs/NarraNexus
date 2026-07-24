@@ -73,7 +73,7 @@ class AuthCompleteRequest(BaseModel):
 
 async def _get_db():
     """Get database client via factory (same pattern as other routes)."""
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     return await get_db_client()
 
 

@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from loguru import logger
 
 from xyz_agent_context.utils.logging import setup_logging
-from xyz_agent_context.utils.db_factory import get_db_client, close_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
 from xyz_agent_context.utils.timezone import utc_now
 from backend.config import settings
 from backend.auth import _is_cloud_mode
@@ -117,7 +117,7 @@ async def lifespan(app: FastAPI):
     logger.info("Database connection pool initialized")
 
     # Auto-migrate schema (unified: works for both SQLite and MySQL via backend)
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")

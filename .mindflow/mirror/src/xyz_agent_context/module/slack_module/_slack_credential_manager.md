@@ -66,7 +66,7 @@ not real crypto).
   - ``SlackSDKClient.auth_test`` — validation surface during ``bind``.
   - ``AsyncDatabaseClient`` — table CRUD.
   - ``channel_slack_credentials`` table (declared in
-    ``utils/schema_registry.py``).
+    ``utils/db/schema_registry.py``).
 
 ## Gotchas
 

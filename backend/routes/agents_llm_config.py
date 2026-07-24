@@ -35,7 +35,7 @@ from backend.auth import resolve_current_user_id
 from xyz_agent_context.agent_framework.agent_slot_service import AgentSlotService
 from xyz_agent_context.agent_framework.provider_resolver import free_tier_lock_for
 from xyz_agent_context.schema.provider_schema import SlotName
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.agent_framework.cloud_policy import CloudPolicyViolation
 
 router = APIRouter()

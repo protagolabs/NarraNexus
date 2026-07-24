@@ -774,7 +774,7 @@ async def get_agent_owner_llm_configs(
             owner, or the owner has not configured all required slots.
             No silent fallback — the caller must surface the error.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
 
     db = await get_db_client()
     agent_row = await db.get_one("agents", {"agent_id": agent_id})
@@ -802,7 +802,7 @@ async def get_agent_owner_runtime_llm_configs(
     overlaid on the owner's user-level defaults, falling back to the defaults
     for any slot the agent hasn't overridden.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
 
     db = await get_db_client()
     agent_row = await db.get_one("agents", {"agent_id": agent_id})
@@ -881,7 +881,7 @@ async def get_user_runtime_llm_configs(
         SystemDefaultUnavailable: opted in, free tier gone, no own provider.
         LLMConfigNotConfigured: opted out, own provider missing/incomplete.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.agent_framework.provider_resolver import (
         NoProviderConfiguredError,
         ProviderResolver,
@@ -940,7 +940,7 @@ async def _ensure_quota_service():
     try:
         return QuotaService.default()
     except RuntimeError:
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         db = await get_db_client()
         return await bootstrap_quota_subsystem(db)
 
@@ -971,7 +971,7 @@ async def _get_user_runtime_llm_configs_strict(
 
     ``agent_id`` (optional) overlays that agent's per-agent slot overrides.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.agent_framework.provider_driver import (
         resolve_user_runtime_llm_configs,
     )

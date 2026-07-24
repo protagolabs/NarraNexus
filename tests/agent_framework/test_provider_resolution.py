@@ -69,7 +69,7 @@ def patch_get_db(monkeypatch, db_client):
     """Redirect get_db_client() to the test's in-memory sqlite fixture so
     both the provider lookup and the lazy quota bootstrap find the seeded
     rows."""
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
 
     async def _fake_get_db():
         return db_client

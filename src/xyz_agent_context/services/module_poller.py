@@ -183,7 +183,7 @@ class ModulePoller:
             logger.info("Database client initialized in async context")
 
         # Ensure all tables exist (poller runs as separate process)
-        from xyz_agent_context.utils.schema_registry import auto_migrate
+        from xyz_agent_context.utils.db.schema_registry import auto_migrate
         await auto_migrate(self._db._backend)
         logger.info("Schema auto-migration complete")
 

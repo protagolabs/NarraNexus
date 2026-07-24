@@ -22,7 +22,7 @@ from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 from xyz_agent_context.narrative import EventLogEntry
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 from xyz_agent_context.utils.cost_tracker import record_cost
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 if TYPE_CHECKING:
     from .context import RunContext

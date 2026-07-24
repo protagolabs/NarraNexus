@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from backend.auth import _is_cloud_mode
 from xyz_agent_context.agent_framework.provider_resolver import free_tier_lock_for
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter(prefix="/api/quota", tags=["quota"])

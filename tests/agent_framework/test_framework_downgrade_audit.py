@@ -17,7 +17,7 @@ async def test_downgrade_audit_writes_row(db_client, monkeypatch):
     async def _fake_get_db_client():
         return db_client
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db_factory.get_db_client", _fake_get_db_client
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _fake_get_db_client
     )
 
     await oa._audit_framework_downgrade(
@@ -38,7 +38,7 @@ async def test_downgrade_audit_never_raises(monkeypatch):
     async def _boom():
         raise RuntimeError("no db")
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db_factory.get_db_client", _boom
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _boom
     )
     # Must not raise.
     await oa._audit_framework_downgrade("x", {"k": "v"})

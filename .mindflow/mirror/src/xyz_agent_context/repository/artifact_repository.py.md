@@ -47,7 +47,7 @@ checks) live upstream in `artifact_runner`; this layer is deliberately dumb.
 
 ## Downstream
 
-- `AsyncDatabaseClient` (utils/database.py) — CRUD helpers + `execute` for raw SQL.
+- `AsyncDatabaseClient` (utils/db/database.py) — CRUD helpers + `execute` for raw SQL.
 - `schema_registry` `instance_artifacts` table — row shape.
 - `BaseRepository[Artifact]` — `get_by_id`, `get_by_ids`, `find`, `find_one`.
 

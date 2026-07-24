@@ -195,7 +195,7 @@ def _netmind_slots_only(request: Request) -> bool:
 
 async def _get_service():
     """Get UserProviderService with DB client."""
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
     db = await get_db_client()
     return UserProviderService(db)
@@ -233,7 +233,7 @@ async def _attach_netmind_accounts(uid: str, data: dict) -> dict:
     Best-effort — a lookup failure just omits the field. The account is stored
     on ``user_providers`` at key-mint time (netmind_provisioner)."""
     try:
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         db = await get_db_client()
         rows = await db.get(
             "user_providers", filters={"user_id": uid, "source": "netmind"}
@@ -809,7 +809,7 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
     if user_id:
         required_proto = "openai" if framework == "codex_cli" else "anthropic"
         try:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             db = await get_db_client()
             slot = await db.get_one(
                 "user_slots", {"user_id": user_id, "slot_name": "agent"}

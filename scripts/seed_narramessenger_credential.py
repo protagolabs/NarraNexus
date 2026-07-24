@@ -50,8 +50,8 @@ def _parse_args() -> argparse.Namespace:
 async def _run(args: argparse.Namespace) -> int:
     # Imported lazily so the module's settings/env load only when invoked.
     import xyz_agent_context.settings  # noqa: F401
-    from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
     from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
         NarramessengerCredential,
         NarramessengerCredentialManager,

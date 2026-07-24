@@ -18,7 +18,7 @@ Usage examples:
     db = await AsyncDatabaseClient.create()
 
     # Backend-delegated mode (SQLite)
-    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
     backend = SQLiteBackend("/path/to/db.sqlite")
     await backend.initialize()
     db = await AsyncDatabaseClient.create_with_backend(backend)
@@ -42,7 +42,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.db_backend import DatabaseBackend
+    from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -141,7 +141,7 @@ def _get_unique_cols_for_table(table_name: str) -> list[str]:
     Falls back to the first column if no unique index is found.
     """
     try:
-        from xyz_agent_context.utils.schema_registry import TABLES
+        from xyz_agent_context.utils.db.schema_registry import TABLES
         table_def = TABLES.get(table_name)
         if table_def:
             for idx in table_def.indexes:
@@ -411,7 +411,7 @@ class AsyncDatabaseClient:
             url = getattr(settings, 'database_url', None) or ''
             if url.startswith('sqlite'):
                 # Use the shared singleton from db_factory to avoid multiple connections
-                from xyz_agent_context.utils.db_factory import get_db_client
+                from xyz_agent_context.utils.db.db_factory import get_db_client
                 shared = await get_db_client()
                 if shared._backend:
                     self._backend = shared._backend  # Share the same backend
@@ -422,7 +422,7 @@ class AsyncDatabaseClient:
                 import os
                 proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
                 if proxy_url:
-                    from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+                    from xyz_agent_context.utils.db.db_backend_sqlite_proxy import SQLiteProxyBackend
                     backend = SQLiteProxyBackend(proxy_url)
                     await backend.initialize()
                     self._backend = backend
@@ -431,8 +431,8 @@ class AsyncDatabaseClient:
                     logger.info(f"AsyncDatabaseClient auto-switched to SQLite Proxy: {proxy_url}")
                     return None
                 else:
-                    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-                    from xyz_agent_context.utils.db_factory import parse_sqlite_url
+                    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+                    from xyz_agent_context.utils.db.db_factory import parse_sqlite_url
                     db_path = parse_sqlite_url(url)
                     backend = SQLiteBackend(db_path)
                     await backend.initialize()
@@ -446,7 +446,7 @@ class AsyncDatabaseClient:
                 self._db_config = load_db_config()
 
             # Use MySQLBackend (unified backend interface)
-            from xyz_agent_context.utils.db_backend_mysql import MySQLBackend
+            from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
             backend = MySQLBackend(self._db_config, pool_size=self._pool_size, pool_recycle=self._pool_recycle)
             await backend.initialize()
             self._backend = backend
@@ -487,14 +487,14 @@ class AsyncDatabaseClient:
                 import os
                 proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
                 if proxy_url:
-                    from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+                    from xyz_agent_context.utils.db.db_backend_sqlite_proxy import SQLiteProxyBackend
                     backend = SQLiteProxyBackend(proxy_url)
                     await backend.initialize()
                     logger.info(f"AsyncDatabaseClient.create() auto-switched to SQLite Proxy: {proxy_url}")
                     return cls(_backend=backend)
                 else:
-                    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-                    from xyz_agent_context.utils.db_factory import parse_sqlite_url
+                    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+                    from xyz_agent_context.utils.db.db_factory import parse_sqlite_url
                     db_path = parse_sqlite_url(url)
                     backend = SQLiteBackend(db_path)
                     await backend.initialize()
@@ -503,7 +503,7 @@ class AsyncDatabaseClient:
             db_config = load_db_config()
 
         # Use MySQLBackend (unified backend interface)
-        from xyz_agent_context.utils.db_backend_mysql import MySQLBackend
+        from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
         backend = MySQLBackend(db_config, pool_size=pool_size, pool_recycle=pool_recycle)
         await backend.initialize()
         logger.info(f"AsyncDatabaseClient created with MySQL backend (pool_size={pool_size})")

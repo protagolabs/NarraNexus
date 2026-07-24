@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 router = APIRouter(prefix="/api/arena", tags=["Arena"])
 

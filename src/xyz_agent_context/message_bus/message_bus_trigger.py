@@ -374,7 +374,7 @@ class MessageBusTrigger:
     async def _get_agent_owner(self, agent_id: str) -> str:
         """Look up the owner user_id for an agent. Returns "" if unknown."""
         try:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             db = await get_db_client()
             row = await db.get_one("agents", {"agent_id": agent_id})
             return (row or {}).get("created_by", "") or ""
@@ -428,7 +428,7 @@ class MessageBusTrigger:
                 # user_id stays as the send_message_to_user_directly routing key).
                 owner_name = ""
                 if owner_user_id:
-                    from xyz_agent_context.utils.db_factory import get_db_client
+                    from xyz_agent_context.utils.db.db_factory import get_db_client
                     from xyz_agent_context.repository import UserRepository
                     owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
 
@@ -448,7 +448,7 @@ class MessageBusTrigger:
             activity_db = None
             on_progress = None
             if is_team:
-                from xyz_agent_context.utils.db_factory import get_db_client
+                from xyz_agent_context.utils.db.db_factory import get_db_client
                 from xyz_agent_context.message_bus import _bus_activity
                 activity_db = await get_db_client()
                 await _bus_activity.mark_running(activity_db, agent_id, channel_id)
@@ -624,7 +624,7 @@ class MessageBusTrigger:
                 InboxMessageType,
                 MessageSource,
             )
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
             if category == "provider_credential":
                 hint = (
@@ -1011,7 +1011,7 @@ class MessageBusTrigger:
                 InboxMessageType,
                 MessageSource,
             )
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
             db = await get_db_client()
             agent_row = await db.get_one("agents", {"agent_id": agent_id})
@@ -1047,13 +1047,13 @@ async def _get_bus() -> LocalMessageBus:
     Works with both SQLite (local) and MySQL (cloud) backends — LocalMessageBus
     is a misnomer; it's a database-backed bus that runs against any backend.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
 
     db = await get_db_client()
     backend = db._backend
 
     # Ensure all tables exist (schema_registry covers all 26 tables including bus)
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
     await auto_migrate(backend)
 
     # Initialise the system-default quota subsystem so bus-triggered

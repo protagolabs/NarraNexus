@@ -375,9 +375,9 @@ def test_non_owner_jwt_returns_403(monkeypatch, tmp_path):
 
     from backend.routes.agents_artifacts import router as agents_router
     import backend.routes.agents_artifacts as agents_mod
-    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     async def _make_db():
         backend = SQLiteBackend(":memory:")

@@ -74,7 +74,7 @@ async def _patch_resolver(monkeypatch, *, resolve):
     monkeypatch.setattr(
         api_config, "_ensure_quota_service", AsyncMock(return_value=object())
     )
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
     monkeypatch.setattr(db_factory, "get_db_client", AsyncMock(return_value=object()))
     from xyz_agent_context.agent_framework import system_provider_service, user_provider_service
     monkeypatch.setattr(
