@@ -10,8 +10,7 @@ are hashed before they leave the process, and the summary is truncated. The
 summary's CONTENT (no conversation quotes, no keys/PII) is governed by the
 callers' prompts/UI copy — it cannot be verified in code.
 
-Opt-out (decision "B", spec
-docs/design-notes/2026-07-10-feedback-mechanism-design.md):
+Opt-out (design decision "B"; design log is author-local, untracked):
 `NARRANEXUS_FEEDBACK_DISABLED=1` disables all sends. `NARRANEXUS_FEEDBACK_URL`
 overrides the endpoint for dev/test. Both are documented in .env.example /
 .env.cloud.example.
