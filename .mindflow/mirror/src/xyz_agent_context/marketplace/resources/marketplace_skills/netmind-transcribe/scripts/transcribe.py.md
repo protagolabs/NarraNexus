@@ -1,5 +1,5 @@
 ---
-code_file: marketplace_skills/netmind-transcribe/scripts/transcribe.py
+code_file: src/xyz_agent_context/marketplace/resources/marketplace_skills/netmind-transcribe/scripts/transcribe.py
 last_verified: 2026-07-21
 stub: false
 ---

@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/team_marketplace_service.py
+code_file: src/xyz_agent_context/marketplace/team_marketplace_service.py
 last_verified: 2026-07-21
 stub: false
 ---

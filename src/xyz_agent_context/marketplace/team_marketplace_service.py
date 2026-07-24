@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from loguru import logger
 
-from xyz_agent_context._skill_marketplace_impl.artifact_store import (
+from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import (
     ArtifactStore,
     get_template_store,
 )
