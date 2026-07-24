@@ -11,10 +11,10 @@ ONLY in CLI stderr. _inline_assistant_error_event keeps error_type = the enum
 classify_self_serviceable can recover "context window" from the message — the
 end-to-end fix for the "black box" P1.
 """
-from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
+from xyz_agent_context.agent_framework.adapters.claude.sdk import (
     _inline_assistant_error_event,
 )
-from xyz_agent_context.agent_framework.llm_failure import classify_self_serviceable
+from xyz_agent_context.agent_framework.llm.failure import classify_self_serviceable
 
 
 def _data(ev):

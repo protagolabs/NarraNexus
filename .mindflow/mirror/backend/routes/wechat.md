@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/wechat.py
+code_file: backend/routes/channels/wechat.py
 stub: false
 last_verified: 2026-07-13
 ---
@@ -12,7 +12,7 @@ Added `POST /set-active` (flip `enabled` without a re-bind) → **5 endpoints no
 
 REST surface for the dashboard's WeChat bind UX
 (``frontend/src/components/awareness/WeChatConfig.tsx``). The personal-
-WeChat counterpart of ``backend/routes/telegram.py`` — same agent-
+WeChat counterpart of ``backend/routes/channels/telegram.py`` — same agent-
 ownership-checked, ``{"success": bool}``-enveloped shape — but because
 personal WeChat authenticates by **scanning a login QR** (not a token
 paste), bind is a two-step QR flow instead of a single ``POST /bind``.

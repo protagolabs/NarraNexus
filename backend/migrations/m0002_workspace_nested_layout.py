@@ -13,7 +13,7 @@ mounts an empty per-user dir and the agent loses sight of its history.
 This runs automatically on every startup (cloud / ``bash run.sh`` / DMG) via the
 versioned migration runner, so self-hosting users upgrading from an older
 version are migrated layer-by-layer with no manual step. The CLI wrapper
-``scripts/migrate_workspace_layout.py`` (dry-run preview / explicit base) shares
+``scripts/data_migrations/migrate_workspace_layout.py`` (dry-run preview / explicit base) shares
 the same underlying ``migrate_flat_to_nested`` and stays for ops debugging.
 
 Idempotent and non-destructive: only ``agent_*_*`` dirs whose owner resolves to

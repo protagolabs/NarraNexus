@@ -43,7 +43,7 @@ disabled feature = consistent no-op contract.
 - backend/routes/auth.py /register — `init_for_user()` after successful
   cloud-mode registration
 - backend/routes/quota.py /me — `get()` for user-facing budget view
-- backend/routes/admin_quota.py — `grant()` / `init_for_user()` for staff
+- backend/routes/admin/quota.py — `grant()` / `init_for_user()` for staff
 
 ## Downstream
 - QuotaRepository — all DB I/O

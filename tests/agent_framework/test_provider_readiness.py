@@ -10,12 +10,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.agent_framework.provider_resolver import ProviderAvailability
-from xyz_agent_context.agent_framework import provider_readiness as pr
-from xyz_agent_context.agent_framework.provider_readiness import ProviderReadiness
+from xyz_agent_context.agent_framework.providers.resolver import ProviderAvailability
+from xyz_agent_context.agent_framework.providers import readiness as pr
+from xyz_agent_context.agent_framework.providers.readiness import ProviderReadiness
 
-_CLASSIFY = "xyz_agent_context.agent_framework.provider_readiness.classify_provider_for_user"
-_UPS = "xyz_agent_context.agent_framework.user_provider_service.UserProviderService"
+_CLASSIFY = "xyz_agent_context.agent_framework.providers.readiness.classify_provider_for_user"
+_UPS = "xyz_agent_context.agent_framework.providers.user_service.UserProviderService"
 
 
 def _patch_classify(monkeypatch, verdict=None, raises=False):

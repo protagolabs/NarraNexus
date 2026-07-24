@@ -87,7 +87,7 @@ from xyz_agent_context.services.service_audit import ServiceAuditor
 # cross-module dependency (binding rule #3). Reused so the Job layer recognises
 # the SAME deterministic, won't-heal-by-waiting failures (#110) that the
 # real-time layer already treats as self-serviceable.
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
     SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
@@ -553,7 +553,7 @@ class JobTrigger:
         runtime will refuse.
         """
         try:
-            from xyz_agent_context.agent_framework.provider_resolver import (
+            from xyz_agent_context.agent_framework.providers.resolver import (
                 classify_provider_for_user,
                 is_runnable,
             )

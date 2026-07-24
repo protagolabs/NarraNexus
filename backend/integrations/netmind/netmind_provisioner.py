@@ -78,10 +78,10 @@ async def ensure_netmind_provider(
 
     from backend.integrations.netmind.netmind_key_client import NetmindKeyClient
     from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.agent_framework.user_provider_service import (
+    from xyz_agent_context.agent_framework.providers.user_service import (
         UserProviderService,
     )
-    from xyz_agent_context.agent_framework.provider_resolver import (
+    from xyz_agent_context.agent_framework.providers.resolver import (
         _is_user_config_complete,
     )
 

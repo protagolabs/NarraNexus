@@ -16,7 +16,7 @@ session 一起清干净,是 [[agents_chat_history.py]] 那个路由的实现层�
 
 ## 上下游关系
 
-**被谁用**:`backend/routes/agents_chat_history.py` 的 `DELETE /{id}/history`,按
+**被谁用**:`backend/routes/agents/chat_history.py` 的 `DELETE /{id}/history`,按
 `?conversations=&memory=` 两个 flag 调用。
 
 **依赖谁**:`InstanceRepository`(取 ChatModule 实例)、[[exporters.py]] 的

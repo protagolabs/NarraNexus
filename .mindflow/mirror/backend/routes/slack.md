@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/slack.py
+code_file: backend/routes/channels/slack.py
 stub: false
 last_verified: 2026-07-13
 ---

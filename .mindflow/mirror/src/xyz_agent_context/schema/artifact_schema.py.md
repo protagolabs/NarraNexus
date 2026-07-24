@@ -69,7 +69,7 @@ It ties together:
   `CreateArtifactToolResult`.
 
 **Consumers:**
-- `backend/routes/agents_artifacts.py` + `users_artifacts.py` — REST endpoints.
+- `backend/routes/agents/artifacts.py` + `users_artifacts.py` — REST endpoints.
 - `frontend/src/types/artifact.ts` — mirrored TypeScript interface.
 - `frontend/src/stores/artifactStore.ts` — Zustand store.
 

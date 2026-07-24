@@ -1,10 +1,10 @@
 ---
-code_file: backend/routes/_dashboard_schema.py
+code_file: backend/routes/dashboard/_schema.py
 last_verified: 2026-04-13
 stub: false
 ---
 
-# backend/routes/_dashboard_schema.py — Intent
+# backend/routes/dashboard/_schema.py — Intent
 
 ## 为什么存在
 Pydantic 响应类型的**唯一真相源**（SSOT）for `GET /api/dashboard/agents-status`。
@@ -12,7 +12,7 @@ Pydantic 响应类型的**唯一真相源**（SSOT）for `GET /api/dashboard/age
 关键职责：**用类型系统把权限边界焊死**——owner-only 字段不能出现在 public 变体上，由 Pydantic `extra='forbid'` + `Literal[True/False]` discriminated union 强制。即使 `to_response` factory 写漏，validation 层拒绝序列化。
 
 ## 上下游
-- **上游**：`backend/routes/_dashboard_helpers.py::to_response`（factory）、`backend/routes/dashboard.py` 路由响应
+- **上游**：`backend/routes/dashboard/_helpers.py::to_response`（factory）、`backend/routes/dashboard/routes.py` 路由响应
 - **下游**：前端 `frontend/src/types/api.ts` 里手工复刻了同样的类型（TS 侧，Pydantic → TS 没自动化生成；drift 风险见 Gotcha）
 - **平行**：`frontend/src/types/api.ts` 的 `OwnedAgentStatus / PublicAgentStatus` 必须和这里**字段-by-字段**对齐
 

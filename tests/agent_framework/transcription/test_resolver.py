@@ -16,8 +16,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.agent_framework.transcription import resolver as R
-from xyz_agent_context.agent_framework.transcription.credential import (
+from xyz_agent_context.agent_framework.llm.transcription import resolver as R
+from xyz_agent_context.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
 )
 from xyz_agent_context.schema.provider_schema import (
@@ -75,7 +75,7 @@ def _patch_user_providers(monkeypatch, *providers):
     fake_db_module.get_db_client = AsyncMock(return_value=MagicMock())
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.user_provider_service.UserProviderService",
+        "xyz_agent_context.agent_framework.providers.user_service.UserProviderService",
         fake_module.UserProviderService,
     )
     monkeypatch.setattr(
@@ -110,7 +110,7 @@ def _patch_free_tier(
     fake_sys = MagicMock()
     fake_sys.is_enabled.return_value = system_enabled
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.system_provider_service.SystemProviderService.instance",
+        "xyz_agent_context.agent_framework.providers.system_service.SystemProviderService.instance",
         classmethod(lambda cls: fake_sys),
     )
 

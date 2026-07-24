@@ -147,7 +147,7 @@ class ClaudeConfig:
             # CLI family aliases ("opus") are invalid on raw API transports —
             # normalize here so the CLI's internal calls can't 400 either
             # (same rule as the main-loop model in xyz_claude_agent_sdk).
-            from xyz_agent_context.agent_framework.model_catalog import (
+            from xyz_agent_context.agent_framework.providers.model_catalog import (
                 is_cli_family_alias,
                 resolve_cli_alias,
             )
@@ -331,7 +331,7 @@ def _load_from_llm_config() -> Optional[tuple[ClaudeConfig, OpenAIConfig]]:
         Tuple of (claude_config, openai_config) if successful,
         None if the file doesn't exist or is invalid.
     """
-    from xyz_agent_context.agent_framework.provider_registry import provider_registry
+    from xyz_agent_context.agent_framework.providers.registry import provider_registry
 
     config = provider_registry.load()
     if config is None:
@@ -882,15 +882,15 @@ async def get_user_runtime_llm_configs(
         LLMConfigNotConfigured: opted out, own provider missing/incomplete.
     """
     from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.agent_framework.provider_resolver import (
+    from xyz_agent_context.agent_framework.providers.resolver import (
         NoProviderConfiguredError,
         ProviderResolver,
         ProviderResolverError,
     )
-    from xyz_agent_context.agent_framework.system_provider_service import (
+    from xyz_agent_context.agent_framework.providers.system_service import (
         SystemProviderService,
     )
-    from xyz_agent_context.agent_framework.user_provider_service import (
+    from xyz_agent_context.agent_framework.providers.user_service import (
         UserProviderService,
     )
 
@@ -972,7 +972,7 @@ async def _get_user_runtime_llm_configs_strict(
     ``agent_id`` (optional) overlays that agent's per-agent slot overrides.
     """
     from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.agent_framework.provider_driver import (
+    from xyz_agent_context.agent_framework.providers.driver import (
         resolve_user_runtime_llm_configs,
     )
 

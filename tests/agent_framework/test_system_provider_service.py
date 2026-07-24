@@ -11,7 +11,7 @@ is_enabled()==False so callers can short-circuit cleanly.
 """
 import pytest
 
-from xyz_agent_context.agent_framework.system_provider_service import (
+from xyz_agent_context.agent_framework.providers.system_service import (
     SystemProviderService,
 )
 

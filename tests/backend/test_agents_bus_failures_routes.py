@@ -26,7 +26,7 @@ from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
-import backend.routes.agents_bus_failures as bus_failures_mod
+import backend.routes.agents.bus_failures as bus_failures_mod
 
 
 @pytest_asyncio.fixture

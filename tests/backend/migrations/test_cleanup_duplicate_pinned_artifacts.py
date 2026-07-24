@@ -2,7 +2,7 @@
 @file_name: test_cleanup_duplicate_pinned_artifacts.py
 @author: Bin Liang
 @date: 2026-07-23
-@description: Tests for scripts/cleanup_duplicate_pinned_artifacts.py — the
+@description: Tests for scripts/data_migrations/cleanup_duplicate_pinned_artifacts.py — the
 one-shot cleanup that removes duplicate agent-scoped (pinned) artifact rows
 pointing at the same entry file, keeping the newest row per group.
 
@@ -23,6 +23,7 @@ import pytest
 _SCRIPT = (
     Path(__file__).resolve().parents[3]
     / "scripts"
+    / "data_migrations"
     / "cleanup_duplicate_pinned_artifacts.py"
 )
 _spec = importlib.util.spec_from_file_location("cleanup_duplicate_pinned_artifacts", _SCRIPT)

@@ -17,7 +17,7 @@ from loguru import logger
 
 from xyz_agent_context.schema.quota_schema import Quota
 from xyz_agent_context.repository.quota_repository import QuotaRepository
-from xyz_agent_context.agent_framework.system_provider_service import (
+from xyz_agent_context.agent_framework.providers.system_service import (
     SystemProviderService,
 )
 

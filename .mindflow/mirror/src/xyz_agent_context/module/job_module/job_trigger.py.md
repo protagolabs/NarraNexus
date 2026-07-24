@@ -24,7 +24,7 @@ are retained.
 
 ## 2026-07-16 — 后台 job 在"自助类"失败上暂停 + paused_reason 分流恢复
 
-`_is_no_quota_failure` 复用 `agent_framework.llm_failure.classify_self_serviceable`
+`_is_no_quota_failure` 复用 `agent_framework.llm.failure.classify_self_serviceable`
 (#110 检测器,leaf util,非跨模块依赖——铁律 #3):任何**确定性自助类**失败
 (余额/配额不足、上下文窗口过小、模型不存在)→ True → `PAUSED_NO_QUOTA`。
 

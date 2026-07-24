@@ -33,7 +33,7 @@ from typing import Dict, Optional
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.llm.failure import (
     is_credential_error,
     redact_secrets,
 )

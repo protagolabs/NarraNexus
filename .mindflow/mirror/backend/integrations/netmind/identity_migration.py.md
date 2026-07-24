@@ -8,19 +8,19 @@ stub: false
 
 ## 为什么存在
 
-Phase 1 用户系统统一要求把所有存量旧 user_id 改写为 NetMind 的 32-hex userSystemCode。这块逻辑最初全部住在 `scripts/migrate_users_to_netmind.py`，但有两个调用方需要它：离线 CLI 脚本（批量迁移）和 `backend/routes/admin_migration.py`（单用户原子迁移，供换绑操作）。把内核提取成独立 platform service 模块，符合铁律 3（模块独立、热插拔）和铁律 8（单一真相源，不重复），让两个调用方共享同一份实现，避免逻辑漂移。
+Phase 1 用户系统统一要求把所有存量旧 user_id 改写为 NetMind 的 32-hex userSystemCode。这块逻辑最初全部住在 `scripts/data_migrations/migrate_users_to_netmind.py`，但有两个调用方需要它：离线 CLI 脚本（批量迁移）和 `backend/routes/admin/migration.py`（单用户原子迁移，供换绑操作）。把内核提取成独立 platform service 模块，符合铁律 3（模块独立、热插拔）和铁律 8（单一真相源，不重复），让两个调用方共享同一份实现，避免逻辑漂移。
 
 本模块是**纯 platform service 层**，不感知 HTTP/CLI 上下文，不读环境变量，不持有状态。所有 DB 操作通过传入的 `db` 参数进行，便于测试隔离。
 
 ## 这个文件不做什么
 
-不直接读 CSV 文件，不解析命令行参数，不做报告输出格式化——这些由 `scripts/migrate_users_to_netmind.py` 的 CLI 层负责。不读 `NETMIND_AUTH_API_URL` 也不调 NetMind API——调用方在调用前已经从 NetMind 批量建号回传的 CSV 拿到了 hex。
+不直接读 CSV 文件，不解析命令行参数，不做报告输出格式化——这些由 `scripts/data_migrations/migrate_users_to_netmind.py` 的 CLI 层负责。不读 `NETMIND_AUTH_API_URL` 也不调 NetMind API——调用方在调用前已经从 NetMind 批量建号回传的 CSV 拿到了 hex。
 
 ## 上下游关系
 
 **被谁用**：
-- `scripts/migrate_users_to_netmind.py`：import 并 re-export `classify_identity_columns`、`execute_migration`、`verify_migration`、`build_report`、`IdentityColumns`，让 CLI 的 `_amain` 函数调用。
-- `backend/routes/admin_migration.py`：`POST /api/admin/migrate-identity` 路由处理函数调用 `execute_migration` 做单用户原子迁移，可选地顺带更新目标行 display_name/email。
+- `scripts/data_migrations/migrate_users_to_netmind.py`：import 并 re-export `classify_identity_columns`、`execute_migration`、`verify_migration`、`build_report`、`IdentityColumns`，让 CLI 的 `_amain` 函数调用。
+- `backend/routes/admin/migration.py`：`POST /api/admin/migrate-identity` 路由处理函数调用 `execute_migration` 做单用户原子迁移，可选地顺带更新目标行 display_name/email。
 
 **依赖谁**：
 - `xyz_agent_context.utils.db.schema_registry`（`TABLES`）：`classify_identity_columns` 和 `_is_unique_identity_column` 从中自动发现所有身份列，避免列清单硬编码。

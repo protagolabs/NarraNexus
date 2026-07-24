@@ -1,5 +1,5 @@
 ---
-code_file: scripts/gen_slack_skills.py
+code_file: scripts/publish/gen_slack_skills.py
 stub: false
 last_verified: 2026-05-08
 ---
@@ -46,7 +46,7 @@ diff in PRs.
 ## Upstream / downstream
 
 - **Upstream**: human / CI runs
-  ``uv run python scripts/gen_slack_skills.py`` after bumping the
+  ``uv run python scripts/publish/gen_slack_skills.py`` after bumping the
   vendored spec.
 - **Downstream**:
   - Output dir consumed by ``_slack_skill_loader.py`` at runtime.

@@ -8,7 +8,7 @@ stub: false
 
 在 `response.error` 处理里，**auth 判断之后、recoverable 之前**插入一层
 `classify_self_serviceable(error_type, error_message)`（来自
-`agent_framework/llm_failure`）。命中（context-window / 余额 / 模型 ID）则产出
+`agent_framework/llm/failure`）。命中（context-window / 余额 / 模型 ID）则产出
 `ErrorMessage(error_type=config_actionable, severity=fatal,
 action_reason=<reason>)` + 由 `self_serviceable_user_message` 组的可操作文案
 （引导 + 脱敏 provider 原文，保留 token 数字）。`step_3` 据此 skip 兜底。

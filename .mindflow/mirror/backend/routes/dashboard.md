@@ -1,10 +1,10 @@
 ---
-code_file: backend/routes/dashboard.py
+code_file: backend/routes/dashboard/routes.py
 last_verified: 2026-04-13
 stub: false
 ---
 
-# backend/routes/dashboard.py — Intent
+# backend/routes/dashboard/routes.py — Intent
 
 ## 为什么存在
 `GET /api/dashboard/agents-status` 端点 + v2.1/v2.1.1/v2.1.2 新加的一组懒加载详情端点和 job mutation 端点。Dashboard 前端所有 HTTP 调用的唯一后端入口。

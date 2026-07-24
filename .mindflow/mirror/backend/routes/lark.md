@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/lark.py
+code_file: backend/routes/channels/lark.py
 stub: false
 last_verified: 2026-07-13
 ---

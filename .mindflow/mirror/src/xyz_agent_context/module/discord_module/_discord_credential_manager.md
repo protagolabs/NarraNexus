@@ -36,7 +36,7 @@ id. Sibling of ``_telegram_credential_manager.py``.
   ``AsyncDatabaseClient``.
 - **Downstream**: consumed by ``discord_module`` (get_credential),
   ``discord_trigger`` (load_active / set_enabled), ``_discord_service``,
-  ``_discord_mcp_tools``, and ``backend/routes/discord.py``.
+  ``_discord_mcp_tools``, and ``backend/routes/channels/discord.py``.
 
 ## Gotchas
 

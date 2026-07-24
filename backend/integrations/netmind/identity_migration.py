@@ -6,9 +6,9 @@
 userSystemCode (Phase 1 user-system unification).
 
 Shared kernel behind two call sites (铁律 3/8 — one source of truth):
-  * scripts/migrate_users_to_netmind.py — offline CLI, batch CSV mapping,
+  * scripts/data_migrations/migrate_users_to_netmind.py — offline CLI, batch CSV mapping,
     run with the stack stopped (`make app-down`).
-  * backend/routes/admin_migration.py — POST /api/admin/migrate-identity,
+  * backend/routes/admin/migration.py — POST /api/admin/migrate-identity,
     one user per call.
 
 Identity rewrite is derived from schema_registry at runtime: every

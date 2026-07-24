@@ -587,7 +587,7 @@ async def websocket_agent_run(websocket: WebSocket):
         # do NOT start a run that would just fail again and burn resources.
         # Tell the user why instead of silently 401ing. Fail-open — a breaker
         # read error never blocks a turn.
-        from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
         cb_skip, cb_reason = await should_skip(request.agent_id)
         if cb_skip:
             await websocket.send_json(_circuit_open_frame(cb_reason))

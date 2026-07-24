@@ -232,8 +232,8 @@ class NarrativeUpdater:
             narrative: Narrative object
             event: Latest Event object
         """
-        from xyz_agent_context.agent_framework.llm_failure import is_credential_error
-        from xyz_agent_context.agent_framework.provider_resolver import (
+        from xyz_agent_context.agent_framework.llm.failure import is_credential_error
+        from xyz_agent_context.agent_framework.providers.resolver import (
             ProviderResolverError,
             inject_owner_helper_credentials,
         )
@@ -347,7 +347,7 @@ class NarrativeUpdater:
         went unnoticed for two weeks). The caller treats a ``None`` return as
         "LLM produced nothing" and skips the update quietly.
         """
-        from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+        from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 
         instructions = NARRATIVE_UPDATE_INSTRUCTIONS
 

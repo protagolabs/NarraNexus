@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/telegram.py
+code_file: backend/routes/channels/telegram.py
 stub: false
 last_verified: 2026-07-13
 ---
@@ -12,7 +12,7 @@ Added `POST /set-active` (flip `enabled` without a re-bind) → **5 endpoints no
 
 REST surface for the dashboard's Telegram bind UX
 (``frontend/src/components/awareness/TelegramConfig.tsx``). Mirrors
-``backend/routes/slack.py`` and ``backend/routes/lark.py``: five endpoints, agent-ownership-checked, all delegating to the shared
+``backend/routes/channels/slack.py`` and ``backend/routes/channels/lark.py``: five endpoints, agent-ownership-checked, all delegating to the shared
 ``_telegram_service`` helpers so MCP and HTTP paths stay in lockstep.
 
 ## Design decisions

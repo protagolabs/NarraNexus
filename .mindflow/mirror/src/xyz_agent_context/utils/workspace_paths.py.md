@@ -38,7 +38,7 @@ so the flip was a one-line change here.
 ## Migration (`migrate_flat_to_nested`)
 
 One-off, idempotent, non-destructive (rename only; never overwrite/delete).
-CLI: `scripts/migrate_workspace_layout.py` (dry-run default, `--apply`).
+CLI: `scripts/data_migrations/migrate_workspace_layout.py` (dry-run default, `--apply`).
 
 **Disambiguation gotcha (why it takes `known_user_ids`):** a flat dir
 `agent_<hex>_<rest>` is ambiguous — `<rest>` could be the user_id directly,

@@ -20,8 +20,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.agent_framework import provider_resolver as pr
-from xyz_agent_context.agent_framework.provider_resolver import (
+from xyz_agent_context.agent_framework.providers import resolver as pr
+from xyz_agent_context.agent_framework.providers.resolver import (
     NoProviderConfiguredError,
     QuotaExceededError,
 )
@@ -76,7 +76,7 @@ async def _patch_resolver(monkeypatch, *, resolve):
     )
     from xyz_agent_context.utils.db import db_factory
     monkeypatch.setattr(db_factory, "get_db_client", AsyncMock(return_value=object()))
-    from xyz_agent_context.agent_framework import system_provider_service, user_provider_service
+    from xyz_agent_context.agent_framework.providers import system_service as system_provider_service, user_service as user_provider_service
     monkeypatch.setattr(
         system_provider_service.SystemProviderService, "instance",
         staticmethod(lambda: object()),

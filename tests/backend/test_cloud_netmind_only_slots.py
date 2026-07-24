@@ -8,7 +8,7 @@ Cloud accounts run on the user's NetMind ("Power") account: a non-staff
 cloud user may not bind a bring-your-own provider (source != "netmind")
 to a slot — own API keys are a local/desktop-version feature. Staff and
 local deployments are exempt. The rule lives in
-``agent_framework/cloud_policy.py`` and is enforced INSIDE
+``agent_framework/providers/cloud_policy.py`` and is enforced INSIDE
 ``UserProviderService.set_slot`` (``actor_is_staff`` param, raising
 ``CloudPolicyViolation`` which the route maps to 403).
 
@@ -85,7 +85,7 @@ def _wire_real_service(monkeypatch, db_client):
     """Route → a REAL UserProviderService over the in-memory DB, with the
     route's post-write side effects (job rearm, circuit-breaker resume)
     stubbed out — they need the global runtime."""
-    from xyz_agent_context.agent_framework.user_provider_service import (
+    from xyz_agent_context.agent_framework.providers.user_service import (
         UserProviderService,
     )
 

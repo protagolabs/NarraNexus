@@ -30,7 +30,7 @@ from xyz_agent_context.agent_framework.api_config import (
     get_provider_source,
     set_provider_source,
 )
-from xyz_agent_context.agent_framework.provider_resolver import (
+from xyz_agent_context.agent_framework.providers.resolver import (
     NoProviderConfiguredError,
     ProviderResolver,
     ProviderResolverError,
@@ -159,7 +159,7 @@ def _stub_single_resolver(monkeypatch):
     driver resolver (resolve_user_runtime_llm_configs). These tests exercise
     the routing DECISION tree, not config contents, so stub the builder to a
     bare RuntimeLLMConfigs — no seeded DB needed."""
-    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.providers import driver as provider_driver
     from xyz_agent_context.agent_framework.api_config import (
         ClaudeConfig,
         OpenAIConfig,
@@ -202,7 +202,7 @@ async def test_system_disabled_falls_through_to_own_config_when_flagged(monkeypa
     ContextVars first, so a no-op leaves the helper config EMPTY and detached
     hooks 401 on the bare platform OpenAI endpoint. Mirrors the agent-loop path.
     """
-    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.providers import driver as provider_driver
     from xyz_agent_context.agent_framework.api_config import (
         ClaudeConfig,
         OpenAIConfig,
@@ -247,7 +247,7 @@ async def test_system_disabled_flagged_no_own_config_raises_catchable_error(monk
     continues on the cleared/global platform key (the 2026-07 incident). The
     ContextVars must also stay cleared (no silent platform-key fallback).
     """
-    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.providers import driver as provider_driver
     from xyz_agent_context.agent_framework.api_config import (
         LLMConfigNotConfigured,
         _openai_ctx,
@@ -299,7 +299,7 @@ async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user(monkeypa
     free-tier preference is auto-disabled (compare-and-swap) and the request
     routes to the user's own provider, so the configured key is actually used.
     The winning flip fires exactly one auto-switch notice."""
-    from xyz_agent_context.agent_framework import provider_resolver as pr
+    from xyz_agent_context.agent_framework.providers import resolver as pr
     notice = AsyncMock()
     monkeypatch.setattr(pr, "_emit_free_tier_switch_notice", notice)
 
@@ -320,7 +320,7 @@ async def test_concurrent_exhaustion_flip_notifies_only_the_winner(monkeypatch):
     """Under concurrent exhausted requests, the compare-and-swap lets exactly
     one caller flip 1→0. A loser (disable_preference_if_enabled → False) still
     routes to the user's key but must NOT emit a second notice."""
-    from xyz_agent_context.agent_framework import provider_resolver as pr
+    from xyz_agent_context.agent_framework.providers import resolver as pr
     notice = AsyncMock()
     monkeypatch.setattr(pr, "_emit_free_tier_switch_notice", notice)
 

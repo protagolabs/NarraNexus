@@ -1,10 +1,10 @@
 ---
-code_file: backend/routes/_dashboard_helpers.py
+code_file: backend/routes/dashboard/_helpers.py
 last_verified: 2026-04-13
 stub: false
 ---
 
-# backend/routes/_dashboard_helpers.py — Intent
+# backend/routes/dashboard/_helpers.py — Intent
 
 ## 为什么存在
 把 `dashboard.py` 路由里所有**可纯函数化**的逻辑抽出来——便于单测、便于复用、也让 route 文件本身保持薄。
@@ -14,11 +14,11 @@ stub: false
 **职责明确界限**：这里**只**做"形式转换 + DB 查询 + 字符串组装"，不做 HTTP、不做 auth、不做 rate limiting。Route 层负责调度。
 
 ## 上下游
-- **上游**：`backend/routes/dashboard.py` 的主路由 + lazy 详情路由都调这里的函数
+- **上游**：`backend/routes/dashboard/routes.py` 的主路由 + lazy 详情路由都调这里的函数
 - **下游**：
   - `xyz_agent_context.utils.db.db_factory.get_db_client` 做所有 DB 查询
   - `backend/state/active_sessions.py::get_session_registry` 只被 route 直接调用（这里不碰 registry）
-  - `backend/routes/_dashboard_schema.py` 所有 Pydantic 类型
+  - `backend/routes/dashboard/_schema.py` 所有 Pydantic 类型
 - **测试**：`tests/backend/test_dashboard_helpers.py`（纯函数）+ `test_dashboard_fetchers.py`（async DB）+ `test_dashboard_v21.py`（v2.1 additions）
 
 ## 设计决策

@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 
 from backend import auth as auth_mod
 from backend.auth import auth_middleware, create_token
-from xyz_agent_context.agent_framework.provider_resolver import (
+from xyz_agent_context.agent_framework.providers.resolver import (
     NoProviderConfiguredError,
     QuotaExceededError,
 )

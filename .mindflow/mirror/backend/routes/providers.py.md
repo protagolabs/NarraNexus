@@ -264,7 +264,7 @@ async def _ensure_codex_installed() -> dict:
 修法：route 层直接 import service 层的常量当 single source of truth：
 
 ```python
-from xyz_agent_context.agent_framework.user_provider_service import (
+from xyz_agent_context.agent_framework.providers.user_service import (
     UserProviderService as _UserProviderServiceForFrameworks,
 )
 _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
@@ -300,8 +300,8 @@ route 层 #4 后已经不算独立条目了，因为 import 自动跟 service。
 
 - **被谁用**：`backend/main.py` — `include_router(providers_router, prefix="/api/providers")`；前端设置面板；`backend/auth.py` 的 `AUTH_EXEMPT_PATHS` 包含 `/api/providers/claude-status`
 - **依赖谁**：
-  - `UserProviderService`（来自 `xyz_agent_context.agent_framework.user_provider_service`）— 所有提供商和 Slot 操作
-  - `xyz_agent_context.agent_framework.model_catalog` — 获取已知模型列表和建议值
+  - `UserProviderService`（来自 `xyz_agent_context.agent_framework.providers.user_service`）— 所有提供商和 Slot 操作
+  - `xyz_agent_context.agent_framework.providers.model_catalog` — 获取已知模型列表和建议值
   - `xyz_agent_context.schema.provider_schema` — `LLMConfig`、`SlotName`、`SLOT_REQUIRED_PROTOCOLS`
   - `xyz_agent_context.agent_framework.api_config` — 热重载配置（本地进程内）
   - `EmbeddingMigrationService` — 嵌入向量重建

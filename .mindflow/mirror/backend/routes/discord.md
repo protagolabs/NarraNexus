@@ -1,5 +1,5 @@
 ---
-code_file: backend/routes/discord.py
+code_file: backend/routes/channels/discord.py
 stub: false
 last_verified: 2026-07-13
 ---
@@ -12,7 +12,7 @@ Added `POST /set-active` (flip `enabled` without a re-bind) → **5 endpoints no
 
 REST surface for the dashboard's Discord bind UX
 (``frontend/src/components/awareness/DiscordConfig.tsx``). Mirrors
-``backend/routes/telegram.py`` / ``slack.py``: five endpoints
+``backend/routes/channels/telegram.py`` / ``slack.py``: five endpoints
 (bind / credential / test / unbind), agent-ownership-checked, all
 delegating to the shared ``_discord_service`` helpers so the MCP and HTTP
 bind paths stay in lockstep.

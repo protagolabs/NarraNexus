@@ -98,7 +98,7 @@ def maybe_start_executor_reaper() -> Optional["asyncio.Task"]:
     No-op (returns None) on local/desktop, or whenever no broker is
     configured: there are no per-user executors to cull there.
     """
-    from xyz_agent_context.agent_framework.broker_client import broker_url, stop_executor
+    from xyz_agent_context.agent_framework.loop.broker_client import broker_url, stop_executor
 
     if not broker_url():
         return None

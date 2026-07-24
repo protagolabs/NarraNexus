@@ -39,7 +39,7 @@ from xyz_agent_context.agent_framework.api_config import (
 )
 from xyz_agent_context.agent_framework import quota_service as quota_mod
 from xyz_agent_context.agent_framework.quota_service import QuotaService
-from xyz_agent_context.agent_framework.system_provider_service import (
+from xyz_agent_context.agent_framework.providers.system_service import (
     SystemProviderService,
 )
 

@@ -20,12 +20,12 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.agent_framework.cloud_policy import (
+from xyz_agent_context.agent_framework.providers.cloud_policy import (
     FRAMEWORK_LOCKED_DETAIL,
     CloudPolicyViolation,
     netmind_slots_only,
 )
-from xyz_agent_context.agent_framework.model_catalog import (
+from xyz_agent_context.agent_framework.providers.model_catalog import (
     get_all_known_models,
     get_default_models,
     get_suggested_models,
@@ -148,7 +148,7 @@ async def _resume_agent_circuit_breakers(uid: str) -> None:
     slot). Mirrors the ``schedule_user_no_quota_rearm`` edge-recovery already
     fired on these paths. Best-effort — never fails the reconfigure."""
     try:
-        from xyz_agent_context.agent_framework.agent_circuit_breaker import (
+        from xyz_agent_context.agent_framework.loop.circuit_breaker import (
             reset_for_owner,
         )
         await reset_for_owner(uid)
@@ -196,7 +196,7 @@ def _netmind_slots_only(request: Request) -> bool:
 async def _get_service():
     """Get UserProviderService with DB client."""
     from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+    from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
     db = await get_db_client()
     return UserProviderService(db)
 
@@ -580,7 +580,7 @@ async def sync_default_models(request: Request):
     Out-of-scope sources (claude_oauth / codex_oauth) keep the catalog defaults;
     `source="user"` (hand-picked custom providers) is left untouched.
     """
-    from xyz_agent_context.agent_framework import model_sync
+    from xyz_agent_context.agent_framework.providers import model_sync
 
     uid = _get_user_id(request)
     service = await _get_service()
@@ -717,7 +717,7 @@ async def validate_slots(request: Request):
 # "claude_code" so existing users are unaffected.
 
 
-from xyz_agent_context.agent_framework.user_provider_service import (
+from xyz_agent_context.agent_framework.providers.user_service import (
     UserProviderService as _UserProviderServiceForFrameworks,
 )
 # Single source of truth — keep the route's whitelist in sync with the
@@ -837,16 +837,16 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
             )
 
     # ── Leg 2: CLI OAuth credentials on the host ─────────────────────
-    from xyz_agent_context.agent_framework.provider_driver.base import ProviderCard
+    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
 
     # Codex auth probe — reads ``~/.codex/auth.json`` regardless of
     # which codex driver class is registered (v1 or v2 share the
     # auth file path).
     if framework == "codex_cli":
-        from xyz_agent_context.agent_framework.provider_driver.drivers.codex_oauth import (
+        from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
             CodexOAuthDriver,
         )
-        from xyz_agent_context.agent_framework.provider_driver.derive import (
+        from xyz_agent_context.agent_framework.providers.driver.derive import (
             CODEX_CLI_CREDENTIALS_REF,
         )
         stub = ProviderCard(
@@ -871,10 +871,10 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
         return {"ok": health.ok, "detail": detail}
 
     if framework == "claude_code":
-        from xyz_agent_context.agent_framework.provider_driver.drivers.claude_oauth import (
+        from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
             ClaudeOAuthDriver,
         )
-        from xyz_agent_context.agent_framework.provider_driver.derive import (
+        from xyz_agent_context.agent_framework.providers.driver.derive import (
             CLAUDE_CLI_CREDENTIALS_REF,
         )
         stub = ProviderCard(

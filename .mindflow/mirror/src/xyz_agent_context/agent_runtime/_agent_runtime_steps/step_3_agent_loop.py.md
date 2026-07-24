@@ -117,7 +117,7 @@ auth_failed 时**继续 fall through** 到 sub-step 收尾 + PathExecutionResult
 ## 2026-06-10 — helper obtained via get_helper_sdk()
 
 The fallback-reply stream no longer instantiates OpenAIAgentsSDK directly —
-`get_helper_sdk()` (agent_framework/helper_sdk.py) returns the per-task
+`get_helper_sdk()` (agent_framework/llm/helper_sdk.py) returns the per-task
 helper (OpenAI or Anthropic Messages API) based on which helper config the
 resolver installed. Call shape (llm_stream) unchanged.
 

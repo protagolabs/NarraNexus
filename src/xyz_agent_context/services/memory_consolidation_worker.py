@@ -170,7 +170,7 @@ class MemoryConsolidationWorker:
         clear-first / owner-lookup / resolve sequence lives in exactly one
         place.
         """
-        from xyz_agent_context.agent_framework.provider_resolver import (
+        from xyz_agent_context.agent_framework.providers.resolver import (
             inject_owner_helper_credentials,
         )
 

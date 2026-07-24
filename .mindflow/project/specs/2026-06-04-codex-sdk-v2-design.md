@@ -236,7 +236,7 @@ until v2 is proven stable in production.
 
 ### Module shape
 
-New file: `src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py`
+New file: `src/xyz_agent_context/agent_framework/adapters/codex/official_sdk.py`
 
 ```python
 class CodexSDKv2:

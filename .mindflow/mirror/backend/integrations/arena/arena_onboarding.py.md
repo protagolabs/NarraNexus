@@ -35,8 +35,8 @@ running agent's SkillModule reads `ARENA_API_KEY` / `ARENA_AGENT_ID` back with n
 extra wiring. If SkillModule's meta format changes, this writer changes with it.
 
 **Consumed by:** the Arena onboarding feature (`feat/arena-onboarding`). The
-spike `scripts/spike_arena_provision.py` wraps the DB side (agent + instances +
-awareness) around it; `scripts/verify_arena_onboarding.py` is the usability
+spike `scripts/spikes/spike_arena_provision.py` wraps the DB side (agent + instances +
+awareness) around it; `scripts/debug/verify_arena_onboarding.py` is the usability
 check.
 
 ## Design decisions

@@ -24,8 +24,8 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.agent_framework import xyz_codex_cli_sdk as codex_mod
-from xyz_agent_context.agent_framework.xyz_codex_cli_sdk import (
+from xyz_agent_context.agent_framework.adapters.codex import cli_sdk as codex_mod
+from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import (
     CodexSDK,
     _STDOUT_LINE_LIMIT,
 )

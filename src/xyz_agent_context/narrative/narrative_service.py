@@ -197,7 +197,7 @@ class NarrativeService:
                         # actually ended up using inside detector.detect
                         # (resolution happens deep in OpenAIAgentsSDK —
                         # we read it back via the contextvar set there).
-                        from xyz_agent_context.agent_framework.openai_agents_sdk import (
+                        from xyz_agent_context.agent_framework.adapters.openai_agents import (
                             get_last_llm_call_info,
                         )
                         info = get_last_llm_call_info()

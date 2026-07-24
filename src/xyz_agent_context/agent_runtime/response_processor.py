@@ -27,7 +27,7 @@ from xyz_agent_context.schema import (
     AUTH_EXPIRED_ERROR_TYPE,
     SELF_SERVICEABLE_ERROR_TYPE,
 )
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
     self_serviceable_user_message,
 )

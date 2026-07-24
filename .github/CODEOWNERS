@@ -22,7 +22,7 @@
 # Auth / identity — requires extra eyes.
 /backend/auth.py                       @johnsonice @BinLiang2021
 /backend/routes/auth.py                @johnsonice @BinLiang2021
-/src/xyz_agent_context/agent_framework/provider_driver/ @johnsonice @BinLiang2021
+/src/xyz_agent_context/agent_framework/providers/driver/ @johnsonice @BinLiang2021
 
 # Bundle export / import — credentials and chat content flow here.
 /src/xyz_agent_context/bundle/ @johnsonice @BinLiang2021

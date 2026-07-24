@@ -715,10 +715,10 @@ class AgentRuntime:
                 # Step-5 LLM hooks (social-network entity summaries, memory
                 # extraction) run on the user's provider — not the platform key
                 # they used to silently fall through to (2026-07 incident).
-                from xyz_agent_context.agent_framework.llm_failure import (
+                from xyz_agent_context.agent_framework.llm.failure import (
                     is_credential_error,
                 )
-                from xyz_agent_context.agent_framework.provider_resolver import (
+                from xyz_agent_context.agent_framework.providers.resolver import (
                     ProviderResolverError,
                     inject_owner_helper_credentials,
                 )

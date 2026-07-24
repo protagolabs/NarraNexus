@@ -2,7 +2,7 @@
 @file_name: test_backfill_cost_records_user_id.py
 @author: Bin Liang
 @date: 2026-07-22
-@description: Tests for scripts/backfill_cost_records_user_id.py — the SQL that
+@description: Tests for scripts/data_migrations/backfill_cost_records_user_id.py — the SQL that
 fills cost_records.user_id from agents.created_by. Runs against the in-memory
 SQLite fixture.
 
@@ -23,6 +23,7 @@ import pytest
 _SCRIPT = (
     Path(__file__).resolve().parents[3]
     / "scripts"
+    / "data_migrations"
     / "backfill_cost_records_user_id.py"
 )
 _spec = importlib.util.spec_from_file_location("backfill_cost_records_user_id", _SCRIPT)

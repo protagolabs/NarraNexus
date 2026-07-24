@@ -36,7 +36,7 @@ from xyz_agent_context.agent_framework.api_config import (
     set_provider_source,
 )
 from xyz_agent_context.agent_framework.quota_service import QuotaService
-from xyz_agent_context.agent_framework.system_provider_service import (
+from xyz_agent_context.agent_framework.providers.system_service import (
     SystemProviderService,
 )
 from xyz_agent_context.schema.provider_schema import (
@@ -114,7 +114,7 @@ def _wire(monkeypatch, quota_svc, *, user_cfg=None):
     the real ProviderResolver decision tree in play. SystemProviderService is
     stubbed via its singleton (_stub_sys)."""
     from xyz_agent_context.utils.db import db_factory
-    from xyz_agent_context.agent_framework import user_provider_service
+    from xyz_agent_context.agent_framework.providers import user_service as user_provider_service
 
     monkeypatch.setattr(api_config, "_ensure_quota_service",
                         AsyncMock(return_value=quota_svc))

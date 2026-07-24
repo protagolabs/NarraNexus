@@ -7,7 +7,7 @@
 Personal-account WeChat via the iLink ("ClawBot") gateway. Architecturally
 closest to Telegram (long-poll, single token), so this mirrors
 ``telegram_module.py``. Deltas:
-  1. Binding is a QR-scan flow (Channels panel → backend/routes/wechat.py), not
+  1. Binding is a QR-scan flow (Channels panel → backend/routes/channels/wechat.py), not
      a token paste — so there is no ``wechat_bind`` MCP tool.
   2. The agent replies via ``wechat_send(to_user_id, context_token, text)``.
   3. Owner identity is the peer's wxid, claimed on first DM (opaque at bind).

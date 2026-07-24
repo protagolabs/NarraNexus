@@ -31,7 +31,7 @@ api_config.openai_config.base_url = "https://api.netmind.ai/inference-api/openai
 # Will be overridden per-call by passing model=
 api_config.openai_config.model = "deepseek-ai/DeepSeek-V3.1"
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import (  # noqa: E402
+from xyz_agent_context.agent_framework.adapters.openai_agents import (  # noqa: E402
     OpenAIAgentsSDK,
     _response_format_capability,
     _capability_key,
@@ -109,7 +109,7 @@ async def run_once(sdk, model: str, schema, instructions: str, user_input: str) 
             output_type=schema,
             model=model,
         )
-        from xyz_agent_context.agent_framework.openai_agents_sdk import (
+        from xyz_agent_context.agent_framework.adapters.openai_agents import (
             get_last_llm_call_info,
         )
         info = get_last_llm_call_info() or {}

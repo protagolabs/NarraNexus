@@ -323,7 +323,7 @@ async def upload_team_chat_attachment(
     # Transcribe audio uploads so team agents get the words (they can't listen).
     transcription_available: bool | None = None
     if mime_type.startswith("audio/"):
-        from xyz_agent_context.agent_framework.transcription import TranscriptionService
+        from xyz_agent_context.agent_framework.llm.transcription import TranscriptionService
 
         on_disk = resolve_shared_file_for_user(user_id, att["rel_path"])
         svc = TranscriptionService.instance()

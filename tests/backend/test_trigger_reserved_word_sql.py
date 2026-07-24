@@ -12,7 +12,7 @@ it bare:
      (1064, "... near 'trigger IS NULL OR trigger != 'message_bus'"); 2585
      WARNINGs in 2 days, sidebar previews silently missing.
   2. Dashboard "recent activity" feed
-     (backend.routes._dashboard_helpers.fetch_recent_events). Same 1064, but
+     (backend.routes.dashboard._helpers.fetch_recent_events). Same 1064, but
      swallowed by a bare `except` -> the feed silently returned empty.
 
 Why local dev never caught it: the test DB is in-memory SQLite, and SQLite
@@ -31,7 +31,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes.auth as auth_mod
-import backend.routes._dashboard_helpers as dash_mod
+import backend.routes.dashboard._helpers as dash_mod
 from xyz_agent_context.repository.user_repository import UserRepository
 
 

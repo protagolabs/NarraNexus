@@ -16,7 +16,7 @@ Verifies:
 
 These tests do NOT exercise the SDK itself (no subprocess, no
 network) — they just lock in the static contract of v2. Live SDK
-behavior is verified by ``scripts/spike_codex_official_sdk.py``
+behavior is verified by ``scripts/spikes/spike_codex_official_sdk.py``
 Section A/B and by Task 10's manual smoke gate.
 """
 from __future__ import annotations
@@ -26,13 +26,13 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework.agent_loop_driver import (
+from xyz_agent_context.agent_framework.loop.driver import (
     AgentLoopDriver,
     available_agent_loop_frameworks,
     get_agent_loop_driver,
 )
-from xyz_agent_context.agent_framework.xyz_codex_cli_sdk import CodexSDK
-from xyz_agent_context.agent_framework.xyz_codex_official_sdk import (
+from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import CodexSDK
+from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
     CodexSDKv2,
     _build_codex_config_overrides,
 )
@@ -370,7 +370,7 @@ def test_v2_item_type_table_covers_known_sdk_types():
     """
     import openai_codex.generated.v2_all as v2
 
-    from xyz_agent_context.agent_framework.output_transfer import (
+    from xyz_agent_context.agent_framework.loop.output_transfer import (
         _CODEX_ITEM_TYPES_TEXT,
         _CODEX_ITEM_TYPES_THINKING,
         _CODEX_ITEM_TYPES_TOOL,
@@ -440,7 +440,7 @@ def test_method_constants_match_sdk_notification_registry():
     """
     from openai_codex.generated.notification_registry import NOTIFICATION_MODELS
 
-    from xyz_agent_context.agent_framework import output_transfer as ot
+    from xyz_agent_context.agent_framework.loop import output_transfer as ot
 
     method_constants = {
         name: getattr(ot, name)

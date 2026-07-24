@@ -91,7 +91,7 @@ L2 across all merged workers — and is `message_bus_trigger`'s FIRST L2 signal
 ## Upstream / downstream
 
 - **Upstream**: launched by run.sh (container + `exec dev-local.sh`),
-  scripts/dev-local.sh, scripts/.dev-local-safe.sh, scripts/deploy-cloud.sh, and
+  scripts/dev/dev-local.sh, scripts/dev/.dev-local-safe.sh, scripts/release/deploy-cloud.sh, and
   Tauri [[state.rs]] (both factories, service id `workers`, order 3). The
   startup-alignment guard `tests/channel/test_trigger_startup_alignment.py`
   enforces this wiring.
