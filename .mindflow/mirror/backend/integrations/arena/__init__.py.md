@@ -4,7 +4,7 @@ last_verified: 2026-07-24
 stub: false
 ---
 
-# integrations/arena/__init__.py — Agent Arena client group
+# backend/integrations/arena/__init__.py — Agent Arena client group
 
 Anchor for `arena_provisioning_service`, moved out of `services/` in the
 2026-07-24 layout cleanup (it is an outbound Arena API client, not a

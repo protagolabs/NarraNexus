@@ -4,7 +4,7 @@ last_verified: 2026-07-24
 stub: false
 ---
 
-# integrations/netmind/__init__.py — NetMind platform client group
+# backend/integrations/netmind/__init__.py — NetMind platform client group
 
 Anchor for the NetMind-facing clients moved out of `services/` in the
 2026-07-24 layout cleanup: `netmind_auth_client`, `netmind_billing_client`,

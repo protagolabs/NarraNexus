@@ -59,7 +59,7 @@ hook a profile can override for richer conditions later (Decision D).
 ## Gotchas
 
 - The `arena` profile is registered as a side effect of importing
-  `backend/backend/integrations/arena/arena_provisioning_service.py`. The runtime never resolves it (it
+  `backend/integrations/arena/arena_provisioning_service.py`. The runtime never resolves it (it
   reads stored metadata), so the import-timing only matters at create time,
   where arena always imports its own module.
 - `bootstrap_md()` returning `None` means "no Bootstrap.md" → `apply_bootstrap`
