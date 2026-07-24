@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import os
 from functools import lru_cache
-from typing import Optional
+from typing import Callable, Optional
 
 from loguru import logger
 
@@ -26,7 +26,7 @@ from xyz_agent_context.analytics.surface import SURFACE
 
 __all__ = [
     "AnalyticsClient", "get_analytics", "track", "identify_user",
-    "shutdown_analytics", "register_sink_factory",
+    "shutdown_analytics", "register_sink_factory", "SinkFactory",
 ]
 
 # Pseudonymize the user id before it leaves the process: PostHog only ever
@@ -50,10 +50,12 @@ def _hash_distinct_id(user_id: str) -> str:
 # (backend/analytics); processes that never register one (workers, MCP
 # servers, tests) silently get NullSink — which is also the only
 # behavior they ever had, since no agent-side process calls track().
-_sink_factory = None
+SinkFactory = Callable[[], Optional[AnalyticsClient]]
+
+_sink_factory: Optional[SinkFactory] = None
 
 
-def register_sink_factory(factory) -> None:
+def register_sink_factory(factory: SinkFactory) -> None:
     """Install the platform's sink factory (callable -> AnalyticsClient|None).
 
     Called once at backend startup. Clears the cached sink so a factory

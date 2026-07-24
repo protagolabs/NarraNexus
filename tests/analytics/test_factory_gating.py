@@ -30,7 +30,11 @@ def test_disabled_returns_null_sink(monkeypatch):
 
 
 def test_missing_key_returns_null_sink(monkeypatch):
+    """The REAL platform factory with no key -> None -> NullSink (parity
+    with the pre-split lazy-import gate)."""
     a = _reload(monkeypatch, enabled="true", key=None, surface="local")
+    from backend.analytics import register_posthog_sink
+    register_posthog_sink()
     assert type(a.get_analytics()).__name__ == "NullSink"
 
 
