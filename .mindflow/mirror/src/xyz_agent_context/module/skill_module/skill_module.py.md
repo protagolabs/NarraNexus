@@ -50,7 +50,7 @@ branch, dest) -> (root, canonical_url)`(校验+浅克隆+剥 .git)、
 routes/MCP 完全透明——env 值从不出后端,接口只返回 presence bool。
 
 **注意**:routes/skills.py 的 install/remove 端点现在走 InstallPipeline
-(`_skill_marketplace_impl/install_pipeline.py`),不再直接调 install_skill /
+(`marketplace/_skill_marketplace_impl/install_pipeline.py`),不再直接调 install_skill /
 install_from_github / remove_skill;bundle 导入路径仍直接用 `install_skill(zip,
 target_dir_name)`,不经 pipeline(信任来源,不需要扫描 Gate)。
 

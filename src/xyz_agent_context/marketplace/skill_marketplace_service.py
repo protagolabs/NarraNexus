@@ -15,11 +15,11 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from xyz_agent_context._skill_marketplace_impl.install_pipeline import (
+from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import (
     InstallPipeline,
     InstallResult,
 )
-from xyz_agent_context._skill_marketplace_impl.registry import (
+from xyz_agent_context.marketplace._skill_marketplace_impl.registry import (
     PublishRejectedError,
     RegistryService,
     RemoteMarketplaceSource,
@@ -201,7 +201,7 @@ class SkillMarketplaceService:
     async def install(
         self, agent_id: str, user_id: str, skill_id: str, version: Optional[str] = None
     ) -> InstallResult:
-        from xyz_agent_context._skill_marketplace_impl.registry import LocalMarketplaceSource
+        from xyz_agent_context.marketplace._skill_marketplace_impl.registry import LocalMarketplaceSource
 
         # The mode decision lives HERE (single place): cloud installs read the
         # local DB registry; desktop installs pull from the cloud API.

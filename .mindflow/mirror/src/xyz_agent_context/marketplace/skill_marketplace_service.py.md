@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/skill_marketplace_service.py
+code_file: src/xyz_agent_context/marketplace/skill_marketplace_service.py
 last_verified: 2026-07-22
 stub: false
 ---

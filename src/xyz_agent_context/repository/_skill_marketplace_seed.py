@@ -3,8 +3,8 @@
 @author: NetMind.AI
 @date: 2026-07-22
 @description: Bootstrap seed for the Skill Marketplace — publishes the
-first-party skills vendored in the repo (marketplace_skills/) into this
-registry host's catalog + artifact store.
+first-party skills vendored in the package (marketplace/resources/
+marketplace_skills/) into this registry host's catalog + artifact store.
 
 Why this exists (parallel to _team_marketplace_seed): the Team Marketplace
 auto-seeds from narra.nexus, but skills had NO auto-seed, so a fresh cloud
@@ -14,8 +14,9 @@ first-party skills — the `default: true` NetMind multimodal fallbacks in
 particular — available out of the box, exactly like officecli's vendored
 SKILL.md is materialized without any manual step.
 
-Scope: ONLY the skills physically present under `marketplace_skills/` in the
-repo (first-party). Third-party skills (clawhub, etc.) are NOT seeded here —
+Scope: ONLY the first-party skills physically present under the vendored
+`marketplace/resources/marketplace_skills/` directory (env-overridable via
+MARKETPLACE_SKILLS_DIR). Third-party skills (clawhub, etc.) are NOT seeded here —
 they carry license/attribution concerns and are published deliberately via
 scripts/publish_skill.py.
 
@@ -37,17 +38,22 @@ from loguru import logger
 
 
 def _skills_root() -> Optional[Path]:
-    """Locate the repo-vendored marketplace_skills/ directory.
+    """Locate the vendored marketplace/resources/marketplace_skills/ directory.
 
-    Env override MARKETPLACE_SKILLS_DIR wins; otherwise resolve relative to
-    this file (src/xyz_agent_context/repository/ -> repo root). Returns None
-    if it can't be found (e.g. a pip-installed package without the dir), so
-    the seed degrades to a no-op instead of raising."""
+    Env override MARKETPLACE_SKILLS_DIR wins; otherwise resolve inside the
+    package (src/xyz_agent_context/marketplace/resources/), so the skills
+    travel with the package in every install form. Returns None if it can't
+    be found, so the seed degrades to a no-op instead of raising."""
     override = os.environ.get("MARKETPLACE_SKILLS_DIR")
     if override:
         p = Path(override)
         return p if p.is_dir() else None
-    candidate = Path(__file__).resolve().parents[3] / "marketplace_skills"
+    candidate = (
+        Path(__file__).resolve().parents[1]
+        / "marketplace"
+        / "resources"
+        / "marketplace_skills"
+    )
     return candidate if candidate.is_dir() else None
 
 
@@ -65,7 +71,7 @@ async def seed_skill_marketplace(db_client) -> int:
 
     Returns the number of skills present after seeding. Best-effort per skill
     (one failure never aborts the rest), idempotent, safe to run every boot."""
-    from xyz_agent_context._skill_marketplace_impl.registry import (
+    from xyz_agent_context.marketplace._skill_marketplace_impl.registry import (
         PublishRejectedError,
         RegistryService,
     )

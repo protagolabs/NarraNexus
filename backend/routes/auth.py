@@ -585,7 +585,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         try:
             import asyncio as _asyncio
 
-            from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+            from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
 
             async def _install_default_skills(aid: str, uid: str) -> None:
                 try:
