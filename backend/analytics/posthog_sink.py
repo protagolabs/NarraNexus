@@ -1,7 +1,7 @@
 """
 @file_name: posthog_sink.py
 @date: 2026-06-08
-@description: PostHog implementation of AnalyticsClient.
+@description: PostHog implementation of AnalyticsClient (platform side).
 
 Wraps posthog-python's module-level client. capture/identify are
 best-effort: any error is logged and swallowed (observer never breaks

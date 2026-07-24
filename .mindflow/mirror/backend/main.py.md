@@ -1,8 +1,21 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-22
+last_verified: 2026-07-24
 stub: false
 ---
+
+## 2026-07-24 — analytics sink seam 在 import 期装配（B4）
+
+`register_posthog_sink()`（backend/analytics）在 **import 期**、`app = FastAPI(...)`
+之前调用——不是 lifespan。原因：track() 在任意 route 的请求路径上都可能触发，
+而 kernel 的 sink 是 lru_cache 单例；若装配放 lifespan，理论上存在「首个请求
+先于 lifespan 完成」的窗口拿到 NullSink 并被缓存（register_sink_factory 里的
+cache_clear 兜底了这个竞态，但 import 期装配让它根本不发生）。装配本身只存一个
+callable：不发网络、不碰 DB、不读 key（key 在 factory 被 kernel 调用时才读），
+对 /health 启动时序零影响。未注册该 seam 的进程（workers / mcp / model-sync）
+拿到 NullSink 是**预期行为**——它们从不调用 track()，此前也从未有过 vendor sink。
+（shutdown 侧见 2026-06-08 条目——两侧现在对称了。）
+
 
 ## 2026-07-22 — review 修复:seed/reconcile 移出启动关键路径
 
