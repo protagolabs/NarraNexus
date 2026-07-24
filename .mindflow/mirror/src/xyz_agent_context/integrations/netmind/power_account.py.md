@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/services/power_account.py
+code_file: src/xyz_agent_context/integrations/netmind/power_account.py
 last_verified: 2026-07-13
 stub: false
 ---

@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/services/netmind_key_client.py
+code_file: src/xyz_agent_context/integrations/netmind/netmind_key_client.py
 last_verified: 2026-07-02
 stub: false
 ---

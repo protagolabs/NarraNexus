@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/services/netmind_auth_client.py
+code_file: src/xyz_agent_context/integrations/netmind/netmind_auth_client.py
 last_verified: 2026-06-11
 stub: false
 ---

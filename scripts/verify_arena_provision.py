@@ -61,7 +61,7 @@ async def main() -> None:
     if cleared:
         print(f"  (cleared {cleared} prior arena agent(s) for cold-path test)")
 
-    from xyz_agent_context.services.arena_provisioning_service import ArenaProvisioningService
+    from xyz_agent_context.integrations.arena.arena_provisioning_service import ArenaProvisioningService
     svc = ArenaProvisioningService(db)
 
     print("=" * 64)

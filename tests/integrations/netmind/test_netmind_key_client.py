@@ -15,7 +15,7 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 
-from xyz_agent_context.services.netmind_key_client import (
+from xyz_agent_context.integrations.netmind.netmind_key_client import (
     KeyAuthError,
     KeyUpstreamError,
     NetmindKeyClient,

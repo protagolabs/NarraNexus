@@ -76,7 +76,7 @@ async def ensure_netmind_provider(
     if not token:
         return False
 
-    from xyz_agent_context.services.netmind_key_client import NetmindKeyClient
+    from xyz_agent_context.integrations.netmind.netmind_key_client import NetmindKeyClient
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.user_provider_service import (
         UserProviderService,
@@ -147,7 +147,7 @@ async def _capture_netmind_account(db, user_id: str, token: str) -> None:
     (anthropic+openai), so this stamps ALL of the user's netmind rows.
     """
     try:
-        from xyz_agent_context.services.netmind_auth_client import NetmindAuthClient
+        from xyz_agent_context.integrations.netmind.netmind_auth_client import NetmindAuthClient
         who = await NetmindAuthClient().verify_token(token)
         await db.update(
             "user_providers",

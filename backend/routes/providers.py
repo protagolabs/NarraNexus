@@ -442,11 +442,11 @@ async def use_subscription(request: Request):
     gated by ``settings.netmind_use_subscription_enabled``.
     """
     from xyz_agent_context.settings import settings
-    from xyz_agent_context.services.netmind_key_client import (
+    from xyz_agent_context.integrations.netmind.netmind_key_client import (
         KeyAuthError,
         KeyUpstreamError,
     )
-    from xyz_agent_context.services.netmind_provisioner import (
+    from xyz_agent_context.integrations.netmind.netmind_provisioner import (
         ensure_netmind_provider,
     )
 

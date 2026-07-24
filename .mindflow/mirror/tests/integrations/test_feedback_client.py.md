@@ -1,5 +1,5 @@
 ---
-code_file: tests/services/test_feedback_client.py
+code_file: tests/integrations/test_feedback_client.py
 last_verified: 2026-07-10
 stub: false
 ---

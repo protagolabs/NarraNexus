@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.services import identity_migration as mig
+from xyz_agent_context.integrations.netmind import identity_migration as mig
 
 OLD = "binliang"
 HEX = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"

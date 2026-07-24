@@ -50,7 +50,7 @@ async def provision_arena(request: Request) -> dict:
         user_token = None
     try:
         db = await get_db_client()
-        from xyz_agent_context.services.arena_provisioning_service import (
+        from xyz_agent_context.integrations.arena.arena_provisioning_service import (
             ArenaProvisioningService,
         )
 
