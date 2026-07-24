@@ -8,8 +8,7 @@
              the reusable ArenaOnboarder (utils/arena_onboarding.py); this
              script wraps the DB side (agent + instances + awareness) around it.
 
-             NOT production code; validates the design in
-             reference/self_notebook/specs/2026-06-15-arena-onboarding-design.md
+             NOT production code; validates the arena-onboarding design
              before the proper ArenaProvisioningService is built.
 
 Flow:

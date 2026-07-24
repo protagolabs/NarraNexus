@@ -4,8 +4,7 @@
 @date: 2026-07-10
 @description: Opt-in channel-credential export/import roundtrip tests.
 
-Covers the "带凭据打包" feature (design:
-reference/self_notebook/specs/2026-07-10-channel-credential-export-design.md):
+Covers the "带凭据打包" feature:
 
 1. Default export does NOT ship any IM channel credential (privacy — the
    pre-feature behaviour is unchanged when the opt-in flag is off).

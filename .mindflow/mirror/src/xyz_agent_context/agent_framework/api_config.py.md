@@ -174,7 +174,6 @@ Claude-dialect mapping lives in xyz_claude_agent_sdk
 (`_resolve_reasoning_options`), NOT here. `to_cli_env()` is untouched —
 these ride ClaudeAgentOptions, not env vars.
 
-
 ## 2026-05-29 — add CodexConfig + codex_config ContextVar
 
 Symmetric with the existing ClaudeConfig/OpenAIConfig/EmbeddingConfig
@@ -235,8 +234,6 @@ migration that turns env-var system credentials into a regular
 `user_providers` row with `owner_user_id=NULL` (Phase 3) will collapse
 that branch too; until then, opt-in `prefer_system_override=true` users
 keep going through the old path.
-
-See `reference/self_notebook/specs/2026-05-13-provider-unification-design.md`.
 
 ## 2026-04-20 change — strict 2-branch `get_user_llm_configs` (Bug 2)
 

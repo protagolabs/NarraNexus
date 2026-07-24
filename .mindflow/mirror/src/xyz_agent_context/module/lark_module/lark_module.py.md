@@ -313,9 +313,8 @@ point at this section rather than restate the incomplete one-liner.
 ## 2026-04-22 update — C-mini redesign (three-click authorization)
 
 The `get_instructions` render and `hook_data_gathering` were both reworked
-as part of the Lark three-click authorization redesign. See
-`reference/self_notebook/specs/2026-04-22-lark-three-click-auth-design.md`
-for the full rationale.
+as part of the Lark three-click authorization redesign (2026-04-22,
+author-local design).
 
 ### What changed
 

@@ -47,8 +47,6 @@ md for the rationale.
 
 ## 2026-05-14 — `delete` accepts `deleteSource`
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 `delete(agentId, artifactId, deleteSource?: boolean)` now passes the popup
 choice down to `artifactsApi.remove`. `false` (default) tears down the DB
 row only; `true` also `rmtree`s the artifact root directory in the agent

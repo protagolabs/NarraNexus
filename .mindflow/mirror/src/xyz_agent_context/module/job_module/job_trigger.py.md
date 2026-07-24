@@ -143,8 +143,7 @@ False (don't resume into an unknown state).
 platform never overrides the user's choice — it only stops resuming a job into a
 run the runtime is guaranteed to refuse.
 
-(Design: `reference/self_notebook/specs/2026-06-01-job-scheduler-resilience-design.md`,
-batch ①. Remaining batches — cooling/backoff, edge-triggered recovery, pause/resume
+(Job-scheduler resilience redesign batch ①, 2026-06-01. Remaining batches — cooling/backoff, edge-triggered recovery, pause/resume
 API + notifications + frontend — are not yet implemented.)
 
 ## 2026-05-22 — no-quota auto-pause + resume (#6 infinite-loop fix)

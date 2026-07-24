@@ -81,8 +81,6 @@ Response shape: `{deleted: artifact_id}` (no more `source_deleted`).
 
 ## 2026-05-14 — pointer model: raw serving moved to public router
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 This router shed its `/raw` endpoint. Raw content serving now lives in
 `artifacts_public.py` under `/api/public/artifacts/raw/{token}/{path}`
 (JWT-bypassed; HMAC token in the path is the auth). The split is forced by

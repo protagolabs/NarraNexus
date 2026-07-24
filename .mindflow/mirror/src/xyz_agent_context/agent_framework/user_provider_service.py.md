@@ -118,9 +118,8 @@ rows' base_url is derived from it (_netmind_base_for: {base}/anthropic,
 the hardcoded prod _DUAL_PROVIDER_CONFIGS. ONLY use-subscription passes it (from
 settings.netmind_inference_base); manual /onboard paste passes nothing → prod.
 Rationale: a minted key belongs to the deployment's NetMind env (dev key → dev
-inference), but a user-pasted key is their own public prod key. See [[settings]]
-and reference/self_notebook/todo/2026-07-03-netmind-inference-base-hardcoded.md.
-
+inference), but a user-pasted key is their own public prod key. See [[settings]]; the hardcoded
+inference base is a known follow-up (author-local todo).
 
 ## 2026-06-10 (5th pass) — onboard live-verifies the key before writing
 

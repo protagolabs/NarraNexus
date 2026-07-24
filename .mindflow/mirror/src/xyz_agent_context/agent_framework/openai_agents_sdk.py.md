@@ -32,8 +32,7 @@ depth 计数,`{"a": 1]` 这类错配会被判为不平衡(而非"平衡但随后
 
 > 注:文本重复的**根因**在 codex_official translator 对 `agentMessageDelta`(增量)
 > 与 `item.completed`(全量)双重 emit 成 `response.text.delta`——这条也影响 agent
-> 主链路的 `ResponseProcessor.append_text`,风险面大,单独立项处理(见
-> `reference/self_notebook/todo/2026-07-08-codex-official-double-emit.md`)。这里只在
+> 主链路的 `ResponseProcessor.append_text`,风险面大,单独立项处理(author-local todo)。这里只在
 > helper 抽取侧做鲁棒化,保证结构化调用正确。
 
 ## 2026-07-03 — de-silence missing usage (Phase 0 / module H)
@@ -43,10 +42,8 @@ the structured-fallback path) now branch: when a live cost context exists but th
 provider returned 0/absent usage, call `cost_tracker.warn_missing_usage(...)`
 instead of silently skipping. Turns an invisible accounting miss into an
 auditable WARNING. The response_format ladder consumes no tokens on a failed
-level (provider rejects before generating), so nothing is multi-counted — see
-reference/self_notebook/token-accounting-audit-checklist.md.
-
-
+level (provider rejects before generating), so nothing is multi-counted (verified in the token-accounting audit,
+2026-07).
 
 ## 2026-05-29 — self-downgrade events audited to DB (E2)
 

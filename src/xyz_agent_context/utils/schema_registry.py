@@ -151,8 +151,6 @@ _register(
             Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
             Column("user_id", "TEXT", "VARCHAR(128)"),
             # --- Agent Runtime Lifecycle (Phase C, 2026-05-13) ---
-            # See reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-
-            # and-stream-resilience-design.md §4.1
             #
             # `state` describes the live status of the agent run associated
             # with this event. Old rows default to 'completed' (they finished
@@ -749,8 +747,7 @@ _register(
             # forward proxies. auto_migrate() will add this column to
             # pre-existing tables with the default value.
             Column("supports_anthropic_server_tools", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
-            # --- Provider Unification (2026-05-13) — see spec
-            # reference/self_notebook/specs/2026-05-13-provider-unification-design.md
+            # --- Provider Unification (2026-05-13) ---
             #
             # driver_type    : key into agent_framework.provider_driver.DRIVER_REGISTRY.
             #                  null on existing rows; backfilled at startup via
@@ -1217,8 +1214,7 @@ _register(
 # ----------------------------------------------------------------------------
 # 29. user_notifications — out-of-band messages to surface in UI
 #
-# Introduced by the Provider Unification work (spec
-# reference/self_notebook/specs/2026-05-13-provider-unification-design.md).
+# Introduced by the Provider Unification work (2026-05-13).
 # The first producer is the self-heal mechanism: when a slot.model is no
 # longer in the provider.models array, the resolver auto-swaps to a safe
 # default and writes a `slot_auto_repaired` row here so the user finds
@@ -1251,9 +1247,7 @@ _register(
 # ----------------------------------------------------------------------------
 # 30. event_stream — per-stream-chunk persistence for live agent runs.
 #
-# Introduced by the Agent Runtime Lifecycle work (spec
-# reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-
-# stream-resilience-design.md §4.1.2).
+# Introduced by the Agent Runtime Lifecycle work (2026-05-13).
 #
 # Why we need it
 #   The user requirement is "重连等于没关过一样" — closing a browser tab
@@ -1715,8 +1709,8 @@ _register(
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
             # DEPRECATED (2026-05-14): versioning was dropped with the pointer
             # model. Column kept registered because dropping a column is a
-            # destructive migration (铁律 #6) — removal is Owner-gated, see
-            # reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
+            # destructive migration (铁律 #6) — removal is Owner-gated
+            # (author-local todo).
             Column("latest_version", "INTEGER", "INT", nullable=False, default="1"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
@@ -1735,8 +1729,7 @@ _register(
 # rows untouched (auto_migrate never drops) so old saved HTML can still be
 # hand-migrated; fresh databases simply stop provisioning it. Dropping the
 # table (and `instance_artifacts.latest_version`) remains an explicit
-# Owner-gated migration — see
-# reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
+# Owner-gated migration (author-local todo).
 
 
 # ----------------------------------------------------------------------------
@@ -1800,7 +1793,6 @@ _register(
 # replaces the per-module bespoke memory tables + the runtime-`CREATE TABLE`
 # EventMemoryRepository path (which bypassed this registry and was MySQL-only).
 #
-# Design: reference/self_notebook/specs/2026-06-03-agent-memory-unification-design.md §4.
 # No vectors anywhere here — retrieval is BM25 + grep + structured filters.
 # ============================================================================
 

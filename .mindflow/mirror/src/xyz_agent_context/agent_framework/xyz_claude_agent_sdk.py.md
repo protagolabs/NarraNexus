@@ -229,8 +229,8 @@ post-hoc grep. Tests: tests/agent_framework/test_claude_reasoning_mapping.py.
 ## 2026-06-10 — L1a cleanup (SDK 0.1.43 alignment)
 
 Three obsolete-workaround removals after auditing the installed
-claude-agent-sdk 0.1.43 against the official Agent SDK docs (research:
-`reference/self_notebook/specs/2026-06-10-claude-agent-sdk-adapter-research.md`):
+claude-agent-sdk 0.1.43 against the official Agent SDK docs (2026-06-10
+adapter research, author-local):
 
 1. **`_safe_parse_message` monkey-patch DELETED.** 0.1.43's parser
    natively returns `None` for unknown message types ("Forward-compatible:
@@ -266,8 +266,7 @@ retry (set via `api_config.to_cli_env`).
 **Deferred (NOT yet implemented):** the active `interrupt()` + re-issue
 auto-recovery on a confirmed-dead provider (the discussed "路径2"). It's risky
 surgery on this shared streaming loop and needs integration testing against a
-mock stalled provider before shipping — see
-`reference/self_notebook/todo/2026-05-22-debug-batch.md` #7.
+mock stalled provider before shipping (author-local todo).
 
 ## 2026-05-19 — Source-aware history truncation
 

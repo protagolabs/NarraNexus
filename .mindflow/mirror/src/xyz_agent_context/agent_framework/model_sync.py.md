@@ -53,4 +53,3 @@ passing lists into the per-(source, protocol) model lists.
 - Concurrency-capped probes (`_PROBE_CONCURRENCY`) so the initial 86-probe seed
   doesn't hammer upstream; steady state is a handful.
 - `system_pool` has no separate probe — it reuses the `netmind` ledger entry.
-- Design + scope: `reference/self_notebook/specs/2026-06-24-power-models-auto-sync-design.md`.

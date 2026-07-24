@@ -37,12 +37,10 @@ additive:catalog INDEX,一行一个 team/agent bundle 模板;store_key 指向
 artifact store 里的 .nxbundle(独立 prefix),bundle_sha256 防篡改。unique
 template_id + (enabled, sort_order) 索引。cloud registry 写,desktop 空表。
 
-
 ## 2026-07-21 — skill_catalog.is_default 列(stage 9)
 
 additive TINYINT(1) 默认 0:标记「建 agent 时自动安装」的默认技能。
 manifest 的 `"default": true` 在 publish 时写入。
-
 
 ## 2026-07-20 — Skill Marketplace: 4 new tables
 
@@ -56,8 +54,7 @@ and `team_skill_policies` (placeholder; Team Recommended phase adds logic).
 
 All four exist (empty) on desktop deployments because auto_migrate is
 unconditional; only the cloud instance writes catalog/scan rows. Purely
-additive. Spec:
-`reference/self_notebook/specs/2026-07-20-skill-marketplace-tech-design-v1.1.md` §3.
+additive.
 
 ## 2026-07-16 — user_providers 加 netmind_account_id / netmind_account_email
 
@@ -75,7 +72,6 @@ additive. Spec:
 ## 2026-07-13 — Agent 实时层熔断器接入
 
 注册新表 `instance_agent_circuit_breaker`（实时层 Agent 熔断状态，键 agent_id，双方言，additive auto_migrate 落为新表）。列：cb_status/consecutive_failure_count/failure_category/cooldown_until/paused_reason/paused_at/last_error/时间戳。
-
 
 ## 2026-07-09 — agent_slots (per-agent LLM slot overrides)
 
@@ -95,7 +91,6 @@ extensible JSON object for framework-neutral per-slot params (currently
 thinking + reasoning_effort; future per-slot knobs reuse it without another
 migration). NULL = all params auto. Purely additive — auto_migrate() adds
 it on next startup of every process.
-
 
 ## 2026-06-09 — embedding subsystem removed → ORPHANED ZOMBIE data (cleanup DEFERRED)
 
@@ -172,7 +167,6 @@ extensible JSON object for framework-neutral per-slot params (currently
 thinking + reasoning_effort; future per-slot knobs reuse it without another
 migration). NULL = all params auto. Purely additive — auto_migrate() adds
 it on next startup of every process.
-
 
 ## 2026-06-09 — embedding subsystem removed → ORPHANED ZOMBIE data (cleanup DEFERRED)
 
@@ -253,8 +247,6 @@ since 2026-05-14. `instance_artifacts.latest_version` stays registered — a
 column removal only matters together with the destructive DROP migration,
 which remains one Owner-gated batch (铁律 #6); see the cleanup TODO.
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 `instance_artifacts` gains two pointer-model columns: `file_path` (entry file
 relative to `base_working_path`, nullable so auto_migrate adds it to existing
 DBs without a backfill) and `size_bytes` (recursive size of the artifact root
@@ -264,8 +256,7 @@ directory, `NOT NULL DEFAULT 0`).
 table are now **DEPRECATED** — versioning was dropped with the pointer model.
 Both are kept registered (so auto_migrate keeps provisioning them) purely so
 colleagues with old saved HTML can hand-migrate from the old rows. No code reads
-or writes them. Cleanup tracked in
-`reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md`.
+or writes them. Cleanup is tracked (author-local todo).
 
 ## 2026-05-14 addition — invite_codes
 
@@ -304,8 +295,6 @@ reconcile 扫 stale 行用，后者给 `/api/auth/agents` list 加 active_run
 数据量估算（Xiong-style 13 min run）：thinking 段约 50 行 + tool 约 80
 行（call + output 各 41）+ progress / text_delta 若干 ≈ 200 行/run。
 13 万 run/年 ≈ 2600 万行，~25GB——MySQL 无压力。
-
-Spec: `reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-stream-resilience-design.md` §4.1
 
 ## 2026-05-13 addition — Provider Unification (Phase 0)
 
@@ -405,14 +394,14 @@ Before this file, table schemas lived only as raw `CREATE TABLE` SQL strings in 
 
 ## 2026-04-21 · v2 时区协议字段
 
-`instance_jobs` 表新增 4 列：`next_run_at_local` / `next_run_tz` / `last_run_at_local` / `last_run_tz`（全部 TEXT/VARCHAR, nullable）。语义见 spec `reference/self_notebook/specs/2026-04-21-job-timezone-redesign-design.md` 第 4.1 节。
+`instance_jobs` 表新增 4 列：`next_run_at_local` / `next_run_tz` / `last_run_at_local` / `last_run_tz`（全部 TEXT/VARCHAR, nullable）。语义：前端不感知 UTC,所有时间以 "local + tz" 配对流动(job 时区重设计 2026-04-21)。
 
 这些列是 additive 变更，`auto_migrate` 启动时自动 `ALTER TABLE ADD COLUMN` 即可。**不改**原 `next_run_time` / `last_run_time` 列名或类型（它们在新协议下专职承载 UTC，对 LLM 不可见）。
 
 ## 2026-05-08 · Agent Artifact Tabs — instance_artifacts + instance_artifact_versions
 
 Two new tables registered as part of the Agent Artifact Tabs feature
-(spec: `reference/self_notebook/specs/2026-05-08-agent-artifact-tabs-design.md`).
+(2026-05-08).
 
 **`instance_artifacts`** — one row per artifact emitted by the agent (chart,
 csv, markdown, html app, png/jpeg/pdf, etc.). Text primary key `artifact_id`

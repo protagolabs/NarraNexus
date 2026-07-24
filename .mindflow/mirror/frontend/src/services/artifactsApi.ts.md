@@ -44,8 +44,6 @@ workspace files are never touched. `BulkDeleteResult` no longer carries
 
 ## 2026-05-14 — pointer model: token-based raw fetch, register from workspace, delete_source
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 - `getDetail` returns a plain `Artifact` (the old `{artifact, versions}` shape
   is gone).
 - New `getRawUrl(agentId, artifactId)` mints an HMAC view token via

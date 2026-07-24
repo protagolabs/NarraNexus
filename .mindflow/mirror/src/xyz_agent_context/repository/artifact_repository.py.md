@@ -23,8 +23,6 @@ agent-scoped scans still want it.
 
 ## 2026-05-14 — pointer model: version table dropped
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The repository no longer touches `instance_artifact_versions`. Changes:
 - `create()` is now a plain single-row insert — the entity carries `file_path`
   + `size_bytes` (the runner computes both).

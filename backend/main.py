@@ -125,7 +125,6 @@ async def lifespan(app: FastAPI):
     # Provider Unification (Phase 0) — backfill new columns on legacy
     # user_providers rows. Idempotent + cheap; runs every boot so a row
     # added by an older codebase gets classified the moment we start.
-    # See reference/self_notebook/specs/2026-05-13-provider-unification-design.md
     from xyz_agent_context.agent_framework.provider_driver import (
         backfill_provider_metadata,
     )
@@ -141,7 +140,6 @@ async def lifespan(app: FastAPI):
     # those to `failed` so the UI doesn't claim "still running" for
     # an agent that no longer exists in memory.
     #
-    # See reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-stream-resilience-design.md §4.1.6
     app.state.active_runs = {}
     try:
         running_rows = await db.get("events", {"state": "running"})

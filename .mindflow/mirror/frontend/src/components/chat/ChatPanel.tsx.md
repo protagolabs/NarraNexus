@@ -209,8 +209,6 @@ per session, no leak concern).
 
 ## 2026-05-14 — artifact tool name collapsed to `register_artifact`
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 `ARTIFACT_TOOL_BASE_NAMES` is now `['register_artifact']` (was
 `['create_artifact', 'upload_artifact_file']`). The frontend's live artifact
 discovery keys off this list to recognise tool calls in the agent stream
@@ -354,7 +352,7 @@ The primary user-facing interface. All agent interaction goes through here. Merg
 
 ## 设计决策
 
-**Unified timeline**: History messages and session messages are merged and sorted by timestamp. Dedup is done by `role:content` key + 60-second timestamp-proximity check. **Match-and-consume semantics (Bug 19 fix)**: once a session message pairs with a history timestamp, that timestamp is spliced out of the per-key array so it can't dedup another session message with the same role+content. Without consumption, a single history row would gobble multiple session messages — realistic trigger is "user retries the exact same question after a failed turn", which would silently drop the retry bubble from the UI. Plan B (event_id-based precise dedup) is logged in `reference/self_notebook/todo/waiting/chat_dedup_by_event_id.md` as a future upgrade.
+**Unified timeline**: History messages and session messages are merged and sorted by timestamp. Dedup is done by `role:content` key + 60-second timestamp-proximity check. **Match-and-consume semantics (Bug 19 fix)**: once a session message pairs with a history timestamp, that timestamp is spliced out of the per-key array so it can't dedup another session message with the same role+content. Without consumption, a single history row would gobble multiple session messages — realistic trigger is "user retries the exact same question after a failed turn", which would silently drop the retry bubble from the UI. Plan B — event_id-based precise dedup — is a known future upgrade (author-local todo).
 
 **Polling**: A 12-second interval polls for new background messages (from non-chat agent runs like Jobs). It only replaces the tail of history to avoid losing scroll position for users who've loaded older messages.
 

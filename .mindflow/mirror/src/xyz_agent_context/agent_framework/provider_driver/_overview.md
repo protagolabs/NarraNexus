@@ -56,7 +56,6 @@ file path, system-pool quota deduction — lives inside the Driver.
 
 ## Pointers to design docs
 
-* Spec: ``reference/self_notebook/specs/2026-05-13-provider-unification-design.md``
 * Visualisation (NarraNexus-deploy): ``reference/provider-system-tour.html``
 
 ## Open hooks for future phases

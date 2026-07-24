@@ -116,6 +116,6 @@ L2 across all merged workers — and is `message_bus_trigger`'s FIRST L2 signal
   via `MYSQL_POOL_SIZE` (default 10; see [[db_factory.py]]) — a supervisor
   deployment should set ≥25. Note: cloud compose still runs the 4 separate
   containers today, so the single-pool case only bites once compose switches to
-  the supervisor (tracked in `reference/self_notebook/todo/`).
+  the supervisor (author-local todo).
 - The individual workers keep their `if __name__ == "__main__"` blocks as
   standalone DEBUG entrypoints only — no launcher wires them anymore.
