@@ -292,7 +292,7 @@ async def test_inject_owner_credentials_resolves_for_agent_owner(db_client):
     db_client.get_one = AsyncMock(return_value={"agent_id": "agent_x", "created_by": "user_owner"})
 
     with patch(
-        "xyz_agent_context.agent_framework.provider_resolver.resolve_and_set_provider_for_user",
+        "xyz_agent_context.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
         new=AsyncMock(),
     ) as resolver:
         await worker._inject_owner_credentials("agent_x")
@@ -309,7 +309,7 @@ async def test_inject_owner_credentials_no_owner_is_noop(db_client):
     db_client.get_one = AsyncMock(return_value=None)
 
     with patch(
-        "xyz_agent_context.agent_framework.provider_resolver.resolve_and_set_provider_for_user",
+        "xyz_agent_context.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
         new=AsyncMock(),
     ) as resolver:
         await worker._inject_owner_credentials("agent_ghost")
@@ -358,7 +358,7 @@ async def test_inject_owner_credentials_never_leaks_previous_tenant(db_client):
 
     db_client.get_one = AsyncMock(return_value=None)  # deleted agent
     with patch(
-        "xyz_agent_context.agent_framework.provider_resolver.resolve_and_set_provider_for_user",
+        "xyz_agent_context.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
         new=AsyncMock(),
     ):
         await worker._inject_owner_credentials("agent_deleted")

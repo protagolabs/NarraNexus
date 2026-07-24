@@ -27,7 +27,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.agent_framework.provider_resolver import (
+from xyz_agent_context.agent_framework.providers.resolver import (
     ProviderResolver,
     ProviderAvailability,
     is_runnable,
@@ -125,7 +125,7 @@ async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user_ok(monke
     """#48: pref=1 + exhausted + own provider. Instead of dead-ending on the
     exhausted free tier, the free-tier preference is auto-disabled and the user
     routes to their own key — so the verdict is USER_OK and IS runnable."""
-    from xyz_agent_context.agent_framework import provider_resolver as pr
+    from xyz_agent_context.agent_framework.providers import resolver as pr
     monkeypatch.setattr(pr, "_emit_free_tier_switch_notice", AsyncMock())
     r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=True, has_budget=False)
     verdict = await r.classify("u")

@@ -125,7 +125,7 @@ async def lifespan(app: FastAPI):
     # Provider Unification (Phase 0) — backfill new columns on legacy
     # user_providers rows. Idempotent + cheap; runs every boot so a row
     # added by an older codebase gets classified the moment we start.
-    from xyz_agent_context.agent_framework.provider_driver import (
+    from xyz_agent_context.agent_framework.providers.driver import (
         backfill_provider_metadata,
     )
 
@@ -209,14 +209,14 @@ async def lifespan(app: FastAPI):
     # module-level singleton that reads env once; in local mode or when
     # env is incomplete its is_enabled() returns False and every downstream
     # call is a no-op. Expose each piece on app.state for routes to consume.
-    from xyz_agent_context.agent_framework.system_provider_service import (
+    from xyz_agent_context.agent_framework.providers.system_service import (
         SystemProviderService,
     )
     from xyz_agent_context.agent_framework.quota_service import QuotaService
-    from xyz_agent_context.agent_framework.provider_resolver import (
+    from xyz_agent_context.agent_framework.providers.resolver import (
         ProviderResolver,
     )
-    from xyz_agent_context.agent_framework.user_provider_service import (
+    from xyz_agent_context.agent_framework.providers.user_service import (
         UserProviderService,
     )
     from xyz_agent_context.repository.quota_repository import QuotaRepository
@@ -386,9 +386,9 @@ app.middleware("http")(access_log_middleware)
 
 # Import and include routers
 from backend.routes.websocket import router as websocket_router
-from backend.routes.agents import router as agents_router
-from backend.routes.agents_artifacts import router as agents_artifacts_router
-from backend.routes.users_artifacts import router as users_artifacts_router
+from backend.routes.agents.core import router as agents_router
+from backend.routes.agents.artifacts import router as agents_artifacts_router
+from backend.routes.artifacts.users import router as users_artifacts_router
 from backend.routes.jobs import router as jobs_router
 from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
@@ -398,23 +398,23 @@ from backend.routes.home_assistant import router as home_assistant_router
 from backend.routes.providers import router as providers_router
 from backend.routes.inbox import router as inbox_router
 from backend.routes.notices import router as notices_router
-from backend.routes.dashboard import router as dashboard_router
-from backend.routes.lark import router as lark_router
-from backend.routes.slack import router as slack_router
-from backend.routes.telegram import router as telegram_router
-from backend.routes.wechat import router as wechat_router
-from backend.routes.narramessenger import router as narramessenger_router
-from backend.routes.discord import router as discord_router
+from backend.routes.dashboard.routes import router as dashboard_router
+from backend.routes.channels.lark import router as lark_router
+from backend.routes.channels.slack import router as slack_router
+from backend.routes.channels.telegram import router as telegram_router
+from backend.routes.channels.wechat import router as wechat_router
+from backend.routes.channels.narramessenger import router as narramessenger_router
+from backend.routes.channels.discord import router as discord_router
 from backend.routes.quota import router as quota_router
-from backend.routes.admin_quota import router as admin_quota_router
+from backend.routes.admin.quota import router as admin_quota_router
 from backend.routes.notifications import router as notifications_router
-from backend.routes.admin_logs import router as admin_logs_router
-from backend.routes.admin_migration import router as admin_migration_router
-from backend.routes.admin_runtime import router as admin_runtime_router
-from backend.routes.transcription import router as transcription_router
-from backend.routes.transcription_public import router as transcription_public_router
-from backend.routes.artifacts_public import router as artifacts_public_router
-from backend.routes.office_watch_proxy import (
+from backend.routes.admin.logs import router as admin_logs_router
+from backend.routes.admin.migration import router as admin_migration_router
+from backend.routes.admin.runtime import router as admin_runtime_router
+from backend.routes.transcription.routes import router as transcription_router
+from backend.routes.transcription.public import router as transcription_public_router
+from backend.routes.artifacts.public import router as artifacts_public_router
+from backend.routes.office_watch.proxy import (
     router as office_watch_router,
     public_router as office_watch_public_router,
 )
@@ -510,11 +510,11 @@ async def healthz():
 
 if os.environ.get("ENABLE_MANYFOLD_API", "").strip() in ("1", "true", "yes"):
     from backend.routes.openai_compat import router as openai_compat_router
-    from backend.routes.manyfold_agents import router as manyfold_agents_router
-    from backend.routes.manyfold_diagnostics import (
+    from backend.routes.manyfold.agents import router as manyfold_agents_router
+    from backend.routes.manyfold.diagnostics import (
         router as manyfold_diagnostics_router,
     )
-    from backend.routes.manyfold_files import router as manyfold_files_router
+    from backend.routes.manyfold.files import router as manyfold_files_router
 
     app.include_router(openai_compat_router, tags=["ManyfoldOpenAI"])
     app.include_router(manyfold_agents_router, tags=["ManyfoldAgents"])

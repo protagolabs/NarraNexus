@@ -13,7 +13,7 @@ last_verified: 2026-07-22
 
 ## 2026-07-18 — set_preference / QuotaPreferenceLocked 删除；新增 rearm_switch_notice
 
-用户偏好没了（免费额度优先=平台行为，见 [[provider_resolver]]）：
+用户偏好没了（免费额度优先=平台行为，见 [[resolver]]）：
 `set_preference` 及其"耗尽时禁止重开"的 `QuotaPreferenceLocked` 409 守卫
 整体删除（唯一调用方 PATCH /me/preference 路由同日删）。新增
 `rearm_switch_notice(user_id)`（无条件 repo.set_preference(uid, True)，
@@ -43,7 +43,7 @@ disabled feature = consistent no-op contract.
 - backend/routes/auth.py /register — `init_for_user()` after successful
   cloud-mode registration
 - backend/routes/quota.py /me — `get()` for user-facing budget view
-- backend/routes/admin_quota.py — `grant()` / `init_for_user()` for staff
+- backend/routes/admin/quota.py — `grant()` / `init_for_user()` for staff
 
 ## Downstream
 - QuotaRepository — all DB I/O

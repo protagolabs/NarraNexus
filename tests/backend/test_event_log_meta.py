@@ -32,7 +32,7 @@ from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
-import backend.routes.agents_chat_history as hist_mod
+import backend.routes.agents.chat_history as hist_mod
 
 
 @pytest_asyncio.fixture

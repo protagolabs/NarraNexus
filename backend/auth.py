@@ -295,8 +295,8 @@ AUTH_EXEMPT_PREFIXES = (
     # Public transcription audio: NetMind's STT worker fetches via
     # HMAC-signed token URLs; the token IS the auth. Without bypass,
     # NetMind can't fetch (it has no JWT). See
-    # backend/routes/transcription_public.py and
-    # src/xyz_agent_context/agent_framework/transcription/url_signer.py.
+    # backend/routes/transcription/public.py and
+    # src/xyz_agent_context/agent_framework/llm/transcription/url_signer.py.
     "/api/public/",
 )
 
@@ -346,7 +346,7 @@ QUOTA_BYPASS_PREFIXES = (
 # agent loop or the LLM-facing routes (verified: every quota-spending
 # endpoint in backend/routes/**, including /v1/chat/completions and every
 # agent-run/trigger route, is a POST; the only GET handlers that stream
-# a response, e.g. backend/routes/manyfold_files.py's file-read endpoint,
+# a response, e.g. backend/routes/manyfold/files.py's file-read endpoint,
 # stream bytes off disk and never touch an LLM).
 SAFE_HTTP_METHODS = frozenset({"GET", "HEAD"})
 
@@ -526,7 +526,7 @@ async def auth_middleware(request: Request, call_next):
     # EVERY path, since reads never spend quota. JWT auth above still
     # applies in both cases.
     from xyz_agent_context.agent_framework.api_config import set_current_user_id
-    from xyz_agent_context.agent_framework.provider_resolver import (
+    from xyz_agent_context.agent_framework.providers.resolver import (
         ProviderResolverError,
     )
 

@@ -16,7 +16,7 @@ are retained.
 
 ## 2026-07-18 — _user_can_run docstring 随偏好删除微调（行为不变）
 
-免费额度偏好删除（[[provider_resolver]]）后 `_user_can_run` 的 docstring 更新
+免费额度偏好删除（[[resolver]]）后 `_user_can_run` 的 docstring 更新
 措辞——网关继续委托统一 classifier，行为零变化。注意下方 2026-06-01 条目是
 **历史事故记录**：其中 `prefer_system_override`（当年是用户偏好）与
 `FREE_TIER_EXHAUSTED`（判定已删）描述的是当时语义；现行判定里对应场景直接
@@ -24,7 +24,7 @@ are retained.
 
 ## 2026-07-16 — 后台 job 在"自助类"失败上暂停 + paused_reason 分流恢复
 
-`_is_no_quota_failure` 复用 `agent_framework.llm_failure.classify_self_serviceable`
+`_is_no_quota_failure` 复用 `agent_framework.llm.failure.classify_self_serviceable`
 (#110 检测器,leaf util,非跨模块依赖——铁律 #3):任何**确定性自助类**失败
 (余额/配额不足、上下文窗口过小、模型不存在)→ True → `PAUSED_NO_QUOTA`。
 

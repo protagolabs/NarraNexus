@@ -59,7 +59,7 @@ not real crypto).
 
 ## Upstream / downstream
 
-- **Upstream**: REST routes (``backend/routes/slack.py``), MCP tools
+- **Upstream**: REST routes (``backend/routes/channels/slack.py``), MCP tools
   (``_slack_mcp_tools.py``), and the trigger's credential watcher
   (``slack_trigger.load_active_credentials``).
 - **Downstream**:

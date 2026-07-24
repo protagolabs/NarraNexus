@@ -18,7 +18,7 @@ Scope: ONLY the first-party skills physically present under the vendored
 `marketplace/resources/marketplace_skills/` directory (env-overridable via
 MARKETPLACE_SKILLS_DIR). Third-party skills (clawhub, etc.) are NOT seeded here —
 they carry license/attribution concerns and are published deliberately via
-scripts/publish_skill.py.
+scripts/publish/publish_skill.py.
 
 Idempotent: a skill whose (id, version) is already in the catalog AND whose
 blob is already in the store is skipped (no re-scan, no re-upload). Runs on

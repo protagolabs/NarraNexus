@@ -19,6 +19,6 @@ last_verified: 2026-06-18
   接进 runner + 从 DB 读 known user_ids 消歧 `_user_` 中缀。
 - **鲁棒性(每次启动都跑,含全新库)**:`users` 表不存在→known 空集(不崩 runner);
   `base_working_path` 目录不存在→直接 no-op。失败不写 ledger、下次重试(runner 语义)。
-- CLI `scripts/migrate_workspace_layout.py`(dry-run 预览 / 显式 base)共用同一函数,
+- CLI `scripts/data_migrations/migrate_workspace_layout.py`(dry-run 预览 / 显式 base)共用同一函数,
   保留作运维调试。
 - APPEND-ONLY:别改 id / 别重排(已写进用户 ledger)。

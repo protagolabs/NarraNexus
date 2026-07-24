@@ -14,7 +14,7 @@ stub: false
 i18n 键，插值系统模型名）：说明免费额度生效中、当前实际用系统模型、此处默认设置将在额度
 用尽后生效。**控件保持可编辑**（允许预配置，与 [[AgentLlmConfigPanel]] 同策略）。这是把
 底部 [[ComposerModelBadge]] 只读锁 + Agent 面板 banner 的诚实化补齐到全局层——三个模型
-编辑入口在免费额度期都不再静默（运行时都被 [[provider_resolver]] SYSTEM_OK 抢占，区别只
+编辑入口在免费额度期都不再静默（运行时都被 [[resolver]] SYSTEM_OK 抢占，区别只
 在 UI 有没有告知）。Owner 决策：三入口都 banner、不硬锁；底部快捷徽章例外，保持硬锁。
 
 ## 2026-07-18 — 框架选择器弹窗方向化(修云端老 codex 死锁)
@@ -53,7 +53,7 @@ local 三态）。
 `agentProviders` 过滤删掉 `isCodexFramework → CODEX_ALLOWED_PROVIDER_SOURCES`
 分支(该常量已删),只留 protocol 检查。用户级默认编辑器与 per-agent 面板
 ([[AgentLlmConfigPanel]])共用同一规则,一起恢复 pre-#81:codex_cli 能选任意
-openai-protocol provider(铁律 #15,见 [[user_provider_service]] /
+openai-protocol provider(铁律 #15,见 [[user_service]] /
 [[agentFramework]])。`isCodexFramework` 仍用于 framework 切换的 spinner 文案,保留;
 只删 `CODEX_ALLOWED_PROVIDER_SOURCES` import。
 

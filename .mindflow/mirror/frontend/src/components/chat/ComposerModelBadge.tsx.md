@@ -11,7 +11,7 @@ stub: false
 tooltip 用 `chat.model.freeTierLocked` 解释"额度用尽后可切换/在面板预设"。
 
 为什么：云端免费额度优先策略在额度有余量时把 per-agent override 整个抢占、锁死系统
-固定模型（见 [[provider_resolver]] SYSTEM_OK 分支 + [[agents_llm_config]] 的
+固定模型（见 [[resolver]] SYSTEM_OK 分支 + [[agents_llm_config]] 的
 `free_tier` 块）。此前徽章照常显示可切下拉、写库、乐观更新，用户以为切成功了实则运行时
 永远没变——这正是测试同学报的"model 选择器切换不生效"的真根因。锁定分支优先于
 "set model" 和可切换态，因为它决定真正运行的模型。`free_tier.model` 是锁定时实际运行

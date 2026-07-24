@@ -8,7 +8,7 @@ Helper LLM instead of the platform key.
 
 import pytest
 
-from xyz_agent_context.agent_framework import provider_resolver
+from xyz_agent_context.agent_framework.providers import resolver as provider_resolver
 
 
 class _FakeDB:

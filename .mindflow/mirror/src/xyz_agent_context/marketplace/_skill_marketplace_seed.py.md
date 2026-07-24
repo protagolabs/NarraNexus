@@ -12,7 +12,7 @@ _team_marketplace_seed. Without it a fresh cloud deploy showed an empty
 Skills tab AND default-skill install (NetMind vision/audio) found nothing to
 install. Scope is FIRST-PARTY only (dirs physically under marketplace_skills/,
 i.e. the two NetMind default skills); third-party clawhub skills are NOT
-seeded — they go through scripts/publish_skill.py deliberately (license/
+seeded — they go through scripts/publish/publish_skill.py deliberately (license/
 attribution). Reuses RegistryService.publish (extract -> scan gate -> store ->
 catalog, is_default from manifest). Idempotent (skip when (id,version) already
 catalogued + blob in store), best-effort per skill, registry-host only. Path:

@@ -494,7 +494,7 @@ class ModulePoller:
             # active — so this gate is defensive: if Path A is ever switched
             # on, a broken agent (dead key / quota) won't be re-triggered here
             # either. Fail-open on read error.
-            from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+            from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
             cb_skip, cb_reason = await should_skip(agent_id)
             if cb_skip:
                 logger.info(

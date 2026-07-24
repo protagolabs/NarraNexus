@@ -16,14 +16,14 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from xyz_agent_context.agent_framework.transcription import url_signer
-from xyz_agent_context.agent_framework.transcription.backends import (
+from xyz_agent_context.agent_framework.llm.transcription import url_signer
+from xyz_agent_context.agent_framework.llm.transcription.backends import (
     netmind as N,
 )
-from xyz_agent_context.agent_framework.transcription.backends.netmind import (
+from xyz_agent_context.agent_framework.llm.transcription.backends.netmind import (
     NetMindBackend,
 )
-from xyz_agent_context.agent_framework.transcription.credential import (
+from xyz_agent_context.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
     TranscriptionCredential,
 )

@@ -2,7 +2,7 @@
 @file_name: test_backfill_cost_records_user_id_mysql.py
 @author: Bin Liang
 @date: 2026-07-22
-@description: MySQL-side verification for scripts/backfill_cost_records_user_id.py.
+@description: MySQL-side verification for scripts/data_migrations/backfill_cost_records_user_id.py.
 
 The backfill ships THREE hand-written raw SQL statements (_COUNT_FILLABLE /
 _COUNT_ORPHAN / _BACKFILL) that bypass the AsyncDatabaseClient helpers, and its
@@ -49,6 +49,7 @@ pytestmark = pytest.mark.skipif(
 _SCRIPT = (
     Path(__file__).resolve().parents[3]
     / "scripts"
+    / "data_migrations"
     / "backfill_cost_records_user_id.py"
 )
 _spec = importlib.util.spec_from_file_location("backfill_cost_records_user_id", _SCRIPT)

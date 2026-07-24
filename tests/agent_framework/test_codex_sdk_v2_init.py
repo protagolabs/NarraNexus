@@ -16,7 +16,7 @@ Verifies:
 
 These tests do NOT exercise the SDK itself (no subprocess, no
 network) — they just lock in the static contract of v2. Live SDK
-behavior is verified by ``scripts/spike_codex_official_sdk.py``
+behavior is verified by ``scripts/spikes/spike_codex_official_sdk.py``
 Section A/B and by Task 10's manual smoke gate.
 """
 from __future__ import annotations
@@ -26,13 +26,13 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework.agent_loop_driver import (
+from xyz_agent_context.agent_framework.loop.driver import (
     AgentLoopDriver,
     available_agent_loop_frameworks,
     get_agent_loop_driver,
 )
-from xyz_agent_context.agent_framework.xyz_codex_cli_sdk import CodexSDK
-from xyz_agent_context.agent_framework.xyz_codex_official_sdk import (
+from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import CodexSDK
+from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
     CodexSDKv2,
     _build_codex_config_overrides,
 )
@@ -95,7 +95,7 @@ def test_ab_period_aliases_no_longer_registered():
 
 def test_codex_cli_resolves_to_v2():
     """``codex_cli`` resolves to the official-SDK driver. The v1
-    ``CodexSDK`` class still lives in ``xyz_codex_cli_sdk.py`` as a
+    ``CodexSDK`` class still lives in ``adapters/codex/cli_sdk.py`` as a
     revival fallback but is intentionally NOT registered — pulling it
     back online requires a
     one-line ``register_agent_loop_driver`` edit in
@@ -291,7 +291,7 @@ def test_thread_start_accepts_kwargs_we_actually_pass():
     Pin the kwarg set so an SDK rename / removal fails CI before
     hitting a user. If this test fails after an SDK upgrade:
       1. Inspect ``inspect.signature(AsyncCodex.thread_start)``
-      2. Update ``xyz_codex_official_sdk.py``'s thread_start call to
+      2. Update ``adapters/codex/official_sdk.py``'s thread_start call to
          match the new shape
       3. Update this test to match what we actually pass now.
     """
@@ -308,7 +308,7 @@ def test_thread_start_accepts_kwargs_we_actually_pass():
     missing = required - params
     assert not missing, (
         f"openai_codex.AsyncCodex.thread_start lost kwarg(s) {missing}. "
-        f"Update xyz_codex_official_sdk.py:agent_loop and this test. "
+        f"Update adapters/codex/official_sdk.py:agent_loop and this test. "
         f"Available kwargs: {sorted(params)}"
     )
 
@@ -370,7 +370,7 @@ def test_v2_item_type_table_covers_known_sdk_types():
     """
     import openai_codex.generated.v2_all as v2
 
-    from xyz_agent_context.agent_framework.output_transfer import (
+    from xyz_agent_context.agent_framework.loop.output_transfer import (
         _CODEX_ITEM_TYPES_TEXT,
         _CODEX_ITEM_TYPES_THINKING,
         _CODEX_ITEM_TYPES_TOOL,
@@ -440,7 +440,7 @@ def test_method_constants_match_sdk_notification_registry():
     """
     from openai_codex.generated.notification_registry import NOTIFICATION_MODELS
 
-    from xyz_agent_context.agent_framework import output_transfer as ot
+    from xyz_agent_context.agent_framework.loop import output_transfer as ot
 
     method_constants = {
         name: getattr(ot, name)
@@ -528,7 +528,7 @@ def test_sandbox_full_access_attribute_exists():
 
     assert hasattr(Sandbox, "full_access"), (
         "openai_codex.Sandbox.full_access missing — SDK upgrade likely "
-        "renamed the enum. Update xyz_codex_official_sdk.py line 390 "
+        "renamed the enum. Update adapters/codex/official_sdk.py line 390 "
         "and this test together."
     )
     # Adjacent enum values we don't currently use but want to detect if

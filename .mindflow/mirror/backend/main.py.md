@@ -46,7 +46,7 @@ See backend/routes/notices.py.md.
 
 ## 2026-06-22 — narramessenger_router 注册
 
-新增 `from backend.routes.narramessenger import router as narramessenger_router`
+新增 `from backend.routes.channels.narramessenger import router as narramessenger_router`
 和 `app.include_router(...)`，挂载路径 `/api/narramessenger`（`bind` / `unbind` /
 `credential`）。与 lark/slack/telegram channel 的 router 同 pattern。
 
@@ -59,7 +59,7 @@ teardown 时 `cancel()`。云端+broker 才真正起,本地/桌面 no-op(返回 
 
 ## 2026-06-12 — admin_migration_router 注册
 
-新增 `from backend.routes.admin_migration import router as admin_migration_router` 和对应的 `app.include_router(admin_migration_router, tags=["AdminMigration"])`。router 自带 prefix `/api/admin`，最终挂载路径为 `POST /api/admin/migrate-identity`。与 `admin_quota_router` 同 pattern（自带 prefix，`include_router` 不再传 prefix 参数）。
+新增 `from backend.routes.admin.migration import router as admin_migration_router` 和对应的 `app.include_router(admin_migration_router, tags=["AdminMigration"])`。router 自带 prefix `/api/admin`，最终挂载路径为 `POST /api/admin/migrate-identity`。与 `admin_quota_router` 同 pattern（自带 prefix，`include_router` 不再传 prefix 参数）。
 
 ## 2026-06-11 — invite routers unwired
 
@@ -138,7 +138,7 @@ were removed. All other routers are unchanged.
 
 ## 2026-05-08 addition — agents_artifacts router wire-in
 
-`agents_artifacts_router` (from `backend.routes.agents_artifacts`) is now
+`agents_artifacts_router` (from `backend.routes.agents.artifacts`) is now
 imported and registered at `/api/agents` with `["Artifacts"]` tags. This
 router provides CRUD endpoints for artifact management:
 
@@ -173,7 +173,7 @@ FIRST and `access_log_middleware` SECOND, which means access_log
 wraps auth and 401 / 402 responses still produce one access line.
 
 A new admin-only router is mounted at `/api/admin/logs` (see
-`backend.routes.admin_logs`). It surfaces the on-disk
+`backend.routes.admin.logs`). It surfaces the on-disk
 `~/.narranexus/logs/<service>/` tree over HTTP so cloud operators
 can tail / download / event-grep without ssh. The prefix already sits
 under `QUOTA_BYPASS_PREFIXES` in `auth.py`, so it is unauthenticated
@@ -250,4 +250,4 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 
 ## 2026-07-13 — office-watch 路由
 
-注册了 office 实时预览的两个 router:`office_watch_router`(挂 `/api`,authed:`/office-watch/open`)和 `office_watch_public_router`(挂 `/api/public`,token 鉴权:`/office-watch-proxy/{token}/{port}/{path}`)。见 `backend/routes/office_watch_proxy.py.md`。
+注册了 office 实时预览的两个 router:`office_watch_router`(挂 `/api`,authed:`/office-watch/open`)和 `office_watch_public_router`(挂 `/api/public`,token 鉴权:`/office-watch-proxy/{token}/{port}/{path}`)。见 `backend/routes/office_watch/proxy.py.md`。

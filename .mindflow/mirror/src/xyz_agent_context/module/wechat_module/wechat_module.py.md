@@ -122,7 +122,7 @@ Telegram:
     back through ``hook_after_event_execution``.
   - ``MessageSourceRegistry`` / ``MessageSourceHandler`` — reply
     recording (the "not Background activity" guard).
-- **Binding flow lives elsewhere**: ``backend/routes/wechat.py`` drives
+- **Binding flow lives elsewhere**: ``backend/routes/channels/wechat.py`` drives
   the QR scan; this module never binds.
 
 ## Gotchas

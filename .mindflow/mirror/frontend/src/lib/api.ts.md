@@ -29,7 +29,7 @@ a bare `as` cast would let an unrecognised backend value render a raw i18n key �
 PR #136 review). It maps the
 snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
 the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
-consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin_runtime.py]].
+consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin/runtime.py]].
 ## 2026-07-21 — Team Marketplace 三调用
 
 `getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`

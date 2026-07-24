@@ -28,7 +28,7 @@ from typing import Dict, List, Optional
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.llm.failure import (
     MAX_REDACTED_ERROR_LEN,
     is_credential_error,
     redact_secrets,
@@ -90,7 +90,7 @@ POISON_FAILURE_THRESHOLD = 3
 FAILURE_NOTIFY_COOLDOWN_SECONDS = 1800  # 30 minutes
 
 # Credential-error classification and secret redaction moved to the shared
-# ``agent_framework.llm_failure`` module so every background LLM path (bus,
+# ``agent_framework.llm.failure`` module so every background LLM path (bus,
 # narrative updater, Step-5 hooks) asks the same questions the same way.
 # ``_classify_error`` / ``_redact_error_for_owner`` below delegate to it.
 MAX_NOTIFIED_ERROR_LEN = MAX_REDACTED_ERROR_LEN
@@ -303,7 +303,7 @@ class MessageBusTrigger:
         # burst on resume. That's intended — dropping/ack'ing messages for a
         # temporarily-broken agent would be silent data loss; the backlog
         # converges once the owner reconfigures and the breaker re-arms.
-        from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
         cb_skip, cb_reason = await should_skip(agent_id)
         if cb_skip:
             logger.debug(

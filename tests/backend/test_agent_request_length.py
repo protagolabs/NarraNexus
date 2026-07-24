@@ -46,7 +46,7 @@ def test_none_accepted(model):
 # --- Manyfold write path (the 4th path — review finding #2) --------------------
 # These raw-write the `agents` row, so they must honor the same ceiling; the
 # description field used to allow 2000 chars, re-creating the #71 unreadable row.
-from backend.routes.manyfold_agents import (  # noqa: E402
+from backend.routes.manyfold.agents import (  # noqa: E402
     ManyfoldCreateAgentRequest,
     ManyfoldUpdateAgentRequest,
 )

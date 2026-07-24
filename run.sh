@@ -363,7 +363,7 @@ check_deps() {
   # Version pinned. officecli ships from FOUR independent places and they must
   # agree — bump all of them together:
   #   run.sh (here)                      local run
-  #   scripts/build-desktop.sh           the macOS app bundle
+  #   scripts/release/build-desktop.sh   the macOS app bundle
   #   deploy: docker/Dockerfile.python   cloud backend + workers
   #   deploy: docker/Dockerfile.executor cloud agent  <- the one that matters
   #                                      for the builtin skill; missed once and
@@ -464,7 +464,7 @@ run_container_mode() {
     # job/bus/IM triggers, backend) route their writes through the proxy.
     # Without this, every child opens its own SQLite connection to the
     # same file and concurrent writes deadlock with "database is locked"
-    # (the proxy was started but nobody talks to it). scripts/dev-local.sh
+    # (the proxy was started but nobody talks to it). scripts/dev/dev-local.sh
     # exports the same var for the local-development path.
     export SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:8100}"
   fi
@@ -560,6 +560,6 @@ case "${1:-}" in
     }
 
     # Start everything
-    exec "$SCRIPT_DIR/scripts/dev-local.sh"
+    exec "$SCRIPT_DIR/scripts/dev/dev-local.sh"
     ;;
 esac

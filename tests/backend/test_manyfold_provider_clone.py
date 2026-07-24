@@ -18,7 +18,7 @@ import json
 import pytest
 import pytest_asyncio
 
-from backend.routes.manyfold_agents import _clone_provider_setup
+from backend.routes.manyfold.agents import _clone_provider_setup
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
 from xyz_agent_context.utils.db.schema_registry import auto_migrate

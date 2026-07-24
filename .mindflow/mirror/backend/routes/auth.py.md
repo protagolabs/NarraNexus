@@ -94,7 +94,7 @@ dedicated team-room narrative in narrative selection.
 
 ## 2026-06-11 — identity hardening: create_agent / timezone / onboarding
 
-The last three routes that trusted a client-supplied user id now derive identity from auth_middleware via `resolve_current_user_id`: POST /agents (body created_by removed — clients could create agents under anyone's account), POST /timezone and GET+POST /onboarding (body/query user_id removed). Old clients sending the extra field are harmless (pydantic ignores unknown fields); old clients omitting X-User-Id/JWT get 401. scripts/bench_narrative_models.py updated to send X-User-Id.
+The last three routes that trusted a client-supplied user id now derive identity from auth_middleware via `resolve_current_user_id`: POST /agents (body created_by removed — clients could create agents under anyone's account), POST /timezone and GET+POST /onboarding (body/query user_id removed). Old clients sending the extra field are harmless (pydantic ignores unknown fields); old clients omitting X-User-Id/JWT get 401. scripts/spikes/bench_narrative_models.py updated to send X-User-Id.
 
 ## 2026-06-11 — legacy cloud auth removed (invite codes retired)
 

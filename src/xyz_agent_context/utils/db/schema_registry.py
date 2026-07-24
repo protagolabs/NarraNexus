@@ -749,7 +749,7 @@ _register(
             Column("supports_anthropic_server_tools", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             # --- Provider Unification (2026-05-13) ---
             #
-            # driver_type    : key into agent_framework.provider_driver.DRIVER_REGISTRY.
+            # driver_type    : key into agent_framework.providers.driver.DRIVER_REGISTRY.
             #                  null on existing rows; backfilled at startup via
             #                  derive_driver_type(source, auth_type, protocol).
             # owner_user_id  : null = system-shared card (cloud only); otherwise
@@ -1737,7 +1737,7 @@ _register(
 # registration gate was removed 2026-06-11 (cloud signup is NetMind login
 # now; everyone gets the free-tier quota). Rows are retained because they
 # hold the only old-user-id -> email mapping, which the legacy-user
-# migration (scripts/migrate_users_to_netmind.py) needs. No code writes
+# migration (scripts/data_migrations/migrate_users_to_netmind.py) needs. No code writes
 # this table anymore; drop it after the migration is complete.
 # ----------------------------------------------------------------------------
 _register(

@@ -3,7 +3,7 @@
 @author: NarraNexus
 @date: 2026-06-11
 @description: Tests for the one-shot legacy-user -> NetMind-id migration
-(scripts/migrate_users_to_netmind.py). Runs against the in-memory SQLite
+(scripts/data_migrations/migrate_users_to_netmind.py). Runs against the in-memory SQLite
 fixture; the real run targets MySQL offline (stack stopped) — NEVER via
 backend lifespan (v1.7.16 lesson).
 
@@ -30,7 +30,7 @@ import pytest
 from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
 
 _SCRIPT = (
-    Path(__file__).resolve().parents[3] / "scripts" / "migrate_users_to_netmind.py"
+    Path(__file__).resolve().parents[3] / "scripts" / "data_migrations" / "migrate_users_to_netmind.py"
 )
 _spec = importlib.util.spec_from_file_location("migrate_users_to_netmind", _SCRIPT)
 mig = importlib.util.module_from_spec(_spec)

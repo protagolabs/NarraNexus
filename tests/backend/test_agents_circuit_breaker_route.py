@@ -17,7 +17,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import backend.routes.agents_circuit_breaker as cb_mod
+import backend.routes.agents.circuit_breaker as cb_mod
 from xyz_agent_context.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )

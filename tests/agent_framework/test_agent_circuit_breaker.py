@@ -11,8 +11,8 @@ from datetime import timedelta
 
 import pytest
 
-from xyz_agent_context.agent_framework import agent_circuit_breaker as cb
-from xyz_agent_context.agent_framework.agent_circuit_breaker import (
+from xyz_agent_context.agent_framework.loop import circuit_breaker as cb
+from xyz_agent_context.agent_framework.loop.circuit_breaker import (
     AUTH_QUOTA_PAUSE_THRESHOLD,
     classify_agent_error,
     record_failure,

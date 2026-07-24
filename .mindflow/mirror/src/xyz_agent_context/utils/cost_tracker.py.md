@@ -43,7 +43,7 @@ The agent runtime calls multiple LLM APIs (Claude via the Anthropic SDK, OpenAI 
 
 **Set by:** `agent_runtime/` — `AgentRuntime.run()` calls `set_cost_context(agent_id, db)` at the start and `clear_cost_context()` in the `finally` block.
 
-**Called by:** `agent_framework/llm_api/` (Claude SDK wrapper, OpenAI wrapper, Gemini wrapper, embedding client) — each records its token usage via `record_cost()` after a successful API call.
+**Called by:** `agent_framework/llm/api/` (Claude SDK wrapper, OpenAI wrapper, Gemini wrapper, embedding client) — each records its token usage via `record_cost()` after a successful API call.
 
 **Reads from:** `MODEL_PRICING` dict for per-million-token USD rates (GPT, Gemini, embeddings). Claude costs use the SDK's reported `cost_usd` directly.
 

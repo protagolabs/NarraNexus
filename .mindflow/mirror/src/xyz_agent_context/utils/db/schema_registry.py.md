@@ -30,7 +30,7 @@ See [[_bus_attachment_impl]] for the multimodal-A2A feature it backs.
 agent 硬删即断链。新表 `quota_deductions`（逐笔扣减流水，自审计冗余
 provider_source/model/agent_id）：`user_quotas` 只有累计标量，无法定位/退还单笔
 错扣。写入见 [[cost_tracker]] / [[quota_repository]]；历史回填见
-`scripts/backfill_cost_records_user_id.py`。
+`scripts/data_migrations/backfill_cost_records_user_id.py`。
 ## 2026-07-21 — team_catalog 表(Team Marketplace)
 
 additive:catalog INDEX,一行一个 team/agent bundle 模板;store_key 指向
@@ -158,7 +158,7 @@ New columns can be added via the registry as new preferences appear —
 
 ## 2026-06-11 — invite_codes table marked retired (data kept)
 
-Table definition stays so existing rows survive: they hold the only old-user-id -> email mapping needed by scripts/migrate_users_to_netmind.py. No code writes the table anymore; safe to drop after migration completes.
+Table definition stays so existing rows survive: they hold the only old-user-id -> email mapping needed by scripts/data_migrations/migrate_users_to_netmind.py. No code writes the table anymore; safe to drop after migration completes.
 
 ## 2026-06-10 — user_slots.params_json column
 
@@ -308,7 +308,7 @@ written by the resolver when it auto-repairs a broken slot. Indexed on
 `(user_id, read_at)` for the "unread count" UI query.
 
 Driver inference (`derive_driver_type`) and one-shot backfill live in
-`src/xyz_agent_context/agent_framework/provider_driver/backfill.py`. New
+`src/xyz_agent_context/agent_framework/providers/driver/backfill.py`. New
 deploys get `driver_type` written at `add_provider` time; pre-existing rows
 get backfilled on the next backend boot via `auto_migrate` → `backfill_*`
 chain in `db_factory.get_db_client`. Both column-add and backfill are

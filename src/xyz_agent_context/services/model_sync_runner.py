@@ -23,8 +23,8 @@ from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework import model_sync
-from xyz_agent_context.agent_framework.model_probe_ledger import load_ledger, save_ledger
+from xyz_agent_context.agent_framework.providers import model_sync
+from xyz_agent_context.agent_framework.providers.model_probe_ledger import load_ledger, save_ledger
 
 DAILY_HOUR_UTC = 5
 

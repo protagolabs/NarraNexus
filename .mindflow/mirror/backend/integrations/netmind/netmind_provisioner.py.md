@@ -34,8 +34,8 @@ NetMind 推理 key（走 [[netmind_key_client]]）并创建 netmind 双 provider
   让 LLM Providers 里出现一张 NetMind 卡。
 - **activate（绑定 agent/helper 槽）只在用户没有完整可用配置时做**。已经配了自己
   provider 的用户**不被劫持**——NetMind 卡只是"可切换"，不抢占。判定用
-  [[provider_resolver]] 的 `_is_user_config_complete`。落到
-  [[user_provider_service]] 的 `onboard_one_key(..., activate=...)`：`activate=False`
+  [[resolver]] 的 `_is_user_config_complete`。落到
+  [[user_service]] 的 `onboard_one_key(..., activate=...)`：`activate=False`
   时只 `add_provider`，不动 framework/槽。
 
 ## 为什么优先级安全

@@ -10,7 +10,7 @@ import types
 
 import pytest
 
-from xyz_agent_context.agent_framework import provider_resolver
+from xyz_agent_context.agent_framework.providers import resolver as provider_resolver
 from xyz_agent_context.narrative._narrative_impl import updater as updater_mod
 from xyz_agent_context.utils.db import db_factory
 from xyz_agent_context.services import background_llm_alerts as alerts

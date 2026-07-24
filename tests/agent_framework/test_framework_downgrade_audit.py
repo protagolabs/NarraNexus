@@ -7,7 +7,7 @@ service_audit table (incident lesson #4/#5), not just logged.
 """
 import pytest
 
-from xyz_agent_context.agent_framework import openai_agents_sdk as oa
+from xyz_agent_context.agent_framework.adapters import openai_agents as oa
 from xyz_agent_context.repository.service_audit_repository import ServiceAuditRepository
 
 

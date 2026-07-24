@@ -24,7 +24,7 @@ networkError`，401/422 的 `{detail}` 不会渲染成一行空红字。i18n 新
 > **Obsolete claim below (2026-07-10)**: the 2026-06-10 entry "accurate codex
 > no-provider message" describes a `CODEX_ALLOWED_PROVIDER_SOURCES` filter and a
 > "NetMind / Yunwu / OpenRouter not supported" message. That constant was
-> **removed** (see [[agentFramework]] / [[user_provider_service]] 2026-07-10) and
+> **removed** (see [[agentFramework]] / [[user_service]] 2026-07-10) and
 > that error copy no longer lives in this component (the agent-slot editor moved
 > to [[ModelDefaultsSettings]] in #81). codex_cli now accepts any openai-protocol
 > provider — aggregators included (binding rule #15).
@@ -135,7 +135,7 @@ anthropic → claude-haiku-4-5). That map **mirrors backend
 ``_ONBOARD_HELPER_MODELS``** in model_catalog.py and must stay in sync.
 Display-only; the persisted slot value is still the ``"default"``
 sentinel (which lets each helper call site pick its own fast model — see
-``openai_agents_sdk._resolve_model`` mode 1).
+``adapters.openai_agents._resolve_model`` mode 1).
 
 ## 2026-06-10 (5th pass) — helper dropdown honors server required_protocols
 
@@ -154,7 +154,7 @@ The helper_llm provider dropdown now filters out auth_type=oauth rows.
 This became urgent after the helper slot opened to the anthropic
 protocol: claude_oauth (anthropic) joined codex_oauth (openai) as a
 selectable-but-broken option. Server-side mirror gate lives in
-user_provider_service.set_slot.
+providers.user_service.set_slot.
 
 ## 2026-06-10 (later) — Quick Add block replaced by shared OneKeyOnboard
 
@@ -218,7 +218,7 @@ still holding the dropped A/B aliases (`codex_cli_v2`,
 over a silent startup migration: cleaner code, one-time minor
 user friction, no automation that has to keep working forever.
 
-v1 source file (`xyz_codex_cli_sdk.py`) intentionally kept in the
+v1 source file (`adapters/codex/cli_sdk.py`) intentionally kept in the
 repo as revival fallback — if v2 has a critical regression we can
 flip one `register_agent_loop_driver` line in
 `agent_framework/__init__.py` to bring v1 back online without

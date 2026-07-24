@@ -66,7 +66,7 @@ def test_real_resolver_messages_still_pause_jobs():
     So: build the errors for real and assert the classifier still fires.
     Anyone rewording them has to keep the markers intact or turn this red.
     """
-    from xyz_agent_context.agent_framework.provider_resolver import (
+    from xyz_agent_context.agent_framework.providers.resolver import (
         NoProviderConfiguredError,
         QuotaExceededError,
     )

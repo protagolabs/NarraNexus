@@ -30,7 +30,7 @@ from xyz_agent_context.schema import (
 )
 from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
     self_serviceable_user_message,
     classify_executor_infra_failure,
@@ -80,14 +80,14 @@ async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
     ``get_agent_loop_driver`` which raises ``ValueError`` so a config typo
     surfaces at the dispatch site instead of masquerading as "claude".
 
-    The overlay itself lives in ``agent_framework.agent_model_identity`` — the
+    The overlay itself lives in ``agent_framework.providers.model_identity`` — the
     SINGLE source of truth shared with the prompt's "LLM Model" line, so the
     displayed identity can never disagree with the driver we dispatch. This
     thin wrapper just projects the ``framework`` field (identity resolution
     never raises; unknown names pass through verbatim on the ``framework``
     field, so the registry still fails loud on typos).
     """
-    from xyz_agent_context.agent_framework.agent_model_identity import (
+    from xyz_agent_context.agent_framework.providers.model_identity import (
         resolve_agent_model_identity,
     )
 
@@ -502,7 +502,7 @@ async def _generate_fallback_reply_stream(
        agent-loop generator body.
     2. Lets us test the prompt assembly + streaming wiring in isolation.
     """
-    from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+    from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
     from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
 
     set_cost_context(agent_id, db)
@@ -680,7 +680,7 @@ async def _record_executor_infra_event(
             EVENT_OOM_KILLED,
             EVENT_EXECUTOR_UNREACHABLE,
         )
-        from xyz_agent_context.agent_framework.llm_failure import (
+        from xyz_agent_context.agent_framework.llm.failure import (
             EXECUTOR_INFRA_REASON_OOM,
         )
 
@@ -847,7 +847,7 @@ async def step_3_agent_loop(
     # user's Executor container and use its URL. Returns None when no
     # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
     # so get_agent_loop_driver falls back. This is the cold-start point.
-    from xyz_agent_context.agent_framework.broker_client import (
+    from xyz_agent_context.agent_framework.loop.broker_client import (
         ensure_executor,
         wait_until_ready,
     )

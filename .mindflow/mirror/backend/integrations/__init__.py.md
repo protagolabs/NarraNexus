@@ -11,7 +11,7 @@ stub: false
 Bucket-A of the platform/agent split (2026-07-24): the NetMind client
 group and Arena provisioning sat inside `src/xyz_agent_context` although
 no agent-side process imported them (verified: consumers were 4 backend
-routes + scripts/migrate_users_to_netmind.py). Under the placement rule —
+routes + scripts/data_migrations/migrate_users_to_netmind.py). Under the placement rule —
 *the agent package holds only what agent-side processes must import* —
 they belong to the API app, so they moved here.
 

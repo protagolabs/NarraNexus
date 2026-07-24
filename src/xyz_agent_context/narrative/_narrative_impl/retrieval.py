@@ -209,8 +209,8 @@ class NarrativeRetrieval:
                 )
                 # Tag with the model + structured-output mode the SDK
                 # ended up using inside _llm_unified_match → llm_judge_unified
-                # → sdk.llm_function. See openai_agents_sdk.get_last_llm_call_info.
-                from xyz_agent_context.agent_framework.openai_agents_sdk import (
+                # → sdk.llm_function. See adapters.openai_agents.get_last_llm_call_info.
+                from xyz_agent_context.agent_framework.adapters.openai_agents import (
                     get_last_llm_call_info,
                 )
                 info = get_last_llm_call_info()
