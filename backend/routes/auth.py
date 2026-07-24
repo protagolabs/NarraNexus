@@ -148,7 +148,7 @@ def _get_netmind_auth_client():
     Module-level indirection so tests can monkeypatch it; the client is
     cheap to construct (stateless besides config), so no caching.
     """
-    from xyz_agent_context.integrations.netmind.netmind_auth_client import NetmindAuthClient
+    from backend.integrations.netmind.netmind_auth_client import NetmindAuthClient
 
     return NetmindAuthClient()
 
@@ -170,7 +170,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     unreachable or contract drift -> 502 (never disguised as a user
     credential failure).
     """
-    from xyz_agent_context.integrations.netmind.netmind_auth_client import (
+    from backend.integrations.netmind.netmind_auth_client import (
         NetmindAuthError,
         NetmindUpstreamError,
     )
@@ -232,7 +232,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     # missing). Fire-and-forget + non-fatal: login must never block on or fail
     # from NetMind minting. Self-guards on the feature flag; register-only when
     # the user already has an active config (no slot hijack).
-    from xyz_agent_context.integrations.netmind.netmind_provisioner import (
+    from backend.integrations.netmind.netmind_provisioner import (
         schedule_ensure_netmind_provider,
     )
     schedule_ensure_netmind_provider(user.user_id, request.netmind_token)

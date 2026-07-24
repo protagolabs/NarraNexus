@@ -186,7 +186,7 @@ def test_provisioning_uses_settings_arena_api_base(monkeypatch):
     # is the single wiring line that binds dev provisioning to the dev Arena.
     import asyncio
 
-    from xyz_agent_context.integrations.arena import arena_provisioning_service as svc
+    from backend.integrations.arena import arena_provisioning_service as svc
 
     monkeypatch.setattr(svc.settings, "arena_api_base", "https://arena-dev-api.protago-dev.com")
 
@@ -358,7 +358,7 @@ def _stub_cold_path(monkeypatch, svc, fake_onboarder_cls):
 
 def test_provision_cold_path_binds_owner_and_records_status(monkeypatch):
     import asyncio
-    from xyz_agent_context.integrations.arena import arena_provisioning_service as svc
+    from backend.integrations.arena import arena_provisioning_service as svc
 
     seen = {}
 
@@ -394,7 +394,7 @@ def test_provision_cold_path_binds_owner_and_records_status(monkeypatch):
 
 def test_provision_cold_path_without_token_skips_bind(monkeypatch):
     import asyncio
-    from xyz_agent_context.integrations.arena import arena_provisioning_service as svc
+    from backend.integrations.arena import arena_provisioning_service as svc
 
     seen = {"bind_called": False}
 
@@ -427,7 +427,7 @@ def test_provision_cold_path_without_token_skips_bind(monkeypatch):
 def test_provision_warm_path_retries_bind_from_workspace_key(monkeypatch, tmp_path):
     import asyncio
     from types import SimpleNamespace
-    from xyz_agent_context.integrations.arena import arena_provisioning_service as svc
+    from backend.integrations.arena import arena_provisioning_service as svc
 
     # An already-provisioned agent whose first bind was skipped (no email then).
     existing = SimpleNamespace(
@@ -494,7 +494,7 @@ def test_provision_warm_path_retries_bind_from_workspace_key(monkeypatch, tmp_pa
 def test_provision_warm_path_already_bound_skips_network(monkeypatch):
     import asyncio
     from types import SimpleNamespace
-    from xyz_agent_context.integrations.arena import arena_provisioning_service as svc
+    from backend.integrations.arena import arena_provisioning_service as svc
 
     existing = SimpleNamespace(
         agent_id="agent_OLD",
@@ -531,7 +531,7 @@ def test_provision_warm_path_already_bound_skips_network(monkeypatch):
 def test_arena_awareness_has_confidentiality_rule():
     # 铁律 #4 home: the concrete "never leak to competitors" rule lives in the
     # Arena persona, naming the adversarial threat.
-    from xyz_agent_context.integrations.arena.arena_provisioning_service import ARENA_AWARENESS
+    from backend.integrations.arena.arena_provisioning_service import ARENA_AWARENESS
 
     text = ARENA_AWARENESS.lower()
     assert "confidentiality" in text

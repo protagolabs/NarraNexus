@@ -28,3 +28,12 @@ poller, memory consolidation, model_sync_runner, alerts, audit, skill sync).
   import modules explicitly; the split stays a pure move.
 - **Deploy contract untouched**: the two compose/Makefile entrypoints in
   `services/` (`model_sync_runner`, `module_poller`) did not move.
+
+## 2026-07-24 — netmind/ + arena/ moved to backend/integrations/
+
+Bucket-A platform split: the NetMind group (6 modules) and Arena
+provisioning had ZERO agent-side imports (consumers were 4 backend routes
++ 1 ops script), so they moved to `backend/integrations/`. Only
+`feedback_client.py` stays — the agent's `submit_feedback` MCP tool calls
+it from the module process, so it must remain importable from the agent
+package. Placement rule recorded in the package docstring.

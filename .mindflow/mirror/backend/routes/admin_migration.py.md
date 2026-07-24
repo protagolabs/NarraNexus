@@ -24,7 +24,7 @@ stub: false
 - `backend/main.py`：`app.include_router(admin_migration_router, tags=["AdminMigration"])`，router 自带 prefix `/api/admin`，最终路径 `POST /api/admin/migrate-identity`。
 
 **依赖谁**：
-- `xyz_agent_context.integrations.netmind.identity_migration.execute_migration`：实际迁移内核。
+- `backend.integrations.netmind.identity_migration.execute_migration`：实际迁移内核。
 - `backend.config.settings`：读 `settings.admin_secret_key`（鉴权依据）。
 - `backend.auth.AUTH_EXEMPT_PATHS`：本路由加入豁免列表，不走 JWT middleware。
 

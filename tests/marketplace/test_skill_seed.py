@@ -14,7 +14,7 @@ import pytest
 
 import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
 from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
-from xyz_agent_context.repository._skill_marketplace_seed import (
+from xyz_agent_context.marketplace._skill_marketplace_seed import (
     _skills_root,
     seed_skill_marketplace,
 )
