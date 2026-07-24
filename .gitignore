@@ -16,6 +16,11 @@
 # ── Reference & internal docs ─────────────────────────────────────────────
 /reference/
 /deploy/synapse/
+# Personal work-in-progress notes stay local. Draft/worklog markdown
+# belongs in reference/self_notebook/ (local-only); polished docs go
+# to docs/. Neither drafts/ nor production_plan/ ships in the repo.
+/drafts/
+/production_plan/
 # NOTE: AGENTS.md used to be ignored as an internal scratch file
 # (under its old single-form name AGENT.md). It is now a tracked,
 # vendor-neutral pointer that redirects AI editors to CLAUDE.md per
