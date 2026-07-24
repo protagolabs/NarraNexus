@@ -24,8 +24,6 @@ Public entry points
 * :class:`Driver` and :func:`register` — the registration API. New
   provider types add a class and decorate it.
 
-See ``reference/self_notebook/specs/2026-05-13-provider-unification-design.md``
-for the design rationale.
 """
 from __future__ import annotations
 

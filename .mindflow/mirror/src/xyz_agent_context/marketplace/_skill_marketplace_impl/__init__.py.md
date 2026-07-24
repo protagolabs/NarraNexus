@@ -13,4 +13,3 @@ never re-exported, per the layering rules). Planned residents per spec §9:
 that lands; `SecretBox` is additionally consumed by SkillModule's env-config
 path.
 
-Spec: `reference/self_notebook/specs/2026-07-20-skill-marketplace-tech-design-v1.1.md`.

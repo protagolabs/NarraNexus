@@ -5,8 +5,8 @@
 @description: full_copy skill import must land in the bundle's known skill_dir
              (not a random temp name) and preserve the skill's .skill_meta.json.
 
-Regression for the arena bug (see
-reference/self_notebook/plans/2026-07-13-skill-bundle-optimization.md §1):
+Regression for the arena bug (skill-bundle optimization plan §1,
+author-local):
 
 - A skill is packed twice in a bundle: inside workspace.tar.gz (with its
   credentials.json stripped by the sensitive-file scanner) AND as a separate

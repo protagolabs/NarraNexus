@@ -31,8 +31,7 @@ flag (see message_source_handler.py.md, 2026-07-03).
 
 ## Why it exists
 
-Phase 4 of the IM channel abstraction (see
-``reference/self_notebook/specs/2026-05-08-im-integration-design.md`` § 8).
+Phase 4 of the IM channel abstraction (2026-05-08 design, author-local).
 Telegram's ``ChannelModuleBase`` subclass — the third application of the
 Phase 1+2 surface and the deliberate "simplest" channel: one Bot Token
 from @BotFather, no OAuth, no admin approval, no manifest YAML, no
@@ -61,7 +60,6 @@ not the abstraction failing.
   replies. The instruction now says the opposite of the original draft
   ("DO NOT disable privacy unless..."). Iron rule 1 also enforces
   agent-side: "in groups/supergroups you reply ONLY when @-mentioned".
-  See ``reference/self_notebook/todo/2026-05-09-slack-channel-reply-policy.md``
   for the cross-channel symmetry argument.
 - **No Slack-style App Manifest.** Replaced by the BotFather chat
   sequence. There is nothing to paste into a portal — every step

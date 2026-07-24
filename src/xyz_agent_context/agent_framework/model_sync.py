@@ -9,7 +9,6 @@ ledger ([[model_probe_ledger]]): only NEW models are probed each run; models
 that already PASSED are trusted; models that previously FAILED are re-probed
 (they can flip when the backend adds support).
 
-Design + scope: see reference/self_notebook/specs/2026-06-24-power-models-auto-sync-design.md
 In scope (catalog + dual-protocol probe): netmind (+ system_pool, same backend),
 openrouter, yunwu. Out of scope: claude_oauth / codex_oauth (CLI, self-track),
 custom_* (arbitrary endpoint).

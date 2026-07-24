@@ -6,8 +6,6 @@ stub: false
 
 ## 2026-05-14 — recursive tree + nested raw / delete (pointer-model rework)
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The flat "top-level files only" listing became a **recursive directory tree**
 so the workspace viewer (Config → Workspace) can browse the structure the
 agent actually builds (a typical artifact is a folder of files). Server-side

@@ -8,13 +8,11 @@ stub: false
 
 两个 marketplace seed 从 `yield` 前的 `await` 改为 `create_task`(team seed 走网络最坏拖数分钟会冻启动、超 healthcheck);首次 reconcile 也移除(run_forever 首轮即做)。加 shutdown cancel。
 
-
 ## 2026-07-22 — skill seed 接入 lifespan
 
 继 team seed 之后,registry host 再跑 `seed_skill_marketplace`(发布 repo 的
 marketplace_skills/ first-party 技能,含 NetMind vision/audio default)。best-
 effort、非阻塞;两个 seed 共用一个 try 块。
-
 
 ## 2026-07-21 — /api/marketplace/teams 挂载 + team seed(Team Marketplace)
 
@@ -22,7 +20,6 @@ effort、非阻塞;两个 seed 共用一个 try 块。
 registry host(cloud / SKILL_MARKETPLACE_LOCAL_REGISTRY)跑 seed_team_marketplace
 (best-effort,非阻塞):从 narra.nexus 拉 9 个官方模板 → 本地 template store
 → catalog。desktop 客户端不 seed(proxy 云端)。
-
 
 ## 2026-07-21 — Skill Marketplace 路由挂载 + 对账器 lifespan 任务(stage 5/6)
 
@@ -32,12 +29,10 @@ registry host(cloud / SKILL_MARKETPLACE_LOCAL_REGISTRY)跑 seed_team_marketplace
 (`SKILL_SYNC_INTERVAL_SECONDS`,默认 1800,0 关闭),shutdown cancel;
 done-callback 记录非预期退出(fire-and-forget 教训 #2)。
 
-
 ## 2026-07-10 — feedback_router 注册
 
 `backend.routes.feedback` 挂在 `/api`（完整路径 POST /api/feedback）。web UI
 反馈弹窗的服务端中继——不让浏览器直连团队接收端（CORS/杀开关/身份可信）。
-
 
 ## 2026-07-02 — billing_router 注册
 
@@ -126,8 +121,6 @@ after `auto_migrate`. Idempotent; fills the four new `user_providers`
 columns on legacy rows so the unified resolver works on first boot after
 upgrade. Also registers `notifications_router` (`/api/notifications/*`)
 so the self-heal mechanism's notification feed has a public surface.
-
-See `reference/self_notebook/specs/2026-05-13-provider-unification-design.md`.
 
 ## 2026-05-08-r3 simplification — artifact_ws_router removed
 

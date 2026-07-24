@@ -9,7 +9,6 @@ Each agent can bind its own Lark bot via CLI --profile isolation.
 
 Instance level: Agent-level (one per Agent, enabled when bot is bound).
 
-See spec: reference/self_notebook/specs/2026-04-22-lark-three-click-auth-design.md
 """
 
 from __future__ import annotations

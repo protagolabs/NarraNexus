@@ -111,7 +111,6 @@ stays in the workspace; the backend serves it straight off disk.
 - **2026-05-14-r3 — "must be in subdirectory" hard rule dropped.** With
   `delete_source`/rmtree gone, workspace-root entries became legal; exposure
   is prevented by soft-degrading at the serving layer instead.
-- **2026-05-14 — rewritten for the pointer model.** Spec:
-  `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`.
+- **2026-05-14 — rewritten for the pointer model.**
   The old copy/version model (create_text_artifact / upload_binary_artifact /
   version rows) collapsed into the single `register_artifact`.

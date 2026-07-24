@@ -15,7 +15,6 @@ fast, never double-registers. There is no separate credentials table — Arena i
 the external source of truth for the identity, and the api_key lives only in the
 agent workspace (the backend never calls Arena itself).
 
-Design: reference/self_notebook/specs/2026-06-15-arena-onboarding-design.md (§11).
 Honors 铁律 #4 (scenario logic lives in awareness), #14 (paused = consent gate,
 not a time ceiling), #8 (sweep adjacent: agent creation funnels through
 InstanceFactory here).

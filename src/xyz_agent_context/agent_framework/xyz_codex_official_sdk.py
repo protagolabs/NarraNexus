@@ -395,8 +395,8 @@ def _build_codex_config_overrides(
 # Amendment / cancel (verified from the live requestApproval payload).
 #
 # Scope: WRITES only. workspace-write does not gate reads, and reads never
-# reach this handler — read isolation needs OS/container-level work (see
-# reference/self_notebook/specs/2026-06-14-codex-sandbox-isolation-design.md).
+# reach this handler — read isolation needs OS/container-level work
+# (author-local design, 2026-06-14).
 
 # Server→client approval-request methods codex sends when a command would
 # breach the OS sandbox. Under workspace-write these fire ONLY for

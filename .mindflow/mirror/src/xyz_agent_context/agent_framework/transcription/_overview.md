@@ -69,4 +69,3 @@ transcription/
 
 ## Reference
 
-Design doc: `reference/self_notebook/specs/2026-05-07-transcription-provider-abstraction-design.md`.

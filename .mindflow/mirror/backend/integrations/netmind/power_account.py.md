@@ -23,4 +23,3 @@ stub: false
   门禁是"拒绝"而非"放行",不泄漏。
 - 上游调用方:[[billing.py]] 的 `_require_power_account`(用户维度端点门禁)。
 
-Spec: reference/self_notebook/plans/2026-07-13-本地双模式登录.md

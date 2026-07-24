@@ -121,7 +121,6 @@ The fallback-reply stream no longer instantiates OpenAIAgentsSDK directly —
 helper (OpenAI or Anthropic Messages API) based on which helper config the
 resolver installed. Call shape (llm_stream) unchanged.
 
-
 ## 2026-05-29 — pluggable driver + EverMemOS removed
 
 The agent loop is now obtained via `get_agent_loop_driver(working_path=...)`
@@ -168,10 +167,9 @@ the cap, oldest entries drop first (with an `[... earlier activity
 omitted ...]` marker) because the recovery reply needs recent activity
 more than ancient setup. Adjacent `AgentTextDelta` frames coalesce into
 one `[assistant_text]` block so the LLM sees coherent text instead of
-the delta soup that's natural for streaming. See spec
-`reference/self_notebook/specs/2026-05-25-fallback-llm-context-design.md`
-for the bigger redesign this enables (fatal-path recovery with full
-context).
+the delta soup that's natural for streaming. This is the building block
+for the bigger fallback-LLM-context redesign (fatal-path recovery with
+full context; design is author-local).
 
 Contract is pinned by `tests/agent_runtime/test_fallback_prompt_assembly.py`.
 

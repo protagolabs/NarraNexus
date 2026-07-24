@@ -30,8 +30,6 @@ models.
 
 ## 2026-05-14 — pointer model: versioning dropped
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 `Artifact` switched from a copy/version model to a **pointer model**:
 - added `file_path` (entry file relative to `base_working_path`) and
   `size_bytes` (recursive size of the artifact root directory);

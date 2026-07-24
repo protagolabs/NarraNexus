@@ -13,7 +13,6 @@ Tools exposed (7 total):
   - lark_status(agent_id)                          — Health + Matrix self-heal
   - lark_skill(agent_id, name, path="SKILL.md")    — Read any skill file
 
-See spec: reference/self_notebook/specs/2026-04-22-lark-three-click-auth-design.md
 
 Four tools were removed in the C-mini redesign; all four funnel into
 `lark_permission_advance`:

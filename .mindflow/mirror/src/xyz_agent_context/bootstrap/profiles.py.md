@@ -21,8 +21,8 @@ previously `artifact_runner`) so file_path/size_bytes are correct;
 content comes from `bootstrap/welcome_templates.py`).
 
 Agent creation selects a profile by name (a `bootstrap` parameter; default =
-today's behavior). See design + experiment evidence in
-`reference/self_notebook/specs/2026-06-16-bootstrap-profiles-design.md`.
+today's behavior). Design + experiment evidence are author-local
+(2026-06-16).
 
 ## Upstream / Downstream
 

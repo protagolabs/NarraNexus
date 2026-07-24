@@ -93,8 +93,7 @@ acceptWithExecpolicyAmendment / **cancel**。
 **读仍未隔离(刻意)**:workspace-write 不 gate 读、`[permissions]` 拒读实测无效
 (设了 deny `~/.codex/**` 仍 `CREDS_READABLE`)、handler 看不到读、codex 读走 shell
 无结构化工具可挂钩。读侧只能 OS/容器级(per-agent uid / mount namespace),需 Owner
-授权动 deploy。设计与全部实测见
-`reference/self_notebook/specs/2026-06-14-codex-sandbox-isolation-design.md`。
+授权动 deploy。(设计与实测记录为作者本地。)
 契约测试 `tests/agent_framework/test_codex_write_gate.py`。
 
 ## 2026-06-14 — ⚠️ 下方 2026-06-12 "workspace-write 即隔离" 结论作废(实测+死路)

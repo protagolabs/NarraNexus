@@ -31,8 +31,7 @@ flag (see message_source_handler.py.md, 2026-07-03).
 
 ## Why it exists
 
-Phase 3 of the IM channel abstraction (see
-``reference/self_notebook/specs/2026-05-08-im-integration-design.md`` § 9).
+Phase 3 of the IM channel abstraction (2026-05-08 design, author-local).
 Slack's ``ChannelModuleBase`` subclass — wires platform-specific prompt
 content, credential schema, sender, and MCP tool registration to the
 shared mechanism.
