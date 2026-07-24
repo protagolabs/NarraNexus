@@ -9,7 +9,7 @@ stub: false
 REGISTRY 追加 `_m0003`(云端 codex_cli→claude_code,顺序在 m0002 之后)。见
 [[m0003_cloud_codex_to_claude]]。
 
-# migrations/__init__.py — versioned data-migration ledger + runner
+# backend/migrations/__init__.py — versioned data-migration ledger + runner
 
 ## Why it exists
 
