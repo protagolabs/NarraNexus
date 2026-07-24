@@ -111,7 +111,7 @@ points at `BundleImportPage` which detects URL mode and auto-fetches via
 `POST /api/bundle/import/from-url`.
 
 Hook is a no-op outside Tauri (web/cloud build), so `isTauri()` guard at
-top. Design context: author-local worklog (untracked).
+top.
 
 # App.tsx — Root routing, route guards, and global side-effects
 

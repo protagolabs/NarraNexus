@@ -153,8 +153,6 @@ scripts/.control.sh
 
 # Local-only scratch / test-run state — never committed.
 .tmp/
-/real_case_e2e_test/reports/
-/real_case_e2e_test/state/
 DESIGN-unified-memory-search.md
 TODO-unified-memory-overhaul.md
 
