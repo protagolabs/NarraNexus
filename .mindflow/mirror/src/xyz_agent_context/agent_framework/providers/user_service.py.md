@@ -67,7 +67,7 @@ codex 能选任意 openai-protocol provider。
 
 删除理由 = **铁律 #15**:这条本质是「平台替用户判断某 provider 不配当 agent
 slot」,#15 明确禁止。codex 仍走 `wire_api="responses"`(硬编码,见
-[[xyz_codex_official_sdk]]),端点是否真的服务 `/v1/responses` 是 provider 的特性,
+[[official_sdk]]),端点是否真的服务 `/v1/responses` 是 provider 的特性,
 运行时才见分晓——跟任何用户自选端点一样,是用户接受的成本,不在配置期拦。
 
 **现在 codex agent slot 只剩 protocol 一道闸**(anthropic provider 仍会被拒)。
@@ -93,7 +93,7 @@ agent slot 强制返回 `CODEX_CURATED_MODELS`,导致选了 netmind 也只看得
 
 The three provider↔slot binding rules (protocol / codex-source / helper-OAuth)
 were extracted from ``set_slot`` into a module-level ``validate_slot_binding``,
-now the single source of truth shared with [[agent_slot_service]] so a per-agent
+now the single source of truth shared with [[slot_service]] so a per-agent
 override enforces identical rules. ``remove_provider`` also deletes matching
 ``agent_slots`` rows (by ``provider_id``, globally unique) — else a deleted
 provider leaves dangling per-agent overrides that fail at resolve.
@@ -191,7 +191,7 @@ default_slots loop, and claude_oauth binding all share).
 
 ## 为什么存在
 
-云端部署时，每个用户有自己的 API key 和模型偏好，不能共用单一的 `llm_config.json` 文件。这个服务把 provider 配置从文件系统迁移到数据库的 `user_providers` 和 `user_slots` 表，实现 per-user 隔离。接口设计刻意对齐 `provider_registry.py`，让调用方代码可以相对平滑地切换。
+云端部署时，每个用户有自己的 API key 和模型偏好，不能共用单一的 `llm_config.json` 文件。这个服务把 provider 配置从文件系统迁移到数据库的 `user_providers` 和 `user_slots` 表，实现 per-user 隔离。接口设计刻意对齐 `providers/registry.py`，让调用方代码可以相对平滑地切换。
 
 ## 上下游关系
 
@@ -203,7 +203,7 @@ default_slots loop, and claude_oauth binding all share).
 
 ## 设计决策
 
-**和 `provider_registry.py` 的接口对称**：都有 `add_provider`、`remove_provider`、`set_slot`、`validate_slots`、`test_provider`。这让上层代码可以以相同方式操作两种存储后端，虽然目前没有统一抽象基类（将来可以提取）。
+**和 `providers/registry.py` 的接口对称**：都有 `add_provider`、`remove_provider`、`set_slot`、`validate_slots`、`test_provider`。这让上层代码可以以相同方式操作两种存储后端，虽然目前没有统一抽象基类（将来可以提取）。
 
 **Agent slot 协议由 `agent_framework` 决定**：`set_slot()` 不能只看静态 `SLOT_REQUIRED_PROTOCOLS`。当 `user_slots[agent].agent_framework ∈ {codex_cli, codex_cli_v2, codex_official}` 时，agent slot 接受 OpenAI-protocol provider；默认/Claude Code 路径仍要求 Anthropic。Codex OAuth provider 创建时也直接写入 `driver_type="codex_oauth"` 和 `auth_ref="codex-cli:~/.codex/auth.json"`，避免等待启动 backfill 才能被 resolver 使用。
 
@@ -230,9 +230,9 @@ route 层 `backend/routes/providers.py` 现在 import 本文件的 `_SUPPORTED_A
 
 **models 字段以 JSON 字符串存储**：数据库里 `user_providers.models` 是 JSON 字符串（而非数组类型列），读取时用 `json.loads`，写入时用 `json.dumps`。这是为了保持对 SQLite 和 MySQL 的兼容性，避免数据库方言差异。
 
-**linked_group 机制与 `provider_registry.py` 对应**：删除 provider 时先查 `linked_group`，找到同组所有 provider 一起删除，同时清掉对应的 slots。
+**linked_group 机制与 `providers/registry.py` 对应**：删除 provider 时先查 `linked_group`，找到同组所有 provider 一起删除，同时清掉对应的 slots。
 
-**`_DUAL_PROVIDER_CONFIGS` 字典**：把 NetMind/Yunwu/OpenRouter 的双协议配置集中在一个字典里，比 `provider_registry.py` 的三个独立 builder 函数更紧凑，但内容是独立硬编码的，两处不共享。
+**`_DUAL_PROVIDER_CONFIGS` 字典**：把 NetMind/Yunwu/OpenRouter 的双协议配置集中在一个字典里，比 `providers/registry.py` 的三个独立 builder 函数更紧凑，但内容是独立硬编码的，两处不共享。
 
 ## Gotcha / 边界情况
 

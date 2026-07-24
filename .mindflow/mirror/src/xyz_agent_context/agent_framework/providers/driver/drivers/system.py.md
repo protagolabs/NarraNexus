@@ -26,7 +26,7 @@ cost_tracker 里的 deduct**，否则双重扣费。
 ## 2026-07-18 — 模块 docstring 门禁描述更新（行为不变）
 
 门禁第 2 条从"用户已 opt-in（prefer_system_override）"改写为"quota 行存在
-即授予"——该列自 2026-07-18 起仅是通知闩锁（[[provider_resolver]]），本
+即授予"——该列自 2026-07-18 起仅是通知闩锁（[[resolver]]），本
 驱动的注册/解析逻辑本就不读它，纯文档修正。
 
 ## 2026-06-10 — build_anthropic_helper_config
@@ -57,7 +57,7 @@ The only Driver registered conditionally — guarded by
 
 ⚠️ 该扣减**只看上下文标签，不看实际用了哪张 card**。这是已知的结构性弱点
 （标签与事实可能分叉），见 2026-07-20 的配额审计。改动此处前先读
-[[cost_tracker]] 与 [[provider_resolver]]。
+[[cost_tracker]] 与 [[resolver]]。
 
 ## Where the credential comes from
 

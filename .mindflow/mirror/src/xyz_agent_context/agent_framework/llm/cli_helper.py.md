@@ -25,7 +25,7 @@ helper_llm 设为 Claude 时建 Job 会卡死或"假成功"。本文件 `claude_
   context manager。
 - **provider 可观测**:spawn 前打 INFO,记录**生效**的 `base_url`/auth 种类/
   `CLAUDE_CONFIG_DIR`,使个人 `~/.claude/settings.json` env-block 劫持可 grep
-  (与 [[xyz_claude_agent_sdk]] 对称)。
+  (与 [[sdk]] 对称)。
 
 `settings` 导入随之提到模块顶部(settings 仅依赖 stdlib+pydantic,无循环)。回归测试
 见 `test_helper_json_repair.py`(修复恢复/耗尽、回填坏回复、env 界值、墙钟超时)。
@@ -67,7 +67,7 @@ agent 的 codex_config)。与 `_run_claude_oneshot` 自建 ClaudeConfig 对称,c
 调 `xyz_claude_agent_sdk._stage_claude_oauth_credentials(env["CLAUDE_CONFIG_DIR"])`
 (懒导入避环),使 helper **不依赖同轮 agent_loop 先 seed** 共享隔离目录——**agent 槽
 是 codex、helper 是 claude 的混配**,或后台单独触发 helper(无前置 claude turn)时也能
-认证。macOS 上该 stager 含 Keychain 导出(见 [[xyz_claude_agent_sdk]])。
+认证。macOS 上该 stager 含 Keychain 导出(见 [[sdk]])。
 
 ## 2026-07-08 — codex 一次性路径修复(真机 E2E 暴露的三个 bug)
 
@@ -103,7 +103,7 @@ agent 的 codex_config)。与 `_run_claude_oneshot` 自建 ClaudeConfig 对称,c
 5. **文本重复**:codex 把回复既按 `agentMessageDelta` 增量流式吐、又在 `item.completed`
    全量重吐一遍(措辞有时略不同),两者都被 translator flatten 成
    `response.text.delta` → 累积后是两份 JSON 拼接 → 抽取失败。**本次在抽取侧兜底**
-   (见 [[openai_agents_sdk]] 的 `_first_balanced_json`,取第一个平衡对象),结构化调用
+   (见 [[openai_agents]] 的 `_first_balanced_json`,取第一个平衡对象),结构化调用
    因此稳定通过;根因(translator 双 emit,亦影响 agent 主链路)单独立项。
 
 回归测试:`test_codex_oneshot_*`(在 `test_cli_helper.py`)mock driver 吐**真实

@@ -13,7 +13,7 @@ Create 完全不限长、Update 的 description 限 2000——2000 > 255 正是�
 #71 不可读行的洞。现与其余三处(读模型 / Create·UpdateAgentRequest / 导入修剪)
 绑同一上限。
 
-# manyfold_agents.py — Manyfold 网关的服务间集成路由
+# manyfold/agents.py — Manyfold 网关的服务间集成路由
 
 ## 为什么存在
 

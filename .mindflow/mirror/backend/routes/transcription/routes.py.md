@@ -4,7 +4,7 @@ last_verified: 2026-05-07
 stub: false
 ---
 
-# transcription.py — voice-input availability pre-flight
+# transcription/routes.py — voice-input availability pre-flight (was transcription.py)
 
 ## Why it exists
 
@@ -26,7 +26,7 @@ worse UX than asking up front.
 ## Gotchas
 
 - This route is **JWT-protected**. The companion route
-  `transcription_public.py` is the one that's auth-bypassed — don't
+  `transcription/public.py` is the one that's auth-bypassed — don't
   confuse them.
 - The `_resolve_user_id` helper supports BOTH JWT-derived state.user_id
   and a `?user_id=` query param. Cloud-mode middleware sets the

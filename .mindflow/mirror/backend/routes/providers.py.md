@@ -11,7 +11,7 @@ stub: false
 带 card_type/api_key/base_url/auth_type/models，直接测表单值、不落库）。
 后者让添加表单「先验证再保存」。仍要求登录（`_get_user_id` 鉴权），只是
 探测本身 per-request。静态路径不与 `/{provider_id}/test` 冲突。底层都委托
-[[user_provider_service]] → `provider_registry`。
+[[user_service]] → `provider_registry`。
 
 `TestProviderConfigRequest.auth_type` 收紧为 `Literal["api_key",
 "bearer_token"]`：oauth 及任意非法值在 API 边界直接 422，而非落到
@@ -106,7 +106,7 @@ converged on the same helper. Import is top-level now.
 /use-subscription now passes inference_base=settings.netmind_inference_base into
 onboard_one_key, so a dev-minted key is registered against dev inference
 (test.api.netmind.ai) rather than the hardcoded prod. /onboard (manual paste) is
-unchanged (prod). See [[user_provider_service]].
+unchanged (prod). See [[user_service]].
 
 
 
@@ -151,7 +151,7 @@ staff 时应隐藏/禁用，否则切换会收到 403 报错。后端门禁是�
 测试：`tests/backend/test_provider_oauth_gating.py`（9 个，DB-free，stub
 `_get_service` 区分「过门禁」与门禁自身的 403）。**未动**的死路：§1/§2 沙箱
 （codex 原生 approval 只有 auto_review/deny_all 两档，给不了 workspace 内放行+
-越界拒的中间档，见 `xyz_codex_official_sdk.py.md` 2026-06-14 条目）。
+越界拒的中间档，见 `adapters/codex/official_sdk.py.md` 2026-06-14 条目）。
 
 ## 2026-06-11 — /codex-status 不再把"文件存在"当"已登录"
 

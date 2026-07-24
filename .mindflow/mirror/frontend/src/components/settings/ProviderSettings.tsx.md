@@ -24,7 +24,7 @@ networkError`，401/422 的 `{detail}` 不会渲染成一行空红字。i18n 新
 > **Obsolete claim below (2026-07-10)**: the 2026-06-10 entry "accurate codex
 > no-provider message" describes a `CODEX_ALLOWED_PROVIDER_SOURCES` filter and a
 > "NetMind / Yunwu / OpenRouter not supported" message. That constant was
-> **removed** (see [[agentFramework]] / [[user_provider_service]] 2026-07-10) and
+> **removed** (see [[agentFramework]] / [[user_service]] 2026-07-10) and
 > that error copy no longer lives in this component (the agent-slot editor moved
 > to [[ModelDefaultsSettings]] in #81). codex_cli now accepts any openai-protocol
 > provider — aggregators included (binding rule #15).
@@ -218,7 +218,7 @@ still holding the dropped A/B aliases (`codex_cli_v2`,
 over a silent startup migration: cleaner code, one-time minor
 user friction, no automation that has to keep working forever.
 
-v1 source file (`xyz_codex_cli_sdk.py`) intentionally kept in the
+v1 source file (`adapters/codex/cli_sdk.py`) intentionally kept in the
 repo as revival fallback — if v2 has a critical regression we can
 flip one `register_agent_loop_driver` line in
 `agent_framework/__init__.py` to bring v1 back online without

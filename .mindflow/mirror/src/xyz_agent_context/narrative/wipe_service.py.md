@@ -12,7 +12,7 @@ stub: false
 (`settings.narrative_markdown_path/<agent>/<user>/narratives/*.md`),逐轮轨迹在
 `trajectory_path/.../trajectories/`。系统重启时会**从磁盘 .md 重建 DB**。所以历史上
 只清 DB 的 `DELETE /history` 无效——重启后 agent 照旧记得。这个 service 把 DB + 磁盘 +
-session 一起清干净,是 [[agents_chat_history.py]] 那个路由的实现层。
+session 一起清干净,是 [[agents/chat_history.py]] 那个路由的实现层。
 
 ## 上下游关系
 

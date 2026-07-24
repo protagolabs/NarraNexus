@@ -41,7 +41,7 @@ checks) live upstream in `artifact_runner`; this layer is deliberately dumb.
 ## Upstream
 
 - `artifact_runner.register_artifact` — the production caller.
-- `backend/routes/agents/artifacts.py` + `users_artifacts.py` — list / detail /
+- `backend/routes/agents/artifacts.py` + `artifacts/users.py` — list / detail /
   pin / delete endpoints.
 - Tests — `tests/repository/test_artifact_repository.py` (real in-memory SQLite).
 

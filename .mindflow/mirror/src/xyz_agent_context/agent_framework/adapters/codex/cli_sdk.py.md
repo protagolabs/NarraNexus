@@ -12,7 +12,7 @@ last_verified: 2026-07-15
 
 ## 2026-07-09 (P0 fix) — bump subprocess StreamReader line limit to 50 MiB
 
-Companion to the [[remote_agent_loop_driver.py]] LineTooLong fix. Same
+Companion to the [[loop/remote_driver.py]] LineTooLong fix. Same
 class of bug, one hop upstream: `asyncio.create_subprocess_exec` without
 an explicit `limit=` kwarg uses `asyncio.streams._DEFAULT_LIMIT = 65536`
 (64 KiB). Once a codex CLI NDJSON event line exceeds it,
@@ -42,7 +42,7 @@ Step 3 的 `full_env = {**os.environ, **cli_env}` 把 backend 全部环境(含
 `_codex_env.build_codex_subprocess_env`(与 v2 共用),只透传最小系统白
 名单 + `CODEX_HOME` / `NO_PROXY` / scoped `CODEX_API_KEY`。v1 虽是 revival
 fallback、当前不注册,但一旦被拉回活跃路径必须同样安全,故一并修。详见
-`_codex_env.py.md`。
+`adapters/codex/_env.py.md`。
 
 ## 2026-06-17 — PR #25 评审收尾(v1 现为 revival fallback,不注册)
 
@@ -100,7 +100,7 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
   history-eviction logic from CC is preserved (token budget still
   matters) but the byte-cap belt-and-braces is dropped.
 - **Race-with-cancel JSON Lines receive loop.** Exact same pattern
-  as ``xyz_claude_agent_sdk.py`` lines 393-451: wait on the next
+  as ``adapters/claude/sdk.py`` lines 393-451: wait on the next
   stdout line and the cancellation token simultaneously,
   ``return_when=FIRST_COMPLETED``. Sub-100ms cancellation latency
   even during a long-running tool call.

@@ -40,7 +40,7 @@ failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
 
 下游：`~/.nexusagent/llm_config.json` 文件，以及通过 `model_catalog.get_default_models()` 预填充各 provider 的模型列表。
 
-和 `user_provider_service.py` 的关系：这个文件处理**本地单机**场景（`llm_config.json` 文件），`user_provider_service.py` 处理**云端多租户**场景（数据库）。两者接口相似（都有 `add_provider`、`set_slot`、`validate` 等），但存储和作用域不同。`user_provider_service.py` 在做连接测试时会复用这里的 `provider_registry.test_provider()` 方法。
+和 `providers/user_service.py` 的关系：这个文件处理**本地单机**场景（`llm_config.json` 文件），`providers/user_service.py` 处理**云端多租户**场景（数据库）。两者接口相似（都有 `add_provider`、`set_slot`、`validate` 等），但存储和作用域不同。`providers/user_service.py` 在做连接测试时会复用这里的 `provider_registry.test_provider()` 方法。
 
 ## 设计决策
 
@@ -58,4 +58,4 @@ failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
 ## 新人易踩的坑
 
 - `validate()` 只检查"三个 slot 是否都配置了"，不验证 API key 是否有效。连接测试是独立的 `test_provider()` 操作，不在 validate 流程里。
-- `yunwu` 和 `openrouter` 在 `add_provider()` 里的处理方式和 `netmind` 完全相同（都是 unique + dual providers），但在 `_DUAL_PROVIDER_CONFIGS`（`user_provider_service.py` 里）和这里的 builder 函数里有各自独立的 base_url 硬编码，两处要同步维护。
+- `yunwu` 和 `openrouter` 在 `add_provider()` 里的处理方式和 `netmind` 完全相同（都是 unique + dual providers），但在 `_DUAL_PROVIDER_CONFIGS`（`providers/user_service.py` 里）和这里的 builder 函数里有各自独立的 base_url 硬编码，两处要同步维护。

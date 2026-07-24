@@ -4,11 +4,11 @@ last_verified: 2026-07-13
 stub: false
 ---
 
-# _office_watch_token.py — office-watch 代理的 HMAC 签名 token
+# office_watch/_token.py — office-watch 代理的 HMAC 签名 token
 
 ## 为什么存在
 
-和 `_artifact_token.py` 同一个道理:`<iframe src>` 导航(以及 watch 页面自己的
+和 `artifacts/_token.py` 同一个道理:`<iframe src>` 导航(以及 watch 页面自己的
 EventSource/fetch 子请求)带不了 `X-User-Id`/Authorization 头,所以 session 鉴权的代理会
 401。改为:authed 的 `/office-watch/open` 铸一个短 TTL token(载 `user_id` + `port`),
 公共代理路由(`/api/public/office-watch-proxy/{token}/...`)校验它。token 即鉴权,放在 URL

@@ -9,9 +9,9 @@ last_verified: 2026-07-23
 `get_my_quota` 的 enabled 分支（uninitialized + 完整两种）都带上
 `free_tier: {active, model}`。动机：全局 Model Defaults（[[ModelDefaultsSettings]]）
 是用户级面板、没有 agentId，拿不到 [[agents_llm_config]] 的 per-agent free_tier；而它
-在免费额度期改默认模型同样被运行时静默忽略（[[provider_resolver]] SYSTEM_OK 分支忽略
+在免费额度期改默认模型同样被运行时静默忽略（[[resolver]] SYSTEM_OK 分支忽略
 user_slots）。于是复用本就承载配额状态的 quota/me 暴露同一锁定信号，前端据此渲染诚实
-banner。`free_tier` 由单点 `free_tier_lock_for`（[[provider_resolver]]）算出——本路由
+banner。`free_tier` 由单点 `free_tier_lock_for`（[[resolver]]）算出——本路由
 只把 `app.state` 的 system_provider / quota_service + db 传进去（review 抓出第一版在此
 和 agents_llm_config 各复制了一份 helper，本次收敛到 provider_resolver）。本地模式
 `_is_cloud_mode()` 假 → 早返回 `{enabled: false}`，不带 free_tier（前端视作 inactive）。
@@ -22,7 +22,7 @@ banner。`free_tier` 由单点 `free_tier_lock_for`（[[provider_resolver]]）�
 免费额度优先成为平台行为（Owner 决策），用户偏好端点整体移除；
 `PreferenceRequest`、`QuotaPreferenceLocked` 映射、toggle 后的 job rearm
 一并删除。`prefer_system_override` 列保留为耗尽通知的去重闩锁（见
-[[provider_resolver]] / [[quota_service]]）。下文 "PATCH /me/preference
+[[resolver]] / [[quota_service]]）。下文 "PATCH /me/preference
 (#48)" 一节自此为历史记录。本路由现在只剩 GET /me。
 
 # Intent

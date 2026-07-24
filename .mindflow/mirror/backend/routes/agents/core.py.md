@@ -20,9 +20,9 @@ Added `router.include_router(bus_failures_router)`, mounting
 `backend/routes/agents/bus_failures.py`'s `/{agent_id}/bus-failures` (GET) and
 `/{agent_id}/bus-failures/{message_id}/retry` (POST) under `/api/agents`. This
 is the recovery half of the NetMindAI-Open/NarraNexus#52 fix — see
-`agents_bus_failures.py.md`.
+`agents/bus_failures.py.md`.
 
-# agents.py — Agent 路由聚合器
+# agents/core.py — Agent 路由聚合器（原 agents.py）
 
 ## 为什么存在
 
@@ -33,7 +33,7 @@ is the recovery half of the NetMindAI-Open/NarraNexus#52 fix — see
 ## 上下游关系
 
 - **被谁用**：`backend/main.py` — `include_router(agents_router, prefix="/api/agents")`
-- **依赖谁**：`agents_awareness.py`、`agents_social_network.py`、`agents_chat_history.py`、`agents_files.py`、`agents_attachments.py`、`agents_mcps.py`、`agents_cost.py`、`agents_bus_failures.py` 的 router 实例
+- **依赖谁**：`agents/awareness.py`、`agents/social_network.py`、`agents/chat_history.py`、`agents/files.py`、`agents/attachments.py`、`agents/mcps.py`、`agents/cost.py`、`agents/bus_failures.py` 的 router 实例
 
 ## 设计决策
 
@@ -41,7 +41,7 @@ is the recovery half of the NetMindAI-Open/NarraNexus#52 fix — see
 
 ## Gotcha / 边界情况
 
-子路由注册顺序对 `agents_social_network.py` 有影响，因为该文件内部有 `/{agent_id}/social-network/search` 和 `/{agent_id}/social-network/{user_id}` 的路径冲突问题，但这是由子文件内部的路由定义顺序解决的，与本文件的聚合顺序无关。
+子路由注册顺序对 `agents/social_network.py` 有影响，因为该文件内部有 `/{agent_id}/social-network/search` 和 `/{agent_id}/social-network/{user_id}` 的路径冲突问题，但这是由子文件内部的路由定义顺序解决的，与本文件的聚合顺序无关。
 
 ## 新人易踩的坑
 

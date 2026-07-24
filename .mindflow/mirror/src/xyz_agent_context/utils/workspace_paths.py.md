@@ -63,8 +63,8 @@ migration (binding rule #6), READERS of existing data use:
   swapping the prefix flat↔nested if needed.
 
 Wired into every hardcoded flat site the nested flip would otherwise break
-(binding rule #8 sweep): `artifacts_public.py`, `agents_artifacts.py`,
-`agents_files.py`, `manyfold_files.py`, `auth.py` (workspace delete + the
+(binding rule #8 sweep): `artifacts/public.py`, `agents/artifacts.py`,
+`agents/files.py`, `manyfold/files.py`, `auth.py` (workspace delete + the
 THREE `bootstrap_active` checks: GET agents, update agent, create agent),
 `common_tools_module.py` (artifact list display), `context_runtime.py`
 (Bootstrap.md path → bootstrap_active gate), and `_social_mcp_tools.py`

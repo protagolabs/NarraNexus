@@ -408,7 +408,7 @@ this.
 * **Phase 0 (done)**: this design doc + community-spike archive on
   `feat/codex-sdk-05-29`.
 * **Phase 1 (next branch)**: `feat/codex-sdk-v2` —
-  * write `xyz_codex_official_sdk.py` (CodexSDKv2 class)
+  * write `adapters/codex/official_sdk.py` (CodexSDKv2 class)
   * extend `output_transfer.py` with notification → event translation
     table
   * register v2 in `agent_loop_driver`

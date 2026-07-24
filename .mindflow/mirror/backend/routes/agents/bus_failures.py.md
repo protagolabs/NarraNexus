@@ -4,7 +4,7 @@ last_verified: 2026-07-02
 stub: false
 ---
 
-# agents_bus_failures.py — MessageBus 永久失败列表 + 重试恢复路由
+# agents/bus_failures.py — MessageBus 永久失败列表 + 重试恢复路由
 
 ## 为什么存在
 
@@ -17,7 +17,7 @@ poison-message 的机制，但代价是消息从此彻底消失，没有任何 U
 ——这个文件就是那个入口。是 NetMindAI-Open/NarraNexus#52 修复的"可恢复"半边。
 
 独立成文件而不是塞进 `inbox.py` 或某个 `bus.py`，是因为它严格遵循
-`agents_cost.py` 建立的"per-agent 子资源路由 + 所有权校验"惯例——`agents.py`
+`agents/cost.py` 建立的"per-agent 子资源路由 + 所有权校验"惯例——`agents.py`
 把这类文件都聚合在 `/api/agents/{agent_id}/...` 命名空间下，帮它挂进去比另开
 一套顶层路由更符合项目现有模式。
 
@@ -25,7 +25,7 @@ poison-message 的机制，但代价是消息从此彻底消失，没有任何 U
 
 - **被谁用**：`backend/routes/agents/core.py`（`router.include_router(bus_failures_router)`，挂载在 `/api/agents` 下）；前端目前**没有**对应 UI（本 PR 只交付后端路由，前端 follow-up）
 - **依赖谁**：
-  - `backend.auth.resolve_current_user_id` — 拿 viewer 身份（同 `agents_cost.py` 模式）
+  - `backend.auth.resolve_current_user_id` — 拿 viewer 身份（同 `agents/cost.py` 模式）
   - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查 `bus_message_failures` / `bus_messages` / `agents` 表
   - 不直接依赖 `LocalMessageBus`——重试端点只是删除 `bus_message_failures` 行，下一次 `MessageBusTrigger` 轮询会自然通过 `get_pending_messages` 把消息捞回来
 
@@ -41,7 +41,7 @@ bus_message_failures WHERE message_id=... AND agent_id=...`，不主动触发
 `AgentRuntime`——那样会重复实现 `_handle_channel_batch` 的整套 prompt 构建 /
 owner-relay / team-chat 分支逻辑，而"等下一次轮询"的延迟只有几秒，不值得。
 
-**鉴权照抄 `agents_cost.py`**：viewer_id 只信 session（拒绝 `?user_id=`
+**鉴权照抄 `agents/cost.py`**：viewer_id 只信 session（拒绝 `?user_id=`
 query param），单 agent 强制 `agents.created_by == viewer_id`，失败统一 404
 （不是 403，不泄露 agent 是否存在）。这个文件没有引入新的鉴权模式，是刻意的
 ——项目里已经有一个验证过的 per-agent 所有权校验模式，复用比发明新的更安全。
@@ -58,7 +58,7 @@ query param），单 agent 强制 `agents.created_by == viewer_id`，失败统�
   失败记录返回一个假的 "success"。
 - **触发**：非 owner 调用 GET/POST → **症状**：404（不是 403）→
   **根因**：`_require_owned_agent` 统一伪装成"agent not found"，与
-  `agents_cost.py` 的 defense-in-depth 理由一致——不向未授权调用方泄露 agent
+  `agents/cost.py` 的 defense-in-depth 理由一致——不向未授权调用方泄露 agent
   是否存在。
 
 ## 新人易踩的坑

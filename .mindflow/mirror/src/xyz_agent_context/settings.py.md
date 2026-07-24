@@ -11,13 +11,13 @@ memory / social entity 等短、单轮、无工具的结构化提取)——它�
 不违反铁律 #14:
 
 - `helper_cli_timeout_ms` (60000)、`helper_cli_max_retries` (1):CLI helper 子进程的
-  每请求超时与重试。默认由 [[cli_helper_sdk]] 的 `_run_claude_oneshot` **覆盖**
+  每请求超时与重试。默认由 [[cli_helper]] 的 `_run_claude_oneshot` **覆盖**
   `to_cli_env` 注入的 agent-loop 值(~10min×10),否则坏/被劫持端点可挂近 100min。
 - `helper_cli_total_timeout_seconds` (120):**单次 one-shot 的硬墙钟上界**
   (`asyncio.wait_for`)。三者刻意自洽:`60s×(1+1)=120s=total`,让配置的重试真能跑满
   而不是被墙钟提前砍掉(硬上界 vs 软预算的关系写在字段注释里)。
 - `helper_json_repair_attempts` (3):Claude helper 结构化输出抠取/校验失败时的有界
-  修复重试次数(见 [[anthropic_helper_sdk]] / [[cli_helper_sdk]])。
+  修复重试次数(见 [[anthropic_helper]] / [[cli_helper]])。
 
 全部带默认值、无新必填 env,部署无影响。
 ## 2026-07-22 — skill_marketplace_local_registry 字段
@@ -86,7 +86,7 @@ Added `netmind_inference_base` (default prod `https://api.netmind.ai/inference-a
 dev sets `NETMIND_INFERENCE_BASE=https://test.api.netmind.ai/inference-api`). Used
 ONLY by the use-subscription minted-key path; must match the same NetMind env as
 NETMIND_KEY_API_BASE / BILLING_API_BASE / NETMIND_AUTH_API_URL. Manual key paste
-stays on prod. See [[providers]] / [[user_provider_service]].
+stays on prod. See [[providers]] / [[user_service]].
 
 
 

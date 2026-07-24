@@ -7,13 +7,13 @@ stub: false
 ## 2026-07-23 — GET 响应新增 `free_tier` 锁定块（诚实化模型选择器）
 
 GET `/{agent_id}/llm-config` 的 `data` 增加 `free_tier: {active, model}`。动机：
-云端免费额度优先策略（[[provider_resolver]] 的 SYSTEM_OK 分支）在免费额度有余额时
+云端免费额度优先策略（[[resolver]] 的 SYSTEM_OK 分支）在免费额度有余额时
 **忽略 per-agent override**、锁死系统固定模型——底部 [[ComposerModelBadge]] 却照常
 显示可切下拉、写库、乐观更新，用户以为切成功了实则运行时永远没变。这是测试同学报的
 "model 选择器切换不生效" 的真根因（不是前端/写库 bug）。
 
 `free_tier` 由单点 `free_tier_lock_for(user_id, sys_svc, quota_svc, db)`
-（[[provider_resolver]]）算出——路由只负责从 `request.app.state` 取 system_provider /
+（[[resolver]]）算出——路由只负责从 `request.app.state` 取 system_provider /
 quota_service（可能为 None）并连同 db 传进去；resolver 组装 + 是否锁定 + model 提取全在
 provider_resolver 单点完成（review 抓出第一版把 helper 复制进了 llm-config 和 quota 两个
 路由，本次收敛）。`active` 语义 = SYSTEM_OK 门；`model` 是锁定时真正运行的系统 agent
@@ -65,7 +65,7 @@ test_agents_llm_config_routes.py 新增三例（403 / netmind 通过 / staff 绕
 
 Sub-router (mounted under ``/api/agents`` via [[agents]]) for the per-agent LLM
 overrides that back the chat-page model/framework quick-switch + detailed panel.
-Delegates writes to [[agent_slot_service]].
+Delegates writes to [[slot_service]].
 
 Endpoints:
 - ``GET /{agent_id}/llm-config`` — per-slot view for agent + helper:

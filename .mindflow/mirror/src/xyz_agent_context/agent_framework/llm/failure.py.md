@@ -44,7 +44,7 @@ NetMind.AI 套餐」，随 review 意见回退。
 `insufficient_quota`、Anthropic credit-balance 都会命中它（测试均有覆盖）。对一个
 DeepSeek 余额耗尽的用户推荐"订阅 NetMind.AI"，是无效噪音。
 
-NetMind 特化的引导改放在 [[provider_resolver]] 的 `QuotaExceededError`：那条路径
+NetMind 特化的引导改放在 [[resolver]] 的 `QuotaExceededError`：那条路径
 是免费额度专属，按构造就是云端 + NetMind 语境，在那里点名 NetMind 永远成立。
 
 **若将来要在这里按 provider 分别渲染**，需要把 provider 类型透传进
@@ -72,7 +72,7 @@ marker 支持两种形态:纯子串,或 AND-组（`tuple[str,...]`，全部命�
 收紧两处过宽子串——`402` → `402 payment`（token 计数里常有裸 402）;
 `does not exist` → `("model", "does not exist")`（文件/会话也会"not exist"，
 必须与 `model` 共现）。动机:自助类误判现在**代价更高**——不仅把该轮标
-fatal，还让熔断器早退跳过（见 [[agent_circuit_breaker.py]]），可能掩盖真正
+fatal，还让熔断器早退跳过（见 [[loop/circuit_breaker.py]]），可能掩盖真正
 需要熔断保护的 provider 故障。matcher 抽成 `_marker_hit(marker, hay)`。
 
 ## 为什么存在

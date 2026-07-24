@@ -3,7 +3,7 @@ code_file: backend/routes/agents/circuit_breaker.py
 last_verified: 2026-07-13
 stub: false
 ---
-# agents_circuit_breaker.py — 熔断器状态查询 + 手动"恢复"路由
+# agents/circuit_breaker.py — 熔断器状态查询 + 手动"恢复"路由
 
 ## 为什么存在
 
@@ -20,5 +20,5 @@ stub: false
 
 ## 设计决策
 
-按 viewer 租户隔离，完全照搬 `agents_bus_failures.py`：viewer_id 只从 session 取
+按 viewer 租户隔离，完全照搬 `agents/bus_failures.py`：viewer_id 只从 session 取
 （`?user_id=` 直接 400 拒绝），非 owner 一律 404（同时掩盖"无此 agent"与"不是你的"）。

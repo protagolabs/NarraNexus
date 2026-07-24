@@ -72,7 +72,7 @@ together with `delete_source`). Without this check, a multi-file artifact
 registered at the workspace root would serve Bootstrap.md and every other
 artifact's files as "siblings".
 
-# artifacts_public.py
+# artifacts/public.py
 
 ## Why it exists
 
@@ -99,7 +99,7 @@ broken-pointer probe).
 
 Upstream:
 - Frontend `HtmlRenderer` sets the iframe `src` to the `raw_url` returned by
-  `GET /api/agents/{aid}/artifacts/{aid}/view-token` (in `agents_artifacts.py`).
+  `GET /api/agents/{aid}/artifacts/{aid}/view-token` (in `agents/artifacts.py`).
 - Other renderers (image / pdf / csv / md / chart) `fetch()` the same URL to
   build blob URLs / text content, without needing an Authorization header.
 

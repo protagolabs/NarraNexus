@@ -8,8 +8,8 @@ stub: false
 
 在 JSON 抽取工具旁(`_extract_json_from_llm_output` / `_first_balanced_json`)新增
 `json_repair_note(reason)`,生成一条"你上一轮不是合法 JSON,请只输出纯 JSON 对象"的
-re-prompt。这是**对外契约**:两个 Claude helper SDK([[anthropic_helper_sdk]] /
-[[cli_helper_sdk]])在结构化输出抠取/校验失败时,用它做有界修复重试。放在本文件是
+re-prompt。这是**对外契约**:两个 Claude helper SDK([[anthropic_helper]] /
+[[cli_helper]])在结构化输出抠取/校验失败时,用它做有界修复重试。放在本文件是
 因为本文件已 owns 抠取逻辑,helper 侧只需复用。提示保持泛化(无场景专有词,铁律 #4)。
 
 ## 2026-07-09 — 平衡扫描精确化(PR review Minor)
@@ -111,7 +111,7 @@ Narrative 选择、Module 决策、数据提取等辅助 LLM 调用需要结构�
 
 配置读自 `api_config.openai_config`（ContextVar proxy），确保多租户并发安全。`model_catalog.get_max_output_tokens()` 提供每个模型的 token 上限。
 
-和 `xyz_claude_agent_sdk.py` 的区别：这个文件处理有限上下文的"工具性调用"（决策、提取、分析），Claude SDK 处理无限 turn 的完整 agent loop。两者不互相调用。
+和 `adapters/claude/sdk.py` 的区别：这个文件处理有限上下文的"工具性调用"（决策、提取、分析），Claude SDK 处理无限 turn 的完整 agent loop。两者不互相调用。
 
 ## 设计决策
 

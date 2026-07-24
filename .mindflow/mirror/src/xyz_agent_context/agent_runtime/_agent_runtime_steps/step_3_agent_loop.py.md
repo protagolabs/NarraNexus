@@ -10,7 +10,7 @@ stub: false
 
 1. `_record_oom_if_killed` → **泛化**为 `_record_executor_infra_event(db_client,
    user_id, error_type, error_str, output_already_emitted)`：用
-   [[llm_failure.py]] `classify_executor_infra_failure` 判类，写
+   [[llm/failure.py]] `classify_executor_infra_failure` 判类，写
    `oom_killed`（-9/-6）或 `executor_unreachable`（[[executor_audit.py]]）。
    best-effort 永不抛，沿用原模式。
 2. `_fallback_skip_decision` 返回**三元组** `(kind, reason, target_error_type)`：
@@ -28,7 +28,7 @@ stub: false
    `send_message_to_user_directly` 回复过**（executor OOM/掉线可能发生在回复之后）→
    `severity="recovered_after_reply"`（warning 徽章、保留回复），否则 `fatal`。避免对
    已经拿到答案的用户显示"请重试"、也避免把"已回复但收尾失败"整轮记失败。配合
-   [[agent_circuit_breaker.py]] 对 `infra_transient` 的熔断豁免，杜绝"平台抖动→冷却
+   [[loop/circuit_breaker.py]] 对 `infra_transient` 的熔断豁免，杜绝"平台抖动→冷却
    →拒掉用户按提示的重发"。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
@@ -54,13 +54,13 @@ error 路径都盖住:
 
 理由同 auth:context-window 这类确定性失败，agent 本体（工具/MCP/记忆）根本
 没跑，兜底生成一条正常样子的回复是对事实的谎报——这正是"黑盒" P1 的根因。
-分类器在 [[llm_failure.py]]，共享文案 `self_serviceable_user_message` 也在那，
+分类器在 [[llm/failure.py]]，共享文案 `self_serviceable_user_message` 也在那，
 避免 step_3 → response_processor 的循环导入。
 
 ## 2026-07-10 — `_resolve_agent_framework_name` 收缩为委托（单一 overlay）
 
 原本这里手写了一份 agent_slots→user_slots 的 overlay。它现在**委托**给
-[[agent_model_identity.py]] 的 `resolve_agent_model_identity(...).framework`——
+[[providers/model_identity.py]] 的 `resolve_agent_model_identity(...).framework`——
 同一份 overlay 既供 dispatch（选 driver）又供 prompt 的 "LLM Model" 行，二者不可能
 再不一致。（PR #84：两份手抄 overlay 的判定曾漂移——prompt 侧漏了 `agent_framework`
 非空这一条，在"有 provider 但 framework NULL"的 agent_slots 行上重新渲染出错误身份。）
@@ -125,7 +125,7 @@ resolver installed. Call shape (llm_stream) unchanged.
 
 The agent loop is now obtained via `get_agent_loop_driver(working_path=...)`
 (framework registry, iron rule #9) — do NOT instantiate `ClaudeAgentSDK`
-directly here; register a driver instead (see [[agent_loop_driver.py]]).
+directly here; register a driver instead (see [[loop/driver.py]]).
 The former EverMemOS episode await (`ctx.evermemos_task` → `relevant_episodes`
 → `context_runtime.run`) was removed.
 

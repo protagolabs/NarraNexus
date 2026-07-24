@@ -21,15 +21,15 @@ the Settings → Artifacts panel renders count-only without a progress bar.
 
 `BulkDeleteRequest` no longer takes `delete_source`; `BulkDeleteResponse`
 no longer reports `source_deleted`. Bulk delete is registry-only, in lockstep
-with the agent-scoped delete (see [[agents_artifacts.py]] mirror md for the
+with the agent-scoped delete (see [[agents/artifacts.py]] mirror md for the
 rationale).
 
-# users_artifacts.py
+# artifacts/users.py
 
 ## Why it exists
 
 User-scoped (cross-agent) artifact endpoints powering the Settings →
-Artifacts management UI. Distinct from `agents_artifacts.py` (agent-scoped)
+Artifacts management UI. Distinct from `agents/artifacts.py` (agent-scoped)
 because the management UI needs the full set across every agent the user
 owns and the ability to bulk delete.
 

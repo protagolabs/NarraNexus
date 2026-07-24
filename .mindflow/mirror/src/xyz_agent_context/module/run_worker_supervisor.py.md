@@ -80,7 +80,7 @@ different kind of thing) and already single-process via
 `ServiceAuditor("worker_supervisor")` emits started/stopped plus a heartbeat
 (emit-first, then every `_HEARTBEAT_INTERVAL`=30 s so the desktop System page's
 Workers card — which reads the latest row via `GET /api/admin/runtime/workers`,
-see [[admin_runtime.py]] — has data within a tick of boot and ≤30 s staleness)
+see [[admin/runtime.py]] — has data within a tick of boot and ≤30 s staleness)
 carrying a per-worker liveness snapshot
 (`{name: {state, restart_count, last_error}}`, `state ∈ starting/running/
 restarting/stopped`) to the `service_audit` table. This gives one-row-per-minute

@@ -4,13 +4,13 @@ last_verified: 2026-06-12
 stub: false
 ---
 
-# admin_migration.py — 单用户身份迁移 HTTP 端点
+# admin/migration.py — 单用户身份迁移 HTTP 端点
 
 ## 为什么存在
 
 离线批量迁移脚本（`scripts/data_migrations/migrate_users_to_netmind.py`）适合停服窗口一次性处理全量用户，但后续场景需要更细粒度的入口：某个用户在批量迁移前已用 NetMind 注册（无旧账号），或需要把旧 id 换绑到不同的 NetMind hex。本路由提供一个单用户原子化的 HTTP 接口，让运维人员或批量脚本逐条调用，同时也支持后续随时换绑的运营操作。
 
-独立成一个路由文件（而非合并进 `admin_quota.py`），是因为迁移操作的鉴权模式、调用者、风险等级与 quota 管理完全不同——它改写的是用户主体 id，而非额度数字。铁律 3（模块独立）。
+独立成一个路由文件（而非合并进 `admin/quota.py`），是因为迁移操作的鉴权模式、调用者、风险等级与 quota 管理完全不同——它改写的是用户主体 id，而非额度数字。铁律 3（模块独立）。
 
 ## 这个文件不做什么
 

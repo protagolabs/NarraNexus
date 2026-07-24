@@ -15,7 +15,7 @@ stub: false
 
 ## 为什么存在
 
-项目主 agent 跑在 Claude Agent SDK，helper LLM 跑在 OpenAI-compatible 端点，但 Gemini 的原生文件上传+多模态能力（尤其大文件 PDF 解析）需要 Google 原生 `genai` SDK，无法通过 OpenAI-compatible 接口访问。这个文件把 `google-genai` 包装成与 `openai_agents_sdk.py` 相似的 `llm_function` 接口，让上层调用者可以以一致方式使用，同时集成 cost tracking。
+项目主 agent 跑在 Claude Agent SDK，helper LLM 跑在 OpenAI-compatible 端点，但 Gemini 的原生文件上传+多模态能力（尤其大文件 PDF 解析）需要 Google 原生 `genai` SDK，无法通过 OpenAI-compatible 接口访问。这个文件把 `google-genai` 包装成与 `adapters/openai_agents.py` 相似的 `llm_function` 接口，让上层调用者可以以一致方式使用，同时集成 cost tracking。
 
 ## 上下游关系
 
@@ -27,7 +27,7 @@ cost tracking 通过 `cost_tracker.record_cost()` 异步记录。如果调用时
 
 ## 设计决策
 
-**和其他两个 SDK 的分工**：`openai_agents_sdk.py` 处理所有 OpenAI-compatible 的 helper LLM 调用（包括代理和本地模型），`xyz_claude_agent_sdk.py` 驱动主 agent loop，`gemini_api_sdk.py` 是专用工具，只做 Google 特有的事情（文件上传 + 生成）。三者之间没有继承关系，接口相似但独立实现。
+**和其他两个 SDK 的分工**：`adapters/openai_agents.py` 处理所有 OpenAI-compatible 的 helper LLM 调用（包括代理和本地模型），`adapters/claude/sdk.py` 驱动主 agent loop，`llm/gemini_api.py` 是专用工具，只做 Google 特有的事情（文件上传 + 生成）。三者之间没有继承关系，接口相似但独立实现。
 
 **`file_path` 目前限制为 PDF**：`_make_response_with_pdf` 方法之外有 `raise ValueError`，只支持 `.pdf` 扩展名。后续支持其他格式需要在此处扩展。
 
@@ -36,7 +36,7 @@ cost tracking 通过 `cost_tracker.record_cost()` 异步记录。如果调用时
 ## Gotcha / 边界情况
 
 - `_make_response_with_pdf` 内部 `client.files.upload` 是同步操作，可能耗时数秒，在 asyncio 环境中会阻塞整个 event loop。
-- 函数返回的是 Gemini response 对象，不是字符串。调用方需要从 `response.text` 等属性提取内容。这和 `openai_agents_sdk.py` 的 `result.final_output` 接口不兼容，不能混用。
+- 函数返回的是 Gemini response 对象，不是字符串。调用方需要从 `response.text` 等属性提取内容。这和 `adapters/openai_agents.py` 的 `result.final_output` 接口不兼容，不能混用。
 - Gemini 计费用 `usage_metadata.candidates_token_count`（不是常见的 `completion_tokens`），`_record_usage` 里有对应映射。
 
 ## 新人易踩的坑

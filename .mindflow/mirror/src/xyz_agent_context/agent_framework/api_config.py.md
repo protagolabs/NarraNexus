@@ -10,7 +10,7 @@ stub: false
 `prefer_system_override` True/False 分流——有 quota 行且有余量 → system；
 耗尽 + 自有 key → user（一次性通知经闩锁去重）；耗尽无 key →
 SystemDefaultUnavailable；**无 quota 行** → 严格自有 key。行为变化在
-[[provider_resolver]]（本文件只是文档同步）。下文旧条目中按偏好分流的叙述
+[[resolver]]（本文件只是文档同步）。下文旧条目中按偏好分流的叙述
 自此为历史记录。review 二轮补扫：`LLMConfigNotConfigured` docstring 与
 resolve 处两条行内注释的"opted out / explicit choice / switch back to the
 free tier"措辞一并去开关化。
@@ -296,9 +296,9 @@ Claim: these additions do NOT alter existing behaviour of `set_user_config`,
 
 ## 上下游关系
 
-所有使用 LLM 的组件都从这里读配置，而不直接读 `settings`：`xyz_claude_agent_sdk.py` 读 `claude_config`，`openai_agents_sdk.py` 读 `openai_config`，`embedding.py` 读 `embedding_config`，`gemini_api_sdk.py` 读 `gemini_config`。
+所有使用 LLM 的组件都从这里读配置，而不直接读 `settings`：`adapters/claude/sdk.py` 读 `claude_config`，`adapters/openai_agents.py` 读 `openai_config`，`embedding.py` 读 `embedding_config`，`llm/gemini_api.py` 读 `gemini_config`。
 
-上游写入者：`agent_runtime.py` 在每次 `run()` 入口调用 `get_agent_owner_llm_configs()` 然后 `set_user_config()`，把 owner 的三个 slot 配置注入当前 asyncio task 的 ContextVar。背后由 `user_provider_service.py` 从数据库的 `user_providers`/`user_slots` 表读取。本地单机模式的全局配置则来自 `provider_registry.py` 读取 `~/.nexusagent/llm_config.json`，fallback 到 `settings.py`。
+上游写入者：`agent_runtime.py` 在每次 `run()` 入口调用 `get_agent_owner_llm_configs()` 然后 `set_user_config()`，把 owner 的三个 slot 配置注入当前 asyncio task 的 ContextVar。背后由 `providers/user_service.py` 从数据库的 `user_providers`/`user_slots` 表读取。本地单机模式的全局配置则来自 `providers/registry.py` 读取 `~/.nexusagent/llm_config.json`，fallback 到 `settings.py`。
 
 ## 设计决策
 
@@ -324,7 +324,7 @@ Claim: these additions do NOT alter existing behaviour of `set_user_config`,
 
 ## 2026-07-07 — CliHelperConfig（订阅 Helper 第三通道）
 
-新增 `CliHelperConfig`（framework=claude_code|codex_cli + model/base_url/auth_type/api_key）、`_cli_helper_ctx`、`cli_helper_config` 代理、`RuntimeLLMConfigs.cli_helper`；`set_user_config` 加 `cli_helper` 形参，`snapshot_user_config`/`clear_user_config` 同步。用于让订阅（OAuth）登录同时覆盖 helper 槽——helper 走 CLI 一次性（见 cli_helper_sdk.py）。dispatch 优先级 cli>anthropic>openai。
+新增 `CliHelperConfig`（framework=claude_code|codex_cli + model/base_url/auth_type/api_key）、`_cli_helper_ctx`、`cli_helper_config` 代理、`RuntimeLLMConfigs.cli_helper`；`set_user_config` 加 `cli_helper` 形参，`snapshot_user_config`/`clear_user_config` 同步。用于让订阅（OAuth）登录同时覆盖 helper 槽——helper 走 CLI 一次性（见 llm/cli_helper.py）。dispatch 优先级 cli>anthropic>openai。
 
 ## 2026-07-07 (实测跟进) — to_cli_env 两个致命 env 修复
 

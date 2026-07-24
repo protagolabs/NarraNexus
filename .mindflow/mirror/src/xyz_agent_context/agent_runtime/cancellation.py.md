@@ -31,7 +31,7 @@ stub: false
 
 `step_1_select_narrative.py` 有特殊用法：用 `_run_with_cancellation()` 包装 LLM 调用，在取消信号触发时立即 cancel asyncio task，而不是等 LLM 响应完成后才检查。这是为了防止长时间 LLM 调用阻塞取消响应。
 
-`xyz_claude_agent_sdk.py` 在每次收到消息后检查 `cancellation.is_cancelled`，允许在 Claude 流式输出中途中断。
+`adapters/claude/sdk.py` 在每次收到消息后检查 `cancellation.is_cancelled`，允许在 Claude 流式输出中途中断。
 
 ## 设计决策
 

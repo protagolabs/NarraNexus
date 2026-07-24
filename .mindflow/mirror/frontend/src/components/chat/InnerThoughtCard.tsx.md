@@ -12,7 +12,7 @@ capped server-side) above the loop timeline, and an OUTPUT block
 (final_output) below it. Chips render only when their datum exists so
 legacy rows degrade to the old view. Collapsed card got line-clamp-2 on
 the summary + hover shadow. Backend counterpart:
-[[agents_chat_history.py]] `_build_event_meta` (bug "Agent 内心活动显示
+[[agents/chat_history.py]] `_build_event_meta` (bug "Agent 内心活动显示
 优化"). i18n: `chat.inner.meta.*` in all 10 locales.
 
 ## 2026-07-03 — per-source colour + name (scannable), icons dropped

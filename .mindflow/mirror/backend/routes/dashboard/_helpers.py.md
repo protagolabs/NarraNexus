@@ -4,7 +4,7 @@ last_verified: 2026-07-07
 stub: false
 ---
 
-# _dashboard_helpers.py — pure helpers behind GET /api/dashboard/agents-status
+# dashboard/_helpers.py — pure helpers behind GET /api/dashboard/agents-status
 
 ## Why it exists
 

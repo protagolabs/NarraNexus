@@ -25,7 +25,7 @@ Schema changes: `FileInfo` gained `name` / `path` / `is_dir` /
 `tree`. Pure shape change (no backward compat — frontend is updated in the
 same change).
 
-# agents_files.py — agent workspace file management
+# agents/files.py — agent workspace file management
 
 ## Why it exists
 
@@ -40,7 +40,7 @@ guard. This router is the **frontend's window** into that workspace:
 - delete any file or subdirectory.
 
 Together with the manual `POST /api/agents/{aid}/artifacts/register` endpoint
-in `agents_artifacts.py`, this lets a user pick a workspace file and turn it
+in `agents/artifacts.py`, this lets a user pick a workspace file and turn it
 into an artifact tab without going through the LLM at all.
 
 ## Upstream / Downstream

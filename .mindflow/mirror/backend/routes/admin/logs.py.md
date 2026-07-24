@@ -4,7 +4,7 @@ last_verified: 2026-04-28
 stub: false
 ---
 
-# admin_logs.py — Operator-facing log inspection endpoints
+# admin/logs.py — Operator-facing log inspection endpoints
 
 ## 为什么存在
 

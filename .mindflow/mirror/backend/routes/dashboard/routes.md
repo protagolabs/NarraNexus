@@ -23,8 +23,8 @@ v1 已推倒重写（归档在 `.mindflow/state/archive/2026-04-13-dashboard-v1/
 ## 上下游
 - **上游**：前端 `lib/api.ts` 的 7 个方法一一对应
 - **下游**：
-  - `_dashboard_helpers.py` — 组装、查询、派生逻辑
-  - `_dashboard_schema.py` — Pydantic 响应类型（discriminated union）
+  - `dashboard/_helpers.py` — 组装、查询、派生逻辑
+  - `dashboard/_schema.py` — Pydantic 响应类型（discriminated union）
   - `_rate_limiter.py` — per-viewer 2 req/s 滑窗
   - `backend/state/active_sessions.py::get_session_registry` — WS session snapshot
   - `backend/auth.py::_is_cloud_mode` / `get_local_user_id` — viewer 身份识别

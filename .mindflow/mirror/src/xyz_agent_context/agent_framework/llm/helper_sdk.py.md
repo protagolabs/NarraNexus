@@ -42,7 +42,7 @@ module load (both SDK modules import api_config).
 ## Gotchas
 
 - New helper call sites MUST go through this factory — grep gate:
-  `OpenAIAgentsSDK(` should not appear outside openai_agents_sdk.py /
+  `OpenAIAgentsSDK(` should not appear outside adapters/openai_agents.py /
   helper_sdk.py / tests.
 - Dispatch is per-task and resets on every `set_user_config` call
   (passing no anthropic_helper clears the ctx), so multi-tenant

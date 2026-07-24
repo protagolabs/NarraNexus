@@ -13,7 +13,7 @@ area (not an agent's user_upload_files), so the NetMind STT worker's signed-URL 
 404 without this. Still gated by the HMAC token + user_id scoping; `agent_id` may be empty
 for team memos. See [[teams]] / [[_bus_attachment_impl]].
 
-# transcription_public.py — JWT-bypassed audio fetch for NetMind
+# transcription/public.py — JWT-bypassed audio fetch for NetMind
 
 ## Why it exists
 

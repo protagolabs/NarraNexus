@@ -20,7 +20,7 @@ identity 路径——cloud 走 JWT、local 走 X-User-Id header，差异在
 middleware 内消化完毕。`?user_id=` query param 拒绝逻辑保留（仍是
 TDR-12 防御）。
 
-# dashboard.py
+# dashboard/routes.py（原 dashboard.py）
 
 ## 为什么存在
 

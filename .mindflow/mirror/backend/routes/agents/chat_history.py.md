@@ -29,7 +29,7 @@ destroy the owner's memory. `?user_id=` is rejected (TDR-12). The
 "New-joiner traps" note below is superseded: the full table+disk set now lives
 in `wipe_service`, not this route.
 
-# agents_chat_history.py — 聊天历史与对话记录路由
+# agents/chat_history.py — 聊天历史与对话记录路由
 
 ## 为什么存在
 

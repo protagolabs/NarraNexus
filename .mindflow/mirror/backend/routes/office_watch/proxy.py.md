@@ -4,7 +4,7 @@ last_verified: 2026-07-13
 stub: false
 ---
 
-# office_watch_proxy.py — office artifact 实时预览的反向代理
+# office_watch/proxy.py — office artifact 实时预览的反向代理
 
 ## 为什么存在
 

@@ -77,7 +77,7 @@ tool_output 这条路浮现，只能等无关的 reload（切 agent / 收尾刷�
 
 ## 上下游关系
 
-被 `xyz_claude_agent_sdk.py` 的 `agent_loop` 方法调用：每收到一条 Claude SDK 消息，就调用 `output_transfer(message, transfer_type="claude_agent_sdk", streaming=True)` 获取一个事件列表，然后 yield 到外部。
+被 `adapters/claude/sdk.py` 的 `agent_loop` 方法调用：每收到一条 Claude SDK 消息，就调用 `output_transfer(message, transfer_type="claude_agent_sdk", streaming=True)` 获取一个事件列表，然后 yield 到外部。
 
 下游是 `response_processor.py`，它解析这些事件字典并转换为 schema 中定义的 `AgentTextDelta`、`AgentThinking`、`AgentToolCall`、`ProgressMessage` 等类型化对象。
 
@@ -96,7 +96,7 @@ reasoning 要转成 `run_item_stream_event` 的 `thinking_item`，`turn.complete
 
 ## 设计决策
 
-**一条消息可能产生多个事件**：`AssistantMessage` 中可能有多个 `ToolUseBlock`（并行工具调用），`UserMessage` 中可能有多个 `ToolResultBlock`。因此返回类型是 `List[Dict]`，而不是单个 dict。`xyz_claude_agent_sdk.py` 中对结果 `for event in events: yield event`。
+**一条消息可能产生多个事件**：`AssistantMessage` 中可能有多个 `ToolUseBlock`（并行工具调用），`UserMessage` 中可能有多个 `ToolResultBlock`。因此返回类型是 `List[Dict]`，而不是单个 dict。`adapters/claude/sdk.py` 中对结果 `for event in events: yield event`。
 
 **AssistantMessage 中的 TextBlock 和 ThinkingBlock 被跳过**：启用 `include_partial_messages=True` 时，文本和思考内容会先通过 `StreamEvent` 逐 token 流式到达，再以完整内容通过 `AssistantMessage` 到达。为避免重复，`_convert_assistant_to_stream_events` 只处理 `ToolUseBlock`，跳过文本和思考块。
 
@@ -105,7 +105,7 @@ reasoning 要转成 `run_item_stream_event` 的 `thinking_item`，`turn.complete
 ## Gotcha / 边界情况
 
 - `ResultMessage.usage` 在 Claude SDK 中是 `dict[str, Any] | None`，不是对象。代码里用 `isinstance(raw_usage, dict)` 判断，而不是用 `getattr`，这是有意识的处理。但如果 SDK 更新返回对象形式，这里会静默地取不到数据。
-- `include_partial_messages=True` 会导致 partial `AssistantMessage` 也携带 `ToolUseBlock`，造成同一个 `tool_call_id` 出现多次。去重逻辑在 `xyz_claude_agent_sdk.py` 里的 `seen_tool_call_ids` set 处理，不在这个文件里。
+- `include_partial_messages=True` 会导致 partial `AssistantMessage` 也携带 `ToolUseBlock`，造成同一个 `tool_call_id` 出现多次。去重逻辑在 `adapters/claude/sdk.py` 里的 `seen_tool_call_ids` set 处理，不在这个文件里。
 
 ## 新人易踩的坑
 

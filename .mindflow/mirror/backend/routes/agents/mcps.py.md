@@ -4,7 +4,7 @@ last_verified: 2026-07-16
 stub: false
 ---
 
-# agents_mcps.py — MCP URL 管理与连接验证路由
+# agents/mcps.py — MCP URL 管理与连接验证路由
 
 ## 2026-07-16 — 掩码只保留空格分隔的 auth scheme 前缀(review #111 🟢)
 

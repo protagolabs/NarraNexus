@@ -14,14 +14,14 @@ extension guess instead of winning outright, so extension-typed text formats
 (``.md``, ``.csv``) get their real MIME. The container override semantics are
 unchanged.
 
-# agents_attachments.py
+# agents/attachments.py
 
 ## Why it exists
 
 HTTP boundary for the chat-attachment lifecycle: a multipart upload that
 returns a server-issued `file_id`, plus a raw-bytes endpoint the
 frontend uses to render image thumbnails inline. Kept separate from
-`agents_files.py` because chat attachments have a different storage
+`agents/files.py` because chat attachments have a different storage
 shape (date-partitioned subdirs + sidecar index) and a different
 access pattern (referenced by `file_id`, not browsed by name).
 
@@ -120,4 +120,4 @@ file_id is not yours / not real."
   a turn. Uploading without sending leaves orphan files (cleanup is
   Phase 2 work).
 - Authentication is handled by FastAPI middleware, not in this file —
-  same pattern as `agents_files.py`.
+  same pattern as `agents/files.py`.

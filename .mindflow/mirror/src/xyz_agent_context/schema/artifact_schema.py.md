@@ -21,7 +21,7 @@ The URL lives in the doc, not a DB column — pointer model preserved.
 ## 2026-07-21 — HealCandidate / HealResult moved into the central schema
 
 The heal endpoint's response models (`HealResponse` / `HealCandidate`) used to
-be route-local pydantic classes in `agents_artifacts.py`. With the heal
+be route-local pydantic classes in `agents/artifacts.py`. With the heal
 strategy promoted into `ArtifactService.heal`, its result type belongs to the
 central schema layer: `HealResult` (same fields as the old `HealResponse` —
 recovered / artifact / candidates / message — so the wire shape is unchanged)
@@ -69,7 +69,7 @@ It ties together:
   `CreateArtifactToolResult`.
 
 **Consumers:**
-- `backend/routes/agents/artifacts.py` + `users_artifacts.py` — REST endpoints.
+- `backend/routes/agents/artifacts.py` + `artifacts/users.py` — REST endpoints.
 - `frontend/src/types/artifact.ts` — mirrored TypeScript interface.
 - `frontend/src/stores/artifactStore.ts` — Zustand store.
 

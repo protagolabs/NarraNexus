@@ -12,7 +12,7 @@ stub: false
 可把 `ANTHROPIC_BASE_URL` 悄悄改道到私有 relay,以前无迹可查(2026-07-08 事故靠 30+
 次黑盒探测才定位);现在配置 vs 实际一 grep 即比对。纯可观测,无行为变更;只打
 base_url 与 auth 种类(token/key/none),不打凭据本身。CLI helper 侧有对称日志
-(见 [[cli_helper_sdk]])。
+(见 [[cli_helper]])。
 
 ## 2026-07-15 — MCP spec 带自定义 headers（`_build_claude_mcp_config`）
 
@@ -95,7 +95,7 @@ host-file 两测已 mock `_read_keychain_blob` → None 以在 dev Mac 上确定
 `~/.codex/auth.json`、claude-on-Linux 的 `.credentials.json` 同级。
 
 `CliHelperSDK._run_claude_oneshot` 也会调 `_stage_claude_oauth_credentials`(见
-[[cli_helper_sdk]]),使 claude helper 自足——agent 槽是 codex 或后台单独调 helper 时
+[[cli_helper]]),使 claude helper 自足——agent 槽是 codex 或后台单独调 helper 时
 隔离目录也能被 seed。
 
 ## 2026-07-09 — `_stage_claude_oauth_credentials`(OAuth 隔离目录的凭据搬运)

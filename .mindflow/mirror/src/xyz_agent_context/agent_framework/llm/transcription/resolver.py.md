@@ -16,7 +16,7 @@ QUOTA_EXCEEDED 挡住——两条路必须共享同一预算裁决。测试
 
 `_user_opted_in_to_free_tier` 改名 `_user_has_free_tier`，判断从
 `quota.prefer_system_override`（已重定义为耗尽通知闩锁，见
-[[provider_resolver]]）改为 **quota 行是否存在**（行即授予）。这是免费额度
+[[resolver]]）改为 **quota 行是否存在**（行即授予）。这是免费额度
 偏好删除时差点漏掉的消费者——留着旧判断会让闩锁 fired 的用户被错误地拒掉
 STT 免费层。下文 (c) 一段的旧描述自此为历史记录；"无 quota 行不隐式计费
 运营方"的守卫保留。
@@ -49,7 +49,7 @@ settings, never asking the user to configure transcription separately.
    (c) `user_quotas.prefer_system_override` is True for this user.
 
    The (c) gate matters: it's the SAME "Use free quota" toggle that
-   chat / embed / helper_llm respect via `provider_resolver.py`. Without
+   chat / embed / helper_llm respect via `providers/resolver.py`. Without
    this check, a user who explicitly opted out of the free tier (e.g.
    to keep the operator from billing them via the system NetMind key)
    would still see STT silently route through it. New users with no

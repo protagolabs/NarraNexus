@@ -29,7 +29,7 @@ plugins-clone-*/`,macOS 上这棵刚写完的树在 `__exit__` rmtree 时偶发"
 被拖垮(真机实测:本地 codex CLI-helper 约 1/5 死在这里,而非生成失败)。清理改为
 尽力而为;临时目录在 OS 临时根下、总会被回收,清理小毛病不该让调用失败。
 （触发放大:2026-07 修好本地模式后台 helper 回落 own-config 后,更多 helper 调用
-打到 codex,把这个本就存在的 codex 驱动毛病暴露了出来。见 [[provider_resolver]]。）
+打到 codex,把这个本就存在的 codex 驱动毛病暴露了出来。见 [[resolver]]。）
 
 ## 2026-06-17 — 安全修复:env 改白名单(不再全量注入)
 
@@ -39,7 +39,7 @@ Step 4 的 `env = {**os.environ}` 把 backend 容器的**全部环境(含所有�
 `_codex_env.build_codex_subprocess_env`:只透传最小系统白名单 +
 `CODEX_HOME` + `NO_PROXY` + `to_cli_env` 的 scoped `CODEX_API_KEY`。
 **注意**:文件系统沙箱(`workspace-write`)解决不了这条——`env` 读的是
-进程内存,不是文件。详见 `_codex_env.py.md`。v1(`xyz_codex_cli_sdk`)同步
+进程内存,不是文件。详见 `adapters/codex/_env.py.md`。v1(`xyz_codex_cli_sdk`)同步
 做了一样的修改。
 
 ## 2026-06-17 — PR #25 评审收尾:删诊断 + 收日志 + 修 docstring
@@ -54,7 +54,7 @@ Step 4 的 `env = {**os.environ}` 把 backend 容器的**全部环境(含所有�
   收尾日志使用,保留。
 - **system prompt 指纹降级**:`system prompt → path (N chars)` 保持 INFO
   (无内容),head/tail 两行(回显 prompt 文本,可能含凭证/上下文)降到
-  DEBUG。v1(xyz_codex_cli_sdk.py)同样模式同步降级。
+  DEBUG。v1(adapters/codex/cli_sdk.py)同样模式同步降级。
 - **修正 Registration 段 docstring**(铁律 #8):原文称注册为
   `codex_cli_v2` + `codex_official`、v1 占 `codex_cli`/`codex`——与实际相反。
   实际:v2 是唯一规范名 `codex_cli`,A/B 别名已删,v1 `CodexSDK` 保持可
@@ -399,7 +399,7 @@ Implements the same async-generator contract as
   also moved from legacy ``"claude"`` shorthand to ``"claude_code"``
   in the same pass.
 
-  Hand-rolled v1 ``CodexSDK`` in ``xyz_codex_cli_sdk.py`` is still
+  Hand-rolled v1 ``CodexSDK`` in ``adapters/codex/cli_sdk.py`` is still
   importable (the file is kept intentionally) but NOT registered —
   pulling it back online if v2 has a critical regression requires
   one ``register_agent_loop_driver("codex_cli", CodexSDK)`` line in

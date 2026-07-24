@@ -40,6 +40,6 @@ Claude Code CLI 的 `permission_mode="bypassPermissions"` 让 Agent 可以无阻
 
 ## 新人易踩的坑
 
-- HookMatcher 的 `matcher` 是正则字符串，不是 glob。如果要新增 gated tool，记得同步更新 `xyz_claude_agent_sdk.py` 里的 `"Read|Glob|Grep|WebSearch|Bash"`。
+- HookMatcher 的 `matcher` 是正则字符串，不是 glob。如果要新增 gated tool，记得同步更新 `adapters/claude/sdk.py` 里的 `"Read|Glob|Grep|WebSearch|Bash"`。
 - Pattern 别只匹配行首——`_GLOBAL_INSTALL_PATTERNS` 每条都带 `(?:^|[\s;&|` "`" `$(])` 前缀，允许 `cd foo && brew install bar`、`do_stuff; sudo x` 这种真实世界的 shell 片段也被抓到。
 - 新增 server tool（比如未来的 `computer_use`）需要在 `_SERVER_TOOLS` 里加进去，否则 provider 不支持时会 hang。

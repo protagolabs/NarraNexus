@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-07-18 — FREE_TIER_OPTED_OUT → FREE_TIER_NOT_GRANTED
 
-免费额度偏好删除（[[provider_resolver]]）的连带修复：`availability_reason`
+免费额度偏好删除（[[resolver]]）的连带修复：`availability_reason`
 的第二段诊断原本 import `_user_opted_in_to_free_tier`（改名后运行时
 ImportError，dev 实测 500 才暴露——函数内懒加载 import 逃过了全量测试）。
 现改用 `_user_has_free_tier`（行即授予），枚举值改名

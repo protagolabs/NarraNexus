@@ -10,7 +10,7 @@ stub: false
 `backend.auth.resolve_current_user_id`——cloud / local 共享同一个
 identity 通路。query-param 拒绝逻辑保留（防御 TDR-12 spoof）。
 
-# agents_cost.py — LLM 调用费用统计路由
+# agents/cost.py — LLM 调用费用统计路由
 
 ## 为什么存在
 

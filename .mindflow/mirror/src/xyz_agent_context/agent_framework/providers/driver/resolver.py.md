@@ -8,7 +8,7 @@ stub: false
 
 模块 docstring 声称"仍需为 prefer_system_override 分支加载 quota 行"——
 grep 证实本模块从不读 quota 行或该列（迁移窗口早已结束，注释一直没删）。
-已改写为如实描述：quota 门禁在 [[provider_resolver]]，该列自 2026-07-18
+已改写为如实描述：quota 门禁在 [[resolver]]，该列自 2026-07-18
 起仅是通知闩锁。
 
 ## 2026-07-09 — per-agent slot overlay (agent_id)

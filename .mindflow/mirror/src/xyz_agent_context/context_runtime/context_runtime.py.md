@@ -27,7 +27,7 @@ headers）；用户外部 MCP 的 headers 由 backend 装配层（websocket/skil
 `model_name="sonnet-4"`，经 basic_info [[prompts.py]] 的 "LLM Model" 段灌进系统
 prompt → **每个** agent（含 codex_cli+gpt5）都自称 Claude Sonnet-4，被问模型就照读
 （违反铁律#9）。两行 kwargs 已删；这两个字段改由 [[basic_info_module.py]]
-`hook_data_gathering` 经 [[agent_model_identity.py]] 按真实 slot 动态填。
+`hook_data_gathering` 经 [[providers/model_identity.py]] 按真实 slot 动态填。
 ContextRuntime 从此不掺和模型身份（本就不该知道），字段也在 [[context_schema.py]]
 正式声明了。
 
@@ -104,7 +104,7 @@ separate from the conversation timeline so background work doesn't pollute it.
 
 `build_input_for_framework()` now stamps each long-term history row with
 an internal `_source` field copied from its `meta_data.working_source`
-(default `"chat"`). Consumed by [[xyz_claude_agent_sdk.py]] for
+(default `"chat"`). Consumed by [[adapters/claude/sdk.py]] for
 source-aware truncation: when the system prompt + history would exceed
 the SDK's argv ceiling, oldest background-trigger rows
 (`job / message_bus / lark / callback`) are evicted first; chat rows

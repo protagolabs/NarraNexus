@@ -4,7 +4,7 @@ last_verified: 2026-04-10
 stub: false
 ---
 
-# agents_awareness.py — Agent Awareness 读写路由
+# agents/awareness.py — Agent Awareness 读写路由
 
 ## 为什么存在
 

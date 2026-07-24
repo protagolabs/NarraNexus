@@ -4,7 +4,7 @@ last_verified: 2026-05-14
 stub: false
 ---
 
-# _artifact_token.py — HMAC view tokens for artifact raw serving
+# artifacts/_token.py — HMAC view tokens for artifact raw serving
 
 ## Why it exists
 
@@ -16,7 +16,7 @@ content — the auth must live IN the URL.
 This module mints + verifies HMAC-SHA256 tokens that carry `(agent_id,
 artifact_id, exp)`. The JWT-authed
 `GET /api/agents/{aid}/artifacts/{aid}/view-token` endpoint mints them; the
-public route in `artifacts_public.py` verifies them.
+public route in `artifacts/public.py` verifies them.
 
 ## Token format
 

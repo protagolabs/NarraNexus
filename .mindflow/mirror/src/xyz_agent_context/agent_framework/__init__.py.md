@@ -36,7 +36,7 @@ PR #25 把注册表清理成**每个框架只留一个规范名**：
 设计决策 / gotcha：
 
 - **v1 `CodexSDK` 保留可 import 但不注册**（复活回退）：手写的 v1 driver 还在
-  `xyz_codex_cli_sdk.py`，文件故意留着。若官方 SDK 出严重 regression，在本文件加
+  `adapters/codex/cli_sdk.py`，文件故意留着。若官方 SDK 出严重 regression，在本文件加
   `register_agent_loop_driver("codex_cli", CodexSDK)` 即可一键切回。
 - **`CodexSDKv2` 的 import 用 try/except 包住**：slim 部署可能不装 `openai-codex`，
   此时 `CodexSDKv2 = None` 且 `codex_cli` 保持未注册，调用方会从

@@ -82,12 +82,12 @@ Response shape: `{deleted: artifact_id}` (no more `source_deleted`).
 ## 2026-05-14 — pointer model: raw serving moved to public router
 
 This router shed its `/raw` endpoint. Raw content serving now lives in
-`artifacts_public.py` under `/api/public/artifacts/raw/{token}/{path}`
+`artifacts/public.py` under `/api/public/artifacts/raw/{token}/{path}`
 (JWT-bypassed; HMAC token in the path is the auth). The split is forced by
 the multi-file HTML use case: an iframe `src=` must point at a real URL (a
 `blob:` URL breaks relative sub-resource resolution) but native iframe loads
 cannot attach Authorization headers — so the raw content must be on a
-JWT-exempt path. The token mechanism is in `_artifact_token.py`.
+JWT-exempt path. The token mechanism is in `artifacts/_token.py`.
 
 New / changed endpoints in this file:
 - POST `/{agent_id}/artifacts/register` — manual register (the workspace tree
@@ -109,7 +109,7 @@ was added so the manual-register endpoint can find the workspace owner
 (matches the `agent_runtime` rule that overrides `ctx.user_id` with
 `agent.created_by`).
 
-# agents_artifacts.py
+# agents/artifacts.py
 
 ## Why it exists
 
@@ -119,7 +119,7 @@ delete (optionally with source files). Artifacts are pointers to entry files
 the agent wrote in its own workspace; this router is the JWT-authed
 control plane on top of them.
 
-Kept separate from `artifacts_public.py` (raw content, token-authed,
+Kept separate from `artifacts/public.py` (raw content, token-authed,
 JWT-bypassed) — the auth model differs, so the split is structural.
 
 ## Upstream / Downstream
@@ -141,7 +141,7 @@ Mounted under `/api/agents` (see `backend/main.py`).
 
 ## Design decisions
 
-**Raw content lives on a separate, JWT-exempt router** (`artifacts_public.py`).
+**Raw content lives on a separate, JWT-exempt router** (`artifacts/public.py`).
 Reasoning above — iframe `src=` for multi-file HTML cannot carry an
 Authorization header. The HMAC token in the URL path is the auth.
 
