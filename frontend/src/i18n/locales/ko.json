@@ -825,6 +825,7 @@
       "configuredProviders": "구성된 제공자",
       "modelsCount": "모델 {{count}}개",
       "test": "테스트",
+      "testConnection": "연결 테스트",
       "edit": "편집",
       "delete": "삭제",
       "section2Title": "모델 할당",

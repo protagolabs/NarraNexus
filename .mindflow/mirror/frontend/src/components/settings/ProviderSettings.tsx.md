@@ -1,7 +1,19 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-16
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — 自定义 provider 表单内「测试连通」按钮
+
+原来只有详情弹窗（provider 存好后）才有 Test 按钮，添加表单只能保存。
+现在自定义表单底部按钮改成一行两个：左「测试连通」（`handleTestForm`
+→ `POST /api/providers/test-config`，直接测表单值、不落库）+ 右「Add
+provider」。结果行 `formTestResult`（绿/红）复用详情弹窗测试结果样式；
+`openForm`/切协议/保存成功都会清空它；**且 key/url/models/auth_type 任一
+onChange 也清空**——测出红字后改正输入，红字不再挂着说谎。响应做兜底：
+`.json().catch(()=>({}))` + `res.message || (string 型 res.detail) ||
+networkError`，401/422 的 `{detail}` 不会渲染成一行空红字。i18n 新增
+`settings.provider.testConnection`（10 语言）。
 
 ## 2026-07-16 — 每把 NetMind key 显示所属账户邮箱
 

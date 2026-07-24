@@ -956,6 +956,7 @@
       "configuredProviders": "已配置的服务商",
       "modelsCount": "{{count}} 个模型",
       "test": "测试",
+      "testConnection": "测试连通",
       "edit": "编辑",
       "delete": "删除",
       "section2Title": "全局默认",

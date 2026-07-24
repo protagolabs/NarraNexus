@@ -1,8 +1,24 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-18
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — `POST /test-config`：保存前测连通的无状态端点
+
+测试连通现在有两条入口：有状态 `POST /{provider_id}/test`（测已存的、
+可能脱敏的 key）、无状态 `POST /test-config`（`TestProviderConfigRequest`
+带 card_type/api_key/base_url/auth_type/models，直接测表单值、不落库）。
+后者让添加表单「先验证再保存」。仍要求登录（`_get_user_id` 鉴权），只是
+探测本身 per-request。静态路径不与 `/{provider_id}/test` 冲突。底层都委托
+[[user_provider_service]] → `provider_registry`。
+
+`TestProviderConfigRequest.auth_type` 收紧为 `Literal["api_key",
+"bearer_token"]`：oauth 及任意非法值在 API 边界直接 422，而非落到
+pydantic 构造抛 `ValidationError` → 500（无全局 handler）。service 侧另有
+对称守卫，双保险。探测无 DB 痕迹但会主动请求用户可控的 base_url，故加一条
+`logger.info`（uid + protocol + 目标 host）——对齐事故教训「DB/审计痕迹优于
+grep 日志」，让出站请求可观测。
 
 ## 2026-07-18 — agent-framework 403 门禁方向化(修云端老 codex 死锁)
 

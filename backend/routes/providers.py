@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
@@ -59,6 +61,24 @@ class AddProviderRequest(BaseModel):
     auth_type: str = "api_key"
     models: list[str] = []
     default_slots: dict[str, SlotDefault] | None = None
+
+
+class TestProviderConfigRequest(BaseModel):
+    """Body for ``POST /api/providers/test-config`` — stateless probe.
+
+    Mirrors the custom-provider form fields so connectivity can be
+    verified BEFORE the provider is saved. Nothing here is persisted.
+    """
+    card_type: str
+    api_key: str = ""
+    base_url: str = ""
+    # Only real API-key auth types are probeable statelessly. "oauth" is
+    # intentionally excluded: a stateless probe has no stored CLI
+    # credential, so reporting it "connected" would be a lie (the service
+    # guards this too). Literal → FastAPI 422 on anything else, instead of
+    # a pydantic ValidationError surfacing as a 500.
+    auth_type: Literal["api_key", "bearer_token"] = "api_key"
+    models: list[str] = []
 
 
 class SetSlotRequest(BaseModel):
@@ -513,6 +533,36 @@ async def test_provider(provider_id: str, request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
     success, message = await service.test_provider(uid, provider_id)
+    return {"success": success, "message": message}
+
+
+@router.post("/test-config")
+async def test_provider_config(req: TestProviderConfigRequest, request: Request):
+    """Probe an UNSAVED custom provider from raw form values.
+
+    Stateless counterpart to ``/{provider_id}/test``: it never reads or
+    writes the DB, letting the add-provider form validate a key /
+    base_url / model before the user commits it. Auth is still required
+    (a logged-in user), consistent with every other route here.
+    """
+    uid = _get_user_id(request)  # enforce auth; the probe itself is per-request
+    # This probe leaves NO DB row (unlike the stateful path, where testing
+    # a saved provider always had a user_providers row behind it), yet the
+    # server actively fetches a user-controlled base_url. Log one audit line
+    # so the outbound request is observable — CLAUDE.md incident lesson #5:
+    # a DB/audit trace beats a silent, grep-dependent log gap.
+    target_host = urlparse(req.base_url).hostname or "<provider-default>"
+    logger.info(
+        f"[test-config] uid={uid} protocol={req.card_type} host={target_host}"
+    )
+    service = await _get_service()
+    success, message = await service.test_provider_config(
+        card_type=req.card_type,
+        api_key=req.api_key,
+        base_url=req.base_url,
+        auth_type=req.auth_type,
+        models=req.models,
+    )
     return {"success": success, "message": message}
 
 

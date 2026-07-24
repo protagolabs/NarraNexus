@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-07-18
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — `test_provider_config`：无状态「保存前测连通」孪生方法
+
+`test_provider(user_id, provider_id)` 是**有状态**的——先按 provider_id
+查 `user_providers` 行再构造 `ProviderConfig`，所以没落库就没法测，添加
+表单只能先存后测。新增 `test_provider_config(*, card_type, api_key,
+base_url, auth_type, models)`：直接用表单值构造 transient `ProviderConfig`
+（provider_id="prov_probe"，never stored），委托同一个
+`provider_registry.test_provider`。**不读不写 DB**。非法 card_type
+（非 anthropic/openai）直接返回 `(False, ...)`，不碰 registry。两条入口
+共用底层 registry、逻辑不重复。供 [[providers]] 路由的 `/test-config` 调用。
+
+**两道白名单守卫（在构造 ProviderConfig 之前）**：`card_type` 只收
+anthropic/openai；`auth_type` 只收 api_key/bearer_token。后者非可选防御：
+① `oauth` 是合法 `AuthType` 枚举，若透传，registry 的 oauth 短路会
+`return (True, "OAuth provider…")`——一次探测都没发生却报连通，纯谎报
+（无状态侧没有已落库的 CLI 凭据来支撑这个 True）；② 其他非法 auth_type
+会让 pydantic 在构造时抛 `ValidationError`，无全局 handler → 500。守卫把
+两者都变成干净的 `(False, ...)`。
+
+**`test_provider`（有状态）已收敛为「读行 → oauth 短路 → 委托
+`test_provider_config`」**：transient ProviderConfig 的构造点只剩一处，
+消除将来漂移。oauth 短路**留在有状态侧**（已落库凭据由 CLI 托管，报连通
+属实），正是无状态孪生刻意拒绝 oauth 的镜像。
 
 ## 2026-07-18 — set_slot 新增 `actor_is_staff` 参数（云端 netmind-only 下沉）
 
