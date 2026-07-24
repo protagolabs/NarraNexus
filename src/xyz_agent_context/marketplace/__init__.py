@@ -15,7 +15,7 @@ domain-subpackage convention (artifact/, memory/, message_bus/, ...):
   seeds) still import it directly — pre-existing debt; long-term these
   should converge on the service seam.
 - `resources/marketplace_skills/` — first-party skills vendored with the
-  package, seeded into the catalog by `repository/_skill_marketplace_seed`.
+  package, seeded into the catalog by `marketplace/_skill_marketplace_seed`.
 
 No re-exports: consumers import the service modules explicitly.
 """

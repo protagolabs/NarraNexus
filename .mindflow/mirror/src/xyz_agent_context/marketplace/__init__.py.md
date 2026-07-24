@@ -30,6 +30,8 @@ skills now travel with the package instead of relying on a repo-root path).
   pre-existing debt this move did not introduce or worsen. Renaming
   impl symbols WILL break external callers until they converge on the
   service seam (todo recorded).
-- **Seed path** lives in `repository/_skill_marketplace_seed.py`, which
-  resolves `marketplace/resources/marketplace_skills/` package-relative
-  (env-overridable via `MARKETPLACE_SKILLS_DIR`).
+- **Seed path** lives in `marketplace/_skill_marketplace_seed.py` (moved
+  here from `repository/` 2026-07-24 — it is marketplace bootstrap, and
+  repository/ is the bottom layer), which resolves `resources/
+  marketplace_skills/` next to itself (env-overridable via
+  `MARKETPLACE_SKILLS_DIR`).
