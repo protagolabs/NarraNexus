@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 _SCRIPT = (
-    Path(__file__).resolve().parents[2]
+    Path(__file__).resolve().parents[3]
     / "scripts"
     / "cleanup_duplicate_pinned_artifacts.py"
 )

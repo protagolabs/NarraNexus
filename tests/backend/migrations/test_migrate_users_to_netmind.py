@@ -30,7 +30,7 @@ import pytest
 from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
 
 _SCRIPT = (
-    Path(__file__).resolve().parents[2] / "scripts" / "migrate_users_to_netmind.py"
+    Path(__file__).resolve().parents[3] / "scripts" / "migrate_users_to_netmind.py"
 )
 _spec = importlib.util.spec_from_file_location("migrate_users_to_netmind", _SCRIPT)
 mig = importlib.util.module_from_spec(_spec)
