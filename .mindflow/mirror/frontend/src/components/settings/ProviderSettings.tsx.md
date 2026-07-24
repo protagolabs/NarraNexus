@@ -135,7 +135,7 @@ anthropic → claude-haiku-4-5). That map **mirrors backend
 ``_ONBOARD_HELPER_MODELS``** in model_catalog.py and must stay in sync.
 Display-only; the persisted slot value is still the ``"default"``
 sentinel (which lets each helper call site pick its own fast model — see
-``openai_agents_sdk._resolve_model`` mode 1).
+``adapters.openai_agents._resolve_model`` mode 1).
 
 ## 2026-06-10 (5th pass) — helper dropdown honors server required_protocols
 
@@ -154,7 +154,7 @@ The helper_llm provider dropdown now filters out auth_type=oauth rows.
 This became urgent after the helper slot opened to the anthropic
 protocol: claude_oauth (anthropic) joined codex_oauth (openai) as a
 selectable-but-broken option. Server-side mirror gate lives in
-user_provider_service.set_slot.
+providers.user_service.set_slot.
 
 ## 2026-06-10 (later) — Quick Add block replaced by shared OneKeyOnboard
 

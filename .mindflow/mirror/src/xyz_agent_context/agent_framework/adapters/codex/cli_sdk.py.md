@@ -39,7 +39,7 @@ locks that the subprocess spawn passes the 50 MiB limit and that a
 
 Step 3 的 `full_env = {**os.environ, **cli_env}` 把 backend 全部环境(含
 平台密钥)注入了 codex 子进程。改为调用
-`_codex_env.build_codex_subprocess_env`(与 v2 共用),只透传最小系统白
+`_env.build_codex_subprocess_env`(与 v2 共用),只透传最小系统白
 名单 + `CODEX_HOME` / `NO_PROXY` / scoped `CODEX_API_KEY`。v1 虽是 revival
 fallback、当前不注册,但一旦被拉回活跃路径必须同样安全,故一并修。详见
 `adapters/codex/_env.py.md`。
@@ -91,7 +91,7 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
   `auth.json` before spawning the subprocess.
 - **MCP via file, not dict.** Codex requires ``[mcp_servers.<name>]``
   TOML tables; we generate them in
-  ``_codex_config_toml_builder.build_codex_config_toml``. Adding /
+  ``_config_toml_builder.build_codex_config_toml``. Adding /
   removing MCP servers between turns is fine — each turn writes a
   fresh config.toml.
 - **System prompt via file, not argv.** Codex reads
@@ -115,7 +115,7 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
   for the started/completed event pair.
 - **Tool-policy via config.toml ``[permissions]``, not per-call
   hook.** Codex has no PreToolUse hook API. The
-  ``_codex_permission_translator`` module renders the CC tool-policy
+  ``_permission_translator`` module renders the CC tool-policy
   rules into Codex's declarative TOML form. Some dynamic checks (e.g.
   ``Path.resolve(strict=False)`` symlink-escape detection from CC's
   ``_tool_policy_guard.py``) cannot be transcribed; we lean on the
@@ -139,9 +139,9 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
 - **Upstream**: ``agent_runtime._agent_runtime_steps.step_3_agent_loop``
   (via the ``_resolve_agent_framework_sdk`` dispatcher).
 - **Downstream**:
-  - ``_codex_config_toml_builder.build_codex_config_toml`` — writes
+  - ``_config_toml_builder.build_codex_config_toml`` — writes
     config.toml content.
-  - ``_codex_permission_translator.translate_tool_policy_to_codex_permissions``
+  - ``_permission_translator.translate_tool_policy_to_codex_permissions``
     — translates CC tool-policy to Codex permissions.
   - ``output_transfer.output_transfer(transfer_type="codex_cli")``
     — translates each Codex JSON event to the
@@ -191,7 +191,7 @@ cancellation race, SIGTERM/SIGKILL fallback) lives here.
 - **Tool policy guard semantic loss.** The CC ``_tool_policy_guard.py``
   uses Python ``re.compile`` patterns with shell-style anchoring
   (``(?:^|[\\s;&|`$(])``); Codex globs cannot replicate that. The
-  translation in ``_codex_permission_translator`` covers the common
+  translation in ``_permission_translator`` covers the common
   cases (``brew install *`` / ``sudo *`` / etc.) but misses
   obscure shell pipelines. If you observe agents bypassing the
   guard via ``echo brew install x | bash`` or similar, escalate by

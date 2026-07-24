@@ -8,7 +8,7 @@ stub: false
 
 原逻辑把 400/404/422 一律当"auth 通过=可达"(True)。但 NetMind 余额耗尽是 **400
 `balance not enough`**、模型不存在 404、上下文过小 400——这些不是"可运行"。现在该分支复用
-`llm_failure.classify_self_serviceable(None, resp.text)`,命中就返回 **False**(单一事实源,
+`llm.failure.classify_self_serviceable(None, resp.text)`,命中就返回 **False**(单一事实源,
 不与 Job/实时层漂移)。这样 `ProviderReadiness.validate` 的实测能正确判"余额死掉=not ready",
 edge 恢复(登录/provider 保存)就不会把余额死掉的 job 拉起来白跑一次;充值后实测 200 → 恢复。
 onboarding 不受影响(只按 auth 短语硬拒;余额死 key 仍"unverified"通过),"test connection"

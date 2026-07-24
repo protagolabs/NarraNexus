@@ -7,7 +7,7 @@ stub: false
 ## 2026-05-13 — `await_cancelled()` 加入（Phase A spec §4.2 C1）
 
 新增 `CancellationToken.await_cancelled()`，本质是 `asyncio.Event.wait()`
-的薄包装。用途是给 `xyz_claude_agent_sdk.agent_loop` 做 race-with-cancel：
+的薄包装。用途是给 `adapters.claude.sdk.agent_loop` 做 race-with-cancel：
 
 以前 receive loop 用 `await asyncio.wait_for(__anext__(), 600)`，在 Bash
 工具运行期间没有消息到达，即便 cancel 已经 set 也要等 tool 返回才被检测。

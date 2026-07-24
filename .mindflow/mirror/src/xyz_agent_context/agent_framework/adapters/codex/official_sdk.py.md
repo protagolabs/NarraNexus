@@ -36,7 +36,7 @@ plugins-clone-*/`,macOS 上这棵刚写完的树在 `__exit__` rmtree 时偶发"
 Step 4 的 `env = {**os.environ}` 把 backend 容器的**全部环境(含所有平台
 密钥)**注入了 codex 子进程 → agent 在 workspace 里一句 `env` 就能 dump
 出 `DB_PASSWORD`/`JWT_SECRET`/`*_API_KEY`(2026-06-17 事件)。改为调用
-`_codex_env.build_codex_subprocess_env`:只透传最小系统白名单 +
+`_env.build_codex_subprocess_env`:只透传最小系统白名单 +
 `CODEX_HOME` + `NO_PROXY` + `to_cli_env` 的 scoped `CODEX_API_KEY`。
 **注意**:文件系统沙箱(`workspace-write`)解决不了这条——`env` 读的是
 进程内存,不是文件。详见 `adapters/codex/_env.py.md`。v1(`adapters.codex.cli_sdk`)同步
@@ -159,7 +159,7 @@ v2 有 auto-reviewer)。
 ## 2026-06-11 — API-key 鉴权回归：补回 model_provider + env_key
 
 v2 切到 `config_overrides` 后，`_build_codex_config_overrides` 漏掉了 v1
-`_codex_config_toml_builder` 里的 `[model_providers.narranexus]` 块。
+`_config_toml_builder` 里的 `[model_providers.narranexus]` 块。
 后果分叉：
 
 - **OAuth**：codex 读 stage 进 `$CODEX_HOME/auth.json` 的凭证 → 正常。
@@ -216,7 +216,7 @@ Implements the same async-generator contract as
   model_reasoning_summary / model / permissions), different surface
   — no filesystem write of the config block. Helper
   `_build_codex_config_overrides` builds the tuple; mirrors v1's
-  `_codex_config_toml_builder.build_codex_config_toml`.
+  `_config_toml_builder.build_codex_config_toml`.
 
 - **Cancellation via `TurnHandle.interrupt()`, not subprocess kill**:
   v1's race-with-cancel + SIGTERM 5s + SIGKILL becomes a single
@@ -259,7 +259,7 @@ Implements the same async-generator contract as
   - `_sse_url_to_streamable_http` (imported from v1) — MCP URL
     rewriter (SSE → streamable HTTP form codex CLI's MCP client
     requires). NarraNexus-specific.
-  - `_codex_permission_translator.translate_tool_policy_to_codex_permissions`
+  - `_permission_translator.translate_tool_policy_to_codex_permissions`
     — CC tool policy → codex permissions dict. Unchanged.
 
 - **Translation in `output_transfer.py`, not inline**: v2 emits the
@@ -286,12 +286,12 @@ Implements the same async-generator contract as
 - **Downstream**:
   - `openai_codex.AsyncCodex` / `Thread` / `TurnHandle` (official SDK).
   - `_build_codex_config_overrides` (local helper) — replaces v1's
-    `_codex_config_toml_builder.build_codex_config_toml`.
+    `_config_toml_builder.build_codex_config_toml`.
   - `_aiter_stream` (local helper) — bridges SDK's sync iterator
     into our async loop.
   - `output_transfer.output_transfer(transfer_type="codex_official")`
     — Notification dict → internal event shape.
-  - `_codex_permission_translator.translate_tool_policy_to_codex_permissions`
+  - `_permission_translator.translate_tool_policy_to_codex_permissions`
     — unchanged from v1.
   - `adapters.codex.cli_sdk._build_system_prompt_and_user_msg` /
     `_stage_codex_oauth_credentials` / `_sse_url_to_streamable_http`

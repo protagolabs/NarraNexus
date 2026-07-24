@@ -16,7 +16,7 @@ NarraNexus's CC wrapper uses ``_tool_policy_guard.py`` (Python
 callable) to gate Read/Glob/Grep/WebSearch/Bash calls dynamically.
 For Codex we cannot run those checks at call time, so we translate
 the same rule set into Codex's static TOML shape. The translator
-output is consumed by ``_codex_config_toml_builder.build_codex_config_toml``.
+output is consumed by ``_config_toml_builder.build_codex_config_toml``.
 
 ## Design decisions
 
@@ -76,7 +76,7 @@ rules; extend it as new rules land.
 
 - **Upstream**: ``adapters.codex.cli_sdk.CodexSDK.agent_loop`` calls
   this once per run to derive the permission dict.
-- **Downstream**: ``_codex_config_toml_builder.build_codex_config_toml``
+- **Downstream**: ``_config_toml_builder.build_codex_config_toml``
   takes the dict and renders the ``[permissions.narranexus]``
   table tree.
 

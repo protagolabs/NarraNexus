@@ -48,7 +48,7 @@ funnels through the owner helper).
 修法:OAuth 也改指独立目录 `settings.claude_oauth_config_path`
 (`~/.nexusagent/claude_oauth_config`,与 keyed 的 `claude_cli_config_path` **分开**)。
 `to_cli_env()` 只负责设 `CLAUDE_CONFIG_DIR`(纯函数、无 I/O);真正把凭据搬进去的是
-`xyz_claude_agent_sdk._stage_claude_oauth_credentials`——spawn 前**只拷 `.credentials.json`**
+`adapters.claude.sdk._stage_claude_oauth_credentials`——spawn 前**只拷 `.credentials.json`**
 一个文件(绝不拷 `settings.json`),对齐 Codex 的 `_stage_codex_oauth_credentials`。
 
 一个必须记住的边界——**newest-wins 拷贝**:仅当宿主 `~/.claude/.credentials.json`
@@ -149,7 +149,7 @@ block now branches on the provider protocol (anthropic → AnthropicHelperConfig
 `.openai` left empty). `setup_mcp_llm_context` upgraded from the 2-tuple path
 to `get_agent_owner_runtime_llm_configs` so MCP tool processes see codex +
 anthropic_helper too. `CodexConfig` gains neutral `thinking`/`reasoning_effort`
-(mirror of ClaudeConfig's; dialect mapping in _codex_config_toml_builder).
+(mirror of ClaudeConfig's; dialect mapping in _config_toml_builder).
 
 ## 2026-06-10 — merge `dev` into codex branch: embeddings out, Codex stays
 
@@ -170,7 +170,7 @@ was updated so the `set_user_config` signature assertion expects
 = auto), populated from the agent slot's SlotConfig at all three
 construction sites (llm_config.json path, .env fallback — stays auto —
 and the per-user resolver). The fields are framework-neutral; the
-Claude-dialect mapping lives in xyz_claude_agent_sdk
+Claude-dialect mapping lives in adapters.claude.sdk
 (`_resolve_reasoning_options`), NOT here. `to_cli_env()` is untouched —
 these ride ClaudeAgentOptions, not env vars.
 
@@ -179,13 +179,13 @@ these ride ClaudeAgentOptions, not env vars.
 Symmetric with the existing ClaudeConfig/OpenAIConfig/EmbeddingConfig
 trio. New ``CodexConfig`` frozen dataclass carries ``api_key`` /
 ``base_url`` / ``model`` / ``auth_type`` for the Codex CLI subprocess
-spawned by ``xyz_codex_cli_sdk.CodexSDK``. ``to_cli_env()`` mirrors
+spawned by ``adapters.codex.cli_sdk.CodexSDK``. ``to_cli_env()`` mirrors
 the ClaudeConfig invariant: explicit blank for ``CODEX_API_KEY``
 when not in use so a parent-process env can't leak across tenants.
 
 ``base_url`` / ``model`` are NOT exported via env — Codex reads them
 from per-run ``config.toml`` ``[model_providers.<name>]`` instead.
-The wire is via ``_codex_config_toml_builder``.
+The wire is via ``_config_toml_builder``.
 
 Per-task ContextVar (``_codex_ctx``) + ``_ConfigHolder._codex`` slot
 follow the existing pattern. Holder is initialised to an empty
@@ -204,7 +204,7 @@ and `get_agent_owner_runtime_llm_configs()` return this bundle so
 non-Codex configs for call sites that do not drive the agent loop.
 
 `CodexConfig` now carries `auth_ref` in addition to api key / base URL /
-model. It is not exported as an env var; `xyz_codex_cli_sdk` uses it to
+model. It is not exported as an env var; `adapters.codex.cli_sdk` uses it to
 copy the host `codex login` auth file into the per-run `CODEX_HOME`.
 
 ## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)

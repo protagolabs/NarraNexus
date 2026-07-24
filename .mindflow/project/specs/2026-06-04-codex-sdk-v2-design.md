@@ -105,7 +105,7 @@ config_overrides=(
 )
 ```
 
-This replaces our v1 `_codex_config_toml_builder` filesystem write.
+This replaces our v1 `_config_toml_builder` filesystem write.
 No more `$CODEX_HOME/config.toml`.
 
 ### Thread / AsyncThread
@@ -245,7 +245,7 @@ class CodexSDKv2:
     Subprocess + JSON-Lines parsing handed off to the SDK; we keep
     the NarraNexus-specific concerns:
       - per-run CODEX_HOME staging (for auth.json copy)
-      - config_overrides assembly (replaces _codex_config_toml_builder)
+      - config_overrides assembly (replaces _config_toml_builder)
       - MCP URL SSE→streamable rewrite
       - Permission policy translation
       - Notification → internal event translation
@@ -294,7 +294,7 @@ remain v2's responsibility:
   remains the path of least resistance)
 * MCP URL rewrite (SSE → streamable HTTP) — NarraNexus emits both;
   the rewrite belongs to the wrapper
-* `_codex_permission_translator` → emit translated rules as TOML
+* `_permission_translator` → emit translated rules as TOML
   literal strings in `config_overrides`
 * `CodexConfig` ContextVar (`api_config.codex_config`) — model selection
   + base_url resolution flows the same; we just hand the resolved

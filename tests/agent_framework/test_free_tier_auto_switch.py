@@ -76,12 +76,12 @@ async def _patch_resolver(monkeypatch, *, resolve):
     )
     from xyz_agent_context.utils.db import db_factory
     monkeypatch.setattr(db_factory, "get_db_client", AsyncMock(return_value=object()))
-    from xyz_agent_context.agent_framework.providers import system_service as system_provider_service, user_service as user_provider_service
+    from xyz_agent_context.agent_framework.providers import system_service, user_service
     monkeypatch.setattr(
-        system_provider_service.SystemProviderService, "instance",
+        system_service.SystemProviderService, "instance",
         staticmethod(lambda: object()),
     )
-    monkeypatch.setattr(user_provider_service, "UserProviderService", lambda db: object())
+    monkeypatch.setattr(user_service, "UserProviderService", lambda db: object())
     return api_config
 
 

@@ -104,7 +104,7 @@ reason|None`。区别于 auth（凭据失效，走 re-login）和瞬时抖动（
   / SDK 枚举 `billing_error`），再对 `type + "\n" + message` 做子串匹配
   （`context window` / `must be <=` / `insufficient balance` / `does not exist`
   等）。这样即使 SDK 把 type 压成 `unknown`，也能从折进 message 的 stderr 里
-  认出真相——这正是配合 `xyz_claude_agent_sdk._inline_assistant_error_event`
+  认出真相——这正是配合 `adapters.claude.sdk._inline_assistant_error_event`
   把 stderr 折进 error_message 后能生效的前提。
 - **正向识别**：只认已知形态，残余"我们自己的 bug / 无法归因"桶保持不动。
 - `self_serviceable_user_message(reason, raw_detail)`：组合每类的**可操作**

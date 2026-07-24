@@ -114,7 +114,7 @@ def _wire(monkeypatch, quota_svc, *, user_cfg=None):
     the real ProviderResolver decision tree in play. SystemProviderService is
     stubbed via its singleton (_stub_sys)."""
     from xyz_agent_context.utils.db import db_factory
-    from xyz_agent_context.agent_framework.providers import user_service as user_provider_service
+    from xyz_agent_context.agent_framework.providers import user_service
 
     monkeypatch.setattr(api_config, "_ensure_quota_service",
                         AsyncMock(return_value=quota_svc))
@@ -123,7 +123,7 @@ def _wire(monkeypatch, quota_svc, *, user_cfg=None):
 
     user_svc = MagicMock()
     user_svc.get_user_config = AsyncMock(return_value=user_cfg)
-    monkeypatch.setattr(user_provider_service, "UserProviderService",
+    monkeypatch.setattr(user_service, "UserProviderService",
                         lambda _db: user_svc)
 
 

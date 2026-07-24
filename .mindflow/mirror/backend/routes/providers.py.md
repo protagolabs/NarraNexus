@@ -277,7 +277,7 @@ _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT
 **铁律：framework 名字白名单四处必须同步**：
 1. `agent_framework/__init__.py` register_agent_loop_driver
 2. `provider_driver/resolver._KNOWN_AGENT_FRAMEWORKS` + `_CODEX_FRAMEWORK_VALUES`
-3. `user_provider_service._SUPPORTED_AGENT_FRAMEWORKS` （= 后端 single source of truth）
+3. `providers.user_service._SUPPORTED_AGENT_FRAMEWORKS` （= 后端 single source of truth）
 4. `frontend/src/components/settings/ProviderSettings.tsx` 的 `AGENT_FRAMEWORKS` + `CODEX_FRAMEWORK_IDS`
 
 route 层 #4 后已经不算独立条目了，因为 import 自动跟 service。但 frontend 不能 import Python，仍需手 sync。

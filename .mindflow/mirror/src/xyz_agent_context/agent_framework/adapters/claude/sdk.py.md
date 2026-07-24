@@ -34,7 +34,7 @@ invalid_request/server_error/unknown）。真正的 provider 原因——例如 
 （跳过 output_transfer 的枚举事件）。该 helper 保留 `error_type`=枚举原值、把
 stderr 尾部折进 `error_message`——复用 `_zero_output_error_event` 的
 `_stderr_tail_detail` 共享写法。这样下游
-`llm_failure.classify_self_serviceable` 能从 message 文本认出 context-window /
+`llm.failure.classify_self_serviceable` 能从 message 文本认出 context-window /
 余额 / 模型错误。stderr 为空时不加东西，让 output_transfer 的枚举事件照常走
 （有些 inline error 的 stderr 本就是空的）。
 

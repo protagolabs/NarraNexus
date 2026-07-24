@@ -4,7 +4,7 @@
 @description: Regressions for the codex CLI stdout StreamReader line limit.
 
 Companion to the 2026-07-08 multimodal-large-file incident. The
-``xyz_codex_cli_sdk`` wrapper spawns codex CLI via
+``adapters.codex.cli_sdk`` wrapper spawns codex CLI via
 ``asyncio.create_subprocess_exec``. Without an explicit ``limit=``
 kwarg it inherits ``asyncio.streams._DEFAULT_LIMIT = 65536`` (64 KiB),
 half of aiohttp's 128 KiB. A ``tool_result`` NDJSON line carrying a

@@ -12,7 +12,7 @@ across (e.g. resolving a Read path against ``Path.resolve(strict=False)``
 to catch symlink escapes) but we CAN translate the bulk of the
 rule set into Codex's glob-pattern filesystem/commands gate.
 
-Output shape (consumed by :func:`_codex_config_toml_builder.build_codex_config_toml`):
+Output shape (consumed by :func:`_config_toml_builder.build_codex_config_toml`):
 
     {
         "extends": ":workspace",

@@ -50,7 +50,7 @@ Settings editor ([[ProviderSettings]]) and the per-agent chat surfaces
 exactly the same choices as the global-default editor.
 
 Holds: ``AGENT_FRAMEWORKS`` + ``isCodexFramework``; ``CODEX_CURATED_MODELS``
-(codex_oauth-only — mirror of backend ``user_provider_service``);
+(codex_oauth-only — mirror of backend ``providers.user_service``);
 ``RECOMMENDED_HELPER_MODEL_BY_PROTOCOL`` (mirror of backend
 ``_ONBOARD_HELPER_MODELS``); ``MODEL_SUGGESTION_GROUPS``; reasoning option
 lists; and ``getModelsForSlot(prov, slot, framework, knownModels)`` (agent+codex

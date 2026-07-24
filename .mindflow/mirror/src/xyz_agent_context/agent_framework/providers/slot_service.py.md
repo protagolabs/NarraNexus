@@ -31,7 +31,7 @@ agents.
 Why it exists as its own service (not more methods on ``UserProviderService``):
 the two writers have different scopes (user vs agent) and different key columns,
 but MUST enforce the same provider↔slot binding rules — so the rules live in the
-shared ``user_provider_service.validate_slot_binding`` and both call it. Without
+shared ``providers.user_service.validate_slot_binding`` and both call it. Without
 that, a per-agent override could bind an incompatible provider (e.g. a codex_cli
 agent slot on an aggregator, or a helper slot on an OAuth card) and the misbinding
 would only surface at agent-loop time as a cryptic NotImplementedError.

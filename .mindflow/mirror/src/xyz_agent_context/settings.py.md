@@ -36,7 +36,7 @@ a dir kept SEPARATE from both the host `~/.claude` and the keyed
 left OAuth pointing at the real `~/.claude`, which re-exposed the same hijack
 (personal `settings.json` `env` block overriding the OAuth run) AND raced the
 user's own Claude Code on `~/.claude/.claude.json` (2026-07-09 incident). OAuth
-now uses this isolated dir; `xyz_claude_agent_sdk._stage_claude_oauth_credentials`
+now uses this isolated dir; `adapters.claude.sdk._stage_claude_oauth_credentials`
 stages ONLY `.credentials.json` into it before the spawn (never `settings.json`).
 Consumed by `api_config.ClaudeConfig.to_cli_env()`.
 
@@ -120,7 +120,7 @@ INTERNAL_INVITE_SECRET / INVITE_AUTO_ISSUE_CAP dropped from _DOTENV_PASSTHROUGH 
 Added `.env`-tunable fields: `llm_api_timeout_ms` (→ CLI `API_TIMEOUT_MS`),
 `llm_max_retries` (→ CLI `CLAUDE_CODE_MAX_RETRIES`), `llm_stall_probe_after_seconds`,
 `llm_stall_probe_timeout_seconds`. Consumed by `api_config.to_cli_env()` (timeout
-+ retries injected into the CLI subprocess) and `xyz_claude_agent_sdk` (stall
++ retries injected into the CLI subprocess) and `adapters.claude.sdk` (stall
 health-probe cadence/timeout). Defaults chosen to bound a pathological hang
 without cutting a legitimately long thinking pass (铁律 #14). Documented in
 `.env.cloud.example`.

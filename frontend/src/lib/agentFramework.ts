@@ -100,7 +100,7 @@ export function defaultHelperModel(
 // account tier. Scoped to codex_oauth ONLY — a third-party openai-protocol
 // provider (netmind / yunwu / openrouter / custom base_url) exposes its own
 // catalogue. Must stay in sync with backend ``CODEX_CURATED_MODELS`` in
-// user_provider_service.py (same codex_oauth-only scoping).
+// providers/user_service.py (same codex_oauth-only scoping).
 export const CODEX_CURATED_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
 
 export interface ModelSuggestionGroup {
