@@ -1,6 +1,6 @@
 ---
-code_file: src/xyz_agent_context/analytics/_impl/posthog_sink.py
-last_verified: 2026-06-10
+code_file: backend/analytics/posthog_sink.py
+last_verified: 2026-07-24
 stub: false
 ---
 
@@ -74,3 +74,9 @@ to the constructor.
 - Do not call `self._ph.shutdown()` instead of `self._ph.flush()`. `shutdown()`
   permanently disables the client; subsequent events (if any) would be dropped
   silently. `flush()` drains without disabling.
+
+## 2026-07-24 — moved to backend/analytics/ (B4)
+
+Vendor sinks are platform code; the kernel now only knows the
+`register_sink_factory` seam. Registration lives in
+`backend/analytics/__init__.py`, wired by backend/main.py at import.

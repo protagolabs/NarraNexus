@@ -357,6 +357,12 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI application
+# Vendor analytics sink is platform code — install the seam before any
+# route can fire track() (kernel default is NullSink otherwise).
+from backend.analytics import register_posthog_sink  # noqa: E402
+
+register_posthog_sink()
+
 app = FastAPI(
     title="Agent Context API",
     description="WebSocket streaming and REST APIs for Agent Context runtime",

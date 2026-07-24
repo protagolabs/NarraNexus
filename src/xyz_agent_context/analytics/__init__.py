@@ -6,8 +6,10 @@
 track() / identify_user() are the only entry points capture sites use.
 Both are async (opt-out lookup hits the DB), best-effort, and NEVER raise.
 get_analytics() returns the active sink, gated by env + surface:
-NullSink unless NARRA_ANALYTICS_ENABLED=true AND POSTHOG_API_KEY set AND
-surface != cloud (cloud deferred this phase).
+NullSink unless NARRA_ANALYTICS_ENABLED=true AND surface != cloud (cloud
+deferred this phase) AND the platform registered a sink factory
+(register_sink_factory — the backend does this at startup; vendor sinks
+live backend-side, the kernel only ships the seam + NullSink).
 """
 from __future__ import annotations
 
@@ -24,7 +26,7 @@ from xyz_agent_context.analytics.surface import SURFACE
 
 __all__ = [
     "AnalyticsClient", "get_analytics", "track", "identify_user",
-    "shutdown_analytics",
+    "shutdown_analytics", "register_sink_factory",
 ]
 
 # Pseudonymize the user id before it leaves the process: PostHog only ever
@@ -43,16 +45,33 @@ def _hash_distinct_id(user_id: str) -> str:
     ).hexdigest()[:32]
 
 
+# Vendor sinks are PLATFORM code and live backend-side; the kernel only
+# knows this seam. The backend registers a factory at startup
+# (backend/analytics); processes that never register one (workers, MCP
+# servers, tests) silently get NullSink — which is also the only
+# behavior they ever had, since no agent-side process calls track().
+_sink_factory = None
+
+
+def register_sink_factory(factory) -> None:
+    """Install the platform's sink factory (callable -> AnalyticsClient|None).
+
+    Called once at backend startup. Clears the cached sink so a factory
+    registered after a first get_analytics() still takes effect."""
+    global _sink_factory
+    _sink_factory = factory
+    _get_sink_cached.cache_clear()
+
+
 def _build_sink() -> AnalyticsClient:
     if (os.environ.get("NARRA_ANALYTICS_ENABLED", "true").lower() != "true"):
         return NullSink()
     if SURFACE == "cloud":  # deferred this phase
         return NullSink()
-    key = os.environ.get("POSTHOG_API_KEY")
-    if not key:
+    if _sink_factory is None:
         return NullSink()
-    from xyz_agent_context.analytics._impl.posthog_sink import PostHogSink
-    return PostHogSink(api_key=key, host=os.environ.get("POSTHOG_HOST"))
+    sink = _sink_factory()
+    return sink if sink is not None else NullSink()
 
 
 @lru_cache(maxsize=1)
