@@ -21,7 +21,7 @@ repository/           ← data-access layer (uses utils/)
 services/             ← background services (ModulePoller, InstanceSyncService)
 ```
 
-The two files at this root level (`settings.py`, `config.py`) are special: they are consumed by almost every other file in the package and have no dependencies within the package. `__init__.py` stitches together the public API.
+The root-level `settings.py` are special: they are consumed by almost every other file in the package and have no dependencies within the package. `__init__.py` stitches together the public API.
 
 ## Key file index
 
@@ -29,7 +29,6 @@ The two files at this root level (`settings.py`, `config.py`) are special: they 
 |---|---|
 | `__init__.py` | Package public API — re-exports `AgentRuntime`, `NarrativeService`, `XYZBaseModule`, etc. |
 | `settings.py` | `Settings` singleton — all environment variables, loaded once at import time |
-| `config.py` | Static algorithm tuning constants (e.g., `NARRATIVE_LLM_UPDATE_INTERVAL`) |
 | `prompts_index.py` | Consolidated index of all prompt constants across subsystems |
 
 ## Collaboration with external directories

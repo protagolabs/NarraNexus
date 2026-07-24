@@ -190,7 +190,7 @@ impl ServiceDef {
                 command: python_path.to_string(),
                 args: vec![
                     "-m".to_string(),
-                    "xyz_agent_context.utils.sqlite_proxy_server".to_string(),
+                    "xyz_agent_context.utils.db.sqlite_proxy_server".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8100),
@@ -283,7 +283,7 @@ impl ServiceDef {
                     "run".to_string(),
                     "python".to_string(),
                     "-m".to_string(),
-                    "xyz_agent_context.utils.sqlite_proxy_server".to_string(),
+                    "xyz_agent_context.utils.db.sqlite_proxy_server".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8100),
