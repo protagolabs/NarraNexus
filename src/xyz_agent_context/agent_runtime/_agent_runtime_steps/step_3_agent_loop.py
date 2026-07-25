@@ -1114,6 +1114,32 @@ async def step_3_agent_loop(
         substeps=substeps
     )
 
+    # CLI session handle companions — only filled when the run reported a
+    # resumable session id (Claude Code's ResultMessage only, in v1). The
+    # fingerprint is computed HERE (not in step_4) because the ambient
+    # per-task claude_config ContextVar that configured this run is
+    # guaranteed live in this scope. Fail-open: any error -> None + warning,
+    # step_4 then skips persistence — resume capture must never hurt a turn.
+    cli_framework = None
+    cli_config_fingerprint = None
+    cli_working_path = None
+    if state.cli_session_id:
+        # Canonical framework name for the handle key (driver registry also
+        # accepts short aliases; the stored key must not depend on which
+        # alias the user's slot happened to use).
+        cli_framework = {"claude": "claude_code", "codex": "codex_cli"}.get(
+            framework_name, framework_name
+        )
+        cli_working_path = agent_working_path
+        try:
+            from xyz_agent_context.agent_framework.api_config import claude_config
+
+            cli_config_fingerprint = claude_config.resume_fingerprint()
+        except Exception as e:
+            logger.warning(
+                f"[step_3] resume fingerprint computation failed (fail-open): {e}"
+            )
+
     # Return unified execution result
     yield PathExecutionResult(
         final_output=state.final_output,
@@ -1126,6 +1152,10 @@ async def step_3_agent_loop(
         cache_read_tokens=state.cache_read_tokens,
         cache_creation_tokens=state.cache_creation_tokens,
         num_turns=state.num_turns,
+        cli_session_id=state.cli_session_id,
+        cli_framework=cli_framework,
+        cli_config_fingerprint=cli_config_fingerprint,
+        cli_working_path=cli_working_path,
         agent_loop_response=agent_loop_response,
         ctx_data=context.ctx_data,
     )

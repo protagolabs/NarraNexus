@@ -211,6 +211,26 @@ class PathExecutionResult(BaseModel):
         description="Model calls the framework made during this run (None = not reported)"
     )
 
+    # ========== CLI Session Handle (for --resume capture, step_4 persists) ==========
+    # All four default to None: DIRECT_TRIGGER and non-Claude paths never
+    # fill them; step_4 only persists when cli_session_id is present.
+    cli_session_id: Optional[str] = Field(
+        default=None,
+        description="Resumable CLI session id (ResultMessage.session_id; None = not reported)"
+    )
+    cli_framework: Optional[str] = Field(
+        default=None,
+        description="Canonical coding-agent framework that produced cli_session_id (e.g. 'claude_code')"
+    )
+    cli_config_fingerprint: Optional[str] = Field(
+        default=None,
+        description="ClaudeConfig.resume_fingerprint() of the run (None = not computable; fail-open)"
+    )
+    cli_working_path: Optional[str] = Field(
+        default=None,
+        description="Launch cwd of the CLI for this run (session jsonl archives under its slug)"
+    )
+
     # ========== Context Data ==========
     # Context data (for Hook)
     # AGENT_LOOP: From context.ctx_data (ContextData object)

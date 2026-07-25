@@ -414,10 +414,13 @@ def _convert_result_to_stream_event(message: Any) -> Dict[str, Any]:
     if isinstance(num_turns, int):
         data["num_turns"] = num_turns
 
-    # session_id is logged (not persisted) as groundwork for the --resume
-    # feasibility experiment: it proves the CLI hands us a resumable handle.
+    # Resumable CLI session handle (ResultMessage.session_id). Travels the
+    # same chain as num_turns (response_processor → ExecutionState →
+    # PathExecutionResult) and is persisted by step_4 into
+    # agent_cli_sessions — the capture side of `--resume` (E1-proven).
     session_id = getattr(message, 'session_id', None)
     if session_id:
+        data["session_id"] = session_id
         logger.info(f"Agent loop CLI session_id={session_id} num_turns={num_turns}")
 
     # Add stop reason

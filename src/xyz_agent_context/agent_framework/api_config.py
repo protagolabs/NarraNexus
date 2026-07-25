@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Optional
@@ -62,6 +63,28 @@ class ClaudeConfig:
     # (_resolve_reasoning_options), not here.
     thinking: str = ""
     reasoning_effort: str = ""
+
+    def resume_fingerprint(self) -> str:
+        """Identity of the CLI session store this config resolves to.
+
+        Any component change (auth kind, endpoint, config dir, model) means
+        the stored CLI session may not exist or may not be safe to resume
+        under the new config -> caller must cold-start.
+
+        The config-dir dispatch MUST stay branch-identical to
+        :meth:`to_cli_env`'s ``CLAUDE_CONFIG_DIR`` assignment — the dir
+        decides which session store the CLI reads, and keeping both in one
+        class is what stops the two from drifting apart.
+        """
+        from xyz_agent_context.settings import settings
+
+        config_dir = (
+            settings.claude_oauth_config_path
+            if self.auth_type == "oauth"
+            else settings.claude_cli_config_path
+        )
+        raw = f"{self.auth_type}|{self.base_url}|{config_dir}|{self.model}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     def to_cli_env(self) -> dict[str, str]:
         """Build env vars dict for the Claude Code CLI subprocess.

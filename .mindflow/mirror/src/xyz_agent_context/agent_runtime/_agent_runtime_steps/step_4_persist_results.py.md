@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 stub: false
 ---
+
+## 2026-07-25 — 新增 [4.7] CLI 句柄落库(resume 化 R1)
+
+4.6 之后:`execution_result.cli_session_id` 且 `ctx.session` 存在 → upsert
+`agent_cli_sessions`(经 [[cli_session_repository]])。narrative_id 取
+`ctx.session.current_narrative_id`——**4.7 必须排在 4.5 之后**:proactive 分支里
+4.5 会先把 session 锚点重指到 main_narrative,4.7 随后读取天然一致。指纹/
+working_path 由 step_3 随 PathExecutionResult 带出,这里不重算;两者任一缺失
+(step_3 fail-open)→ 跳过并 warning,不落半残行(表列 NOT NULL)。整段
+try/except + warning-only,照 4.6 的 fire-and-forget 风格,永不阻断管线。
 
 ## 2026-07-23 — [4.6] record_cost 透传 cache/num_turns(W1,纯搬运)
 

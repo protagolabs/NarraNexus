@@ -10,6 +10,11 @@ stub: false
 消费方（[[response_processor]]、路由层）从 `schema` 顶层取，不去 reach 进
 子模块。
 
+## 2026-07-25 — 导出 `AgentCliSession`
+
+门面新增 re-export `AgentCliSession`（[[cli_session]]，可 resume 的 CLI 会话
+句柄模型），供 step_4 / repository 从 `schema` 顶层引用。纯转发。
+
 ## 2026-07-22 — export URL-tab models
 
 Re-export `URL_ARTIFACT_KIND`, `EmbedMode`, `EmbedVerdict`, `UrlArtifactDoc`

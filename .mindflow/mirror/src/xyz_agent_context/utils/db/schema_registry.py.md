@@ -40,6 +40,20 @@ on revoke (and by the executor-reaper hook for crash orphans of idle users).
 Security-critical: a leak of this table cannot be replayed against the gateway
 (no usable secret at rest). See
 [[gateway_key_service]] / [[gateway_session_key_repository]].
+last_verified: 2026-07-25
+stub: false
+---
+
+## 2026-07-25 — 新表 agent_cli_sessions(resume 化 R1:句柄持久化)
+
+runtime 归属的新表(**不带 instance_ 前缀**——那是模块私有表约定),一行 =
+一个可 `--resume` 的 CLI 会话句柄,唯一键 `(agent_id, platform_session_id,
+framework)`。载荷:`cli_session_id`(ResultMessage.session_id)+ 三个有效性锚
+(`narrative_id` / `config_fingerprint` / `working_path`,任一不符 → 冷启动)。
+纯 additive;cli_session_id **不进 cost_records**(一期 T1.1 GOTCHA 维持)。
+读写方:[[cli_session_repository]];计划:
+`reference/self_notebook/plans/2026-07-25-agent-loop-resume.plan.md`(R1 只捕获
+不 resume,零行为变化)。
 
 ## 2026-07-23 — cost_records 加 prompt-cache 埋点三列(W1)
 

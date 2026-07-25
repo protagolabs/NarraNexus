@@ -499,6 +499,9 @@ class ResponseProcessor:
             )
             cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
             num_turns = data.get("num_turns")  # None when the framework doesn't report it
+            # Resumable CLI session handle. None when the framework doesn't
+            # report one (only Claude Code's ResultMessage carries it).
+            cli_session_id = data.get("session_id")
             model = data.get("model", "")
             total_cost_usd = data.get("total_cost_usd")  # SDK-calculated cost
             stop_reason = data.get("stop_reason", "unknown")
@@ -522,6 +525,7 @@ class ResponseProcessor:
                         "cache_read_tokens": cache_read_tokens,
                         "cache_creation_tokens": cache_creation_tokens,
                         "num_turns": num_turns,
+                        "cli_session_id": cli_session_id,
                     },
                 },
             )

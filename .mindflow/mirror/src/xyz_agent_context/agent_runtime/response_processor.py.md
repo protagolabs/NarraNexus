@@ -28,6 +28,15 @@ delta 就会在非流式路径上丢内容。
 首选恢复路径（标注 most reliable）：2026-07-23 macOS 事故里「重新
 `claude login`」对隔离 CONFIG_DIR 的 Keychain 死条目无效，旧文案会把
 用户引进死胡同。
+last_verified: 2026-07-25
+stub: false
+---
+
+## 2026-07-25 — response.done 透传 cli_session_id(resume 化 R1,纯搬运)
+
+accumulate_usage args 新增 `"cli_session_id": data.get("session_id")`。None =
+框架没报(只有 Claude Code 的 ResultMessage 带);合并语义在 ExecutionState
+(latest-non-None-wins,见 execution_state.py.md 同日条目)。
 
 ## 2026-07-23 — response.done 折算 cache 用量,归一化两套 provider 词汇(W1)
 

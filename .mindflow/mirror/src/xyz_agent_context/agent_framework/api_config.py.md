@@ -26,6 +26,18 @@ auth 类型显式空串，防父进程残留经 `{**os.environ, **env}` 泄入�
 Keychain 命名空间条目正是 token 路径要逃离的 2026-07-23 macOS 故障点。
 
 ## 2026-07-18 — 决策梯子文案随"免费额度优先=平台行为"更新
+last_verified: 2026-07-25
+stub: false
+---
+
+## 2026-07-25 — ClaudeConfig.resume_fingerprint()(resume 化 R1/R2 共用)
+
+`sha256(auth_type|base_url|config_dir|model)[:16]`——CLI session 存储的身份指纹,
+任一分量变化意味着存下的句柄可能不存在/不安全,调用方必须冷启动。**config_dir
+分派与 `to_cli_env()` 的 CLAUDE_CONFIG_DIR 分支条件必须逐字一致**(oauth →
+claude_oauth_config_path,其余 → claude_cli_config_path)——放同一个类里就是为了
+改一处两处不漂移。api_key 刻意**不进**指纹:同 provider 换 key 不该作废句柄。
+step_3 在组装 PathExecutionResult 时经 ambient `claude_config` 代理调用(fail-open)。
 
 `get_user_llm_configs` docstring 的四级梯子改写：不再按
 `prefer_system_override` True/False 分流——有 quota 行且有余量 → system；

@@ -516,6 +516,46 @@ async def step_4_persist_results(
             logger.warning(f"Cost recording failed (non-blocking): {e}")
 
     # =========================================================================
+    # 4.7 Persist CLI session handle (fire-and-forget, never blocks the
+    # pipeline). Capture side of agent_loop resume: the handle row is what
+    # a later turn will look up to `--resume` instead of cold-starting.
+    # narrative_id comes from ctx.session.current_narrative_id — 4.5 has
+    # already re-anchored it for proactive deliveries, so 4.7 sitting after
+    # 4.5 is what keeps the stored narrative consistent by construction.
+    # =========================================================================
+    if execution_result.cli_session_id and ctx.session:
+        try:
+            if execution_result.cli_config_fingerprint and execution_result.cli_working_path:
+                from xyz_agent_context.repository import CliSessionRepository
+                from xyz_agent_context.schema import AgentCliSession
+                from xyz_agent_context.utils.timezone import utc_now
+
+                db = await get_db_client()
+                await CliSessionRepository(db).upsert(AgentCliSession(
+                    agent_id=ctx.agent_id,
+                    platform_session_id=ctx.session.session_id,
+                    narrative_id=ctx.session.current_narrative_id,
+                    framework=execution_result.cli_framework or "claude_code",
+                    cli_session_id=execution_result.cli_session_id,
+                    config_fingerprint=execution_result.cli_config_fingerprint,
+                    working_path=execution_result.cli_working_path,
+                    last_used_at=utc_now(),
+                ))
+                ctx.substeps_4.append(
+                    f"[4.7] ✓ CLI session handle persisted "
+                    f"({execution_result.cli_session_id[:12]}…)"
+                )
+            else:
+                # Fingerprint / working path didn't make it out of step_3
+                # (fail-open there) — skip rather than store an unusable row.
+                logger.warning(
+                    "CLI session handle NOT persisted: missing fingerprint or "
+                    f"working_path (session_id={execution_result.cli_session_id[:12]}…)"
+                )
+        except Exception as e:
+            logger.warning(f"CLI session handle persistence failed (non-blocking): {e}")
+
+    # =========================================================================
     # Complete
     # =========================================================================
     yield ProgressMessage(

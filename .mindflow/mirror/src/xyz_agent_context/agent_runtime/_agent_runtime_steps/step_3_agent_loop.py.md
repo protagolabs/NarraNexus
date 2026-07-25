@@ -21,6 +21,20 @@ ClaudeConfig、finally 里吊销」的逻辑整段删除，连带 `gateway_unava
 [[turn_input.py]] `TurnInput`，调用点改为
 `driver.agent_loop(cancellation=..., **turn_input.driver_kwargs())`。
 driver_kwargs() 复刻历史形状（含空值→None 归一），零行为变化。
+last_verified: 2026-07-25
+stub: false
+---
+
+## 2026-07-25 — PathExecutionResult 组装处补 CLI 句柄四字段（resume 化 R1）
+
+组装前新增一小段：`state.cli_session_id` 非空时（只有 Claude 路径会报）填
+`cli_framework`（framework_name 归一化到 canonical：claude→claude_code、
+codex→codex_cli——存储键不能依赖用户 slot 恰好用了哪个别名）、
+`cli_working_path=agent_working_path`、`cli_config_fingerprint` 经 ambient
+`claude_config` 代理调 `resume_fingerprint()`。**指纹必须在 step_3 算**：本轮
+的 per-task ContextVar 在此作用域保证还活着；step_4 不重算。fail-open：任何
+异常 → None + warning，step_4 随之跳过持久化——resume 捕获永远不许伤害轮次。
+本期只捕获不 resume（R2 的查表/注入还没接）。
 
 ## 2026-07-24 — 透传 `context.disallowed_tools` 到 driver kwargs（B++）
 

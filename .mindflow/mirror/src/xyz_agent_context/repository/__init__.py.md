@@ -1,9 +1,15 @@
 ---
 code_file: src/xyz_agent_context/repository/__init__.py
-last_verified: 2026-07-13
+last_verified: 2026-07-25
 stub: false
 ---
 # repository/__init__.py — repository 包的集中导出门面
+
+## 2026-07-25 — 导出 CliSessionRepository
+
+新增 re-export `CliSessionRepository`（可 resume 的 CLI 会话句柄数据访问,表
+`agent_cli_sessions`）。纯导出改动,无行为变化。见
+[`cli_session_repository.py`](cli_session_repository.py.md)。
 
 ## 为什么存在
 

@@ -64,6 +64,10 @@ class ExecutionState:
     streamed_output_tokens: int = 0
     streamed_cache_read_tokens: int = 0
     streamed_cache_creation_tokens: int = 0
+    # Resumable CLI session handle (ResultMessage.session_id). Latest
+    # non-None report wins — NEVER accumulated (same rule as num_turns).
+    # None = the framework reported no handle (non-Claude paths).
+    cli_session_id: Optional[str] = None
 
     def append_text(self, text: str) -> 'ExecutionState':
         """
@@ -171,6 +175,7 @@ class ExecutionState:
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
         num_turns: int | None = None,
+        cli_session_id: str | None = None,
     ) -> 'ExecutionState':
         """
         Accumulate token usage from an Agent Loop turn.
@@ -185,6 +190,9 @@ class ExecutionState:
             num_turns: Model-call count reported by the framework for this run.
                 Latest non-None report wins (it is already a per-run total,
                 not a per-event delta, so it must NOT be accumulated).
+            cli_session_id: Resumable CLI session handle for this run.
+                Latest non-None report wins (a per-run identifier, never
+                accumulated — same rule as num_turns).
 
         Returns:
             New ExecutionState object with updated token counts
@@ -198,6 +206,7 @@ class ExecutionState:
             cache_read_tokens=self.cache_read_tokens + (cache_read_tokens or 0),
             cache_creation_tokens=self.cache_creation_tokens + (cache_creation_tokens or 0),
             num_turns=num_turns if num_turns is not None else self.num_turns,
+            cli_session_id=cli_session_id if cli_session_id is not None else self.cli_session_id,
         )
 
     def accumulate_streamed_usage(

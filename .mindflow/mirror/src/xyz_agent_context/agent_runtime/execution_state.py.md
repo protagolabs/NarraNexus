@@ -14,6 +14,11 @@ stub: false
 代理的非 Anthropic 模型就是这样)且 streamed 有值时,把 streamed 提升为权威值。
 真 Anthropic(DONE 带 usage)时是 no-op,故不会重复计。修免费额度不扣 agent token
 的 bug;`finalize()` 的早返回改为「有提升或有 final_output 才 replace」。
+## 2026-07-25 — cli_session_id 字段(resume 化 R1)
+
+新增 `cli_session_id: Optional[str] = None` + accumulate_usage 扩参。合并语义
+与 num_turns 完全同规:**latest-non-None-wins,绝不累加**——它是单次运行的
+标识符不是增量;None 事件不得抹掉已上报的值。None = 框架没报(非 Claude 路径)。
 
 ## 2026-07-23 — cache/num_turns 字段 + 全面改用 dataclasses.replace(W1)
 

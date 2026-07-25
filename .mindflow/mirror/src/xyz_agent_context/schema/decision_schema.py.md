@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/schema/decision_schema.py
-last_verified: 2026-07-23
+last_verified: 2026-07-25
 stub: false
 ---
+
+## 2026-07-25 — PathExecutionResult 加 CLI 句柄四字段(resume 化 R1)
+
+`cli_session_id` / `cli_framework` / `cli_config_fingerprint` / `cli_working_path`
+(全部默认 None)。step_3 只在 state.cli_session_id 非空时填伴随三项(指纹
+fail-open 可为 None);step_4 据此 upsert `agent_cli_sessions`。`cli_framework`
+之所以在这里搭车:step_4 拿不到 step_3 的 framework_name 局部(ctx 不携带),
+per-run 数据走 PathExecutionResult 是既定通道。DIRECT_TRIGGER / 非 Claude 路径
+保持默认 None。
 
 ## 2026-07-23 — PathExecutionResult 加 cache/num_turns 三字段(W1)
 

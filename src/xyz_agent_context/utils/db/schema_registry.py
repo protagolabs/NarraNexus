@@ -632,6 +632,40 @@ _register(
     )
 )
 
+# 17. agent_cli_sessions (resumable coding-agent CLI session handles)
+# One row per (agent_id, platform_session_id, framework): the CLI session
+# the platform may resume (`--resume <cli_session_id>`) instead of cold-
+# starting with the full history in the system prompt. Runtime-owned table
+# (NOT a module table, hence no instance_ prefix). Purely additive; resume
+# is an optimization, never a correctness dependency — a missing/stale row
+# just means cold start.
+_register(
+    TableDef(
+        name="agent_cli_sessions",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            # ConversationSession.session_id (sess_xxxxxxxx) — the platform-side
+            # conversation this CLI session continues.
+            Column("platform_session_id", "TEXT", "VARCHAR(64)", nullable=False),
+            # Narrative bound at capture time; narrative switch => cold start.
+            Column("narrative_id", "TEXT", "VARCHAR(64)"),
+            Column("framework", "TEXT", "VARCHAR(32)", nullable=False),   # "claude_code" only in v1
+            Column("cli_session_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # sha256(auth_type|base_url|config_dir|model)[:16] — mismatch => cold start.
+            Column("config_fingerprint", "TEXT", "VARCHAR(64)", nullable=False),
+            # Launch cwd of the CLI (sessions are archived under its slug).
+            Column("working_path", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("last_used_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_cli_sessions_key", ["agent_id", "platform_session_id", "framework"], unique=True),
+        ],
+    )
+)
+
 
 # 20. bus_channels (text primary key, no auto-increment)
 _register(
