@@ -13,6 +13,18 @@ from typing import Any, Dict, List
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.loop.events import (
+    DATA_TYPE_DONE,
+    DATA_TYPE_ERROR,
+    DATA_TYPE_TEXT_DELTA,
+    ITEM_TYPE_MESSAGE_OUTPUT,
+    ITEM_TYPE_THINKING,
+    ITEM_TYPE_TOOL_CALL,
+    ITEM_TYPE_TOOL_CALL_OUTPUT,
+    TYPE_RAW_RESPONSE_EVENT,
+    TYPE_RUN_ITEM_STREAM_EVENT,
+)
+
 
 def _stringify_tool_result_content(content: Any) -> str:
     """Flatten a ToolResultBlock.content into the tool's plain-text payload.
@@ -111,9 +123,9 @@ def _convert_to_streaming_events(message: Any, message_type: str) -> List[Dict[s
         return _convert_user_to_stream_events(message)
     else:
         return [{
-            "type": "raw_response_event",
+            "type": TYPE_RAW_RESPONSE_EVENT,
             "data": {
-                "type": "response.text.delta",
+                "type": DATA_TYPE_TEXT_DELTA,
                 "delta": f"[Unknown message type: {message_type}]"
             }
         }]
@@ -141,19 +153,19 @@ def _convert_to_non_streaming_result(message: Any, message_type: str) -> Dict[st
                 if block_type == "TextBlock" and hasattr(block, 'text'):
                     text_parts.append(block.text)
                     result["new_items"].append({
-                        "type": "message_output_item",
+                        "type": ITEM_TYPE_MESSAGE_OUTPUT,
                         "content": block.text
                     })
                 elif block_type == "ThinkingBlock" and hasattr(block, 'thinking'):
                     # Optionally include thinking
                     result["new_items"].append({
-                        "type": "thinking_item",
+                        "type": ITEM_TYPE_THINKING,
                         "content": block.thinking
                     })
                 elif block_type == "ToolUseBlock":
                     if hasattr(block, 'id') and hasattr(block, 'name') and hasattr(block, 'input'):
                         tool_call = {
-                            "type": "tool_call_item",
+                            "type": ITEM_TYPE_TOOL_CALL,
                             "tool_call_id": block.id,
                             "tool_name": block.name,
                             "arguments": block.input
@@ -214,9 +226,9 @@ def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
         error_message = error_messages.get(error_type, f"Claude API error: {error_type}")
 
         return [{
-            "type": "raw_response_event",
+            "type": TYPE_RAW_RESPONSE_EVENT,
             "data": {
-                "type": "response.error",
+                "type": DATA_TYPE_ERROR,
                 "error_message": error_message,
                 "error_type": error_type,
             }
@@ -233,9 +245,9 @@ def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
         if block_type == "ToolUseBlock":
             if hasattr(block, 'id') and hasattr(block, 'name') and hasattr(block, 'input'):
                 events.append({
-                    "type": "run_item_stream_event",
+                    "type": TYPE_RUN_ITEM_STREAM_EVENT,
                     "item": {
-                        "type": "tool_call_item",
+                        "type": ITEM_TYPE_TOOL_CALL,
                         "tool_call_id": block.id,
                         "tool_name": block.name,
                         "arguments": block.input
@@ -259,9 +271,9 @@ def _convert_stream_event_to_stream_event(message: Any) -> Dict[str, Any]:
     if not isinstance(event, dict):
         # Fallback for unexpected format
         return {
-            "type": "raw_response_event",
+            "type": TYPE_RAW_RESPONSE_EVENT,
             "data": {
-                "type": "response.text.delta",
+                "type": DATA_TYPE_TEXT_DELTA,
                 "delta": ""
             }
         }
@@ -274,36 +286,36 @@ def _convert_stream_event_to_stream_event(message: Any) -> Dict[str, Any]:
 
         if delta_type == "text_delta":
             return {
-                "type": "raw_response_event",
+                "type": TYPE_RAW_RESPONSE_EVENT,
                 "data": {
-                    "type": "response.text.delta",
+                    "type": DATA_TYPE_TEXT_DELTA,
                     "delta": delta.get("text", "")
                 }
             }
 
         if delta_type == "thinking_delta":
             return {
-                "type": "run_item_stream_event",
+                "type": TYPE_RUN_ITEM_STREAM_EVENT,
                 "item": {
-                    "type": "thinking_item",
+                    "type": ITEM_TYPE_THINKING,
                     "content": delta.get("thinking", "")
                 }
             }
 
         # input_json_delta, signature_delta → skip (empty content)
         return {
-            "type": "raw_response_event",
+            "type": TYPE_RAW_RESPONSE_EVENT,
             "data": {
-                "type": "response.text.delta",
+                "type": DATA_TYPE_TEXT_DELTA,
                 "delta": ""
             }
         }
 
     # Structural events (content_block_start/stop, message_start/delta/stop) → skip
     return {
-        "type": "raw_response_event",
+        "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
-            "type": "response.text.delta",
+            "type": DATA_TYPE_TEXT_DELTA,
             "delta": ""
         }
     }
@@ -315,7 +327,7 @@ def _convert_result_to_stream_event(message: Any) -> Dict[str, Any]:
     # Result message typically marks the end of the stream
     # We represent this as a raw_response_event with type "response.done"
     data = {
-        "type": "response.done",
+        "type": DATA_TYPE_DONE,
     }
 
     # Add usage info if available
@@ -367,7 +379,7 @@ def _convert_result_to_stream_event(message: Any) -> Dict[str, Any]:
         data["stop_reason"] = message.stop_reason
 
     return {
-        "type": "raw_response_event",
+        "type": TYPE_RAW_RESPONSE_EVENT,
         "data": data
     }
 
@@ -380,9 +392,9 @@ def _convert_system_to_stream_event(message: Any) -> Dict[str, Any]:
         content = f"[System: {message.metadata}]"
 
     return {
-        "type": "raw_response_event",
+        "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
-            "type": "response.text.delta",
+            "type": DATA_TYPE_TEXT_DELTA,
             "delta": content
         }
     }
@@ -406,9 +418,9 @@ def _convert_user_to_stream_events(message: Any) -> List[Dict[str, Any]]:
                 text_parts.append(block.text)
             elif block_type == "ToolResultBlock" and hasattr(block, 'content'):
                 events.append({
-                    "type": "run_item_stream_event",
+                    "type": TYPE_RUN_ITEM_STREAM_EVENT,
                     "item": {
-                        "type": "tool_call_output_item",
+                        "type": ITEM_TYPE_TOOL_CALL_OUTPUT,
                         "output": _stringify_tool_result_content(block.content)
                     }
                 })
@@ -420,9 +432,9 @@ def _convert_user_to_stream_events(message: Any) -> List[Dict[str, Any]]:
     # 没有 ToolResultBlock 时，返回文本内容
     content = "\n".join(text_parts) if text_parts else ""
     return [{
-        "type": "raw_response_event",
+        "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
-            "type": "response.text.delta",
+            "type": DATA_TYPE_TEXT_DELTA,
             "delta": content
         }
     }]
@@ -431,9 +443,9 @@ def _convert_user_to_stream_events(message: Any) -> List[Dict[str, Any]]:
 def _empty_delta() -> Dict[str, Any]:
     """返回空的 text delta 事件"""
     return {
-        "type": "raw_response_event",
+        "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
-            "type": "response.text.delta",
+            "type": DATA_TYPE_TEXT_DELTA,
             "delta": ""
         }
     }
@@ -509,9 +521,9 @@ def _codex_to_openai_agents(
         # Mirror Claude's ResultMessage translation: response_processor
         # only folds usage from raw_response_event/response.done.
         return [{
-            "type": "raw_response_event",
+            "type": TYPE_RAW_RESPONSE_EVENT,
             "data": {
-                "type": "response.done",
+                "type": DATA_TYPE_DONE,
                 "usage": {
                     "input_tokens": int(usage.get("input_tokens") or 0),
                     "output_tokens": int(usage.get("output_tokens") or 0),
@@ -529,9 +541,9 @@ def _codex_to_openai_agents(
         # level when it sees these.
         err = event.get("error") or event.get("message") or "unknown"
         return [{
-            "type": "raw_response_event",
+            "type": TYPE_RAW_RESPONSE_EVENT,
             "data": {
-                "type": "response.error",
+                "type": DATA_TYPE_ERROR,
                 "error_message": str(err),
                 "error_type": event_type,
             },
@@ -565,9 +577,9 @@ def _translate_codex_item(
         if not is_completed or not text:
             return []
         return [{
-            "type": "raw_response_event",
+            "type": TYPE_RAW_RESPONSE_EVENT,
             "data": {
-                "type": "response.text.delta",
+                "type": DATA_TYPE_TEXT_DELTA,
                 "delta": text,
             },
         }]
@@ -580,9 +592,9 @@ def _translate_codex_item(
         # Map to the same thinking item shape as Claude's StreamEvent
         # translator so response_processor's _ThinkingBatcher sees it.
         return [{
-            "type": "run_item_stream_event",
+            "type": TYPE_RUN_ITEM_STREAM_EVENT,
             "item": {
-                "type": "thinking_item",
+                "type": ITEM_TYPE_THINKING,
                 "content": text,
             },
         }]
@@ -600,9 +612,9 @@ def _translate_codex_item(
             # records every tool call as "unknown" and the frontend
             # filters / hides them after the run completes.
             return [{
-                "type": "run_item_stream_event",
+                "type": TYPE_RUN_ITEM_STREAM_EVENT,
                 "item": {
-                    "type": "tool_call_item",
+                    "type": ITEM_TYPE_TOOL_CALL,
                     "tool_call_id": item_id,
                     "tool_name": _codex_tool_name(item),
                     "arguments": _codex_tool_args(item),
@@ -615,9 +627,9 @@ def _translate_codex_item(
         # state.all_steps, so consistency with the started side
         # matters for the post-run rendering path.
         return [{
-            "type": "run_item_stream_event",
+            "type": TYPE_RUN_ITEM_STREAM_EVENT,
             "item": {
-                "type": "tool_call_output_item",
+                "type": ITEM_TYPE_TOOL_CALL_OUTPUT,
                 "tool_call_id": item_id,
                 "tool_name": _codex_tool_name(item),
                 "output": _codex_tool_output(item),
@@ -874,9 +886,9 @@ def _codex_official_to_openai_agents(
             # error_type so the runtime can classify auth failures.
             err_msg, err_type = _codex_error_fields(turn_obj.get("error"))
             return [{
-                "type": "raw_response_event",
+                "type": TYPE_RAW_RESPONSE_EVENT,
                 "data": {
-                    "type": "response.error",
+                    "type": DATA_TYPE_ERROR,
                     "error_message": str(err_msg or "turn failed"),
                     "error_type": err_type or "turn.failed",
                 },
@@ -894,8 +906,8 @@ def _codex_official_to_openai_agents(
             "cached_input_tokens": usage_src.get("cached_input_tokens", 0),
         }
         return [{
-            "type": "raw_response_event",
-            "data": {"type": "response.done", "usage": usage},
+            "type": TYPE_RAW_RESPONSE_EVENT,
+            "data": {"type": DATA_TYPE_DONE, "usage": usage},
         }]
 
     if method == _METHOD_ERROR:
@@ -923,9 +935,9 @@ def _codex_official_to_openai_agents(
         # runtime can recognise an auth failure and prompt re-login.
         err_msg, err_type = _codex_error_fields(payload.get("error"))
         return [{
-            "type": "raw_response_event",
+            "type": TYPE_RAW_RESPONSE_EVENT,
             "data": {
-                "type": "response.error",
+                "type": DATA_TYPE_ERROR,
                 "error_message": str(err_msg or "unknown error"),
                 "error_type": err_type or "error",
             },
@@ -939,8 +951,8 @@ def _codex_official_to_openai_agents(
         if not delta:
             return []
         return [{
-            "type": "raw_response_event",
-            "data": {"type": "response.text.delta", "delta": delta},
+            "type": TYPE_RAW_RESPONSE_EVENT,
+            "data": {"type": DATA_TYPE_TEXT_DELTA, "delta": delta},
         }]
 
     if method in (
@@ -974,9 +986,9 @@ def _codex_official_to_openai_agents(
         # for repeated ``append_thinking`` calls — emitting one
         # thinking_item per delta is the streaming model.
         return [{
-            "type": "run_item_stream_event",
+            "type": TYPE_RUN_ITEM_STREAM_EVENT,
             "item": {
-                "type": "thinking_item",
+                "type": ITEM_TYPE_THINKING,
                 "content": delta,
             },
         }]
@@ -991,9 +1003,9 @@ def _codex_official_to_openai_agents(
         if not part:
             return []
         return [{
-            "type": "run_item_stream_event",
+            "type": TYPE_RUN_ITEM_STREAM_EVENT,
             "item": {
-                "type": "thinking_item",
+                "type": ITEM_TYPE_THINKING,
                 "content": f"\n{part}\n",
             },
         }]

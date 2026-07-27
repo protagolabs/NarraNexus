@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-07-24
+last_verified: 2026-07-27
 stub: false
 ---
 
@@ -350,6 +350,13 @@ SDK 的私有属性（transport._process），但这是唯一保证 finite-time 
 方式。
 
 # adapters/claude/sdk.py — Claude Code CLI 主 Agent Loop 适配层
+
+## 2026-07-27 — 事件类型字面量收敛到 loop/events.py 常量
+
+六种事件形状的字符串字面量改为 import `loop/events.py` 的常量
+（TYPE_RAW_RESPONSE_EVENT 等），值逐字节不变——纯机械替换，行为零变化。
+事件契约自此有唯一事实源，详见 events.py.md。
+
 
 ## 为什么存在
 

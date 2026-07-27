@@ -15,6 +15,12 @@ from loguru import logger
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
 from typing import Any, AsyncGenerator
 
+from xyz_agent_context.agent_framework.loop.events import (
+    DATA_TYPE_ERROR,
+    ITEM_TYPE_TOOL_CALL,
+    TYPE_RAW_RESPONSE_EVENT,
+    TYPE_RUN_ITEM_STREAM_EVENT,
+)
 from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.agent_framework.loop.output_transfer import output_transfer
@@ -306,9 +312,9 @@ def _zero_output_error_event(cli_stderr_lines: list[str]) -> dict:
     false-positive the classifier when stderr is empty.
     """
     return {
-        "type": "raw_response_event",
+        "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
-            "type": "response.error",
+            "type": DATA_TYPE_ERROR,
             "error_type": "no_output",
             "error_message": (
                 "The coding agent produced no output (0 messages)."
@@ -338,9 +344,9 @@ def _inline_assistant_error_event(
     """
     enum = str(message_error)
     return {
-        "type": "raw_response_event",
+        "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
-            "type": "response.error",
+            "type": DATA_TYPE_ERROR,
             "error_type": enum,
             "error_message": (
                 f"Claude API error: {enum}"
@@ -957,8 +963,8 @@ class ClaudeAgentSDK:
                 events = output_transfer(message, transfer_type="claude_agent_sdk", streaming=streaming)
                 for event in events:
                     # 对 tool_call_item 按 tool_call_id 去重
-                    item = event.get("item", {}) if event.get("type") == "run_item_stream_event" else {}
-                    if item.get("type") == "tool_call_item":
+                    item = event.get("item", {}) if event.get("type") == TYPE_RUN_ITEM_STREAM_EVENT else {}
+                    if item.get("type") == ITEM_TYPE_TOOL_CALL:
                         tool_id = item.get("tool_call_id", "")
                         if tool_id and tool_id in seen_tool_call_ids:
                             logger.debug(f"[ClaudeAgentSDK] Skipping duplicate tool_call: {tool_id}")

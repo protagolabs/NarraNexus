@@ -66,6 +66,10 @@ from typing import Any, AsyncGenerator
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.loop.events import (
+    ITEM_TYPE_TOOL_CALL,
+    TYPE_RUN_ITEM_STREAM_EVENT,
+)
 from xyz_agent_context.utils.deployment_mode import (
     DeploymentMode,
     get_deployment_mode,
@@ -427,10 +431,10 @@ class CodexSDK:
                         # + complete that both carry the ToolUseBlock).
                         item = (
                             event.get("item", {})
-                            if event.get("type") == "run_item_stream_event"
+                            if event.get("type") == TYPE_RUN_ITEM_STREAM_EVENT
                             else {}
                         )
-                        if item.get("type") == "tool_call_item":
+                        if item.get("type") == ITEM_TYPE_TOOL_CALL:
                             tid = item.get("tool_call_id") or ""
                             if tid and tid in seen_tool_call_ids:
                                 logger.debug(

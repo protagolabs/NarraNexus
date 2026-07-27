@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_helper.py
-last_verified: 2026-07-21
+last_verified: 2026-07-27
 stub: false
 ---
 
@@ -116,6 +116,13 @@ CLI,**best-effort**——偶发输出裹 prose / JSON 不干净时会抛 `ValueE
 非静默),属 codex 侧特性(铁律 #15),平台不干预。
 
 # llm/cli_helper.py — CLI-backed helper LLM（订阅同时覆盖 Helper）
+
+## 2026-07-27 — 事件类型字面量收敛到 loop/events.py 常量
+
+六种事件形状的字符串字面量改为 import `loop/events.py` 的常量
+（TYPE_RAW_RESPONSE_EVENT 等），值逐字节不变——纯机械替换，行为零变化。
+事件契约自此有唯一事实源，详见 events.py.md。
+
 
 ## 为什么存在
 
