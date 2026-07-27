@@ -1,8 +1,17 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-24
+last_verified: 2026-07-27
 stub: false
 ---
+
+## 2026-07-27 — 免费额度 gateway spend reconciler 接入 lifespan
+
+`lifespan` 启动时紧接 executor-reaper 调 `maybe_start_gateway_spend_reconciler()`
+(存 `app.state.gateway_spend_reconciler_task`),teardown `cancel()`。云端+网关
+(`SYSTEM_DEFAULT_LLM_GATEWAY_URL`)才真起,本地/桌面 no-op。周期把免费档 agent
+运行的真实 token 用量(网关 SpendLogs)补记入配额——代理的非 Anthropic 模型 CLI
+报 0 token,不补记免费额度就永远不扣。绝不 force-stop(铁律 #14)。见
+`[[../src/xyz_agent_context/services/gateway_spend_reconciler.py]]`。
 
 ## 2026-07-24 — analytics sink seam 在 import 期装配（B4）
 

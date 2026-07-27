@@ -54,6 +54,38 @@ class GatewaySessionKeyRepository(BaseRepository[GatewaySessionKey]):
             },
         )
 
+    async def list_unmetered_revoked(
+        self, older_than_seconds: int, limit: int = 200
+    ) -> List[GatewaySessionKey]:
+        """Revoked (finished) runs whose usage has NOT yet been metered, and
+        which were revoked long enough ago that LiteLLM's SpendLogs have flushed.
+        Drives gateway_spend_reconciler. `metered_at IS NULL` is the idempotency
+        guard; the age floor avoids missing the run's last request."""
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)).isoformat()
+        # get() only does equality filters; use a raw query for the NULL + range.
+        sql = f"""
+        SELECT * FROM {self.table_name}
+        WHERE status = %s AND metered_at IS NULL
+          AND revoked_at IS NOT NULL AND revoked_at < %s
+        ORDER BY revoked_at ASC
+        LIMIT {int(limit)}
+        """
+        rows = await self._db.execute(
+            sql,
+            params=(GatewaySessionKeyStatus.REVOKED.value, cutoff),
+            fetch=True,
+        )
+        return [self._row_to_entity(r) for r in rows]
+
+    async def mark_metered(self, run_id: str) -> None:
+        """Stamp a run as metered so the reconciler never charges it twice."""
+        await self._db.update(
+            self.table_name,
+            {"run_id": run_id},
+            {"metered_at": datetime.now(timezone.utc).isoformat()},
+        )
+
     async def list_active_for_user(self, user_id: str) -> List[GatewaySessionKey]:
         """All ACTIVE keys for a user. Used by the executor-reaper hook: when a
         user's idle executor is culled (zero active loops, proven by the
@@ -74,6 +106,7 @@ class GatewaySessionKeyRepository(BaseRepository[GatewaySessionKey]):
             status=GatewaySessionKeyStatus(row["status"]),
             created_at=parse_dt(row["created_at"]),
             revoked_at=parse_dt(row["revoked_at"]) if row.get("revoked_at") else None,
+            metered_at=parse_dt(row["metered_at"]) if row.get("metered_at") else None,
         )
 
     def _entity_to_row(self, entity: GatewaySessionKey) -> Dict[str, Any]:

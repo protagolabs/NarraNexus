@@ -300,6 +300,40 @@ class GatewayKeyService:
                 return
             raise
 
+    async def fetch_run_usage(self, key_hash: str) -> Optional[tuple]:
+        """Sum the real token usage LiteLLM recorded for one run's key, via the
+        admin ``/spend/logs?api_key=<hash>`` endpoint. Returns
+        ``(input_tokens, output_tokens, model)`` or None on failure (caller must
+        NOT mark the run metered on None — it retries next cycle).
+
+        This is the authoritative token source for a proxied agent run: the CLI's
+        own usage is 0 for non-Anthropic models, but the gateway (which sits in
+        the request path) records real prompt/completion tokens per request.
+        """
+        if not key_hash:
+            return None
+        try:
+            async with self._client() as client:
+                resp = await client.get(
+                    self._gateway_url + "/spend/logs",
+                    params={"api_key": key_hash},
+                    headers=self._headers(),
+                )
+                resp.raise_for_status()
+                rows = resp.json()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[gateway] fetch_run_usage failed for key {key_hash[:12]}: {e!r}")
+            return None
+        if not isinstance(rows, list):
+            return None
+        inp = out = 0
+        model = ""
+        for r in rows:
+            inp += int(r.get("prompt_tokens") or 0)
+            out += int(r.get("completion_tokens") or 0)
+            model = model or (r.get("model") or "")
+        return inp, out, model
+
 
 async def open_backend_session(
     db, *, agent_id: Optional[str] = None

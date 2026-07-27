@@ -27,16 +27,17 @@ from xyz_agent_context.schema.gateway_session_key_schema import (
 class _Recorder:
     """Captures every admin-API request and replays canned responses."""
 
-    def __init__(self, generate_response=None, fail_status=None):
+    def __init__(self, generate_response=None, fail_status=None, spend_rows=None):
         self.requests = []  # list of (path, parsed_json_body)
         self._generate_response = generate_response or {
             "key": "sk-minted-secret",
             "token": "hash-abc123",
         }
         self._fail_status = fail_status
+        self._spend_rows = spend_rows if spend_rows is not None else []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content.decode() or "{}")
+        body = json.loads(request.content.decode() or "{}") if request.content else {}
         self.requests.append((request.url.path, body))
         if self._fail_status is not None:
             return httpx.Response(self._fail_status, json={"error": "boom"})
@@ -44,6 +45,8 @@ class _Recorder:
             return httpx.Response(200, json=self._generate_response)
         if request.url.path.endswith("/key/delete"):
             return httpx.Response(200, json={"deleted": True})
+        if request.url.path.endswith("/spend/logs"):
+            return httpx.Response(200, json=self._spend_rows)
         return httpx.Response(404, json={})
 
 
@@ -172,6 +175,42 @@ async def test_revoke_all_for_user_only_touches_that_user(db_client, repo):
     assert (await repo.get_by_id("sess_a2")).status is GatewaySessionKeyStatus.REVOKED
     # Another user's live key must be untouched.
     assert (await repo.get_by_id("sess_b1")).status is GatewaySessionKeyStatus.ACTIVE
+
+
+@pytest.mark.asyncio
+async def test_fetch_run_usage_sums_spend_rows(db_client):
+    """The gateway is the authoritative token source for proxied agent runs
+    (the CLI reports 0). fetch_run_usage sums prompt/completion across the
+    key's SpendLog rows and surfaces the model."""
+    rows = [
+        {"prompt_tokens": 100, "completion_tokens": 20, "model": "DeepSeek-V4-Pro"},
+        {"prompt_tokens": 50, "completion_tokens": 5, "model": "DeepSeek-V4-Pro"},
+    ]
+    rec = _Recorder(spend_rows=rows)
+    svc = _svc(db_client, rec)
+
+    usage = await svc.fetch_run_usage("hash-abc123")
+
+    assert usage == (150, 25, "DeepSeek-V4-Pro")
+    # Queried by api_key = the key hash.
+    path, _ = rec.requests[-1]
+    assert path.endswith("/spend/logs")
+
+
+@pytest.mark.asyncio
+async def test_fetch_run_usage_returns_none_on_error(db_client):
+    """A gateway failure must return None (not (0,0)) so the reconciler leaves
+    the run unmetered and retries next cycle instead of charging zero."""
+    rec = _Recorder(fail_status=503)
+    svc = _svc(db_client, rec)
+    assert await svc.fetch_run_usage("hash-x") is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_run_usage_none_key_is_none(db_client):
+    rec = _Recorder()
+    svc = _svc(db_client, rec)
+    assert await svc.fetch_run_usage("") is None
 
 
 @pytest.mark.asyncio

@@ -38,3 +38,6 @@ class GatewaySessionKey(BaseModel):
     status: GatewaySessionKeyStatus = GatewaySessionKeyStatus.ACTIVE
     created_at: datetime
     revoked_at: Optional[datetime] = None
+    # Set once the run's LiteLLM SpendLogs were summed and deducted from the
+    # user's free-tier quota. NULL = not yet metered (idempotency guard).
+    metered_at: Optional[datetime] = None
