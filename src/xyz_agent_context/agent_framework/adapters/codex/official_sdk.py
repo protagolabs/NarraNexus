@@ -26,8 +26,9 @@ What v1 functionality survives in v2
 Imported directly from v1's module to avoid duplication while both
 implementations coexist:
 
-* ``_build_system_prompt_and_user_msg`` — message-list → system prompt
-  + per-turn user message split (with source-aware history eviction).
+* ``materializer.flatten_for_file`` — message-list → system prompt
+  + per-turn user message split (with source-aware history eviction);
+  shared with v1 and lifted out of this package 2026-07-27.
 * ``_stage_codex_oauth_credentials`` — copy host ``~/.codex/auth.json``
   into per-run CODEX_HOME tempdir.
 * ``_sse_url_to_streamable_http`` — rewrite MCP URLs from the SSE
@@ -81,8 +82,10 @@ from ._env import build_codex_subprocess_env
 from ._permission_translator import (
     translate_tool_policy_to_codex_permissions,
 )
+from xyz_agent_context.agent_framework.adapters.materializer import (
+    flatten_for_file,
+)
 from .cli_sdk import (
-    _build_system_prompt_and_user_msg,
     _stage_codex_oauth_credentials,
     _sse_url_to_streamable_http,
 )
@@ -560,7 +563,7 @@ class CodexSDKv2:
             ) from e
 
         # ---- Step 1: split system prompt + per-turn user message ----
-        system_prompt, user_message = _build_system_prompt_and_user_msg(
+        system_prompt, user_message = flatten_for_file(
             messages
         )
 

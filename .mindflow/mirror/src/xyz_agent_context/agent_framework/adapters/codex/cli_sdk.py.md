@@ -5,6 +5,13 @@ last_verified: 2026-07-27
 ---
 
 
+## 2026-07-27 — `_build_system_prompt_and_user_msg` 移入 materializer（flatten_for_file）
+
+函数体逐字迁至 [[materializer.py]] `flatten_for_file`（本文件与
+official_sdk 的调用点同步改名）。原函数 NOTE 里说的「合并为共享 helper
+是后续任务」即本次。拷贝语义（不变异调用方）不变。
+
+
 ## 2026-07-27 — 取消检查统一走 CancellationView（codex v2 死代码修复）
 
 轮询式取消检查改为 `CancellationView(cancellation).requested()`。对

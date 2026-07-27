@@ -69,6 +69,9 @@ from loguru import logger
 from xyz_agent_context.agent_framework.loop.cancellation_view import (
     CancellationView,
 )
+from xyz_agent_context.agent_framework.adapters.materializer import (
+    flatten_for_file,
+)
 from xyz_agent_context.agent_framework.loop.events import (
     ITEM_TYPE_TOOL_CALL,
     TYPE_RUN_ITEM_STREAM_EVENT,
@@ -157,7 +160,7 @@ class CodexSDK:
             )
 
         # ---- Step 1: split system prompt + history -------------------
-        system_prompt, this_turn_user_message = _build_system_prompt_and_user_msg(
+        system_prompt, this_turn_user_message = flatten_for_file(
             messages
         )
 
@@ -549,85 +552,6 @@ async def _stdout_lines(stream: asyncio.StreamReader) -> AsyncGenerator[str, Non
         if not raw:
             return
         yield raw.decode("utf-8", errors="replace")
-
-
-def _build_system_prompt_and_user_msg(
-    messages: list[dict[str, Any]],
-) -> tuple[str, str]:
-    """Build the system prompt + history text and pop the last user
-    message as the per-turn prompt.
-
-    Lighter-weight than the CC wrapper's equivalent because Codex
-    reads instructions from a file (no argv length limit). We still
-    apply source-aware history eviction so the prompt token cost
-    stays bounded.
-
-    NOTE — kept inline rather than shared with adapters.claude.sdk
-    deliberately (see plan Task 7): consolidating both into a single
-    helper is a follow-up. For now, the Codex variant has different
-    limits and a simpler shape.
-    """
-    if not messages:
-        return "", ""
-
-    # Last entry is the per-turn user message — same convention as CC.
-    messages = list(messages)
-    this_turn_user_message = (messages.pop()).get("content", "") or ""
-
-    system_prompt = ""
-    history_entries: list[dict[str, Any]] = []
-    for msg in messages:
-        role = msg.get("role")
-        if role == "system":
-            system_prompt += (msg.get("content") or "") + "\n"
-        elif role in ("user", "assistant"):
-            history_entries.append({
-                "role": role,
-                "content": msg.get("content") or "",
-                "source": msg.get("_source", "chat"),
-            })
-
-    # Codex reads from file → no argv byte ceiling. Still keep a
-    # generous char budget for the history so cost stays sane.
-    MAX_SYSTEM_PROMPT_CHARS = 400_000
-    MAX_HISTORY_CHARS = 200_000
-
-    def _format_entry(e: dict[str, Any]) -> str:
-        label = "User" if e["role"] == "user" else "Assistant"
-        return f"{label}: {e['content']}"
-
-    if history_entries:
-        body = "\n\n".join(_format_entry(r) for r in history_entries)
-        # Source-aware eviction: drop oldest non-chat messages first if
-        # body exceeds budget. Same priority as CC wrapper.
-        while len(body) > MAX_HISTORY_CHARS and history_entries:
-            bg_idx = next(
-                (i for i, r in enumerate(history_entries) if r["source"] != "chat"),
-                None,
-            )
-            if bg_idx is not None:
-                history_entries.pop(bg_idx)
-            else:
-                history_entries.pop(0)
-            body = "\n\n".join(_format_entry(r) for r in history_entries)
-
-        if history_entries:
-            system_prompt += (
-                f"\n\n=== Chat History ===\n{body}\n=== Chat History End ===\n"
-                " These are the chat history between you and the user. "
-                "This time please make the response by user input in this turn."
-            )
-
-    if len(system_prompt) > MAX_SYSTEM_PROMPT_CHARS:
-        logger.warning(
-            f"[CodexSDK] system prompt {len(system_prompt)} chars > "
-            f"{MAX_SYSTEM_PROMPT_CHARS}; truncating"
-        )
-        system_prompt = system_prompt[:MAX_SYSTEM_PROMPT_CHARS] + (
-            "\n\n[...truncated due to length limit...]"
-        )
-
-    return system_prompt, this_turn_user_message
 
 
 def _stage_codex_oauth_credentials(codex_home_path: Path) -> None:

@@ -5,6 +5,14 @@ stub: false
 ---
 
 
+## 2026-07-27 — 内联压平块上提到 adapters/materializer.py（flatten_for_argv）
+
+agent_loop 里 ~110 行的「system 拼接 + 历史压平 + source-aware 驱逐 +
+字符/字节双截断」内联块逐字搬到 [[materializer.py]]，调用点一行 + 指路
+注释。argv 上限 rationale 注释随函数走。行为由金样测试钉住字节级等价。
+pop-调用方列表的变异语义原样保留（step_3 fallback 依赖）。
+
+
 ## 2026-07-27 — 取消检查统一走 CancellationView（codex v2 死代码修复）
 
 轮询式取消检查改为 `CancellationView(cancellation).requested()`。对

@@ -95,7 +95,7 @@ async def test_agent_loop_passes_limit_kwarg_to_subprocess_spawn(monkeypatch):
     monkeypatch.setattr(codex_mod.asyncio, "create_subprocess_exec", _fake_spawn)
 
     sdk = CodexSDK("/tmp")
-    # Prime a minimum-viable messages list so _build_system_prompt_and_user_msg
+    # Prime a minimum-viable messages list so materializer.flatten_for_file
     # produces a real prompt string.
     messages = [
         {"role": "system", "content": "You are a test agent."},

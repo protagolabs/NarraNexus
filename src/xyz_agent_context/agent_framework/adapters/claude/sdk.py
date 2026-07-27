@@ -30,6 +30,7 @@ from xyz_agent_context.agent_framework.loop.output_transfer import output_transf
 from xyz_agent_context.agent_framework.api_config import claude_config
 from xyz_agent_context.agent_framework.providers.model_catalog import resolve_cli_alias
 from xyz_agent_context.agent_framework.adapters._tool_policy_guard import build_tool_policy_guard
+from xyz_agent_context.agent_framework.adapters.materializer import flatten_for_argv
 
 
 def _oauth_expires_at(blob: str) -> float | None:
@@ -442,167 +443,17 @@ class ClaudeAgentSDK:
         # tokens) rides through verbatim — the SDK sends them on connect.
         claude_agent_mcp_dict = _build_claude_mcp_config(mcp_servers)
         
-        # Step 0-2: Build system prompt. Currently the Claude Agent SDK does not support multi-turn conversations,
-        # so we need to manually append the conversation history to the system prompt.
-        # Limit the maximum length of the system prompt to avoid "Argument list too long" errors.
-        #
-        # The Python SDK (see claude_agent_sdk/_internal/transport/subprocess_cli.py)
-        # passes system_prompt via `--system-prompt <str>` argv. Linux limits a
-        # single argv entry to MAX_ARG_STRLEN = PAGE_SIZE * 32 = 128 KiB on
-        # typical x86_64 kernels. A naive char-count limit is unsafe when the
-        # prompt contains multi-byte (e.g. Chinese) content — 1 char can be 3
-        # UTF-8 bytes — so we apply two limits: a char-count ceiling (for
-        # readability and predictability) and a byte-count ceiling (hard
-        # enforcement against E2BIG).
-        #
-        # History: agents often run 10+ turns; 50K keeps 3-5 full turns.
-        # System prompt: T8 (ENABLE_TOOL_SEARCH=false for non-Claude models)
-        # forces the full MCP tool schemas (~40 tools) into the base prompt,
-        # typically 60-80K chars.
-        #
-        # 2026-07-03: bumped 100K -> 115K after live diagnosis on
-        # agent_62cf67080ad4 showed the assembled system_prompt clocking
-        # in at 91-93K chars (15 modules × ~6K module_instructions each,
-        # currently ALL loaded per turn because SKIP_MODULE_DECISION_LLM=True
-        # disables the per-turn module-selection LLM). At 100K that left
-        # only ~5-8K for history, evicting 20-23 of ~29 rows on every turn
-        # and starving the LLM of context.
-        #
-        # 115K still fits comfortably under MAX_SYSTEM_PROMPT_BYTES = 120 KiB
-        # for pure-ASCII prompts, and mixed-language content is still
-        # clamped by the byte ceiling below. Argv hard limit is 128 KiB,
-        # so 13 KiB headroom remains. This is a TREATMENT of the symptom
-        # (system_prompt is bloated because we load every module every
-        # turn); the ROOT fix is a smarter module-selection loader that
-        # skips channel modules unrelated to this turn — deferred as a
-        # separate follow-up.
-        MAX_SYSTEM_PROMPT_LENGTH = 115_000  # chars
-        MAX_SYSTEM_PROMPT_BYTES = 120 * 1024  # ~120 KiB, leaves 8 KiB for argv overhead
-        MAX_HISTORY_LENGTH = 50_000  # chars
-
-        # Source-aware history truncation (2026-05-19):
-        # The earlier scheme was "append history to system_prompt, then
-        # [:100_000] the whole string" — which would chop the TAIL of the
-        # system instructions when history was long, breaking Module-injected
-        # context. New scheme:
-        #   1. Build system_prompt and the history list separately.
-        #   2. Reserve the system prompt's full length within the char ceiling.
-        #   3. Within the remaining budget, drop the OLDEST background-trigger
-        #      messages first (`_source` in {job, message_bus, lark, callback}),
-        #      then the oldest chat messages, until what's left fits.
-        # `_source` is set by context_runtime.build_input_for_framework from
-        # each row's `meta_data.working_source`; unknown rows default to "chat".
-        # Rows are NOT deleted from the database — this only governs which
-        # rows are sent to the LLM for this turn.
-        system_prompt = ""
-        history_entries: list[dict[str, Any]] = []  # ordered oldest -> newest
-        this_turn_user_message = (messages.pop())["content"]    # TODO: Not robust enough; if the last message is not a user message, a logic error will occur. Needs adjustment.
-        for msg in messages:
-            role = msg.get("role")
-            if role == "system":
-                system_prompt += msg["content"] + "\n"
-            elif role in ("user", "assistant"):
-                history_entries.append({
-                    "role": role,
-                    "content": msg.get("content", ""),
-                    "source": msg.get("_source", "chat"),
-                })
-
-        def _format_entry(e: dict[str, Any]) -> str:
-            label = "User" if e["role"] == "user" else "Assistant"
-            return f"{label}: {e['content']}"
-
-        # Char budget reserved for history within MAX_SYSTEM_PROMPT_LENGTH.
-        # If system_prompt alone is already near/over the ceiling we send NO
-        # history — protecting the system instructions is the priority.
-        HISTORY_HEADER = "\n\n=== Chat History ===\n"
-        HISTORY_FOOTER = (
-            "\n=== Chat History End ===\n"
-            " These are the chat history between you and the user. "
-            "This time please make the response by user input in this turn."
-        )
-        overhead = len(HISTORY_HEADER) + len(HISTORY_FOOTER)
-        sys_len = len(system_prompt)
-        history_budget = max(
-            0,
-            min(MAX_HISTORY_LENGTH, MAX_SYSTEM_PROMPT_LENGTH - sys_len - overhead),
-        )
-
-        kept: list[dict[str, Any]] = []
-        if history_entries and history_budget > 0:
-            kept = list(history_entries)
-
-            def _join_len(rows: list[dict[str, Any]]) -> int:
-                if not rows:
-                    return 0
-                # +2 per separator "\n\n" between rows
-                return sum(len(_format_entry(r)) for r in rows) + 2 * (len(rows) - 1)
-
-            dropped_bg = 0
-            dropped_chat = 0
-            while kept and _join_len(kept) > history_budget:
-                # Tier 1: drop the oldest non-chat row.
-                bg_idx = next(
-                    (i for i, r in enumerate(kept) if r["source"] != "chat"),
-                    None,
-                )
-                if bg_idx is not None:
-                    kept.pop(bg_idx)
-                    dropped_bg += 1
-                else:
-                    # Tier 2: drop the oldest chat row.
-                    kept.pop(0)
-                    dropped_chat += 1
-
-            if dropped_bg or dropped_chat:
-                logger.warning(
-                    f"History truncated by source-aware eviction: "
-                    f"dropped {dropped_bg} background-trigger rows "
-                    f"+ {dropped_chat} chat rows, kept {len(kept)} of "
-                    f"{len(history_entries)} (budget {history_budget} chars)."
-                )
-        elif history_entries:
-            logger.warning(
-                f"System prompt alone ({sys_len} chars) leaves no room for "
-                f"history; omitting all {len(history_entries)} history rows."
-            )
-
-        if kept:
-            body = "\n\n".join(_format_entry(r) for r in kept)
-            label_tag = (
-                "Chat History"
-                if len(kept) == len(history_entries)
-                else "Chat History (truncated by source-aware eviction)"
-            )
-            system_prompt += (
-                f"\n\n=== {label_tag} ===\n{body}{HISTORY_FOOTER}"
-            )
-
-        # Belt-and-braces (rare now): char + byte caps still apply because
-        # multi-byte content blows past char budget in the worst case, and
-        # the system_prompt itself might exceed MAX_SYSTEM_PROMPT_LENGTH
-        # (in which case the eviction loop already gave us 0-budget history,
-        # but the system prompt still needs to fit argv).
-        if len(system_prompt) > MAX_SYSTEM_PROMPT_LENGTH:
-            logger.warning(
-                f"System prompt still too long after source-aware eviction "
-                f"({len(system_prompt)} chars > {MAX_SYSTEM_PROMPT_LENGTH}), "
-                f"hard-truncating to char ceiling"
-            )
-            system_prompt = system_prompt[:MAX_SYSTEM_PROMPT_LENGTH] + "\n\n[...truncated due to length limit...]"
-
-        _encoded = system_prompt.encode("utf-8")
-        if len(_encoded) > MAX_SYSTEM_PROMPT_BYTES:
-            logger.warning(
-                f"System prompt exceeds byte ceiling "
-                f"({len(_encoded)} bytes > {MAX_SYSTEM_PROMPT_BYTES}), "
-                f"truncating at UTF-8 boundary"
-            )
-            # decode('utf-8', errors='ignore') drops any partial multi-byte
-            # sequence introduced by the byte slice, so the result is always
-            # valid UTF-8.
-            system_prompt = _encoded[:MAX_SYSTEM_PROMPT_BYTES].decode("utf-8", errors="ignore")
-            system_prompt += "\n\n[...truncated due to byte limit...]"
+        # Step 0-2: Materialize the structured messages into (system
+        # prompt, per-turn user message). The CLI accepts only
+        # `--system-prompt <argv>` + one user input, so chat history
+        # flattens into the prompt text here. The full strategy — argv
+        # char+byte ceilings (Linux MAX_ARG_STRLEN), history budget with
+        # source-aware eviction, truncation markers, and the 115K-chars
+        # rationale (2026-07-03 live diagnosis) — lives in
+        # adapters/materializer.py::flatten_for_argv. NOTE: it POPS the
+        # last message off `messages` (load-bearing for step_3's
+        # fallback, which reads the same list afterwards).
+        system_prompt, this_turn_user_message = flatten_for_argv(messages)
                 
         logger.debug(f"System prompt length: {len(system_prompt):,} chars")
         logger.debug(f"Your MCP: {claude_agent_mcp_dict}")

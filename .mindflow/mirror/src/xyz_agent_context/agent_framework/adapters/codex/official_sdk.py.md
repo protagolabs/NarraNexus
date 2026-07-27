@@ -5,6 +5,13 @@ last_verified: 2026-07-27
 ---
 
 
+## 2026-07-27 — 改从 materializer 导入 flatten_for_file
+
+`_build_system_prompt_and_user_msg` 的 from .cli_sdk 导入改为
+[[materializer.py]] `flatten_for_file`，调用点同步改名；文件头 prose 同
+步。行为不变。
+
+
 ## 2026-07-27 — 取消检查统一走 CancellationView（codex v2 死代码修复）
 
 轮询式取消检查改为 `CancellationView(cancellation).requested()`。对
