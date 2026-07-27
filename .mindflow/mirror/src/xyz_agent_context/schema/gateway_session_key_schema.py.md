@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/schema/gateway_session_key_schema.py
 stub: false
-last_verified: 2026-07-23
+last_verified: 2026-07-27
 ---
 
 # Intent
@@ -17,6 +17,11 @@ it is a revocation/reaping ledger entry, not a credential store.
 - Two-state status (`active` / `revoked`) — enough for "revoke at run end" +
   "reap orphans". No `expired` state because the key carries no wall-clock TTL
   (铁律 #14; validity is bounded by the run lifecycle, see [[gateway_key_service]]).
+- `metered_at` (nullable): set once the run's real token usage was summed from
+  the gateway and deducted from quota ([[gateway_spend_reconciler]]). NULL = not
+  yet metered — the idempotency guard that stops double-charging. Orthogonal to
+  status: a row is `revoked` the moment the run ends, but `metered_at` is stamped
+  later, after the flush grace, by the reconciler.
 
 ## Downstream
 - `repository/gateway_session_key_repository.py` and the

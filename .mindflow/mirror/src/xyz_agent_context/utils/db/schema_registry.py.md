@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-07-24
+last_verified: 2026-07-27
 stub: false
 ---
+
+## 2026-07-27 — instance_gateway_session_keys.metered_at
+
+Added `metered_at DATETIME(6) NULL` + index (`status`,`metered_at`). Set once the
+run's real token usage was summed from the gateway and deducted from quota
+([[gateway_spend_reconciler]]); NULL = not yet metered (idempotency guard). The
+new index backs the reconciler's revoked-but-unmetered scan.
 
 ## 2026-07-24 — instance_gateway_session_keys
 

@@ -1246,11 +1246,17 @@ _register(
             Column("status", "TEXT", "VARCHAR(32)", nullable=False, default="'active'"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("revoked_at", "TEXT", "DATETIME(6)"),
+            # Set once the run's LiteLLM SpendLogs have been summed and deducted
+            # from the user's free-tier quota (gateway_spend_reconciler). NULL =
+            # not yet metered; the idempotency guard that stops double-charging.
+            Column("metered_at", "TEXT", "DATETIME(6)"),
         ],
         indexes=[
             Index("idx_gateway_session_keys_run", ["run_id"], unique=True),
             Index("idx_gateway_session_keys_status", ["status", "created_at"]),
             Index("idx_gateway_session_keys_user", ["user_id"]),
+            # Reconciler scans revoked-but-unmetered runs by this pair.
+            Index("idx_gateway_session_keys_metered", ["status", "metered_at"]),
         ],
     )
 )

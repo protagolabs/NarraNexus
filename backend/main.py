@@ -263,6 +263,19 @@ async def lifespan(app: FastAPI):
     if app.state.executor_reaper_task is not None:
         logger.info("Executor idle-cull reaper started")
 
+    # Free-tier agent-usage reconciler (cloud + gateway only; no-op otherwise).
+    # The proxied agent model reports 0 tokens through the CLI, so the quota
+    # never saw agent usage — this worker sums each finished run's real usage
+    # from the LiteLLM gateway's SpendLogs and deducts it. Idempotent via
+    # instance_gateway_session_keys.metered_at; never force-stops (iron rule #14).
+    from xyz_agent_context.services.gateway_spend_reconciler import (
+        maybe_start_gateway_spend_reconciler,
+    )
+
+    app.state.gateway_spend_reconciler_task = maybe_start_gateway_spend_reconciler()
+    if app.state.gateway_spend_reconciler_task is not None:
+        logger.info("Free-tier gateway spend reconciler started")
+
     import asyncio as _asyncio
 
     # Marketplace seeds — populate this registry host's catalog + store.
@@ -336,6 +349,9 @@ async def lifespan(app: FastAPI):
     reaper_task = getattr(app.state, "executor_reaper_task", None)
     if reaper_task is not None:
         reaper_task.cancel()
+    spend_reconciler_task = getattr(app.state, "gateway_spend_reconciler_task", None)
+    if spend_reconciler_task is not None:
+        spend_reconciler_task.cancel()
     worker = getattr(app.state, "memory_consolidation_worker", None)
     if worker is not None:
         await worker.stop()

@@ -1,13 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/gateway_key_service.py
 stub: false
-last_verified: 2026-07-24
+last_verified: 2026-07-27
 ---
 
 # Intent
 
 Mint / revoke the per-run LiteLLM gateway **session keys** ("会话票") that back
-the free tier. The point of the whole design: the Power/Netmind **master key
+the free tier — and, since 2026-07-27, **read back** each run's real usage. The point of the whole design: the Power/Netmind **master key
 never enters a process that runs user-controlled agent logic**. It lives only in
 the LiteLLM gateway container; for each run the backend (`open_backend_session`,
 called from `step_3_agent_loop`) asks the gateway for a per-run key scoped to one
@@ -27,10 +27,25 @@ bounded rather than merely "the master key hidden".
 - `executor_reaper` post-reap hook — `revoke_all_for_user` when an idle user's
   executor is culled (crash-orphan cleanup).
 
+- `GatewaySpendReconciler` — calls `fetch_run_usage(key_hash)` after a run ends.
+
 ## Downstream
-- LiteLLM proxy admin API: `POST /key/generate`, `POST /key/delete` (httpx,
-  bearer = the gateway admin key).
+- LiteLLM proxy admin API: `POST /key/generate`, `POST /key/delete`, and
+  `GET /spend/logs?api_key=<hash>` (httpx, bearer = the gateway admin key).
 - `GatewaySessionKeyRepository` — the `instance_gateway_session_keys` ledger.
+
+## 2026-07-27 — fetch_run_usage (the authoritative token source)
+
+`fetch_run_usage(key_hash)` GETs `/spend/logs?api_key=<hash>` and sums
+`prompt_tokens` / `completion_tokens` across the run's rows, returning
+`(input, output, model)` — or **None on any failure or empty key_hash** (the
+reconciler must NOT mark a run metered on None; it retries next cycle). This is
+the authoritative token source for a proxied agent run: the Claude CLI reports
+usage 0 for non-Anthropic models at every layer (`ResultMessage.usage`,
+`message_start.message.usage`), but the gateway sits in the request path and
+records real per-request tokens. `/spend/logs?api_key=` (granular per-request
+rows) is the working endpoint — the `start_date`/`end_date` form only returns
+daily aggregates with spend 0.
 
 ## Design decisions / gotchas
 - **No wall-clock TTL** on minted keys (`duration` omitted). 铁律 #14: runs can
