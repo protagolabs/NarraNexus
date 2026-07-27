@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-21
+last_verified: 2026-07-24
 stub: false
 ---
+
+## 2026-07-24 — free-tier gateway passthrough + deploy env
+
+`_DOTENV_PASSTHROUGH` += `SYSTEM_DEFAULT_LLM_GATEWAY_URL`,
+`SYSTEM_DEFAULT_LLM_GATEWAY_ADMIN_KEY`, `SYSTEM_DEFAULT_LLM_GATEWAY_BACKEND_KEY`,
+`SYSTEM_DEFAULT_LLM_GATEWAY_KEY_MAX_BUDGET_USD` — read via `os.environ.get()` by
+[[system_service]] / [[gateway_key_service]] (cloud sets them as real container
+env; listed so a local `.env` can configure them too). Deliberately NOT
+passthrough: the on/off + model knobs (`SYSTEM_DEFAULT_LLM_ENABLED` / `_SOURCE` /
+`_AGENT_MODEL` / `_HELPER_MODEL`) — the free tier is cloud-only and cloud
+provides those as env.
+
+**Prod upgrade checklist (deploy env this feature adds):** backend —
+`SYSTEM_DEFAULT_LLM_GATEWAY_URL` / `_GATEWAY_ADMIN_KEY` / `_GATEWAY_BACKEND_KEY` /
+`_GATEWAY_KEY_MAX_BUDGET_USD` (the per-run key ceiling — without it a leaked
+ticket is uncapped, so **do not skip it**), and repoint
+`SYSTEM_DEFAULT_LLM_ANTHROPIC_BASE_URL` / `_OPENAI_BASE_URL` at the gateway;
+gateway container — `LITELLM_UPSTREAM_OPENAI_BASE` / `LITELLM_UPSTREAM_API_KEY` /
+`LITELLM_DB_PASSWORD`. The upstream master key moved OUT of the old
+`SYSTEM_DEFAULT_LLM_API_KEY` (removed from the backend) into the gateway.
+Lockstep with the NarraNexus-deploy PR (铁律 #3).
 
 ## 2026-07-21 — helper-LLM one-shot 界值(Lark bug #2)
 

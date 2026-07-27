@@ -1223,6 +1223,39 @@ _register(
 )
 
 
+# 28c. instance_gateway_session_keys — per-run LiteLLM gateway session keys.
+#
+# Free-tier runs no longer inject the shared master key into the agent
+# subprocess env; each run mints one short-lived gateway key (the "会话票") that
+# is injected in its place and revoked when the run ends. This table is the
+# ledger that makes revocation and orphan-reaping (crash between mint and
+# revoke) possible. run_id doubles as the gateway key_alias — the only handle
+# needed to revoke — so we never persist the raw usable secret here; key_hash is
+# LiteLLM's non-secret token hash, audit-only. See
+# agent_framework/providers/gateway_key_service.GatewayKeyService.
+_register(
+    TableDef(
+        name="instance_gateway_session_keys",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("run_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("agent_id", "TEXT", "VARCHAR(64)"),
+            # LiteLLM's returned token HASH (not the secret). Audit/reconcile only.
+            Column("key_hash", "TEXT", "VARCHAR(256)"),
+            Column("status", "TEXT", "VARCHAR(32)", nullable=False, default="'active'"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("revoked_at", "TEXT", "DATETIME(6)"),
+        ],
+        indexes=[
+            Index("idx_gateway_session_keys_run", ["run_id"], unique=True),
+            Index("idx_gateway_session_keys_status", ["status", "created_at"]),
+            Index("idx_gateway_session_keys_user", ["user_id"]),
+        ],
+    )
+)
+
+
 # ----------------------------------------------------------------------------
 # 29. user_notifications — out-of-band messages to surface in UI
 #
