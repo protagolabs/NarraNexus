@@ -26,8 +26,9 @@ What v1 functionality survives in v2
 Imported directly from v1's module to avoid duplication while both
 implementations coexist:
 
-* ``_build_system_prompt_and_user_msg`` — message-list → system prompt
-  + per-turn user message split (with source-aware history eviction).
+* ``materializer.flatten_for_file`` — message-list → system prompt
+  + per-turn user message split (with source-aware history eviction);
+  shared with v1 and lifted out of this package 2026-07-27.
 * ``_stage_codex_oauth_credentials`` — copy host ``~/.codex/auth.json``
   into per-run CODEX_HOME tempdir.
 * ``_sse_url_to_streamable_http`` — rewrite MCP URLs from the SSE
@@ -74,12 +75,17 @@ from xyz_agent_context.utils.logging import timed
 # helpers move to a shared ``_codex_common.py`` — but for the
 # coexistence period the direct import keeps the diff small.
 from xyz_agent_context.agent_framework.api_config import codex_config
+from xyz_agent_context.agent_framework.loop.cancellation_view import (
+    CancellationView,
+)
 from ._env import build_codex_subprocess_env
 from ._permission_translator import (
     translate_tool_policy_to_codex_permissions,
 )
+from xyz_agent_context.agent_framework.adapters.materializer import (
+    flatten_for_file,
+)
 from .cli_sdk import (
-    _build_system_prompt_and_user_msg,
     _stage_codex_oauth_credentials,
     _sse_url_to_streamable_http,
 )
@@ -502,11 +508,16 @@ class CodexSDKv2:
     def __init__(self, working_path: str | Path = "./"):
         self.working_path = str(working_path)
 
+    def capabilities(self) -> set[str]:
+        """Base contract only. See ``AgentLoopDriver.capabilities``."""
+        return set()
+
     @timed("llm.codex_v2.agent_loop", slow_threshold_ms=15000)
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
         mcp_servers: dict[str, dict[str, Any]],
+        *,
         streaming: bool = True,
         extra_env: dict[str, str] | None = None,
         cancellation: Any | None = None,
@@ -516,10 +527,21 @@ class CodexSDKv2:
 
         Signature mirrors :meth:`adapters.codex.cli_sdk.CodexSDK.agent_loop`
         and :meth:`adapters.claude.sdk.ClaudeAgentSDK.agent_loop`
-        (the Protocol contract). ``**kwargs`` swallows wrapper-specific
-        args (hooks etc.) that don't apply here.
+        (the Protocol contract). ``**kwargs`` carries wrapper-specific
+        args this driver does not implement (e.g. ``disallowed_tools``
+        — claude enforces it CLI-level; codex tool policy goes through
+        the sandbox/permission translator instead).
         """
-        del kwargs  # signature compatibility — discarded
+        _cancel_view = CancellationView(cancellation)
+        if kwargs:
+            # NEVER discard silently: the caller believes the constraint
+            # is applied. Until codex grows an equivalent enforcement,
+            # say loudly what is being dropped (names only — values may
+            # carry sensitive material).
+            logger.warning(
+                f"[CodexSDKv2] agent_loop ignoring unsupported kwargs: "
+                f"{sorted(kwargs)}"
+            )
 
         # Import the SDK inside the method so a missing install doesn't
         # break the module-level import (which would also break v1 by
@@ -541,7 +563,7 @@ class CodexSDKv2:
             ) from e
 
         # ---- Step 1: split system prompt + per-turn user message ----
-        system_prompt, user_message = _build_system_prompt_and_user_msg(
+        system_prompt, user_message = flatten_for_file(
             messages
         )
 
@@ -723,9 +745,7 @@ class CodexSDKv2:
             try:
                 async for notification in stream:
                     event_count += 1
-                    if cancellation is not None and getattr(
-                        cancellation, "is_set", lambda: False
-                    )():
+                    if _cancel_view.requested():
                         logger.info(
                             f"[CodexSDKv2] cancellation set after "
                             f"{event_count} events — invoking interrupt"

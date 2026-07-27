@@ -27,6 +27,16 @@ from xyz_agent_context.schema import (
     AUTH_EXPIRED_ERROR_TYPE,
     SELF_SERVICEABLE_ERROR_TYPE,
 )
+from xyz_agent_context.agent_framework.loop.events import (
+    DATA_TYPE_DONE,
+    DATA_TYPE_ERROR,
+    DATA_TYPE_TEXT_DELTA,
+    ITEM_TYPE_THINKING,
+    ITEM_TYPE_TOOL_CALL,
+    ITEM_TYPE_TOOL_CALL_OUTPUT,
+    TYPE_RAW_RESPONSE_EVENT,
+    TYPE_RUN_ITEM_STREAM_EVENT,
+)
 from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
     self_serviceable_user_message,
@@ -243,7 +253,7 @@ class ResponseProcessor:
         response_type = response.get("type")
 
         # Handle raw_response_event (text output, completion markers, etc.)
-        if response_type == "raw_response_event":
+        if response_type == TYPE_RAW_RESPONSE_EVENT:
             # Non-thinking event arriving — flush any residual thinking
             # FIRST so the front-end sees thinking → text in the actual
             # order the LLM produced it.
@@ -252,7 +262,7 @@ class ResponseProcessor:
             return
 
         # Handle run_item_stream_event (tool calls, tool results, etc.)
-        if response_type == "run_item_stream_event":
+        if response_type == TYPE_RUN_ITEM_STREAM_EVENT:
             yield from self._handle_run_item_stream_event(response, state)
             return
 
@@ -333,7 +343,7 @@ class ResponseProcessor:
         data = response.get("data", {})
         data_type = data.get("type")
 
-        if data_type == "response.text.delta":
+        if data_type == DATA_TYPE_TEXT_DELTA:
             # Text delta output
             delta = data.get("delta", "")
             # Filter out empty deltas (from structural StreamEvents, input_json_delta, etc.)
@@ -349,7 +359,7 @@ class ResponseProcessor:
                 state_update={"method": "append_text", "args": {"text": delta}}
             )
 
-        if data_type == "response.error":
+        if data_type == DATA_TYPE_ERROR:
             # API error (rate limit, auth failure, quota exhaustion, etc.)
             # surfaced inline by the SDK while the stream is still alive.
             #
@@ -425,7 +435,7 @@ class ResponseProcessor:
                 state_update={"method": "increment_response", "args": {}}
             )
 
-        if data_type == "response.done":
+        if data_type == DATA_TYPE_DONE:
             # Agent Loop completion marker — extract token usage for cost tracking
             # Claude Agent SDK puts usage in ResultMessage; model is not available,
             # so we default to the model configured in settings
@@ -491,7 +501,7 @@ class ResponseProcessor:
         item = response.get("item", {})
         item_type = item.get("type")
 
-        if item_type == "thinking_item":
+        if item_type == ITEM_TYPE_THINKING:
             # Buffer into the WS-tier batcher. May or may not produce
             # an emission this round. The DB-tier (per-segment) flush
             # is added in Phase C alongside event_stream persistence.
@@ -518,7 +528,7 @@ class ResponseProcessor:
         # user sees thinking → tool_call in the correct order.
         yield from self._flush_thinking_residual(state)
 
-        if item_type == "tool_call_item":
+        if item_type == ITEM_TYPE_TOOL_CALL:
             # Tool call - use ProgressMessage to display in the step panel
             # Step numbering uses 3.4.x format (sub-steps of Step 3.4 Agent Loop)
             tool_name = item.get("tool_name", "unknown")
@@ -567,7 +577,7 @@ class ResponseProcessor:
             )
             return
 
-        if item_type == "tool_call_output_item":
+        if item_type == ITEM_TYPE_TOOL_CALL_OUTPUT:
             # Tool call result - update the corresponding tool call status to completed
             # 使用 tool_output_count + 1 作为 step ID（与 tool_call 的序号一一对应）
             # 不能用 tool_call_count，因为并行工具调用时所有 call 先到达，

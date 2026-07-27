@@ -30,6 +30,7 @@ from xyz_agent_context.schema import (
 )
 from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
+from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
 from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
     self_serviceable_user_message,
@@ -829,6 +830,17 @@ async def step_3_agent_loop(
     if context.ctx_data and context.ctx_data.extra_data:
         skill_env_vars = context.ctx_data.extra_data.get("skill_env_vars", {})
 
+    # The materialized turn bundle — one explicit object instead of four
+    # loose locals, so every driver demonstrably eats the same thing.
+    # driver_kwargs() reproduces the historical call shape exactly
+    # (including empty→None normalization); cancellation stays separate.
+    turn_input = TurnInput(
+        messages=messages,
+        mcp_servers=ctx.mcp_servers,
+        disallowed_tools=tuple(extra_disallowed_tools),
+        extra_env=skill_env_vars,
+    )
+
     # `captured_error` defers the ErrorMessage yield until AFTER the
     # recovery phase, so frontend renders the recovered reply FIRST and
     # the warning badge SECOND. Yielding ErrorMessage immediately on
@@ -888,11 +900,8 @@ async def step_3_agent_loop(
         # emits its first event — the COMPLETED that pairs the RUNNING above.
         _warming_active = ensured is not None and ensured.cold_started
         async for response in driver.agent_loop(
-            messages=messages,
-            mcp_servers=ctx.mcp_servers,
-            extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
-            disallowed_tools=extra_disallowed_tools or None,
+            **turn_input.driver_kwargs(),
         ):
             if _warming_active:
                 _warming_active = False

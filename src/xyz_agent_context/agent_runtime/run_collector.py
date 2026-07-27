@@ -35,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
+from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_TOOL_CALL
 from xyz_agent_context.schema.runtime_message import MessageType
 
 
@@ -165,7 +166,7 @@ async def collect_run(
                 seen_tool_calls.add(dedup_key)
                 raw_items.append({
                     "item": {
-                        "type": "tool_call_item",
+                        "type": ITEM_TYPE_TOOL_CALL,
                         "tool_name": tool_name,
                         "arguments": arguments,
                     }

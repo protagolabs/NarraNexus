@@ -344,16 +344,31 @@ def test_response_processor_recognises_thinking_item():
         ResponseProcessor,
     )
 
+    from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_THINKING
+
     handler_src = _inspect.getsource(
         ResponseProcessor._handle_run_item_stream_event
     )
-    assert '"thinking_item"' in handler_src or "'thinking_item'" in handler_src, (
+    # 2026-07-27: the handler now branches on the shared constant from
+    # loop/events.py instead of an inline literal. The contract chain is:
+    # translator emits ITEM_TYPE_THINKING → handler matches
+    # ITEM_TYPE_THINKING → the constant's VALUE stays "thinking_item"
+    # (pinned here and in test_loop_event_contract.py).
+    assert (
+        "ITEM_TYPE_THINKING" in handler_src
+        or '"thinking_item"' in handler_src
+        or "'thinking_item'" in handler_src
+    ), (
         "ResponseProcessor._handle_run_item_stream_event no longer "
-        "branches on item.type == 'thinking_item'. The v2 translator "
-        "emits this exact type for streamed reasoning deltas; if the "
-        "handler renamed the type, update output_transfer.py's "
-        "reasoning translation accordingly. Otherwise reasoning "
-        "content vanishes into the OTHER catch-all."
+        "branches on the thinking item type. The v2 translator emits "
+        "this exact type for streamed reasoning deltas; if the handler "
+        "renamed the type, update output_transfer.py's reasoning "
+        "translation accordingly. Otherwise reasoning content vanishes "
+        "into the OTHER catch-all."
+    )
+    assert ITEM_TYPE_THINKING == "thinking_item", (
+        "The wire value of ITEM_TYPE_THINKING changed — that is a "
+        "breaking protocol change, not a refactor."
     )
 
 

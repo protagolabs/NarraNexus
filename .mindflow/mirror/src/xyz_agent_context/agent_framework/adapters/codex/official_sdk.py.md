@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/codex/official_sdk.py
 stub: false
-last_verified: 2026-07-16
+last_verified: 2026-07-27
 ---
+
+
+## 2026-07-27 — 改从 materializer 导入 flatten_for_file
+
+`_build_system_prompt_and_user_msg` 的 from .cli_sdk 导入改为
+[[materializer.py]] `flatten_for_file`，调用点同步改名；文件头 prose 同
+步。行为不变。
+
+
+## 2026-07-27 — 取消检查统一走 CancellationView（codex v2 死代码修复）
+
+轮询式取消检查改为 `CancellationView(cancellation).requested()`。对
+claude/cli_sdk/remote 是等价替换；对 codex v2 是 bug 修复——原
+`getattr(cancellation, "is_set", lambda: False)()` 对真实
+CancellationToken 恒 False（token 只有 is_cancelled property），进程内
+codex turn 此前根本无法被打断。测试
+`tests/agent_framework/test_cancellation_view.py` 含该回归用例。
+
+
+## 2026-07-27 — driver 表面一致化：capabilities() 空协商缝 + 签名整形
+
+三个 driver（claude / codex v1+v2 / remote）统一新增 `capabilities() ->
+set[str]`（全部返回空集 = 今天的行为；词汇表见 driver.py 注释，只在能力
+真正实现的同一变更里声明）。`streaming` 全员改 keyword-only（所有调用点
+本就关键字传参，零行为变化）。codex v2 的 `del kwargs` 改为显式 WARNING
+（此前 `disallowed_tools` 被静默丢弃——调用方以为约束生效了）。契约测试
+`tests/agent_framework/test_driver_contract.py` 钉住整个表面。
 
 ## 2026-07-16 — bearer env 变量名加名字哈希后缀(review #111 🟡)
 

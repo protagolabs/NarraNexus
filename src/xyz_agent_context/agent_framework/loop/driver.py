@@ -55,6 +55,21 @@ class AgentLoopDriver(Protocol):
     ) -> AsyncGenerator[dict[str, Any], None]:
         ...
 
+    def capabilities(self) -> set[str]:
+        """Feature flags this driver supports beyond the base contract.
+
+        Capability negotiation seam: the orchestrator and frontend switch
+        optional behaviour on the declared set instead of hardcoding
+        per-framework knowledge. An empty set means "base contract only"
+        — exactly today's behaviour, so existing drivers declare nothing.
+
+        Planned vocabulary (declare only what actually ships):
+        ``steering`` / ``plan`` / ``resume`` / ``fork`` / ``sleep`` /
+        ``subagent_announce`` / ``event_log`` / ``interrupt_soft`` /
+        ``raw_context`` / ``arg_streaming``.
+        """
+        return set()
+
 
 DriverFactory = Callable[..., AgentLoopDriver]
 

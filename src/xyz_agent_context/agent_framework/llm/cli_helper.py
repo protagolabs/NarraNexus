@@ -38,6 +38,13 @@ import tempfile
 from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
+
+from xyz_agent_context.agent_framework.loop.events import (
+    DATA_TYPE_DONE,
+    DATA_TYPE_ERROR,
+    DATA_TYPE_TEXT_DELTA,
+    TYPE_RAW_RESPONSE_EVENT,
+)
 from pydantic import BaseModel, TypeAdapter
 
 from xyz_agent_context.agent_framework.api_config import (
@@ -290,20 +297,20 @@ class CliHelperSDK:
             # / ev["usage"], keys this translator never sets, so no text was
             # ever accumulated and every structured call failed JSON extraction
             # on an empty body.)
-            if not isinstance(ev, dict) or ev.get("type") != "raw_response_event":
+            if not isinstance(ev, dict) or ev.get("type") != TYPE_RAW_RESPONSE_EVENT:
                 continue
             data = ev.get("data") or {}
             dtype = data.get("type")
-            if dtype == "response.text.delta":
+            if dtype == DATA_TYPE_TEXT_DELTA:
                 delta = data.get("delta") or ""
                 if delta:
                     text_parts.append(delta)
-            elif dtype == "response.done":
+            elif dtype == DATA_TYPE_DONE:
                 usage = data.get("usage")
                 if isinstance(usage, dict):
                     in_tok = int(usage.get("input_tokens", in_tok) or in_tok)
                     out_tok = int(usage.get("output_tokens", out_tok) or out_tok)
-            elif dtype == "response.error":
+            elif dtype == DATA_TYPE_ERROR:
                 # Codex surfaces auth / quota failures as a terminal error
                 # EVENT, not an exception. Capture it so the helper raises a
                 # classifiable error below — otherwise the empty text falls

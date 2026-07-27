@@ -42,6 +42,9 @@ from loguru import logger
 from xyz_agent_context.agent_runtime.executor_protocol import (
     build_agent_loop_request,
 )
+from xyz_agent_context.agent_framework.loop.cancellation_view import (
+    CancellationView,
+)
 from xyz_agent_context.agent_framework.loop.executor_errors import (
     ExecutorUnreachableError,
 )
@@ -82,6 +85,17 @@ class RemoteAgentLoopDriver:
         self.working_path = str(working_path)
         self._url = executor_url.rstrip("/") + "/agent-loop"
 
+    def capabilities(self) -> set[str]:
+        """Base contract only. See ``AgentLoopDriver.capabilities``.
+
+        Deliberately NOT delegated to the wrapped in-container driver:
+        that would cost an extra HTTP round-trip per query, and until a
+        capability exists whose behaviour spans the remote hop there is
+        nothing to negotiate. Revisit when the first real capability
+        ships (it will need a /capabilities executor endpoint).
+        """
+        return set()
+
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
@@ -94,6 +108,7 @@ class RemoteAgentLoopDriver:
     ) -> AsyncGenerator[dict[str, Any], None]:
         import aiohttp
 
+        _cancel_view = CancellationView(cancellation)
         body = build_agent_loop_request(
             framework=self.framework,
             working_path=self.working_path,
@@ -126,11 +141,7 @@ class RemoteAgentLoopDriver:
                         # Cooperative cancellation: if the orchestrator's token
                         # fired, stop pulling — exiting the `async with` aborts
                         # the request, which the executor observes as disconnect.
-                        # ``CancellationToken.is_cancelled`` is a bool @property,
-                        # not a method — read it, do not call it.
-                        if cancellation is not None and getattr(
-                            cancellation, "is_cancelled", False
-                        ):
+                        if _cancel_view.requested():
                             logger.info("[RemoteAgentLoop] cancelled — aborting stream")
                             return
                         if not chunk:
