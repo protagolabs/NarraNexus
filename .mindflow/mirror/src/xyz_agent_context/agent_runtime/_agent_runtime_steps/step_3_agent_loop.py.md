@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-24
+last_verified: 2026-07-27
 stub: false
 ---
+
+
+## 2026-07-27 — driver 调用入参打包为 TurnInput（纯搬运）
+
+3.4 组装 driver.agent_loop kwargs 的四个散落 local 收进
+[[turn_input.py]] `TurnInput`，调用点改为
+`driver.agent_loop(cancellation=..., **turn_input.driver_kwargs())`。
+driver_kwargs() 复刻历史形状（含空值→None 归一），零行为变化。
 
 ## 2026-07-24 — 透传 `context.disallowed_tools` 到 driver kwargs（B++）
 
