@@ -82,6 +82,17 @@ class RemoteAgentLoopDriver:
         self.working_path = str(working_path)
         self._url = executor_url.rstrip("/") + "/agent-loop"
 
+    def capabilities(self) -> set[str]:
+        """Base contract only. See ``AgentLoopDriver.capabilities``.
+
+        Deliberately NOT delegated to the wrapped in-container driver:
+        that would cost an extra HTTP round-trip per query, and until a
+        capability exists whose behaviour spans the remote hop there is
+        nothing to negotiate. Revisit when the first real capability
+        ships (it will need a /capabilities executor endpoint).
+        """
+        return set()
+
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],

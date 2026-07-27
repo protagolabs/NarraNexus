@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/codex/official_sdk.py
 stub: false
-last_verified: 2026-07-16
+last_verified: 2026-07-27
 ---
+
+
+## 2026-07-27 — driver 表面一致化：capabilities() 空协商缝 + 签名整形
+
+三个 driver（claude / codex v1+v2 / remote）统一新增 `capabilities() ->
+set[str]`（全部返回空集 = 今天的行为；词汇表见 driver.py 注释，只在能力
+真正实现的同一变更里声明）。`streaming` 全员改 keyword-only（所有调用点
+本就关键字传参，零行为变化）。codex v2 的 `del kwargs` 改为显式 WARNING
+（此前 `disallowed_tools` 被静默丢弃——调用方以为约束生效了）。契约测试
+`tests/agent_framework/test_driver_contract.py` 钉住整个表面。
 
 ## 2026-07-16 — bearer env 变量名加名字哈希后缀(review #111 🟡)
 

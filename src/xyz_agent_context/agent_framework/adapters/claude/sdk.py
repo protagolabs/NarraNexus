@@ -414,10 +414,20 @@ class ClaudeAgentSDK:
     
     # TODO: Input is not ideal; should use a pydantic model for validation. Store it in src/xyz_agent_context/agent_framework/schema.py.
     @timed("llm.claude.agent_loop", slow_threshold_ms=15000)
+    def capabilities(self) -> set[str]:
+        """Base contract only — nothing beyond what step_3 already uses.
+
+        See ``AgentLoopDriver.capabilities`` for the negotiation seam and
+        the planned vocabulary. Declare a capability here only in the
+        same change that actually implements it.
+        """
+        return set()
+
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
         mcp_servers: dict[str, dict[str, Any]],  # {name: {"url": str, "headers": {str: str}?}}
+        *,
         streaming: bool = True,  # Whether to use streaming output
         extra_env: dict[str, str] | None = None,  # Additional env vars (e.g., skill-configured API keys)
         cancellation: Any | None = None,  # CancellationToken for cooperative cancellation

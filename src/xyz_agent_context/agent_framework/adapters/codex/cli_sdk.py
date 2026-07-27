@@ -123,10 +123,15 @@ class CodexSDK:
         self.working_path = str(working_path)
 
     @timed("llm.codex.agent_loop", slow_threshold_ms=15000)
+    def capabilities(self) -> set[str]:
+        """Base contract only. See ``AgentLoopDriver.capabilities``."""
+        return set()
+
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
         mcp_servers: dict[str, dict[str, Any]],
+        *,
         streaming: bool = True,
         extra_env: dict[str, str] | None = None,
         cancellation: Any | None = None,

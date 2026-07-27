@@ -502,11 +502,16 @@ class CodexSDKv2:
     def __init__(self, working_path: str | Path = "./"):
         self.working_path = str(working_path)
 
+    def capabilities(self) -> set[str]:
+        """Base contract only. See ``AgentLoopDriver.capabilities``."""
+        return set()
+
     @timed("llm.codex_v2.agent_loop", slow_threshold_ms=15000)
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
         mcp_servers: dict[str, dict[str, Any]],
+        *,
         streaming: bool = True,
         extra_env: dict[str, str] | None = None,
         cancellation: Any | None = None,
@@ -516,10 +521,20 @@ class CodexSDKv2:
 
         Signature mirrors :meth:`adapters.codex.cli_sdk.CodexSDK.agent_loop`
         and :meth:`adapters.claude.sdk.ClaudeAgentSDK.agent_loop`
-        (the Protocol contract). ``**kwargs`` swallows wrapper-specific
-        args (hooks etc.) that don't apply here.
+        (the Protocol contract). ``**kwargs`` carries wrapper-specific
+        args this driver does not implement (e.g. ``disallowed_tools``
+        — claude enforces it CLI-level; codex tool policy goes through
+        the sandbox/permission translator instead).
         """
-        del kwargs  # signature compatibility — discarded
+        if kwargs:
+            # NEVER discard silently: the caller believes the constraint
+            # is applied. Until codex grows an equivalent enforcement,
+            # say loudly what is being dropped (names only — values may
+            # carry sensitive material).
+            logger.warning(
+                f"[CodexSDKv2] agent_loop ignoring unsupported kwargs: "
+                f"{sorted(kwargs)}"
+            )
 
         # Import the SDK inside the method so a missing install doesn't
         # break the module-level import (which would also break v1 by
