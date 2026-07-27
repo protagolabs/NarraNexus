@@ -17,6 +17,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_TEXT_DELTA,
+    DATA_TYPE_USAGE,
     ITEM_TYPE_MESSAGE_OUTPUT,
     ITEM_TYPE_THINKING,
     ITEM_TYPE_TOOL_CALL,
@@ -311,7 +312,47 @@ def _convert_stream_event_to_stream_event(message: Any) -> Dict[str, Any]:
             }
         }
 
-    # Structural events (content_block_start/stop, message_start/delta/stop) → skip
+    # Token usage for cost/quota accounting. Anthropic streaming splits it:
+    #   message_start.message.usage → input_tokens (+ cache tokens), once per turn
+    #   message_delta.usage         → output_tokens, once per turn
+    # We take input ONLY from message_start and output ONLY from message_delta so
+    # a proxy that (redundantly) echoes input on message_delta can't double-count.
+    # This is the authoritative source: the CLI's terminal ResultMessage.usage is
+    # 0 for proxied non-Anthropic models (LiteLLM gateway), so DONE no longer
+    # carries usage — see _convert_result_to_stream_event. response_processor
+    # accumulates these across turns.
+    if event_type == "message_start":
+        u = (event.get("message") or {}).get("usage") or {}
+        inp = u.get("input_tokens", 0) or 0
+        cache_read = u.get("cache_read_input_tokens", 0) or 0
+        cache_write = u.get("cache_creation_input_tokens", 0) or 0
+        if inp or cache_read or cache_write:
+            return {
+                "type": TYPE_RAW_RESPONSE_EVENT,
+                "data": {
+                    "type": DATA_TYPE_USAGE,
+                    "usage": {
+                        "input_tokens": inp,
+                        "output_tokens": 0,
+                        "cache_read_input_tokens": cache_read,
+                        "cache_creation_input_tokens": cache_write,
+                    },
+                },
+            }
+
+    if event_type == "message_delta":
+        u = event.get("usage") or {}
+        out = u.get("output_tokens", 0) or 0
+        if out:
+            return {
+                "type": TYPE_RAW_RESPONSE_EVENT,
+                "data": {
+                    "type": DATA_TYPE_USAGE,
+                    "usage": {"input_tokens": 0, "output_tokens": out},
+                },
+            }
+
+    # Other structural events (content_block_start/stop, message_stop) → skip
     return {
         "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
@@ -330,7 +371,12 @@ def _convert_result_to_stream_event(message: Any) -> Dict[str, Any]:
         "type": DATA_TYPE_DONE,
     }
 
-    # Add usage info if available
+    # Add usage info if available. This is AUTHORITATIVE when the CLI populates
+    # it (real Anthropic models). For a proxied non-Anthropic model (LiteLLM
+    # gateway) it comes back 0 — in that case response_processor falls back to
+    # the usage harvested from the streaming message_start/message_delta events
+    # (DATA_TYPE_USAGE); the two never double-count because the streamed values
+    # are only promoted when this terminal usage is 0 (see ExecutionState.finalize).
     # ResultMessage.usage is dict[str, Any] | None (not an object with attributes)
     raw_usage = getattr(message, 'usage', None)
     if isinstance(raw_usage, dict):

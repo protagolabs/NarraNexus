@@ -31,6 +31,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_TEXT_DELTA,
+    DATA_TYPE_USAGE,
     ITEM_TYPE_THINKING,
     ITEM_TYPE_TOOL_CALL,
     ITEM_TYPE_TOOL_CALL_OUTPUT,
@@ -435,10 +436,33 @@ class ResponseProcessor:
                 state_update={"method": "increment_response", "args": {}}
             )
 
+        if data_type == DATA_TYPE_USAGE:
+            # Per-turn token usage harvested from the streaming events
+            # (message_start → input, message_delta → output), accumulated across
+            # turns into a SEPARATE streamed_* tally. It is a FALLBACK: finalize()
+            # promotes it only when the terminal ResultMessage.usage is 0 (proxied
+            # non-Anthropic model via the LiteLLM gateway). Keeping it separate is
+            # what prevents double-counting on real Anthropic (where the DONE
+            # event already carries authoritative usage). No message is yielded.
+            u = data.get("usage", {})
+            return ProcessedResponse(
+                type=ResponseType.OTHER,
+                message=None,
+                state_update={
+                    "method": "accumulate_streamed_usage",
+                    "args": {
+                        "input_tokens": u.get("input_tokens", 0) or 0,
+                        "output_tokens": u.get("output_tokens", 0) or 0,
+                        "cache_read_tokens": u.get("cache_read_input_tokens", 0) or 0,
+                        "cache_creation_tokens": u.get("cache_creation_input_tokens", 0) or 0,
+                    },
+                },
+            )
+
         if data_type == DATA_TYPE_DONE:
-            # Agent Loop completion marker — extract token usage for cost tracking
-            # Claude Agent SDK puts usage in ResultMessage; model is not available,
-            # so we default to the model configured in settings
+            # Agent Loop completion marker — authoritative token usage when the
+            # CLI populates it (real Anthropic). For proxied models it is 0 and
+            # finalize() falls back to the streamed_* tally above.
             usage = data.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)

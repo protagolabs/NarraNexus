@@ -4,6 +4,14 @@ last_verified: 2026-07-27
 stub: false
 ---
 
+## 2026-07-27 — DATA_TYPE_USAGE 累加进 streamed_* 兜底
+
+新增 `DATA_TYPE_USAGE` 分支:把从流式事件抠出的每轮 usage(见 [[output_transfer]])
+经 `accumulate_streamed_usage` 累加进 [[execution_state]] 的 **streamed_* 独立字段**
+(不碰权威的 input/output_tokens),不 yield 消息。DONE 分支不变——真 Anthropic 的
+`ResultMessage.usage` 仍走权威路径。二者靠 `finalize()`「DONE 为 0 才提升 streamed」
+避免重复计。修的是:网关代理的非 Anthropic 模型 usage 恒 0 → 免费额度不扣的问题。
+
 ## 2026-07-26 — auth-expired 文案优先指向 setup-token
 
 `_AUTH_EXPIRED_USER_MESSAGE` 把 `claude setup-token` + Settings 粘贴列为

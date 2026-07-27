@@ -5,6 +5,12 @@ stub: false
 ---
 # loop/events.py — driver 事件契约的唯一事实源
 
+## 2026-07-27 — 新增 DATA_TYPE_USAGE
+
+新增 `DATA_TYPE_USAGE = "response.usage"`:承载从流式 `message_start`/`message_delta`
+抠出的每轮 token 用量(见 [[output_transfer]]),给代理的非 Anthropic 模型(终结
+`ResultMessage.usage` 为 0)做记账兜底,由 [[response_processor]] 累加。
+
 ## 为什么存在
 
 driver 产出的事件 dict 只有两大类六种形状（raw_response_event ×

@@ -53,6 +53,17 @@ class ExecutionState:
     # Model-call count reported by the framework (ResultMessage.num_turns).
     # None = not reported — deliberately distinct from a reported 0.
     num_turns: Optional[int] = None
+    # FALLBACK token tally harvested from the streaming message_start/message_delta
+    # events (see response_processor DATA_TYPE_USAGE). Kept SEPARATE from the
+    # authoritative input/output_tokens above so real-Anthropic (where the DONE
+    # event carries usage) is never double-counted. finalize() promotes these
+    # into input/output_tokens ONLY when the authoritative values are 0 — i.e. a
+    # proxied non-Anthropic model via the LiteLLM gateway, whose ResultMessage
+    # usage is 0 but whose streamed deltas carry the real tokens.
+    streamed_input_tokens: int = 0
+    streamed_output_tokens: int = 0
+    streamed_cache_read_tokens: int = 0
+    streamed_cache_creation_tokens: int = 0
 
     def append_text(self, text: str) -> 'ExecutionState':
         """
@@ -189,22 +200,58 @@ class ExecutionState:
             num_turns=num_turns if num_turns is not None else self.num_turns,
         )
 
+    def accumulate_streamed_usage(
+        self,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+    ) -> 'ExecutionState':
+        """Accumulate the per-turn usage harvested from streaming events into the
+        FALLBACK ``streamed_*`` tally (see the field comment). Never touches the
+        authoritative ``input/output_tokens``; ``finalize()`` decides whether to
+        promote."""
+        return replace(
+            self,
+            streamed_input_tokens=self.streamed_input_tokens + (input_tokens or 0),
+            streamed_output_tokens=self.streamed_output_tokens + (output_tokens or 0),
+            streamed_cache_read_tokens=self.streamed_cache_read_tokens + (cache_read_tokens or 0),
+            streamed_cache_creation_tokens=self.streamed_cache_creation_tokens + (cache_creation_tokens or 0),
+        )
+
     def finalize(self) -> 'ExecutionState':
         """
-        Finalize execution, record final output to all_steps
+        Finalize execution, record final output to all_steps.
+
+        Also promotes the streamed_* fallback token tally into the authoritative
+        input/output_tokens when the latter are 0 — i.e. the CLI's terminal
+        ResultMessage.usage reported nothing (proxied non-Anthropic model via the
+        LiteLLM gateway) but the streamed deltas carried the real tokens. On real
+        Anthropic (DONE usage present) this is a no-op, so no double-counting.
 
         Returns:
             New ExecutionState object
         """
-        if not self.final_output:
-            return self
+        overrides: dict = {}
+        if self.input_tokens == 0 and self.output_tokens == 0 and (
+            self.streamed_input_tokens or self.streamed_output_tokens
+        ):
+            overrides = {
+                "input_tokens": self.streamed_input_tokens,
+                "output_tokens": self.streamed_output_tokens,
+                "cache_read_tokens": self.streamed_cache_read_tokens or self.cache_read_tokens,
+                "cache_creation_tokens": self.streamed_cache_creation_tokens or self.cache_creation_tokens,
+            }
 
-        final_step = {
-            "type": "agent_final_output",
-            "content": self.final_output,
-            "length": len(self.final_output),
-        }
-        return replace(self, all_steps=self.all_steps + (final_step,))
+        if self.final_output:
+            final_step = {
+                "type": "agent_final_output",
+                "content": self.final_output,
+                "length": len(self.final_output),
+            }
+            overrides["all_steps"] = self.all_steps + (final_step,)
+
+        return replace(self, **overrides) if overrides else self
 
     def get_all_steps_as_list(self) -> List[Dict[str, Any]]:
         """
