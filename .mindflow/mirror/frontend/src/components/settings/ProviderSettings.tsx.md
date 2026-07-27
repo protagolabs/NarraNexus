@@ -1,7 +1,18 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-26
 ---
+
+## 2026-07-26 — Claude 卡片 Section C：setup-token 粘贴连接
+
+Claude Code Login 卡新增第三段（A=CLI 登录态、B=provider 记录态之下）：
+`claude setup-token` 指引 + password 输入框 + 连接按钮，走既有
+`addProvider({card_type:'claude_oauth', api_key: token})` 通道（后端对已
+有卡做原位升级，槽绑定不动）。`auth_type === 'oauth_token'` 时 Section B
+显示「已通过 setup-token 连接」，Section C 变为换 token 提示（一年期）。
+推荐 token 而非登录态的原因 = 2026-07-23 macOS Keychain 命名空间事故：
+token 运输层不依赖上方 CLI 登录状态。i18n 键 settings.provider.setupToken*
+已加全 10 个 locale。
 
 ## 2026-07-23 — 自定义 provider 表单内「测试连通」按钮
 

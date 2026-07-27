@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-07-23
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — auth-expired 文案优先指向 setup-token
+
+`_AUTH_EXPIRED_USER_MESSAGE` 把 `claude setup-token` + Settings 粘贴列为
+首选恢复路径（标注 most reliable）：2026-07-23 macOS 事故里「重新
+`claude login`」对隔离 CONFIG_DIR 的 Keychain 死条目无效，旧文案会把
+用户引进死胡同。
 
 ## 2026-07-23 — response.done 折算 cache 用量,归一化两套 provider 词汇(W1)
 

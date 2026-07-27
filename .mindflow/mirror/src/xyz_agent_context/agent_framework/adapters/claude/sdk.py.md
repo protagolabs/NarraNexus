@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-07-24
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — `_is_claude_native` 并入 `oauth_token`
+
+setup-token 运输层（oauth_token）恒为官方 Anthropic 后端，native 判定显式
+包含它——不再只靠 alias 模型名兜底（用户手填非 alias 模型串时语义仍正确）。
+staging 门 `auth_type == "oauth"` **保持不变是有意的**：token 模式无凭据
+文件可 stage，走 to_cli_env 的 env 注入（见 [[api_config]]）。
 
 ## 2026-07-24 — kwargs `disallowed_tools` 合并进本地列表（B++）
 

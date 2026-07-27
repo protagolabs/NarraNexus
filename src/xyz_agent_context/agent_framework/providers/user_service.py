@@ -255,27 +255,63 @@ class UserProviderService:
                 new_ids.append(cfg["provider_id"])
 
         elif card_type == "claude_oauth":
+            # One subscription card, two credential transports: no api_key →
+            # host-CLI managed oauth (legacy default); api_key present → it is
+            # a `claude setup-token` long-lived token (auth_type oauth_token,
+            # env-injected as CLAUDE_CODE_OAUTH_TOKEN — see ClaudeOAuthDriver).
+            token = (api_key or "").strip()
             existing = await self.db.get("user_providers", filters={"user_id": user_id, "source": "claude_oauth"})
-            if existing:
+            if existing and not token:
                 raise ValueError("Claude OAuth provider already exists for this user")
-
-            pid = _generate_provider_id()
-            await self._insert_provider(user_id, {
-                "provider_id": pid,
-                "name": "Claude Code (OAuth)",
-                "source": "claude_oauth",
-                "protocol": "anthropic",
-                "auth_type": "oauth",
-                "api_key": "",
-                "base_url": "",
-                # CLI family aliases → auto-track the latest Claude release (the
-                # OAuth path runs `claude --model opus|sonnet|haiku`), so no
-                # manual version bump on each new model. See model_catalog.py.
-                "models": json.dumps(["opus", "sonnet", "haiku"]),
-                # OAuth funnels through official Anthropic → server tools OK.
-                "supports_anthropic_server_tools": True,
-            }, now)
-            new_ids.append(pid)
+            if existing:
+                # Reconnect-in-place: pasting a token upgrades the existing
+                # card to the token transport (the 2026-07-23 macOS Keychain
+                # recovery path). Keep the provider_id so agent/helper slot
+                # bindings survive; clear the credential-file sentinel — the
+                # token IS the credential now.
+                pid = existing[0]["provider_id"]
+                await self.db.update(
+                    "user_providers",
+                    {"user_id": user_id, "provider_id": pid},
+                    {
+                        "auth_type": "oauth_token",
+                        "api_key": token,
+                        "auth_ref": "",
+                        "driver_type": "claude_oauth",
+                        "billing_policy": "external_oauth",
+                        "updated_at": now,
+                    },
+                )
+                new_ids.append(pid)
+            else:
+                pid = _generate_provider_id()
+                row = {
+                    "provider_id": pid,
+                    "name": "Claude Code (OAuth)",
+                    "source": "claude_oauth",
+                    "protocol": "anthropic",
+                    "auth_type": "oauth_token" if token else "oauth",
+                    "api_key": token,
+                    "base_url": "",
+                    # CLI family aliases → auto-track the latest Claude release
+                    # (both subscription transports run the claude CLI, which
+                    # resolves opus|sonnet|haiku itself), so no manual version
+                    # bump on each new model. See model_catalog.py.
+                    "models": json.dumps(["opus", "sonnet", "haiku"]),
+                    # Subscription funnels through official Anthropic → server
+                    # tools OK.
+                    "supports_anthropic_server_tools": True,
+                }
+                if token:
+                    # Token rows are self-contained: classify them at insert
+                    # time (mirrors the codex_oauth branch) instead of leaning
+                    # on the startup backfill, whose auth_ref derivation only
+                    # covers the host-CLI transport.
+                    row["driver_type"] = "claude_oauth"
+                    row["billing_policy"] = "external_oauth"
+                    row["auth_ref"] = ""
+                await self._insert_provider(user_id, row, now)
+                new_ids.append(pid)
 
         elif card_type == "codex_oauth":
             from xyz_agent_context.agent_framework.providers.driver.derive import (
@@ -902,6 +938,28 @@ class UserProviderService:
 
         if row.get("auth_type") == "oauth":
             return True, "OAuth provider (managed by Claude Code CLI)"
+
+        if row.get("auth_type") == "oauth_token":
+            # The token is in OUR hands (unlike host-CLI oauth), so the Test
+            # button can be honest: a real one-shot CLI call instead of the
+            # existence-check that lied through the 2026-07-23 incident.
+            from xyz_agent_context.agent_framework.providers.driver.base import (
+                ProviderCard,
+            )
+            from xyz_agent_context.agent_framework.providers.driver.registry import (
+                get_driver_class,
+            )
+
+            card = ProviderCard.from_row(row)
+            driver_cls = get_driver_class(card.driver_type or "claude_oauth")
+            verify = getattr(
+                driver_cls(card) if driver_cls else None, "verify_token_live", None
+            )
+            if verify is None:
+                return False, (
+                    f"driver {card.driver_type!r} has no live token verification"
+                )
+            return await verify()
 
         return await self.test_provider_config(
             card_type=row["protocol"],

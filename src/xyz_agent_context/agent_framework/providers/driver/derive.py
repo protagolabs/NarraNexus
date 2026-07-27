@@ -103,7 +103,9 @@ def derive_billing_policy(
 
     if src == "system":
         return "system_quota"
-    if auth == "oauth":
+    if auth in ("oauth", "oauth_token"):
+        # Both subscription transports (host-CLI oauth and setup-token) are
+        # billed by Anthropic itself — log to cost_records, no quota deduction.
         return "external_oauth"
     return "user_pays"
 
