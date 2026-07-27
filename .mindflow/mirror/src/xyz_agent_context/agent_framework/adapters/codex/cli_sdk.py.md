@@ -5,6 +5,15 @@ last_verified: 2026-07-27
 ---
 
 
+## 2026-07-27（补）— review 修复：@timed 归位 agent_loop
+
+PR #167 review 抓到：插入 capabilities() 时错位到了 @timed 装饰器与
+agent_loop 之间，`llm.claude.agent_loop`/`llm.codex.agent_loop` 延迟埋
+点静默丢失且指标被误挂到 capabilities()。已把 capabilities() 移到装饰
+器上方；契约测试新增 `test_agent_loop_keeps_timed_instrumentation`
+（断言 agent_loop 有 __wrapped__、capabilities 没有）防回归。
+
+
 ## 2026-07-27 — `_build_system_prompt_and_user_msg` 移入 materializer（flatten_for_file）
 
 函数体逐字迁至 [[materializer.py]] `flatten_for_file`（本文件与

@@ -94,6 +94,37 @@ def test_agent_loop_streaming_is_keyword_only(cls):
     )
 
 
+# ---------------- @timed instrumentation stays on agent_loop --------
+
+
+def _timed_classes():
+    """Driver classes whose agent_loop carries @timed instrumentation.
+    (RemoteAgentLoopDriver is deliberately un-instrumented.)"""
+    from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import CodexSDK
+
+    classes = [ClaudeAgentSDK, CodexSDK]
+    if _CODEX_AVAILABLE:
+        classes.append(CodexSDKv2)
+    return classes
+
+
+def test_agent_loop_keeps_timed_instrumentation():
+    """PR #167 review catch: inserting capabilities() between the @timed
+    decorator and agent_loop silently moved the latency metric + 15s
+    slow-call WARNING onto capabilities(). @timed uses functools.wraps,
+    so the wrapper exposes __wrapped__ — pin that agent_loop has it and
+    capabilities does NOT."""
+    for cls in _timed_classes():
+        assert hasattr(cls.agent_loop, "__wrapped__"), (
+            f"{cls.__name__}.agent_loop lost its @timed wrapper — the "
+            f"llm.*.agent_loop latency metric and slow-call WARNING are gone"
+        )
+        assert not hasattr(cls.capabilities, "__wrapped__"), (
+            f"{cls.__name__}.capabilities is decorated — @timed is "
+            f"misplaced and mislabels the metric"
+        )
+
+
 # ---------------- codex must not silently discard kwargs ------------
 
 

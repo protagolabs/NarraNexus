@@ -416,8 +416,6 @@ class ClaudeAgentSDK:
     def __init__(self, working_path: str = "./"):
         self.working_path = working_path
     
-    # TODO: Input is not ideal; should use a pydantic model for validation. Store it in src/xyz_agent_context/agent_framework/schema.py.
-    @timed("llm.claude.agent_loop", slow_threshold_ms=15000)
     def capabilities(self) -> set[str]:
         """Base contract only — nothing beyond what step_3 already uses.
 
@@ -427,6 +425,8 @@ class ClaudeAgentSDK:
         """
         return set()
 
+    # TODO: Input is not ideal; should use a pydantic model for validation. Store it in src/xyz_agent_context/agent_framework/schema.py.
+    @timed("llm.claude.agent_loop", slow_threshold_ms=15000)
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
