@@ -57,6 +57,13 @@ TYPE_RUN_ITEM_STREAM_EVENT = "run_item_stream_event"
 DATA_TYPE_TEXT_DELTA = "response.text.delta"
 DATA_TYPE_DONE = "response.done"
 DATA_TYPE_ERROR = "response.error"
+# Per-turn token usage harvested from the streaming events (Anthropic
+# message_start carries input tokens, message_delta carries output tokens).
+# Used for cost/quota accounting when the CLI's terminal ResultMessage.usage is
+# unreliable — e.g. a proxied non-Anthropic model via the LiteLLM gateway, where
+# ResultMessage.usage comes back 0 but the streamed message_delta has real
+# tokens. Accumulated across turns by response_processor.
+DATA_TYPE_USAGE = "response.usage"
 
 # ---------------------------------------------------------------------------
 # item.type values (run_item_stream_event)

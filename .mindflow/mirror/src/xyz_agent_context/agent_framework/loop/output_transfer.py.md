@@ -5,6 +5,18 @@ stub: false
 ---
 # output_transfer.py — Claude SDK 消息格式转换为统一事件流
 
+## 2026-07-27 — 从流式事件抠 token usage(免费额度记账修复)
+
+`_convert_stream_event_to_stream_event` 现在处理原本被跳过的 `message_start` /
+`message_delta`:`message_start.message.usage` 出 **input**(+cache),
+`message_delta.usage` 出 **output**,各发一条 `DATA_TYPE_USAGE` 事件。input 只从
+message_start 取、output 只从 message_delta 取——LiteLLM 会在 message_delta 里
+**冗余回显 input**,这样取法避免重复计。动机:Claude Code CLI 对着**网关代理的
+非 Anthropic 模型**时,终结 `ResultMessage.usage` 恒为 0,导致整轮 token 没记、
+免费额度不扣。`_convert_result_to_stream_event` 仍照常把 ResultMessage.usage 放进
+DONE(真 Anthropic 权威值);两者不会重复计——streamed 值只在 DONE 为 0 时由
+[[execution_state]] `finalize()` 兜底提升。下游累加见 [[response_processor]]。
+
 ## 2026-07-27 — 事件类型字面量收敛到 loop/events.py 常量
 
 六种事件形状的字符串字面量改为 import `loop/events.py` 的常量

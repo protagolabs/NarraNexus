@@ -1,9 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/execution_state.py
-last_verified: 2026-07-23
+last_verified: 2026-07-27
 stub: false
 ---
 # execution_state.py — Agent Loop 执行过程的不可变状态追踪器
+
+## 2026-07-27 — streamed_* 兜底 token + finalize() 提升
+
+新增 `streamed_input/output/cache_*` 字段 + `accumulate_streamed_usage()`:承接从
+流式 `message_start`/`message_delta` 抠出的每轮 usage(见 [[response_processor]] /
+[[output_transfer]]),**与权威的 input/output_tokens 分开存**。`finalize()` 新增
+提升逻辑:当权威 input/output 都为 0(CLI 终结 `ResultMessage.usage` 没报——网关
+代理的非 Anthropic 模型就是这样)且 streamed 有值时,把 streamed 提升为权威值。
+真 Anthropic(DONE 带 usage)时是 no-op,故不会重复计。修免费额度不扣 agent token
+的 bug;`finalize()` 的早返回改为「有提升或有 final_output 才 replace」。
 
 ## 2026-07-23 — cache/num_turns 字段 + 全面改用 dataclasses.replace(W1)
 
