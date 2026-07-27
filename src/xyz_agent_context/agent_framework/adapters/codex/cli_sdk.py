@@ -66,6 +66,9 @@ from typing import Any, AsyncGenerator
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.loop.cancellation_view import (
+    CancellationView,
+)
 from xyz_agent_context.agent_framework.loop.events import (
     ITEM_TYPE_TOOL_CALL,
     TYPE_RUN_ITEM_STREAM_EVENT,
@@ -356,7 +359,7 @@ class CodexSDK:
                         if cancel_task is not None and not cancel_task.done():
                             cancel_task.cancel()
 
-                    if cancellation is not None and cancellation.is_cancelled:
+                    if CancellationView(cancellation).requested():
                         logger.info(
                             f"[CodexSDK] Cancellation detected after "
                             f"{line_count} lines, stopping subprocess"

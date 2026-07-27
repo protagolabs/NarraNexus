@@ -42,6 +42,9 @@ from loguru import logger
 from xyz_agent_context.agent_runtime.executor_protocol import (
     build_agent_loop_request,
 )
+from xyz_agent_context.agent_framework.loop.cancellation_view import (
+    CancellationView,
+)
 from xyz_agent_context.agent_framework.loop.executor_errors import (
     ExecutorUnreachableError,
 )
@@ -105,6 +108,7 @@ class RemoteAgentLoopDriver:
     ) -> AsyncGenerator[dict[str, Any], None]:
         import aiohttp
 
+        _cancel_view = CancellationView(cancellation)
         body = build_agent_loop_request(
             framework=self.framework,
             working_path=self.working_path,
@@ -137,11 +141,7 @@ class RemoteAgentLoopDriver:
                         # Cooperative cancellation: if the orchestrator's token
                         # fired, stop pulling — exiting the `async with` aborts
                         # the request, which the executor observes as disconnect.
-                        # ``CancellationToken.is_cancelled`` is a bool @property,
-                        # not a method — read it, do not call it.
-                        if cancellation is not None and getattr(
-                            cancellation, "is_cancelled", False
-                        ):
+                        if _cancel_view.requested():
                             logger.info("[RemoteAgentLoop] cancelled — aborting stream")
                             return
                         if not chunk:

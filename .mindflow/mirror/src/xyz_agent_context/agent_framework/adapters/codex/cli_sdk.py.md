@@ -5,6 +5,16 @@ last_verified: 2026-07-27
 ---
 
 
+## 2026-07-27 — 取消检查统一走 CancellationView（codex v2 死代码修复）
+
+轮询式取消检查改为 `CancellationView(cancellation).requested()`。对
+claude/cli_sdk/remote 是等价替换；对 codex v2 是 bug 修复——原
+`getattr(cancellation, "is_set", lambda: False)()` 对真实
+CancellationToken 恒 False（token 只有 is_cancelled property），进程内
+codex turn 此前根本无法被打断。测试
+`tests/agent_framework/test_cancellation_view.py` 含该回归用例。
+
+
 ## 2026-07-27 — driver 表面一致化：capabilities() 空协商缝 + 签名整形
 
 三个 driver（claude / codex v1+v2 / remote）统一新增 `capabilities() ->

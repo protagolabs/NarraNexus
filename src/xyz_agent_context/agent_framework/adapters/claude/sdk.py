@@ -15,6 +15,9 @@ from loguru import logger
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
 from typing import Any, AsyncGenerator
 
+from xyz_agent_context.agent_framework.loop.cancellation_view import (
+    CancellationView,
+)
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_ERROR,
     ITEM_TYPE_TOOL_CALL,
@@ -846,7 +849,7 @@ class ClaudeAgentSDK:
                     if cancel_task is not None and not cancel_task.done():
                         cancel_task.cancel()
 
-                if cancellation is not None and cancellation.is_cancelled:
+                if CancellationView(cancellation).requested():
                     logger.info(
                         f"[ClaudeAgentSDK] Cancellation detected after "
                         f"{message_count} messages (mid-wait), stopping"

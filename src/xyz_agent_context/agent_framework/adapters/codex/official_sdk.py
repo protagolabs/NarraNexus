@@ -74,6 +74,9 @@ from xyz_agent_context.utils.logging import timed
 # helpers move to a shared ``_codex_common.py`` — but for the
 # coexistence period the direct import keeps the diff small.
 from xyz_agent_context.agent_framework.api_config import codex_config
+from xyz_agent_context.agent_framework.loop.cancellation_view import (
+    CancellationView,
+)
 from ._env import build_codex_subprocess_env
 from ._permission_translator import (
     translate_tool_policy_to_codex_permissions,
@@ -526,6 +529,7 @@ class CodexSDKv2:
         — claude enforces it CLI-level; codex tool policy goes through
         the sandbox/permission translator instead).
         """
+        _cancel_view = CancellationView(cancellation)
         if kwargs:
             # NEVER discard silently: the caller believes the constraint
             # is applied. Until codex grows an equivalent enforcement,
@@ -738,9 +742,7 @@ class CodexSDKv2:
             try:
                 async for notification in stream:
                     event_count += 1
-                    if cancellation is not None and getattr(
-                        cancellation, "is_set", lambda: False
-                    )():
+                    if _cancel_view.requested():
                         logger.info(
                             f"[CodexSDKv2] cancellation set after "
                             f"{event_count} events — invoking interrupt"
