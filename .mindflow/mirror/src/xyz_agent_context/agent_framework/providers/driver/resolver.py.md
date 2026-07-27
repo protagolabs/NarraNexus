@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/resolver.py
-last_verified: 2026-07-18
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — helper 槽分派：`oauth_token` 与 `oauth` 同走 CLI helper
+
+`_resolve_slot_target` 的订阅判断从 `== "oauth"` 扩为
+`in ("oauth", "oauth_token")`——setup-token 卡同样不能打 raw API，helper
+的结构化一次性调用与 agent 槽共用同一 claude CLI 运输层（一个 token 覆盖
+双槽）。
 
 ## 2026-07-18 — 清掉陈年"migration window"注释（review 抓出）
 

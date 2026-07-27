@@ -363,6 +363,11 @@ export function ProviderSettings() {
   const [formTestResult, setFormTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
 
+  // Setup-token paste flow (`claude setup-token` → long-lived subscription
+  // token stored server-side, env-injected at spawn; no CLI login state).
+  const [setupToken, setSetupToken] = useState('')
+  const [savingSetupToken, setSavingSetupToken] = useState(false)
+
   // Testing
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
@@ -427,7 +432,12 @@ export function ProviderSettings() {
 
   const providerList = Object.values(providers)
   const hasProviders = providerList.length > 0
-  const hasClaude = providerList.some((p) => p.source === 'claude_oauth')
+  const claudeCard = providerList.find((p) => p.source === 'claude_oauth')
+  const hasClaude = claudeCard !== undefined
+  // Token transport (`claude setup-token` → CLAUDE_CODE_OAUTH_TOKEN env
+  // injection): no CLI login state, no Keychain — see the setup-token
+  // section of the Claude card below.
+  const claudeTokenConnected = claudeCard?.auth_type === 'oauth_token'
   const hasCodex = providerList.some((p) => p.source === 'codex_oauth')
 
 
@@ -447,6 +457,20 @@ export function ProviderSettings() {
 
   const handleAddClaudeOAuth = async () => {
     await addProvider({ card_type: 'claude_oauth' })
+  }
+
+  const handleSaveSetupToken = async () => {
+    const token = setupToken.trim()
+    if (!token) return
+    setSavingSetupToken(true)
+    try {
+      // Same card_type; a non-empty api_key makes the backend store/upgrade
+      // the card as auth_type=oauth_token (reconnect-in-place keeps slots).
+      const ok = await addProvider({ card_type: 'claude_oauth', api_key: token })
+      if (ok) setSetupToken('')
+    } finally {
+      setSavingSetupToken(false)
+    }
   }
 
   const handleAddCodexOAuth = async () => {
@@ -839,7 +863,12 @@ export function ProviderSettings() {
 
                 {/* ---- Section B: Provider record state ---- */}
                 <div className="pt-2 border-t border-[var(--border-subtle)]">
-                  {hasClaude ? (
+                  {claudeTokenConnected ? (
+                    <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+                      <span>{'\u2713'}</span>
+                      <span>{t('settings.provider.setupTokenConnected')}</span>
+                    </div>
+                  ) : hasClaude ? (
                     <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
                       <span>{'\u2713'}</span>
                       <span>{t('settings.provider.addedAsProvider')}</span>
@@ -854,6 +883,42 @@ export function ProviderSettings() {
                       {t('settings.provider.loginToAdd')}
                     </p>
                   )}
+                </div>
+
+                {/* ---- Section C: setup-token connect / replace ----
+                  *
+                  * The token transport bypasses the CLI's login state and
+                  * credential store entirely (the macOS Keychain divergence
+                  * made staged host credentials unreadable to the runtime
+                  * CLI \u2014 2026-07-23 incident), so it is the recommended way
+                  * to connect a subscription. Shown for BOTH states: not
+                  * connected (recommend) and connected (allow yearly token
+                  * replacement).
+                  */}
+                <div className="pt-2 border-t border-[var(--border-subtle)] space-y-2">
+                  <p className="text-sm text-[var(--text-tertiary)]">
+                    {claudeTokenConnected
+                      ? t('settings.provider.setupTokenReplaceHint')
+                      : t('settings.provider.setupTokenHint')}
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={setupToken}
+                      onChange={(e) => setSetupToken(e.target.value)}
+                      placeholder={t('settings.provider.setupTokenPlaceholder')}
+                      className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                    />
+                    <button
+                      onClick={handleSaveSetupToken}
+                      disabled={savingSetupToken || !setupToken.trim()}
+                      className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50"
+                    >
+                      {savingSetupToken
+                        ? t('settings.provider.setupTokenSaving')
+                        : t('settings.provider.setupTokenSave')}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

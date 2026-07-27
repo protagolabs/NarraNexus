@@ -823,10 +823,19 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
                     and prov.get("api_key")
                     and (prov.get("protocol") or "").lower() == required_proto
                 ):
+                    # oauth_token rows land here too (their token rides
+                    # api_key) — that is correct: a stored setup-token means
+                    # the framework can authenticate without any host CLI
+                    # login. Only the wording differs.
+                    kind = (
+                        "setup-token"
+                        if prov.get("auth_type") == "oauth_token"
+                        else "API-key"
+                    )
                     return {
                         "ok": True,
                         "detail": (
-                            f"API-key provider configured "
+                            f"{kind} provider configured "
                             f"({prov.get('name') or slot['provider_id']})"
                         ),
                     }

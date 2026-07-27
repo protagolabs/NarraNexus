@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-07-23
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — claude_oauth 卡支持 setup-token（新建 / 原位重连）
+
+`add_provider(card_type="claude_oauth")` 现在看 `api_key`：空 = 传统
+host-CLI oauth 行为不变（含重复卡报错）；非空 = `claude setup-token`
+token，`auth_type="oauth_token"`。**已有卡 + token = 原位升级**（改
+auth_type/api_key、清 auth_ref、billing_policy=external_oauth、保
+provider_id 所以 agent/helper 槽绑定原样存活）——这是 2026-07-23 macOS
+Keychain 事故的恢复路径。新建 token 卡在插入时即写全 driver_type/
+billing_policy/auth_ref（镜像 codex_oauth 分支），不依赖启动 backfill
+（其 auth_ref 推导只覆盖 host-CLI 运输层）。
+
+`test_provider`：`oauth_token` 行路由到
+`ClaudeOAuthDriver.verify_token_live()`（真实一次性 CLI 调用）——token
+在我们手里所以 Test 按钮可以诚实；`oauth` 行保留静态短路（无凭据可测）。
 
 ## 2026-07-23 — `test_provider_config`：无状态「保存前测连通」孪生方法
 
@@ -109,6 +124,7 @@ provider leaves dangling per-agent overrides that fail at resolve.
 `gpt-5.4-mini`,与 claude 的 opus/haiku 拆分对齐。auto-bind 只填空 slot,故不影响
 已绑账户(需手动改或删了重加)。测试见 `test_oauth_dual_slot.py`
 (`test_codex_oauth_add_binds_both_slots` 断言 agent=gpt-5.5 / helper=gpt-5.4-mini)。
+
 ## 2026-07-07 — netmind inference base env-configurable (minted-key path only)
 
 _build_dual_providers / _verify_onboard_key / add_provider / onboard_one_key gained

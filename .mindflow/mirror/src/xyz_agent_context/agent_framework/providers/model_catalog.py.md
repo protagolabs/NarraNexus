@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_catalog.py
-last_verified: 2026-07-03
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — `resolve_cli_alias` 把 `oauth_token` 并入 CLI 侧
+
+setup-token 运输层同样经 claude CLI 跑（不是 raw Messages API），家族
+alias（"opus"）由 CLI 自解析——与 `oauth` 同待遇保留 verbatim，避免在
+我们代码里陈化。
 
 ## 2026-07-03 — `resolve_cli_alias` (upstream #57)
 
@@ -16,6 +22,7 @@ of family" itself, keeping it un-stale). When a family ships a new latest,
 update the map with the ModelMeta entries —
 tests/agent_framework/test_model_alias_normalization.py guards that map
 targets are registered catalog ids.
+
 ## 2026-06-10 (later) — onboarding defaults for aggregator sources
 
 _ONBOARD_AGENT/HELPER_MODELS gained netmind (DeepSeek-V4-Pro / V4-Flash,

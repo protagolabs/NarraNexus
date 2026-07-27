@@ -48,7 +48,7 @@ class ClaudeConfig:
     api_key: str = ""
     base_url: str = ""
     model: str = ""          # Empty = let Claude Code CLI use its default model
-    auth_type: str = "api_key"  # "api_key" | "bearer_token" | "oauth"
+    auth_type: str = "api_key"  # "api_key" | "bearer_token" | "oauth" | "oauth_token"
     # Whether the provider endpoint runs Anthropic's server-side tools
     # (web_search_20250305, text_editor, computer_use, ...). Only the
     # official Anthropic API and transparent forward proxies do; most
@@ -80,9 +80,13 @@ class ClaudeConfig:
         """
         env: dict[str, str] = {
             # Auth — exactly one of these should be populated; we blank the
-            # other so a stray env var from the parent process can't leak in.
+            # others so a stray env var from the parent process can't leak in.
+            # CLAUDE_CODE_OAUTH_TOKEN sits BELOW the ANTHROPIC_* vars in the
+            # CLI's auth precedence, so blanking those two is what makes the
+            # oauth_token branch below actually win.
             "ANTHROPIC_API_KEY": "",
             "ANTHROPIC_AUTH_TOKEN": "",
+            "CLAUDE_CODE_OAUTH_TOKEN": "",
             "ANTHROPIC_BASE_URL": self.base_url or "",
             # Nested-session guard suppression. When the backend itself was
             # launched from inside a Claude Code session (dev workflow:
@@ -97,6 +101,12 @@ class ClaudeConfig:
         if self.api_key:
             if self.auth_type == "bearer_token":
                 env["ANTHROPIC_AUTH_TOKEN"] = self.api_key
+            elif self.auth_type == "oauth_token":
+                # Long-lived subscription token from `claude setup-token`.
+                # Env-injected like keyed auth — no credential file, no
+                # Keychain, so the macOS config-dir-namespaced Keychain
+                # divergence (2026-07-23 incident) can't reach this path.
+                env["CLAUDE_CODE_OAUTH_TOKEN"] = self.api_key
             else:
                 env["ANTHROPIC_API_KEY"] = self.api_key
 
@@ -121,8 +131,11 @@ class ClaudeConfig:
         #    ``503 No available accounts`` for every frontend message.
         # Both auth kinds get a dedicated NarraNexus config dir (the CLI
         # auto-creates it) so the personal settings.json is never read:
-        #   * keyed (api_key/bearer) → ``claude_cli_config_path``; the key is
-        #     injected via env above, no credential file needed.
+        #   * keyed (api_key/bearer/oauth_token) → ``claude_cli_config_path``;
+        #     the credential is injected via env above, no credential file
+        #     needed (oauth_token deliberately AVOIDS the oauth staging dir —
+        #     its Keychain-namespaced entries are the exact macOS failure the
+        #     token path exists to escape, 2026-07-23 incident).
         #   * oauth → ``claude_oauth_config_path``; a SEPARATE dir into which
         #     ``_stage_claude_oauth_credentials`` (in adapters.claude.sdk)
         #     copies ONLY ``.credentials.json`` before the spawn. OAuth used to
