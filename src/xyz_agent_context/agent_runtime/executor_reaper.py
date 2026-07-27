@@ -45,11 +45,17 @@ class ExecutorReaper:
         *,
         ttl_seconds: float = DEFAULT_IDLE_TTL_SEC,
         interval_seconds: float = DEFAULT_INTERVAL_SEC,
+        post_reap_fn: Optional[StopFn] = None,
     ) -> None:
         self._controller = controller
         self._stop_fn = stop_fn
         self.ttl_seconds = ttl_seconds
         self.interval_seconds = interval_seconds
+        # Optional per-user hook fired AFTER a user's idle executor is stopped.
+        # Used to revoke that user's orphaned free-tier gateway session keys:
+        # the user is idle (zero active loops), so any ACTIVE key is a crash
+        # orphan and safe to revoke (铁律 #14 — never touches a live run).
+        self._post_reap_fn = post_reap_fn
 
     async def reap_once(self) -> list[str]:
         """One cull pass. Returns the users whose executors were stopped.
@@ -65,6 +71,13 @@ class ExecutorReaper:
                 reaped.append(user_id)
             except Exception as e:  # noqa: BLE001 — best-effort, must not abort
                 logger.warning(f"[reaper] failed to stop executor user={user_id}: {e}")
+                continue  # executor may still be alive — do NOT revoke its keys
+            # Executor stopped → user has no live loop → revoke orphaned keys.
+            if self._post_reap_fn is not None:
+                try:
+                    await self._post_reap_fn(user_id)
+                except Exception as e:  # noqa: BLE001 — best-effort, must not abort
+                    logger.warning(f"[reaper] post-reap hook failed user={user_id}: {e}")
         if reaped:
             logger.info(f"[reaper] reaped {len(reaped)} idle executor(s): {reaped}")
         return reaped
@@ -104,9 +117,28 @@ def maybe_start_executor_reaper() -> Optional["asyncio.Task"]:
         return None
     ttl = int(os.getenv("EXECUTOR_IDLE_TTL_SEC", "") or DEFAULT_IDLE_TTL_SEC)
     interval = int(os.getenv("EXECUTOR_REAP_INTERVAL_SEC", "") or DEFAULT_INTERVAL_SEC)
+
+    # Free-tier gateway cleanup: when a user's idle executor is culled, revoke
+    # any orphaned gateway session keys they left behind (crash between mint and
+    # the agent_loop finally). No-op unless the gateway is configured.
+    post_reap_fn: Optional[StopFn] = None
+    if os.environ.get("SYSTEM_DEFAULT_LLM_GATEWAY_URL", "").strip():
+        async def _revoke_user_gateway_keys(user_id: str) -> None:
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from xyz_agent_context.agent_framework.providers.gateway_key_service import (
+                GatewayKeyService,
+            )
+            db = await get_db_client()
+            svc = GatewayKeyService.from_env(db)
+            if svc is not None:
+                await svc.revoke_all_for_user(user_id)
+
+        post_reap_fn = _revoke_user_gateway_keys
+
     reaper = ExecutorReaper(
         get_admission_controller(), stop_executor,
         ttl_seconds=ttl, interval_seconds=interval,
+        post_reap_fn=post_reap_fn,
     )
     task = asyncio.create_task(reaper.run_forever())
     task.add_done_callback(_on_reaper_done)

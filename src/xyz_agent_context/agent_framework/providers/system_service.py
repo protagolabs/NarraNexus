@@ -8,6 +8,16 @@ Activates ONLY in cloud mode AND when all required env vars are present.
 In local mode or when disabled, is_enabled() returns False and every
 caller should short-circuit — this preserves the local `bash run.sh`
 experience unchanged.
+
+Gateway mode (2026-07): the free tier no longer holds the Power master key
+in this process. The config it exposes points both protocol slots at the
+LiteLLM gateway; the agent slot carries an empty api_key placeholder (the
+real per-run session key is minted on the BACKEND by
+gateway_key_service.open_backend_session — called from step_3_agent_loop, NOT
+in the executor — and injected into the ClaudeConfig ContextVar so it rides
+provider_configs to the executor), and the helper slot uses a backend-resident
+gateway key (not the master). The master key lives only inside the gateway
+container.
 """
 from __future__ import annotations
 
@@ -67,8 +77,18 @@ class SystemProviderService:
         if os.environ.get("SYSTEM_DEFAULT_LLM_ENABLED", "").lower() != "true":
             return cls(enabled=False, config=None)
 
-        api_key = os.environ.get("SYSTEM_DEFAULT_LLM_API_KEY", "").strip()
-        if not api_key:
+        # Gateway mode — the ONLY supported free-tier mode. The Power master key
+        # lives exclusively inside the LiteLLM gateway container; this process
+        # never holds it. We require the gateway coordinates instead of a raw
+        # key. Per-run session keys are minted on the BACKEND (step_3 via
+        # gateway_key_service.open_backend_session), NOT in the executor; the
+        # helper slot uses a backend-resident gateway key (not the master). See
+        # module docstring + gateway_key_service.py.
+        gateway_url = os.environ.get("SYSTEM_DEFAULT_LLM_GATEWAY_URL", "").strip()
+        gateway_admin = os.environ.get(
+            "SYSTEM_DEFAULT_LLM_GATEWAY_ADMIN_KEY", ""
+        ).strip()
+        if not (gateway_url and gateway_admin):
             return cls(enabled=False, config=None)
 
         agent_model = os.environ.get("SYSTEM_DEFAULT_LLM_AGENT_MODEL", "").strip()
@@ -82,20 +102,34 @@ class SystemProviderService:
         except ValueError:
             return cls(enabled=False, config=None)
 
-        anthropic_base = os.environ.get(
-            "SYSTEM_DEFAULT_LLM_ANTHROPIC_BASE_URL", ""
-        ).strip()
-        openai_base = os.environ.get(
-            "SYSTEM_DEFAULT_LLM_OPENAI_BASE_URL", ""
+        # Both protocols target the gateway (which forwards upstream with the
+        # master key). base_url may be given per-protocol (path differences) or
+        # default to the gateway root.
+        anthropic_base = (
+            os.environ.get("SYSTEM_DEFAULT_LLM_ANTHROPIC_BASE_URL", "").strip()
+            or gateway_url
+        )
+        openai_base = (
+            os.environ.get("SYSTEM_DEFAULT_LLM_OPENAI_BASE_URL", "").strip()
+            or gateway_url
+        )
+        # Backend-resident gateway key for server-side helper_llm calls. NOT the
+        # master key — a gateway key with a bounded blast radius. Optional: absent
+        # → helper slot has no key and degrades, but the security-critical agent
+        # slot (per-run minted) is unaffected.
+        backend_helper_key = os.environ.get(
+            "SYSTEM_DEFAULT_LLM_GATEWAY_BACKEND_KEY", ""
         ).strip()
 
         anthropic_provider = ProviderConfig(
             provider_id=_SYSTEM_ANTHROPIC_PROVIDER_ID,
-            name="System Default (Anthropic)",
+            name="System Default (Anthropic via gateway)",
             source=source,
             protocol=ProviderProtocol.ANTHROPIC,
             auth_type=AuthType.BEARER_TOKEN,
-            api_key=api_key,
+            # Empty placeholder: the real per-run session key is injected into the
+            # subprocess env at agent_loop spawn — never a durable key here.
+            api_key="",
             base_url=anthropic_base,
             models=[agent_model],
             linked_group="system_default",
@@ -104,11 +138,11 @@ class SystemProviderService:
         )
         openai_provider = ProviderConfig(
             provider_id=_SYSTEM_OPENAI_PROVIDER_ID,
-            name="System Default (OpenAI)",
+            name="System Default (OpenAI via gateway)",
             source=source,
             protocol=ProviderProtocol.OPENAI,
             auth_type=AuthType.API_KEY,
-            api_key=api_key,
+            api_key=backend_helper_key,
             base_url=openai_base,
             models=[helper_model],
             linked_group="system_default",

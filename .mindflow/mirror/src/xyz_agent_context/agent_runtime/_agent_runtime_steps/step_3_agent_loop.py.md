@@ -26,6 +26,21 @@ channel 要求剔除的工具）。本地 SDK 侧与 WebSearch 守卫**合并**�
 末尾组装 PathExecutionResult 时新增 `cache_read_tokens`/`cache_creation_tokens`/
 `num_turns` 三项赋值(来自 state)。无逻辑变化;语义见 execution_state.py.md。
 
+## 2026-07-23 — 免费额度网关会话票在此签发/作废（后端唯一正确的层）
+
+免费额度改造：主钥匙只在 LiteLLM 网关容器，每次运行签一张会话票。**签票必须在本步
+（后端 orchestrator）做，不能在 executor**——executor 跑用户可控代码、只收
+`provider_configs`、绝不能持有网关 admin key。流程：驱动分发前调
+`gateway_key_service.open_backend_session(db, agent_id)`：若 `provider_source=="system"`
+就 mint 一张票并**写进 `ClaudeConfig` ContextVar**，随后
+`executor_protocol.serialize_provider_configs()` 把它打包送到 executor，executor 只拿到
+这张 scoped/可作废的票。返回 `(session, ok)`：`ok=False`（网关不可达/未配置）→ 直接
+`yield ErrorMessage(error_type="gateway_unavailable", severity="fatal")` 并 `return`，
+**绝不回退主钥匙、绝不用空占位 key 起子进程**。`session.close()` 在驱动 try 的 **`finally`**
+里作废——run 生命周期界定、非定时器（铁律 #14）；非 system 运行整条链路是 no-op。硬崩溃
+遗留孤儿由 executor-reaper 钩子回收（见 [[executor_reaper]]）。凭据细节见
+[[gateway_key_service]]。
+
 ## 2026-07-22 — executor-infra 失败统一 surface + 审计 + try 边界上移
 
 三处相关改动，收尾 OOM(-9/-6) 与 executor 不可达的"可读化 + 不被兜底掩盖 + 审计"：

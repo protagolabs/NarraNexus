@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 
-from .base import BaseRepository
+from .base import BaseRepository, parse_dt
 from .service_audit_repository import EVENT_ERROR, ServiceAuditRepository
 from xyz_agent_context.schema.quota_schema import Quota, QuotaStatus
 
@@ -248,8 +248,8 @@ class QuotaRepository(BaseRepository[Quota]):
             granted_output_tokens=row["granted_output_tokens"],
             status=QuotaStatus(row["status"]),
             prefer_system_override=bool(row.get("prefer_system_override", 0)),
-            created_at=_parse_dt(row["created_at"]),
-            updated_at=_parse_dt(row["updated_at"]),
+            created_at=parse_dt(row["created_at"]),
+            updated_at=parse_dt(row["updated_at"]),
         )
 
     def _entity_to_row(self, entity: Quota) -> Dict[str, Any]:
@@ -266,9 +266,3 @@ class QuotaRepository(BaseRepository[Quota]):
             "created_at": entity.created_at.isoformat(),
             "updated_at": entity.updated_at.isoformat(),
         }
-
-
-def _parse_dt(v: Any) -> datetime:
-    if isinstance(v, datetime):
-        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
-    return datetime.fromisoformat(str(v).replace("Z", "+00:00"))

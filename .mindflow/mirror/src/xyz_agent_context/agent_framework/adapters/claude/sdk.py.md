@@ -55,6 +55,17 @@ staging 门 `auth_type == "oauth"` **保持不变是有意的**：token 模式�
 必须存活。已验证（2026-07-24）：CLI disallowedTools 会把工具 schema 从模型
 上下文移除（11 个 builtin → prefix −4.1K），所以这不只是禁调用，是真省 token。
 
+## 2026-07-23 — 免费额度会话票凭证由后端注入（本文件无网关逻辑）
+
+免费额度改成"主钥匙下沉 LiteLLM 网关、每次运行签会话票"后，**签票/注入/作废发生在
+后端 orchestrator（[[step_3_agent_loop]]）**，不在本文件。原因：cloud 下本文件的
+`agent_loop` 跑在**用户 executor 容器**里（用户可控代码），那里既拿不到 `provider_source`
+（executor 只收 `provider_configs`，不收 source），也**绝不能持有网关 admin key**。
+后端把会话票写进 `ClaudeConfig` ContextVar，随 `provider_configs` 送到 executor，本文件的
+`to_cli_env()` 照常把 `api_key`→`ANTHROPIC_AUTH_TOKEN` 注入子进程——**机制未改，只是拿到
+的值是会话票**。所以本文件对网关是无感的。凭据链路详见 [[gateway_key_service]] /
+[[system_provider_service]]。
+
 ## 2026-07-21 — 子进程 provider 可观测日志(Lark bug #1)
 
 `agent_loop` 组装完 `cli_env`(所有覆盖之后、build options 之前)加一条 INFO,打印

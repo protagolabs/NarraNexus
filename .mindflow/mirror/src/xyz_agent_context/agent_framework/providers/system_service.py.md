@@ -1,15 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/system_service.py
 stub: false
-last_verified: 2026-04-16
+last_verified: 2026-07-27
 ---
 
 # Intent
 
 Module-level singleton that reads `SYSTEM_DEFAULT_LLM_*` env vars once at
-first `instance()` call and exposes a fixed, cloud-only `LLMConfig` that
-represents the NetMind (or equivalent) account backing the free tier for
-newly registered users.
+first `instance()` call and exposes a fixed, cloud-only `LLMConfig` for the
+free tier.
+
+**Gateway mode (2026-07).** The backend NO LONGER holds the upstream master
+key. The free tier runs through a LiteLLM gateway container that alone holds
+the real key. So the exposed `LLMConfig` points BOTH protocol slots at the
+gateway; the agent (Anthropic) slot carries an EMPTY `api_key` placeholder — the
+real per-run session key is minted on the BACKEND by
+`gateway_key_service.open_backend_session` (called from `step_3_agent_loop`, NOT
+in the executor) and injected into the `ClaudeConfig` ContextVar so it rides
+`provider_configs` to the executor — and the helper (OpenAI) slot carries a
+backend-resident gateway key (a bounded virtual key, not the master). This is
+the "don't leave a durable master key where user-controlled agent code can read
+it" fix; see [[gateway_key_service]] and [[step_3_agent_loop]].
 
 ## Upstream
 - ProviderResolver — calls `is_enabled()` as branch-A short-circuit, then
@@ -28,19 +39,26 @@ newly registered users.
 ## Gating rules (all must hold for is_enabled() == True)
 1. Cloud mode (`DATABASE_URL` non-sqlite OR `DB_HOST` set)
 2. `SYSTEM_DEFAULT_LLM_ENABLED=true` (case-insensitive)
-3. `SYSTEM_DEFAULT_LLM_API_KEY` non-empty after strip
-4. All three slot model env vars present and non-empty
+3. `SYSTEM_DEFAULT_LLM_GATEWAY_URL` AND `SYSTEM_DEFAULT_LLM_GATEWAY_ADMIN_KEY`
+   both non-empty (gateway mode — replaces the old raw-`API_KEY` gate)
+4. `SYSTEM_DEFAULT_LLM_AGENT_MODEL` and `_HELPER_MODEL` present and non-empty
 5. `SYSTEM_DEFAULT_LLM_SOURCE` parses as a ProviderSource enum value
+
+`SYSTEM_DEFAULT_LLM_GATEWAY_BACKEND_KEY` is OPTIONAL and does NOT gate: absent
+→ the helper slot has no key and degrades, but the security-critical agent slot
+(per-run minted) is unaffected. The `GatewayKeyService.from_env` enable check
+reads the SAME url+admin env, so the two must agree.
 
 Any failure leaves `_enabled=False` and `_config=None`; `get_config()`
 will raise, which is intentional — callers should guard on
 `is_enabled()` first.
 
 ## Design decisions
-- Two ProviderConfig entries sharing the same api_key and `linked_group`
-  capture NetMind's "one key, two protocols" shape. `auth_type` differs
-  because NetMind accepts Anthropic via Bearer token but OpenAI via
-  standard API key.
+- Two ProviderConfig entries sharing `linked_group="system_default"` capture the
+  "one gateway, two protocols" shape. They no longer share a key: the agent
+  (Anthropic/Bearer) slot's `api_key` is `""` (per-run session key injected at
+  spawn), the helper (OpenAI/api_key) slot's is the backend gateway key. Both
+  `base_url`s point at the gateway (per-protocol env, defaulting to GATEWAY_URL).
 - `supports_anthropic_server_tools=False` on the anthropic provider —
   NetMind proxies but does not execute server-side tools like
   `web_search_20250305`; the tool-policy guard layer uses this flag.

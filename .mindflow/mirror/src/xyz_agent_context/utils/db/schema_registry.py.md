@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-07-23
+last_verified: 2026-07-24
 stub: false
 ---
+
+## 2026-07-24 — instance_gateway_session_keys
+
+Added `instance_gateway_session_keys` — the ledger for per-run LiteLLM gateway
+session keys ("会话票") backing the free tier. Columns: `run_id` (= the gateway
+`key_alias`, the only revoke handle) / `user_id` / `agent_id` / `key_hash`
+(LiteLLM's non-secret token hash — the usable secret is NEVER persisted) /
+`status` (active|revoked) / `created_at` / `revoked_at`. Indexes:
+unique(`run_id`), (`status`,`created_at`), (`user_id`). Written on mint, flipped
+on revoke (and by the executor-reaper hook for crash orphans of idle users).
+Security-critical: a leak of this table cannot be replayed against the gateway
+(no usable secret at rest). See
+[[gateway_key_service]] / [[gateway_session_key_repository]].
 
 ## 2026-07-23 — cost_records 加 prompt-cache 埋点三列(W1)
 

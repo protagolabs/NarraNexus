@@ -55,6 +55,44 @@ async def test_reap_once_empty_when_nothing_idle():
     assert await reaper.reap_once() == []
 
 
+@pytest.mark.asyncio
+async def test_post_reap_hook_fires_for_stopped_users():
+    """The gateway-key cleanup hook runs once per successfully-stopped user."""
+    hooked = []
+
+    async def stop_fn(user_id):
+        pass
+
+    async def post_reap(user_id):
+        hooked.append(user_id)
+
+    reaper = ExecutorReaper(
+        _FakeController(["a", "b"]), stop_fn, ttl_seconds=1, post_reap_fn=post_reap
+    )
+    await reaper.reap_once()
+    assert hooked == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_post_reap_hook_skipped_when_stop_failed():
+    """If the executor didn't stop it may still be alive — do NOT revoke its
+    keys (铁律 #14: never touch a possibly-live run)."""
+    hooked = []
+
+    async def stop_fn(user_id):
+        if user_id == "b":
+            raise RuntimeError("broker down")
+
+    async def post_reap(user_id):
+        hooked.append(user_id)
+
+    reaper = ExecutorReaper(
+        _FakeController(["a", "b", "c"]), stop_fn, ttl_seconds=1, post_reap_fn=post_reap
+    )
+    await reaper.reap_once()
+    assert hooked == ["a", "c"]  # b's stop failed → its keys are left alone
+
+
 def test_maybe_start_is_noop_without_broker(monkeypatch):
     monkeypatch.delenv("BROKER_URL", raising=False)
     assert maybe_start_executor_reaper() is None

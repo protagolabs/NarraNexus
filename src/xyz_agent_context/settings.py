@@ -71,6 +71,13 @@ _dotenv_values = _read_dotenv_raw(_PROJECT_ROOT / ".env")
 _API_KEY_FIELDS = {"OPENAI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"}
 _DOTENV_PASSTHROUGH = {
     "BUNDLE_FETCH_ALLOWED_HOSTS",  # backend/routes/bundle.py — /import/from-url SSRF guard
+    # Free-tier LiteLLM gateway (cloud-only). Read via os.environ.get() by
+    # providers/system_service.py + providers/gateway_key_service.py. Cloud sets
+    # these as real container env; listed here so a local .env can configure them.
+    "SYSTEM_DEFAULT_LLM_GATEWAY_URL",
+    "SYSTEM_DEFAULT_LLM_GATEWAY_ADMIN_KEY",
+    "SYSTEM_DEFAULT_LLM_GATEWAY_BACKEND_KEY",  # server-side helper_llm calls
+    "SYSTEM_DEFAULT_LLM_GATEWAY_KEY_MAX_BUDGET_USD",  # per-run key USD ceiling
 }
 for _k, _v in _dotenv_values.items():
     if not _v:
