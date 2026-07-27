@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-07-18
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — to_cli_env 增加 `oauth_token` 分支（setup-token 注入）
+
+`ClaudeConfig.auth_type` 新增 `oauth_token`：api_key 携带的 setup-token
+注入为 `CLAUDE_CODE_OAUTH_TOKEN`；该 key 进「完整 dict」基座（其余
+auth 类型显式空串，防父进程残留经 `{**os.environ, **env}` 泄入）。
+`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` 必须保持空——它们在 CLI 认证
+优先级里位于 oauth token 之上，残留会劫持。CLAUDE_CONFIG_DIR 走 keyed
+隔离目录（`claude_cli_config_path`），**不进** oauth staging 目录——其
+Keychain 命名空间条目正是 token 路径要逃离的 2026-07-23 macOS 故障点。
 
 ## 2026-07-18 — 决策梯子文案随"免费额度优先=平台行为"更新
 

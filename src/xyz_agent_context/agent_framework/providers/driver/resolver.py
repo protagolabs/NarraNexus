@@ -130,11 +130,12 @@ def _resolve_slot_target(
             return "build_codex_config", "codex"
         return "build_claude_config", "agent"
     if slot_name == "helper_llm":
-        # Subscription (OAuth) cards can't make direct API calls; the helper
-        # runs one-shot through the same CLI as the agent, so a single login
-        # covers both slots. Checked before protocol because an OAuth card
-        # still carries anthropic/openai as its nominal protocol.
-        if (card.auth_type or "").lower() == "oauth":
+        # Subscription cards (host-CLI oauth AND setup-token oauth_token)
+        # can't make direct API calls; the helper runs one-shot through the
+        # same CLI as the agent, so a single login/token covers both slots.
+        # Checked before protocol because a subscription card still carries
+        # anthropic/openai as its nominal protocol.
+        if (card.auth_type or "").lower() in ("oauth", "oauth_token"):
             return "build_cli_helper_config", "cli_helper"
         if (card.protocol or "").lower() == "anthropic":
             return "build_anthropic_helper_config", "helper_anthropic"

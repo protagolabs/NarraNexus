@@ -2,32 +2,30 @@
 @file_name: claude_oauth.py
 @author: Bin Liang
 @date: 2026-05-13
-@description: Driver for Claude Code OAuth (host-CLI managed) provider.
+@description: Driver for Claude subscription providers — host-CLI OAuth and
+setup-token.
 
-The Claude Code CLI on the host machine performs the OAuth flow with
-Anthropic and stores the resulting tokens in
-``~/.claude/.credentials.json`` (or wherever ``CLAUDE_CLI_HOME`` /
-``CLAUDE_CLI_CREDENTIALS_PATH`` say). NarraNexus does NOT store the
-tokens itself; the ``user_providers`` row carries:
+One card (source ``claude_oauth``), two credential transports selected by
+``auth_type``:
 
-* ``api_key`` = empty string (intentionally — see api_config.to_cli_env)
-* ``auth_type`` = ``"oauth"``
-* ``auth_ref`` = ``"claude-cli:~/.claude/.credentials.json"``
-* ``supports_anthropic_server_tools`` = True (this is the official
-  Anthropic backend after all)
+* ``oauth`` — the host Claude Code CLI owns the credential (Keychain on
+  macOS, ``~/.claude/.credentials.json`` on Linux). The ``user_providers``
+  row carries ``api_key=""`` and the ``claude-cli:`` sentinel in
+  ``auth_ref``; the credential file is staged into the isolated OAuth
+  config dir before each spawn (``_stage_claude_oauth_credentials``).
+* ``oauth_token`` — a long-lived token minted by ``claude setup-token``,
+  stored in ``api_key`` and injected as the ``CLAUDE_CODE_OAUTH_TOKEN``
+  env var. No staging, no Keychain, no auth_ref. This is the officially
+  documented headless channel and the cure for the 2026-07-23 macOS
+  incident: the CLI imports staged credentials into a
+  config-dir-namespaced Keychain entry ONCE and never reads the staged
+  file again, so the frozen copy dies as the host's OAuth family rotates
+  — while env-injected tokens bypass the CLI credential store entirely.
 
-The Claude Code CLI subprocess reads the token from the credentials
-file on its own when ``ANTHROPIC_API_KEY`` and ``ANTHROPIC_AUTH_TOKEN``
-are both empty. The ``ClaudeConfig.to_cli_env`` builder already does
-the right thing for that case, so this Driver just produces a
-ClaudeConfig with empty api_key + auth_type="oauth".
-
-The helper_llm slot is served the SAME way — a subscription login covers
-both the agent slot (``build_claude_config``) and the helper slot
-(``build_cli_helper_config``, framework="claude_code"): the helper's small
-structured-output calls run one-shot through the same ``claude`` CLI, so no
-separate API key is needed (bug: "Claude Code subscription should also apply
-to Helper LLM", 2026-07).
+Both transports set ``supports_anthropic_server_tools=True`` (official
+Anthropic backend) and serve the helper_llm slot through the same CLI
+(``build_cli_helper_config``, framework="claude_code") — one subscription
+covers both slots.
 """
 from __future__ import annotations
 
@@ -44,21 +42,33 @@ from xyz_agent_context.agent_framework.providers.driver.derive import (
 )
 from xyz_agent_context.agent_framework.providers.driver.registry import register
 
+# `claude setup-token` mints tokens with this prefix (observed, not a
+# documented contract — hence a soft signal in probe details, never a
+# validation gate).
+_SETUP_TOKEN_PREFIX = "sk-ant-oat"
+
 
 @register
 class ClaudeOAuthDriver(_DriverBase):
-    """Claude Code OAuth provider — token lives in the host CLI."""
+    """Claude subscription provider — host-CLI OAuth or setup-token."""
 
     @classmethod
     def driver_type(cls) -> str:
         return "claude_oauth"
 
+    def _is_token_mode(self) -> bool:
+        return (self.card.auth_type or "").lower() == "oauth_token"
+
     def build_claude_config(self, model: str) -> ClaudeConfig:
         return ClaudeConfig(
-            api_key="",  # intentional: tells to_cli_env to blank both env vars
+            # oauth: empty key tells to_cli_env to blank both ANTHROPIC_*
+            # vars so the CLI reads its own credential store.
+            # oauth_token: the token rides api_key and to_cli_env injects it
+            # as CLAUDE_CODE_OAUTH_TOKEN.
+            api_key=self.card.api_key or "",
             base_url=self.card.base_url or "",
             model=model,
-            auth_type="oauth",
+            auth_type=self.card.auth_type or "oauth",
             supports_anthropic_server_tools=True,
         )
 
@@ -69,25 +79,46 @@ class ClaudeOAuthDriver(_DriverBase):
             framework="claude_code",
             model=model,
             base_url=self.card.base_url or "",
-            auth_type="oauth",
-            api_key="",
+            auth_type=self.card.auth_type or "oauth",
+            api_key=self.card.api_key or "",
         )
 
     async def probe(self) -> DriverHealth:
-        """Check whether the host CLI credentials actually exist.
+        """Cheap credential-presence check for the Settings page.
 
-        We don't parse the token — that's the CLI's job. Existence is a
-        sufficient signal for the Settings page to show "✓ Claude OAuth
-        linked" vs "✗ run `claude auth login`".
-
-        Two storage backends, checked in order:
-        1. The credentials FILE (~/.claude/.credentials.json or the
-           CLAUDE_CLI_* overrides) — Linux/containers.
-        2. The macOS KEYCHAIN — Claude Code on macOS stores the OAuth token
-           as a "Claude Code-credentials" generic password and never writes
-           the file, so the file-only probe false-negatived on every Mac
-           ("credentials file not found" while the CLI worked fine).
+        2026-07-23 lesson: presence is NOT health — a Keychain entry can
+        exist while its token family is dead, and this probe used to check
+        a DIFFERENT store (the unsuffixed host entry) than the one the
+        runtime read. So the probe now (a) says exactly which store it
+        checked and (b) for token mode points at ``verify_token_live`` as
+        the real verdict. It stays cheap (no network) because the Settings
+        page calls it on every load.
         """
+        if self._is_token_mode():
+            token = self.card.api_key or ""
+            if not token:
+                return DriverHealth(
+                    ok=False,
+                    detail=(
+                        "auth_type is oauth_token but no token is stored — "
+                        "run `claude setup-token` and paste the token in "
+                        "Settings → LLM Providers"
+                    ),
+                )
+            note = ""
+            if not token.startswith(_SETUP_TOKEN_PREFIX):
+                note = (
+                    " (warning: token does not look like `claude setup-token` "
+                    f"output — expected a {_SETUP_TOKEN_PREFIX}… prefix)"
+                )
+            return DriverHealth(
+                ok=True,
+                detail=(
+                    "setup-token stored; use Test connection for a live "
+                    "verification" + note
+                ),
+            )
+
         path = resolve_claude_credentials_path(self.card.auth_ref)
         if path is None:
             return DriverHealth(
@@ -110,6 +141,77 @@ class ClaudeOAuthDriver(_DriverBase):
             detail=f"credentials file not found at {path}",
         )
 
+    async def verify_token_live(self) -> tuple[bool, str]:
+        """Real end-to-end check for token mode: one one-shot CLI call.
+
+        The 2026-07-23 incident's probe lied ("logged in ✓" over a dead
+        credential) because it only checked existence. For ``oauth_token``
+        the credential is in OUR hands, so the explicit Test button makes
+        an actual ``claude`` CLI request with the stored token — the same
+        transport the agent loop uses. Expensive (spawns the CLI, bills one
+        tiny subscription call), so it runs only on explicit user action,
+        never from ``probe()``.
+
+        A single tool-free turn is NOT the agent_loop, so bounding it with
+        helper-scale timeouts does not violate 铁律 #14 (same rationale as
+        ``CliHelperSDK._run_claude_oneshot``). Never logs or returns the
+        token itself.
+        """
+        import asyncio
+        import shutil
+
+        from xyz_agent_context.settings import settings as _settings
+
+        if not (self.card.api_key or ""):
+            return False, "no setup-token stored"
+        if shutil.which("claude") is None:
+            return False, "claude CLI not found on PATH — cannot verify"
+
+        env = self.build_claude_config("haiku").to_cli_env()
+        env["API_TIMEOUT_MS"] = str(_settings.helper_cli_timeout_ms)
+        env["CLAUDE_CODE_MAX_RETRIES"] = "0"
+
+        async def _one_shot() -> tuple[bool, str]:
+            from claude_agent_sdk import (
+                AssistantMessage,
+                ClaudeAgentOptions,
+                TextBlock,
+                query,
+            )
+
+            options = ClaudeAgentOptions(
+                env=env,
+                model="haiku",
+                max_turns=1,
+                allowed_tools=[],
+                system_prompt="Reply with exactly: OK",
+            )
+            got_text = False
+            async for message in query(prompt="ping", options=options):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock) and block.text.strip():
+                            got_text = True
+            if got_text:
+                return True, "setup-token verified — live CLI call succeeded"
+            return False, "CLI run produced no reply — token may be invalid"
+
+        try:
+            return await asyncio.wait_for(
+                _one_shot(),
+                timeout=_settings.helper_cli_total_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            return False, (
+                "verification timed out after "
+                f"{_settings.helper_cli_total_timeout_seconds}s"
+            )
+        except Exception as exc:  # noqa: BLE001 — verdict, not control flow
+            # The SDK surfaces auth failures as process errors; summarize
+            # the first line only so env/token material can never leak.
+            summary = str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__
+            return False, f"live verification failed: {summary}"
+
     @staticmethod
     async def _keychain_has_credentials() -> bool:
         """True when the macOS Keychain holds Claude Code's OAuth token.
@@ -117,6 +219,13 @@ class ClaudeOAuthDriver(_DriverBase):
         Uses ``security find-generic-password`` (exit 0 = found). Never
         reads or logs the secret itself; existence only. Non-macOS or any
         error → False (fall through to the file-based verdict).
+
+        Caveat (2026-07-23): this checks the UNSUFFIXED host entry — the
+        one the user's interactive CLI writes. Under an isolated
+        ``CLAUDE_CONFIG_DIR`` the runtime CLI reads a config-dir-namespaced
+        entry instead, so "present here" does not guarantee the runtime can
+        authenticate. Kept as a presence signal only; token mode
+        (``oauth_token``) avoids the Keychain entirely.
         """
         import asyncio
         import sys

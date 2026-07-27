@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-23
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — agent-framework 探测 Leg 1 命中 setup-token 卡
+
+`oauth_token` 卡的 token 存在 api_key 列，Leg 1 的「api_key 非空 +
+protocol 匹配」判定天然命中——这是正确行为（token 在库=无需 host CLI
+登录即可认证），只把文案从 "API-key provider" 区分为 "setup-token
+provider" 免得误导。token 保存/重连不需要新端点：复用
+`POST /api/providers`（card_type=claude_oauth + api_key=token），staff
+门禁按 card_type 拦所以自动继承。
 
 ## 2026-07-23 — `POST /test-config`：保存前测连通的无状态端点
 

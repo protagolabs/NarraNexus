@@ -39,6 +39,8 @@ class AuthType(str, Enum):
     API_KEY = "api_key"              # Standard API key (X-Api-Key header for Anthropic, Bearer for OpenAI)
     BEARER_TOKEN = "bearer_token"    # Custom Bearer token (e.g., NetMind key via Anthropic protocol)
     OAUTH = "oauth"                  # Claude Code CLI managed OAuth (no key needed)
+    OAUTH_TOKEN = "oauth_token"      # Long-lived subscription token from `claude setup-token`,
+    #                                  env-injected as CLAUDE_CODE_OAUTH_TOKEN (no CLI credential store)
 
 
 class ProviderSource(str, Enum):

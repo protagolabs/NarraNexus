@@ -107,13 +107,14 @@ _CLI_ALIAS_TO_MODEL_ID: dict[str, str] = {
 def resolve_cli_alias(model_id: str, *, auth_type: str) -> str:
     """Return the model id a given transport should actually be sent.
 
-    The OAuth/CLI path resolves family aliases itself ("latest of family"
-    must not go stale in our code) — keep them verbatim there. Every other
-    transport (api_key, bearer_token proxies) speaks the raw Messages API,
-    which rejects aliases, so map them to the family's current full id.
-    Full ids and unknown strings pass through untouched.
+    The OAuth/CLI paths (host-CLI ``oauth`` and setup-token ``oauth_token``)
+    resolve family aliases themselves ("latest of family" must not go stale
+    in our code) — keep them verbatim there. Every other transport (api_key,
+    bearer_token proxies) speaks the raw Messages API, which rejects
+    aliases, so map them to the family's current full id. Full ids and
+    unknown strings pass through untouched.
     """
-    if auth_type == "oauth":
+    if auth_type in ("oauth", "oauth_token"):
         return model_id
     return _CLI_ALIAS_TO_MODEL_ID.get(model_id, model_id)
 

@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/derive.py
-last_verified: 2026-05-31
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — `derive_billing_policy`：`oauth_token` → `external_oauth`
+
+setup-token 与 host-CLI oauth 同为订阅运输层，token 由 Anthropic 侧计费
+——只记 cost_records，不扣 quota。注意 `derive_auth_ref` 对 oauth_token
+返回 None 是有意的：token 行没有凭据文件 sentinel（token 本身就是凭据，
+在 api_key 列），backfill 的 `auth_ref is not None` 守卫因此不会碰
+token 行。
 
 # derive.py — pure helpers
 

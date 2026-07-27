@@ -132,9 +132,11 @@ def _is_auth_failure(error_type: str, error_message: str) -> bool:
 # in the schema layer to avoid a circular import with step_3_agent_loop.
 _AUTH_EXPIRED_USER_MESSAGE = (
     "Your coding-agent login has expired or is no longer valid, so this "
-    "turn could not run. Re-authenticate — run `codex login` (or "
-    "`claude login`) on the host, or assign an API-key provider to the "
-    "Agent slot in Settings — then send the message again."
+    "turn could not run. Re-authenticate — for Claude, run "
+    "`claude setup-token` and paste the token in Settings → LLM Providers "
+    "(most reliable); or run `codex login` / `claude login` on the host; "
+    "or assign an API-key provider to the Agent slot in Settings — then "
+    "send the message again."
 )
 
 # ``SELF_SERVICEABLE_ERROR_TYPE`` marks a deterministic failure the USER can
