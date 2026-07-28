@@ -250,8 +250,31 @@ from .artifact_schema import (
     UrlArtifactDoc,
 )
 
+# ===== Agent Migration Schema (import agent → NarraNexus) =====
+from .migration_schema import (
+    SCHEMA_VERSION as MIGRATION_SCHEMA_VERSION,
+    StandardizedAgentImport,
+    MigrationSource,
+    MigrationAgent,
+    MigrationSkill,
+    MigrationMemory,
+    MigrationMcpServer,
+    MigrationCustom,
+    FrameworkDetection,
+)
+
 # ===== Export All =====
 __all__ = [
+    # Agent Migration
+    "MIGRATION_SCHEMA_VERSION",
+    "StandardizedAgentImport",
+    "MigrationSource",
+    "MigrationAgent",
+    "MigrationSkill",
+    "MigrationMemory",
+    "MigrationMcpServer",
+    "MigrationCustom",
+    "FrameworkDetection",
     # Module Schema
     "ModuleConfig",
     "MCPServerConfig",
