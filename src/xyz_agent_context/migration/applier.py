@@ -47,6 +47,9 @@ class ApplyResult(BaseModel):
     created: bool
     awareness_written: bool = False
     memory_written: int = 0
+    # Default NarraNexus skills (netmind-vision, officecli, ...) provisioned for
+    # every new agent — same set a normally-created agent gets.
+    default_skills_installed: List[str] = Field(default_factory=list)
     skills_copied: List[str] = Field(default_factory=list)
     skills_installed: List[str] = Field(default_factory=list)
     skills_unmatched: List[str] = Field(default_factory=list)
@@ -104,6 +107,26 @@ async def apply_plan(
         warnings=list(plan.warnings),
     )
 
+    svc = None  # lazily-created SkillMarketplaceService, shared by steps 0 & 3
+
+    # 0) Default NarraNexus skills — the same is_default set (netmind-vision,
+    #    officecli, ...) a normally-created agent gets. Only for a newly-created
+    #    agent; degrades to a no-op when the registry is unreachable (desktop
+    #    offline). Runs BEFORE the imported skills so a same-name imported skill
+    #    still wins (faithful reproduction overwrites the default copy).
+    if created:
+        try:
+            from xyz_agent_context.marketplace.skill_marketplace_service import (
+                SkillMarketplaceService,
+            )
+            svc = SkillMarketplaceService(db)
+            summary = await svc.install_defaults(agent_id, user_id)
+            result.default_skills_installed = list(summary.get("installed", []))
+            if summary.get("failed"):
+                logger.warning(f"[migrate.apply] default skills failed={summary['failed']}")
+        except Exception as e:  # noqa: BLE001 — defaults must never break import
+            logger.warning(f"[migrate.apply] default skills skipped: {e}")
+
     # 1) Awareness
     if plan.awareness_markdown.strip():
         inst_id = await _awareness_instance_id(db, agent_id)
@@ -127,7 +150,6 @@ async def apply_plan(
                 logger.warning(f"[migrate.apply] memory retain failed: {e}")
 
     # 3) Skills — copy the original files verbatim; marketplace only as fallback.
-    svc = None
     for skill in plan.skills:
         try:
             if skill.local_path and await _copy_local_skill(agent_id, user_id, skill.name, skill.local_path):
@@ -173,6 +195,7 @@ async def apply_plan(
     logger.info(
         f"[migrate.apply] agent={agent_id} created={created} "
         f"awareness={result.awareness_written} memory={result.memory_written} "
+        f"defaults={len(result.default_skills_installed)} "
         f"skills_copied={len(result.skills_copied)} installed={len(result.skills_installed)} "
         f"unmatched={len(result.skills_unmatched)} mcp={len(result.mcp_added)}"
     )

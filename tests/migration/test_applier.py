@@ -52,16 +52,24 @@ def _import_with_local_skill(skill_dir: Path) -> StandardizedAgentImport:
 
 
 @pytest.mark.asyncio
-async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path):
+async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path, monkeypatch):
     skill_src = tmp_path / "src_skill"
     skill_src.mkdir()
     imp = _import_with_local_skill(skill_src)
     plan = build_plan(imp)
 
+    # Default NarraNexus skills are provisioned for a new agent (same set a
+    # normally-created agent gets). Stub the registry call to stay hermetic.
+    async def _fake_defaults(self, aid, uid):
+        return {"installed": ["netmind-vision", "officecli"], "skipped": [], "failed": []}
+    import xyz_agent_context.marketplace.skill_marketplace_service as sms
+    monkeypatch.setattr(sms.SkillMarketplaceService, "install_defaults", _fake_defaults)
+
     res = await apply_plan(db_client, user_id="user_x", plan=plan)
 
-    # agent created
+    # agent created + default skills installed
     assert res.created is True and res.agent_id.startswith("agent_")
+    assert res.default_skills_installed == ["netmind-vision", "officecli"]
     agent = await AgentRepository(db_client).get_agent(res.agent_id)
     assert agent is not None and agent.agent_name == "Imported One"
 
@@ -97,8 +105,11 @@ async def test_apply_no_local_source_marks_unmatched(db_client, workspace, monke
 
     async def _empty_search(*a, **k):
         return {"items": []}
+    async def _no_defaults(self, aid, uid):
+        return {"installed": [], "skipped": [], "failed": []}
     import xyz_agent_context.marketplace.skill_marketplace_service as sms
     monkeypatch.setattr(sms.SkillMarketplaceService, "search", _empty_search)
+    monkeypatch.setattr(sms.SkillMarketplaceService, "install_defaults", _no_defaults)
 
     res = await apply_plan(db_client, user_id="user_x", plan=plan)
     assert res.skills_unmatched == ["ghost-skill"]

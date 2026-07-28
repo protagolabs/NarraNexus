@@ -800,7 +800,8 @@
       "frameworkHint": "We found agents from these frameworks on this machine. Pick one, or scan a folder directly.",
       "sourceHint": "Pick which {{framework}} source to import.",
       "countProjects": "{{count}} project(s)",
-      "countSources": "{{count}} source(s)"
+      "countSources": "{{count}} source(s)",
+      "defaultSkills": "Default skills"
     }
   },
   "settings": {

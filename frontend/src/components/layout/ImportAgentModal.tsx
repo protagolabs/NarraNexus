@@ -547,6 +547,7 @@ function DoneStage({ result }: { result: MigrationApplyResult }) {
   const rows: Array<[string, string]> = [
     [t('layout.importAgent.awareness'), result.awareness_written ? '✓' : '—'],
     [t('layout.importAgent.memories'), String(result.memory_written)],
+    [t('layout.importAgent.defaultSkills'), String(result.default_skills_installed.length)],
     [t('layout.importAgent.skillsCopied'), String(result.skills_copied.length)],
     [t('layout.importAgent.skillsInstalled'), String(result.skills_installed.length)],
     [t('layout.importAgent.mcpAdded'), String(result.mcp_added.length)],

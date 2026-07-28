@@ -19,6 +19,16 @@ then populate awareness / general memory / skills / per-agent url-MCP. Returns a
   `MemoryEngine.retain` per fact (no batch API exists); url-MCP via
   `MCPRepository.add_mcp`. `user_id` is passed in — the one thing that is
   request-bound (`resolve_current_user_id`) stays in the route.
+- **Default NarraNexus skills**: a newly-created agent gets the same `is_default`
+  set (netmind-vision, officecli, ...) a normally-created agent gets, via
+  `SkillMarketplaceService.install_defaults` — the migration path bypasses the
+  `POST /api/auth/agents` route that normally fires this, so it must do it here
+  or imported agents lack the built-in skills. Runs BEFORE the imported skills so
+  a same-name imported skill still wins (faithful repro overwrites the default
+  copy). Only for `created=True`; degrades to a no-op when the registry is
+  unreachable (desktop offline). Not fire-and-forget here (unlike the route) —
+  apply is awaited and reports counts, so defaults are awaited and surfaced in
+  `default_skills_installed`.
 - **Faithful-reproduction skills (Owner)**: a skill with a `local_path` is COPIED
   verbatim into `agent_workspace_path(agent_id,user_id)/skills/<name>/` — migration
   reproduces the ORIGINAL agent, not a same-name marketplace skill (which may be a

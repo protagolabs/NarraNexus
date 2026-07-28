@@ -800,7 +800,8 @@
       "frameworkHint": "在本机检测到以下框架的 agent。选择一个,或直接扫描某个文件夹。",
       "sourceHint": "选择要导入的 {{framework}} 来源。",
       "countProjects": "{{count}} 个 project",
-      "countSources": "{{count}} 个来源"
+      "countSources": "{{count}} 个来源",
+      "defaultSkills": "默认技能"
     }
   },
   "settings": {

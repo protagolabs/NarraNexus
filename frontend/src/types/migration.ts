@@ -90,6 +90,7 @@ export interface MigrationApplyResult {
   created: boolean;
   awareness_written: boolean;
   memory_written: number;
+  default_skills_installed: string[];
   skills_copied: string[];
   skills_installed: string[];
   skills_unmatched: string[];
