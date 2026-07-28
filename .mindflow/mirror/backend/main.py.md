@@ -4,6 +4,19 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-07-28 — manyfold sync router + config-change webhook middleware
+
+`ENABLE_MANYFOLD_API=1` 块内新增 `manyfold_sync_router`（`GET /manyfold/jobs`、
+`GET /manyfold/channels`）和 `config_change_webhook_middleware` 注册。middleware
+故意放在该块**最后**注册：Starlette LIFO 下它成为最外层，观察得到最终 status
+code；它只在 response 侧行动（job/channel/provider 路由的 2xx 写请求后
+fire-and-forget webhook），对 OPTIONS/非 2xx 完全透明，所以不触碰 auth/CORS 的
+LIFO 陷阱。无 `MANYFOLD_SYNC_WEBHOOK_*` env 时是纯透传。
+
+门控之外零影响：`ENABLE_MANYFOLD_API` 未设时（EC2 prod/dev、本地、DMG 的现状）
+router 和 middleware 都不注册，中间件栈长度不变。见
+`[[routes/manyfold/sync.py]]`。
+
 ## 2026-07-28 — lifespan 里的配额子系统整块移除
 
 不再构造 `SystemProviderService` / `QuotaService` / `QuotaRepository`，

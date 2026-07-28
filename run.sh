@@ -478,7 +478,20 @@ run_container_mode() {
   #     message_bus_trigger, run_channel_triggers). message_bus_trigger
   #     deliberately defers IM channels to the channels worker, so without this
   #     supervisor inbound IM messages are never received (issue #54).
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_worker_supervisor &
+  #
+  #     NEXUS_EXTERNAL_TRIGGERS=1 hands the clock and the ears to the hosting
+  #     platform (Manyfold): the sandbox suspends while idle, so an in-process
+  #     scheduler silently misses alarms, and a second consumer of the same bot
+  #     fights the platform's (Telegram getUpdates vs webhook 409, duplicate
+  #     Discord gateway deliveries). Drop exactly those two workers — 'poller'
+  #     and 'bus' are sandbox-local and keep running.
+  supervisor_args=()
+  if [ "${NEXUS_EXTERNAL_TRIGGERS:-}" = "1" ]; then
+    supervisor_args+=(--exclude jobs,channels)
+    echo "NEXUS_EXTERNAL_TRIGGERS=1 — worker supervisor excludes jobs,channels (platform-managed)"
+  fi
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_worker_supervisor \
+    "${supervisor_args[@]+"${supervisor_args[@]}"}" &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
   exec "$SCRIPT_DIR/.venv/bin/python3" -m uvicorn backend.main:app \
